@@ -1,0 +1,519 @@
+<title>yeet — plan-before-apply deploys for compose-first apps</title>
+<style>
+  :root {
+    --paper:#F7F6F3; --card:#FFFFFF; --ink:#1B1913; --muted:#6A6456; --faint:#938C7C;
+    --line:#E7E2D8; --line-strong:#D6CFC1;
+    --accent:#BE7514; --accent-soft:#F5EAD6; --accent-lite2:#E5A94E;
+    --go:#3E7A50; --go-soft:#E7F0E8;
+    --warn:#9A6A12; --warn-soft:#F3EAD8;
+    --stop:#A64632; --stop-soft:#F4E2DD;
+    --ink-band:#171510;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:15.5px; line-height:1.65; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
+  .prose { max-width:770px; }
+  .prose p, .prose li { color:#302C22; }
+
+  .band { background:var(--ink-band); color:var(--paper); padding:58px 0 48px; border-bottom:3px solid var(--accent); }
+  .eyebrow { font-family:var(--mono); font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent-lite2); margin:0 0 18px; }
+  h1 { font-size:clamp(30px,4.6vw,44px); line-height:1.05; margin:0 0 16px; font-weight:700; letter-spacing:-.02em; }
+  h1 .cmd { font-family:var(--mono); font-weight:600; }
+  .band .lede { font-size:17.5px; line-height:1.55; color:#CBC4B6; max-width:66ch; margin:0; }
+  .metaline { display:flex; flex-wrap:wrap; gap:20px 32px; margin-top:30px; font-family:var(--mono); font-size:12.5px; color:#98917F; }
+  .metaline b { color:var(--paper); font-weight:600; }
+  .metaline .k { display:block; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:#6E6857; margin-bottom:4px; }
+
+  section { padding:44px 0; border-bottom:1px solid var(--line); }
+  section:last-of-type { border-bottom:none; }
+  .snum { font-family:var(--mono); font-size:12px; color:var(--accent); letter-spacing:.1em; }
+  h2 { font-size:25px; line-height:1.18; margin:6px 0 20px; font-weight:680; letter-spacing:-.012em; text-wrap:balance; }
+  h3 { font-size:14.5px; margin:24px 0 8px; font-weight:660; font-family:var(--mono); letter-spacing:.01em; color:#2A271F; }
+  p { margin:0 0 14px; }
+  a { color:var(--accent); text-decoration:none; border-bottom:1px solid var(--accent-soft); }
+  a:hover { border-bottom-color:var(--accent); }
+  code { font-family:var(--mono); font-size:.86em; background:#EEEAE1; padding:1px 5px; border-radius:3px; color:#7A4A08; }
+
+  .callout { background:var(--card); border:1px solid var(--line-strong); border-left:4px solid var(--accent); border-radius:6px; padding:20px 22px; margin:22px 0; }
+  .callout .tag { font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 8px; }
+  .callout p:last-child { margin-bottom:0; }
+  .callout.hard { border-left-color:var(--stop); }
+  .callout.hard .tag { color:var(--stop); }
+
+  .stack { display:flex; flex-direction:column; gap:9px; margin:24px 0; }
+  .layer { border:1px solid var(--line-strong); border-radius:7px; background:var(--card); padding:14px 16px; }
+  .layer .lname { font-family:var(--mono); font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--accent); margin-bottom:10px; }
+  .cells { display:flex; flex-wrap:wrap; gap:8px; }
+  .cell { flex:1 1 130px; background:#F4F1EA; border:1px solid var(--line); border-radius:5px; padding:9px 11px; font-size:12.5px; }
+  .cell b { display:block; font-family:var(--mono); font-size:11.5px; margin-bottom:2px; color:#2A271F; }
+  .cell span { color:var(--muted); font-size:11px; }
+  .plane { border-color:var(--accent); border-style:dashed; background:var(--accent-soft); }
+  .plane .cell { background:#FBF4E7; border-color:#EAD9BC; }
+  .flow { text-align:center; color:var(--faint); font-family:var(--mono); font-size:14px; }
+
+  .tscroll { overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:6px; background:var(--card); }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:660px; }
+  th { text-align:left; font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); padding:11px 14px; border-bottom:1.5px solid var(--line-strong); background:#FBF9F4; }
+  td { padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top; color:#302C22; }
+  tr:last-child td { border-bottom:none; }
+  td.k code, th code { background:none; padding:0; }
+  td.k code { color:var(--ink); font-weight:600; }
+
+  pre { margin:16px 0; padding:16px 18px; background:var(--ink-band); color:#E6E0D2; border-radius:7px; overflow-x:auto; font-family:var(--mono); font-size:12.5px; line-height:1.6; }
+  pre .cm { color:#8A8471; } pre .kw { color:#E5A94E; } pre .st { color:#B7C99A; } pre .fn { color:#E0BE7A; }
+
+  .phases { display:flex; flex-direction:column; gap:0; margin:20px 0; }
+  .ph { display:grid; grid-template-columns:132px 1fr; gap:16px; padding:12px 0; border-top:1px solid var(--line); align-items:baseline; }
+  .ph:first-child { border-top:none; }
+  .ph .pn { font-family:var(--mono); font-size:12.5px; color:var(--accent); font-weight:600; }
+  .ph .pd { font-size:13.5px; color:#302C22; }
+  .ph .pd b { font-weight:640; }
+  .ph .hook { font-family:var(--mono); font-size:11px; color:var(--faint); }
+
+  ul.tight { margin:6px 0 14px; padding-left:20px; }
+  ul.tight li { margin:6px 0; }
+  .pill { display:inline-block; font-family:var(--mono); font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:100px; border:1px solid transparent; }
+  .v1 { background:var(--go-soft); color:var(--go); border-color:#CBE0CF; }
+  .later { background:#EEEAE1; color:var(--faint); border-color:var(--line-strong); }
+  .no { background:var(--stop-soft); color:var(--stop); border-color:#E8CDC5; }
+  .note { font-size:12.5px; color:var(--faint); font-style:italic; }
+  .foot { padding:30px 0 60px; color:var(--faint); font-size:12.5px; font-family:var(--mono); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:2px; }
+</style>
+
+<div class="band">
+  <div class="wrap">
+    <p class="eyebrow">Open-Source Design · rev 4 — two adversarial review rounds absorbed</p>
+    <h1><span class="cmd">yeet</span> — plan-before-apply, zero-downtime deploys for compose-first apps</h1>
+    <p class="lede">An agentless, single-binary deploy engine for apps described by a docker-compose file:
+      preview every deploy as a rendered diff and an exact command list, then release with health-gated
+      zero downtime — keeping your own proxy, database, and conventions. Plan/apply discipline for app
+      releases, honest about where imperative deploys can and cannot be planned.</p>
+    <div class="metaline">
+      <span><span class="k">Model</span><b>Agentless</b> · SSH, no daemon</span>
+      <span><span class="k">Binary</span><b>Single</b> · Go, static</span>
+      <span><span class="k">Config</span><b>YAML</b> · CUE-validated inside</span>
+      <span><span class="k">v1 scope</span><b>single-host</b> · multi-host at M3</span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<section>
+  <span class="snum">01 / Positioning</span>
+  <h2>The wedge: plan/apply + zero-downtime for compose apps</h2>
+  <div class="prose">
+    <p>The single-server deploy niche is busy — Kamal 2, Sidekick, Haloy, Uncloud, Dokploy, Coolify.
+      Two capabilities remain unclaimed <em>together</em>:</p>
+    <ul class="tight">
+      <li><b>Plan before apply.</b> No tool in this category shows you — before touching a host — the
+        rendered artifacts, the pinned images, and the exact remote command list, then binds that plan to
+        the apply.</li>
+      <li><b>Zero-downtime for docker-compose apps as they are.</b> Coolify explicitly can't do ZDD for
+        compose resources; Kamal is image/role-centric, not compose-native; Uncloud is closest but
+        self-describes as not production-ready.</li>
+    </ul>
+    <div class="callout">
+      <p class="tag">One-line positioning</p>
+      <p><strong>Zero-downtime deploys for docker-compose apps: agentless, plan-before-apply, keep your
+        proxy.</strong> Checkable in a 90-second demo (with a prebuilt image — a cold build blows the
+        budget, and we say so). <span class="note">("yeet" is a working codename — the release gets a
+        searchable, non-slang name.)</span></p>
+    </div>
+    <div class="callout hard">
+      <p class="tag">What "plan" honestly means here (rev 4)</p>
+      <p>Deploys are imperative, so this is <em>not</em> a full Terraform plan and the doc no longer
+        implies one. <code>yeet plan</code> gives: <b>(a)</b> rendered files diffed against the live
+        release — high fidelity; <b>(b)</b> image binding — <b>digest-pinned</b> when CI built the image
+        (<code>prebuilt</code> mode, the recommended path), or bound to <b>git SHA + build-context
+        hash</b> in local-build mode with the digest recorded at apply; <b>(c)</b> the command list with
+        <b>runtime branches shown as branches</b> (health-gate outcomes, the rollback path); <b>(d)</b>
+        hooks shown <b>verbatim as commands — their effects are explicitly unplannable</b>. Fidelity
+        ranking: config &gt; images &gt; choreography &gt; hooks. Closer to <code>terraform plan</code>
+        for config/images and <code>make -n</code> for hooks — stated, not hidden.</p>
+    </div>
+    <p><strong>Not positioned against BYO-proxy:</strong> Kamal 2 allows keeping Traefik
+      (<code>proxy: false</code> + an official guide) — that's table stakes. yeet's difference is
+      compose-nativeness, plan/apply, and journaled/fenced deploy state. It ships as an
+      <strong>extraction from a production pipeline, not a platform</strong>.</p>
+  </div>
+</section>
+
+<section>
+  <span class="snum">02 / Principles &amp; non-goals</span>
+  <h2>What it commits to — and what it refuses to be</h2>
+  <div class="prose">
+    <h3>Design principles</h3>
+    <ul class="tight">
+      <li><b>Agentless.</b> Nothing on hosts but a container runtime and SSH. No control plane to run or upgrade.</li>
+      <li><b>Your compose file is the contract; yeet renders the deployable.</b> (Reworded in rev 4 — "source of truth" overclaimed.) The user's <code>docker-compose.yml</code> is the authoritative <em>input</em>: yeet renders a per-release derivative into <code>releases/&lt;id&gt;/</code>, injecting <em>only</em> a declared, closed set of things — scale, its own namespaced labels, the generated healthcheck, env-file paths. <code>yeet render</code> shows the exact delta between your file and what runs. Anything yeet cannot express is still expressible in your compose file, because that file remains the base.</li>
+      <li><b>Plan before apply</b> — with the fidelity contract stated in §01. The plan artifact binds to the apply; drift is measured over a defined set (live release id, running-image digests, config hash — not all of <code>docker inspect</code>, which would false-positive on every restart).</li>
+      <li><b>Mechanisms, not claims.</b> Resumability = a per-host journal; exclusivity = a fenced lock; rollback = versioned releases with pinned retention (§05–06).</li>
+      <li><b>YAML outside, CUE inside.</b> Users write YAML; an embedded CUE schema validates it; the engine re-words CUE errors into plain, located messages. CUE never reaches the user.</li>
+      <li><b>Boring and legible.</b> Everything it does you could do by hand over SSH; <code>--verbose</code> shows the commands.</li>
+    </ul>
+    <h3>Explicit non-goals</h3>
+    <ul class="tight">
+      <li><span class="pill no">not</span> a Kubernetes replacement — no scheduler, no cluster control loop.</li>
+      <li><span class="pill no">not</span> a CI system — it is invoked by CI or a laptop.</li>
+      <li><span class="pill no">not</span> config management — host prep is minimal and idempotent.</li>
+      <li><span class="pill no">not</span> a backup tool — data safety runs through hooks (Backup plane cut in rev 2 as a monk-ism).</li>
+      <li><span class="pill no">not</span> a plugin platform on day one — curated compiled-in providers + a <code>command</code> escape hatch; public extension points only after ≥3 real apps (rule of three).</li>
+      <li><span class="pill no">not</span> multi-host in v1 — the state/lock protocol is <em>designed</em> for host sets (§05) but v1 <em>executes</em> single-host only. Multi-host lands at M3 with real fleet users. (Rev 4: this halves the v1 surface the maintenance-economics risk pointed at.)</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <span class="snum">03 / Architecture &amp; the service model</span>
+  <h2>A small core, three service classes, an owned proxy story</h2>
+  <div class="prose">
+    <p>The core owns config, planning, SSH transport, state/journal/lock, and the lifecycle. Strategy,
+      proxy, and runtime are a <em>coupled triple</em> — admitted, not abstracted away — so v1 ships one
+      release engine (the production-proven compose choreography) rather than a public Strategy
+      interface.</p>
+  </div>
+  <div class="stack">
+    <div class="layer">
+      <div class="lname">CLI</div>
+      <div class="cells">
+        <div class="cell"><b>init · validate · plan · render</b><span>author &amp; preview</span></div>
+        <div class="cell"><b>bootstrap · deploy · resume · abort · rollback</b><span>execute &amp; recover</span></div>
+        <div class="cell"><b>status · audit · logs · exec</b><span>operate</span></div>
+        <div class="cell"><b>accessory · proxy · secrets · destroy</b><span>maintenance</span></div>
+      </div>
+    </div>
+    <div class="flow">↓</div>
+    <div class="layer">
+      <div class="lname">Core engine</div>
+      <div class="cells">
+        <div class="cell"><b>Config</b><span>YAML → CUE validate → model</span></div>
+        <div class="cell"><b>Planner</b><span>refresh → diff → plan artifact</span></div>
+        <div class="cell"><b>Release engine</b><span>per-role choreography (§04)</span></div>
+        <div class="cell"><b>Transport</b><span>SSH, known-hosts enforced</span></div>
+        <div class="cell"><b>State · Journal · Lock</b><span>fenced (§05)</span></div>
+      </div>
+    </div>
+    <div class="flow">↓</div>
+    <div class="layer plane">
+      <div class="lname">v1 providers — curated, compiled-in</div>
+      <div class="cells">
+        <div class="cell"><b>Runtime</b><span>docker-compose</span></div>
+        <div class="cell"><b>Proxy</b><span>traefik-docker (managed | external) · command · none</span></div>
+        <div class="cell"><b>Build</b><span>prebuilt (recommended) · dockerfile/buildx</span></div>
+        <div class="cell"><b>Secrets</b><span>sops+age</span></div>
+        <div class="cell"><b>Hooks</b><span>escape hatch at every seam</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="prose">
+    <h3>Three service classes — every compose service has exactly one</h3>
+    <ul class="tight">
+      <li><b>Roles</b> — released by the choreography. Each maps to a compose service (with <em>its own image</em>; a top-level <code>image:</code> is only a default for single-image apps — rev 4 fix: per-service images are the normal compose shape).</li>
+      <li><b>Accessories</b> — stateful deps (postgres, redis). Converged only by <code>yeet accessory apply</code> (a planned, explicit maintenance event: shows the diff, refuses destructive volume changes without <code>--force</code>). Never touched mid-deploy: all release-phase and job compose invocations run <code>--no-deps</code>, so a <code>depends_on</code> can never silently recreate a database. <b>Preflight asserts declared accessories are running and healthy</b> before any deploy proceeds.</li>
+      <li><b>Jobs</b> — run-once services (migrate). Executed by hooks with <code>--no-deps</code>; they are neither rolled nor converged. (Rev 4: migrate previously had no class — this closes the hole where it pierced the accessory firewall.)</li>
+    </ul>
+    <h3>The release mechanism — named, with constraints</h3>
+    <p>Scale–health–drain: <code>docker compose up -d --scale svc=2 --no-recreate --no-deps</code> with
+      the new image → wait for the generated healthcheck → proxy shifts to healthy endpoints → SIGTERM +
+      grace drain → remove old. Production-proven (docker-rollout). <code>yeet validate</code> enforces
+      its preconditions: no <code>container_name</code>, no host-port bindings, no
+      <code>deploy.replicas</code> on rolled services; and it <b>warns</b> on rw named volumes/binds
+      shared by a rolled service — during overlap two writers exist briefly, so mounts must be
+      overlap-safe (documented, warned, not silently assumed). During overlap the proxy balances across
+      old+new — <b>mixed-version serving is a stated behavior</b>, and the reason additive-first
+      migrations are required.</p>
+    <h3>Readiness has one owner — and one compilation rule</h3>
+    <p>(Rev 4 — the previous text answered this both ways.) The role's <code>ready:</code> contract is
+      the single authoritative definition. Rules: <b>(1)</b> <code>http</code> and <code>exec</code>
+      kinds compile into the container healthcheck — which is what both the proxy and the release engine
+      gate on. <b>(2)</b> <code>log</code> and <code>heartbeat</code> kinds cannot gate a proxy (they
+      aren't periodic probes); they are release-engine wait conditions + verify checks, valid <b>only on
+      non-proxied roles</b> — validate enforces that a rolled, proxied role has an http/exec contract.
+      <b>(3)</b> If the compose service already defines a healthcheck: no <code>ready:</code> → it is
+      adopted as the contract; both present → the generated one wins with a validate warning. One
+      definition, three consumers, no ambiguity.</p>
+    <h3>The proxy is owned — managed or external, never assumed</h3>
+    <p>(Rev 4 — previously the proxy's own lifecycle was nobody's job and the fresh-VPS story died at
+      step zero.) <code>proxy.managed: true</code>: <code>yeet bootstrap</code> deploys Traefik itself —
+      container, the shared docker network, ACME storage volume — and <code>yeet proxy apply</code>
+      converges it thereafter (same explicit-maintenance semantics as accessories).
+      <code>managed: false</code>: you own it; preflight verifies it is present and routing. Label
+      injection is namespaced (<code>yeet.*</code>-generated router/service names), user-authored labels
+      pass through untouched, and a router-name collision is a validate error.</p>
+    <h3>First contact with a fresh host</h3>
+    <p><code>yeet bootstrap</code> = provision (runtime, deploy user, dirs, restart policies) + registry
+      login + proxy apply (if managed) + accessory apply. After bootstrap, every deploy is a pure
+      release. <code>yeet deploy</code> on an un-bootstrapped host fails preflight with exactly that
+      instruction — the demo story is <code>init → bootstrap → deploy</code>, honestly three commands,
+      not one.</p>
+  </div>
+</section>
+
+<section>
+  <span class="snum">04 / The deploy lifecycle</span>
+  <h2>One pipeline, a per-role DAG inside release</h2>
+  <div class="phases">
+    <div class="ph"><div class="pn">preflight</div><div class="pd"><b>Validate + refresh + assert.</b> Schema and rollability checks, secret resolution, SSH/registry reachability, disk headroom (including incoming image size), <b>accessories running &amp; healthy</b>, <b>proxy present &amp; routing</b>. Host-state refresh that the plan binds to. <span class="hook">nothing mutates</span></div></div>
+    <div class="ph"><div class="pn">build · push</div><div class="pd"><b>Prebuilt mode (recommended):</b> CI built it; the plan pinned its digest. <b>Local-build mode:</b> buildx with BuildKit <code>--secret</code> mounts; plan bound to git SHA + context hash, digest recorded at apply. <span class="hook">hook: pre_build, post_build</span></div></div>
+    <div class="ph"><div class="pn">transfer</div><div class="pd"><b>Ship the versioned release dir</b> — <code>releases/&lt;id&gt;/</code>: rendered compose, env, secrets (mode 600), artifacts, <b>and the yeet.yml snapshot</b> (modes, order — so rollback/abort replay the <em>old</em> choreography with the old config, explicitly). Nothing live is overwritten. <span class="hook">hook: pre_transfer</span></div></div>
+    <div class="ph"><div class="pn">pre-release</div><div class="pd"><b>Jobs (migrations), journaled with a result protocol (§06).</b> Run with <code>--no-deps</code> against accessories preflight already proved alive. <span class="hook">hook: migrate</span></div></div>
+    <div class="ph"><div class="pn">release</div><div class="pd"><b>Per-role DAG, journaled per sub-step.</b> <code>mode: rolling | recreate</code> (rev 4: <code>stop-start</code> deleted — it was an undefined synonym of recreate) plus an optional <b>drain block</b> — <code>drain: { signal: TSTP, wait: 30s }</code> — a real schema field, not prose (sent to the old container before stop; how Sidekiq/Taskiq-style workers finish in-flight jobs). monk: scheduler (recreate, singleton) → web (rolling) → worker (recreate + drain). Activation = symlink flip. <span class="hook">hook: pre_release, post_release</span></div></div>
+    <div class="ph"><div class="pn">verify</div><div class="pd"><b>All roles, host-side.</b> "Host-local" defined precisely (rev 4): probes execute <em>on the host against the container network</em> — <code>docker exec</code> or a curl to the container's network address — never through the edge, which is also how this coexists with the no-host-ports rule. Heartbeat checks likewise run via <code>docker exec</code> into the accessory (no runner→Redis credentials — stays agentless). Edge probes are advisory. Then the soak window. <span class="hook">hook: verify</span></div></div>
+    <div class="ph"><div class="pn">finalize</div><div class="pd"><b>Teardown + prune with pinned retention</b> (last N releases + images never pruned; rollback never pulls). Record state, release the lock. <span class="hook">hook: post_deploy</span></div></div>
+  </div>
+  <p class="prose note">Canary remains deliberately absent — an iterative shift-verify loop doesn't fit a
+    linear pipeline honestly. Deferred, not faked.</p>
+</section>
+
+<section>
+  <span class="snum">05 / State, locking &amp; partial failure</span>
+  <h2>The mechanisms, now concretely specified</h2>
+  <div class="prose">
+    <h3>The journal — a spec, not a noun</h3>
+    <p>(Rev 4.) Append-only JSONL at <code>/var/lib/yeet/&lt;app&gt;/journal/&lt;deploy-id&gt;.jsonl</code>,
+      one fsync per record. Records: <code>{deploy_id, epoch, phase, sub_step, role, intent|result,
+      ts, operator, git_sha, config_hash}</code>. GC is tied to the pinned-retention window (a journal
+      outlives its release). <code>yeet audit</code> reads journals over SSH — including runs whose
+      terminal scrolled away.</p>
+    <h3>Fencing that works on every host</h3>
+    <p>(Rev 4 — previously only the lock-authority host could validate epochs.) At deploy start the
+      runner appends a <code>deploy-start</code> record (id, epoch, config hash) to <b>every</b>
+      target host's journal. Every mutating command is wrapped host-side with a check against that
+      host's <em>own</em> journal tail — a zombie runner is rejected locally, no cross-host call.</p>
+    <h3>The lock — and what happens when its host is down</h3>
+    <p>One explicit <code>lock_authority</code> host; lock record carries {owner, epoch, git SHA, config
+      hash}; TTL on the host's clock with heartbeat renewal; breaking requires <code>--force</code> and
+      prints the previous holder's journal tail. (Rev 4) <b>Authority unreachable → deploys refuse</b> —
+      the safe default, stated. Break-glass: <code>--lock-authority &lt;other-host&gt;</code> requires an
+      explicit operator acknowledgment and is journaled as such. Single-host apps (all of v1): the only
+      host is the authority; the SPOF concern collapses.</p>
+    <h3>Multi-host semantics — designed now, executed at M3</h3>
+    <p>Fan-out policies (<code>fail-fast</code> default: stop on first host failure, leave successes,
+      report divergence loudly; <code>all-or-rollback</code>: revert successes). "Previous release" is
+      per-host unambiguous via each journal. <code>yeet status</code> diffs <b>desired / recorded /
+      actual</b> — divergence is the point. v1 ships the protocol with a single-host executor; the fleet
+      executor lands at M3 with real multi-host users.</p>
+    <h3>Day-2</h3>
+    <ul class="tight">
+      <li><b>Reboot:</b> restart policies bring everything back without yeet; singletons enforced by single-container mode.</li>
+      <li><b>Environments:</b> (rev 4) <code>environments:</code> overlays in yeet.yml (<code>yeet -e staging deploy</code>) — different hosts/env per environment, same schema. No separate config dialect.</li>
+      <li><b>Leaving:</b> (rev 4) <code>yeet destroy</code> (torn down with typed confirmation) and — with multi-host at M3 — <code>yeet host retire</code> so removed hosts don't strand orphaned containers that only <code>status</code> divergence would ever mention.</li>
+      <li><b>Certificates:</b> each proxy provider declares renewal ownership (traefik-managed: itself; external: you) and <code>status</code> surfaces cert expiry.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <span class="snum">06 / Rollback — scoped honestly</span>
+  <h2>What is invertible, what is forward-only, and the migration gate protocol</h2>
+  <div class="prose">
+    <div class="tscroll"><table>
+      <thead><tr><th>Thing</th><th>Rollback semantics</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><code>App containers</code></td><td><b>Deterministic.</b> Previous release dir (image pinned locally) re-activated; the release dir's <em>own</em> yeet.yml snapshot drives the choreography — old release, old config, old modes.</td></tr>
+        <tr><td class="k"><code>Artifacts</code></td><td><b>Deterministic — versioned</b> under <code>releases/&lt;id&gt;/</code>, symlink-activated, never overwritten.</td></tr>
+        <tr><td class="k"><code>Config &amp; secrets</code></td><td><b>Deterministic per release</b> — rendered config + secrets content-hash recorded (hash in state for audit, content never logged).</td></tr>
+        <tr><td class="k"><code>Migrations</code></td><td><b>Forward-only.</b> Expand/contract discipline; the contract step is the <code>post_release</code> hook.</td></tr>
+        <tr><td class="k"><code>Accessories</code></td><td><b>Out of scope</b> — maintenance events via <code>accessory apply</code> with their own plan.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout hard">
+      <p class="tag">The migration gate — now with a detection protocol (rev 4)</p>
+      <p>The gate's trigger was underspecified ("the journal shows the migrate hook applied changes" —
+        an exit code can't say that). The protocol: yeet exports <code>$YEET_RESULT_FILE</code> to the
+        migrate hook. A hook that writes <code>changed=false</code> declares a no-op → the gate stays
+        open (auto-rollback permitted). Anything else — including writing nothing — <b>fails safe: the
+        deploy is treated as having applied schema changes</b>, and on failed verify yeet
+        <b>halts-and-pages instead of auto-rolling back</b>, unless the config asserts
+        <code>migrations: expand-only</code> (the operator's informed promise that old code tolerates
+        the new schema). Documented adapter snippets make alembic/rails/prisma report the flag
+        correctly. <b>The same gate governs <code>yeet abort</code></b> — aborting mid-deploy after a
+        migration ran is the same hazard as auto-rollback (rev 4: previously only auto-rollback was
+        gated). <code>--no-rollback</code> exists for operators who want failures to stand still; verify
+        probes are host-side (§04) so an edge blip can't roll back a healthy release.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="snum">07 / Configuration</span>
+  <h2>YAML you write, CUE that checks it</h2>
+  <pre><span class="cm"># yeet.yml — beside docker-compose.yml (the contract; yeet renders the deployable per release)</span>
+<span class="kw">app</span>: monk
+<span class="kw">compose</span>: docker-compose.yaml
+<span class="kw">environments</span>:
+  <span class="kw">production</span>: { <span class="kw">hosts</span>: [monk.labstack.net], <span class="kw">lock_authority</span>: monk.labstack.net }
+  <span class="kw">staging</span>:    { <span class="kw">hosts</span>: [staging.labstack.net] }
+
+<span class="kw">roles</span>:                                <span class="cm"># images come from the compose services;</span>
+  <span class="kw">web</span>:      { <span class="kw">service</span>: server,    <span class="kw">mode</span>: rolling,  <span class="kw">ready</span>: { <span class="kw">http</span>: /healthz } }
+  <span class="kw">worker</span>:   { <span class="kw">service</span>: worker,    <span class="kw">mode</span>: recreate, <span class="kw">drain</span>: { <span class="kw">signal</span>: TERM, <span class="kw">wait</span>: 30s },
+              <span class="kw">ready</span>: { <span class="kw">heartbeat</span>: "worker:alive&lt;30s", <span class="kw">via</span>: redis } }   <span class="cm"># checked via docker exec</span>
+  <span class="kw">scheduler</span>:{ <span class="kw">service</span>: scheduler, <span class="kw">mode</span>: recreate, <span class="kw">singleton</span>: true,
+              <span class="kw">ready</span>: { <span class="kw">log</span>: "scheduler started", <span class="kw">within</span>: 30s } }
+<span class="kw">order</span>: [scheduler, web, worker]
+
+<span class="kw">accessories</span>: [postgres, redis]        <span class="cm"># preflight asserts alive; converged only by `accessory apply`</span>
+<span class="kw">jobs</span>: [migrate]                       <span class="cm"># run-once; invoked by hooks with --no-deps</span>
+<span class="kw">artifacts</span>: [{ <span class="kw">from</span>: web/dist, <span class="kw">name</span>: web }]
+<span class="kw">hooks</span>: { <span class="kw">migrate</span>: docker compose run --rm --no-deps migrate }
+<span class="kw">migrations</span>: expand-only               <span class="cm"># informed promise; enables auto-rollback past the gate</span>
+<span class="kw">verify</span>:
+  - { <span class="kw">http</span>: /healthz, <span class="kw">role</span>: web }     <span class="cm"># host-side, via the container network — authoritative</span>
+  - { <span class="kw">url</span>: "https://monk.trade/", <span class="kw">contains</span>: 'id="root"', <span class="kw">advisory</span>: true }
+<span class="kw">secrets</span>: { <span class="kw">sops</span>: secrets.enc.yaml }
+<span class="kw">proxy</span>: { <span class="kw">kind</span>: traefik-docker, <span class="kw">managed</span>: false }   <span class="cm"># monk brings its own; `managed: true` = yeet bootstraps it</span></pre>
+  <p class="prose"><span class="note">Both config and state carry <code>apiVersion</code>; the engine
+    refuses newer state and migrates older. <code>secrets push</code> re-renders per-role env, diffs
+    the rendered output per role, and bounces only roles whose rendered env changed — that is the
+    mechanism, not magic.</span></p>
+</section>
+
+<section>
+  <span class="snum">08 / CLI surface</span>
+  <h2>Verbs for deploys — and for incidents</h2>
+  <pre><span class="fn">yeet</span> init                <span class="cm"># scaffold yeet.yml from the compose file</span>
+<span class="fn">yeet</span> validate            <span class="cm"># schema + rollability + class assignment — no side effects</span>
+<span class="fn">yeet</span> bootstrap           <span class="cm"># first contact: provision + registry auth + proxy + accessories</span>
+<span class="fn">yeet</span> plan                <span class="cm"># refresh → rendered diff + pinned images + command list → plan artifact</span>
+<span class="fn">yeet</span> deploy [-e env] [--plan f] [--no-rollback]
+<span class="fn">yeet</span> resume | abort      <span class="cm"># journal-driven recovery; abort respects the migration gate</span>
+<span class="fn">yeet</span> rollback            <span class="cm"># previous release dir — its own snapshot, pinned local image</span>
+<span class="fn">yeet</span> status              <span class="cm"># desired vs recorded vs ACTUAL — divergence is the point</span>
+<span class="fn">yeet</span> audit               <span class="cm"># who deployed what, when, from which SHA — incl. failed runs</span>
+<span class="fn">yeet</span> accessory apply     <span class="cm"># planned convergence of stateful services — never mid-deploy</span>
+<span class="fn">yeet</span> proxy apply         <span class="cm"># converge a managed proxy (traefik) — same semantics</span>
+<span class="fn">yeet</span> secrets edit | push <span class="cm"># SOPS; push bounces only roles whose rendered env changed</span>
+<span class="fn">yeet</span> destroy             <span class="cm"># typed-confirmation teardown</span>
+<span class="fn">yeet</span> logs | exec | render | hosts</pre>
+</section>
+
+<section>
+  <span class="snum">09 / Prior art — corrected</span>
+  <h2>Where it actually sits</h2>
+  <div class="tscroll">
+    <table>
+      <thead><tr><th>Tool</th><th>Model</th><th>Compose-native?</th><th>Plan/apply?</th><th>Honest difference</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Kamal 2</td><td>agentless SSH, image/role config</td><td>no</td><td>no</td><td>Kamal allows keeping Traefik (<code>proxy: false</code>); yeet differs on compose-nativeness + plan/apply + journaled state — not BYO-proxy</td></tr>
+        <tr><td class="k">Sidekick</td><td>agentless Go, Traefik-based</td><td>partial</td><td>no</td><td>single-app focus, sporadic maintenance; no plan, no journal/fencing</td></tr>
+        <tr><td class="k">Haloy</td><td>agentless Go, YAML</td><td>no</td><td>no</td><td>rolling + rollbacks, image-centric; no plan/apply</td></tr>
+        <tr><td class="k">Uncloud</td><td>compose-first, multi-machine</td><td><b>yes</b></td><td>no</td><td>closest comp; self-described not production-ready; own networking layer</td></tr>
+        <tr><td class="k">Coolify / Dokploy</td><td>UI + agent</td><td>partial</td><td>no</td><td>Coolify: no ZDD for compose; both own the proxy + add a control plane</td></tr>
+        <tr><td class="k">Terraform</td><td>declarative infra + plan</td><td>—</td><td><b>yes</b></td><td>the discipline borrowed — §01 states exactly how far the analogy holds</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="snum">10 / Generality audit</span>
+  <h2>Is this curve-fitted to monk? A piece-by-piece answer</h2>
+  <div class="prose">
+    <p>Extracted from one production app, so overfitting is the default unless actively resisted.
+      Element-by-element:</p>
+  </div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Element</th><th>Class</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><code>plan/apply · journal · fencing · locks · versioned releases · audit</code></td><td><span class="pill v1">agnostic</span></td><td>Pure deploy mechanics; would exist identically without monk.</td></tr>
+      <tr><td class="k"><code>scale–health–drain</code></td><td><span class="pill v1">agnostic</span></td><td>Convergent evolution — Kamal, Uncloud, docker-rollout arrived at the same choreography independently.</td></tr>
+      <tr><td class="k"><code>migration gate</code></td><td><span class="pill v1">agnostic</span></td><td>Universal to DB-backed apps.</td></tr>
+      <tr><td class="k"><code>compose-native · docker · traefik-first</code></td><td><span class="pill later">market choice</span></td><td>Deliberate segment narrowing (the wedge), not curve-fitting. <code>command</code> proxy is the Caddy/nginx path.</td></tr>
+      <tr><td class="k"><code>per-role modes + ordering + drain</code></td><td><span class="pill later">monk-derived, generalizes</span></td><td>web+worker+scheduler is the generic shape — Rails/Sidekiq/cron, Django/Celery/beat, Node/BullMQ are isomorphic.</td></tr>
+      <tr><td class="k"><code>single top-level image</code></td><td><span class="pill no">was a monk fingerprint — fixed</span></td><td>(Rev 4, caught by fresh-eyes review.) Roles now take images from their compose services; one-image apps set a default. The audit itself had missed its headline overfit.</td></tr>
+      <tr><td class="k"><code>artifacts (SPA-on-volume)</code></td><td><span class="pill no">quarantined</span></td><td>Monk's web-decoupling trick — optional extension, no core dependency.</td></tr>
+      <tr><td class="k"><code>heartbeat readiness</code></td><td><span class="pill no">quarantined</span></td><td>One kind among <code>http | exec | log | heartbeat</code>, never privileged, non-proxied roles only.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <h3>Paper personas</h3>
+    <ul class="tight">
+      <li><b>Rails + Sidekiq + cron</b>: web rolls on <code>/up</code>; sidekiq <code>recreate</code> with <code>drain: {signal: TSTP, wait: 30s}</code> — now a real schema field; cron singleton; <code>rails db:migrate</code> behind the gate. <b>Clean fit.</b></li>
+      <li><b>Static site + Go API</b>: API rolls; the site is an nginx/caddy service that also rolls; never touches <code>artifacts</code>. <b>Clean fit.</b></li>
+      <li><b>PHP-FPM + nginx coupled pair</b>: must move atomically; compose has no pod concept. <b>Known non-fit, stated.</b> A <code>group:</code> (co-rolled unit) is a v2 design issue <em>only if</em> a real app demands it.</li>
+    </ul>
+    <h3>Anti-overfit rules</h3>
+    <ul class="tight">
+      <li><b>M3 exit:</b> two apps, zero app-specific engine code — with the engine changing where it fought app #2. Frictionless onboarding of app #2 is a red flag (too monk-like to test anything).</li>
+      <li><b>Alien-validator rule (M3.5):</b> the third app must be out-of-distribution — not Python, not SPA+API.</li>
+      <li><b>Quarantine discipline:</b> monk-flavored features stay optional with no core dependencies; anything cut for being "our habit masquerading as a general concern" gets recorded (Backup plane, rev 2; single-image schema, rev 4).</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <span class="snum">11 / Risks — updated</span>
+  <h2>Where this goes wrong, and the guardrails</h2>
+  <div class="tscroll">
+    <table>
+      <thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Interfaces frozen from N=1 turn out wrong</td><td>Provider surface halved (rev 2); multi-host execution deferred (rev 4); rule of three before public extension points; <code>command</code> + hooks as the pressure valve.</td></tr>
+        <tr><td>Maintenance economics (the Flynn/Sidekick graveyard)</td><td>v1 = single-host, Ubuntu/Debian + docker engine, curated providers. Ship as "our production deploy engine, open-sourced" — not "pluggable everything." Feature requests against the plane declined pre-rule-of-three.</td></tr>
+        <tr><td>Plan/apply oversell</td><td>The fidelity contract is printed in §01 and in <code>plan</code>'s own output (hooks flagged unplannable, branches shown). The wedge survives honesty; it doesn't survive an HN thread catching an overclaim.</td></tr>
+        <tr><td>Compose rolling constraints surprise users</td><td>Preconditions enforced at <code>validate</code> (container_name, host ports, replicas) and warned (shared rw volumes); mixed-version overlap documented.</td></tr>
+        <tr><td>Auto-rollback worsens an incident</td><td>Migration gate with a fail-safe detection protocol (§06), gate applies to <code>abort</code> too, host-side verify, <code>--no-rollback</code>, pinned rollback images.</td></tr>
+        <tr><td>CUE (internal) API instability</td><td>Pinned pre-1.0 <code>cuelang.org/go</code>, thin wrapper; YAML surface makes an engine swap invisible.</td></tr>
+        <tr><td>Security surface (SSH, secrets, CI runner keys)</td><td>Known-hosts enforcement, journal fencing, BuildKit secret mounts, secrets content-hash audit, documented runner-key threat model.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="snum">12 / Roadmap — with exit criteria</span>
+  <h2>Extraction first, generality earned</h2>
+  <div class="phases">
+    <div class="ph"><div class="pn">M0 · spike</div><div class="pd">Core lifecycle + SSH + compose runtime + scale–health–drain + traefik-docker (external mode). <b>Exit: monk deploys end-to-end, zero-downtime, from the new binary.</b></div></div>
+    <div class="ph"><div class="pn">M1 · plan/apply</div><div class="pd">YAML + embedded CUE validation, <code>plan</code> with refresh + binding + the fidelity contract in its output, <code>render</code>, <code>bootstrap</code>. <b>Exit: yeet.sh fully retired for monk.</b></div></div>
+    <div class="ph"><div class="pn">M2 · trustworthy</div><div class="pd">Journal (as specified in §05), fencing on every host, lock authority, <code>resume</code>/<code>abort</code>, the migration-gate protocol, per-role verify incl. drain, pinned retention, <code>audit</code>. <b>Exit = the ops scenarios: kill the runner mid-release → <code>resume</code> recovers; fail verify after a migration → halt-and-page, not rollback; break a worker → verify catches it.</b></div></div>
+    <div class="ph"><div class="pn">M3 · second app + multi-host</div><div class="pd">Onboard unlock/justwatch; implement the fleet executor against real multi-host need. <b>Exit: two apps, zero app-specific engine code, engine changed where it fought app #2.</b></div></div>
+    <div class="ph"><div class="pn">M3.5 · alien app</div><div class="pd">Out-of-distribution validation (not Python, not SPA+API — Rails/Sidekiq or a coupled-pair app). <b>Exit: §10's paper personas hold against a real foreign app.</b></div></div>
+    <div class="ph"><div class="pn">M4 · open-source</div><div class="pd">Real name, docs, security model, the demo (bootstrap → plan → deploy → kill → resume, prebuilt image). v2 design issues: out-of-process providers, blue-green, canary, co-rolled groups.</div></div>
+  </div>
+</section>
+
+<section>
+  <span class="snum">13 / Review changelog</span>
+  <h2>What each review round changed</h2>
+  <div class="prose">
+    <h3>rev 1 → rev 2 (three adversarial reviews: architecture, market, operations)</h3>
+    <ul class="tight">
+      <li>Wedge corrected (Kamal <code>proxy: false</code> exists) → plan/apply + compose-native ZDD; Sidekick/Haloy/Uncloud acknowledged.</li>
+      <li>CUE demoted to internal; YAML user surface.</li>
+      <li>Strategy &amp; Backup planes cut; coupling admitted; health given a single owner.</li>
+      <li>Safety turned into protocols: journal, epochs/fencing, lock authority, resume/abort, divergence status, audit.</li>
+      <li>Rollback scoped honestly; migration gate; per-role modes + ordering; verify for every role; day-2 specified.</li>
+    </ul>
+    <h3>rev 2 → rev 3 (generality audit)</h3>
+    <ul class="tight">
+      <li>§10 added: overfit decomposition, three paper personas, artifacts/heartbeat quarantined, M3.5 alien-validator milestone.</li>
+    </ul>
+    <h3>rev 3 → rev 4 (second review round: fresh-eyes + fix-verification)</h3>
+    <ul class="tight">
+      <li><b>"Source of truth" honesty:</b> the compose file is the contract; yeet renders a per-release deployable and shows the delta; the injected set is closed and declared.</li>
+      <li><b>Readiness compilation rule:</b> <code>ready:</code> is the single owner; http/exec compile to the container healthcheck (proxy-gating); log/heartbeat are non-proxied-role wait conditions; compose-file healthcheck adoption/override defined.</li>
+      <li><b>Service classes closed the migrate hole:</b> roles / accessories / <b>jobs</b>; all release + job invocations run <code>--no-deps</code>; preflight asserts accessory liveness; <code>bootstrap</code> defined for first contact.</li>
+      <li><b>Plan fidelity contract:</b> stated ranking (config &gt; images &gt; choreography &gt; hooks); prebuilt-digest vs build-mode binding; drift set defined.</li>
+      <li><b>Proxy lifecycle owned:</b> managed vs external; <code>proxy apply</code>; namespaced label injection with collision detection.</li>
+      <li><b>Migration-gate protocol:</b> <code>$YEET_RESULT_FILE</code> convention, fail-safe default, gate extended to <code>abort</code>.</li>
+      <li><b>Schema fixes:</b> per-service images (the audit's own missed overfit), <code>drain</code> as a real field, <code>stop-start</code> deleted, environments overlay, <code>destroy</code>/<code>host retire</code>.</li>
+      <li><b>Scope cut:</b> multi-host execution deferred to M3 (protocol designed, executor later) — answering the "v1 is enormous" finding.</li>
+      <li><b>Journal concretized:</b> path, format, fsync, GC, per-host fencing records.</li>
+    </ul>
+  </div>
+</section>
+
+</div>
+
+<div class="foot wrap">
+  yeet (working codename) · rev 4 — two adversarial review rounds (5 independent reviewers) + a
+  generality audit absorbed. Wedge: plan/apply (with a stated fidelity contract) + compose-native
+  zero-downtime. v1 is single-host; generality is earned at M3/M3.5, not assumed.
+</div>

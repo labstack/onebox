@@ -50,6 +50,12 @@
 	password_env!: string & =~"^[A-Z_][A-Z0-9_]*$"
 }
 
+#Preflight: {
+	file!:     string
+	require?: [...string]
+	present?: [...string]
+}
+
 #Config: {
 	// app defaults to the project directory name; compose to the conventional
 	// compose file; roles to every service not named an accessory or job.
@@ -61,6 +67,8 @@
 	order?: [...#Ident]
 	accessories?: [...#Ident]
 	jobs?: [...#Ident]
+	env_files?: [...string]
+	preflight?: [...#Preflight]
 	hooks?: {[#Ident]: #Hook}
 	verify?: [...#Verify]
 	proxy?: {kind?: string, managed?: bool}

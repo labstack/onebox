@@ -59,6 +59,7 @@
 	hooks?: {[#Ident]: #Hook}
 	verify?: [...#Verify]
 	proxy?: {kind?: string, managed?: bool}
-	registry?: #Registry
-	retain?:   int & >0
+	registry?:   #Registry
+	retain?:     int & >0
+	migrations?: "expand-only"
 }

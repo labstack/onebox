@@ -91,3 +91,30 @@ services:
 		t.Fatalf("env_file ref dropped:\n%s", rendered)
 	}
 }
+
+// Injection order encodes precedence: env_files first, then the secrets file,
+// so compose (later env_file wins) lets a decrypted secret override a
+// same-named plaintext key. This is the order stageRelease calls them in.
+func TestSecretsEnvWinsOverEnvFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.env"), []byte("K=plain\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(`
+services:
+  web: { image: x }
+`), 0o644)
+	p, err := Load(context.Background(), filepath.Join(dir, "docker-compose.yaml"), "d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Roles:    map[string]config.Role{"web": {Service: "web"}},
+		EnvFiles: []string{"app.env"},
+	}
+	InjectEnvFiles(p, cfg)
+	InjectSecretsEnv(p, cfg, "./.yeet-secrets.env")
+
+	ef := p.Services["web"].EnvFiles
+	if len(ef) == 0 || ef[len(ef)-1].Path != "./.yeet-secrets.env" {
+		t.Fatalf("secrets file must be the last env_file (authoritative): %+v", ef)
+	}
+}

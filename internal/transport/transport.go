@@ -33,7 +33,11 @@ type Transport interface {
 	// long-running follows (logs -f) where buffering defeats the point.
 	RunStream(ctx context.Context, cmd string, out io.Writer) error
 	Upload(ctx context.Context, localDir, remoteDir string) error
+	// Host is the bare hostname (for display, drift, and error context).
 	Host() string
+	// Target is the full ssh/rsync destination (user@host) — what a hook
+	// needs to reach the same host, so nothing is hardcoded in yeet.yml.
+	Target() string
 	Close() error
 }
 
@@ -83,8 +87,9 @@ func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
 	return err
 }
 
-func (l *Local) Host() string { return "local" }
-func (l *Local) Close() error { return nil }
+func (l *Local) Host() string   { return "local" }
+func (l *Local) Target() string { return "local" }
+func (l *Local) Close() error   { return nil }
 
 // shq single-quotes a shell argument.
 func shq(s string) string {

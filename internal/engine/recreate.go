@@ -91,6 +91,7 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	c.Env = append(os.Environ(),
 		"YEET_APP="+e.Cfg.App,
 		"YEET_HOST="+e.T.Host(),
+		"YEET_TARGET="+e.T.Target(), // user@host — for ssh/rsync in hooks
 		"YEET_RELEASE_DIR="+remoteReleaseDir,
 		"YEET_RELEASE_ID="+filepath.Base(remoteReleaseDir),
 	)

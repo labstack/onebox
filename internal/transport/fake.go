@@ -15,12 +15,13 @@ type Rule struct {
 // Fake is the test double: Dynamic (if set) answers first, then Script rules
 // first-match-wins, then a default exit-0 Result. Every Run is recorded.
 type Fake struct {
-	Script   []Rule
-	Dynamic  func(cmd string) (Result, bool)
-	Commands []string
-	Inputs   []string // stdin passed to RunInput calls
-	Uploads  []string
-	HostName string
+	Script     []Rule
+	Dynamic    func(cmd string) (Result, bool)
+	Commands   []string
+	Inputs     []string // stdin passed to RunInput calls
+	Uploads    []string
+	HostName   string
+	TargetName string // full user@host; falls back to HostName
 }
 
 func (f *Fake) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
@@ -62,6 +63,13 @@ func (f *Fake) Host() string {
 		return "fake"
 	}
 	return f.HostName
+}
+
+func (f *Fake) Target() string {
+	if f.TargetName != "" {
+		return f.TargetName
+	}
+	return f.Host()
 }
 
 func (f *Fake) Close() error { return nil }

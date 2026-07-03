@@ -211,3 +211,29 @@ preflight:
 		t.Fatalf("error must name file and key: %v\n%s", err, out)
 	}
 }
+
+// An env_files entry that resolves outside the project must be rejected at load
+// (it could never ship with the release) — caught by validate, before deploy.
+func TestEnvFilesOutsideProjectRejected(t *testing.T) {
+	dir := writeProject(t)
+	yeetYAML := `
+app: demo
+compose: docker-compose.yaml
+environments: { production: { hosts: [deploy@example.invalid] } }
+roles:
+  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
+order: [web]
+accessories: [postgres]
+env_files: ["../escapes.env"]
+`
+	if err := os.WriteFile(filepath.Join(dir, "yeet.yml"), []byte(yeetYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, dir, "validate")
+	if err == nil {
+		t.Fatalf("expected rejection of out-of-project env_files: %s", out)
+	}
+	if !strings.Contains(err.Error()+out, "outside the project") {
+		t.Fatalf("error should explain the constraint: %v\n%s", err, out)
+	}
+}

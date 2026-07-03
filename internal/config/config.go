@@ -40,6 +40,7 @@ type Config struct {
 	Verify       []VerifyCheck          `yaml:"verify"`
 	Proxy        Proxy                  `yaml:"proxy"`
 	Registry     *Registry              `yaml:"registry"`
+	Secrets      *Secrets               `yaml:"secrets"`
 	Retain       int                    `yaml:"retain"`
 	// Migrations "expand-only" is the operator's informed promise that old
 	// code tolerates the new schema — it permits auto-rollback past the
@@ -114,6 +115,12 @@ type Registry struct {
 	Server      string `yaml:"server"`
 	Username    string `yaml:"username"`
 	PasswordEnv string `yaml:"password_env"`
+}
+
+// Secrets: a SOPS-encrypted flat YAML map, decrypted runner-side and shipped
+// as a mode-600 env file inside each release dir (design §07).
+type Secrets struct {
+	Sops string `yaml:"sops"`
 }
 
 type Proxy struct {

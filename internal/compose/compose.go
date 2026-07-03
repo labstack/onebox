@@ -116,6 +116,13 @@ func CheckRollable(p *types.Project, cfg *config.Config) []error {
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
 			errs = append(errs, fmt.Errorf("roles.%s (%q): deploy.replicas conflicts with yeet-managed scaling", roleName, r.Service))
 		}
+		// readiness rule (design §03): rolling gates on a healthcheck — from
+		// ready.http/exec, or ADOPTED from the compose file's own
+		hasReadyKind := r.Ready != nil && (r.Ready.HTTP != "" || r.Ready.Exec != "")
+		hasComposeHC := svc.HealthCheck != nil && len(svc.HealthCheck.Test) > 0
+		if !hasReadyKind && !hasComposeHC {
+			errs = append(errs, fmt.Errorf("roles.%s (%q): rolling requires ready.http/exec, or a healthcheck in the compose file to adopt", roleName, r.Service))
+		}
 	}
 	return errs
 }

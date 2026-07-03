@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/labstack/yeet/internal/compose"
+	"github.com/labstack/yeet/internal/config"
 )
 
 const stopGraceSeconds = 30
@@ -80,8 +81,9 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 		newID = fresh[0]
 	}
 
+	within, pollEvery := readyTiming(role)
 	// join: the newcomer becomes a routable endpoint via its healthcheck
-	if err := e.waitHealth(ctx, newID, "healthy", time.Duration(role.Ready.Within), time.Duration(role.Ready.Interval)); err != nil {
+	if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
 		e.logf("join failed for %s — removing new container, old keeps serving", roleName)
 		_, _ = e.mutate(ctx, "docker rm -f "+newID)
 		return fmt.Errorf("role %s: new container never became healthy: %w", roleName, err)
@@ -99,8 +101,8 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	if _, err := e.mutate(ctx, "docker exec "+oldID+" touch "+compose.DrainFile); err != nil {
 		return err
 	}
-	drainBudget := 5 * time.Duration(role.Ready.Interval)
-	if err := e.waitHealth(ctx, oldID, "unhealthy", drainBudget, time.Duration(role.Ready.Interval)); err != nil {
+	drainBudget := 5 * pollEvery
+	if err := e.waitHealth(ctx, oldID, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.logf("warn: old container never reported unhealthy (%v); proceeding after buffer", err)
 	}
 	e.Opts.Sleep(e.Opts.ConvergeBuffer) // converged: proxy dropped it
@@ -123,6 +125,22 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	}
 	e.logf("%s: rolled %s -> %s", roleName, oldID, newID)
 	return nil
+}
+
+// readyTiming: gate budget and poll interval, with defaults for roles whose
+// readiness is ADOPTED from the compose healthcheck (ready absent or
+// timing-only).
+func readyTiming(role config.Role) (within, interval time.Duration) {
+	within, interval = 120*time.Second, 5*time.Second
+	if role.Ready != nil {
+		if role.Ready.Within > 0 {
+			within = time.Duration(role.Ready.Within)
+		}
+		if role.Ready.Interval > 0 {
+			interval = time.Duration(role.Ready.Interval)
+		}
+	}
+	return within, interval
 }
 
 func subtract(all, remove []string) []string {

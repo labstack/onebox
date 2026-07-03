@@ -27,6 +27,11 @@ type Options struct {
 	LocalDir string
 	// HTTPTimeout bounds runner-side url verify checks (default 10s).
 	HTTPTimeout time.Duration
+	// LockTTL is the deploy lock's freshness window on the host clock
+	// (default 10m); the heartbeat touches at TTL/10.
+	LockTTL time.Duration
+	// NoRollback: verify failures always halt, never auto-rollback.
+	NoRollback bool
 }
 
 type Engine struct {
@@ -34,6 +39,10 @@ type Engine struct {
 	Project *ctypes.Project
 	T       transport.Transport
 	Opts    Options
+
+	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
+	// mutate() guards every mutating command with it.
+	fenceVal string
 }
 
 func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options) *Engine {

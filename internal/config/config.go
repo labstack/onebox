@@ -40,6 +40,10 @@ type Config struct {
 	Proxy        Proxy                  `yaml:"proxy"`
 	Registry     *Registry              `yaml:"registry"`
 	Retain       int                    `yaml:"retain"`
+	// Migrations "expand-only" is the operator's informed promise that old
+	// code tolerates the new schema — it permits auto-rollback past the
+	// migration gate (design §06).
+	Migrations string `yaml:"migrations"`
 }
 
 type Environment struct {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -28,24 +29,28 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// MarshalYAML emits the "30s" string form so a resolved config round-trips
+// (the release snapshot is the resolved config, replayed by rollback).
+func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
+
 type Config struct {
-	App          string                 `yaml:"app"`
-	Compose      string                 `yaml:"compose"`
+	App          string                 `yaml:"app,omitempty"`
+	Compose      string                 `yaml:"compose,omitempty"`
 	Environments map[string]Environment `yaml:"environments"`
 	Roles        map[string]Role        `yaml:"roles"`
-	Order        []string               `yaml:"order"`
-	Accessories  []string               `yaml:"accessories"`
-	Jobs         []string               `yaml:"jobs"`
-	Hooks        map[string]Hook        `yaml:"hooks"`
-	Verify       []VerifyCheck          `yaml:"verify"`
-	Proxy        Proxy                  `yaml:"proxy"`
-	Registry     *Registry              `yaml:"registry"`
-	Secrets      *Secrets               `yaml:"secrets"`
-	Retain       int                    `yaml:"retain"`
+	Order        []string               `yaml:"order,omitempty"`
+	Accessories  []string               `yaml:"accessories,omitempty"`
+	Jobs         []string               `yaml:"jobs,omitempty"`
+	Hooks        map[string]Hook        `yaml:"hooks,omitempty"`
+	Verify       []VerifyCheck          `yaml:"verify,omitempty"`
+	Proxy        Proxy                  `yaml:"proxy,omitempty"`
+	Registry     *Registry              `yaml:"registry,omitempty"`
+	Secrets      *Secrets               `yaml:"secrets,omitempty"`
+	Retain       int                    `yaml:"retain,omitempty"`
 	// Migrations "expand-only" is the operator's informed promise that old
 	// code tolerates the new schema — it permits auto-rollback past the
 	// migration gate (design §06).
-	Migrations string `yaml:"migrations"`
+	Migrations string `yaml:"migrations,omitempty"`
 }
 
 type Environment struct {
@@ -55,33 +60,33 @@ type Environment struct {
 type Role struct {
 	Service   string `yaml:"service"`
 	Mode      string `yaml:"mode"` // rolling | recreate
-	Singleton bool   `yaml:"singleton"`
-	Ready     *Ready `yaml:"ready"`
-	Drain     *Drain `yaml:"drain"`
+	Singleton bool   `yaml:"singleton,omitempty"`
+	Ready     *Ready `yaml:"ready,omitempty"`
+	Drain     *Drain `yaml:"drain,omitempty"`
 }
 
 type Ready struct {
-	HTTP        string   `yaml:"http"` // path, e.g. /healthz
-	Exec        string   `yaml:"exec"` // command run inside the container
-	Port        int      `yaml:"port"`
-	Interval    Duration `yaml:"interval"`     // default 5s
-	StartPeriod Duration `yaml:"start_period"` // default 5s
-	Within      Duration `yaml:"within"`       // overall gate timeout, default 120s
+	HTTP        string   `yaml:"http,omitempty"` // path, e.g. /healthz
+	Exec        string   `yaml:"exec,omitempty"` // command run inside the container
+	Port        int      `yaml:"port,omitempty"`
+	Interval    Duration `yaml:"interval,omitempty"`     // default 5s
+	StartPeriod Duration `yaml:"start_period,omitempty"` // default 5s
+	Within      Duration `yaml:"within,omitempty"`       // overall gate timeout, default 120s
 }
 
 type Drain struct {
-	Signal string   `yaml:"signal"`
-	Wait   Duration `yaml:"wait"`
+	Signal string   `yaml:"signal,omitempty"`
+	Wait   Duration `yaml:"wait,omitempty"`
 }
 
 type VerifyCheck struct {
-	HTTP     string `yaml:"http"` // path, host-side against the container IP
-	Exec     string `yaml:"exec"`
-	URL      string `yaml:"url"` // runner-side edge check — advisory territory
-	Role     string `yaml:"role"`
-	Port     int    `yaml:"port"`     // defaults to the role's ready.port
-	Contains string `yaml:"contains"` // for url checks: substring the body must contain
-	Advisory bool   `yaml:"advisory"` // warn-only, never fails the deploy
+	HTTP     string `yaml:"http,omitempty"` // path, host-side against the container IP
+	Exec     string `yaml:"exec,omitempty"`
+	URL      string `yaml:"url,omitempty"` // runner-side edge check — advisory territory
+	Role     string `yaml:"role,omitempty"`
+	Port     int    `yaml:"port,omitempty"`     // defaults to the role's ready.port
+	Contains string `yaml:"contains,omitempty"` // for url checks: substring the body must contain
+	Advisory bool   `yaml:"advisory,omitempty"` // warn-only, never fails the deploy
 }
 
 // Hook is a user command run at a lifecycle seam — verbatim by design
@@ -109,6 +114,15 @@ func (h *Hook) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// MarshalYAML emits the string form for host hooks and the {run, local} map for
+// local ones, so a resolved config round-trips through the release snapshot.
+func (h Hook) MarshalYAML() (any, error) {
+	if !h.Local {
+		return h.Run, nil
+	}
+	return map[string]any{"run": h.Run, "local": true}, nil
+}
+
 // Registry enables bootstrap's `docker login`; the password comes from the
 // named env var and travels via stdin, never inside a command string.
 type Registry struct {
@@ -124,8 +138,8 @@ type Secrets struct {
 }
 
 type Proxy struct {
-	Kind    string `yaml:"kind"`    // traefik-docker | none (M0: informational)
-	Managed bool   `yaml:"managed"` // M0: must be false
+	Kind    string `yaml:"kind,omitempty"`    // traefik-docker | none (M0: informational)
+	Managed bool   `yaml:"managed,omitempty"` // M0: must be false
 }
 
 var (
@@ -162,6 +176,48 @@ func LoadBytes(b []byte, filename string) (*Config, error) {
 	}
 	return cfg, nil
 }
+
+// DefaultApp derives an app name from the project directory when yeet.yml omits
+// `app`. Non-conforming characters are folded so the result usually matches the
+// app-name rule; if it can't, Validate surfaces a clear error and the operator
+// sets `app` explicitly.
+func DefaultApp(configPath string) string {
+	abs, err := filepath.Abs(configPath)
+	if err != nil {
+		abs = configPath
+	}
+	base := strings.ToLower(filepath.Base(filepath.Dir(abs)))
+	var b strings.Builder
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == ' ' || r == '.':
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// composeNames is compose's own precedence order for the default project file.
+var composeNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
+
+// FindCompose returns the conventional compose file in dir when yeet.yml omits
+// `compose`. It falls back to the canonical name so the resulting error names a
+// real path if nothing exists.
+func FindCompose(dir string) string {
+	for _, n := range composeNames {
+		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
+			return n
+		}
+	}
+	return "docker-compose.yaml"
+}
+
+// YAML marshals the resolved config — what the release snapshot stores so
+// rollback replays the exact choreography (explicit roles, modes, order) that
+// this deploy ran, not a re-inference against a possibly-changed compose file.
+func (c *Config) YAML() ([]byte, error) { return yaml.Marshal(c) }
 
 func (c *Config) Validate() error {
 	if !appName.MatchString(c.App) {

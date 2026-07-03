@@ -1,0 +1,9 @@
+app: yeetworker
+compose: docker-compose.yaml
+environments: { production: { hosts: [local] } }
+roles:
+  worker: { service: worker, mode: recreate, ready: { exec: "test -f /nonexistent", interval: 1s, start_period: 1s, within: 6s } }
+  web:    { service: web,    mode: recreate, ready: { exec: "wget -qO- http://localhost:8080/", interval: 1s, start_period: 1s, within: 30s } }
+order: [worker, web]
+verify:
+  - { exec: "wget -qO- http://localhost:8080/", role: web }

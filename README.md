@@ -10,7 +10,29 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
-**M1 implemented — plan/apply, CUE, bootstrap.** On top of the M0 engine:
+**M2 implemented — trustworthy.** The design's §05/§06 mechanisms, built and proven against the
+ops scenarios:
+
+- **Journal** — append-only synced JSONL per deploy at `/var/lib/yeet/<app>/journal/`; every phase
+  and role records intent/result; GC tied to the retention window (a journal outlives its release).
+- **Lock + fencing** — noclobber lock at the authority host with TTL (host clock) + heartbeat;
+  breaking a fresh lock needs `--force` and prints the holder's journal tail. Every mutating
+  command is wrapped host-side against a fence file — a zombie runner dies locally (exit 97),
+  no cross-host call. One regime for every mutation: deploy, resume, abort, rollback, bootstrap.
+- **`yeet resume`** — journal-driven: completed phases/roles skip; a half-rolled role is adopted
+  via its `yeet.release` label; the new epoch fences the dead runner. Proven live: runner killed
+  mid-roll, resumed, **1,629 requests / 0 failures across the crash**.
+- **`yeet abort`** — reverts to the previous release by replaying it through the normal
+  choreography (zero-downtime for rolling roles), migration-gated like auto-rollback.
+- **Migration gate** — `$YEET_RESULT_FILE` protocol: `changed=false` opens the gate; anything else
+  fails safe. Verify failure → auto-rollback only if the gate is open or `migrations: expand-only`
+  is asserted; otherwise **halt-and-page**. `--no-rollback` always halts.
+- **`yeet audit`** — who deployed what, when, from which SHA, incl. failed and incomplete runs.
+
+M2 exit scenarios all pass as gated e2e tests (`YEET_E2E=1 go test ./e2e/`): kill-runner→resume,
+broken-worker→halt-with-old-serving, migrate-then-verify-fail→halt-and-page (unit).
+
+**M1 — plan/apply, CUE, bootstrap.** On top of the M0 engine:
 
 - `yeet plan` — host refresh, registry digest pinning (unpinned images stated, never hidden),
   unified diff against the live release, the exact command list with runtime branches as branches,

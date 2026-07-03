@@ -44,6 +44,20 @@ func rollFake() *transport.Fake {
 	return f
 }
 
+// The newcomer is renamed to <service>-<release> so `docker ps` is readable
+// (compose's --scale index is cosmetic; yeet tracks by label).
+func TestRollRoleTagsNewcomerWithRelease(t *testing.T) {
+	f := rollFake()
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
+		t.Fatalf("roll: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker rename NEW1 server-R1") {
+		t.Fatalf("newcomer must be renamed to <service>-<release> (no app prefix):\n%s", seq)
+	}
+}
+
 func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 	f := rollFake()
 	base := f.Dynamic

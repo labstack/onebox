@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/transport"
 )
 
@@ -30,6 +31,21 @@ func TestRecreateRoleSequence(t *testing.T) {
 	// worker drain is TERM: left to docker's own stop during recreate
 	if strings.Contains(seq, "--signal=TERM") {
 		t.Fatalf("TERM bleed should be left to stop/recreate:\n%s", seq)
+	}
+}
+
+// A local hook must see the FULL user@host in $YEET_TARGET (not the bare
+// hostname), so hooks can ssh/rsync the deploy host without hardcoding it.
+func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
+	f := &transport.Fake{HostName: "myhost", TargetName: "root@myhost"}
+	cfg := testConfig()
+	cfg.Hooks["pre_release"] = config.Hook{
+		Run:   `test "$YEET_TARGET" = "root@myhost" || { echo "got [$YEET_TARGET] want [root@myhost]" >&2; exit 1; }`,
+		Local: true,
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
+	if err := e.RunHook(context.Background(), "pre_release", "/r", "/r/compose.yaml"); err != nil {
+		t.Fatalf("YEET_TARGET must be the full user@host: %v", err)
 	}
 }
 

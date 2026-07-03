@@ -51,3 +51,22 @@ func TestCheckRollable(t *testing.T) {
 		t.Fatalf("server should be rollable:\n%s", joined)
 	}
 }
+
+func TestCheckRollableAdoptsComposeHealthcheck(t *testing.T) {
+	p, err := Load(context.Background(), "testdata/simple/docker-compose.yaml", "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testCfg()
+	// server: rolling, NO ready kind — its compose healthcheck is adopted
+	cfg.Roles["web"] = config.Role{Service: "server", Mode: "rolling"}
+	if errs := CheckRollable(p, cfg); len(errs) != 0 {
+		t.Fatalf("compose healthcheck must satisfy the readiness rule: %v", errs)
+	}
+	// worker: rolling, no ready, no compose healthcheck — must refuse
+	cfg.Roles["worker"] = config.Role{Service: "worker", Mode: "rolling"}
+	errs := CheckRollable(p, cfg)
+	if len(errs) == 0 || !strings.Contains(errs[0].Error(), "adopt") {
+		t.Fatalf("rolling without any healthcheck must be refused: %v", errs)
+	}
+}

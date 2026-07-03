@@ -84,16 +84,10 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	}
 
 	e.logf("phase pre-release")
-	if done["migrate"] {
-		e.logf("migrate: already complete (resume)")
-	} else {
-		_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: "migrate", Event: "intent"})
-		gateDetail, err := e.runMigrate(ctx, remoteDir, remoteCompose)
-		if err != nil {
-			_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: "migrate", Event: "result", Status: "fail", Detail: err.Error()})
-			return fmt.Errorf("pre-release: %w", err)
-		}
-		_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: "migrate", Event: "result", Status: "ok", Detail: gateDetail})
+	// Jobs run first, gated (migrations before new code). runJobs journals each
+	// step and sets the rollback gate.
+	if err := e.runJobs(ctx, jw, done, remoteDir, remoteCompose); err != nil {
+		return fmt.Errorf("pre-release: %w", err)
 	}
 	if err := e.RunHook(ctx, "pre_release", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("pre-release: %w", err)

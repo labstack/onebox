@@ -65,10 +65,10 @@ func TestDeployPhaseOrder(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	phases := []string{
-		"docker version",             // preflight
-		"run --rm --no-deps migrate", // pre-release hook (after upload)
-		"--scale server=2 server",    // release: web rolls first (order)
-		"--force-recreate worker",    // then worker recreates
+		"docker version",                                // preflight
+		"run --rm --no-deps migrate",                    // pre-release hook (after upload)
+		"--scale server=2 server",                       // release: web rolls first (order)
+		"--force-recreate worker",                       // then worker recreates
 		"curl -fsS -m 5 http://172.20.0.5:7500/healthz", // verify
 		"ln -sfn 'releases/R1'",                         // finalize: activate
 	}

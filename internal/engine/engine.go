@@ -27,6 +27,16 @@ type Options struct {
 	LocalDir string
 	// HTTPTimeout bounds runner-side url verify checks (default 10s).
 	HTTPTimeout time.Duration
+	// LockTTL is the deploy lock's freshness window on the host clock
+	// (default 10m); the heartbeat touches at TTL/10.
+	LockTTL time.Duration
+	// NoRollback: verify failures always halt, never auto-rollback.
+	NoRollback bool
+	// ForceLock breaks a held, unexpired lock (prints the holder first).
+	ForceLock bool
+	// GitSHA and ConfigHash ride into the journal and lock metadata.
+	GitSHA     string
+	ConfigHash string
 }
 
 type Engine struct {
@@ -34,6 +44,13 @@ type Engine struct {
 	Project *ctypes.Project
 	T       transport.Transport
 	Opts    Options
+
+	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
+	// mutate() guards every mutating command with it.
+	fenceVal string
+	// gateOpen: the migration gate state (design §06). Set by runMigrate, or
+	// by Resume from the journal. Closed by default — fail safe.
+	gateOpen bool
 }
 
 func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options) *Engine {

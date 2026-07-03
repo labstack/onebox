@@ -116,9 +116,10 @@ func Activate(ctx context.Context, t transport.Transport, app, id string) error 
 	return nil
 }
 
-// Prune removes releases beyond retain, never the current target. Images are
-// deliberately NOT pruned in M0 (design §06: rollback never pulls).
-func Prune(ctx context.Context, t transport.Transport, app string, retain int) ([]string, error) {
+// PruneCandidates returns releases beyond retain, never the current target.
+// Removal is the caller's job (the engine fences it). Images are deliberately
+// NOT pruned (design §06: rollback never pulls).
+func PruneCandidates(ctx context.Context, t transport.Transport, app string, retain int) ([]string, error) {
 	ids, err := list(ctx, t, app)
 	if err != nil || len(ids) <= retain {
 		return nil, err
@@ -127,12 +128,23 @@ func Prune(ctx context.Context, t transport.Transport, app string, retain int) (
 	if err != nil {
 		return nil, err
 	}
-	victims := ids[:len(ids)-retain]
+	var victims []string
+	for _, id := range ids[:len(ids)-retain] {
+		if id != cur {
+			victims = append(victims, id)
+		}
+	}
+	return victims, nil
+}
+
+// Prune removes releases beyond retain, never the current target.
+func Prune(ctx context.Context, t transport.Transport, app string, retain int) ([]string, error) {
+	victims, err := PruneCandidates(ctx, t, app, retain)
+	if err != nil {
+		return nil, err
+	}
 	var removed []string
 	for _, id := range victims {
-		if id == cur {
-			continue
-		}
 		res, err := t.Run(ctx, "rm -rf "+q(PathsFor(app).Releases+"/"+id))
 		if err != nil {
 			return removed, err

@@ -29,6 +29,9 @@ func Load(ctx context.Context, composePath, projectName string) (*types.Project,
 		cli.WithName(projectName),
 		cli.WithWorkingDirectory(filepath.Dir(composePath)),
 		cli.WithOsEnv,
+		// WithEnvFiles() resolves <project-dir>/.env; WithDotEnv reads it.
+		// Order matters: os env is merged first and wins (compose semantics).
+		cli.WithEnvFiles(),
 		cli.WithDotEnv,
 	)
 	if err != nil {

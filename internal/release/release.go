@@ -19,7 +19,11 @@ import (
 type Paths struct{ Base, Releases, Current string }
 
 func PathsFor(app string) Paths {
-	base := "/var/lib/yeet/" + app
+	root := os.Getenv("YEET_BASE_DIR") // test hook (e2e on macOS); default is the real layout
+	if root == "" {
+		root = "/var/lib/yeet"
+	}
+	base := root + "/" + app
 	return Paths{Base: base, Releases: base + "/releases", Current: base + "/current"}
 }
 

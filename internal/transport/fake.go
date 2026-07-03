@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 )
 
@@ -25,6 +26,15 @@ type Fake struct {
 func (f *Fake) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
 	f.Inputs = append(f.Inputs, stdin)
 	return f.Run(ctx, cmd)
+}
+
+func (f *Fake) RunStream(ctx context.Context, cmd string, out io.Writer) error {
+	res, err := f.Run(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	_, _ = io.WriteString(out, res.Stdout)
+	return nil
 }
 
 func (f *Fake) Run(_ context.Context, cmd string) (Result, error) {

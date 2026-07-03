@@ -26,15 +26,26 @@ func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Proje
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := cfg.Validate(); err != nil {
-		return nil, nil, err
+	// Defaults yeet can derive without the project: app from the directory,
+	// compose from the conventional file. Inference (which needs the project)
+	// runs after the load; Validate then checks the fully-resolved config.
+	dir := filepath.Dir(g.ConfigPath)
+	if cfg.App == "" {
+		cfg.App = config.DefaultApp(g.ConfigPath)
+	}
+	if cfg.Compose == "" {
+		cfg.Compose = config.FindCompose(dir)
 	}
 	composePath := cfg.Compose
 	if !filepath.IsAbs(composePath) {
-		composePath = filepath.Join(filepath.Dir(g.ConfigPath), composePath)
+		composePath = filepath.Join(dir, composePath)
 	}
 	p, err := compose.Load(ctx, composePath, cfg.App)
 	if err != nil {
+		return nil, nil, err
+	}
+	compose.Infer(cfg, p)
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, err
 	}
 	if err := compose.Classify(p, cfg); err != nil {
@@ -60,6 +71,23 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ok: %d services, %d roles\n", len(p.Services), len(cfg.Roles))
 			return nil
+		},
+	})
+
+	root.AddCommand(&cobra.Command{
+		Use:   "config",
+		Short: "print the fully-resolved config (defaults + inference applied)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _, err := loadAll(cmd.Context(), g)
+			if err != nil {
+				return err
+			}
+			b, err := cfg.YAML()
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	})
 
@@ -400,7 +428,9 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 	if err != nil {
 		return fail(err)
 	}
-	snapshot, err := os.ReadFile(g.ConfigPath)
+	// The snapshot is the RESOLVED config (inference applied), so rollback
+	// replays this deploy's exact choreography.
+	snapshot, err := cfg.YAML()
 	if err != nil {
 		return fail(err)
 	}

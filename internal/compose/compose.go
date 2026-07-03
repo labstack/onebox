@@ -23,16 +23,17 @@ const DrainFile = "/tmp/yeet-drain"
 
 var ident = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
-func Load(ctx context.Context, composePath, projectName string) (*types.Project, error) {
+func Load(ctx context.Context, composePath, projectName string, envFiles ...string) (*types.Project, error) {
 	opts, err := cli.NewProjectOptions(
 		[]string{composePath},
 		cli.WithName(projectName),
 		cli.WithWorkingDirectory(filepath.Dir(composePath)),
 		cli.WithOsEnv,
-		// WithEnvFiles() resolves <project-dir>/.env; WithDotEnv reads it.
-		// Order matters: os env is merged first and wins (compose semantics).
-		// These feed ${VAR} INTERPOLATION (image tags, etc.) — see below.
-		cli.WithEnvFiles(),
+		// WithEnvFiles(envFiles...) feeds ${VAR} INTERPOLATION (image tags, etc.)
+		// from the config's env_files; with none it falls back to <project-dir>/.env.
+		// WithDotEnv reads them. Order matters: os env is merged first and wins
+		// (compose semantics), and later env files override earlier ones.
+		cli.WithEnvFiles(envFiles...),
 		cli.WithDotEnv,
 		// Do NOT fold `env_file:` into each service's `environment:` map. That
 		// folding would inline the entire secret env file into the rendered

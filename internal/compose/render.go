@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +21,38 @@ func InjectSecretsEnv(p *types.Project, cfg *config.Config, relPath string) {
 		}
 		svc.EnvFiles = append(svc.EnvFiles, types.EnvFile{Path: relPath, Required: true})
 		p.Services[r.Service] = svc
+	}
+}
+
+// InjectEnvFiles appends the config's env_files to every role and job service
+// as `env_file:` entries, so they become container runtime env (and ship as
+// mode-preserved payload via StagePayload). Paths are resolved against the
+// project working dir so PayloadRewrites stages them like any other env_file.
+// Interpolation is fed separately by Load's WithEnvFiles. Call before Render.
+func InjectEnvFiles(p *types.Project, cfg *config.Config) {
+	if len(cfg.EnvFiles) == 0 {
+		return
+	}
+	targets := map[string]bool{}
+	for _, r := range cfg.Roles {
+		targets[r.Service] = true
+	}
+	for _, j := range cfg.Jobs {
+		targets[j] = true
+	}
+	for name := range targets {
+		svc, ok := p.Services[name]
+		if !ok {
+			continue
+		}
+		for _, ef := range cfg.EnvFiles {
+			path := ef
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(p.WorkingDir, path)
+			}
+			svc.EnvFiles = append(svc.EnvFiles, types.EnvFile{Path: path, Required: true})
+		}
+		p.Services[name] = svc
 	}
 }
 

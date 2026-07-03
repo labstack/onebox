@@ -23,6 +23,10 @@ type Options struct {
 	// ConvergeBuffer is the bounded wait for the proxy to observe a health
 	// change (rev 5 traffic-shift protocol, the "converged" step).
 	ConvergeBuffer time.Duration
+	// LocalDir is the config file's directory — cwd for local hooks.
+	LocalDir string
+	// HTTPTimeout bounds runner-side url verify checks (default 10s).
+	HTTPTimeout time.Duration
 }
 
 type Engine struct {
@@ -44,6 +48,9 @@ func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options
 	}
 	if o.ConvergeBuffer == 0 {
 		o.ConvergeBuffer = 3 * time.Second
+	}
+	if o.HTTPTimeout == 0 {
+		o.HTTPTimeout = 10 * time.Second
 	}
 	return &Engine{Cfg: cfg, Project: p, T: t, Opts: o}
 }

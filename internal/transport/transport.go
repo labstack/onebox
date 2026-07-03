@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 )
 
 type Result struct {
@@ -24,6 +25,9 @@ type Transport interface {
 	// Run executes cmd; err is a transport failure only — command failures
 	// are reported via Result.ExitCode.
 	Run(ctx context.Context, cmd string) (Result, error)
+	// RunInput is Run with stdin — for secrets that must never appear in a
+	// command string (docker login --password-stdin).
+	RunInput(ctx context.Context, cmd, stdin string) (Result, error)
 	Upload(ctx context.Context, localDir, remoteDir string) error
 	Host() string
 	Close() error
@@ -38,10 +42,17 @@ type Local struct {
 func NewLocal() *Local { return &Local{} }
 
 func (l *Local) Run(ctx context.Context, cmd string) (Result, error) {
+	return l.RunInput(ctx, cmd, "")
+}
+
+func (l *Local) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
 	if l.Logger != nil {
 		l.Logger("local", cmd)
 	}
 	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	if stdin != "" {
+		c.Stdin = strings.NewReader(stdin)
+	}
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb
 	err := c.Run()

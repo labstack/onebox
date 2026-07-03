@@ -3,13 +3,51 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+
+	"github.com/labstack/yeet/internal/config"
 )
 
+// verifyURL is the runner-side edge check (yeet.sh's smoke test, absorbed).
+func (e *Engine) verifyURL(ctx context.Context, chk config.VerifyCheck) error {
+	client := &http.Client{Timeout: e.Opts.HTTPTimeout}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, chk.URL, nil)
+	if err != nil {
+		return fmt.Errorf("verify %s: %w", chk.URL, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("verify %s: %w", chk.URL, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("verify %s: status %d", chk.URL, resp.StatusCode)
+	}
+	if chk.Contains != "" && !strings.Contains(string(body), chk.Contains) {
+		return fmt.Errorf("verify %s: body does not contain %q", chk.URL, chk.Contains)
+	}
+	return nil
+}
+
 // Verify runs host-side checks against the container network — never through
-// the edge (design §04: an edge blip must not fail a healthy release).
+// the edge (design §04: an edge blip must not fail a healthy release). URL
+// checks go through the edge from the runner and are advisory territory.
 func (e *Engine) Verify(ctx context.Context) error {
 	for _, chk := range e.Cfg.Verify {
+		if chk.URL != "" {
+			if err := e.verifyURL(ctx, chk); err != nil {
+				if chk.Advisory {
+					e.logf("warn (advisory): %v", err)
+					continue
+				}
+				return err
+			}
+			e.logf("verify %s: ok", chk.URL)
+			continue
+		}
 		role, ok := e.Cfg.Roles[chk.Role]
 		if !ok {
 			return fmt.Errorf("verify: unknown role %q", chk.Role)

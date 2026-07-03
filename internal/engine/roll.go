@@ -82,12 +82,6 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 		newID = fresh[0]
 	}
 
-	// Give the newcomer a deterministic, release-tagged name so `docker ps` is
-	// readable and tells you which release each container is — compose's
-	// --scale index is cosmetic (yeet tracks containers by label, and the proxy
-	// routes by label). Best-effort: a failure here never fails the deploy.
-	e.renameToRelease(ctx, newID, svc, releaseID)
-
 	within, pollEvery := readyTiming(role)
 	// join: the newcomer becomes a routable endpoint via its healthcheck
 	if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
@@ -97,6 +91,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	}
 	if len(old) == 0 {
 		e.logf("%s: no old container to drain", roleName)
+		e.renameToService(ctx, newID, svc)
 		return nil
 	}
 	oldID := old[0]
@@ -130,19 +125,24 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	if _, err := e.mutate(ctx, "docker rm "+oldID); err != nil {
 		return err
 	}
+	// Only now that the old container is gone is the plain service name free —
+	// give it to the survivor so `docker ps` reads cleanly (a rolling service
+	// can't carry a fixed container_name; two copies coexist mid-roll).
+	e.renameToService(ctx, newID, svc)
 	e.logf("%s: rolled %s -> %s", roleName, oldID, newID)
 	return nil
 }
 
-// renameToRelease renames a rolling container to <service>-<release>. Cosmetic
-// and best-effort — yeet identifies containers by label, so a failed or
-// reverted rename never affects correctness. Idempotent on resume.
-func (e *Engine) renameToRelease(ctx context.Context, id, svc, releaseID string) {
-	name := svc + "-" + releaseID
-	if res, err := e.T.Run(ctx, "docker inspect -f '{{.Name}}' "+id); err == nil && strings.TrimSpace(res.Stdout) == "/"+name {
+// renameToService gives the surviving rolling container the plain service name
+// (e.g. `server`). Called only once the previous container is gone, so the name
+// is free even on a same-version redeploy. Cosmetic and best-effort — yeet
+// identifies containers by label, so a failed rename never affects correctness.
+// Idempotent on resume.
+func (e *Engine) renameToService(ctx context.Context, id, svc string) {
+	if res, err := e.T.Run(ctx, "docker inspect -f '{{.Name}}' "+id); err == nil && strings.TrimSpace(res.Stdout) == "/"+svc {
 		return // already named (resume)
 	}
-	_, _ = e.mutate(ctx, "docker rename "+id+" "+name)
+	_, _ = e.mutate(ctx, "docker rename "+id+" "+svc)
 }
 
 // readyTiming: gate budget and poll interval, with defaults for roles whose

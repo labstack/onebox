@@ -135,6 +135,9 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = config.Hook{Run: "bun run build", Local: true}
+	// A bootstrap hook belongs to `yeet bootstrap`, not deploy — it must NOT
+	// appear in the deploy plan (that would claim a step that never runs).
+	cfg.Hooks["bootstrap"] = config.Hook{Run: "scripts/bootstrap.sh", Local: true}
 	e := New(cfg, testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	lines := strings.Join(e.Describe("<release>/compose.yaml"), "\n")
 	for _, want := range []string{
@@ -147,5 +150,8 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 		if !strings.Contains(lines, want) {
 			t.Fatalf("describe missing %q:\n%s", want, lines)
 		}
+	}
+	if strings.Contains(lines, "hook bootstrap") {
+		t.Fatalf("bootstrap hook must not appear in a deploy plan:\n%s", lines)
 	}
 }

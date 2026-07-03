@@ -90,3 +90,31 @@ func TestRenderInjectsDrainGuard(t *testing.T) {
 		t.Fatalf("render missing injections:\n%s", out)
 	}
 }
+
+// render must never print interpolated secret values — a secret referenced
+// inline in environment is redacted to a content hash (design §07).
+func TestRenderRedactsEnvSecrets(t *testing.T) {
+	dir := writeProject(t)
+	composeYAML := `
+services:
+  server:
+    image: ghcr.io/x/app:v1
+    environment:
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_live_TOPSECRET}
+  postgres:
+    image: postgres:17
+`
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(composeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, dir, "render")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if strings.Contains(out, "sk_live_TOPSECRET") {
+		t.Fatalf("render leaked a secret value:\n%s", out)
+	}
+	if !strings.Contains(out, "STRIPE_SECRET_KEY") || !strings.Contains(out, "redacted:sha256:") {
+		t.Fatalf("render should keep the key and show a hash:\n%s", out)
+	}
+}

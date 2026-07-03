@@ -88,6 +88,31 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 	}
 }
 
+func TestAcquireLockSameDeployReclaims(t *testing.T) {
+	creates := 0
+	f := &transport.Fake{}
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "set -C") {
+			creates++
+			if creates == 1 {
+				return transport.Result{ExitCode: 1}, true
+			}
+			return transport.Result{}, true
+		}
+		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/lock'") {
+			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R9","epoch":6}`}, true
+		}
+		if strings.Contains(cmd, "date +%s") {
+			return transport.Result{Stdout: "10\n"}, true // fresh — but same deploy
+		}
+		return transport.Result{}, false
+	}
+	e := lockEngine(t, f)
+	if _, err := e.AcquireLock(context.Background(), "R9", false); err != nil {
+		t.Fatalf("same-deploy lock must be reclaimable (resume after crash): %v", err)
+	}
+}
+
 func TestForceBreakPrintsHolderJournalTail(t *testing.T) {
 	creates := 0
 	f := &transport.Fake{}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -26,15 +27,26 @@ func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Proje
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := cfg.Validate(); err != nil {
-		return nil, nil, err
+	// Defaults yeet can derive without the project: app from the directory,
+	// compose from the conventional file. Inference (which needs the project)
+	// runs after the load; Validate then checks the fully-resolved config.
+	dir := filepath.Dir(g.ConfigPath)
+	if cfg.App == "" {
+		cfg.App = config.DefaultApp(g.ConfigPath)
+	}
+	if cfg.Compose == "" {
+		cfg.Compose = config.FindCompose(dir)
 	}
 	composePath := cfg.Compose
 	if !filepath.IsAbs(composePath) {
-		composePath = filepath.Join(filepath.Dir(g.ConfigPath), composePath)
+		composePath = filepath.Join(dir, composePath)
 	}
 	p, err := compose.Load(ctx, composePath, cfg.App)
 	if err != nil {
+		return nil, nil, err
+	}
+	compose.Infer(cfg, p)
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, err
 	}
 	if err := compose.Classify(p, cfg); err != nil {
@@ -60,6 +72,23 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ok: %d services, %d roles\n", len(p.Services), len(cfg.Roles))
 			return nil
+		},
+	})
+
+	root.AddCommand(&cobra.Command{
+		Use:   "config",
+		Short: "print the fully-resolved config (defaults + inference applied)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _, err := loadAll(cmd.Context(), g)
+			if err != nil {
+				return err
+			}
+			b, err := cfg.YAML()
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	})
 
@@ -98,14 +127,16 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(planCmd)
 
 	var planFile string
+	var deployYes bool
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
-		Short: "release to the environment host with health-gated zero downtime",
+		Short: "show the plan, confirm, and release with health-gated zero downtime",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, planFile, false)
+			return runDeploy(cmd, g, planFile, false, deployYes)
 		},
 	}
-	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a plan artifact (binds config + host state)")
+	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; no prompt)")
+	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
 	deployCmd.Flags().BoolVar(&g.Force, "force", false, "break a held deploy lock (prints the holder first)")
 	root.AddCommand(deployCmd)
@@ -138,7 +169,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, "", true)
+			return runDeploy(cmd, g, "", true, true)
 		},
 	})
 
@@ -216,29 +247,43 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(auditCmd)
 }
 
-func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
+// preparedPlan bundles a computed-and-displayed plan with the connected engine
+// and staged release, so `plan` (save the artifact) and interactive `deploy`
+// (prompt, then apply the already-staged bytes) share one code path.
+type preparedPlan struct {
+	e       *engine.Engine
+	art     *engine.Artifact
+	staging string
+	cleanup func() // closes the connection and removes the staging dir
+}
+
+// buildPlan refreshes host state, pins images, stages the release, prints the
+// fidelity contract + redacted diff + images + command list, and returns the
+// artifact and staging. It mutates nothing on the host.
+func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 	ctx := cmd.Context()
 	cfg, p, err := loadAll(ctx, g)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
-		return fmt.Errorf("not rollable: %v", errs)
+		return nil, fmt.Errorf("not rollable: %v", errs)
 	}
-	e, cleanup, err := connect(cmd, g, cfg, p)
+	e, closeConn, err := connect(cmd, g, cfg, p)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer cleanup()
+	done := func() { closeConn() }
+	fail := func(err error) (*preparedPlan, error) { done(); return nil, err }
 	out := cmd.OutOrStdout()
 
 	hs, err := e.Refresh(ctx)
 	if err != nil {
-		return fmt.Errorf("refresh: %w", err)
+		return fail(fmt.Errorf("refresh: %w", err))
 	}
 	pins, err := e.PinImages(ctx)
 	if err != nil {
-		return fmt.Errorf("pin images: %w", err)
+		return fail(fmt.Errorf("pin images: %w", err))
 	}
 	id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath)))
 	// Render through the exact staging path apply uses (p is already pinned by
@@ -246,19 +291,19 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 	// apply re-renders. The canonical bytes are what release.Stage wrote.
 	staging, sc, err := stageRelease(g, cfg, p, id)
 	if err != nil {
-		return err
+		return fail(err)
 	}
-	defer sc()
+	done = func() { sc(); closeConn() } // staging now needs cleanup too
 	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	// Everything displayed or persisted is redacted: environment VALUES become
 	// content hashes so secrets never reach the terminal or the plan file
 	// (design §07). Only the hash travels.
 	renderedRedacted, err := compose.RedactEnvYAML(rendered)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 
 	fmt.Fprintln(out, engine.FidelityContract)
@@ -269,7 +314,7 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 	if hs.CurrentRelease != "" {
 		res, err := e.T.Run(ctx, "cat '"+release.PathsFor(cfg.App).Releases+"/"+hs.CurrentRelease+"/compose.yaml' 2>/dev/null || true")
 		if err != nil {
-			return err
+			return fail(err)
 		}
 		live = res.Stdout
 	}
@@ -285,7 +330,7 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 		FromFile: "live (" + orNone(hs.CurrentRelease) + ")", ToFile: "planned (" + id + ")", Context: 3,
 	})
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	if diff == "" {
 		fmt.Fprintln(out, "rendered compose: no change against live release")
@@ -312,7 +357,7 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 
 	cfgBytes, err := os.ReadFile(g.ConfigPath)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	a := &engine.Artifact{
 		ID: id, App: cfg.App, Env: g.Env, CreatedAt: time.Now(),
@@ -321,10 +366,20 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 		HostState:  hs, PinnedImages: pins,
 		RenderedCompose: string(renderedRedacted), Commands: commands,
 	}
-	if err := a.Save(outPath); err != nil {
+	return &preparedPlan{e: e, art: a, staging: staging, cleanup: done}, nil
+}
+
+// runPlan writes the plan artifact for the CI/review flow.
+func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
+	pl, err := buildPlan(cmd, g)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "\nplan written to %s — apply with: yeet deploy --plan %s\n", outPath, outPath)
+	defer pl.cleanup()
+	if err := pl.art.Save(outPath); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s — apply with: yeet deploy --plan %s\n", outPath, outPath)
 	return nil
 }
 
@@ -400,7 +455,9 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 	if err != nil {
 		return fail(err)
 	}
-	snapshot, err := os.ReadFile(g.ConfigPath)
+	// The snapshot is the RESOLVED config (inference applied), so rollback
+	// replays this deploy's exact choreography.
+	snapshot, err := cfg.YAML()
 	if err != nil {
 		return fail(err)
 	}
@@ -415,35 +472,54 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 	return staging, cleanup, nil
 }
 
-func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback bool) error {
+func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, yes bool) error {
 	ctx := cmd.Context()
-	cfg, p, err := loadAll(ctx, g)
-	if err != nil {
-		return err
-	}
-	if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
-		return fmt.Errorf("not rollable: %v", errs)
-	}
-	e, cleanup, err := connect(cmd, g, cfg, p)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	if rollback {
-		return e.Rollback(ctx)
-	}
 
-	if planFile != "" {
+	// rollback and the CI-bound `--plan` flow need a connection but not a
+	// freshly-shown plan.
+	if rollback || planFile != "" {
+		cfg, p, err := loadAll(ctx, g)
+		if err != nil {
+			return err
+		}
+		if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
+			return fmt.Errorf("not rollable: %v", errs)
+		}
+		e, cleanup, err := connect(cmd, g, cfg, p)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		if rollback {
+			return e.Rollback(ctx)
+		}
 		return applyPlan(cmd, g, cfg, p, e, planFile)
 	}
 
-	id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath)))
-	staging, sc, err := stageRelease(g, cfg, p, id)
+	// Interactive deploy: show the plan, confirm, then apply the exact bytes we
+	// just staged — one command in place of plan → eyeball → deploy --plan.
+	pl, err := buildPlan(cmd, g)
 	if err != nil {
 		return err
 	}
-	defer sc()
-	return e.Deploy(ctx, id, staging)
+	defer pl.cleanup()
+	if !yes && !confirm(cmd, "\nApply this plan?") {
+		fmt.Fprintln(cmd.OutOrStdout(), "not applied")
+		return nil
+	}
+	return pl.e.Deploy(ctx, pl.art.ID, pl.staging)
+}
+
+// confirm reads a yes/no answer; anything but y/yes (incl. EOF on a
+// non-interactive stdin) is No — deploys never proceed on ambiguity.
+func confirm(cmd *cobra.Command, prompt string) bool {
+	fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N] ", prompt)
+	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	switch strings.TrimSpace(strings.ToLower(line)) {
+	case "y", "yes":
+		return true
+	}
+	return false
 }
 
 // applyPlan re-renders the release from source and deploys it after verifying

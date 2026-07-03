@@ -183,8 +183,25 @@ const FidelityContract = `Plan fidelity (highest to lowest):
 func (e *Engine) Describe(remoteCompose string) []string {
 	cc := e.composeCmd(remoteCompose)
 	var out []string
+
+	// Jobs run first, gated. A job with a same-named hook uses that command;
+	// otherwise it auto-runs `compose run --rm`.
+	steps := e.gateSteps()
+	isStep := map[string]bool{}
+	for _, job := range steps {
+		isStep[job] = true
+		cmdStr := cc + " run --rm --no-deps " + job
+		if h, ok := e.Cfg.Hooks[job]; ok && h.Run != "" {
+			cmdStr = h.Run
+		}
+		out = append(out, fmt.Sprintf("job %s (gated — changed=false keeps rollback open): %s", job, cmdStr))
+	}
+
 	hooks := make([]string, 0, len(e.Cfg.Hooks))
 	for name := range e.Cfg.Hooks {
+		if isStep[name] {
+			continue // shown as a job above, not a standalone hook
+		}
 		hooks = append(hooks, name)
 	}
 	sort.Strings(hooks)

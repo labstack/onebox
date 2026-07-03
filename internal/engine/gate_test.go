@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/transport"
 )
 
@@ -25,7 +26,7 @@ func gateFake(migrateResult string) *transport.Fake {
 				}
 			}
 			return transport.Result{ExitCode: 22, Stderr: "500"}, true
-		case strings.Contains(cmd, "cat") && strings.Contains(cmd, ".migrate-result"):
+		case strings.Contains(cmd, "cat") && strings.Contains(cmd, "job-migrate-result"):
 			return transport.Result{Stdout: migrateResult}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R0\n"}, true
@@ -54,6 +55,26 @@ func TestGateOpenAutoRollsBack(t *testing.T) {
 	}
 	if strings.Contains(seq, "ln -sfn 'releases/R1'") {
 		t.Fatal("failed release must not be activated")
+	}
+}
+
+// A job with no same-named hook auto-runs `compose run --rm --no-deps <job>` —
+// no `migrate` hook needed in yeet.yml.
+func TestJobAutoRunsWithoutHook(t *testing.T) {
+	cfg := testConfig()
+	cfg.Hooks = map[string]config.Hook{} // drop the migrate hook; migrate stays a job
+	f := happyFake()
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "run --rm --no-deps migrate") {
+		t.Fatalf("a job without a hook must auto-run compose run:\n%s", seq)
+	}
+	// gate protocol still applies to the auto-run job.
+	if !strings.Contains(seq, "YEET_RESULT_FILE=") {
+		t.Fatalf("auto-run job must run under the gate protocol:\n%s", seq)
 	}
 }
 

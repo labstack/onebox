@@ -17,6 +17,20 @@ func TestLocalRunCapturesExitAndOutput(t *testing.T) {
 	}
 }
 
+func TestParseAddr(t *testing.T) {
+	cases := []struct{ in, user, host, port string }{
+		{"deploy@monk.labstack.net", "deploy", "monk.labstack.net", "22"},
+		{"monk.labstack.net:2222", "", "monk.labstack.net", "2222"},
+		{"root@10.0.0.5:22", "root", "10.0.0.5", "22"},
+	}
+	for _, c := range cases {
+		u, h, p := ParseAddr(c.in)
+		if u != c.user || h != c.host || p != c.port {
+			t.Fatalf("%s -> %s,%s,%s", c.in, u, h, p)
+		}
+	}
+}
+
 func TestFakeScriptsAndRecords(t *testing.T) {
 	f := &Fake{Script: []Rule{
 		{Match: regexp.MustCompile(`docker inspect`), Result: Result{Stdout: "healthy\n"}},

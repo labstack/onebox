@@ -168,7 +168,7 @@ func (c *Config) Validate() error {
 	}
 	for name, e := range c.Environments {
 		if len(e.Hosts) != 1 {
-			return fmt.Errorf("environments.%s: M0 supports exactly one host, got %d", name, len(e.Hosts))
+			return fmt.Errorf("environments.%s: yeet is single-host by design — exactly one host per environment, got %d", name, len(e.Hosts))
 		}
 	}
 	if len(c.Roles) == 0 {

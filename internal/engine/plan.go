@@ -229,10 +229,9 @@ func (e *Engine) Describe(remoteCompose string) []string {
 		if role.Mode == "rolling" {
 			out = append(out,
 				fmt.Sprintf("  %s up -d --no-deps --no-recreate --scale %s=2 %s", cc, svc, svc),
-				fmt.Sprintf("  docker rename <new> %s-<release>", svc),
 				"  wait <new> healthy (ready gate)",
 				"    ├─ healthy → converge → docker exec <old> touch /tmp/yeet-drain → wait unhealthy → converge",
-				fmt.Sprintf("    │    └─ docker stop -t %d <old> && docker rm <old>", stopGraceSeconds),
+				fmt.Sprintf("    │    └─ docker stop -t %d <old> && docker rm <old> && docker rename <new> %s", stopGraceSeconds, svc),
 				"    └─ unhealthy/timeout → docker rm -f <new>; old keeps serving; deploy halts",
 			)
 		} else {

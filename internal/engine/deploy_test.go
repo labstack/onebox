@@ -72,7 +72,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 	// journal lifecycle in order
 	ordered := []string{
 		`"event":"start"`,
-		`"sub_step":"migrate","event":"result","status":"ok"`,
+		`"sub_step":"job:migrate","event":"result","status":"ok"`,
 		`"role":"web","event":"result","status":"ok"`,
 		`"role":"worker","event":"result","status":"ok"`,
 		`"phase":"verify","event":"result","status":"ok"`,

@@ -174,9 +174,11 @@ func Summarize(recs []Record) Summary {
 			switch {
 			case r.Phase == "transfer":
 				s.Done["transfer"] = true
-			case r.SubStep == "migrate":
+			case r.SubStep == "migrate": // legacy journals (pre auto-run jobs)
 				s.Done["migrate"] = true
 				s.GateOpen = strings.Contains(r.Detail, "changed=false")
+			case strings.HasPrefix(r.SubStep, "job:"):
+				s.Done[r.SubStep] = true
 			case r.Phase == "release" && r.Role != "":
 				s.Done["release:"+r.Role] = true
 			}

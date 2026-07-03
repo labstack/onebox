@@ -40,8 +40,12 @@ type Artifact struct {
 }
 
 func HashBytes(b []byte) string {
+	return "sha256:" + HashBytesHex(b)
+}
+
+func HashBytesHex(b []byte) string {
 	h := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(h[:])
+	return hex.EncodeToString(h[:])
 }
 
 func (a *Artifact) Save(path string) error {

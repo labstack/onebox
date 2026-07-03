@@ -10,7 +10,24 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
-**M3 implemented — second app, single-host by decision.**
+**CLI surface complete (design §08), single-host by design.** The gap-closure pass added the
+last canonical-shape verbs:
+
+- `yeet accessory apply` — planned convergence: unified diff vs the live release, destructive-mount
+  detection (named volume / absolute bind dropped → refuse without `--force`), converge under
+  lock+fence+journal. Never mid-deploy.
+- `yeet secrets edit | push` — SOPS+age: `secrets: {sops: file}` decrypts runner-side into a
+  mode-600 env file inside each release dir, injected as `env_file` on role services (closed set,
+  declared). `push` hash-compares against the live release and bounces roles only on change;
+  content never appears in a command or log, only hashes.
+- `yeet destroy` — typed app-name confirmation; volumes kept unless `--volumes` (data loss is
+  opt-in); takes the lock, tears down, removes yeet's state dir.
+- `yeet logs [role] [-f] [--tail N]` / `yeet exec <role> -- <cmd>` — streamed over the transport.
+- Single-host is now enforced by the schema (exactly one host per environment) and stated as the
+  product boundary in the design (§02/§05); the multi-host protocol remains a sketch, deliberately
+  unbuilt. `bootstrap` installs docker when absent — the one universal provisioning step.
+
+**M3 — second app.**
 
 - **App #2 onboarded with zero engine changes**: `yeet init` against `../unlock` classified
   traefik→accessory, unlock→rolling candidate, and flagged its exact blocker
@@ -113,7 +130,7 @@ Dokploy, Coolify) offers together:
 - **M0** — walking skeleton: deploy [monk](../monk) end-to-end, zero-downtime, from the new binary
 - **M1** — plan/apply + YAML config (embedded CUE validation); retire monk's `yeet.sh`
 - **M2** — trustworthy: journal, fencing, resume/abort, migration gate, per-role verify
-- **M3** — second app + multi-host executor
+- **M3** — second app (multi-host: out of scope by design — no fleet need)
 - **M3.5** — out-of-distribution validator app (generality proven, not assumed)
 - **M4** — open-source release
 

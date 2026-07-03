@@ -39,7 +39,9 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 		svc.Labels["yeet.app"] = cfg.App
 		svc.Labels["yeet.release"] = releaseID
 
-		probe := adoptedProbe(svc)
+		orig := svc.HealthCheck
+		adopted := adoptedProbe(svc)
+		probe := adopted
 		if r.Ready != nil && r.Ready.HTTP != "" {
 			probe = fmt.Sprintf("curl -fsS http://localhost:%d%s || wget -qO- http://localhost:%d%s",
 				r.Ready.Port, r.Ready.HTTP, r.Ready.Port, r.Ready.HTTP)
@@ -47,17 +49,24 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 			probe = r.Ready.Exec
 		}
 		if probe != "" {
-			interval := 5 * time.Second
-			start := 5 * time.Second
-			if r.Ready != nil {
+			// timing: ready knobs win; an ADOPTED healthcheck keeps its own
+			// tuning (the app author calibrated it); else defaults
+			interval, start := 5*time.Second, 5*time.Second
+			var retries *uint64
+			if probe == adopted && orig != nil {
+				if orig.Interval != nil {
+					interval = time.Duration(*orig.Interval)
+				}
+				if orig.StartPeriod != nil {
+					start = time.Duration(*orig.StartPeriod)
+				}
+				retries = orig.Retries
+			}
+			if r.Ready != nil && r.Ready.Interval > 0 {
 				interval = time.Duration(r.Ready.Interval)
+			}
+			if r.Ready != nil && r.Ready.StartPeriod > 0 {
 				start = time.Duration(r.Ready.StartPeriod)
-			}
-			if interval == 0 {
-				interval = 5 * time.Second
-			}
-			if start == 0 {
-				start = 5 * time.Second
 			}
 			iv, sp := types.Duration(interval), types.Duration(start)
 			svc.HealthCheck = &types.HealthCheckConfig{
@@ -66,6 +75,7 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 				Test:        types.HealthCheckTest{"CMD-SHELL", fmt.Sprintf("test ! -f %s && ( %s )", DrainFile, probe)},
 				Interval:    &iv,
 				StartPeriod: &sp,
+				Retries:     retries,
 			}
 		}
 		p.Services[r.Service] = svc

@@ -21,6 +21,7 @@ import (
 type SSH struct {
 	client *ssh.Client
 	host   string
+	target string // user@host — the full ssh/rsync destination
 	Logger func(host, cmd string)
 }
 
@@ -73,7 +74,7 @@ func NewSSH(addr string) (*SSH, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
 	}
-	return &SSH{client: client, host: host}, nil
+	return &SSH{client: client, host: host, target: user + "@" + host}, nil
 }
 
 func (s *SSH) Run(ctx context.Context, cmd string) (Result, error) {
@@ -202,5 +203,6 @@ func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {
 	return nil
 }
 
-func (s *SSH) Host() string { return s.host }
-func (s *SSH) Close() error { return s.client.Close() }
+func (s *SSH) Host() string   { return s.host }
+func (s *SSH) Target() string { return s.target }
+func (s *SSH) Close() error   { return s.client.Close() }

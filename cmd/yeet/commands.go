@@ -47,11 +47,19 @@ func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Proje
 	composeDir := filepath.Dir(composePath)
 	var envFiles []string
 	for _, ef := range cfg.EnvFiles {
-		if filepath.IsAbs(ef) {
-			envFiles = append(envFiles, ef)
-		} else {
-			envFiles = append(envFiles, filepath.Join(composeDir, ef))
+		abs := ef
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(composeDir, ef)
 		}
+		// An env file must live under the project dir so it ships with the
+		// release (StagePayload only stages sources inside it). One outside
+		// would leave a local-machine path in the compose shipped to the host —
+		// a silent runtime failure. Reject it here, mirroring PayloadRewrites'
+		// staging predicate, so `yeet validate` catches it.
+		if rel, err := filepath.Rel(composeDir, abs); err != nil || strings.HasPrefix(rel, "..") {
+			return nil, nil, fmt.Errorf("env_files: %q resolves outside the project (%s) — it must live with the compose file so it ships with the release", ef, composeDir)
+		}
+		envFiles = append(envFiles, abs)
 	}
 	p, err := compose.Load(ctx, composePath, cfg.App, envFiles...)
 	if err != nil {
@@ -457,6 +465,10 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 	cleanup := func() { os.RemoveAll(staging) }
 	fail := func(err error) (string, func(), error) { cleanup(); return "", nil, err }
 
+	// Order matters: compose applies env_file entries left to right, later
+	// overriding earlier. env_files go first, then the SOPS secrets file last,
+	// so a decrypted secret always wins over a same-named plaintext key.
+	compose.InjectEnvFiles(p, cfg)
 	if cfg.Secrets != nil {
 		envBytes, err := secrets.Render(filepath.Dir(g.ConfigPath), cfg.Secrets.Sops)
 		if err != nil {
@@ -467,7 +479,6 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 		}
 		compose.InjectSecretsEnv(p, cfg, "./"+secrets.EnvFileName)
 	}
-	compose.InjectEnvFiles(p, cfg)
 	rendered, err := compose.Render(p, cfg, id)
 	if err != nil {
 		return fail(err)

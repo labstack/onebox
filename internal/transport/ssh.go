@@ -113,6 +113,27 @@ func (s *SSH) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
 	return res, nil
 }
 
+func (s *SSH) RunStream(ctx context.Context, cmd string, out io.Writer) error {
+	if s.Logger != nil {
+		s.Logger(s.host, cmd)
+	}
+	sess, err := s.client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	sess.Stdout, sess.Stderr = out, out
+	done := make(chan error, 1)
+	go func() { done <- sess.Run(cmd) }()
+	select {
+	case <-ctx.Done():
+		_ = sess.Signal(ssh.SIGKILL)
+		return ctx.Err()
+	case err := <-done:
+		return err
+	}
+}
+
 // Upload streams the staging dir as tar.gz into `tar -xzf -` on the host —
 // no scp/sftp dependency, one round trip.
 func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {

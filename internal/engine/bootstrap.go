@@ -24,6 +24,23 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 	}
 
+	// the runtime is yeet's own precondition — the one universal piece of
+	// host provisioning (design §03: bootstrap provisions the runtime).
+	// Everything vendor-flavored (VPNs, NFS, kernel tuning) stays in the
+	// user's bootstrap hook.
+	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		e.logf("bootstrap: no container runtime — installing docker (get.docker.com)")
+		ires, err := e.T.Run(ctx, "curl -fsSL https://get.docker.com | sh && systemctl enable --now docker")
+		if err != nil {
+			return err
+		}
+		if ires.ExitCode != 0 {
+			return fmt.Errorf("docker install failed: %s", strings.TrimSpace(ires.Stderr))
+		}
+	}
+
 	e.logf("bootstrap: base dirs")
 	p := release.PathsFor(e.Cfg.App)
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases)); err != nil || res.ExitCode != 0 {

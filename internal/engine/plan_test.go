@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/transport"
 )
 
@@ -132,13 +133,16 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 }
 
 func TestDescribeShowsBranchesAndHooks(t *testing.T) {
-	e := New(testConfig(), testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	cfg := testConfig()
+	cfg.Hooks["pre_release"] = config.Hook{Run: "bun run build", Local: true}
+	e := New(cfg, testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	lines := strings.Join(e.Describe("<release>/compose.yaml"), "\n")
 	for _, want := range []string{
 		"--scale server=2",
-		"unhealthy/timeout →", // the branch
-		"--force-recreate worker",
-		"unplannable", // hooks flagged
+		"unhealthy/timeout →",                  // the branch
+		"--force-recreate worker",              // recreate role
+		"job migrate (gated",                   // the migrate job, auto-run + gated
+		"hook pre_release (local, unplannable", // a real hook still flagged
 	} {
 		if !strings.Contains(lines, want) {
 			t.Fatalf("describe missing %q:\n%s", want, lines)

@@ -135,6 +135,11 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, rollback bool) error {
 		return err
 	}
 	defer os.RemoveAll(staging)
+	rewrites, err := compose.StagePayload(p, staging)
+	if err != nil {
+		return err
+	}
+	rendered = compose.RewriteSources(rendered, rewrites)
 	if err := release.Stage(staging, rendered, snapshot); err != nil {
 		return err
 	}

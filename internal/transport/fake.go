@@ -17,8 +17,14 @@ type Fake struct {
 	Script   []Rule
 	Dynamic  func(cmd string) (Result, bool)
 	Commands []string
+	Inputs   []string // stdin passed to RunInput calls
 	Uploads  []string
 	HostName string
+}
+
+func (f *Fake) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
+	f.Inputs = append(f.Inputs, stdin)
+	return f.Run(ctx, cmd)
 }
 
 func (f *Fake) Run(_ context.Context, cmd string) (Result, error) {

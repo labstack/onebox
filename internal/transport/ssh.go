@@ -77,6 +77,10 @@ func NewSSH(addr string) (*SSH, error) {
 }
 
 func (s *SSH) Run(ctx context.Context, cmd string) (Result, error) {
+	return s.RunInput(ctx, cmd, "")
+}
+
+func (s *SSH) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
 	if s.Logger != nil {
 		s.Logger(s.host, cmd)
 	}
@@ -87,6 +91,9 @@ func (s *SSH) Run(ctx context.Context, cmd string) (Result, error) {
 	defer sess.Close()
 	var out, errb strings.Builder
 	sess.Stdout, sess.Stderr = &out, &errb
+	if stdin != "" {
+		sess.Stdin = strings.NewReader(stdin)
+	}
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(cmd) }()
 	select {

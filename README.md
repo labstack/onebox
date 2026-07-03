@@ -113,7 +113,7 @@ Dokploy, Coolify) offers together:
 - **M0** — walking skeleton: deploy [monk](../monk) end-to-end, zero-downtime, from the new binary
 - **M1** — plan/apply + YAML config (embedded CUE validation); retire monk's `yeet.sh`
 - **M2** — trustworthy: journal, fencing, resume/abort, migration gate, per-role verify
-- **M3** — second app + multi-host executor
+- **M3** — second app (multi-host: out of scope by design — no fleet need)
 - **M3.5** — out-of-distribution validator app (generality proven, not assumed)
 - **M4** — open-source release
 

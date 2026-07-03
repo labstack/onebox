@@ -51,7 +51,8 @@
 #Config: {
 	app!:     =~"^[a-z][a-z0-9-]*$"
 	compose!: string
-	environments!: {[string]: {hosts!: [string, ...string]}}
+	// exactly one host: yeet is single-host by design
+	environments!: {[string]: {hosts!: [string]}}
 	roles!: {[#Ident]: #Role}
 	order?: [...#Ident]
 	accessories?: [...#Ident]

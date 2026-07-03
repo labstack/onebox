@@ -10,7 +10,23 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
-**M2 implemented — trustworthy.** The design's §05/§06 mechanisms, built and proven against the
+**M3 implemented — second app, single-host by decision.**
+
+- **App #2 onboarded with zero engine changes**: `yeet init` against `../unlock` classified
+  traefik→accessory, unlock→rolling candidate, and flagged its exact blocker
+  (`container_name`); the curated `../unlock/yeet.yml` validates and renders clean.
+  Caveat, per the design's own anti-overfit rule: unlock is monk-shaped (traefik + one service),
+  so the real distribution test remains M3.5's alien app.
+- **Multi-host deferred deliberately** — the §05 protocol stays designed, the fleet executor
+  unbuilt until a real fleet need exists (design §12 updated; speculative build = the
+  maintenance-economics trap).
+- **`yeet status`** — recorded (current symlink) vs actual (each role's `yeet.release` label +
+  health), accessories, and any incomplete deploy. Divergence is an error exit — scriptable.
+- **`yeet.cue` accepted as config** — power users get let-bindings, interpolation, and
+  pattern defaults; the file unifies with the same `#Config` and flows through the same pipeline.
+  YAML remains the default surface.
+
+**M2 — trustworthy.** The design's §05/§06 mechanisms, built and proven against the
 ops scenarios:
 
 - **Journal** — append-only synced JSONL per deploy at `/var/lib/yeet/<app>/journal/`; every phase

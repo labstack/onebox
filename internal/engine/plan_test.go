@@ -141,7 +141,7 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 	e := New(cfg, testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	lines := strings.Join(e.Describe("<release>/compose.yaml"), "\n")
 	for _, want := range []string{
-		"--scale server=2",
+		"--scale server=<+1>",
 		"unhealthy/timeout →",                  // the branch
 		"--force-recreate worker",              // recreate role
 		"job migrate (gated",                   // the migrate job, auto-run + gated

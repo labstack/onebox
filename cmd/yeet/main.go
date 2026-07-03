@@ -22,7 +22,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "yeet",
 		Short:         "plan-before-apply, zero-downtime deploys for compose-first apps (M0 skeleton)",
-		Long:          "yeet — plan-before-apply, zero-downtime deploys for compose-first apps.\nM0 walking skeleton: validate, render, deploy, rollback.",
+		Long:          "yeet — plan-before-apply, zero-downtime deploys for compose-first apps.\nAgentless (SSH), journaled, fenced; your compose file is the contract.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

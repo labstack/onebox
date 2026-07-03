@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -12,20 +11,22 @@ import (
 	"github.com/labstack/yeet/internal/transport"
 )
 
-// rollFake scripts docker for a happy roll: ps returns OLD first, then
-// OLD+NEW after up --scale; NEW is healthy immediately; OLD turns unhealthy
-// once the drain poison lands.
+// rollFake scripts docker for a happy roll: the newcomer (label query for
+// yeet.release) appears once `up --scale` ran; NEW is healthy immediately;
+// OLD turns unhealthy once the drain poison lands.
 func rollFake() *transport.Fake {
-	psCount := 0
 	f := &transport.Fake{}
-	psRe := regexp.MustCompile(`docker ps -q .*service=server$`)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if psRe.MatchString(cmd) {
-			psCount++
-			if psCount == 1 {
-				return transport.Result{Stdout: "OLD1\n"}, true
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "yeet.release=") {
+			for _, c := range f.Commands {
+				if strings.Contains(c, "--scale server=2") {
+					return transport.Result{Stdout: "NEW1\n"}, true
+				}
 			}
-			return transport.Result{Stdout: "OLD1\nNEW1\n"}, true
+			return transport.Result{Stdout: ""}, true
+		}
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") {
+			return transport.Result{Stdout: "OLD1\n"}, true
 		}
 		if strings.Contains(cmd, "docker inspect") && strings.Contains(cmd, "NEW1") {
 			return transport.Result{Stdout: "healthy\n"}, true
@@ -41,6 +42,29 @@ func rollFake() *transport.Fake {
 		return transport.Result{}, false
 	}
 	return f
+}
+
+func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
+	f := rollFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		// newcomer already exists BEFORE any up --scale (resume scenario)
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "yeet.release=") {
+			return transport.Result{Stdout: "NEW1\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
+		t.Fatalf("resume roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "--scale") || strings.Contains(seq, "pull --quiet") {
+		t.Fatalf("resume must not re-scale or re-pull:\n%s", seq)
+	}
+	if !strings.Contains(seq, "touch /tmp/yeet-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
+		t.Fatalf("resume must continue drain+stop of old:\n%s", seq)
+	}
 }
 
 func noSleep(time.Duration) {}

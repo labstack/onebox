@@ -18,18 +18,22 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	svc := role.Service
 	cc := e.composeCmd(remoteComposePath)
 
-	if res, err := e.T.Run(ctx, cc+" pull --quiet "+svc); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("pull %s: %v %s", svc, err, res.Stderr)
+	if res, err := e.mutate(ctx, cc+" pull --quiet "+svc); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("pull %s: %s", svc, res.Stderr)
 	}
 	// bleed before recreate for non-TERM signals (TERM is what stop sends anyway)
 	if role.Drain != nil && role.Drain.Wait > 0 && role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
 		if id, _ := e.containerID(ctx, svc); id != "" {
-			_, _ = e.T.Run(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
+			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
 			e.Opts.Sleep(time.Duration(role.Drain.Wait))
 		}
 	}
-	if res, err := e.T.Run(ctx, cc+" up -d --no-deps --force-recreate "+svc); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("recreate %s: %v %s", svc, err, res.Stderr)
+	if res, err := e.mutate(ctx, cc+" up -d --no-deps --force-recreate "+svc); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("recreate %s: %s", svc, res.Stderr)
 	}
 	id, err := e.containerID(ctx, svc)
 	if err != nil {
@@ -70,7 +74,7 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 	cmd := "cd " + q(remoteReleaseDir) +
 		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
 		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook.Run
-	res, err := e.T.Run(ctx, cmd)
+	res, err := e.mutate(ctx, cmd)
 	if err != nil {
 		return err
 	}

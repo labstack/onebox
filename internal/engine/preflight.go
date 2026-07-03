@@ -75,8 +75,12 @@ func (e *Engine) containerIDs(ctx context.Context, svc string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
+	return splitIDs(res.Stdout)
+}
+
+func splitIDs(out string) ([]string, error) {
 	var ids []string
-	for _, l := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			if !validID.MatchString(l) {
 				return nil, fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", l)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/labstack/yeet/internal/journal"
 	"github.com/labstack/yeet/internal/release"
 )
 
@@ -28,6 +29,20 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("mkdir %s: %v %s", p.Releases, err, res.Stderr)
 	}
+
+	// one regime for every mutation (design §05): bootstrap locks, fences,
+	// and journals like a deploy
+	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
+	if err != nil {
+		return err
+	}
+	defer e.ReleaseLock(ctx)
+	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
+		return err
+	}
+	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash}
+	_ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "start"})
+	defer func() { _ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "finish", Status: "ok"}) }()
 
 	remoteDir := p.Releases + "/" + releaseID
 	if err := e.RunHook(ctx, "bootstrap", p.Base, remoteDir+"/compose.yaml"); err != nil {
@@ -55,8 +70,10 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		e.logf("bootstrap: starting accessories %v", e.Cfg.Accessories)
 		cc := e.composeCmd(pushed + "/compose.yaml")
 		args := strings.Join(e.Cfg.Accessories, " ")
-		if res, err := e.T.Run(ctx, cc+" up -d --no-deps --no-recreate "+args); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("accessories up: %v %s", err, res.Stderr)
+		if res, err := e.mutate(ctx, cc+" up -d --no-deps --no-recreate "+args); err != nil {
+			return err
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("accessories up: %s", res.Stderr)
 		}
 	}
 	e.logf("bootstrap complete — run `yeet deploy` for the first release")

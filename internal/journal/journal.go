@@ -119,6 +119,17 @@ func List(ctx context.Context, t transport.Transport, app string) ([]string, err
 	return ids, nil
 }
 
+// PruneCandidates returns journal ids beyond the keep window, oldest first.
+// A journal outlives its release (design §05): keep is typically 2× the
+// release retention.
+func PruneCandidates(ctx context.Context, t transport.Transport, app string, keep int) ([]string, error) {
+	ids, err := List(ctx, t, app)
+	if err != nil || len(ids) <= keep {
+		return nil, err
+	}
+	return ids[:len(ids)-keep], nil
+}
+
 // Summary is the journal reduced to what resume/abort/audit need.
 type Summary struct {
 	DeployID    string

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -173,5 +174,24 @@ func TestRunPreflight(t *testing.T) {
 	presentEmpty := &Config{Preflight: []PreflightCheck{{File: "app.env", Present: []string{"EMPTY"}}}}
 	if err := presentEmpty.RunPreflight(dir); err != nil {
 		t.Fatalf("present should tolerate empty value: %v", err)
+	}
+}
+
+func TestReplicasParseAndCount(t *testing.T) {
+	cfg, err := Load(write(t, strings.ReplaceAll(sample,
+		"web:    { service: server, mode: rolling, ready: { http: /healthz, port: 7500 } }",
+		"web:    { service: server, mode: rolling, replicas: 3, ready: { http: /healthz, port: 7500 } }")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Roles["web"].Replicas; got != 3 {
+		t.Fatalf("replicas parsed wrong: %d", got)
+	}
+	if got := cfg.Roles["web"].Count(); got != 3 {
+		t.Fatalf("Count() = %d, want 3", got)
+	}
+	// absent → defaults to 1
+	if got := cfg.Roles["worker"].Count(); got != 1 {
+		t.Fatalf("default Count() = %d, want 1", got)
 	}
 }

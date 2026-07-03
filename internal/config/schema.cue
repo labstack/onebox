@@ -24,6 +24,7 @@
 	// derived from the compose service (rollable + healthcheck ⇒ rolling).
 	service?:   #Ident
 	mode?:      "rolling" | "recreate"
+	replicas?:  int & >0
 	singleton?: bool
 	ready?:     #Ready
 	drain?:     #Drain

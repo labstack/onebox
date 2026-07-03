@@ -11,12 +11,16 @@ import (
 	"time"
 )
 
-// RecreateRole replaces a role's container in place: a stated brief gap, the
-// mode for workers, singletons, and anything that can't run two copies.
+// RecreateRole replaces a role's containers in place: a stated brief gap, the
+// mode for workers, singletons, and anything that can't roll. Honors replicas —
+// recreates the whole fleet at the desired count and gives each a clean slot
+// name.
 func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath string) error {
 	role := e.Cfg.Roles[roleName]
 	svc := role.Service
 	cc := e.composeCmd(remoteComposePath)
+	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
+	desired := role.Count()
 
 	if res, err := e.mutate(ctx, cc+" pull --quiet "+svc); err != nil {
 		return err
@@ -25,35 +29,47 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	}
 	// bleed before recreate for non-TERM signals (TERM is what stop sends anyway)
 	if role.Drain != nil && role.Drain.Wait > 0 && role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
-		if id, _ := e.containerID(ctx, svc); id != "" {
+		ids, _ := e.containerIDs(ctx, svc)
+		for _, id := range ids {
 			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
+		}
+		if len(ids) > 0 {
 			e.Opts.Sleep(time.Duration(role.Drain.Wait))
 		}
 	}
-	if res, err := e.mutate(ctx, cc+" up -d --no-deps --force-recreate "+svc); err != nil {
+	scaleArg := ""
+	if desired > 1 {
+		scaleArg = fmt.Sprintf(" --scale %s=%d", svc, desired)
+	}
+	if res, err := e.mutate(ctx, cc+" up -d --no-deps --force-recreate"+scaleArg+" "+svc); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("recreate %s: %s", svc, res.Stderr)
 	}
-	id, err := e.containerID(ctx, svc)
+	ids, err := e.containerIDs(ctx, svc)
 	if err != nil {
 		return err
 	}
-	if id == "" {
+	if len(ids) == 0 {
 		return fmt.Errorf("recreate %s: no container after up", svc)
 	}
-	if role.Ready != nil {
-		within, pollEvery := readyTiming(role)
-		return e.waitHealth(ctx, id, "healthy", within, pollEvery)
+	within, pollEvery := readyTiming(role)
+	for _, id := range ids {
+		if role.Ready != nil {
+			if err := e.waitHealth(ctx, id, "healthy", within, pollEvery); err != nil {
+				return err
+			}
+			continue
+		}
+		res, err := e.T.Run(ctx, "docker inspect -f '{{.State.Status}}' "+id)
+		if err != nil {
+			return err
+		}
+		if s := strings.TrimSpace(res.Stdout); s != "running" {
+			return fmt.Errorf("recreate %s: container %s is %s", svc, id, s)
+		}
 	}
-	res, err := e.T.Run(ctx, "docker inspect -f '{{.State.Status}}' "+id)
-	if err != nil {
-		return err
-	}
-	if s := strings.TrimSpace(res.Stdout); s != "running" {
-		return fmt.Errorf("recreate %s: container %s is %s", svc, id, s)
-	}
-	return nil
+	return e.reslot(ctx, svc, releaseID, desired)
 }
 
 // RunHook executes a user hook verbatim (design §01: hooks are unplannable

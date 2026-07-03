@@ -82,6 +82,10 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		switch {
 		case age > int(e.lockTTL().Seconds()):
 			e.logf("lock: holder %s (deploy %s) expired %ds ago — taking over", holder.Owner, holder.DeployID, age-int(e.lockTTL().Seconds()))
+		case holder.DeployID == deployID:
+			// resume/abort of the very deploy that holds the lock: safe to
+			// reclaim — the new epoch fences the previous runner regardless
+			e.logf("lock: reclaiming for deploy %s (previous runner is fenced by the new epoch)", deployID)
 		case force:
 			e.logf("lock: FORCE-breaking %s (deploy %s, age %ds) — holder's journal tail:", holder.Owner, holder.DeployID, age)
 			tres, _ := e.T.Run(ctx, "tail -5 "+q(e.base()+"/journal/"+sanitizeID(holder.DeployID)+".jsonl")+" 2>/dev/null || true")

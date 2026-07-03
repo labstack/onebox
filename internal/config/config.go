@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -130,6 +131,9 @@ func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+	if strings.HasSuffix(path, ".cue") {
+		return LoadCUEBytes(b, path)
 	}
 	return LoadBytes(b, path)
 }

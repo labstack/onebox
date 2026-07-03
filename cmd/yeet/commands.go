@@ -99,6 +99,8 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		},
 	}
 	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a plan artifact (binds config + host state)")
+	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
+	deployCmd.Flags().BoolVar(&g.Force, "force", false, "break a held deploy lock (prints the holder first)")
 	root.AddCommand(deployCmd)
 
 	root.AddCommand(&cobra.Command{
@@ -245,10 +247,15 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 	if g.Verbose {
 		t.Logger = func(host, c string) { fmt.Fprintf(cmd.ErrOrStderr(), "[%s] $ %s\n", host, c) }
 	}
+	cfgBytes, _ := os.ReadFile(g.ConfigPath)
 	e := engine.New(cfg, p, t, engine.Options{
-		Verbose:  g.Verbose,
-		Out:      cmd.OutOrStdout(),
-		LocalDir: filepath.Dir(g.ConfigPath),
+		Verbose:    g.Verbose,
+		Out:        cmd.OutOrStdout(),
+		LocalDir:   filepath.Dir(g.ConfigPath),
+		NoRollback: g.NoRollback,
+		ForceLock:  g.Force,
+		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
+		ConfigHash: engine.HashBytes(cfgBytes),
 	})
 	return e, func() { t.Close() }, nil
 }

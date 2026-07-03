@@ -25,10 +25,16 @@ func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) 
 	if err := e.RunHook(ctx, "migrate", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("pre-release: %w", err)
 	}
+	if err := e.RunHook(ctx, "pre_release", remoteDir, remoteCompose); err != nil {
+		return fmt.Errorf("pre-release: %w", err)
+	}
 
 	e.logf("phase release")
 	if err := e.releaseRoles(ctx, remoteCompose); err != nil {
 		return fmt.Errorf("release: %w (deploy halted — resume/abort are M2; fix and redeploy)", err)
+	}
+	if err := e.RunHook(ctx, "post_release", remoteDir, remoteCompose); err != nil {
+		return fmt.Errorf("post-release: %w", err)
 	}
 
 	e.logf("phase verify")
@@ -46,6 +52,9 @@ func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) 
 	}
 	if len(removed) > 0 {
 		e.logf("pruned %d old releases", len(removed))
+	}
+	if err := e.RunHook(ctx, "post_deploy", remoteDir, remoteCompose); err != nil {
+		return fmt.Errorf("post-deploy: %w", err)
 	}
 	e.logf("deployed %s", releaseID)
 	return nil

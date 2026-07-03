@@ -10,7 +10,30 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
-**M0 walking skeleton implemented.** `yeet validate | render | deploy | rollback` work end-to-end:
+**M1 implemented — plan/apply, CUE, bootstrap.** On top of the M0 engine:
+
+- `yeet plan` — host refresh, registry digest pinning (unpinned images stated, never hidden),
+  unified diff against the live release, the exact command list with runtime branches as branches,
+  and the fidelity contract printed verbatim. Writes a JSON artifact.
+- `yeet deploy --plan` — the artifact binds the apply: refuses on config change or host drift,
+  ships the planned rendered bytes byte-for-byte.
+- Embedded CUE validation (`schema.cue`): shape/enum/pattern errors as `yeet.yml:<line>: message`;
+  cross-field and compose-semantic checks stay in Go.
+- `yeet bootstrap` — dirs → user's `bootstrap` hook → registry login (password via stdin) →
+  accessories up. Host provisioning stays the operator's; config management is a non-goal.
+- Release payload staging: `env_file`s and project-relative bind mounts ship inside the release dir
+  with paths rewritten — compose files reference them relative to the release, not the runner.
+- Local hooks (`{run, local: true}`) + `pre_release`/`post_release`/`post_deploy` seams and
+  advisory `url:` verify checks — monk's web-publish trick and smoke tests, quarantined in config.
+- Rollback replays the previous release's own `yeet.snapshot.yml` choreography.
+- `yeet init` — classify + scaffold + rollability doctor printing each role's exact compose delta.
+
+**Monk cutover:** `../monk/yeet.yml` is written and validates against monk's real compose file
+(8 services, 3 roles, no rollability blockers). Remaining human step: run
+`SERVER_VERSION=... yeet plan && yeet deploy --plan yeet-plan.json` against production and retire
+`scripts/yeet.sh`.
+
+**M0 walking skeleton.** `yeet validate | render | deploy | rollback` work end-to-end:
 config + compose loading (via `compose-go`, the loader docker compose itself uses), SSH transport
 with enforced known-hosts, versioned release dirs with symlink activation and retention pruning,
 and the scale–health–drain choreography with the rev 5 traffic-shift protocol (drain-before-SIGTERM

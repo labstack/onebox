@@ -29,7 +29,7 @@ func testConfig() *config.Config {
 		Order:       []string{"web", "worker"},
 		Accessories: []string{"postgres"},
 		Jobs:        []string{"migrate"},
-		Hooks:       map[string]string{"migrate": "docker compose run --rm --no-deps migrate"},
+		Hooks:       map[string]config.Hook{"migrate": {Run: "docker compose run --rm --no-deps migrate"}},
 		Verify:      []config.VerifyCheck{{HTTP: "/healthz", Role: "web"}},
 	}
 }

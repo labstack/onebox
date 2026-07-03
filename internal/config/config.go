@@ -35,9 +35,10 @@ type Config struct {
 	Order        []string               `yaml:"order"`
 	Accessories  []string               `yaml:"accessories"`
 	Jobs         []string               `yaml:"jobs"`
-	Hooks        map[string]string      `yaml:"hooks"`
+	Hooks        map[string]Hook        `yaml:"hooks"`
 	Verify       []VerifyCheck          `yaml:"verify"`
 	Proxy        Proxy                  `yaml:"proxy"`
+	Registry     *Registry              `yaml:"registry"`
 	Retain       int                    `yaml:"retain"`
 }
 
@@ -68,10 +69,46 @@ type Drain struct {
 }
 
 type VerifyCheck struct {
-	HTTP string `yaml:"http"` // path, host-side against the container IP
-	Exec string `yaml:"exec"`
-	Role string `yaml:"role"`
-	Port int    `yaml:"port"` // defaults to the role's ready.port
+	HTTP     string `yaml:"http"` // path, host-side against the container IP
+	Exec     string `yaml:"exec"`
+	URL      string `yaml:"url"` // runner-side edge check — advisory territory
+	Role     string `yaml:"role"`
+	Port     int    `yaml:"port"`     // defaults to the role's ready.port
+	Contains string `yaml:"contains"` // for url checks: substring the body must contain
+	Advisory bool   `yaml:"advisory"` // warn-only, never fails the deploy
+}
+
+// Hook is a user command run at a lifecycle seam — verbatim by design
+// (§01: hooks are unplannable). String form runs on the host; the map form
+// {run, local} can run on the runner (rsync-style publish steps).
+type Hook struct {
+	Run   string
+	Local bool
+}
+
+func (h *Hook) UnmarshalYAML(n *yaml.Node) error {
+	var s string
+	if err := n.Decode(&s); err == nil {
+		h.Run = s
+		return nil
+	}
+	var m struct {
+		Run   string `yaml:"run"`
+		Local bool   `yaml:"local"`
+	}
+	if err := n.Decode(&m); err != nil {
+		return err
+	}
+	h.Run, h.Local = m.Run, m.Local
+	return nil
+}
+
+// Registry enables bootstrap's `docker login`; the password comes from the
+// named env var and travels via stdin, never inside a command string.
+type Registry struct {
+	Server      string `yaml:"server"`
+	Username    string `yaml:"username"`
+	PasswordEnv string `yaml:"password_env"`
 }
 
 type Proxy struct {
@@ -90,11 +127,20 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	return LoadBytes(b, path)
+}
+
+// LoadBytes parses and CUE-validates config bytes (used by Load and by
+// rollback's snapshot replay).
+func LoadBytes(b []byte, filename string) (*Config, error) {
+	if err := ValidateCUE(b, filename); err != nil {
+		return nil, err
+	}
 	cfg := &Config{Retain: 5}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if cfg.Retain <= 0 {
 		cfg.Retain = 5

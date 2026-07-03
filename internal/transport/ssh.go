@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -70,12 +71,58 @@ func NewSSH(addr string) (*SSH, error) {
 		User:            user,
 		Auth:            auths,
 		HostKeyCallback: hk,
+		// Ask the server for the host-key TYPE we actually have pinned. Without
+		// this the client negotiates its own default (often ecdsa/rsa) which may
+		// differ from what known_hosts holds (OpenSSH's TOFU writes a single
+		// ed25519 line), and knownhosts then reports a spurious "key mismatch".
+		HostKeyAlgorithms: knownHostKeyAlgos(hk, net.JoinHostPort(host, port)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
 	}
 	return &SSH{client: client, host: host, target: user + "@" + host}, nil
 }
+
+// knownHostKeyAlgos returns the host-key algorithms pinned for addr in
+// known_hosts. x/crypto's knownhosts.New doesn't expose this, so we probe the
+// callback with a key that can't match: it answers with a *knownhosts.KeyError
+// whose Want lists the known keys, and their types are the algorithms to
+// request. Returns nil for an unknown host (no pins) so the client falls back
+// to its defaults and the callback still rejects the connection.
+func knownHostKeyAlgos(cb ssh.HostKeyCallback, addr string) []string {
+	var ke *knownhosts.KeyError
+	err := cb(addr, &net.TCPAddr{IP: net.IPv4zero}, probeKey{})
+	if !errors.As(err, &ke) || len(ke.Want) == 0 {
+		return nil
+	}
+	var algos []string
+	seen := map[string]bool{}
+	add := func(a string) {
+		if !seen[a] {
+			seen[a] = true
+			algos = append(algos, a)
+		}
+	}
+	for _, k := range ke.Want {
+		t := k.Key.Type()
+		// A pinned RSA key can also verify the SHA-2 signature algorithms, which
+		// modern servers prefer; offer those first so negotiation succeeds.
+		if t == ssh.KeyAlgoRSA {
+			add(ssh.KeyAlgoRSASHA256)
+			add(ssh.KeyAlgoRSASHA512)
+		}
+		add(t)
+	}
+	return algos
+}
+
+// probeKey is a public key that matches nothing — used only to elicit the
+// KeyError whose Want lists the pinned host keys.
+type probeKey struct{}
+
+func (probeKey) Type() string                        { return "yeet-probe" }
+func (probeKey) Marshal() []byte                     { return []byte("yeet-probe") }
+func (probeKey) Verify([]byte, *ssh.Signature) error { return errors.New("probe") }
 
 func (s *SSH) Run(ctx context.Context, cmd string) (Result, error) {
 	return s.RunInput(ctx, cmd, "")

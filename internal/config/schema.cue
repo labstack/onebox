@@ -20,8 +20,10 @@
 }
 
 #Role: {
-	service!:   #Ident
-	mode!:      "rolling" | "recreate"
+	// both inferred when omitted: service defaults to the role key; mode is
+	// derived from the compose service (rollable + healthcheck ⇒ rolling).
+	service?:   #Ident
+	mode?:      "rolling" | "recreate"
 	singleton?: bool
 	ready?:     #Ready
 	drain?:     #Drain
@@ -49,11 +51,13 @@
 }
 
 #Config: {
-	app!:     =~"^[a-z][a-z0-9-]*$"
-	compose!: string
+	// app defaults to the project directory name; compose to the conventional
+	// compose file; roles to every service not named an accessory or job.
+	app?:     =~"^[a-z][a-z0-9-]*$"
+	compose?: string
 	// exactly one host: yeet is single-host by design
 	environments!: {[string]: {hosts!: [string]}}
-	roles!: {[#Ident]: #Role}
+	roles?: {[#Ident]: #Role}
 	order?: [...#Ident]
 	accessories?: [...#Ident]
 	jobs?: [...#Ident]

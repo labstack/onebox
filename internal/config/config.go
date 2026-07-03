@@ -41,12 +41,21 @@ type Config struct {
 	Order        []string               `yaml:"order,omitempty"`
 	Accessories  []string               `yaml:"accessories,omitempty"`
 	Jobs         []string               `yaml:"jobs,omitempty"`
-	Hooks        map[string]Hook        `yaml:"hooks,omitempty"`
-	Verify       []VerifyCheck          `yaml:"verify,omitempty"`
-	Proxy        Proxy                  `yaml:"proxy,omitempty"`
-	Registry     *Registry              `yaml:"registry,omitempty"`
-	Secrets      *Secrets               `yaml:"secrets,omitempty"`
-	Retain       int                    `yaml:"retain,omitempty"`
+	// EnvFiles are shipped to every role/job service as `env_file:` (runtime
+	// container env) AND fed to compose ${VAR} interpolation, in listed order
+	// (later files win). One list replaces a hand-assembled .env — the split
+	// secret files become the single source (design §07).
+	EnvFiles []string `yaml:"env_files,omitempty"`
+	// Preflight asserts local config files exist and carry required keys before
+	// a deploy runs — the declarative form of the `grep -qE` guards a deploy
+	// recipe would otherwise carry.
+	Preflight []PreflightCheck `yaml:"preflight,omitempty"`
+	Hooks     map[string]Hook  `yaml:"hooks,omitempty"`
+	Verify    []VerifyCheck    `yaml:"verify,omitempty"`
+	Proxy     Proxy            `yaml:"proxy,omitempty"`
+	Registry  *Registry        `yaml:"registry,omitempty"`
+	Secrets   *Secrets         `yaml:"secrets,omitempty"`
+	Retain    int              `yaml:"retain,omitempty"`
 	// Migrations "expand-only" is the operator's informed promise that old
 	// code tolerates the new schema — it permits auto-rollback past the
 	// migration gate (design §06).
@@ -87,6 +96,67 @@ type VerifyCheck struct {
 	Port     int    `yaml:"port,omitempty"`     // defaults to the role's ready.port
 	Contains string `yaml:"contains,omitempty"` // for url checks: substring the body must contain
 	Advisory bool   `yaml:"advisory,omitempty"` // warn-only, never fails the deploy
+}
+
+// PreflightCheck asserts that File exists and contains each key. Require keys
+// must be present with a non-empty value; Present keys need only be declared
+// (value may be empty — e.g. an optional feature toggle).
+type PreflightCheck struct {
+	File    string   `yaml:"file"`
+	Require []string `yaml:"require,omitempty"`
+	Present []string `yaml:"present,omitempty"`
+}
+
+// RunPreflight verifies every declared check against files under dir (paths in
+// the config are relative to yeet.yml). It fails on the first missing file or
+// key so the operator learns exactly what's unset before anything ships.
+func (c *Config) RunPreflight(dir string) error {
+	for _, pc := range c.Preflight {
+		path := pc.File
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("preflight: %s: %w", pc.File, err)
+		}
+		present, nonEmpty := envKeys(data)
+		for _, k := range pc.Require {
+			if !present[k] {
+				return fmt.Errorf("preflight: %s is missing %s", pc.File, k)
+			}
+			if !nonEmpty[k] {
+				return fmt.Errorf("preflight: %s has empty %s", pc.File, k)
+			}
+		}
+		for _, k := range pc.Present {
+			if !present[k] {
+				return fmt.Errorf("preflight: %s is missing %s", pc.File, k)
+			}
+		}
+	}
+	return nil
+}
+
+// envKeys scans dotenv-style bytes into the set of declared keys and the subset
+// with a non-empty value. A line is `KEY=value` (leading whitespace and an
+// optional `export ` prefix tolerated); anything else is ignored.
+func envKeys(data []byte) (present, nonEmpty map[string]bool) {
+	present, nonEmpty = map[string]bool{}, map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		present[key] = true
+		if strings.TrimSpace(line[eq+1:]) != "" {
+			nonEmpty[key] = true
+		}
+	}
+	return present, nonEmpty
 }
 
 // Hook is a user command run at a lifecycle seam — verbatim by design

@@ -1,0 +1,15 @@
+app: yeete2e
+compose: docker-compose.yaml
+environments:
+  production: { hosts: [local] } # e2e uses LocalTransport; host value unused
+roles:
+  web:
+    service: web
+    mode: rolling
+    ready: { http: /, port: 8080, interval: 1s, start_period: 1s, within: 60s }
+order: [web]
+accessories: [traefik]
+verify:
+  # exec (not http): on macOS the container bridge network is unreachable
+  # from the host, so probe from inside the container.
+  - { exec: "wget -qO- http://localhost:8080/", role: web }

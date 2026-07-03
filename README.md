@@ -10,8 +10,25 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
-**Design phase.** The full design — architecture, service model, deploy lifecycle, state/locking
-protocol, rollback semantics, configuration, prior art, risks, and roadmap — lives in
+**M0 walking skeleton implemented.** `yeet validate | render | deploy | rollback` work end-to-end:
+config + compose loading (via `compose-go`, the loader docker compose itself uses), SSH transport
+with enforced known-hosts, versioned release dirs with symlink activation and retention pruning,
+and the scale–health–drain choreography with the rev 5 traffic-shift protocol (drain-before-SIGTERM
+via healthcheck poisoning).
+
+The zero-downtime claim is proven mechanically, not assumed: `YEET_E2E=1 go test ./e2e/` deploys a
+Traefik+web fixture against local docker, hammers the edge with requests during a live v1→v2 roll,
+and fails on a single dropped request. Latest run: **1,583 requests, 0 failures**.
+
+Monk cutover checklist (M0 exit): write `../monk/yeet.yml` (roles `web`/`worker`/`scheduler`, job
+`migrate`, accessories `traefik`/`postgres`/`redis`/`ofelia`), then
+`yeet validate && yeet deploy -e production --verbose`.
+
+Not yet built (by design, see roadmap): plan/apply + CUE (M1), journal/fencing/locks/resume/
+migration gate (M2), multi-host (M3).
+
+**Full design:** architecture, service model, deploy lifecycle, state/locking protocol, rollback
+semantics, configuration, prior art, risks, and roadmap — in
 [`docs/design.html`](docs/design.html) (rev 5).
 
 The design has been through two adversarial review rounds (five independent reviewers: architecture,

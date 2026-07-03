@@ -41,7 +41,19 @@ func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Proje
 	if !filepath.IsAbs(composePath) {
 		composePath = filepath.Join(dir, composePath)
 	}
-	p, err := compose.Load(ctx, composePath, cfg.App)
+	// env_files feed ${VAR} interpolation; resolve them against the compose
+	// working dir — the same base InjectEnvFiles/StagePayload use, so the file
+	// that feeds interpolation is exactly the one that ships as container env.
+	composeDir := filepath.Dir(composePath)
+	var envFiles []string
+	for _, ef := range cfg.EnvFiles {
+		if filepath.IsAbs(ef) {
+			envFiles = append(envFiles, ef)
+		} else {
+			envFiles = append(envFiles, filepath.Join(composeDir, ef))
+		}
+	}
+	p, err := compose.Load(ctx, composePath, cfg.App, envFiles...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,6 +112,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
+			compose.InjectEnvFiles(p, cfg)
 			out, err := compose.Render(p, cfg, "render-preview")
 			if err != nil {
 				return err
@@ -264,6 +277,9 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 	ctx := cmd.Context()
 	cfg, p, err := loadAll(ctx, g)
 	if err != nil {
+		return nil, err
+	}
+	if err := cfg.RunPreflight(filepath.Dir(g.ConfigPath)); err != nil {
 		return nil, err
 	}
 	if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
@@ -451,6 +467,7 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 		}
 		compose.InjectSecretsEnv(p, cfg, "./"+secrets.EnvFileName)
 	}
+	compose.InjectEnvFiles(p, cfg)
 	rendered, err := compose.Render(p, cfg, id)
 	if err != nil {
 		return fail(err)
@@ -492,6 +509,9 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, ye
 		defer cleanup()
 		if rollback {
 			return e.Rollback(ctx)
+		}
+		if err := cfg.RunPreflight(filepath.Dir(g.ConfigPath)); err != nil {
+			return err
 		}
 		return applyPlan(cmd, g, cfg, p, e, planFile)
 	}

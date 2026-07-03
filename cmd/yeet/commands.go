@@ -171,6 +171,23 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	abortCmd.Flags().BoolVar(&g.Force, "force", false, "abort past a closed migration gate (you assert schema compatibility)")
 	root.AddCommand(abortCmd)
 
+	root.AddCommand(&cobra.Command{
+		Use:   "status",
+		Short: "recorded vs actual per role — divergence is the point",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, p, err := loadAll(cmd.Context(), g)
+			if err != nil {
+				return err
+			}
+			e, cleanup, err := connect(cmd, g, cfg, p)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			return e.Status(cmd.Context())
+		},
+	})
+
 	var auditN int
 	auditCmd := &cobra.Command{
 		Use:   "audit",

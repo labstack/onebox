@@ -172,7 +172,8 @@ func withDigest(ref, digest string) string {
 // FidelityContract is printed at the top of every plan (design §01/§11: the
 // wedge survives honesty; it doesn't survive an overclaim).
 const FidelityContract = `Plan fidelity (highest to lowest):
-  config       exact — the rendered diff below is what ships, byte for byte
+  config       exact — apply re-renders these same bytes and refuses on any drift.
+               environment VALUES show as content hashes (secrets never leave the host)
   images       digest-pinned where the registry resolved them; tag-bound otherwise (stated per image)
   choreography the command list below; runtime branches shown as branches
   hooks        verbatim commands — their effects are unplannable`

@@ -65,13 +65,19 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 
 	root.AddCommand(&cobra.Command{
 		Use:   "render",
-		Short: "print the rendered per-release compose (shows the injected delta)",
+		Short: "print the rendered per-release compose (shows the injected delta; env values redacted)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAll(cmd.Context(), g)
 			if err != nil {
 				return err
 			}
 			out, err := compose.Render(p, cfg, "render-preview")
+			if err != nil {
+				return err
+			}
+			// Redact environment values — even a preview must never print
+			// secrets to the terminal (design §07).
+			out, err = compose.RedactEnvYAML(out)
 			if err != nil {
 				return err
 			}
@@ -235,16 +241,30 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 		return fmt.Errorf("pin images: %w", err)
 	}
 	id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath)))
-	rendered, err := compose.Render(p, cfg, id)
+	// Render through the exact staging path apply uses (p is already pinned by
+	// PinImages above), so the plan's stored compose is byte-identical to what
+	// apply re-renders. The canonical bytes are what release.Stage wrote.
+	staging, sc, err := stageRelease(g, cfg, p, id)
 	if err != nil {
 		return err
 	}
-	rendered = compose.RewriteSources(rendered, compose.PayloadRewrites(p))
+	defer sc()
+	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
+	if err != nil {
+		return err
+	}
+	// Everything displayed or persisted is redacted: environment VALUES become
+	// content hashes so secrets never reach the terminal or the plan file
+	// (design §07). Only the hash travels.
+	renderedRedacted, err := compose.RedactEnvYAML(rendered)
+	if err != nil {
+		return err
+	}
 
 	fmt.Fprintln(out, engine.FidelityContract)
 	fmt.Fprintln(out)
 
-	// rendered diff against the live release
+	// rendered diff against the live release — both sides redacted.
 	live := ""
 	if hs.CurrentRelease != "" {
 		res, err := e.T.Run(ctx, "cat '"+release.PathsFor(cfg.App).Releases+"/"+hs.CurrentRelease+"/compose.yaml' 2>/dev/null || true")
@@ -253,8 +273,15 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 		}
 		live = res.Stdout
 	}
+	liveRedacted := ""
+	if strings.TrimSpace(live) != "" {
+		// Never fall back to raw live on a parse failure — that could expose it.
+		if lr, rerr := compose.RedactEnvYAML([]byte(live)); rerr == nil {
+			liveRedacted = string(lr)
+		}
+	}
 	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-		A: difflib.SplitLines(live), B: difflib.SplitLines(string(rendered)),
+		A: difflib.SplitLines(liveRedacted), B: difflib.SplitLines(string(renderedRedacted)),
 		FromFile: "live (" + orNone(hs.CurrentRelease) + ")", ToFile: "planned (" + id + ")", Context: 3,
 	})
 	if err != nil {
@@ -292,7 +319,7 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
 		ConfigHash: engine.HashBytes(cfgBytes),
 		HostState:  hs, PinnedImages: pins,
-		RenderedCompose: string(rendered), Commands: commands,
+		RenderedCompose: string(renderedRedacted), Commands: commands,
 	}
 	if err := a.Save(outPath); err != nil {
 		return err
@@ -332,6 +359,21 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 		ConfigHash: engine.HashBytes(cfgBytes),
 	})
 	return e, func() { t.Close() }, nil
+}
+
+// applyPins rewrites service image refs to the plan's pinned digests so an
+// apply-time re-render reproduces the planned images without re-hitting the
+// registry (which could resolve a moved tag differently).
+func applyPins(p *ctypes.Project, pins map[string]string) {
+	for svc, ref := range pins {
+		if ref == "" {
+			continue
+		}
+		if s, ok := p.Services[svc]; ok {
+			s.Image = ref
+			p.Services[svc] = s
+		}
+	}
 }
 
 // stageRelease renders + stages the full release payload locally, including
@@ -404,9 +446,13 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback boo
 	return e.Deploy(ctx, id, staging)
 }
 
-// applyPlan deploys the artifact's rendered bytes verbatim after verifying
-// the binding: same env, same config, no host drift. Payload files are
-// re-staged fresh at apply — a stated fidelity limit.
+// applyPlan re-renders the release from source and deploys it after verifying
+// the binding: same env, same config, no host drift, and a rendered compose
+// that still matches the plan. The plan stores only a REDACTED compose (secret
+// values hashed), so the real bytes are produced fresh here — secrets never
+// persist in the plan file (design §07). Re-rendering with the plan's pins is
+// deterministic, so the redacted re-render must equal the plan's; any
+// difference means the compose file or a secret value changed — drift.
 func applyPlan(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, e *engine.Engine, planFile string) error {
 	ctx := cmd.Context()
 	a, err := engine.LoadArtifact(planFile)
@@ -424,16 +470,22 @@ func applyPlan(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes
 	if err := a.VerifyBinding(g.Env, cfgBytes, fresh); err != nil {
 		return err
 	}
-	staging, err := os.MkdirTemp("", "yeet-"+cfg.App)
+	applyPins(p, a.PinnedImages)
+	staging, sc, err := stageRelease(g, cfg, p, a.ID)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(staging)
-	if _, err := compose.StagePayload(p, staging); err != nil {
+	defer sc()
+	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
+	if err != nil {
 		return err
 	}
-	if err := release.Stage(staging, []byte(a.RenderedCompose), cfgBytes); err != nil {
+	redacted, err := compose.RedactEnvYAML(rendered)
+	if err != nil {
 		return err
+	}
+	if string(redacted) != a.RenderedCompose {
+		return fmt.Errorf("compose drift: the rendered compose no longer matches the plan (a compose file or secret value changed) — re-plan")
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "→ applying plan %s (bound, no drift)\n", a.ID)
 	return e.Deploy(ctx, a.ID, staging)

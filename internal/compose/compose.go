@@ -106,11 +106,16 @@ func Classify(p *types.Project, cfg *config.Config) error {
 	return nil
 }
 
-// CheckRollable enforces design §03 rolling preconditions on rolled services.
+// CheckRollable enforces design §03 preconditions on services that run more
+// than one container — every rolling role (which briefly runs two) and any role
+// with replicas > 1 (which runs N). Such a service can't carry a fixed
+// container_name or a published host port, and a rolling one must gate on a
+// healthcheck.
 func CheckRollable(p *types.Project, cfg *config.Config) []error {
 	var errs []error
 	for roleName, r := range cfg.Roles {
-		if r.Mode != "rolling" {
+		multi := r.Mode == "rolling" || r.Count() > 1
+		if !multi {
 			continue
 		}
 		svc, ok := p.Services[r.Service]
@@ -118,22 +123,24 @@ func CheckRollable(p *types.Project, cfg *config.Config) []error {
 			continue // Classify reports this
 		}
 		if svc.ContainerName != "" {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): container_name forbids running two copies — remove it", roleName, r.Service))
+			errs = append(errs, fmt.Errorf("roles.%s (%q): container_name forbids running multiple copies — remove it", roleName, r.Service))
 		}
 		for _, port := range svc.Ports {
 			if port.Published != "" {
-				errs = append(errs, fmt.Errorf("roles.%s (%q): host port %s:%d — two containers cannot share a host port; route via the proxy instead", roleName, r.Service, port.Published, port.Target))
+				errs = append(errs, fmt.Errorf("roles.%s (%q): host port %s:%d — copies cannot share a host port; route via the proxy instead", roleName, r.Service, port.Published, port.Target))
 			}
 		}
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): deploy.replicas conflicts with yeet-managed scaling", roleName, r.Service))
+			errs = append(errs, fmt.Errorf("roles.%s (%q): deploy.replicas conflicts with yeet-managed scaling — use replicas: in yeet.yml", roleName, r.Service))
 		}
 		// readiness rule (design §03): rolling gates on a healthcheck — from
 		// ready.http/exec, or ADOPTED from the compose file's own
-		hasReadyKind := r.Ready != nil && (r.Ready.HTTP != "" || r.Ready.Exec != "")
-		hasComposeHC := svc.HealthCheck != nil && len(svc.HealthCheck.Test) > 0
-		if !hasReadyKind && !hasComposeHC {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): rolling requires ready.http/exec, or a healthcheck in the compose file to adopt", roleName, r.Service))
+		if r.Mode == "rolling" {
+			hasReadyKind := r.Ready != nil && (r.Ready.HTTP != "" || r.Ready.Exec != "")
+			hasComposeHC := svc.HealthCheck != nil && len(svc.HealthCheck.Test) > 0
+			if !hasReadyKind && !hasComposeHC {
+				errs = append(errs, fmt.Errorf("roles.%s (%q): rolling requires ready.http/exec, or a healthcheck in the compose file to adopt", roleName, r.Service))
+			}
 		}
 	}
 	return errs

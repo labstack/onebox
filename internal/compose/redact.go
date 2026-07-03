@@ -7,17 +7,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// RedactEnvYAML rewrites every service `environment:` VALUE in rendered compose
-// YAML to a content hash (`redacted:sha256:<12hex>`), leaving keys and all
-// other structure intact. Environment is the conventional home of application
+// RedactEnvYAML rewrites every `environment:` VALUE in rendered compose YAML to
+// a content hash (`redacted:sha256:<12hex>`), leaving keys and all other
+// structure intact. Environment is the conventional home of application
 // secrets, and yeet's contract is that their content is never displayed or
 // persisted — only a hash travels (design §07). Because the placeholder is
 // derived from the value, a rotated secret still shows as a changed hash, so
 // the plan diff and the apply-time drift check both stay meaningful without
 // ever exposing the value.
 //
-// Non-secret-by-convention fields (image, command, labels, env_file paths) are
-// untouched, so the diff remains reviewable.
+// The walk is recursive and matches `environment:` ANYWHERE — under services,
+// but also under top-level `x-*` extension blocks (compose-go preserves those
+// verbatim, and shared anchors like `&server-env` are defined there). Missing
+// even one such block would leak. Non-secret-by-convention fields (image,
+// command, labels, env_file paths) are untouched, so the diff stays reviewable.
 func RedactEnvYAML(rendered []byte) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(rendered, &doc); err != nil {
@@ -26,21 +29,34 @@ func RedactEnvYAML(rendered []byte) ([]byte, error) {
 	if len(doc.Content) == 0 {
 		return rendered, nil
 	}
-	root := doc.Content[0]
-	services := mapValue(root, "services")
-	if services != nil && services.Kind == yaml.MappingNode {
-		// services is a mapping of name -> service mapping (key, value pairs).
-		for i := 1; i < len(services.Content); i += 2 {
-			svc := services.Content[i]
-			env := mapValue(svc, "environment")
-			redactEnvNode(env)
-		}
-	}
+	redactWalk(doc.Content[0])
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// redactWalk descends the whole tree; the value of any mapping key named
+// "environment" is masked, wherever it appears.
+func redactWalk(n *yaml.Node) {
+	if n == nil {
+		return
+	}
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key, val := n.Content[i], n.Content[i+1]
+			if key.Value == "environment" {
+				redactEnvNode(val)
+				continue // don't recurse into an already-masked env block
+			}
+			redactWalk(val)
+		}
+		return
+	}
+	for _, c := range n.Content { // sequences and document nodes
+		redactWalk(c)
+	}
 }
 
 // redactEnvNode masks the values of an environment node, whether compose
@@ -90,17 +106,4 @@ func splitKey(kv string) string {
 func hashPlaceholder(v string) string {
 	sum := sha256.Sum256([]byte(v))
 	return "redacted:sha256:" + hex.EncodeToString(sum[:])[:12]
-}
-
-// mapValue returns the value node for key in a mapping node, or nil.
-func mapValue(m *yaml.Node, key string) *yaml.Node {
-	if m == nil || m.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
 }

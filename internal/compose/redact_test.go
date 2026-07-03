@@ -51,6 +51,33 @@ func TestRedactEnvYAMLHidesValuesKeepsKeys(t *testing.T) {
 	}
 }
 
+// compose-go preserves top-level `x-*` extension blocks verbatim, and shared
+// anchors (e.g. &server-env) are defined there with interpolated values. The
+// redactor must reach those too — a services-only walk leaks them.
+func TestRedactEnvYAMLReachesExtensionBlocks(t *testing.T) {
+	sample := `name: demo
+services:
+  server:
+    image: app:1
+    environment:
+      DATABASE_URL: postgresql://postgres:topsecret@postgres:5432/db
+x-server:
+  environment:
+    DATABASE_URL: postgresql://postgres:topsecret@postgres:5432/db
+    API_KEY: sk_live_leakyleaky
+`
+	out, err := RedactEnvYAML([]byte(sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, secret := range []string{"topsecret", "sk_live_leakyleaky", "postgresql://postgres"} {
+		if strings.Contains(s, secret) {
+			t.Fatalf("secret leaked from an x-extension block: %q\n%s", secret, s)
+		}
+	}
+}
+
 func TestRedactEnvYAMLDeterministicAndValueSensitive(t *testing.T) {
 	a, err := RedactEnvYAML([]byte(renderedSample))
 	if err != nil {

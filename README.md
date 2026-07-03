@@ -12,11 +12,13 @@ keeping your own proxy, database, and conventions.
 
 **Design phase.** The full design — architecture, service model, deploy lifecycle, state/locking
 protocol, rollback semantics, configuration, prior art, risks, and roadmap — lives in
-[`docs/design.html`](docs/design.html) (rev 4).
+[`docs/design.html`](docs/design.html) (rev 5).
 
 The design has been through two adversarial review rounds (five independent reviewers: architecture,
-market/prior-art, operations, fresh-eyes holistic, fix-verification) plus a generality audit. The
-review changelog is §13 of the design doc.
+market/prior-art, operations, fresh-eyes holistic, fix-verification), a generality audit, and a
+rev 5 generality & robustness hardening pass (traffic-shift protocol, compose canonicalization,
+multi-service roles, resource-exclusivity rule, one mutation regime). The review changelog is §13
+of the design doc.
 
 ## The wedge
 

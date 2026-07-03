@@ -1,0 +1,19 @@
+services:
+  server:
+    image: ghcr.io/example/app:${VERSION:-latest}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 5s
+  worker:
+    image: ghcr.io/example/app:${VERSION:-latest}
+    command: work
+  postgres:
+    image: postgres:17
+    ports: ["127.0.0.1:5432:5432"]
+  migrate:
+    image: ghcr.io/example/app:${VERSION:-latest}
+    command: migrate
+  rogue:
+    image: alpine
+    container_name: pinned
+    ports: ["8080:8080"]

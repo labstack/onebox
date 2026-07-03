@@ -13,6 +13,8 @@ type globalFlags struct {
 	Verbose    bool
 	Env        string
 	ConfigPath string
+	NoRollback bool
+	Force      bool
 }
 
 func newRootCmd() *cobra.Command {

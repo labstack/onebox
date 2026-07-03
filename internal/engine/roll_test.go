@@ -44,17 +44,26 @@ func rollFake() *transport.Fake {
 	return f
 }
 
-// The newcomer is renamed to <service>-<release> so `docker ps` is readable
-// (compose's --scale index is cosmetic; yeet tracks by label).
-func TestRollRoleTagsNewcomerWithRelease(t *testing.T) {
+// The survivor is renamed to the plain service name so `docker ps` reads
+// cleanly — but only AFTER the old container is removed, so `server` is free
+// even on a same-version redeploy (compose's --scale index is cosmetic; yeet
+// tracks by label).
+func TestRollRoleRenamesSurvivorToServiceAfterOldRemoved(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker rename NEW1 server-R1") {
-		t.Fatalf("newcomer must be renamed to <service>-<release> (no app prefix):\n%s", seq)
+	if !strings.Contains(seq, "docker rename NEW1 server") {
+		t.Fatalf("survivor must be renamed to the plain service name:\n%s", seq)
+	}
+	if strings.Contains(seq, "server-R1") {
+		t.Fatalf("no release-tagged name expected:\n%s", seq)
+	}
+	// rename must come after the old container is gone, or the name would clash
+	if strings.Index(seq, "docker rename NEW1 server") < strings.Index(seq, "docker rm OLD1") {
+		t.Fatalf("rename must follow docker rm of old:\n%s", seq)
 	}
 }
 
@@ -96,6 +105,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 		"docker exec OLD1 touch /tmp/yeet-drain",
 		"docker stop -t 30 OLD1",
 		"docker rm OLD1",
+		"docker rename NEW1 server",
 	}
 	last := -1
 	for _, want := range ordered {

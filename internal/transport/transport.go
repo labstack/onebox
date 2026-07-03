@@ -1,0 +1,76 @@
+// Package transport abstracts command execution on a deploy target.
+//
+// Commands are shell strings by nature: SSH exec is always parsed by the
+// remote shell, and Local mirrors that for parity. The safety contract lives
+// one level up — every token interpolated into a command is either validated
+// against a strict pattern or single-quoted (see the plan's command-injection
+// rules); hooks are the documented verbatim escape hatch.
+package transport
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os/exec"
+)
+
+type Result struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+type Transport interface {
+	// Run executes cmd; err is a transport failure only — command failures
+	// are reported via Result.ExitCode.
+	Run(ctx context.Context, cmd string) (Result, error)
+	Upload(ctx context.Context, localDir, remoteDir string) error
+	Host() string
+	Close() error
+}
+
+// Local runs commands on this machine — used by e2e tests where local docker
+// plays the deploy host.
+type Local struct {
+	Logger func(host, cmd string)
+}
+
+func NewLocal() *Local { return &Local{} }
+
+func (l *Local) Run(ctx context.Context, cmd string) (Result, error) {
+	if l.Logger != nil {
+		l.Logger("local", cmd)
+	}
+	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	var out, errb bytes.Buffer
+	c.Stdout, c.Stderr = &out, &errb
+	err := c.Run()
+	res := Result{Stdout: out.String(), Stderr: errb.String()}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		res.ExitCode = ee.ExitCode()
+		return res, nil
+	}
+	return res, err
+}
+
+func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
+	_, err := l.Run(ctx, "mkdir -p "+shq(remoteDir)+" && cp -a "+shq(localDir)+"/. "+shq(remoteDir)+"/")
+	return err
+}
+
+func (l *Local) Host() string { return "local" }
+func (l *Local) Close() error { return nil }
+
+// shq single-quotes a shell argument.
+func shq(s string) string {
+	b := []byte{'\''}
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\'' {
+			b = append(b, '\'', '\\', '\'', '\'', '\'')
+		} else {
+			b = append(b, s[i])
+		}
+	}
+	return string(append(b, '\''))
+}

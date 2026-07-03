@@ -18,40 +18,43 @@ import (
 // project dir (/var/run/docker.sock, /data/...) are host paths — untouched.
 // This is what makes the release dir self-contained (design §04 transfer).
 func StagePayload(p *types.Project, stagingDir string) (map[string]string, error) {
+	rewrites := PayloadRewrites(p)
+	for abs, rel := range rewrites {
+		dst := filepath.Join(stagingDir, filepath.FromSlash(strings.TrimPrefix(rel, "./")))
+		if err := copyTree(abs, dst); err != nil {
+			return nil, fmt.Errorf("stage %s: %w", rel, err)
+		}
+	}
+	return rewrites, nil
+}
+
+// PayloadRewrites is the pure half of StagePayload: the abs→"./rel" map,
+// with no copying. Plan and apply both use it, so the rendered bytes a plan
+// stores are byte-identical to what apply would render.
+func PayloadRewrites(p *types.Project) map[string]string {
 	projectDir := p.WorkingDir
 	rewrites := map[string]string{}
-	stage := func(abs string) error {
+	note := func(abs string) {
 		if abs == "" || !filepath.IsAbs(abs) {
-			return nil
+			return
 		}
 		rel, err := filepath.Rel(projectDir, abs)
 		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-			return nil // outside the project: a host path, not payload
-		}
-		if _, seen := rewrites[abs]; seen {
-			return nil
-		}
-		if err := copyTree(abs, filepath.Join(stagingDir, rel)); err != nil {
-			return fmt.Errorf("stage %s: %w", rel, err)
+			return // outside the project: a host path, not payload
 		}
 		rewrites[abs] = "./" + filepath.ToSlash(rel)
-		return nil
 	}
 	for _, svc := range p.Services {
 		for _, v := range svc.Volumes {
 			if v.Type == types.VolumeTypeBind {
-				if err := stage(v.Source); err != nil {
-					return nil, err
-				}
+				note(v.Source)
 			}
 		}
 		for _, ef := range svc.EnvFiles {
-			if err := stage(ef.Path); err != nil {
-				return nil, err
-			}
+			note(ef.Path)
 		}
 	}
-	return rewrites, nil
+	return rewrites
 }
 
 // RewriteSources replaces absolute runner paths with release-relative ones in

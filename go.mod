@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	cuelang.org/go v0.17.0
 	github.com/compose-spec/compose-go/v2 v2.13.0
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.53.0
 	gopkg.in/yaml.v3 v3.0.1

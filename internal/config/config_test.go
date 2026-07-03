@@ -67,12 +67,9 @@ environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: sideways } }
 order: [web]
 `
-	cfg, err := Load(write(t, badMode))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error for mode 'sideways'")
+	// shape errors are now caught by CUE at Load time
+	if _, err := Load(write(t, badMode)); err == nil {
+		t.Fatal("expected CUE error for mode 'sideways'")
 	}
 
 	noReady := `
@@ -82,7 +79,7 @@ environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: rolling } }
 order: [web]
 `
-	cfg, err = Load(write(t, noReady))
+	cfg, err := Load(write(t, noReady))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,12 +111,8 @@ environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: recreate, drain: { signal: "TERM; rm -rf /", wait: 1s } } }
 order: [web]
 `
-	cfg, err = Load(write(t, badSignal))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error: signal must be [A-Z0-9]+")
+	if _, err := Load(write(t, badSignal)); err == nil {
+		t.Fatal("expected CUE error: signal must be [A-Z0-9]+")
 	}
 
 	badRole := `
@@ -129,11 +122,7 @@ environments: { production: { hosts: [h] } }
 roles: { "web$(x)": { service: server, mode: recreate } }
 order: ["web$(x)"]
 `
-	cfg, err = Load(write(t, badRole))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error: role name must be identifier-safe")
+	if _, err := Load(write(t, badRole)); err == nil {
+		t.Fatal("expected CUE error: role name must be identifier-safe")
 	}
 }

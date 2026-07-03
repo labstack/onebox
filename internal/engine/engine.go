@@ -23,6 +23,8 @@ type Options struct {
 	// ConvergeBuffer is the bounded wait for the proxy to observe a health
 	// change (rev 5 traffic-shift protocol, the "converged" step).
 	ConvergeBuffer time.Duration
+	// LocalDir is the config file's directory — cwd for local hooks.
+	LocalDir string
 }
 
 type Engine struct {

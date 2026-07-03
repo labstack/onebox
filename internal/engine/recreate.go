@@ -1,8 +1,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -48,25 +52,47 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 }
 
 // RunHook executes a user hook verbatim (design §01: hooks are unplannable
-// commands — the operator's own, same trust level as their shell) with
-// compose env exported so `docker compose ...` targets this release.
-// Nonzero exit halts the deploy — M0 has no migration gate, so the only safe
-// behavior is to stop.
+// commands — the operator's own, same trust level as their shell). Host
+// hooks get compose env exported so `docker compose ...` targets this
+// release; local hooks run on the runner (publish-style steps) with YEET_*
+// env. Nonzero exit halts the deploy — no migration gate until M2, so the
+// only safe behavior is to stop.
 func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComposePath string) error {
 	hook, ok := e.Cfg.Hooks[name]
-	if !ok || hook == "" {
+	if !ok || hook.Run == "" {
 		return nil
 	}
-	e.logf("hook %s: %s", name, hook)
+	if hook.Local {
+		e.logf("hook %s (local): %s", name, hook.Run)
+		return e.runLocalHook(ctx, name, hook.Run, remoteReleaseDir)
+	}
+	e.logf("hook %s: %s", name, hook.Run)
 	cmd := "cd " + q(remoteReleaseDir) +
 		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
-		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook
+		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook.Run
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
 		return fmt.Errorf("hook %s failed (exit %d): %s", name, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir string) error {
+	c := exec.CommandContext(ctx, "sh", "-c", run) // verbatim by design
+	c.Dir = e.Opts.LocalDir
+	c.Env = append(os.Environ(),
+		"YEET_APP="+e.Cfg.App,
+		"YEET_HOST="+e.T.Host(),
+		"YEET_RELEASE_DIR="+remoteReleaseDir,
+		"YEET_RELEASE_ID="+filepath.Base(remoteReleaseDir),
+	)
+	var out, errb bytes.Buffer
+	c.Stdout, c.Stderr = &out, &errb
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("hook %s (local) failed: %v: %s", name, err, strings.TrimSpace(errb.String()))
 	}
 	return nil
 }

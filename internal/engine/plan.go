@@ -224,19 +224,28 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	for _, roleName := range e.Cfg.Order {
 		role := e.Cfg.Roles[roleName]
 		svc := role.Service
-		out = append(out, fmt.Sprintf("release %s (%s):", roleName, role.Mode))
+		head := fmt.Sprintf("release %s (%s", roleName, role.Mode)
+		if n := role.Count(); n > 1 {
+			head += fmt.Sprintf(", %d replicas → %s-1..%s-%d", n, svc, svc, n)
+		}
+		out = append(out, head+"):")
 		out = append(out, "  "+cc+" pull --quiet "+svc)
 		if role.Mode == "rolling" {
+			step := "  per replica: "
 			out = append(out,
-				fmt.Sprintf("  %s up -d --no-deps --no-recreate --scale %s=2 %s", cc, svc, svc),
+				step+fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=<+1> %s", cc, svc, svc),
 				"  wait <new> healthy (ready gate)",
 				"    ├─ healthy → converge → docker exec <old> touch /tmp/yeet-drain → wait unhealthy → converge",
-				fmt.Sprintf("    │    └─ docker stop -t %d <old> && docker rm <old> && docker rename <new> %s", stopGraceSeconds, svc),
-				"    └─ unhealthy/timeout → docker rm -f <new>; old keeps serving; deploy halts",
+				fmt.Sprintf("    │    └─ docker stop -t %d <old> && docker rm <old> && rename <new> into the freed slot", stopGraceSeconds),
+				"    └─ unhealthy/timeout → docker rm -f <new>; existing keep serving; deploy halts",
 			)
 		} else {
+			scale := ""
+			if n := role.Count(); n > 1 {
+				scale = fmt.Sprintf(" --scale %s=%d", svc, n)
+			}
 			out = append(out,
-				fmt.Sprintf("  %s up -d --no-deps --force-recreate %s", cc, svc),
+				fmt.Sprintf("  %s up -d --no-deps --force-recreate%s %s", cc, scale, svc),
 				"  wait ready (or running) — brief gap, stated",
 			)
 		}

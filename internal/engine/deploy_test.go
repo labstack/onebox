@@ -15,6 +15,31 @@ import (
 func happyFake() *transport.Fake {
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		// server roll state, derived from history so the loop converges: NEW1
+		// appears after a scale, OLD1 disappears once removed, names track renames.
+		scaled, oldGone, drained := false, false, false
+		name := map[string]string{"OLD1": "server"}
+		for _, c := range f.Commands {
+			if strings.Contains(c, "--scale server=") {
+				scaled = true
+			}
+			if strings.Contains(c, "docker rm OLD1") {
+				oldGone = true
+			}
+			if strings.Contains(c, "yeet-drain") {
+				drained = true
+			}
+			if i := strings.Index(c, "docker rename "); i >= 0 {
+				fs := strings.Fields(c[i+len("docker rename "):])
+				if len(fs) >= 2 {
+					name[fs[0]] = fs[1]
+				}
+			}
+		}
+		lastField := func(s string) string {
+			fs := strings.Fields(s)
+			return fs[len(fs)-1]
+		}
 		switch {
 		case strings.Contains(cmd, "docker version"):
 			return transport.Result{Stdout: "27.0.3\n"}, true
@@ -27,21 +52,30 @@ func happyFake() *transport.Fake {
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && strings.Contains(cmd, "yeet.release="):
-			for _, c := range f.Commands {
-				if strings.Contains(c, "--scale server=2") {
-					return transport.Result{Stdout: "NEW1\n"}, true
-				}
+			if scaled {
+				return transport.Result{Stdout: "NEW1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server"):
-			return transport.Result{Stdout: "OLD1\n"}, true
+			var ids []string
+			if !oldGone {
+				ids = append(ids, "OLD1")
+			}
+			if scaled {
+				ids = append(ids, "NEW1")
+			}
+			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
+		case strings.Contains(cmd, "{{.Name}}") && (strings.Contains(cmd, "OLD1") || strings.Contains(cmd, "NEW1")):
+			n := name[lastField(cmd)]
+			if n == "" {
+				n = "monk-server-x"
+			}
+			return transport.Result{Stdout: "/" + n + "\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "NEW1") && strings.Contains(cmd, "Health"):
 			return transport.Result{Stdout: "healthy\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "OLD1") && strings.Contains(cmd, "Health"):
-			for _, c := range f.Commands {
-				if strings.Contains(c, "yeet-drain") {
-					return transport.Result{Stdout: "unhealthy\n"}, true
-				}
+			if drained {
+				return transport.Result{Stdout: "unhealthy\n"}, true
 			}
 			return transport.Result{Stdout: "healthy\n"}, true
 		case strings.Contains(cmd, "service=worker") && strings.Contains(cmd, "yeet.release="):

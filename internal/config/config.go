@@ -67,11 +67,23 @@ type Environment struct {
 }
 
 type Role struct {
-	Service   string `yaml:"service"`
-	Mode      string `yaml:"mode"` // rolling | recreate
+	Service string `yaml:"service"`
+	Mode    string `yaml:"mode"` // rolling | recreate
+	// Replicas is the steady-state instance count (default 1). >1 runs a
+	// load-balanced fleet named <service>-1..<service>-N; a rolling deploy
+	// surges one new replica at a time. 0/absent means 1.
+	Replicas  int    `yaml:"replicas,omitempty"`
 	Singleton bool   `yaml:"singleton,omitempty"`
 	Ready     *Ready `yaml:"ready,omitempty"`
 	Drain     *Drain `yaml:"drain,omitempty"`
+}
+
+// Count is the resolved replica count (default 1).
+func (r Role) Count() int {
+	if r.Replicas < 1 {
+		return 1
+	}
+	return r.Replicas
 }
 
 type Ready struct {

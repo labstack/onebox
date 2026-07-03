@@ -135,3 +135,79 @@ services:
 		t.Fatalf("render should keep the key and show a hash:\n%s", out)
 	}
 }
+
+// env_files render onto role AND job services as env_file refs (container
+// runtime env), while their secret contents never appear in the output.
+func TestRenderInjectsEnvFiles(t *testing.T) {
+	dir := writeProject(t)
+	composeYAML := `
+services:
+  server:
+    image: ghcr.io/x/app:v1
+  migrate:
+    image: ghcr.io/x/app:v1
+    command: migrate
+  postgres:
+    image: postgres:17
+`
+	yeetYAML := `
+app: demo
+compose: docker-compose.yaml
+environments: { production: { hosts: [deploy@example.invalid] } }
+roles:
+  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
+order: [web]
+accessories: [postgres]
+jobs: [migrate]
+env_files: [app.env]
+`
+	for name, body := range map[string]string{
+		"docker-compose.yaml": composeYAML,
+		"yeet.yml":            yeetYAML,
+		"app.env":             "SECRET=leaky-xyz\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := run(t, dir, "render")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if strings.Contains(out, "leaky-xyz") {
+		t.Fatalf("env_file secret leaked into render:\n%s", out)
+	}
+	if strings.Count(out, "app.env") < 2 {
+		t.Fatalf("app.env must attach to both role and job:\n%s", out)
+	}
+}
+
+// A preflight check with a missing key halts the deploy before any host
+// contact, naming the file and key.
+func TestPreflightBlocksDeploy(t *testing.T) {
+	dir := writeProject(t)
+	yeetYAML := `
+app: demo
+compose: docker-compose.yaml
+environments: { production: { hosts: [deploy@example.invalid] } }
+roles:
+  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
+order: [web]
+accessories: [postgres]
+preflight:
+  - { file: secrets.env, require: [MISSING_KEY] }
+`
+	if err := os.WriteFile(filepath.Join(dir, "yeet.yml"), []byte(yeetYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.env"), []byte("PRESENT=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, dir, "deploy", "-y")
+	if err == nil {
+		t.Fatalf("preflight should have blocked the deploy: %s", out)
+	}
+	if !strings.Contains(err.Error()+out, "MISSING_KEY") || !strings.Contains(err.Error()+out, "secrets.env") {
+		t.Fatalf("error must name file and key: %v\n%s", err, out)
+	}
+}

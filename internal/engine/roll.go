@@ -30,119 +30,229 @@ func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]stri
 	return splitIDs(res.Stdout)
 }
 
-// RollRole executes scale–health–drain for one role (design §03 + the rev 5
-// traffic-shift protocol: join → converged → drain → converged → bleed →
-// SIGTERM → remove; SIGTERM never races the proxy). Resume-aware: an already
-// running newcomer of this release is adopted, not duplicated.
+// RollRole rolls a role to its desired replica count of the new release with
+// zero downtime (design §03 + the rev 5 traffic-shift protocol: join →
+// converged → drain → converged → bleed → SIGTERM → remove). It surges ONE new
+// replica at a time, waits it healthy, retires one old, and hands the newcomer
+// a clean slot name — never compose's <project>-<svc>-<n> default. Repeats until
+// every replica is the new release. Resume-aware: already-running newcomers of
+// this release are adopted, not duplicated.
 func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath string) error {
 	role := e.Cfg.Roles[roleName]
 	svc := role.Service
 	cc := e.composeCmd(remoteComposePath)
 	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
+	desired := role.Count()
+	within, pollEvery := readyTiming(role)
 
-	all, err := e.containerIDs(ctx, svc)
-	if err != nil {
-		return err
-	}
-	newcomers, err := e.newcomerIDs(ctx, svc, releaseID)
-	if err != nil {
-		return err
-	}
-	old := subtract(all, newcomers)
-	if len(old) > 1 {
-		return fmt.Errorf("role %s: %d pre-existing containers; expected ≤1", roleName, len(old))
-	}
-	if len(newcomers) > 1 {
-		return fmt.Errorf("role %s: %d containers of release %s already running; clean up manually", roleName, len(newcomers), releaseID)
-	}
-
-	var newID string
-	if len(newcomers) == 1 {
-		newID = newcomers[0]
-		e.logf("%s: newcomer of %s already running (resume) — continuing from health gate", roleName, releaseID)
-	} else {
-		if res, err := e.mutate(ctx, cc+" pull --quiet "+svc); err != nil {
-			return err
-		} else if res.ExitCode != 0 {
-			return fmt.Errorf("pull %s: %s", svc, res.Stderr)
-		}
-		scale := len(all) + 1
-		if res, err := e.mutate(ctx, fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=%d %s", cc, svc, scale, svc)); err != nil {
-			return err
-		} else if res.ExitCode != 0 {
-			return fmt.Errorf("up --scale %s: %s", svc, res.Stderr)
-		}
-		fresh, err := e.newcomerIDs(ctx, svc, releaseID)
+	pulled := false
+	// Each pass converges by one step: add a missing new replica, or retire a
+	// surplus/old one. The guard bounds a pathological non-converging loop.
+	for guard := 0; ; guard++ {
+		news, err := e.newcomerIDs(ctx, svc, releaseID)
 		if err != nil {
 			return err
 		}
-		if len(fresh) != 1 {
-			return fmt.Errorf("role %s: expected exactly one new container, found %d", roleName, len(fresh))
+		cur, err := e.containerIDs(ctx, svc)
+		if err != nil {
+			return err
 		}
-		newID = fresh[0]
-	}
+		olds := subtract(cur, news)
+		if guard > 4*(desired+len(olds))+8 {
+			return fmt.Errorf("role %s: roll did not converge (news=%d olds=%d)", roleName, len(news), len(olds))
+		}
 
-	within, pollEvery := readyTiming(role)
-	// join: the newcomer becomes a routable endpoint via its healthcheck
-	if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
-		e.logf("join failed for %s — removing new container, old keeps serving", roleName)
-		_, _ = e.mutate(ctx, "docker rm -f "+newID)
-		return fmt.Errorf("role %s: new container never became healthy: %w", roleName, err)
-	}
-	if len(old) == 0 {
-		e.logf("%s: no old container to drain", roleName)
-		e.renameToService(ctx, newID, svc)
-		return nil
-	}
-	oldID := old[0]
+		if len(news) >= desired && len(olds) == 0 {
+			if len(news) == desired {
+				break
+			}
+			// surplus new replicas (count reduced) — drain one down to desired
+			if err := e.retireContainer(ctx, role, news[desired], pollEvery); err != nil {
+				return err
+			}
+			continue
+		}
 
-	// converged: proxy has observed the healthy newcomer
-	e.Opts.Sleep(e.Opts.ConvergeBuffer)
+		// surge one new replica if we still need more of the new release
+		if len(news) < desired {
+			if !pulled {
+				if res, err := e.mutate(ctx, cc+" pull --quiet "+svc); err != nil {
+					return err
+				} else if res.ExitCode != 0 {
+					return fmt.Errorf("pull %s: %s", svc, res.Stderr)
+				}
+				pulled = true
+			}
+			known := idSet(news)
+			scale := len(cur) + 1
+			if res, err := e.mutate(ctx, fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=%d %s", cc, svc, scale, svc)); err != nil {
+				return err
+			} else if res.ExitCode != 0 {
+				return fmt.Errorf("up --scale %s: %s", svc, res.Stderr)
+			}
+			after, err := e.newcomerIDs(ctx, svc, releaseID)
+			if err != nil {
+				return err
+			}
+			newID := ""
+			for _, id := range after {
+				if !known[id] {
+					newID = id
+					break
+				}
+			}
+			if newID == "" {
+				return fmt.Errorf("role %s: scale up produced no new container", roleName)
+			}
+			// strip the <project>-<svc>-<n> name immediately so the project
+			// prefix never appears; a transient name until it takes a slot.
+			e.renameContainer(ctx, newID, svc+"-new")
+			// join: the newcomer becomes a routable endpoint via its healthcheck
+			if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
+				e.logf("join failed for %s — removing new container, existing keep serving", roleName)
+				_, _ = e.mutate(ctx, "docker rm -f "+newID)
+				return fmt.Errorf("role %s: new container never became healthy: %w", roleName, err)
+			}
+		}
 
-	// drain: poison old health so the proxy drops it BEFORE any signal
-	if _, err := e.mutate(ctx, "docker exec "+oldID+" touch "+compose.DrainFile); err != nil {
+		// retire one old, freeing its slot for the newcomer just added
+		if len(olds) > 0 {
+			if err := e.retireContainer(ctx, role, olds[0], pollEvery); err != nil {
+				return err
+			}
+		}
+
+		// hand clean slot names to any new container that doesn't have one yet
+		if err := e.reslot(ctx, svc, releaseID, desired); err != nil {
+			return err
+		}
+	}
+	if err := e.reslot(ctx, svc, releaseID, desired); err != nil {
+		return err
+	}
+	e.logf("%s: %d replica(s) at %s", roleName, desired, releaseID)
+	return nil
+}
+
+// retireContainer drains one container out of rotation (poison its health so the
+// proxy drops it BEFORE any signal), waits the drain, optionally bleeds long
+// connections, then stops and removes it.
+func (e *Engine) retireContainer(ctx context.Context, role config.Role, id string, pollEvery time.Duration) error {
+	e.Opts.Sleep(e.Opts.ConvergeBuffer) // converged: proxy has observed the newcomer
+
+	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
 		return err
 	}
 	drainBudget := 5 * pollEvery
-	if err := e.waitHealth(ctx, oldID, "unhealthy", drainBudget, pollEvery); err != nil {
-		e.logf("warn: old container never reported unhealthy (%v); proceeding after buffer", err)
+	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
+		e.logf("warn: container never reported unhealthy (%v); proceeding after buffer", err)
 	}
 	e.Opts.Sleep(e.Opts.ConvergeBuffer) // converged: proxy dropped it
 
-	// bleed: optional long-connection window (WebSocket/SSE etc.)
 	if role.Drain != nil && role.Drain.Wait > 0 {
 		if role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
-			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+oldID)
+			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
 		}
 		e.Opts.Sleep(time.Duration(role.Drain.Wait))
 	}
 
-	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", stopGraceSeconds, oldID)); err != nil {
+	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", stopGraceSeconds, id)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("stop old %s: %s", oldID, res.Stderr)
+		return fmt.Errorf("stop %s: %s", id, res.Stderr)
 	}
-	if _, err := e.mutate(ctx, "docker rm "+oldID); err != nil {
+	_, err := e.mutate(ctx, "docker rm "+id)
+	return err
+}
+
+// reslot gives each new-release container a clean, stable slot name: the plain
+// service name for a single replica, or <service>-1..<service>-N for a fleet.
+// A slot still held by an old container counts as taken, so names never clash;
+// as olds retire their slots free and the next reslot fills them.
+func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int) error {
+	news, err := e.newcomerIDs(ctx, svc, releaseID)
+	if err != nil {
 		return err
 	}
-	// Only now that the old container is gone is the plain service name free —
-	// give it to the survivor so `docker ps` reads cleanly (a rolling service
-	// can't carry a fixed container_name; two copies coexist mid-roll).
-	e.renameToService(ctx, newID, svc)
-	e.logf("%s: rolled %s -> %s", roleName, oldID, newID)
+	all, err := e.containerIDs(ctx, svc)
+	if err != nil {
+		return err
+	}
+	slots := slotNames(svc, desired)
+	slotSet := map[string]bool{}
+	for _, s := range slots {
+		slotSet[s] = true
+	}
+	newSet := idSet(news)
+	nameByID := map[string]string{}
+	taken := map[string]bool{}
+	for _, id := range all {
+		n, err := e.nameOf(ctx, id)
+		if err != nil {
+			return err
+		}
+		nameByID[id] = n
+		if slotSet[n] {
+			taken[n] = true
+		}
+	}
+	for _, id := range all {
+		if !newSet[id] || slotSet[nameByID[id]] {
+			continue // not ours, or already correctly slotted
+		}
+		target := ""
+		for _, s := range slots {
+			if !taken[s] {
+				target = s
+				break
+			}
+		}
+		if target == "" {
+			continue // no free slot yet (an old still holds it)
+		}
+		_, _ = e.mutate(ctx, "docker rename "+id+" "+target)
+		taken[target] = true
+	}
 	return nil
 }
 
-// renameToService gives the surviving rolling container the plain service name
-// (e.g. `server`). Called only once the previous container is gone, so the name
-// is free even on a same-version redeploy. Cosmetic and best-effort — yeet
+// renameContainer renames a container, idempotent and best-effort — yeet
 // identifies containers by label, so a failed rename never affects correctness.
-// Idempotent on resume.
-func (e *Engine) renameToService(ctx context.Context, id, svc string) {
-	if res, err := e.T.Run(ctx, "docker inspect -f '{{.Name}}' "+id); err == nil && strings.TrimSpace(res.Stdout) == "/"+svc {
-		return // already named (resume)
+func (e *Engine) renameContainer(ctx context.Context, id, name string) {
+	if cur, err := e.nameOf(ctx, id); err == nil && cur == name {
+		return
 	}
-	_, _ = e.mutate(ctx, "docker rename "+id+" "+svc)
+	_, _ = e.mutate(ctx, "docker rename "+id+" "+name)
+}
+
+// nameOf returns a container's name without the leading slash docker reports.
+func (e *Engine) nameOf(ctx context.Context, id string) (string, error) {
+	res, err := e.T.Run(ctx, "docker inspect -f '{{.Name}}' "+id)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(strings.TrimSpace(res.Stdout), "/"), nil
+}
+
+// slotNames is the target name set: the plain service name for one replica,
+// else <service>-1..<service>-N.
+func slotNames(svc string, desired int) []string {
+	if desired <= 1 {
+		return []string{svc}
+	}
+	out := make([]string, desired)
+	for i := range out {
+		out[i] = fmt.Sprintf("%s-%d", svc, i+1)
+	}
+	return out
+}
+
+func idSet(ids []string) map[string]bool {
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
 }
 
 // readyTiming: gate budget and poll interval, with defaults for roles whose

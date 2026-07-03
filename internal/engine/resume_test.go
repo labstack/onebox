@@ -109,14 +109,40 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 	// replaying R0 must drain it. The fake: newcomer query for R0 returns the
 	// R0 container only after R0's up --scale ran.
 	base := f.Dynamic
+	r0Scaled := func() bool {
+		for _, c := range f.Commands {
+			if strings.Contains(c, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale server=2") {
+				return true
+			}
+		}
+		return false
+	}
+	oldGone := func() bool {
+		for _, c := range f.Commands {
+			if strings.Contains(c, "docker rm OLD1") {
+				return true
+			}
+		}
+		return false
+	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "yeet.release=R0") && strings.Contains(cmd, "service=server") {
-			for _, c := range f.Commands {
-				if strings.Contains(c, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale server=2") {
-					return transport.Result{Stdout: "PREV1\n"}, true
-				}
+			if r0Scaled() {
+				return transport.Result{Stdout: "PREV1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
+		}
+		// live server set: OLD1 (the R1 container being replaced) until removed,
+		// plus the R0 newcomer PREV1 once the R0 scale ran.
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && !strings.Contains(cmd, "yeet.release=") {
+			var ids []string
+			if !oldGone() {
+				ids = append(ids, "OLD1")
+			}
+			if r0Scaled() {
+				ids = append(ids, "PREV1")
+			}
+			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
 		}
 		if strings.Contains(cmd, "yeet.release=R0") && strings.Contains(cmd, "service=worker") {
 			return transport.Result{Stdout: ""}, true // worker never completed → recreate from R0

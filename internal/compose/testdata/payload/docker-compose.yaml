@@ -1,0 +1,10 @@
+services:
+  server:
+    image: ghcr.io/x/app:v1
+    env_file: .env
+    volumes:
+      - ./conf/app.conf:/etc/app.conf:ro
+      - /var/run/docker.sock:/sock:ro
+      - data:/data
+volumes:
+  data: {}

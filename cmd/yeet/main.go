@@ -29,6 +29,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVarP(&g.Env, "env", "e", "production", "environment name")
 	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "yeet.yml", "path to yeet.yml")
 	addCommands(root, g)
+	addInitCommand(root, g)
 	return root
 }
 

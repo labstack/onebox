@@ -1,0 +1,147 @@
+package engine
+
+import (
+	"bytes"
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/labstack/yeet/internal/transport"
+)
+
+func planFake() *transport.Fake {
+	f := &transport.Fake{}
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R0\n"}, true
+		case strings.Contains(cmd, "service=server") && strings.Contains(cmd, "docker ps"):
+			return transport.Result{Stdout: "OLD1\n"}, true
+		case strings.Contains(cmd, "service=worker") && strings.Contains(cmd, "docker ps"):
+			return transport.Result{Stdout: "W1\n"}, true
+		case strings.Contains(cmd, "service=migrate") && strings.Contains(cmd, "docker ps"):
+			return transport.Result{Stdout: "\n"}, true
+		case strings.Contains(cmd, "{{.Image}}"):
+			return transport.Result{Stdout: "sha256:aaaa\n"}, true
+		case strings.Contains(cmd, "imagetools inspect"):
+			return transport.Result{Stdout: "sha256:" + strings.Repeat("ab", 32) + "\n"}, true
+		case strings.Contains(cmd, "cat "):
+			return transport.Result{Stdout: "services: {}\n"}, true
+		}
+		return transport.Result{}, false
+	}
+	return f
+}
+
+func TestRefreshCollectsDriftSet(t *testing.T) {
+	f := planFake()
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	hs, err := e.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hs.CurrentRelease != "R0" {
+		t.Fatalf("current: %q", hs.CurrentRelease)
+	}
+	if hs.ImageIDs["server"] != "sha256:aaaa" || hs.ImageIDs["worker"] != "sha256:aaaa" {
+		t.Fatalf("image ids: %+v", hs.ImageIDs)
+	}
+	if _, ok := hs.ImageIDs["migrate"]; ok {
+		t.Fatalf("stopped job service must not appear: %+v", hs.ImageIDs)
+	}
+}
+
+func TestPinImagesRewritesToDigest(t *testing.T) {
+	f := planFake()
+	p := testProject(t)
+	e := New(testConfig(), p, f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	pins, err := e.PinImages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ghcr.io/x/app@sha256:" + strings.Repeat("ab", 32)
+	if pins["server"] != want {
+		t.Fatalf("pin: %q want %q", pins["server"], want)
+	}
+	if p.Services["server"].Image != want {
+		t.Fatalf("project image not rewritten: %q", p.Services["server"].Image)
+	}
+}
+
+func TestPinImagesFallsBackUnpinned(t *testing.T) {
+	f := planFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "imagetools inspect") {
+			return transport.Result{ExitCode: 1, Stderr: "buildx: not found"}, true
+		}
+		return base(cmd)
+	}
+	var out bytes.Buffer
+	p := testProject(t)
+	e := New(testConfig(), p, f, Options{Out: &out, Sleep: noSleep})
+	pins, err := e.PinImages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pins["server"] != "ghcr.io/x/app:v2" {
+		t.Fatalf("unpinned should keep tag: %q", pins["server"])
+	}
+	if !strings.Contains(out.String(), "unpinned") {
+		t.Fatalf("unpinned must be stated, not hidden: %s", out.String())
+	}
+}
+
+func TestArtifactRoundtripAndBinding(t *testing.T) {
+	a := &Artifact{
+		ID: "R1", App: "monk", Env: "production",
+		ConfigHash:      HashBytes([]byte("cfg")),
+		HostState:       HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"server": "sha256:aaaa"}},
+		RenderedCompose: "services: {}\n",
+	}
+	path := filepath.Join(t.TempDir(), "plan.json")
+	if err := a.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadArtifact(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.ID != "R1" || b.HostState.ImageIDs["server"] != "sha256:aaaa" {
+		t.Fatalf("roundtrip: %+v", b)
+	}
+
+	// binding: config changed
+	if err := b.VerifyBinding("production", []byte("cfg-CHANGED"), b.HostState); err == nil {
+		t.Fatal("config change must refuse")
+	}
+	// binding: drift
+	drifted := HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"server": "sha256:bbbb"}}
+	if err := b.VerifyBinding("production", []byte("cfg"), drifted); err == nil {
+		t.Fatal("host drift must refuse")
+	}
+	// binding: env mismatch
+	if err := b.VerifyBinding("staging", []byte("cfg"), b.HostState); err == nil {
+		t.Fatal("env mismatch must refuse")
+	}
+	// binding: clean
+	if err := b.VerifyBinding("production", []byte("cfg"), b.HostState); err != nil {
+		t.Fatalf("clean binding refused: %v", err)
+	}
+}
+
+func TestDescribeShowsBranchesAndHooks(t *testing.T) {
+	e := New(testConfig(), testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	lines := strings.Join(e.Describe("<release>/compose.yaml"), "\n")
+	for _, want := range []string{
+		"--scale server=2",
+		"unhealthy/timeout →", // the branch
+		"--force-recreate worker",
+		"unplannable", // hooks flagged
+	} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("describe missing %q:\n%s", want, lines)
+		}
+	}
+}

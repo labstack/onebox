@@ -57,6 +57,44 @@ func TestBootstrapSequence(t *testing.T) {
 	}
 }
 
+func TestBootstrapInstallsMissingRuntime(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	installed := false
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker version") {
+			if !installed {
+				return transport.Result{ExitCode: 127, Stderr: "docker: command not found"}, true
+			}
+			return transport.Result{Stdout: "27.0.3\n"}, true
+		}
+		if strings.Contains(cmd, "get.docker.com") {
+			installed = true
+			return transport.Result{}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Bootstrap(context.Background(), "R1-bootstrap", t.TempDir()); err != nil {
+		t.Fatalf("bootstrap with runtime install: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "get.docker.com") || !strings.Contains(seq, "systemctl enable --now docker") {
+		t.Fatalf("missing runtime install:\n%s", seq)
+	}
+}
+
+func TestBootstrapSkipsInstallWhenRuntimePresent(t *testing.T) {
+	f := happyFake()
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Bootstrap(context.Background(), "R1-bootstrap", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "get.docker.com") {
+		t.Fatal("must not reinstall a present runtime")
+	}
+}
+
 func TestBootstrapFailsEarlyWithoutPassword(t *testing.T) {
 	f := &transport.Fake{}
 	cfg := testConfig()

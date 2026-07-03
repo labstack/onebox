@@ -198,9 +198,9 @@ func (c *Config) Validate() error {
 		if r.Mode != "rolling" && r.Mode != "recreate" {
 			return fmt.Errorf("roles.%s: mode must be rolling|recreate, got %q", name, r.Mode)
 		}
-		if r.Mode == "rolling" && (r.Ready == nil || (r.Ready.HTTP == "" && r.Ready.Exec == "")) {
-			return fmt.Errorf("roles.%s: rolling requires ready.http or ready.exec (design §03 readiness rule)", name)
-		}
+		// rolling needs a readiness contract, but it may be ADOPTED from the
+		// compose file's own healthcheck (design §03) — that cross-file check
+		// lives in compose.CheckRollable, which can see both files.
 		if r.Ready != nil && r.Ready.HTTP != "" && r.Ready.Port == 0 {
 			return fmt.Errorf("roles.%s: ready.http requires port", name)
 		}
@@ -224,22 +224,9 @@ func (c *Config) Validate() error {
 	if c.Proxy.Managed {
 		return fmt.Errorf("proxy.managed: true is M1+ (bootstrap); M0 supports external proxies only")
 	}
-	for name, r := range c.Roles {
-		if r.Ready != nil {
-			rd := *r.Ready
-			if rd.Interval == 0 {
-				rd.Interval = Duration(5 * time.Second)
-			}
-			if rd.StartPeriod == 0 {
-				rd.StartPeriod = Duration(5 * time.Second)
-			}
-			if rd.Within == 0 {
-				rd.Within = Duration(120 * time.Second)
-			}
-			r.Ready = &rd
-			c.Roles[name] = r
-		}
-	}
+	// ready timing defaults live at the point of use (engine.readyTiming,
+	// compose.Render) — injecting them here would stomp timings ADOPTED from
+	// the compose file's own healthcheck.
 	return nil
 }
 

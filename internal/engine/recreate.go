@@ -43,7 +43,8 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 		return fmt.Errorf("recreate %s: no container after up", svc)
 	}
 	if role.Ready != nil {
-		return e.waitHealth(ctx, id, "healthy", time.Duration(role.Ready.Within), time.Duration(role.Ready.Interval))
+		within, pollEvery := readyTiming(role)
+		return e.waitHealth(ctx, id, "healthy", within, pollEvery)
 	}
 	res, err := e.T.Run(ctx, "docker inspect -f '{{.State.Status}}' "+id)
 	if err != nil {

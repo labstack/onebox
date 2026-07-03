@@ -53,9 +53,10 @@ func TestLoadValid(t *testing.T) {
 	if cfg.Retain != 5 { // default
 		t.Fatalf("retain default: %d", cfg.Retain)
 	}
-	// ready timing defaults applied by Validate
-	if time.Duration(cfg.Roles["web"].Ready.Within) != 120*time.Second {
-		t.Fatalf("within default: %v", cfg.Roles["web"].Ready.Within)
+	// ready timing has NO config-level defaults — they'd stomp adopted
+	// compose-healthcheck timings; defaults live at the point of use
+	if cfg.Roles["web"].Ready.Within != 0 {
+		t.Fatalf("within must stay unset: %v", cfg.Roles["web"].Ready.Within)
 	}
 }
 
@@ -72,6 +73,9 @@ order: [web]
 		t.Fatal("expected CUE error for mode 'sideways'")
 	}
 
+	// rolling without ready is legal at config level — the readiness contract
+	// may be ADOPTED from the compose healthcheck; compose.CheckRollable
+	// enforces the cross-file rule
 	noReady := `
 app: monk
 compose: c.yaml
@@ -83,8 +87,8 @@ order: [web]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error: rolling role requires ready http|exec")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("rolling without ready must pass config validation (adopt path): %v", err)
 	}
 
 	orderGap := `

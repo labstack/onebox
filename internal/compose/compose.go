@@ -31,8 +31,16 @@ func Load(ctx context.Context, composePath, projectName string) (*types.Project,
 		cli.WithOsEnv,
 		// WithEnvFiles() resolves <project-dir>/.env; WithDotEnv reads it.
 		// Order matters: os env is merged first and wins (compose semantics).
+		// These feed ${VAR} INTERPOLATION (image tags, etc.) — see below.
 		cli.WithEnvFiles(),
 		cli.WithDotEnv,
+		// Do NOT fold `env_file:` into each service's `environment:` map. That
+		// folding would inline the entire secret env file into the rendered
+		// compose (and thus the plan diff/artifact), violating "secrets content
+		// never logged" (design §07). Interpolation of ${VAR} in the compose
+		// file itself is unaffected; env_file references survive and are shipped
+		// as a mode-600 payload file that `docker compose` reads at runtime.
+		cli.WithoutEnvironmentResolution,
 	)
 	if err != nil {
 		return nil, err

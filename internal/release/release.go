@@ -45,7 +45,10 @@ func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), composeYAML, 0o644); err != nil {
+	// compose.yaml can still carry inline `environment: KEY: ${VAR}` secrets
+	// that interpolation resolved (env_file entries stay external) — mode 600,
+	// same trust boundary as the host's .env.
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), composeYAML, 0o600); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "yeet.snapshot.yml"), snapshotYAML, 0o644)

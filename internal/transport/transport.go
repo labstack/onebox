@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"strings"
 )
@@ -28,6 +29,9 @@ type Transport interface {
 	// RunInput is Run with stdin — for secrets that must never appear in a
 	// command string (docker login --password-stdin).
 	RunInput(ctx context.Context, cmd, stdin string) (Result, error)
+	// RunStream runs cmd with combined output streamed to out — for
+	// long-running follows (logs -f) where buffering defeats the point.
+	RunStream(ctx context.Context, cmd string, out io.Writer) error
 	Upload(ctx context.Context, localDir, remoteDir string) error
 	Host() string
 	Close() error
@@ -63,6 +67,15 @@ func (l *Local) RunInput(ctx context.Context, cmd, stdin string) (Result, error)
 		return res, nil
 	}
 	return res, err
+}
+
+func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error {
+	if l.Logger != nil {
+		l.Logger("local", cmd)
+	}
+	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	c.Stdout, c.Stderr = out, out
+	return c.Run()
 }
 
 func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {

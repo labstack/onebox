@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/engine"
 	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/yeet/internal/secrets"
 	"github.com/labstack/yeet/internal/transport"
 )
 
@@ -333,30 +334,41 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 	return e, func() { t.Close() }, nil
 }
 
-// stageRelease renders + stages the full release payload locally.
+// stageRelease renders + stages the full release payload locally, including
+// decrypted secrets (mode 600) when declared.
 func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id string) (string, func(), error) {
-	rendered, err := compose.Render(p, cfg, id)
-	if err != nil {
-		return "", nil, err
-	}
-	snapshot, err := os.ReadFile(g.ConfigPath)
-	if err != nil {
-		return "", nil, err
-	}
 	staging, err := os.MkdirTemp("", "yeet-"+cfg.App)
 	if err != nil {
 		return "", nil, err
 	}
 	cleanup := func() { os.RemoveAll(staging) }
+	fail := func(err error) (string, func(), error) { cleanup(); return "", nil, err }
+
+	if cfg.Secrets != nil {
+		envBytes, err := secrets.Render(filepath.Dir(g.ConfigPath), cfg.Secrets.Sops)
+		if err != nil {
+			return fail(err)
+		}
+		if err := os.WriteFile(filepath.Join(staging, secrets.EnvFileName), envBytes, 0o600); err != nil {
+			return fail(err)
+		}
+		compose.InjectSecretsEnv(p, cfg, "./"+secrets.EnvFileName)
+	}
+	rendered, err := compose.Render(p, cfg, id)
+	if err != nil {
+		return fail(err)
+	}
+	snapshot, err := os.ReadFile(g.ConfigPath)
+	if err != nil {
+		return fail(err)
+	}
 	rewrites, err := compose.StagePayload(p, staging)
 	if err != nil {
-		cleanup()
-		return "", nil, err
+		return fail(err)
 	}
 	rendered = compose.RewriteSources(rendered, rewrites)
 	if err := release.Stage(staging, rendered, snapshot); err != nil {
-		cleanup()
-		return "", nil, err
+		return fail(err)
 	}
 	return staging, cleanup, nil
 }

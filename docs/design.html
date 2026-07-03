@@ -96,7 +96,7 @@
       <span><span class="k">Model</span><b>Agentless</b> · SSH, no daemon</span>
       <span><span class="k">Binary</span><b>Single</b> · Go, static</span>
       <span><span class="k">Config</span><b>YAML</b> · CUE-validated inside</span>
-      <span><span class="k">v1 scope</span><b>single-host</b> · multi-host at M3</span>
+      <span><span class="k">Scope</span><b>single-host</b> · by design, until a real fleet need exists</span>
     </div>
   </div>
 </div>
@@ -163,7 +163,7 @@
       <li><span class="pill no">not</span> config management — host prep is minimal and idempotent.</li>
       <li><span class="pill no">not</span> a backup tool — data safety runs through hooks (Backup plane cut in rev 2 as a monk-ism).</li>
       <li><span class="pill no">not</span> a plugin platform on day one — curated compiled-in providers + a <code>command</code> escape hatch; public extension points only after ≥3 real apps (rule of three).</li>
-      <li><span class="pill no">not</span> multi-host in v1 — the state/lock protocol is <em>designed</em> for host sets (§05) but v1 <em>executes</em> single-host only. Multi-host lands at M3 with real fleet users. (Rev 4: this halves the v1 surface the maintenance-economics risk pointed at.)</li>
+      <li><span class="pill no">not</span> multi-host — <b>single-host is the product scope</b>. The state/lock protocol (§05) was shaped for host sets so a future fleet executor would be additive, not rework, but none ships until a real multi-host user exists; building it speculatively is the §11 maintenance-economics trap. (Rev 4 halved the v1 surface; this decision makes the boundary permanent-until-proven-needed.)</li>
     </ul>
   </div>
 </section>
@@ -338,17 +338,18 @@
       conflict, not an incident. One honesty note on fencing itself: the per-command journal-tail
       check is check-then-act, not atomic — the residual window between check and command is
       accepted and stated, and the journal makes any loser forensically visible.</p>
-    <h3>Multi-host semantics — designed now, executed at M3</h3>
-    <p>Fan-out policies (<code>fail-fast</code> default: stop on first host failure, leave successes,
-      report divergence loudly; <code>all-or-rollback</code>: revert successes). "Previous release" is
-      per-host unambiguous via each journal. <code>yeet status</code> diffs <b>desired / recorded /
-      actual</b> — divergence is the point. v1 ships the protocol with a single-host executor; the fleet
-      executor lands at M3 with real multi-host users.</p>
+    <h3>Multi-host semantics — a protocol sketch, deliberately unbuilt</h3>
+    <p>Retained only so a future fleet executor would be additive: fan-out policies
+      (<code>fail-fast</code>: stop on first host failure, leave successes, report divergence loudly;
+      <code>all-or-rollback</code>: revert successes); "previous release" per-host unambiguous via each
+      journal. <b>The product executes single-host only</b> — the schema enforces exactly one host per
+      environment — and this section stays a sketch until a real fleet user exists.
+      <code>yeet status</code> diffs <b>recorded / actual</b> — divergence is the point.</p>
     <h3>Day-2</h3>
     <ul class="tight">
       <li><b>Reboot:</b> restart policies bring everything back without yeet; singletons enforced by single-container mode.</li>
       <li><b>Environments:</b> (rev 4) <code>environments:</code> overlays in yeet.yml (<code>yeet -e staging deploy</code>) — different hosts/env per environment, same schema. No separate config dialect.</li>
-      <li><b>Leaving:</b> (rev 4) <code>yeet destroy</code> (torn down with typed confirmation) and — with multi-host at M3 — <code>yeet host retire</code> so removed hosts don't strand orphaned containers that only <code>status</code> divergence would ever mention.</li>
+      <li><b>Leaving:</b> (rev 4) <code>yeet destroy</code> — torn down with typed confirmation. (<code>host retire</code> belongs to the unbuilt multi-host sketch.)</li>
       <li><b>Certificates:</b> each proxy provider declares renewal ownership (traefik-managed: itself; external: you) and <code>status</code> surfaces cert expiry.</li>
     </ul>
   </div>

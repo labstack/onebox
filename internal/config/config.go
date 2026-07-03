@@ -40,6 +40,7 @@ type Config struct {
 	Verify       []VerifyCheck          `yaml:"verify"`
 	Proxy        Proxy                  `yaml:"proxy"`
 	Registry     *Registry              `yaml:"registry"`
+	Secrets      *Secrets               `yaml:"secrets"`
 	Retain       int                    `yaml:"retain"`
 	// Migrations "expand-only" is the operator's informed promise that old
 	// code tolerates the new schema — it permits auto-rollback past the
@@ -116,6 +117,12 @@ type Registry struct {
 	PasswordEnv string `yaml:"password_env"`
 }
 
+// Secrets: a SOPS-encrypted flat YAML map, decrypted runner-side and shipped
+// as a mode-600 env file inside each release dir (design §07).
+type Secrets struct {
+	Sops string `yaml:"sops"`
+}
+
 type Proxy struct {
 	Kind    string `yaml:"kind"`    // traefik-docker | none (M0: informational)
 	Managed bool   `yaml:"managed"` // M0: must be false
@@ -168,7 +175,7 @@ func (c *Config) Validate() error {
 	}
 	for name, e := range c.Environments {
 		if len(e.Hosts) != 1 {
-			return fmt.Errorf("environments.%s: M0 supports exactly one host, got %d", name, len(e.Hosts))
+			return fmt.Errorf("environments.%s: yeet is single-host by design — exactly one host per environment, got %d", name, len(e.Hosts))
 		}
 	}
 	if len(c.Roles) == 0 {

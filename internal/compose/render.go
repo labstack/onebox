@@ -10,9 +10,23 @@ import (
 	"github.com/labstack/yeet/internal/config"
 )
 
+// InjectSecretsEnv adds the rendered secrets env file to every role service
+// (part of the declared, closed injection set). Call before Render.
+func InjectSecretsEnv(p *types.Project, cfg *config.Config, relPath string) {
+	for _, r := range cfg.Roles {
+		svc, ok := p.Services[r.Service]
+		if !ok {
+			continue
+		}
+		svc.EnvFiles = append(svc.EnvFiles, types.EnvFile{Path: relPath, Required: true})
+		p.Services[r.Service] = svc
+	}
+}
+
 // Render produces the per-release deployable (design §02): the user's compose
-// project plus a CLOSED injection set — yeet.* labels and a drain-guarded
-// healthcheck — applied to ROLE services only.
+// project plus a CLOSED injection set — yeet.* labels, a drain-guarded
+// healthcheck, and (when declared) the secrets env file — applied to ROLE
+// services only.
 func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, error) {
 	for _, r := range cfg.Roles {
 		svc, ok := p.Services[r.Service]

@@ -130,3 +130,48 @@ order: ["web$(x)"]
 		t.Fatal("expected CUE error: role name must be identifier-safe")
 	}
 }
+
+func TestEnvFilesParse(t *testing.T) {
+	cfg, err := Load(write(t, sample+"env_files: [server/.env, server/.env.production]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EnvFiles; len(got) != 2 || got[0] != "server/.env" || got[1] != "server/.env.production" {
+		t.Fatalf("env_files parsed wrong: %v", got)
+	}
+}
+
+func TestRunPreflight(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.env"),
+		[]byte("TOKEN=abc\nexport EXPORTED=yes\nVAPID=\nEMPTY=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := &Config{Preflight: []PreflightCheck{
+		{File: "app.env", Require: []string{"TOKEN", "EXPORTED"}, Present: []string{"VAPID"}},
+	}}
+	if err := base.RunPreflight(dir); err != nil {
+		t.Fatalf("preflight should pass: %v", err)
+	}
+
+	missingFile := &Config{Preflight: []PreflightCheck{{File: "nope.env", Require: []string{"X"}}}}
+	if err := missingFile.RunPreflight(dir); err == nil {
+		t.Fatal("expected missing-file error")
+	}
+
+	missingKey := &Config{Preflight: []PreflightCheck{{File: "app.env", Require: []string{"ABSENT"}}}}
+	if err := missingKey.RunPreflight(dir); err == nil {
+		t.Fatal("expected missing-key error")
+	}
+
+	emptyRequired := &Config{Preflight: []PreflightCheck{{File: "app.env", Require: []string{"EMPTY"}}}}
+	if err := emptyRequired.RunPreflight(dir); err == nil {
+		t.Fatal("expected empty-required-value error")
+	}
+
+	// Present tolerates an empty value (the VAPID case).
+	presentEmpty := &Config{Preflight: []PreflightCheck{{File: "app.env", Present: []string{"EMPTY"}}}}
+	if err := presentEmpty.RunPreflight(dir); err != nil {
+		t.Fatalf("present should tolerate empty value: %v", err)
+	}
+}

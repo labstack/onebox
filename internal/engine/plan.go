@@ -178,6 +178,11 @@ const FidelityContract = `Plan fidelity (highest to lowest):
   choreography the command list below; runtime branches shown as branches
   hooks        verbatim commands — their effects are unplannable`
 
+// deploySeam is the set of hook names a deploy runs (see RunHook calls in
+// deploy.go). Hooks keyed by any other name — e.g. bootstrap — belong to a
+// different lifecycle and never run during a deploy.
+var deploySeam = map[string]bool{"pre_release": true, "post_release": true, "post_deploy": true}
+
 // Describe renders the choreography as the exact command list with runtime
 // branches as branches. Placeholders <old>/<new> resolve at apply time.
 func (e *Engine) Describe(remoteCompose string) []string {
@@ -197,10 +202,13 @@ func (e *Engine) Describe(remoteCompose string) []string {
 		out = append(out, fmt.Sprintf("job %s (gated — changed=false keeps rollback open): %s", job, cmdStr))
 	}
 
+	// Only the hooks a deploy actually runs belong in a deploy plan; bootstrap
+	// is a separate lifecycle (yeet bootstrap), so listing it here would claim a
+	// step that never runs — a fidelity violation.
 	hooks := make([]string, 0, len(e.Cfg.Hooks))
 	for name := range e.Cfg.Hooks {
-		if isStep[name] {
-			continue // shown as a job above, not a standalone hook
+		if isStep[name] || !deploySeam[name] {
+			continue // shown as a job above, or not a deploy-lifecycle hook
 		}
 		hooks = append(hooks, name)
 	}

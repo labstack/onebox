@@ -41,6 +41,34 @@ func ValidateCUE(yamlBytes []byte, filename string) error {
 	return nil
 }
 
+// LoadCUEBytes parses a user-authored .cue config: compiled, unified with
+// #Config, then decoded into the same Go model YAML uses. Power users get
+// let-bindings, interpolation, and defaults; the engine sees one shape.
+func LoadCUEBytes(b []byte, filename string) (*Config, error) {
+	cctx := cuecontext.New()
+	schema := cctx.CompileString(schemaSrc, cue.Filename("yeet-schema.cue"))
+	if err := schema.Err(); err != nil {
+		return nil, fmt.Errorf("internal: embedded schema broken: %w", err)
+	}
+	def := schema.LookupPath(cue.ParsePath("#Config"))
+	data := cctx.CompileBytes(b, cue.Filename(filename))
+	if err := data.Err(); err != nil {
+		return nil, reword(err, filename)
+	}
+	unified := def.Unify(data)
+	if err := unified.Validate(cue.Concrete(true)); err != nil {
+		return nil, reword(err, filename)
+	}
+	// export to YAML and reuse the one decode pipeline (custom Hook forms,
+	// Duration parsing, defaults) — CUE is the authoring syntax, not a
+	// second code path
+	y, err := cueyaml.Encode(unified)
+	if err != nil {
+		return nil, reword(err, filename)
+	}
+	return LoadBytes(y, filename)
+}
+
 func reword(err error, filename string) error {
 	var lines []string
 	seen := map[string]bool{}

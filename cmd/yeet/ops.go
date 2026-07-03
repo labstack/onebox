@@ -162,14 +162,9 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	})
 }
 
-// loadConfigOnly skips compose loading (secrets edit needs no host or compose).
+// loadConfigOnly skips compose loading and inference (secrets edit needs no
+// host or compose — only cfg.Secrets). CUE validation already ran in Load;
+// the role/order checks in Validate can't run without the compose project.
 func loadConfigOnly(g *globalFlags) (*config.Config, error) {
-	cfg, err := config.Load(g.ConfigPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
+	return config.Load(g.ConfigPath)
 }

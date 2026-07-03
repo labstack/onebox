@@ -6,7 +6,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
+
+func TestConfirmDefaultsToNo(t *testing.T) {
+	cases := map[string]bool{
+		"y\n": true, "yes\n": true, "Y\n": true, "YES\n": true,
+		"n\n": false, "no\n": false, "\n": false, "": false, "garbage\n": false,
+	}
+	for in, want := range cases {
+		cmd := &cobra.Command{}
+		cmd.SetIn(strings.NewReader(in))
+		cmd.SetOut(&bytes.Buffer{})
+		if got := confirm(cmd, "?"); got != want {
+			t.Fatalf("confirm(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
 
 func writeProject(t *testing.T) string {
 	t.Helper()

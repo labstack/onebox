@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/labstack/yeet/internal/compose"
@@ -81,6 +82,12 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 		newID = fresh[0]
 	}
 
+	// Give the newcomer a deterministic, release-tagged name so `docker ps` is
+	// readable and tells you which release each container is — compose's
+	// --scale index is cosmetic (yeet tracks containers by label, and the proxy
+	// routes by label). Best-effort: a failure here never fails the deploy.
+	e.renameToRelease(ctx, newID, svc, releaseID)
+
 	within, pollEvery := readyTiming(role)
 	// join: the newcomer becomes a routable endpoint via its healthcheck
 	if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
@@ -125,6 +132,17 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	}
 	e.logf("%s: rolled %s -> %s", roleName, oldID, newID)
 	return nil
+}
+
+// renameToRelease renames a rolling container to <service>-<release>. Cosmetic
+// and best-effort — yeet identifies containers by label, so a failed or
+// reverted rename never affects correctness. Idempotent on resume.
+func (e *Engine) renameToRelease(ctx context.Context, id, svc, releaseID string) {
+	name := svc + "-" + releaseID
+	if res, err := e.T.Run(ctx, "docker inspect -f '{{.Name}}' "+id); err == nil && strings.TrimSpace(res.Stdout) == "/"+name {
+		return // already named (resume)
+	}
+	_, _ = e.mutate(ctx, "docker rename "+id+" "+name)
 }
 
 // readyTiming: gate budget and poll interval, with defaults for roles whose

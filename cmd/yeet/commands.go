@@ -87,12 +87,85 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	})
 
 	root.AddCommand(&cobra.Command{
+		Use:   "bootstrap",
+		Short: "first contact: dirs + bootstrap hook + registry login + accessories",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, p, err := loadAll(ctx, g)
+			if err != nil {
+				return err
+			}
+			e, cleanup, err := connect(cmd, g, cfg, p)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath))) + "-bootstrap"
+			staging, sc, err := stageRelease(g, cfg, p, id)
+			if err != nil {
+				return err
+			}
+			defer sc()
+			return e.Bootstrap(ctx, id, staging)
+		},
+	})
+
+	root.AddCommand(&cobra.Command{
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDeploy(cmd, g, true)
 		},
 	})
+}
+
+// connect builds the SSH-backed engine for the selected environment.
+func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project) (*engine.Engine, func(), error) {
+	env, err := cfg.Environment(g.Env)
+	if err != nil {
+		return nil, nil, err
+	}
+	t, err := transport.NewSSH(env.Hosts[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	if g.Verbose {
+		t.Logger = func(host, c string) { fmt.Fprintf(cmd.ErrOrStderr(), "[%s] $ %s\n", host, c) }
+	}
+	e := engine.New(cfg, p, t, engine.Options{
+		Verbose:  g.Verbose,
+		Out:      cmd.OutOrStdout(),
+		LocalDir: filepath.Dir(g.ConfigPath),
+	})
+	return e, func() { t.Close() }, nil
+}
+
+// stageRelease renders + stages the full release payload locally.
+func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id string) (string, func(), error) {
+	rendered, err := compose.Render(p, cfg, id)
+	if err != nil {
+		return "", nil, err
+	}
+	snapshot, err := os.ReadFile(g.ConfigPath)
+	if err != nil {
+		return "", nil, err
+	}
+	staging, err := os.MkdirTemp("", "yeet-"+cfg.App)
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(staging) }
+	rewrites, err := compose.StagePayload(p, staging)
+	if err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	rendered = compose.RewriteSources(rendered, rewrites)
+	if err := release.Stage(staging, rendered, snapshot); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return staging, cleanup, nil
 }
 
 func runDeploy(cmd *cobra.Command, g *globalFlags, rollback bool) error {
@@ -104,45 +177,21 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, rollback bool) error {
 	if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
 		return fmt.Errorf("not rollable: %v", errs)
 	}
-	env, err := cfg.Environment(g.Env)
+	e, cleanup, err := connect(cmd, g, cfg, p)
 	if err != nil {
 		return err
 	}
-	t, err := transport.NewSSH(env.Hosts[0])
-	if err != nil {
-		return err
-	}
-	defer t.Close()
-	if g.Verbose {
-		t.Logger = func(host, c string) { fmt.Fprintf(cmd.ErrOrStderr(), "[%s] $ %s\n", host, c) }
-	}
-	e := engine.New(cfg, p, t, engine.Options{Verbose: g.Verbose, Out: cmd.OutOrStdout()})
+	defer cleanup()
 	if rollback {
 		return e.Rollback(ctx)
 	}
 
 	id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath)))
-	rendered, err := compose.Render(p, cfg, id)
+	staging, sc, err := stageRelease(g, cfg, p, id)
 	if err != nil {
 		return err
 	}
-	snapshot, err := os.ReadFile(g.ConfigPath)
-	if err != nil {
-		return err
-	}
-	staging, err := os.MkdirTemp("", "yeet-"+cfg.App)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(staging)
-	rewrites, err := compose.StagePayload(p, staging)
-	if err != nil {
-		return err
-	}
-	rendered = compose.RewriteSources(rendered, rewrites)
-	if err := release.Stage(staging, rendered, snapshot); err != nil {
-		return err
-	}
+	defer sc()
 	return e.Deploy(ctx, id, staging)
 }
 

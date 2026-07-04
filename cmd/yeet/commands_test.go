@@ -2,12 +2,19 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/labstack/yeet/internal/config"
 )
 
 func TestConfirmDefaultsToNo(t *testing.T) {
@@ -235,5 +242,46 @@ env_files: ["../escapes.env"]
 	}
 	if !strings.Contains(err.Error()+out, "outside the project") {
 		t.Fatalf("error should explain the constraint: %v\n%s", err, out)
+	}
+}
+
+func TestNotifyOutcome(t *testing.T) {
+	var got map[string]any
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &got)
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		App:          "monk",
+		Environments: map[string]config.Environment{"production": {Hosts: []string{"root@h"}}},
+		Notify:       &config.Notify{Webhook: srv.URL, On: []string{"failure"}},
+	}
+	g := &globalFlags{Env: "production"}
+
+	// success filtered by on: [failure]
+	notifyOutcome(cfg, g, "deploy", "R1", nil)
+	if hits != 0 {
+		t.Fatal("success must be filtered")
+	}
+	// failure fires with the verb, host, and error
+	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("verify: HALT-AND-PAGE"))
+	if hits != 1 {
+		t.Fatal("failure must fire")
+	}
+	if got["verb"] != "deploy" || got["deploy_id"] != "R1" || got["host"] != "root@h" {
+		t.Fatalf("payload: %v", got)
+	}
+	if !strings.Contains(got["text"].(string), "HALT-AND-PAGE") {
+		t.Fatalf("text: %v", got["text"])
+	}
+	// nil notify config: silent no-op
+	cfg.Notify = nil
+	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("x"))
+	if hits != 1 {
+		t.Fatal("nil notify must be a no-op")
 	}
 }

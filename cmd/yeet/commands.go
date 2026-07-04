@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/yeet/internal/compose"
 	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/engine"
+	"github.com/labstack/yeet/internal/proxy"
 	"github.com/labstack/yeet/internal/release"
 	"github.com/labstack/yeet/internal/secrets"
 	"github.com/labstack/yeet/internal/transport"
@@ -121,6 +122,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			compose.InjectEnvFiles(p, cfg)
+			if cfg.Proxy.Managed {
+				compose.InjectProxyNetwork(p, cfg, proxyNetwork(cfg))
+			}
 			out, err := compose.Render(p, cfg, "render-preview")
 			if err != nil {
 				return err
@@ -457,6 +461,14 @@ func applyPins(p *ctypes.Project, pins map[string]string) {
 
 // stageRelease renders + stages the full release payload locally, including
 // decrypted secrets (mode 600) when declared.
+// proxyNetwork: the shared ingress network name, defaulted at the point of use.
+func proxyNetwork(cfg *config.Config) string {
+	if cfg.Proxy.Network != "" {
+		return cfg.Proxy.Network
+	}
+	return proxy.DefaultNetwork
+}
+
 func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id string) (string, func(), error) {
 	staging, err := os.MkdirTemp("", "yeet-"+cfg.App)
 	if err != nil {
@@ -469,6 +481,9 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 	// overriding earlier. env_files go first, then the SOPS secrets file last,
 	// so a decrypted secret always wins over a same-named plaintext key.
 	compose.InjectEnvFiles(p, cfg)
+	if cfg.Proxy.Managed {
+		compose.InjectProxyNetwork(p, cfg, proxyNetwork(cfg))
+	}
 	if cfg.Secrets != nil {
 		envBytes, err := secrets.Render(filepath.Dir(g.ConfigPath), cfg.Secrets.Sops)
 		if err != nil {

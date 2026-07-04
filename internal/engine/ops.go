@@ -7,12 +7,30 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/labstack/yeet/internal/proxy"
 	"github.com/labstack/yeet/internal/release"
 )
 
 // Destroy tears the app down: containers via compose, then yeet's own state
-// dir. Volumes survive unless removeVolumes — data loss is opt-in.
-func (e *Engine) Destroy(ctx context.Context, removeVolumes bool) error {
+// dir. Volumes survive unless removeVolumes — data loss is opt-in. The shared
+// managed proxy is refcounted: destroy deregisters this app; the proxy itself
+// goes only with removeProxy AND an empty registry (it may serve other apps).
+func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) error {
+	if removeProxy && !e.Cfg.Proxy.Managed {
+		return fmt.Errorf("--proxy: this app's proxy is not managed — nothing shared to remove")
+	}
+	hp := proxy.HostPaths()
+	if removeProxy {
+		// refuse BEFORE any teardown: other registered apps depend on it
+		others, err := e.proxyRegistryOthers(ctx)
+		if err != nil {
+			return err
+		}
+		if len(others) > 0 {
+			return fmt.Errorf("--proxy refused: the shared proxy still serves %s — destroy those apps first (or drop --proxy)",
+				strings.Join(others, ", "))
+		}
+	}
 	epoch, err := e.AcquireLock(ctx, "destroy", e.Opts.ForceLock)
 	if err != nil {
 		return err
@@ -53,8 +71,55 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes bool) error {
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
 	}
+	if e.Cfg.Proxy.Managed {
+		// host scope, after the app fence is gone: plain Run, under host lock
+		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
+			return err
+		}
+		defer e.releaseHostLock(ctx)
+		if res, err := e.T.Run(ctx, "rm -f "+q(hp.Apps+"/"+e.Cfg.App)); err != nil || res.ExitCode != 0 {
+			return fmt.Errorf("deregister from proxy: %v %s", err, res.Stderr)
+		}
+		others, err := e.proxyRegistryOthers(ctx)
+		if err != nil {
+			return err
+		}
+		switch {
+		case removeProxy && len(others) == 0:
+			if res, err := e.T.Run(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" down"); err != nil {
+				return err
+			} else if res.ExitCode != 0 {
+				return fmt.Errorf("proxy down: %s", strings.TrimSpace(res.Stderr))
+			}
+			if res, err := e.T.Run(ctx, "rm -rf "+q(hp.Dir)); err != nil || res.ExitCode != 0 {
+				return fmt.Errorf("remove proxy dir: %v %s", err, res.Stderr)
+			}
+			e.logf("shared proxy removed (no apps remain)")
+		case removeProxy:
+			// raced: another app registered between the upfront check and now
+			e.logf("--proxy skipped: %s registered with the shared proxy during teardown — it stays", strings.Join(others, ", "))
+		case len(others) == 0:
+			e.logf("shared proxy kept with no registered apps — `yeet destroy --proxy` removes it, or clean %s manually", hp.Dir)
+		}
+	}
 	e.logf("destroyed %s (volumes %s)", e.Cfg.App, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil
+}
+
+// proxyRegistryOthers lists apps other than this one registered with the
+// shared proxy.
+func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
+	res, err := e.T.Run(ctx, "ls -1 "+q(proxy.HostPaths().Apps)+" 2>/dev/null || true")
+	if err != nil {
+		return nil, err
+	}
+	var others []string
+	for _, name := range strings.Fields(res.Stdout) {
+		if name != e.Cfg.App && appNameRe.MatchString(name) {
+			others = append(others, name)
+		}
+	}
+	return others, nil
 }
 
 // Logs streams compose logs for one role/service (or all) from the current

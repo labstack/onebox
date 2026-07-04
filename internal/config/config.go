@@ -220,8 +220,11 @@ type Secrets struct {
 }
 
 type Proxy struct {
-	Kind    string `yaml:"kind,omitempty"`    // traefik-docker | none (M0: informational)
-	Managed bool   `yaml:"managed,omitempty"` // M0: must be false
+	Kind    string `yaml:"kind,omitempty"`    // traefik-docker | none
+	Managed bool   `yaml:"managed,omitempty"` // true: yeet owns a HOST-scoped proxy (design: shared by every yeet app on the box)
+	Image   string `yaml:"image,omitempty"`   // default lives at the point of use (internal/proxy)
+	Config  string `yaml:"config,omitempty"`  // dir with traefik.yml (+ dynamic.yml, .env); required when managed
+	Network string `yaml:"network,omitempty"` // shared ingress network name; default at point of use
 }
 
 var (
@@ -255,6 +258,9 @@ func LoadBytes(b []byte, filename string) (*Config, error) {
 	}
 	if cfg.Retain <= 0 {
 		cfg.Retain = 5
+	}
+	if cfg.Proxy.Managed && cfg.Proxy.Kind == "" {
+		cfg.Proxy.Kind = "traefik-docker" // the one managed provider
 	}
 	return cfg, nil
 }
@@ -360,7 +366,12 @@ func (c *Config) Validate() error {
 		}
 	}
 	if c.Proxy.Managed {
-		return fmt.Errorf("proxy.managed: true is M1+ (bootstrap); M0 supports external proxies only")
+		if c.Proxy.Kind == "none" {
+			return fmt.Errorf("proxy: managed: true contradicts kind: none — a managed proxy is one yeet runs")
+		}
+		if c.Proxy.Config == "" {
+			return fmt.Errorf("proxy.config: required when managed — the dir holding traefik.yml (+ dynamic.yml, .env)")
+		}
 	}
 	// ready timing defaults live at the point of use (engine.readyTiming,
 	// compose.Render) — injecting them here would stomp timings ADOPTED from

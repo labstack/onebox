@@ -72,7 +72,13 @@
 	preflight?: [...#Preflight]
 	hooks?: {[#Ident]: #Hook}
 	verify?: [...#Verify]
-	proxy?: {kind?: string, managed?: bool}
+	proxy?: {
+		kind?:    "traefik-docker" | "none"
+		managed?: bool
+		image?:   string
+		config?:  string // dir with traefik.yml (+ dynamic.yml, .env); required when managed
+		network?: =~"^[a-z][a-z0-9-]*$"
+	}
 	secrets?: {sops!: string}
 	registry?:   #Registry
 	retain?:     int & >0

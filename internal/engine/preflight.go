@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/release"
 )
 
 const minDiskKiB = 1 << 20 // 1 GiB
@@ -38,12 +38,12 @@ func (e *Engine) Preflight(ctx context.Context) error {
 			return err
 		}
 		if len(ids) == 0 {
-			return fmt.Errorf("managed proxy not running on %s — run `yeet bootstrap` (first contact) or `yeet proxy apply`", e.T.Host())
+			return fmt.Errorf("managed proxy not running on %s — run `ob bootstrap` (first contact) or `ob proxy apply`", e.T.Host())
 		}
 		if h, err := e.healthOf(ctx, ids[0]); err != nil {
 			return err
 		} else if h != "healthy" {
-			return fmt.Errorf("managed proxy is %s, refusing to deploy (yeet proxy apply to converge it)", h)
+			return fmt.Errorf("managed proxy is %s, refusing to deploy (ob proxy apply to converge it)", h)
 		}
 	}
 	for _, acc := range e.Cfg.Accessories {

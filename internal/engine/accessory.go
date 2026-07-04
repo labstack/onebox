@@ -9,8 +9,8 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // AccessoryApply converges stateful services explicitly (design §03): a

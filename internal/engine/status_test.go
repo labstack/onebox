@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func statusFake(webRelease, recorded string) *transport.Fake {

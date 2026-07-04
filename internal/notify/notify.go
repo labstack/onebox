@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/yeet/internal/config"
@@ -75,12 +76,26 @@ func Send(cfg *config.Notify, p Payload) error {
 		p.TS = time.Now().UTC().Format(time.RFC3339)
 	}
 	p.Text = p.text()
-	b, err := json.Marshal(p)
+	body, contentType := []byte(nil), "application/json"
+	if cfg.Format == "text" {
+		// ntfy-style topic endpoints render the body verbatim — send the
+		// human line only, with the title as a header
+		body, contentType = []byte(p.Text), "text/plain"
+	} else {
+		b, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		body = b
+	}
+	req, err := http.NewRequest(http.MethodPost, cfg.Webhook, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Title", strings.TrimSpace(p.App+" "+p.Verb))
 	client := &http.Client{Timeout: timeout}
-	res, err := client.Post(cfg.Webhook, "application/json", bytes.NewReader(b))
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}

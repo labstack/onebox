@@ -192,7 +192,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -228,7 +228,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -247,7 +247,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -268,7 +268,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -286,7 +286,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -346,22 +346,30 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 	if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
 		return nil, fmt.Errorf("not rollable: %v", errs)
 	}
-	e, closeConn, err := connect(cmd, g, cfg, p)
+	pu := newUI(cmd, g)
+	// the silent stretch between `deploy` and the plan: ssh dial, host
+	// refresh, one registry round-trip per image — show where the time goes
+	busy, stopBusy := pu.Busy("connecting to " + cfg.App)
+	defer stopBusy()
+	e, closeConn, err := connect(cmd, g, cfg, p, pu)
 	if err != nil {
 		return nil, err
 	}
 	done := func() { closeConn() }
-	fail := func(err error) (*preparedPlan, error) { done(); return nil, err }
+	fail := func(err error) (*preparedPlan, error) { stopBusy(); done(); return nil, err }
 	out := cmd.OutOrStdout()
 
+	busy("refreshing host state")
 	hs, err := e.Refresh(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("refresh: %w", err))
 	}
+	busy("pinning images (registry digests)")
 	pins, err := e.PinImages(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("pin images: %w", err))
 	}
+	busy("rendering + staging release")
 	id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath)))
 	// Render through the exact staging path apply uses (p is already pinned by
 	// PinImages above), so the plan's stored compose is byte-identical to what
@@ -370,6 +378,7 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 	if err != nil {
 		return fail(err)
 	}
+	stopBusy()
 	done = func() { sc(); closeConn() } // staging now needs cleanup too
 	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
 	if err != nil {
@@ -488,7 +497,13 @@ func orNone(s string) string {
 }
 
 // connect builds the SSH-backed engine for the selected environment.
-func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project) (*engine.Engine, func(), error) {
+// newUI builds the one UI instance a command shares across the connect
+// spinner, narrative, and command log — one stream, one line discipline.
+func newUI(cmd *cobra.Command, g *globalFlags) *ui.UI {
+	return ui.New(cmd.OutOrStdout(), g.Verbose)
+}
+
+func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
 	env, err := cfg.Environment(g.Env)
 	if err != nil {
 		return nil, nil, err
@@ -497,9 +512,6 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 	if err != nil {
 		return nil, nil, err
 	}
-	// one UI instance for narrative AND the (verbose-only, dimmed) command
-	// log, so the two interleave in order on the same stream
-	u := ui.New(cmd.OutOrStdout(), g.Verbose)
 	t.Logger = u.Cmd
 	cfgBytes, _ := os.ReadFile(g.ConfigPath)
 	e := engine.New(cfg, p, t, engine.Options{
@@ -599,7 +611,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, ye
 		if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
 			return fmt.Errorf("not rollable: %v", errs)
 		}
-		e, cleanup, err := connect(cmd, g, cfg, p)
+		e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 		if err != nil {
 			return err
 		}

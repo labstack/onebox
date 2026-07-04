@@ -19,9 +19,9 @@ func TestLocalHookRunsOnRunnerNotHost(t *testing.T) {
 	f := &transport.Fake{}
 	dir := t.TempDir()
 	cfg := testConfig()
-	cfg.Hooks["publish"] = config.Hook{Run: "echo $YEET_RELEASE_ID > out.txt", Local: true}
+	cfg.Hooks["publish"] = config.Hook{Run: "echo $OB_RELEASE_ID > out.txt", Local: true}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
-	if err := e.RunHook(context.Background(), "publish", "/var/lib/yeet/monk/releases/R9", "x"); err != nil {
+	if err := e.RunHook(context.Background(), "publish", "/var/lib/ob/monk/releases/R9", "x"); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Commands) != 0 {

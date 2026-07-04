@@ -1,4 +1,4 @@
-// Package ui is yeet's output layer: line-oriented, phase-structured, and
+// Package ui is ob's output layer: line-oriented, phase-structured, and
 // CI-honest. Color/styling degrades automatically (lipgloss renderer per
 // writer: a pipe or CI log gets plain text, NO_COLOR is honored) and there is
 // deliberately NO screen-repainting TUI — deploy output must survive

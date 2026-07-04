@@ -22,7 +22,7 @@ import (
 // DrainFile: the generated/wrapped healthcheck fails while this file exists,
 // which is how the proxy is told to stop routing to a container (rev 5
 // traffic-shift protocol, "poison its health state").
-const DrainFile = "/tmp/yeet-drain"
+const DrainFile = "/tmp/ob-drain"
 
 var ident = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
@@ -193,7 +193,7 @@ func CheckRollable(p *types.Project, cfg *config.Config) []error {
 			}
 		}
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): deploy.replicas conflicts with yeet-managed scaling — use replicas: in yeet.yml", roleName, r.Service))
+			errs = append(errs, fmt.Errorf("roles.%s (%q): deploy.replicas conflicts with ob-managed scaling — use replicas: in ob.yml", roleName, r.Service))
 		}
 		// readiness rule (design §03): rolling gates on a healthcheck — from
 		// ready.http/exec, or ADOPTED from the compose file's own

@@ -29,7 +29,7 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 }
 
 // Resume continues an interrupted deploy from the journal: completed phases
-// and roles skip; the half-rolled role is adopted via its yeet.release label.
+// and roles skip; the half-rolled role is adopted via its ob.release label.
 // A NEW lock epoch is taken, which fences the old runner if it still lives.
 func (e *Engine) Resume(ctx context.Context) error {
 	s, err := e.FindIncomplete(ctx)

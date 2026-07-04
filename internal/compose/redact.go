@@ -10,7 +10,7 @@ import (
 // RedactEnvYAML rewrites every `environment:` VALUE in rendered compose YAML to
 // a content hash (`redacted:sha256:<12hex>`), leaving keys and all other
 // structure intact. Environment is the conventional home of application
-// secrets, and yeet's contract is that their content is never displayed or
+// secrets, and ob's contract is that their content is never displayed or
 // persisted — only a hash travels (design §07). Because the placeholder is
 // derived from the value, a rotated secret still shows as a changed hash, so
 // the plan diff and the apply-time drift check both stay meaningful without

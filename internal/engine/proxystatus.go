@@ -45,7 +45,7 @@ func (e *Engine) proxyStatus(ctx context.Context) (bool, error) {
 	if !filepath.IsAbs(localCfg) {
 		localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 	}
-	staging, err := os.MkdirTemp("", "yeet-proxy-status")
+	staging, err := os.MkdirTemp("", "ob-proxy-status")
 	if err != nil {
 		return false, err
 	}

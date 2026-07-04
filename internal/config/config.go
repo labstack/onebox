@@ -232,7 +232,7 @@ type Secrets struct {
 
 type Proxy struct {
 	Kind    string `yaml:"kind,omitempty"`    // traefik-docker | none
-	Managed bool   `yaml:"managed,omitempty"` // true: yeet owns a HOST-scoped proxy (design: shared by every yeet app on the box)
+	Managed bool   `yaml:"managed,omitempty"` // true: ob owns a HOST-scoped proxy (design: shared by every ob app on the box)
 	Image   string `yaml:"image,omitempty"`   // default lives at the point of use (internal/proxy)
 	Config  string `yaml:"config,omitempty"`  // dir with traefik.yml (+ dynamic.yml, .env); required when managed
 	Network string `yaml:"network,omitempty"` // shared ingress network name; default at point of use
@@ -325,7 +325,7 @@ func (c *Config) Validate() error {
 	if !appName.MatchString(c.App) {
 		return fmt.Errorf("app: %q must match %s", c.App, appName)
 	}
-	if c.App == "yeet-proxy" {
+	if c.App == "ob-proxy" {
 		// reserved: the managed proxy's compose project — an app with this
 		// name would collide with the proxy's container queries
 		return fmt.Errorf("app: %q is reserved for the managed proxy", c.App)
@@ -338,7 +338,7 @@ func (c *Config) Validate() error {
 	}
 	for name, e := range c.Environments {
 		if len(e.Hosts) != 1 {
-			return fmt.Errorf("environments.%s: yeet is single-host by design — exactly one host per environment, got %d", name, len(e.Hosts))
+			return fmt.Errorf("environments.%s: ob is single-host by design — exactly one host per environment, got %d", name, len(e.Hosts))
 		}
 	}
 	if len(c.Roles) == 0 {
@@ -386,7 +386,7 @@ func (c *Config) Validate() error {
 	}
 	if c.Proxy.Managed {
 		if c.Proxy.Kind == "none" {
-			return fmt.Errorf("proxy: managed: true contradicts kind: none — a managed proxy is one yeet runs")
+			return fmt.Errorf("proxy: managed: true contradicts kind: none — a managed proxy is one ob runs")
 		}
 		if c.Proxy.Config == "" {
 			return fmt.Errorf("proxy.config: required when managed — the dir holding traefik.yml (+ dynamic.yml, .env)")

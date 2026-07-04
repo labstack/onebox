@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/yeet/internal/ui"
 )
 
 type Options struct {
@@ -37,6 +37,9 @@ type Options struct {
 	// GitSHA and ConfigHash ride into the journal and lock metadata.
 	GitSHA     string
 	ConfigHash string
+	// UI is the output layer; built from Out+Verbose when unset (cmd shares
+	// one instance so the command log and narrative interleave in order).
+	UI *ui.UI
 }
 
 type Engine struct {
@@ -44,6 +47,7 @@ type Engine struct {
 	Project *ctypes.Project
 	T       transport.Transport
 	Opts    Options
+	ui      *ui.UI
 
 	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
 	// mutate() guards every mutating command with it.
@@ -69,9 +73,16 @@ func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options
 	if o.HTTPTimeout == 0 {
 		o.HTTPTimeout = 10 * time.Second
 	}
-	return &Engine{Cfg: cfg, Project: p, T: t, Opts: o}
+	if o.UI == nil {
+		o.UI = ui.New(o.Out, o.Verbose)
+	}
+	return &Engine{Cfg: cfg, Project: p, T: t, Opts: o, ui: o.UI}
 }
 
 func (e *Engine) logf(format string, a ...any) {
-	_, _ = io.WriteString(e.Opts.Out, "→ "+fmt.Sprintf(format, a...)+"\n")
+	e.ui.Infof(format, a...)
+}
+
+func (e *Engine) warnf(format string, a ...any) {
+	e.ui.Warnf(format, a...)
 }

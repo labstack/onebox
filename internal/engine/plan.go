@@ -146,7 +146,7 @@ func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 		}
 		digest := strings.TrimSpace(res.Stdout)
 		if res.ExitCode != 0 || !digestRe.MatchString(digest) {
-			e.logf("warn: %s stays unpinned (tag-bound): %s", svc, strings.TrimSpace(res.Stderr))
+			e.warnf("%s stays unpinned (tag-bound): %s", svc, strings.TrimSpace(res.Stderr))
 			pins[svc] = s.Image
 			continue
 		}

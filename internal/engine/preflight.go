@@ -13,7 +13,7 @@ import (
 const minDiskKiB = 1 << 20 // 1 GiB
 
 // Preflight asserts the host is deployable. Nothing mutates except mkdir -p
-// of yeet's own base dir (design §04: "nothing mutates").
+// of ob's own base dir (design §04: "nothing mutates").
 func (e *Engine) Preflight(ctx context.Context) error {
 	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("docker daemon unreachable on %s: %v %s", e.T.Host(), err, res.Stderr)

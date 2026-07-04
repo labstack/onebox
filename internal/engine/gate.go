@@ -26,8 +26,8 @@ func (e *Engine) gateSteps() []string {
 }
 
 // runJobs runs every gate step once, before the roll, each under the
-// $YEET_RESULT_FILE protocol (design §06). A step with a same-named hook runs
-// that hook's command (a custom migrate invocation); otherwise yeet auto-runs
+// $OB_RESULT_FILE protocol (design §06). A step with a same-named hook runs
+// that hook's command (a custom migrate invocation); otherwise ob auto-runs
 // `docker compose run --rm --no-deps <job>` — so `jobs: [migrate]` needs no
 // hook at all. The rollback gate opens only if EVERY step declared
 // changed=false; anything else (a real change, no result written, a local
@@ -88,7 +88,8 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 		" && rm -f " + q(resultFile) +
 		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
 		" COMPOSE_FILE=" + q(remoteCompose) +
-		" YEET_RESULT_FILE=" + q(resultFile) + " " + runCmd
+		" OB_RESULT_FILE=" + q(resultFile) +
+		" " + runCmd
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {
 		return false, "", err
@@ -140,7 +141,7 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 }
 
 // removeNewcomers stops and removes every container of the given release
-// (identified by the yeet.release label the render injected).
+// (identified by the ob.release label the render injected).
 func (e *Engine) removeNewcomers(ctx context.Context, releaseID string) error {
 	for _, role := range e.Cfg.Roles {
 		ids, err := e.newcomerIDs(ctx, role.Service, releaseID)

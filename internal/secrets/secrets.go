@@ -17,7 +17,7 @@ import (
 
 // EnvFileName is the rendered file's name inside a release dir; render
 // injects it as an env_file on role services.
-const EnvFileName = ".yeet-secrets.env"
+const EnvFileName = ".ob-secrets.env"
 
 var keyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 

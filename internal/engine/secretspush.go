@@ -49,7 +49,7 @@ func (e *Engine) SecretsPush(ctx context.Context, envBytes []byte) error {
 	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: cur, Epoch: epoch, Operator: journal.DefaultOperator()}
 	_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "start", Detail: "hash=sha256:" + localHash})
 
-	staging, err := os.MkdirTemp("", "yeet-secrets")
+	staging, err := os.MkdirTemp("", "ob-secrets")
 	if err != nil {
 		return err
 	}

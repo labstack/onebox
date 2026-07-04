@@ -81,7 +81,7 @@ func TestDestroySequence(t *testing.T) {
 	if strings.Contains(seq, "down --remove-orphans -v") {
 		t.Fatal("volumes must be kept without --volumes")
 	}
-	if !strings.Contains(seq, "rm -rf '/var/lib/yeet/monk'") {
+	if !strings.Contains(seq, "rm -rf '/var/lib/ob/monk'") {
 		t.Fatalf("state dir not removed:\n%s", seq)
 	}
 }
@@ -122,13 +122,13 @@ func TestDestroyDeregistersFromProxy(t *testing.T) {
 		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/yeet/_host/proxy/apps/monk'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/proxy/apps/monk'") {
 		t.Fatalf("destroy must deregister the app from the shared proxy:\n%s", seq)
 	}
-	if strings.Contains(seq, "docker compose -p yeet-proxy") && strings.Contains(seq, "down") && strings.Contains(seq, "yeet-proxy") == strings.Contains(seq, "-p yeet-proxy' down") {
+	if strings.Contains(seq, "docker compose -p ob-proxy") && strings.Contains(seq, "down") && strings.Contains(seq, "ob-proxy") == strings.Contains(seq, "-p ob-proxy' down") {
 		// guard below asserts precisely
 	}
-	if strings.Contains(seq, "-p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' down") {
+	if strings.Contains(seq, "-p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
 		t.Fatalf("without --proxy the shared proxy must survive:\n%s", seq)
 	}
 }
@@ -137,7 +137,7 @@ func TestDestroyProxyTeardownWhenLastApp(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
 			return transport.Result{Stdout: "monk\n"}, true // we are the last app
 		}
 		return base(cmd)
@@ -147,10 +147,10 @@ func TestDestroyProxyTeardownWhenLastApp(t *testing.T) {
 		t.Fatalf("destroy --proxy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker compose -p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' down") {
+	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
 		t.Fatalf("last app with --proxy must tear the proxy down:\n%s", seq)
 	}
-	if !strings.Contains(seq, "rm -rf '/var/lib/yeet/_host/proxy'") {
+	if !strings.Contains(seq, "rm -rf '/var/lib/ob/_host/proxy'") {
 		t.Fatalf("proxy state dir must go with it:\n%s", seq)
 	}
 }
@@ -159,7 +159,7 @@ func TestDestroyProxyRefusedWhenShared(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
 			return transport.Result{Stdout: "monk\nunlock\n"}, true
 		}
 		return base(cmd)

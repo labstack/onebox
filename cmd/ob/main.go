@@ -29,22 +29,10 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// ob.yml is the config; yeet.yml (the codename era) still read
-		PersistentPreRun: func(*cobra.Command, []string) {
-			if g.ConfigPath != "" {
-				return
-			}
-			g.ConfigPath = "ob.yml"
-			if _, err := os.Stat("ob.yml"); err != nil {
-				if _, err := os.Stat("yeet.yml"); err == nil {
-					g.ConfigPath = "yeet.yml"
-				}
-			}
-		},
 	}
 	root.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "print every remote command")
 	root.PersistentFlags().StringVarP(&g.Env, "env", "e", "production", "environment name")
-	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "", "config path (default ob.yml, falling back to yeet.yml)")
+	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "ob.yml", "path to ob.yml")
 	addCommands(root, g)
 	addInitCommand(root, g)
 	addOpsCommands(root, g)

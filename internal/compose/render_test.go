@@ -57,14 +57,14 @@ func TestRenderTouchesOnlyRoleServices(t *testing.T) {
 	svcs := renderDoc(t)
 	pg := svcs["postgres"].(map[string]any)
 	if labels, ok := pg["labels"]; ok {
-		if s, _ := yaml.Marshal(labels); strings.Contains(string(s), "yeet.") {
-			t.Fatalf("accessory postgres must not receive yeet labels: %s", s)
+		if s, _ := yaml.Marshal(labels); strings.Contains(string(s), "ob.") {
+			t.Fatalf("accessory postgres must not receive ob labels: %s", s)
 		}
 	}
 	web := svcs["server"].(map[string]any)
 	s, _ := yaml.Marshal(web["labels"])
-	if !strings.Contains(string(s), "yeet.release") || !strings.Contains(string(s), "20260702-120000-abc1234") {
-		t.Fatalf("server missing yeet.release label: %s", s)
+	if !strings.Contains(string(s), "ob.release") || !strings.Contains(string(s), "20260702-120000-abc1234") {
+		t.Fatalf("server missing ob.release label: %s", s)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestInjectProxyNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := testCfg()
-	InjectProxyNetwork(p, cfg, "yeet-ingress")
+	InjectProxyNetwork(p, cfg, "ob-ingress")
 	out, err := Render(p, cfg, "20260702-120000-abc1234")
 	if err != nil {
 		t.Fatal(err)
@@ -93,15 +93,15 @@ func TestInjectProxyNetwork(t *testing.T) {
 			t.Fatalf("%s: no networks rendered", name)
 		}
 		s, _ := yaml.Marshal(nets)
-		if !strings.Contains(string(s), "yeet-ingress") || !strings.Contains(string(s), "default") {
-			t.Fatalf("%s must be on default + yeet-ingress: %s", name, s)
+		if !strings.Contains(string(s), "ob-ingress") || !strings.Contains(string(s), "default") {
+			t.Fatalf("%s must be on default + ob-ingress: %s", name, s)
 		}
 	}
 	// accessories and jobs stay untouched
 	for _, name := range []string{"postgres", "migrate"} {
 		svc := svcs[name].(map[string]any)
 		if nets, ok := svc["networks"]; ok {
-			if s, _ := yaml.Marshal(nets); strings.Contains(string(s), "yeet-ingress") {
+			if s, _ := yaml.Marshal(nets); strings.Contains(string(s), "ob-ingress") {
 				t.Fatalf("%s must not join the ingress network: %s", name, s)
 			}
 		}
@@ -111,14 +111,14 @@ func TestInjectProxyNetwork(t *testing.T) {
 	if !ok {
 		t.Fatalf("no top-level networks: %v", doc["networks"])
 	}
-	ing, ok := netsAny["yeet-ingress"].(map[string]any)
+	ing, ok := netsAny["ob-ingress"].(map[string]any)
 	if !ok {
-		t.Fatalf("yeet-ingress not declared: %v", netsAny)
+		t.Fatalf("ob-ingress not declared: %v", netsAny)
 	}
 	if ext, _ := ing["external"].(bool); !ext {
-		t.Fatalf("yeet-ingress must be external: %v", ing)
+		t.Fatalf("ob-ingress must be external: %v", ing)
 	}
-	if name, _ := ing["name"].(string); name != "yeet-ingress" {
-		t.Fatalf("yeet-ingress must pin its host name: %v", ing)
+	if name, _ := ing["name"].(string); name != "ob-ingress" {
+		t.Fatalf("ob-ingress must pin its host name: %v", ing)
 	}
 }

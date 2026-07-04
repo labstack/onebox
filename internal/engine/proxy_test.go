@@ -40,7 +40,7 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 	return e, hash, &out
 }
 
-// proxyPS answers container queries for the yeet-proxy project: present only
+// proxyPS answers container queries for the ob-proxy project: present only
 // after `up -d` (or from the start when preRunning).
 func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result, bool) {
 	upRan := func() bool {
@@ -52,7 +52,7 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 		return false
 	}
 	return func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project=yeet-proxy") {
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project=ob-proxy") {
 			if preRunning || upRan() {
 				return transport.Result{Stdout: "PX1\n"}, true
 			}
@@ -73,19 +73,19 @@ func TestEnsureProxyFreshHost(t *testing.T) {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/yeet/_host/proxy") {
+	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/_host/proxy") {
 		t.Fatalf("payload must upload to the host proxy dir: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "docker compose -p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' up -d") {
+	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d") {
 		t.Fatalf("fresh host must up the proxy project:\n%s", seq)
 	}
-	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/yeet/_host/proxy/apps/monk'") {
+	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/monk'") {
 		t.Fatalf("app must register with its config hash:\n%s", seq)
 	}
-	if !strings.Contains(seq, "test -f '/var/lib/yeet/_host/proxy/acme/acme.json' ||") {
+	if !strings.Contains(seq, "test -f '/var/lib/ob/_host/proxy/acme/acme.json' ||") {
 		t.Fatalf("acme.json creation must be guarded (never touch an existing one):\n%s", seq)
 	}
-	if !strings.Contains(seq, "/var/lib/yeet/_host/journal") {
+	if !strings.Contains(seq, "/var/lib/ob/_host/journal") {
 		t.Fatalf("host journal must record the converge:\n%s", seq)
 	}
 	// secrets rule: .env content never appears in any command
@@ -99,7 +99,7 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	e, hash, _ := proxyFixture(t, f)
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/config.hash'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {
 			return transport.Result{Stdout: hash + "\n"}, true
 		}
 		return ps(cmd)
@@ -114,7 +114,7 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	if len(f.Uploads) != 0 {
 		t.Fatalf("unchanged proxy must not re-upload: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/yeet/_host/proxy/apps/monk'") {
+	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/monk'") {
 		t.Fatalf("registration must still happen:\n%s", seq)
 	}
 }
@@ -126,10 +126,10 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	rendered := string(proxy.RenderCompose("", "", true))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/config.hash'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {
 			return transport.Result{Stdout: "deadbeef\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/compose.yaml'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/compose.yaml'") {
 			return transport.Result{Stdout: rendered}, true
 		}
 		return ps(cmd)
@@ -141,7 +141,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	// converge by observation: up -d is the no-op probe (container matches the
 	// compose file, so it doesn't recreate) and the restart loads the config
 	iUp := strings.Index(seq, "up -d")
-	iRestart := strings.Index(seq, "docker restart yeet-proxy")
+	iRestart := strings.Index(seq, "docker restart ob-proxy")
 	if iUp < 0 || iRestart < 0 || iRestart < iUp {
 		t.Fatalf("config-only change must up (no-op) then restart:\n%s", seq)
 	}
@@ -152,13 +152,13 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	if !strings.Contains(f.Uploads[0], ".staged") {
 		t.Fatalf("upload must land in the staging dir, not the live one: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "mv '/var/lib/yeet/_host/proxy/.staged/config' '/var/lib/yeet/_host/proxy/config'") {
+	if !strings.Contains(seq, "mv '/var/lib/ob/_host/proxy/.staged/config' '/var/lib/ob/_host/proxy/config'") {
 		t.Fatalf("config must swap in atomically:\n%s", seq)
 	}
 	// applied-state marker written ONLY after health confirms — an interrupted
 	// converge must be retried, never mistaken for "unchanged"
 	iHealth := strings.LastIndex(seq, "docker inspect")
-	iHash := strings.Index(seq, "> '/var/lib/yeet/_host/proxy/config.hash'")
+	iHash := strings.Index(seq, "> '/var/lib/ob/_host/proxy/config.hash'")
 	if iHash < 0 || iHash < iHealth {
 		t.Fatalf("config.hash must be written after the health check:\n%s", seq)
 	}
@@ -170,10 +170,10 @@ func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 	rendered := string(proxy.RenderCompose("", "", true))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/config.hash'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {
 			return transport.Result{Stdout: "deadbeef\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/compose.yaml'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/compose.yaml'") {
 			return transport.Result{Stdout: rendered}, true
 		}
 		if strings.Contains(cmd, "docker restart") {
@@ -185,7 +185,7 @@ func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 		t.Fatal("failed restart must error")
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "> '/var/lib/yeet/_host/proxy/config.hash'") {
+	if strings.Contains(seq, "> '/var/lib/ob/_host/proxy/config.hash'") {
 		t.Fatalf("failed converge must NOT record the applied hash (retry depends on it):\n%s", seq)
 	}
 }
@@ -195,10 +195,10 @@ func TestEnsureProxyConflictNamesApps(t *testing.T) {
 	e, _, _ := proxyFixture(t, f)
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
 			return transport.Result{Stdout: "monk\nunlock\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/apps/unlock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
 			return transport.Result{Stdout: "0123456789abcdef\n"}, true
 		}
 		return ps(cmd)
@@ -217,10 +217,10 @@ func TestEnsureProxyConflictNamesApps(t *testing.T) {
 	e2, _, _ := proxyFixture(t, f2)
 	ps2 := proxyPS(f2, true)
 	f2.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
 			return transport.Result{Stdout: "unlock\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/apps/unlock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
 			return transport.Result{Stdout: "0123456789abcdef\n"}, true
 		}
 		return ps2(cmd)
@@ -235,16 +235,16 @@ func TestEnsureProxyLockReleasedOnConflict(t *testing.T) {
 	e, _, _ := proxyFixture(t, f)
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
 			return transport.Result{Stdout: "unlock\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/apps/unlock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
 			return transport.Result{Stdout: "0123456789abcdef\n"}, true
 		}
 		return ps(cmd)
 	}
 	_ = e.EnsureProxy(context.Background(), "R6", false)
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/yeet/_host/lock'") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/_host/lock'") {
 		t.Fatalf("host lock must be released on error:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }

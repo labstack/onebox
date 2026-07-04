@@ -1,5 +1,5 @@
 // Package e2e proves the M0 exit criterion mechanically: a live deploy under
-// load with zero failed requests. Gated: YEET_E2E=1 + local docker.
+// load with zero failed requests. Gated: OB_E2E=1 + local docker.
 package e2e
 
 import (
@@ -23,8 +23,8 @@ import (
 )
 
 func TestZeroDowntimeDeploy(t *testing.T) {
-	if os.Getenv("YEET_E2E") != "1" {
-		t.Skip("set YEET_E2E=1 (requires local docker)")
+	if os.Getenv("OB_E2E") != "1" {
+		t.Skip("set OB_E2E=1 (requires local docker)")
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
 		t.Skip("docker not available")
@@ -34,17 +34,17 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := t.TempDir()
-	t.Setenv("YEET_BASE_DIR", base)
+	t.Setenv("OB_BASE_DIR", base)
 	ctx := context.Background()
 	tr := transport.NewLocal()
 	t.Cleanup(func() {
-		down := exec.Command("docker", "compose", "-p", "yeete2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
+		down := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
 		down.Run()
 	})
 
 	deploy := func(version string) error {
 		t.Setenv("APP_VERSION", version)
-		cfg, err := config.Load(filepath.Join(dir, "yeet.yml"))
+		cfg, err := config.Load(filepath.Join(dir, "ob.yml"))
 		if err != nil {
 			return err
 		}
@@ -74,11 +74,11 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	}
 
 	// accessory traefik must be running before preflight (bootstrap is M1+)
-	up := exec.Command("docker", "compose", "-p", "yeete2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
+	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("start traefik: %v\n%s", err, out)
 	}
-	waitHealthy(t, "yeete2e", "traefik", 60*time.Second)
+	waitHealthy(t, "obe2e", "traefik", 60*time.Second)
 
 	if err := deploy("v1"); err != nil {
 		t.Fatalf("deploy v1: %v", err)

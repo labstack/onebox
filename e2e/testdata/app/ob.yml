@@ -1,4 +1,4 @@
-app: yeete2e
+app: obe2e
 compose: docker-compose.yaml
 environments:
   production: { hosts: [local] } # e2e uses LocalTransport; host value unused

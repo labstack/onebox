@@ -49,7 +49,7 @@ func NewSSH(addr string) (*SSH, error) {
 	}
 	hk, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
 	if err != nil {
-		return nil, fmt.Errorf("known_hosts (required — yeet never skips host verification): %w", err)
+		return nil, fmt.Errorf("known_hosts (required — ob never skips host verification): %w", err)
 	}
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
@@ -120,8 +120,8 @@ func knownHostKeyAlgos(cb ssh.HostKeyCallback, addr string) []string {
 // KeyError whose Want lists the pinned host keys.
 type probeKey struct{}
 
-func (probeKey) Type() string                        { return "yeet-probe" }
-func (probeKey) Marshal() []byte                     { return []byte("yeet-probe") }
+func (probeKey) Type() string                        { return "ob-probe" }
+func (probeKey) Marshal() []byte                     { return []byte("ob-probe") }
 func (probeKey) Verify([]byte, *ssh.Signature) error { return errors.New("probe") }
 
 func (s *SSH) Run(ctx context.Context, cmd string) (Result, error) {

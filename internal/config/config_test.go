@@ -28,7 +28,7 @@ verify:
 
 func write(t *testing.T, s string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "yeet.yml")
+	p := filepath.Join(t.TempDir(), "ob.yml")
 	if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -280,9 +280,9 @@ proxy: { kind: nginx, managed: true, config: traefik }
 	}
 }
 
-func TestAppNameYeetProxyReserved(t *testing.T) {
+func TestAppNameObProxyReserved(t *testing.T) {
 	reserved := `
-app: yeet-proxy
+app: ob-proxy
 compose: c.yaml
 environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: recreate } }
@@ -293,14 +293,14 @@ order: [web]
 		t.Fatal(err)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "reserved") {
-		t.Fatalf("app name yeet-proxy must be reserved, got %v", err)
+		t.Fatalf("app name ob-proxy must be reserved, got %v", err)
 	}
 }
 
 // Drift guard: Validate's reserved-name literal must track proxy.Project —
 // test-level coupling keeps internal/config a leaf package.
 func TestReservedAppNameTracksProxyProject(t *testing.T) {
-	if proxy.Project != "yeet-proxy" {
+	if proxy.Project != "ob-proxy" {
 		t.Fatalf("proxy.Project changed to %q — update the reserved-name check in config.Validate", proxy.Project)
 	}
 }
@@ -312,7 +312,7 @@ compose: c.yaml
 environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: recreate } }
 order: [web]
-notify: { webhook: "https://ntfy.example/yeet", on: [failure, success] }
+notify: { webhook: "https://ntfy.example/ob", on: [failure, success] }
 `
 	cfg, err := Load(write(t, ok))
 	if err != nil {
@@ -321,7 +321,7 @@ notify: { webhook: "https://ntfy.example/yeet", on: [failure, success] }
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("notify config must validate: %v", err)
 	}
-	if cfg.Notify == nil || cfg.Notify.Webhook != "https://ntfy.example/yeet" || len(cfg.Notify.On) != 2 {
+	if cfg.Notify == nil || cfg.Notify.Webhook != "https://ntfy.example/ob" || len(cfg.Notify.On) != 2 {
 		t.Fatalf("notify parsed wrong: %+v", cfg.Notify)
 	}
 
@@ -332,7 +332,7 @@ compose: c.yaml
 environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: recreate } }
 order: [web]
-notify: { webhook: "https://ntfy.example/yeet" }
+notify: { webhook: "https://ntfy.example/ob" }
 `
 	cfg, err = Load(write(t, defaulted))
 	if err != nil {

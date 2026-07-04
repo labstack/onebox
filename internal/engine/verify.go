@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/config"
 )
 
-// verifyURL is the runner-side edge check (yeet.sh's smoke test, absorbed).
+// verifyURL is the runner-side edge check (ob.sh's smoke test, absorbed).
 func (e *Engine) verifyURL(ctx context.Context, chk config.VerifyCheck) error {
 	client := &http.Client{Timeout: e.Opts.HTTPTimeout}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, chk.URL, nil)

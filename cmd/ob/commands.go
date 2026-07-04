@@ -43,7 +43,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, load func(context.Context,
 	if err != nil {
 		return nil, nil, err
 	}
-	// Defaults yeet can derive without the project: app from the directory,
+	// Defaults ob can derive without the project: app from the directory,
 	// compose from the conventional file. Inference (which needs the project)
 	// runs after the load; Validate then checks the fully-resolved config.
 	dir := filepath.Dir(g.ConfigPath)
@@ -165,7 +165,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			return runPlan(cmd, g, planOut)
 		},
 	}
-	planCmd.Flags().StringVarP(&planOut, "out", "o", "yeet-plan.json", "plan artifact path")
+	planCmd.Flags().StringVarP(&planOut, "out", "o", "ob-plan.json", "plan artifact path")
 	root.AddCommand(planCmd)
 
 	var planFile string
@@ -569,7 +569,7 @@ func proxyNetwork(cfg *config.Config) string {
 }
 
 func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id string) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "yeet-"+cfg.App)
+	staging, err := os.MkdirTemp("", "ob-"+cfg.App)
 	if err != nil {
 		return "", nil, err
 	}

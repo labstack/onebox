@@ -201,7 +201,7 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 }
 
 // Rollback re-releases the previous release dir: its compose.yaml pins the
-// old image locally (design §06 "rollback never pulls"), and its own yeet.yml
+// old image locally (design §06 "rollback never pulls"), and its own ob.yml
 // snapshot drives the choreography — old release, old config, old modes.
 func (e *Engine) Rollback(ctx context.Context) error {
 	prev, err := release.Previous(ctx, e.T, e.Cfg.App)
@@ -213,24 +213,24 @@ func (e *Engine) Rollback(ctx context.Context) error {
 
 	// replay engine: the snapshot's choreography when available
 	replay := e
-	res, err := e.T.Run(ctx, "cat "+q(prevDir+"/yeet.snapshot.yml"))
+	res, err := e.T.Run(ctx, "cat "+q(prevDir+"/ob.snapshot.yml"))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode == 0 && strings.TrimSpace(res.Stdout) != "" {
-		snapCfg, serr := config.LoadBytes([]byte(res.Stdout), prev+"/yeet.snapshot.yml")
+		snapCfg, serr := config.LoadBytes([]byte(res.Stdout), prev+"/ob.snapshot.yml")
 		if serr == nil {
 			serr = snapCfg.Validate()
 		}
 		if serr != nil {
-			e.warnf("snapshot unusable (%v) — replaying with CURRENT yeet.yml choreography", serr)
+			e.warnf("snapshot unusable (%v) — replaying with CURRENT ob.yml choreography", serr)
 		} else {
 			cp := *e
 			cp.Cfg = snapCfg
 			replay = &cp
 		}
 	} else {
-		e.warnf("no yeet.snapshot.yml in %s (pre-M1 release?) — replaying with CURRENT yeet.yml choreography", prev)
+		e.warnf("no snapshot in %s (pre-M1 release?) — replaying with CURRENT ob.yml choreography", prev)
 	}
 
 	epoch, err := e.AcquireLock(ctx, prev, e.Opts.ForceLock)

@@ -1,5 +1,5 @@
 // Package release manages the versioned remote layout:
-// /var/lib/yeet/<app>/releases/<id>/ + a `current` symlink. Nothing live is
+// /var/lib/ob/<app>/releases/<id>/ + a `current` symlink. Nothing live is
 // ever overwritten (design §04); rollback re-activates a previous dir.
 package release
 
@@ -19,12 +19,9 @@ import (
 type Paths struct{ Base, Releases, Current string }
 
 func PathsFor(app string) Paths {
-	root := os.Getenv("OB_BASE_DIR")
+	root := os.Getenv("OB_BASE_DIR") // test hook (e2e on macOS); default is the real layout
 	if root == "" {
-		root = os.Getenv("YEET_BASE_DIR") // codename-era hook, still honored
-	} // test hook (e2e on macOS); default is the real layout
-	if root == "" {
-		root = "/var/lib/yeet"
+		root = "/var/lib/ob"
 	}
 	base := root + "/" + app
 	return Paths{Base: base, Releases: base + "/releases", Current: base + "/current"}
@@ -42,7 +39,7 @@ func NewID(now time.Time, gitSHA string) string {
 }
 
 // Stage writes the release payload into a local staging dir: the rendered
-// compose plus the yeet.yml snapshot (design §04 — rollback replays the OLD
+// compose plus the ob.yml snapshot (design §04 — rollback replays the OLD
 // choreography from the release's own snapshot).
 func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -54,7 +51,7 @@ func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), composeYAML, 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "yeet.snapshot.yml"), snapshotYAML, 0o644)
+	return os.WriteFile(filepath.Join(dir, "ob.snapshot.yml"), snapshotYAML, 0o644)
 }
 
 func Push(ctx context.Context, t transport.Transport, stagingDir, app, id string) (string, error) {

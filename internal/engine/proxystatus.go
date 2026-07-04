@@ -29,7 +29,7 @@ func (e *Engine) proxyStatus(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if len(ids) == 0 {
-		fmt.Fprintf(e.Opts.Out, "proxy %-12s NOT RUNNING ⚠ — `yeet proxy apply`\n", proxy.ContainerName)
+		e.ui.Println(fmt.Sprintf("proxy %-12s %s", proxy.ContainerName, e.ui.Warn("NOT RUNNING ⚠ — `yeet proxy apply`")))
 		return true, nil
 	}
 	health, err := e.healthOf(ctx, ids[0])
@@ -59,9 +59,9 @@ func (e *Engine) proxyStatus(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	applied := strings.TrimSpace(res.Stdout)
-	state := fmt.Sprintf("config %.8s (in sync)", applied)
+	state := fmt.Sprintf("config %.8s %s", applied, e.ui.OK("(in sync)"))
 	if applied != localHash {
-		state = fmt.Sprintf("config DRIFTED ⚠ (local %.8s ≠ applied %.8s) — `yeet proxy apply`", localHash, applied)
+		state = e.ui.Warn(fmt.Sprintf("config DRIFTED ⚠ (local %.8s ≠ applied %.8s) — `yeet proxy apply`", localHash, applied))
 		diverged = true
 	}
 
@@ -89,10 +89,10 @@ func (e *Engine) proxyStatus(ctx context.Context) (bool, error) {
 		days := int(c.NotAfter.Sub(e.Opts.Now()).Hours() / 24)
 		mark := ""
 		if days < renewalFloorDays {
-			mark = "  RENEWAL OVERDUE ⚠ (lego renews at 30d — check CF_DNS_API_TOKEN / proxy logs)"
+			mark = e.ui.Warn("  RENEWAL OVERDUE ⚠ (lego renews at 30d — check CF_DNS_API_TOKEN / proxy logs)")
 			diverged = true
 		}
-		fmt.Fprintf(e.Opts.Out, "  cert %-20s expires %s (%dd)%s\n", c.Domain, c.NotAfter.UTC().Format("2006-01-02"), days, mark)
+		e.ui.Println(fmt.Sprintf("  cert %-20s expires %s %s%s", c.Domain, c.NotAfter.UTC().Format("2006-01-02"), e.ui.Dim(fmt.Sprintf("(%dd)", days)), mark))
 	}
 	return diverged, nil
 }

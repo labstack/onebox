@@ -46,7 +46,7 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 	if diff == "" {
 		e.logf("accessory apply: no rendered change vs live release")
 	} else {
-		fmt.Fprintln(e.Opts.Out, diff)
+		e.ui.Diff(diff)
 	}
 
 	// destructive-mount check: a named volume or absolute bind the running

@@ -197,7 +197,7 @@ func (e *Engine) proxyConflict(ctx context.Context, hp proxy.Paths, hash string,
 		}
 		if other := strings.TrimSpace(r.Stdout); other != "" && other != hash {
 			if force {
-				e.logf("warn: proxy config diverges from app %q (%.8s vs %.8s) — proceeding (--force); redeploy %q with matching config", name, other, hash, name)
+				e.warnf("proxy config diverges from app %q (%.8s vs %.8s) — proceeding (--force); redeploy %q with matching config", name, other, hash, name)
 				continue
 			}
 			return fmt.Errorf("proxy config conflict: app %q registered %.8s, this apply is %.8s — the host proxy is SHARED; align both apps' proxy.config, or --force to make %q the loser",

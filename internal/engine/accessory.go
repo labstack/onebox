@@ -91,7 +91,7 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 			strings.Join(destructive, "\n  "))
 	}
 	if len(destructive) > 0 {
-		e.logf("warn: proceeding past %d destructive mount change(s) (--force)", len(destructive))
+		e.warnf("proceeding past %d destructive mount change(s) (--force)", len(destructive))
 	}
 
 	// the regime: lock, fence, journal, converge

@@ -61,7 +61,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 		switch health {
 		case "healthy":
 		case "none":
-			e.logf("warn: accessory %q has no healthcheck; asserting running-only", acc)
+			e.warnf("accessory %q has no healthcheck; asserting running-only", acc)
 		default:
 			return fmt.Errorf("accessory %q is %s, refusing to deploy", acc, health)
 		}

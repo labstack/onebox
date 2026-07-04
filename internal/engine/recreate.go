@@ -84,20 +84,27 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 		return nil
 	}
 	if hook.Local {
-		e.logf("hook %s (local): %s", name, hook.Run)
-		return e.runLocalHook(ctx, name, hook.Run, remoteReleaseDir)
+		st := e.ui.Step("hook "+name+" (local)", true)
+		e.ui.Cmd("local", hook.Run) // the verbatim command: verbose only — the plan already lists it
+		err := e.runLocalHook(ctx, name, hook.Run, remoteReleaseDir)
+		st(err)
+		return err
 	}
-	e.logf("hook %s: %s", name, hook.Run)
+	st := e.ui.Step("hook "+name, true)
 	cmd := "cd " + q(remoteReleaseDir) +
 		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
 		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook.Run
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {
+		st(err)
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("hook %s failed (exit %d): %s", name, res.ExitCode, strings.TrimSpace(res.Stderr))
+		err := fmt.Errorf("hook %s failed (exit %d): %s", name, res.ExitCode, strings.TrimSpace(res.Stderr))
+		st(err)
+		return err
 	}
+	st(nil)
 	return nil
 }
 

@@ -21,7 +21,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	}
 	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.Cfg.App, e.T.Host())
 	fmt.Fprintf(e.Opts.Out, "recorded: %s\n\n", recorded)
-	fmt.Fprintf(e.Opts.Out, "%-12s %-10s %-32s %-10s %s\n", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")
+	e.ui.Println(e.ui.Bold(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
 
 	diverged := false
 	for _, roleName := range e.Cfg.Order {
@@ -32,7 +32,7 @@ func (e *Engine) Status(ctx context.Context) error {
 		}
 		if len(ids) == 0 {
 			diverged = true
-			fmt.Fprintf(e.Opts.Out, "%-12s %-10s %-32s %-10s %s\n", roleName, role.Mode, "-", "-", "NOT RUNNING ⚠")
+			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
 			continue
 		}
 		for _, id := range ids {
@@ -48,16 +48,16 @@ func (e *Engine) Status(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			state := "in sync"
+			state := e.ui.OK("in sync")
 			if actual != strings.TrimSpace(recorded) {
-				state = "DIVERGED ⚠"
+				state = e.ui.Warn("DIVERGED ⚠")
 				diverged = true
 			}
 			if health != "healthy" && health != "none" {
-				state += " (" + health + ")"
+				state += e.ui.Warn(" (" + health + ")")
 				diverged = true
 			}
-			fmt.Fprintf(e.Opts.Out, "%-12s %-10s %-32s %-10s %s\n", roleName, role.Mode, actual, health, state)
+			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, actual, health, state))
 		}
 	}
 
@@ -69,7 +69,7 @@ func (e *Engine) Status(ctx context.Context) error {
 			return err
 		}
 		if id == "" {
-			fmt.Fprintf(e.Opts.Out, "accessory %-12s NOT RUNNING ⚠\n", acc)
+			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("NOT RUNNING ⚠")))
 			diverged = true
 			continue
 		}
@@ -89,12 +89,14 @@ func (e *Engine) Status(ctx context.Context) error {
 	// an unfinished deploy is the loudest divergence there is
 	if s, err := e.FindIncomplete(ctx); err == nil {
 		diverged = true
-		fmt.Fprintf(e.Opts.Out, "\n⚠ INCOMPLETE deploy %s (started %s by %s) — `yeet resume` or `yeet abort`\n",
+		fmt.Fprintln(e.Opts.Out)
+		e.warnf("INCOMPLETE deploy %s (started %s by %s) — `yeet resume` or `yeet abort`",
 			s.DeployID, s.StartedAt, s.Operator)
 	}
 	if diverged {
 		return fmt.Errorf("status: divergence detected")
 	}
-	fmt.Fprintln(e.Opts.Out, "\nall in sync")
+	fmt.Fprintln(e.Opts.Out)
+	e.ui.Successf("all in sync")
 	return nil
 }

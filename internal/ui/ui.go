@@ -121,3 +121,32 @@ func FmtDur(d time.Duration) string {
 		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 }
+
+// Println writes a pre-styled line (compose with OK/Warn/Dim/Bold).
+func (u *UI) Println(s string) { u.println(s) }
+
+// OK, Warn, Dim, Bold style fragments for callers composing their own lines
+// (plan tables, diffs) without ui growing a method per table.
+func (u *UI) OK(s string) string   { return u.sOK.Render(s) }
+func (u *UI) Warn(s string) string { return u.sWarn.Render(s) }
+func (u *UI) Dim(s string) string  { return u.sDim.Render(s) }
+func (u *UI) Bold(s string) string { return u.sBold.Render(s) }
+
+// Diff prints a unified diff with the conventional coloring: additions green,
+// removals red, hunk headers dim, file headers bold. Content is untouched.
+func (u *UI) Diff(diff string) {
+	for _, line := range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+			u.println(u.sBold.Render(line))
+		case strings.HasPrefix(line, "@@"):
+			u.println(u.sDim.Render(line))
+		case strings.HasPrefix(line, "+"):
+			u.println(u.sOK.Render(line))
+		case strings.HasPrefix(line, "-"):
+			u.println(u.sFail.Render(line))
+		default:
+			u.println(line)
+		}
+	}
+}

@@ -77,6 +77,15 @@ func (e *Engine) Status(ctx context.Context) error {
 		fmt.Fprintf(e.Opts.Out, "accessory %-12s %s\n", acc, health)
 	}
 
+	if e.Cfg.Proxy.Managed {
+		fmt.Fprintln(e.Opts.Out)
+		d, err := e.proxyStatus(ctx)
+		if err != nil {
+			return err
+		}
+		diverged = diverged || d
+	}
+
 	// an unfinished deploy is the loudest divergence there is
 	if s, err := e.FindIncomplete(ctx); err == nil {
 		diverged = true

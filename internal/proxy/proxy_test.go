@@ -1,10 +1,20 @@
 package proxy
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeCfg(t *testing.T, files map[string]string) string {
@@ -121,5 +131,50 @@ func TestStageRejectsSubdirs(t *testing.T) {
 	}
 	if _, err := Stage(cfgDir, t.TempDir(), "", ""); err == nil || !strings.Contains(err.Error(), "flat") {
 		t.Fatalf("want flat-dir contract error, got %v", err)
+	}
+}
+
+func acmeJSON(t *testing.T, domain string, notAfter time.Time) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: domain},
+		NotBefore:    notAfter.Add(-90 * 24 * time.Hour),
+		NotAfter:     notAfter,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemB := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	return fmt.Sprintf(`{"le":{"Certificates":[{"domain":{"main":%q},"certificate":%q}]}}`,
+		domain, base64.StdEncoding.EncodeToString(pemB))
+}
+
+func TestCertExpiries(t *testing.T) {
+	exp := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	certs, err := CertExpiries([]byte(acmeJSON(t, "monk.trade", exp)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 1 || certs[0].Domain != "monk.trade" || !certs[0].NotAfter.Equal(exp) {
+		t.Fatalf("got %+v", certs)
+	}
+
+	// a fresh acme.json is an empty file — no certs, no error
+	for _, empty := range []string{"", "{}", `{"le":{"Certificates":null}}`} {
+		certs, err := CertExpiries([]byte(empty))
+		if err != nil || len(certs) != 0 {
+			t.Fatalf("empty store %q: %v %v", empty, certs, err)
+		}
+	}
+
+	// garbage never breaks status
+	if _, err := CertExpiries([]byte("not json")); err == nil {
+		t.Fatal("garbage must error (caller reports, never crashes)")
 	}
 }

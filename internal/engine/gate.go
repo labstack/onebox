@@ -48,7 +48,12 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 			continue
 		}
 		_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: key, Event: "intent"})
+		st := e.ui.Step("job "+job, true)
 		safe, detail, err := e.runOneJob(ctx, job, remoteDir, remoteCompose)
+		if err == nil {
+			e.logf("job %s: %s", job, detail)
+		}
+		st(err)
 		if err != nil {
 			_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: key, Event: "result", Status: "fail", Detail: err.Error()})
 			return err
@@ -77,7 +82,7 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 		}
 		runCmd = h.Run // custom command for this job (e.g. extra flags)
 	}
-	e.logf("job %s: %s", job, runCmd)
+	e.ui.Cmd("job", runCmd) // verbose only — the plan lists it
 	resultFile := remoteDir + "/.job-" + job + "-result"
 	cmd := "cd " + q(remoteDir) +
 		" && rm -f " + q(resultFile) +

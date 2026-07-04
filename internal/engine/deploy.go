@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/journal"
 	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/yeet/internal/ui"
 )
 
 // Deploy runs the lifecycle under the full trust regime (design §05):
@@ -21,10 +23,14 @@ func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) 
 // deployCore: done != nil means resume — completed steps skip; staging may be
 // empty (the release dir already lives on the host).
 func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir string, done map[string]bool) error {
-	e.logf("phase preflight")
+	e.ui.Header("deploy " + releaseID)
+	t0 := time.Now()
+	pf := e.ui.Step("preflight", false)
 	if err := e.Preflight(ctx); err != nil {
+		pf(err)
 		return fmt.Errorf("preflight: %w", err)
 	}
+	pf(nil)
 	prev, err := release.Current(ctx, e.T, e.Cfg.App)
 	if err != nil {
 		return err
@@ -47,6 +53,13 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + prev})
 
 	err = e.runPhases(ctx, jw, releaseID, localStagingDir, prev, done)
+	if err == nil {
+		hint := ""
+		if prev != "" {
+			hint = " (prev " + prev + " — `yeet rollback`)"
+		}
+		e.ui.Successf("deployed %s in %s%s", releaseID, ui.FmtDur(time.Since(t0)), hint)
+	}
 
 	status := "ok"
 	if err != nil {
@@ -67,23 +80,25 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	remoteCompose := remoteDir + "/compose.yaml"
 
 	if done["transfer"] {
-		e.logf("phase transfer: already complete (resume)")
+		e.logf("transfer: already complete (resume)")
 	} else {
-		e.logf("phase transfer (%s)", releaseID)
+		tr := e.ui.Step("transfer", false)
 		if localStagingDir == "" {
 			res, err := e.T.Run(ctx, "test -d "+q(remoteDir))
 			if err != nil || res.ExitCode != 0 {
+				tr(err)
 				return fmt.Errorf("resume: release dir %s missing on host and no local staging", remoteDir)
 			}
 		} else {
 			if _, err := release.Push(ctx, e.T, localStagingDir, e.Cfg.App, releaseID); err != nil {
+				tr(err)
 				return fmt.Errorf("transfer: %w", err)
 			}
 		}
+		tr(nil)
 		_ = jw.Append(ctx, journal.Record{Phase: "transfer", Event: "result", Status: "ok"})
 	}
 
-	e.logf("phase pre-release")
 	// Jobs run first, gated (migrations before new code). runJobs journals each
 	// step and sets the rollback gate.
 	if err := e.runJobs(ctx, jw, done, remoteDir, remoteCompose); err != nil {
@@ -93,14 +108,17 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("pre-release: %w", err)
 	}
 
-	e.logf("phase release")
 	for _, roleName := range e.Cfg.Order {
 		if done["release:"+roleName] {
 			e.logf("release %s: already complete (resume)", roleName)
 			continue
 		}
 		role := e.Cfg.Roles[roleName]
-		e.logf("release %s (%s, %s)", roleName, role.Service, role.Mode)
+		label := roleName + " " + role.Mode
+		if n := role.Count(); n > 1 {
+			label = fmt.Sprintf("%s ×%d", label, n)
+		}
+		st := e.ui.Step(label, true)
 		_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "intent"})
 		var err error
 		if role.Mode == "rolling" {
@@ -108,6 +126,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		} else {
 			err = e.RecreateRole(ctx, roleName, remoteCompose)
 		}
+		st(err)
 		if err != nil {
 			_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "fail", Detail: err.Error()})
 			return fmt.Errorf("release %s: %w (deploy halted — `yeet resume` after fixing, or `yeet abort`)", roleName, err)
@@ -118,23 +137,27 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("post-release: %w", err)
 	}
 
-	e.logf("phase verify")
+	vf := e.ui.Step("verify", false)
 	if err := e.Verify(ctx); err != nil {
+		vf(err)
 		return e.onVerifyFailure(ctx, jw, releaseID, prev, err)
 	}
+	vf(nil)
 	_ = jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"})
 
-	e.logf("phase finalize")
+	fin := e.ui.Step("activate", false)
 	if err := e.activate(ctx, releaseID); err != nil {
+		fin(err)
 		return fmt.Errorf("finalize: %w", err)
 	}
 	if err := e.pruneRetention(ctx); err != nil {
+		fin(err)
 		return fmt.Errorf("prune: %w", err)
 	}
+	fin(nil)
 	if err := e.RunHook(ctx, "post_deploy", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("post-deploy: %w", err)
 	}
-	e.logf("deployed %s", releaseID)
 	return nil
 }
 

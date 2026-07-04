@@ -44,6 +44,29 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	accessory.PersistentFlags().BoolVar(&g.Force, "force", false, "proceed past destructive mount changes")
 	root.AddCommand(accessory)
 
+	// proxy apply — converge the HOST-scoped managed proxy (shared by every
+	// yeet app on the box; see proxy.managed)
+	proxyCmd := &cobra.Command{Use: "proxy", Short: "manage the host-scoped proxy (proxy.managed: true)"}
+	proxyCmd.AddCommand(&cobra.Command{
+		Use:   "apply",
+		Short: "converge the shared proxy — diff shown; unchanged config never touches the container (ACME-safe)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, p, err := loadAll(cmd.Context(), g)
+			if err != nil {
+				return err
+			}
+			e, cleanup, err := connect(cmd, g, cfg, p)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath))) + "-proxy"
+			return e.ProxyApply(cmd.Context(), id, g.Force)
+		},
+	})
+	proxyCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "break the host lock / override a cross-app config conflict")
+	root.AddCommand(proxyCmd)
+
 	// secrets edit | push
 	secretsCmd := &cobra.Command{Use: "secrets", Short: "SOPS-encrypted secrets"}
 	secretsCmd.AddCommand(&cobra.Command{

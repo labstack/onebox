@@ -169,6 +169,19 @@ func (u *UI) Diff(diff string) {
 
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+const (
+	hideCursor = "\x1b[?25l"
+	showCursor = "\x1b[?25h"
+)
+
+// RestoreCursor re-shows the terminal cursor if w is a TTY — for signal
+// handlers: an interrupt mid-spinner must not leave the terminal cursorless.
+func RestoreCursor(w io.Writer) {
+	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		_, _ = io.WriteString(w, showCursor)
+	}
+}
+
 // Busy shows a live spinner while a long step runs. On a TTY it repaints one
 // line in place (cleared by any interleaved output, repainted next tick); off
 // a TTY it prints one ⟳ line per distinct label — CI logs stay line-honest.
@@ -186,6 +199,7 @@ func (u *UI) Busy(label string) (update func(string), stop func()) {
 	}
 	u.mu.Lock()
 	u.spinLabel, u.spinOn = label, true
+	_, _ = io.WriteString(u.out, hideCursor) // the blinking cursor at line end is just noise
 	u.mu.Unlock()
 	done := make(chan struct{})
 	finished := make(chan struct{})
@@ -198,7 +212,7 @@ func (u *UI) Busy(label string) (update func(string), stop func()) {
 			select {
 			case <-done:
 				u.mu.Lock()
-				_, _ = io.WriteString(u.out, "\r\x1b[K")
+				_, _ = io.WriteString(u.out, "\r\x1b[K"+showCursor)
 				u.spinOn = false
 				u.mu.Unlock()
 				return

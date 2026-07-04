@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -38,6 +40,16 @@ func newRootCmd() *cobra.Command {
 }
 
 func main() {
+	// an interrupt mid-spinner must not leave the terminal cursorless —
+	// restore, then die with the conventional code (cleanup semantics are
+	// unchanged: Ctrl-C was always an abrupt kill; resume/TTL handle it)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		ui.RestoreCursor(os.Stdout)
+		os.Exit(130)
+	}()
 	if err := newRootCmd().Execute(); err != nil {
 		// the one line every failure ends on — red where the terminal allows
 		ui.New(os.Stderr, false).Failf("yeet: %v", err)

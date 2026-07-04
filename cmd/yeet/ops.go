@@ -40,7 +40,9 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer sc()
-			return e.AccessoryApply(cmd.Context(), id, staging, g.Force)
+			err = e.AccessoryApply(cmd.Context(), id, staging, g.Force)
+			notifyOutcome(cfg, g, "accessory apply", id, err)
+			return err
 		},
 	})
 	accessory.PersistentFlags().BoolVar(&g.Force, "force", false, "proceed past destructive mount changes")
@@ -63,7 +65,9 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			}
 			defer cleanup()
 			id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath))) + "-proxy"
-			return e.ProxyApply(cmd.Context(), id, g.Force)
+			err = e.ProxyApply(cmd.Context(), id, g.Force)
+			notifyOutcome(cfg, g, "proxy apply", id, err)
+			return err
 		},
 	})
 	proxyCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "break the host lock / override a cross-app config conflict")
@@ -136,7 +140,9 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer cleanup()
-			return e.Destroy(cmd.Context(), destroyVolumes, destroyProxy)
+			err = e.Destroy(cmd.Context(), destroyVolumes, destroyProxy)
+			notifyOutcome(cfg, g, "destroy", "", err)
+			return err
 		},
 	}
 	destroyCmd.Flags().BoolVar(&destroyVolumes, "volumes", false, "also remove named volumes (DATA LOSS)")

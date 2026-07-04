@@ -304,3 +304,67 @@ func TestReservedAppNameTracksProxyProject(t *testing.T) {
 		t.Fatalf("proxy.Project changed to %q — update the reserved-name check in config.Validate", proxy.Project)
 	}
 }
+
+func TestNotifyParseAndValidate(t *testing.T) {
+	ok := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+notify: { webhook: "https://ntfy.example/yeet", on: [failure, success] }
+`
+	cfg, err := Load(write(t, ok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("notify config must validate: %v", err)
+	}
+	if cfg.Notify == nil || cfg.Notify.Webhook != "https://ntfy.example/yeet" || len(cfg.Notify.On) != 2 {
+		t.Fatalf("notify parsed wrong: %+v", cfg.Notify)
+	}
+
+	// on: defaults to [failure] when omitted
+	defaulted := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+notify: { webhook: "https://ntfy.example/yeet" }
+`
+	cfg, err = Load(write(t, defaulted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Notify.On) != 1 || cfg.Notify.On[0] != "failure" {
+		t.Fatalf("on must default to [failure]: %+v", cfg.Notify)
+	}
+
+	// bad event name is a CUE error
+	badOn := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+notify: { webhook: "https://x", on: [sometimes] }
+`
+	if _, err := Load(write(t, badOn)); err == nil {
+		t.Fatal("expected CUE error for on: sometimes")
+	}
+
+	// webhook must be http(s)
+	badURL := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+notify: { webhook: "ftp://x" }
+`
+	if _, err := Load(write(t, badURL)); err == nil {
+		t.Fatal("expected CUE error for non-http webhook")
+	}
+}

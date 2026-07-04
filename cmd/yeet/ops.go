@@ -23,6 +23,8 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "apply",
 		Short: "planned convergence of accessories — diff shown, destructive mounts refused without --force",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// strict: this RENDERS and ships a compose — an unresolved
+			// ${VAR:?} must fail here, not on the host
 			cfg, p, err := loadAll(cmd.Context(), g)
 			if err != nil {
 				return err
@@ -51,7 +53,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "apply",
 		Short: "converge the shared proxy — diff shown; unchanged config never touches the container (ACME-safe)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}
@@ -146,7 +148,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Short: "compose logs from the current release",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}
@@ -172,7 +174,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Short: "run a command inside a role's container",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}

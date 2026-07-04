@@ -97,7 +97,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 			A: difflib.SplitLines(remoteCompose), B: difflib.SplitLines(string(rendered)),
 			FromFile: "live proxy compose", ToFile: "planned", Context: 2,
 		})
-		fmt.Fprintln(e.Opts.Out, diff)
+		e.ui.Diff(diff)
 	}
 	if remoteHash != "" && remoteHash != hash {
 		// config content is never diffed or printed — .env may hold secrets;

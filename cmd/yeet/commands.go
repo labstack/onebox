@@ -383,7 +383,9 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 		return fail(err)
 	}
 
-	fmt.Fprintln(out, engine.FidelityContract)
+	u := e.Opts.UI
+	u.Header("plan " + id)
+	u.Println(u.Dim(engine.FidelityContract))
 	fmt.Fprintln(out)
 
 	// rendered diff against the live release — both sides redacted.
@@ -410,26 +412,42 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 		return fail(err)
 	}
 	if diff == "" {
-		fmt.Fprintln(out, "rendered compose: no change against live release")
+		u.Infof("rendered compose: no change against live release")
 	} else {
-		fmt.Fprintln(out, diff)
+		u.Diff(diff)
+		fmt.Fprintln(out)
 	}
 
-	fmt.Fprintln(out, "images:")
+	u.Println(u.Bold("images:"))
 	for svc, ref := range pins {
-		mark := "pinned"
+		mark := u.OK("[pinned]")
 		if !strings.Contains(ref, "@sha256:") {
-			mark = "TAG-BOUND (unpinned)"
+			mark = u.Warn("[TAG-BOUND (unpinned)]")
 		}
-		fmt.Fprintf(out, "  %-12s %s  [%s]\n", svc, ref, mark)
+		name, digest := ref, ""
+		if i := strings.Index(ref, "@"); i >= 0 {
+			name, digest = ref[:i], ref[i:]
+		}
+		u.Println(fmt.Sprintf("  %-12s %s%s  %s", svc, name, u.Dim(digest), mark))
 	}
 	fmt.Fprintln(out)
 
 	remoteCompose := release.PathsFor(cfg.App).Releases + "/" + id + "/compose.yaml"
 	commands := e.Describe(remoteCompose)
-	fmt.Fprintln(out, "commands:")
+	u.Println(u.Bold("commands:"))
 	for _, c := range commands {
-		fmt.Fprintln(out, "  "+c)
+		switch {
+		case strings.HasPrefix(c, " "): // sub-command / branch line
+			u.Println("  " + u.Dim(c))
+		case strings.HasSuffix(c, ":"): // release <role> (...) header
+			u.Println("  " + u.Bold(c))
+		default: // "job X (...): <cmd>" / "hook X (...): <cmd>" — bold label, dim command
+			if i := strings.Index(c, "): "); i >= 0 {
+				u.Println("  " + u.Bold(c[:i+2]) + " " + u.Dim(c[i+3:]))
+			} else {
+				u.Println("  " + c)
+			}
+		}
 	}
 
 	cfgBytes, err := os.ReadFile(g.ConfigPath)
@@ -616,7 +634,8 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, ye
 // confirm reads a yes/no answer; anything but y/yes (incl. EOF on a
 // non-interactive stdin) is No — deploys never proceed on ambiguity.
 func confirm(cmd *cobra.Command, prompt string) bool {
-	fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N] ", prompt)
+	u := ui.New(cmd.OutOrStdout(), false)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s ", u.Bold(prompt+" [y/N]"))
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	switch strings.TrimSpace(strings.ToLower(line)) {
 	case "y", "yes":

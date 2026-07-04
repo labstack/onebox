@@ -82,3 +82,33 @@ func TestStepHelper(t *testing.T) {
 		t.Fatalf("step completion: %q", out.String())
 	}
 }
+
+func TestDiffPlainOnBuffer(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	u.Diff("--- live (R1)\n+++ planned (R2)\n@@ -1,2 +1,2 @@\n context\n-old line\n+new line\n")
+	s := out.String()
+	if strings.Contains(s, "\x1b[") {
+		t.Fatalf("buffer must stay plain: %q", s)
+	}
+	for _, want := range []string{"--- live (R1)", "+new line", "-old line", "@@ -1,2 +1,2 @@"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("diff content lost %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestStyleAccessorsPlainOnBuffer(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	u.Println(u.Bold("images:"))
+	u.Println("  server  " + u.Dim("ghcr.io/x@sha256:abc") + "  " + u.OK("[pinned]"))
+	u.Println("  worker  ghcr.io/x:tag  " + u.Warn("[TAG-BOUND]"))
+	s := out.String()
+	if strings.Contains(s, "\x1b[") {
+		t.Fatalf("plain writer: %q", s)
+	}
+	if !strings.Contains(s, "images:") || !strings.Contains(s, "[pinned]") || !strings.Contains(s, "[TAG-BOUND]") {
+		t.Fatalf("content lost:\n%s", s)
+	}
+}

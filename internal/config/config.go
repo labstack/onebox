@@ -220,7 +220,8 @@ type Registry struct {
 // design: a dead webhook warns, never blocks or fails the operation.
 type Notify struct {
 	Webhook string   `yaml:"webhook"`
-	On      []string `yaml:"on,omitempty"` // failure | success; default [failure]
+	On      []string `yaml:"on,omitempty"`     // failure | success; default [failure]
+	Format  string   `yaml:"format,omitempty"` // json (default; Slack-compatible) | text (plain line — ntfy-style topic endpoints)
 }
 
 // Secrets: a SOPS-encrypted flat YAML map, decrypted runner-side and shipped

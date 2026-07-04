@@ -90,3 +90,27 @@ func TestSendFailOpen(t *testing.T) {
 		t.Fatalf("non-2xx must be reported: %v", err)
 	}
 }
+
+func TestSendFormatText(t *testing.T) {
+	var body string
+	var ct, title string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body, ct, title = string(b), r.Header.Get("Content-Type"), r.Header.Get("X-Title")
+	}))
+	defer srv.Close()
+
+	n := &config.Notify{Webhook: srv.URL, On: []string{"failure"}, Format: "text"}
+	if err := Send(n, Payload{App: "monk", Host: "root@h", Verb: "deploy", Status: "fail", Error: "boom"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body, "{") || !strings.Contains(body, "FAILED") || !strings.Contains(body, "boom") {
+		t.Fatalf("text format must send the human line only: %q", body)
+	}
+	if !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("content-type: %s", ct)
+	}
+	if title != "monk deploy" {
+		t.Fatalf("X-Title: %q", title)
+	}
+}

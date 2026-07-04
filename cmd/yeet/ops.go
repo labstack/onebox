@@ -88,7 +88,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(secretsCmd)
 
 	// destroy
-	var destroyVolumes bool
+	var destroyVolumes, destroyProxy bool
 	destroyCmd := &cobra.Command{
 		Use:   "destroy",
 		Short: "tear the app down (typed confirmation; volumes kept unless --volumes)",
@@ -108,10 +108,11 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer cleanup()
-			return e.Destroy(cmd.Context(), destroyVolumes)
+			return e.Destroy(cmd.Context(), destroyVolumes, destroyProxy)
 		},
 	}
 	destroyCmd.Flags().BoolVar(&destroyVolumes, "volumes", false, "also remove named volumes (DATA LOSS)")
+	destroyCmd.Flags().BoolVar(&destroyProxy, "proxy", false, "also remove the shared managed proxy — only when no other app is registered")
 	root.AddCommand(destroyCmd)
 
 	// logs

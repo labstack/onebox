@@ -32,6 +32,20 @@ func (e *Engine) Preflight(ctx context.Context) error {
 	if kib, _ := strconv.Atoi(strings.TrimSpace(res.Stdout)); kib > 0 && kib < minDiskKiB {
 		return fmt.Errorf("disk headroom %d KiB < 1 GiB on %s", kib, e.T.Host())
 	}
+	if e.Cfg.Proxy.Managed {
+		ids, err := e.proxyContainerIDs(ctx)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return fmt.Errorf("managed proxy not running on %s — run `yeet bootstrap` (first contact) or `yeet proxy apply`", e.T.Host())
+		}
+		if h, err := e.healthOf(ctx, ids[0]); err != nil {
+			return err
+		} else if h != "healthy" {
+			return fmt.Errorf("managed proxy is %s, refusing to deploy (yeet proxy apply to converge it)", h)
+		}
+	}
 	for _, acc := range e.Cfg.Accessories {
 		id, err := e.containerID(ctx, acc)
 		if err != nil {

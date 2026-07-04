@@ -67,3 +67,58 @@ func TestRenderTouchesOnlyRoleServices(t *testing.T) {
 		t.Fatalf("server missing yeet.release label: %s", s)
 	}
 }
+
+func TestInjectProxyNetwork(t *testing.T) {
+	p, err := Load(context.Background(), "testdata/simple/docker-compose.yaml", "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testCfg()
+	InjectProxyNetwork(p, cfg, "yeet-ingress")
+	out, err := Render(p, cfg, "20260702-120000-abc1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	svcs := doc["services"].(map[string]any)
+
+	// role services join the ingress network AND keep default connectivity
+	for _, name := range []string{"server", "worker"} {
+		svc := svcs[name].(map[string]any)
+		nets, ok := svc["networks"]
+		if !ok {
+			t.Fatalf("%s: no networks rendered", name)
+		}
+		s, _ := yaml.Marshal(nets)
+		if !strings.Contains(string(s), "yeet-ingress") || !strings.Contains(string(s), "default") {
+			t.Fatalf("%s must be on default + yeet-ingress: %s", name, s)
+		}
+	}
+	// accessories and jobs stay untouched
+	for _, name := range []string{"postgres", "migrate"} {
+		svc := svcs[name].(map[string]any)
+		if nets, ok := svc["networks"]; ok {
+			if s, _ := yaml.Marshal(nets); strings.Contains(string(s), "yeet-ingress") {
+				t.Fatalf("%s must not join the ingress network: %s", name, s)
+			}
+		}
+	}
+	// the project references the network as external (the proxy project owns it)
+	netsAny, ok := doc["networks"].(map[string]any)
+	if !ok {
+		t.Fatalf("no top-level networks: %v", doc["networks"])
+	}
+	ing, ok := netsAny["yeet-ingress"].(map[string]any)
+	if !ok {
+		t.Fatalf("yeet-ingress not declared: %v", netsAny)
+	}
+	if ext, _ := ing["external"].(bool); !ext {
+		t.Fatalf("yeet-ingress must be external: %v", ing)
+	}
+	if name, _ := ing["name"].(string); name != "yeet-ingress" {
+		t.Fatalf("yeet-ingress must pin its host name: %v", ing)
+	}
+}

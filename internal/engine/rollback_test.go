@@ -70,7 +70,7 @@ func TestRollbackFallsBackWithoutSnapshot(t *testing.T) {
 	if err := e.Rollback(context.Background()); err != nil {
 		t.Fatalf("rollback fallback: %v", err)
 	}
-	if !strings.Contains(out.String(), "warn") {
+	if !strings.Contains(out.String(), "⚠") {
 		t.Fatalf("fallback must warn loudly: %s", out.String())
 	}
 }

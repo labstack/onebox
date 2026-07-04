@@ -145,7 +145,7 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	}
 	drainBudget := 5 * pollEvery
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
-		e.logf("warn: container never reported unhealthy (%v); proceeding after buffer", err)
+		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
 	}
 	e.Opts.Sleep(e.Opts.ConvergeBuffer) // converged: proxy dropped it
 

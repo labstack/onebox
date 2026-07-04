@@ -200,14 +200,14 @@ func (e *Engine) Rollback(ctx context.Context) error {
 			serr = snapCfg.Validate()
 		}
 		if serr != nil {
-			e.logf("warn: snapshot unusable (%v) — replaying with CURRENT yeet.yml choreography", serr)
+			e.warnf("snapshot unusable (%v) — replaying with CURRENT yeet.yml choreography", serr)
 		} else {
 			cp := *e
 			cp.Cfg = snapCfg
 			replay = &cp
 		}
 	} else {
-		e.logf("warn: no yeet.snapshot.yml in %s (pre-M1 release?) — replaying with CURRENT yeet.yml choreography", prev)
+		e.warnf("no yeet.snapshot.yml in %s (pre-M1 release?) — replaying with CURRENT yeet.yml choreography", prev)
 	}
 
 	epoch, err := e.AcquireLock(ctx, prev, e.Opts.ForceLock)

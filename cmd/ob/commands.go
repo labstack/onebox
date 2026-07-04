@@ -14,16 +14,16 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/yeet/internal/compose"
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/engine"
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/notify"
-	"github.com/labstack/yeet/internal/proxy"
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/secrets"
-	"github.com/labstack/yeet/internal/transport"
-	"github.com/labstack/yeet/internal/ui"
+	"github.com/labstack/onebox/internal/compose"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/notify"
+	"github.com/labstack/onebox/internal/proxy"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/secrets"
+	"github.com/labstack/onebox/internal/transport"
+	"github.com/labstack/onebox/internal/ui"
 )
 
 func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
@@ -71,7 +71,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, load func(context.Context,
 		// release (StagePayload only stages sources inside it). One outside
 		// would leave a local-machine path in the compose shipped to the host —
 		// a silent runtime failure. Reject it here, mirroring PayloadRewrites'
-		// staging predicate, so `yeet validate` catches it.
+		// staging predicate, so `ob validate` catches it.
 		if rel, err := filepath.Rel(composeDir, abs); err != nil || strings.HasPrefix(rel, "..") {
 			return nil, nil, fmt.Errorf("env_files: %q resolves outside the project (%s) — it must live with the compose file so it ships with the release", ef, composeDir)
 		}
@@ -501,7 +501,7 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 	if err := pl.art.Save(outPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s — apply with: yeet deploy --plan %s\n", outPath, outPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s — apply with: ob deploy --plan %s\n", outPath, outPath)
 	return nil
 }
 

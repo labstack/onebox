@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // HostState is the drift set the plan binds to (design §02): live release id
@@ -263,7 +263,7 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	}
 
 	// Only the hooks a deploy actually runs belong in a deploy plan; bootstrap
-	// is a separate lifecycle (yeet bootstrap), so listing it here would claim a
+	// is a separate lifecycle (ob bootstrap), so listing it here would claim a
 	// step that never runs — a fidelity violation.
 	hooks := make([]string, 0, len(e.Cfg.Hooks))
 	for name := range e.Cfg.Hooks {

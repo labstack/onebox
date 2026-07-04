@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func TestNewID(t *testing.T) {

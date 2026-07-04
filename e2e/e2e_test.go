@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/yeet/internal/compose"
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/engine"
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/compose"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func TestZeroDowntimeDeploy(t *testing.T) {

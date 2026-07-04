@@ -13,13 +13,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 type Paths struct{ Base, Releases, Current string }
 
 func PathsFor(app string) Paths {
-	root := os.Getenv("YEET_BASE_DIR") // test hook (e2e on macOS); default is the real layout
+	root := os.Getenv("OB_BASE_DIR")
+	if root == "" {
+		root = os.Getenv("YEET_BASE_DIR") // codename-era hook, still honored
+	} // test hook (e2e on macOS); default is the real layout
 	if root == "" {
 		root = "/var/lib/yeet"
 	}

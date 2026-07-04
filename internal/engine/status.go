@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // Status prints recorded vs actual per role — divergence is the point
@@ -90,7 +90,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	if s, err := e.FindIncomplete(ctx); err == nil {
 		diverged = true
 		fmt.Fprintln(e.Opts.Out)
-		e.warnf("INCOMPLETE deploy %s (started %s by %s) — `yeet resume` or `yeet abort`",
+		e.warnf("INCOMPLETE deploy %s (started %s by %s) — `ob resume` or `ob abort`",
 			s.DeployID, s.StartedAt, s.Operator)
 	}
 	if diverged {

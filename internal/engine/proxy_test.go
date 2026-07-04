@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/proxy"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/proxy"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 // proxyFixture: a managed-proxy engine whose LocalDir holds traefik/{traefik.yml,.env},

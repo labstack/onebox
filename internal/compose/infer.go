@@ -5,7 +5,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/config"
 )
 
 // Infer fills config fields that can be DERIVED from the compose project, so

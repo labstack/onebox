@@ -9,9 +9,9 @@ import (
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/transport"
-	"github.com/labstack/yeet/internal/ui"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/transport"
+	"github.com/labstack/onebox/internal/ui"
 )
 
 type Options struct {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 // happyFake scripts an entire single-host deploy: rolling web, recreate
@@ -126,7 +126,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 	// every mutation is fence-guarded
 	for _, mut := range []string{"--scale server=2", "touch /tmp/yeet-drain", "docker stop -t 30 OLD1", "--force-recreate worker", "ln -sfn"} {
 		for _, c := range f.Commands {
-			if strings.Contains(c, mut) && !strings.Contains(c, "yeet-fenced") {
+			if strings.Contains(c, mut) && !strings.Contains(c, "ob-fenced") {
 				t.Fatalf("mutation not fence-guarded: %s", c)
 			}
 		}

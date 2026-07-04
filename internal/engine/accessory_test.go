@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func accessoryStaging(t *testing.T) string {
@@ -49,7 +49,7 @@ func TestAccessoryApplyConvergesUnderRegime(t *testing.T) {
 		t.Fatalf("converge missing:\n%s", seq)
 	}
 	for _, c := range f.Commands {
-		if strings.Contains(c, "up -d --no-deps postgres") && !strings.Contains(c, "yeet-fenced") {
+		if strings.Contains(c, "up -d --no-deps postgres") && !strings.Contains(c, "ob-fenced") {
 			t.Fatalf("converge not fenced: %s", c)
 		}
 	}

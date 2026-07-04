@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 // ErrFenced: a mutating command was refused host-side because a newer deploy
@@ -159,12 +159,12 @@ func (e *Engine) mutate(ctx context.Context, cmd string) (res transport.Result, 
 	if e.fenceVal == "" {
 		return e.T.Run(ctx, cmd)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo yeet-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
 	res, err = e.T.Run(ctx, guarded)
 	if err != nil {
 		return res, err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "yeet-fenced") {
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
 		return res, ErrFenced
 	}
 	return res, nil

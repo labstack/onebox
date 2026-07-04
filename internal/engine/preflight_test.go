@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func fakeEngine(t *testing.T, f *transport.Fake) *Engine {

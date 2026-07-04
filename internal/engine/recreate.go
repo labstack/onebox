@@ -111,12 +111,14 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir string) error {
 	c := exec.CommandContext(ctx, "sh", "-c", run) // verbatim by design
 	c.Dir = e.Opts.LocalDir
+	// OB_* is the vocabulary; YEET_* stays exported through the rename
+	// transition so existing hooks keep working
 	c.Env = append(os.Environ(),
-		"YEET_APP="+e.Cfg.App,
-		"YEET_HOST="+e.T.Host(),
-		"YEET_TARGET="+e.T.Target(), // user@host — for ssh/rsync in hooks
-		"YEET_RELEASE_DIR="+remoteReleaseDir,
-		"YEET_RELEASE_ID="+filepath.Base(remoteReleaseDir),
+		"OB_APP="+e.Cfg.App, "YEET_APP="+e.Cfg.App,
+		"OB_HOST="+e.T.Host(), "YEET_HOST="+e.T.Host(),
+		"OB_TARGET="+e.T.Target(), "YEET_TARGET="+e.T.Target(), // user@host — for ssh/rsync in hooks
+		"OB_RELEASE_DIR="+remoteReleaseDir, "YEET_RELEASE_DIR="+remoteReleaseDir,
+		"OB_RELEASE_ID="+filepath.Base(remoteReleaseDir), "YEET_RELEASE_ID="+filepath.Base(remoteReleaseDir),
 	)
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb

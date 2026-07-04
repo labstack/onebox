@@ -11,8 +11,8 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/proxy"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/proxy"
 )
 
 // appNameRe mirrors config's app-name rule: registry entries under

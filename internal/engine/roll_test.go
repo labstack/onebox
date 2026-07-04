@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 // replicaFake models a rolling deploy for tests: `desired` new replicas replace

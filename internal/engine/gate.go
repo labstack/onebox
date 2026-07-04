@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // gateSteps is the ordered set of jobs run at the pre-release gate: every
@@ -119,7 +119,7 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	case prev == "":
 		return fmt.Errorf("verify: %w — first deploy, nothing to roll back to; release NOT activated", verr)
 	case !e.gateOpen && !expandOnly:
-		return fmt.Errorf("verify: %w — HALT-AND-PAGE: the migrate step did not declare changed=false and migrations is not expand-only, so auto-rollback could put old code against a new schema. The release is NOT activated. Investigate, then fix-forward + `yeet resume`, or `yeet abort --force`", verr)
+		return fmt.Errorf("verify: %w — HALT-AND-PAGE: the migrate step did not declare changed=false and migrations is not expand-only, so auto-rollback could put old code against a new schema. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --force`", verr)
 	}
 	e.logf("verify failed — auto-rollback to %s (gate open: migrate no-op or expand-only asserted)", prev)
 	_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "intent", Detail: "to=" + prev})

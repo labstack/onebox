@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func TestAuditListsOutcomesNewestFirst(t *testing.T) {

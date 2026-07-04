@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func TestHostLockHappyPath(t *testing.T) {

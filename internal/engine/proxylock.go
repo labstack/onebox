@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/proxy"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/proxy"
 )
 
 // The HOST lock serializes mutations of host-shared state (the managed proxy)

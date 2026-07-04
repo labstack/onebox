@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/proxy"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/proxy"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func acmeFixture(t *testing.T, domain string, notAfter time.Time) string {

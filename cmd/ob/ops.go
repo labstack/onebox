@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/secrets"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/secrets"
 )
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {

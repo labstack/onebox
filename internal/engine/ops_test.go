@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/transport"
 )
 
@@ -70,7 +71,7 @@ func TestSecretsPushNoopOnMatch(t *testing.T) {
 func TestDestroySequence(t *testing.T) {
 	f := opsFake("x")
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Destroy(context.Background(), false); err != nil {
+	if err := e.Destroy(context.Background(), false, false); err != nil {
 		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -105,5 +106,79 @@ func TestLogsAndExecShapes(t *testing.T) {
 	}
 	if _, err := e.resolveService("nope"); err == nil {
 		t.Fatal("unknown name must error")
+	}
+}
+
+func proxyManagedCfg() *config.Config {
+	cfg := testConfig()
+	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	return cfg
+}
+
+func TestDestroyDeregistersFromProxy(t *testing.T) {
+	f := opsFake("x")
+	e := New(proxyManagedCfg(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, false); err != nil {
+		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "rm -f '/var/lib/yeet/_host/proxy/apps/monk'") {
+		t.Fatalf("destroy must deregister the app from the shared proxy:\n%s", seq)
+	}
+	if strings.Contains(seq, "docker compose -p yeet-proxy") && strings.Contains(seq, "down") && strings.Contains(seq, "yeet-proxy") == strings.Contains(seq, "-p yeet-proxy' down") {
+		// guard below asserts precisely
+	}
+	if strings.Contains(seq, "-p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' down") {
+		t.Fatalf("without --proxy the shared proxy must survive:\n%s", seq)
+	}
+}
+
+func TestDestroyProxyTeardownWhenLastApp(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+			return transport.Result{Stdout: "monk\n"}, true // we are the last app
+		}
+		return base(cmd)
+	}
+	e := New(proxyManagedCfg(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, true); err != nil {
+		t.Fatalf("destroy --proxy: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker compose -p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' down") {
+		t.Fatalf("last app with --proxy must tear the proxy down:\n%s", seq)
+	}
+	if !strings.Contains(seq, "rm -rf '/var/lib/yeet/_host/proxy'") {
+		t.Fatalf("proxy state dir must go with it:\n%s", seq)
+	}
+}
+
+func TestDestroyProxyRefusedWhenShared(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'") {
+			return transport.Result{Stdout: "monk\nunlock\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(proxyManagedCfg(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), false, true)
+	if err == nil || !strings.Contains(err.Error(), "unlock") {
+		t.Fatalf("--proxy with other registered apps must refuse naming them, got %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "down --remove-orphans") {
+		t.Fatalf("refusal must happen BEFORE any app teardown:\n%s", seq)
+	}
+}
+
+func TestDestroyProxyFlagRequiresManaged(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, true); err == nil {
+		t.Fatal("--proxy without proxy.managed must error")
 	}
 }

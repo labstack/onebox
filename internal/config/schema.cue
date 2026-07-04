@@ -75,6 +75,7 @@
 	notify?: {
 		webhook!: string & =~"^https?://"
 		on?: [...("failure" | "success")]
+		format?: "json" | "text"
 	}
 	proxy?: {
 		kind?:    "traefik-docker" | "none"

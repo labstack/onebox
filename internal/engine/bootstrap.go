@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // Bootstrap is first contact (design §03): base dirs → the user's bootstrap
@@ -102,6 +102,6 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 			return fmt.Errorf("accessories up: %s", res.Stderr)
 		}
 	}
-	e.logf("bootstrap complete — run `yeet deploy` for the first release")
+	e.logf("bootstrap complete — run `ob deploy` for the first release")
 	return nil
 }

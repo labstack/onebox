@@ -54,7 +54,7 @@ func TestCmdOnlyWhenVerbose(t *testing.T) {
 
 func TestFmtDur(t *testing.T) {
 	cases := map[time.Duration]string{
-		420 * time.Millisecond: "0.4s",
+		420 * time.Millisecond:  "0.4s",
 		2100 * time.Millisecond: "2.1s",
 		12 * time.Second:        "12s",
 		84 * time.Second:        "1m24s",

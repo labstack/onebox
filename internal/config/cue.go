@@ -14,7 +14,7 @@ import (
 //go:embed schema.cue
 var schemaSrc string
 
-// ValidateCUE checks the raw yeet.yml against the embedded CUE schema and
+// ValidateCUE checks the raw ob.yml against the embedded CUE schema and
 // rewords CUE errors into plain, located messages — CUE never reaches the
 // user (design §02).
 func ValidateCUE(yamlBytes []byte, filename string) error {

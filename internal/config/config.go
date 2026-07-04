@@ -1,4 +1,4 @@
-// Package config models yeet.yml (M0 subset — plain YAML; CUE validation is M1).
+// Package config models ob.yml (M0 subset — plain YAML; CUE validation is M1).
 package config
 
 import (
@@ -121,7 +121,7 @@ type PreflightCheck struct {
 }
 
 // RunPreflight verifies every declared check against files under dir (paths in
-// the config are relative to yeet.yml). It fails on the first missing file or
+// the config are relative to ob.yml). It fails on the first missing file or
 // key so the operator learns exactly what's unset before anything ships.
 func (c *Config) RunPreflight(dir string) error {
 	for _, pc := range c.Preflight {
@@ -279,7 +279,7 @@ func LoadBytes(b []byte, filename string) (*Config, error) {
 	return cfg, nil
 }
 
-// DefaultApp derives an app name from the project directory when yeet.yml omits
+// DefaultApp derives an app name from the project directory when ob.yml omits
 // `app`. Non-conforming characters are folded so the result usually matches the
 // app-name rule; if it can't, Validate surfaces a clear error and the operator
 // sets `app` explicitly.
@@ -304,7 +304,7 @@ func DefaultApp(configPath string) string {
 // composeNames is compose's own precedence order for the default project file.
 var composeNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
-// FindCompose returns the conventional compose file in dir when yeet.yml omits
+// FindCompose returns the conventional compose file in dir when ob.yml omits
 // `compose`. It falls back to the canonical name so the resulting error names a
 // real path if nothing exists.
 func FindCompose(dir string) string {

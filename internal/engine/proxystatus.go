@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/labstack/yeet/internal/proxy"
+	"github.com/labstack/onebox/internal/proxy"
 )
 
 // renewalFloor: lego renews 30 days before expiry; a cert inside 21 days
@@ -29,7 +29,7 @@ func (e *Engine) proxyStatus(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if len(ids) == 0 {
-		e.ui.Println(fmt.Sprintf("proxy %-12s %s", proxy.ContainerName, e.ui.Warn("NOT RUNNING ⚠ — `yeet proxy apply`")))
+		e.ui.Println(fmt.Sprintf("proxy %-12s %s", proxy.ContainerName, e.ui.Warn("NOT RUNNING ⚠ — `ob proxy apply`")))
 		return true, nil
 	}
 	health, err := e.healthOf(ctx, ids[0])
@@ -61,7 +61,7 @@ func (e *Engine) proxyStatus(ctx context.Context) (bool, error) {
 	applied := strings.TrimSpace(res.Stdout)
 	state := fmt.Sprintf("config %.8s %s", applied, e.ui.OK("(in sync)"))
 	if applied != localHash {
-		state = e.ui.Warn(fmt.Sprintf("config DRIFTED ⚠ (local %.8s ≠ applied %.8s) — `yeet proxy apply`", localHash, applied))
+		state = e.ui.Warn(fmt.Sprintf("config DRIFTED ⚠ (local %.8s ≠ applied %.8s) — `ob proxy apply`", localHash, applied))
 		diverged = true
 	}
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // FindIncomplete returns the newest journal that started but never finished
@@ -51,7 +51,7 @@ func (e *Engine) Abort(ctx context.Context, force bool) error {
 		return err
 	}
 	if !s.GateOpen && e.Cfg.Migrations != "expand-only" && !force {
-		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a migrate step that did not declare changed=false, so reverting could put old code against a new schema. Fix-forward + `yeet resume`, or `yeet abort --force` if you know the schema is compatible", s.DeployID)
+		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a migrate step that did not declare changed=false, so reverting could put old code against a new schema. Fix-forward + `ob resume`, or `ob abort --force` if you know the schema is compatible", s.DeployID)
 	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
 	if err != nil {

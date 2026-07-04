@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/config"
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/ui"
+	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/ui"
 )
 
 // Deploy runs the lifecycle under the full trust regime (design §05):
@@ -56,7 +56,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err == nil {
 		hint := ""
 		if prev != "" {
-			hint = " (prev " + prev + " — `yeet rollback`)"
+			hint = " (prev " + prev + " — `ob rollback`)"
 		}
 		e.ui.Successf("deployed %s in %s%s", releaseID, ui.FmtDur(time.Since(t0)), hint)
 	}
@@ -129,7 +129,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		st(err)
 		if err != nil {
 			_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "fail", Detail: err.Error()})
-			return fmt.Errorf("release %s: %w (deploy halted — `yeet resume` after fixing, or `yeet abort`)", roleName, err)
+			return fmt.Errorf("release %s: %w (deploy halted — `ob resume` after fixing, or `ob abort`)", roleName, err)
 		}
 		_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "ok"})
 	}

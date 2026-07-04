@@ -1,4 +1,4 @@
-module github.com/labstack/yeet
+module github.com/labstack/onebox
 
 go 1.26.4
 

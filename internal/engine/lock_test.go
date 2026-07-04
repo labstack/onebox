@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 func lockEngine(t *testing.T, f *transport.Fake) *Engine {
@@ -164,7 +164,7 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 	}
 
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		return transport.Result{ExitCode: 97, Stderr: "yeet-fenced"}, true
+		return transport.Result{ExitCode: 97, Stderr: "ob-fenced"}, true
 	}
 	_, err = e.mutate(context.Background(), "docker stop OLD1")
 	if !errors.Is(err, ErrFenced) {

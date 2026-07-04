@@ -72,6 +72,10 @@
 	preflight?: [...#Preflight]
 	hooks?: {[#Ident]: #Hook}
 	verify?: [...#Verify]
+	notify?: {
+		webhook!: string & =~"^https?://"
+		on?: [...("failure" | "success")]
+	}
 	proxy?: {
 		kind?:    "traefik-docker" | "none"
 		managed?: bool

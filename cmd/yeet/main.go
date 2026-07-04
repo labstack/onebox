@@ -1,10 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/labstack/yeet/internal/ui"
 )
 
 var version = "0.0.1-m0"
@@ -38,7 +39,8 @@ func newRootCmd() *cobra.Command {
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "yeet:", err)
+		// the one line every failure ends on — red where the terminal allows
+		ui.New(os.Stderr, false).Failf("yeet: %v", err)
 		os.Exit(1)
 	}
 }

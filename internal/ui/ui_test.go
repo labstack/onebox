@@ -112,3 +112,19 @@ func TestStyleAccessorsPlainOnBuffer(t *testing.T) {
 		t.Fatalf("content lost:\n%s", s)
 	}
 }
+
+func TestBusyNonTTY(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	update, stop := u.Busy("pinning images")
+	update("staging release")
+	update("staging release") // same label: no repeat
+	stop()
+	s := out.String()
+	if strings.Contains(s, "\x1b[") || strings.Contains(s, "\r") {
+		t.Fatalf("non-TTY busy must not emit control sequences: %q", s)
+	}
+	if strings.Count(s, "⟳ pinning images") != 1 || strings.Count(s, "⟳ staging release") != 1 {
+		t.Fatalf("busy labels must print once each:\n%s", s)
+	}
+}

@@ -86,3 +86,14 @@ func (e *Engine) logf(format string, a ...any) {
 func (e *Engine) warnf(format string, a ...any) {
 	e.ui.Warnf(format, a...)
 }
+
+// sleepBusy is a labeled Sleep — the deliberate protocol waits (converge
+// windows, drain bleeds) show as a spinner instead of dead air.
+func (e *Engine) sleepBusy(label string, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	_, stop := e.ui.Busy(label)
+	e.Opts.Sleep(d)
+	stop()
+}

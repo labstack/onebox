@@ -137,7 +137,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 // proxy drops it BEFORE any signal), waits the drain, optionally bleeds long
 // connections, then stops and removes it.
 func (e *Engine) retireContainer(ctx context.Context, role config.Role, id string, pollEvery time.Duration) error {
-	e.Opts.Sleep(e.Opts.ConvergeBuffer) // converged: proxy has observed the newcomer
+	e.sleepBusy("converge (proxy observes the newcomer)", e.Opts.ConvergeBuffer)
 
 	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
 		return err
@@ -146,13 +146,13 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
 	}
-	e.Opts.Sleep(e.Opts.ConvergeBuffer) // converged: proxy dropped it
+	e.sleepBusy("converge (proxy drops the drained container)", e.Opts.ConvergeBuffer)
 
 	if role.Drain != nil && role.Drain.Wait > 0 {
 		if role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
 			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
 		}
-		e.Opts.Sleep(time.Duration(role.Drain.Wait))
+		e.sleepBusy("drain wait ("+time.Duration(role.Drain.Wait).String()+")", time.Duration(role.Drain.Wait))
 	}
 
 	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", stopGraceSeconds, id)); err != nil {
@@ -286,6 +286,8 @@ func subtract(all, remove []string) []string {
 
 func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interval time.Duration) error {
 	deadline := e.Opts.Now().Add(budget)
+	_, stop := e.ui.Busy(fmt.Sprintf("waiting %.12s → %s", id, want))
+	defer stop()
 	for {
 		h, err := e.healthOf(ctx, id)
 		if err != nil {

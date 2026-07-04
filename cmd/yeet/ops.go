@@ -29,7 +29,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -59,7 +59,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -106,7 +106,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -135,7 +135,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if strings.TrimSpace(line) != cfg.App {
 				return fmt.Errorf("confirmation mismatch — aborted, nothing touched")
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -161,7 +161,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}
@@ -187,7 +187,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p)
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
 				return err
 			}

@@ -56,6 +56,32 @@ func InjectEnvFiles(p *types.Project, cfg *config.Config) {
 	}
 }
 
+// InjectProxyNetwork attaches every ROLE service to the host-scoped ingress
+// network (a managed proxy lives in its own compose project, so it can only
+// reach containers via a shared network). Roles keep their default network —
+// accessories (db, cache) stay reachable. The network is declared external:
+// the proxy project owns and creates it; preflight asserts it exists.
+// Call before Render.
+func InjectProxyNetwork(p *types.Project, cfg *config.Config, network string) {
+	if p.Networks == nil {
+		p.Networks = types.Networks{}
+	}
+	p.Networks[network] = types.NetworkConfig{Name: network, External: true}
+	for _, r := range cfg.Roles {
+		svc, ok := p.Services[r.Service]
+		if !ok {
+			continue
+		}
+		if svc.Networks == nil {
+			// no explicit networks = compose's implicit default; adding an
+			// explicit list would DROP it, so state it
+			svc.Networks = map[string]*types.ServiceNetworkConfig{"default": nil}
+		}
+		svc.Networks[network] = nil
+		p.Services[r.Service] = svc
+	}
+}
+
 // Render produces the per-release deployable (design §02): the user's compose
 // project plus a CLOSED injection set — yeet.* labels, a drain-guarded
 // healthcheck, and (when declared) the secrets env file — applied to ROLE

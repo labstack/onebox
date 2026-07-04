@@ -3,6 +3,8 @@ package engine
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,5 +108,49 @@ func TestBootstrapFailsEarlyWithoutPassword(t *testing.T) {
 	}
 	if len(f.Commands) != 0 {
 		t.Fatalf("must fail before touching host: %v", f.Commands)
+	}
+}
+
+func TestBootstrapEnsuresManagedProxyBeforeAccessories(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	ps := proxyPS(f, false)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if res, ok := ps(cmd); ok {
+			return res, ok
+		}
+		return base(cmd)
+	}
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "traefik"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte("ping: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	cfg.Registry = &config.Registry{Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}
+	t.Setenv("TEST_GHCR_TOKEN", "s3cret")
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
+	if err := e.Bootstrap(context.Background(), "R1-bootstrap", t.TempDir()); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	ordered := []string{
+		"docker login ghcr.io",
+		"docker compose -p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' up -d",
+		"up -d --no-deps --no-recreate postgres",
+	}
+	last := -1
+	for _, want := range ordered {
+		i := strings.Index(seq, want)
+		if i < 0 {
+			t.Fatalf("missing %q in:\n%s", want, seq)
+		}
+		if i < last {
+			t.Fatalf("%q out of order (proxy must precede accessories):\n%s", want, seq)
+		}
+		last = i
 	}
 }

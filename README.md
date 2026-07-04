@@ -10,6 +10,28 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
+**M4 — managed proxy (host-scoped).** `proxy: { managed: true, config: <dir> }` closes the rev 4/5
+design seam: yeet owns one Traefik **per host**, shared by every yeet app on the box.
+
+- **Host scope**: `/var/lib/yeet/_host/` — its own noclobber lock (TTL, `--force`), its own
+  journal, and `proxy/apps/<app>` as the registration refcount. No app can claim the name.
+- **Contract**: `proxy.config` is a flat dir — `traefik.yml` required (must enable `ping: {}`,
+  the healthcheck gates on it, and store ACME at `/letsencrypt/acme.json`); `dynamic.yml` and
+  `.env` optional. yeet renders the compose around it (docker provider, `80/443`, socket ro,
+  ACME bind at `_host/proxy/acme/`).
+- **ACME-safe converge** (`yeet proxy apply`, and `bootstrap` on first contact): unchanged
+  config never touches the container; compose change → `up -d`; config-only change → upload +
+  restart. Config content is never diffed or printed — `.env` may hold secrets; only hashes travel.
+- **Conflict, not last-writer-wins**: every registered app must declare the same proxy config;
+  a divergent hash names both apps and refuses (`--force` makes the divergence explicit).
+- **Refcounted teardown**: `yeet destroy` deregisters; `--proxy` removes the proxy only when no
+  other app is registered — refusing (named) before any teardown otherwise.
+- **Network**: role services join the external `yeet-ingress` network at render time (the proxy
+  project owns it); accessories and jobs stay app-private. Preflight asserts the proxy healthy
+  before any deploy.
+- The proxy-inside-compose shape (traefik as an accessory — monk today) remains fully supported;
+  `managed: true` earns its keep only when several apps share one host and `:443`.
+
 **CLI surface complete (design §08), single-host by design.** The gap-closure pass added the
 last canonical-shape verbs:
 

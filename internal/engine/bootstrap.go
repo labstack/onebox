@@ -77,6 +77,15 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 	}
 
+	// managed proxy before accessories: role containers join its network, and
+	// preflight asserts it healthy from the first deploy on. EnsureProxy takes
+	// the HOST lock internally (own-app lock is already held — safe order).
+	if e.Cfg.Proxy.Managed {
+		if err := e.EnsureProxy(ctx, releaseID, e.Opts.ForceLock); err != nil {
+			return fmt.Errorf("managed proxy: %w", err)
+		}
+	}
+
 	e.logf("bootstrap: pushing release payload %s", releaseID)
 	pushed, err := release.Push(ctx, e.T, localStagingDir, e.Cfg.App, releaseID)
 	if err != nil {

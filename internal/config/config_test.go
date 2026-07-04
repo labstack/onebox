@@ -195,3 +195,85 @@ func TestReplicasParseAndCount(t *testing.T) {
 		t.Fatalf("default Count() = %d, want 1", got)
 	}
 }
+
+func TestProxyManaged(t *testing.T) {
+	managed := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+proxy: { managed: true, config: traefik }
+`
+	cfg, err := Load(write(t, managed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("managed proxy with config dir must validate: %v", err)
+	}
+	if cfg.Proxy.Kind != "traefik-docker" {
+		t.Fatalf("kind must default to traefik-docker when managed, got %q", cfg.Proxy.Kind)
+	}
+
+	noConfig := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+proxy: { managed: true }
+`
+	cfg, err = Load(write(t, noConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "proxy.config") {
+		t.Fatalf("managed without config must fail naming proxy.config, got %v", err)
+	}
+
+	kindNone := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+proxy: { kind: none, managed: true, config: traefik }
+`
+	cfg, err = Load(write(t, kindNone))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("managed with kind none must fail")
+	}
+
+	// external stays legal and unconstrained
+	external := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+proxy: { kind: traefik-docker, managed: false }
+`
+	cfg, err = Load(write(t, external))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("external proxy must validate: %v", err)
+	}
+
+	badKind := `
+app: monk
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+proxy: { kind: nginx, managed: true, config: traefik }
+`
+	if _, err := Load(write(t, badKind)); err == nil {
+		t.Fatal("expected CUE error: kind must be traefik-docker|none")
+	}
+}

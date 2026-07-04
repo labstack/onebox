@@ -10,6 +10,14 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
+**Notifications.** `notify: { webhook: <url>, on: [failure] }` — one generic JSON POST when a
+mutating verb finishes (deploy, rollback, resume, abort, accessory/proxy apply, destroy). The
+journals are write-only forensics; this is the page. Payload carries app/env/host/verb/deploy
+id/status/error plus a human `text` line (Slack-compatible; ntfy/Discord/generic consumers read
+the fields). `on:` defaults to `[failure]` — success pings are opt-in. Fail-open: a dead
+webhook is a stderr warning, never the verb's result. Error strings are the same
+redaction-safe strings the terminal gets — secrets never travel, only hashes.
+
 **M4 — managed proxy (host-scoped).** `proxy: { managed: true, config: <dir> }` closes the rev 4/5
 design seam: yeet owns one Traefik **per host**, shared by every yeet app on the box.
 

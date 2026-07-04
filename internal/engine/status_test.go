@@ -21,9 +21,9 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 			return transport.Result{Stdout: "W1\n"}, true
 		case strings.Contains(cmd, "service=postgres"):
 			return transport.Result{Stdout: "PG1\n"}, true
-		case strings.Contains(cmd, "yeet.release") && strings.Contains(cmd, "S1"):
+		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "S1"):
 			return transport.Result{Stdout: webRelease + "\n"}, true
-		case strings.Contains(cmd, "yeet.release") && strings.Contains(cmd, "W1"):
+		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "W1"):
 			return transport.Result{Stdout: recorded + "\n"}, true
 		case strings.Contains(cmd, "Health"):
 			return transport.Result{Stdout: "healthy\n"}, true

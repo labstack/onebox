@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/onebox/internal/release"
 )
 
-// Destroy tears the app down: containers via compose, then yeet's own state
+// Destroy tears the app down: containers via compose, then ob's own state
 // dir. Volumes survive unless removeVolumes — data loss is opt-in. The shared
 // managed proxy is refcounted: destroy deregisters this app; the proxy itself
 // goes only with removeProxy AND an empty registry (it may serve other apps).

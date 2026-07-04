@@ -49,7 +49,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(accessory)
 
 	// proxy apply — converge the HOST-scoped managed proxy (shared by every
-	// yeet app on the box; see proxy.managed)
+	// ob app on the box; see proxy.managed)
 	proxyCmd := &cobra.Command{Use: "proxy", Short: "manage the host-scoped proxy (proxy.managed: true)"}
 	proxyCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
@@ -129,7 +129,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "This tears down every %s container and yeet's state dir on %s.\nVolumes are %s.\nType the app name (%s) to confirm: ",
+			fmt.Fprintf(cmd.OutOrStdout(), "This tears down every %s container and ob's state dir on %s.\nVolumes are %s.\nType the app name (%s) to confirm: ",
 				cfg.App, g.Env, map[bool]string{true: "REMOVED — data loss", false: "kept"}[destroyVolumes], cfg.App)
 			line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 			if strings.TrimSpace(line) != cfg.App {

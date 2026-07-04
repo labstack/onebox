@@ -9,8 +9,8 @@ import (
 )
 
 // Infer fills config fields that can be DERIVED from the compose project, so
-// yeet.yml states only what the spec cannot express. Every inferred value is a
-// default: an explicit setting in yeet.yml always wins. Every source is a
+// ob.yml states only what the spec cannot express. Every inferred value is a
+// default: an explicit setting in ob.yml always wins. Every source is a
 // compose-spec property (universal to any compose app) — nothing here is
 // app-specific.
 //

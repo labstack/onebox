@@ -76,7 +76,7 @@ func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState
 		return fmt.Errorf("plan was computed for env %q, deploying %q — re-plan", a.Env, env)
 	}
 	if h := HashBytes(configBytes); h != a.ConfigHash {
-		return fmt.Errorf("yeet.yml changed since plan (config hash mismatch) — re-plan")
+		return fmt.Errorf("ob.yml changed since plan (config hash mismatch) — re-plan")
 	}
 	if fresh.CurrentRelease != a.HostState.CurrentRelease {
 		return fmt.Errorf("host drift: current release is %q, plan saw %q — re-plan",
@@ -180,11 +180,11 @@ const FidelityContract = `Plan fidelity (highest to lowest):
   hooks        verbatim commands — their effects are unplannable`
 
 // releaseLabelLine matches the one rendered line that changes on EVERY
-// deploy by construction: the yeet.release stamp.
-var releaseLabelLine = regexp.MustCompile(`(?m)^\s*yeet\.release: \S+\n?`)
+// deploy by construction: the ob.release stamp.
+var releaseLabelLine = regexp.MustCompile(`(?m)^\s*ob\.release: \S+\n?`)
 
 // OnlyReleaseLabelsChanged reports whether two rendered composes are
-// byte-identical once the yeet.release label lines are removed — i.e. the
+// byte-identical once the ob.release label lines are removed — i.e. the
 // planned deploy has no material change, only a new release identity. Used
 // by the plan to say "nothing changed" plainly instead of encoding it as
 // label-noise hunks. Empty inputs (first deploy) compare honestly: an empty
@@ -295,7 +295,7 @@ func (e *Engine) Describe(remoteCompose string) []string {
 			out = append(out,
 				step+fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=<+1> %s", cc, svc, svc),
 				"  wait <new> healthy (ready gate)",
-				"    ├─ healthy → converge → docker exec <old> touch /tmp/yeet-drain → wait unhealthy → converge",
+				"    ├─ healthy → converge → docker exec <old> touch /tmp/ob-drain → wait unhealthy → converge",
 				fmt.Sprintf("    │    └─ docker stop -t %d <old> && docker rm <old> && rename <new> into the freed slot", stopGraceSeconds),
 				"    └─ unhealthy/timeout → docker rm -f <new>; existing keep serving; deploy halts",
 			)

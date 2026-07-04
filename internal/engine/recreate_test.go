@@ -34,18 +34,18 @@ func TestRecreateRoleSequence(t *testing.T) {
 	}
 }
 
-// A local hook must see the FULL user@host in $YEET_TARGET (not the bare
+// A local hook must see the FULL user@host in $OB_TARGET (not the bare
 // hostname), so hooks can ssh/rsync the deploy host without hardcoding it.
 func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
 	f := &transport.Fake{HostName: "myhost", TargetName: "root@myhost"}
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = config.Hook{
-		Run:   `test "$YEET_TARGET" = "root@myhost" || { echo "got [$YEET_TARGET] want [root@myhost]" >&2; exit 1; }`,
+		Run:   `test "$OB_TARGET" = "root@myhost" || { echo "got [$OB_TARGET] want [root@myhost]" >&2; exit 1; }`,
 		Local: true,
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
 	if err := e.RunHook(context.Background(), "pre_release", "/r", "/r/compose.yaml"); err != nil {
-		t.Fatalf("YEET_TARGET must be the full user@host: %v", err)
+		t.Fatalf("OB_TARGET must be the full user@host: %v", err)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestRunHookSetsComposeEnvAndFailsHard(t *testing.T) {
 		return transport.Result{}, false
 	}}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.RunHook(context.Background(), "migrate", "/var/lib/yeet/monk/releases/R1", "/var/lib/yeet/monk/releases/R1/compose.yaml")
+	err := e.RunHook(context.Background(), "migrate", "/var/lib/ob/monk/releases/R1", "/var/lib/ob/monk/releases/R1/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "alembic exploded") {
 		t.Fatalf("hook failure must halt deploy with stderr, got %v", err)
 	}

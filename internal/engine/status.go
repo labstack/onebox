@@ -10,7 +10,7 @@ import (
 
 // Status prints recorded vs actual per role — divergence is the point
 // (design §05). Recorded = the current symlink; actual = what each role's
-// container says via its yeet.release label and health.
+// container says via its ob.release label and health.
 func (e *Engine) Status(ctx context.Context) error {
 	recorded, err := release.Current(ctx, e.T, e.Cfg.App)
 	if err != nil {
@@ -36,13 +36,13 @@ func (e *Engine) Status(ctx context.Context) error {
 			continue
 		}
 		for _, id := range ids {
-			res, err := e.T.Run(ctx, "docker inspect -f '{{index .Config.Labels \"yeet.release\"}}' "+id)
+			res, err := e.T.Run(ctx, "docker inspect -f '{{index .Config.Labels \"ob.release\"}}' "+id)
 			if err != nil {
 				return err
 			}
 			actual := strings.TrimSpace(res.Stdout)
 			if actual == "" || actual == "<no value>" {
-				actual = "(not yeet-deployed)"
+				actual = "(not ob-deployed)"
 			}
 			health, err := e.healthOf(ctx, id)
 			if err != nil {

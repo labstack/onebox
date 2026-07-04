@@ -139,7 +139,7 @@ func TestBootstrapEnsuresManagedProxyBeforeAccessories(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
 		"docker login ghcr.io",
-		"docker compose -p yeet-proxy -f '/var/lib/yeet/_host/proxy/compose.yaml' up -d",
+		"docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d",
 		"up -d --no-deps --no-recreate postgres",
 	}
 	last := -1

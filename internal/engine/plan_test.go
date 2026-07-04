@@ -136,7 +136,7 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = config.Hook{Run: "bun run build", Local: true}
-	// A bootstrap hook belongs to `yeet bootstrap`, not deploy — it must NOT
+	// A bootstrap hook belongs to `ob bootstrap`, not deploy — it must NOT
 	// appear in the deploy plan (that would claim a step that never runs).
 	cfg.Hooks["bootstrap"] = config.Hook{Run: "scripts/bootstrap.sh", Local: true}
 	e := New(cfg, testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
@@ -158,9 +158,9 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 }
 
 func TestOnlyReleaseLabelsChanged(t *testing.T) {
-	live := "services:\n  server:\n    labels:\n      yeet.app: monk\n      yeet.release: 20260704-203351-f65179e\n    image: x:1\n"
-	relabel := "services:\n  server:\n    labels:\n      yeet.app: monk\n      yeet.release: 20260704-214927-f65179e\n    image: x:1\n"
-	changed := "services:\n  server:\n    labels:\n      yeet.app: monk\n      yeet.release: 20260704-214927-f65179e\n    image: x:2\n"
+	live := "services:\n  server:\n    labels:\n      ob.app: monk\n      ob.release: 20260704-203351-f65179e\n    image: x:1\n"
+	relabel := "services:\n  server:\n    labels:\n      ob.app: monk\n      ob.release: 20260704-214927-f65179e\n    image: x:1\n"
+	changed := "services:\n  server:\n    labels:\n      ob.app: monk\n      ob.release: 20260704-214927-f65179e\n    image: x:2\n"
 
 	if !OnlyReleaseLabelsChanged(live, relabel) {
 		t.Fatal("label-only change must be detected as content-identical")
@@ -191,7 +191,7 @@ func TestPayloadDigests(t *testing.T) {
 		}
 	}
 	write("compose.yaml", "services: {}\n") // excluded: compared label-invariantly
-	write("yeet.snapshot.yml", "app: monk\n")
+	write("ob.snapshot.yml", "app: monk\n")
 	write("server/.env", "KEY=one\n")
 
 	d1, err := LocalPayloadDigest(dir)

@@ -41,7 +41,7 @@ func TestPreviousAndPrune(t *testing.T) {
 		t.Fatalf("removed=%v", removed)
 	}
 	joined := strings.Join(f.Commands, "\n")
-	if !strings.Contains(joined, "rm -rf '/var/lib/yeet/monk/releases/20260701-010000-aaa'") {
+	if !strings.Contains(joined, "rm -rf '/var/lib/ob/monk/releases/20260701-010000-aaa'") {
 		t.Fatalf("prune command missing:\n%s", joined)
 	}
 }

@@ -83,7 +83,7 @@ func InjectProxyNetwork(p *types.Project, cfg *config.Config, network string) {
 }
 
 // Render produces the per-release deployable (design §02): the user's compose
-// project plus a CLOSED injection set — yeet.* labels, a drain-guarded
+// project plus a CLOSED injection set — ob.* labels, a drain-guarded
 // healthcheck, and (when declared) the secrets env file — applied to ROLE
 // services only.
 func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, error) {
@@ -95,8 +95,8 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 		if svc.Labels == nil {
 			svc.Labels = types.Labels{}
 		}
-		svc.Labels["yeet.app"] = cfg.App
-		svc.Labels["yeet.release"] = releaseID
+		svc.Labels["ob.app"] = cfg.App
+		svc.Labels["ob.release"] = releaseID
 
 		orig := svc.HealthCheck
 		adopted := adoptedProbe(svc)
@@ -130,7 +130,7 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 			iv, sp := types.Duration(interval), types.Duration(start)
 			svc.HealthCheck = &types.HealthCheckConfig{
 				// The drain guard: while DrainFile exists the check fails, the
-				// proxy drops the container, and only THEN does yeet signal it.
+				// proxy drops the container, and only THEN does ob signal it.
 				Test:        types.HealthCheckTest{"CMD-SHELL", fmt.Sprintf("test ! -f %s && ( %s )", DrainFile, probe)},
 				Interval:    &iv,
 				StartPeriod: &sp,

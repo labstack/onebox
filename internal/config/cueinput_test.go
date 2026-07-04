@@ -8,7 +8,7 @@ import (
 )
 
 const cueConfig = `
-package yeet
+package ob
 
 let HOST = "root@monk.labstack.net"
 
@@ -31,7 +31,7 @@ hooks: publish: {run: "rsync dist/ \(HOST):/data/web/", local: true}
 `
 
 func TestLoadCUEConfig(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "yeet.cue")
+	p := filepath.Join(t.TempDir(), "ob.cue")
 	if err := os.WriteFile(p, []byte(cueConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestLoadCUEConfig(t *testing.T) {
 
 func TestLoadCUERejectsSchemaViolation(t *testing.T) {
 	bad := strings.Replace(cueConfig, `mode:    "rolling"`, `mode:    "sideways"`, 1)
-	p := filepath.Join(t.TempDir(), "yeet.cue")
+	p := filepath.Join(t.TempDir(), "ob.cue")
 	if err := os.WriteFile(p, []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}

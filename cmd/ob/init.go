@@ -113,7 +113,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 		}
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
 			clean = false
-			fmt.Fprintf(out, "  %s: remove `deploy.replicas` — yeet manages scale during rolls\n", r)
+			fmt.Fprintf(out, "  %s: remove `deploy.replicas` — ob manages scale during rolls\n", r)
 		}
 	}
 	if clean {

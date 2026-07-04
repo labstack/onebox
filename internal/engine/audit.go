@@ -15,7 +15,7 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 		return err
 	}
 	if len(ids) == 0 {
-		fmt.Fprintln(e.Opts.Out, "no journals — nothing deployed through yeet yet")
+		fmt.Fprintln(e.Opts.Out, "no journals — nothing deployed through ob yet")
 		return nil
 	}
 	if n > 0 && len(ids) > n {

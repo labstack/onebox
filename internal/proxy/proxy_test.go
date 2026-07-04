@@ -29,23 +29,23 @@ func writeCfg(t *testing.T, files map[string]string) string {
 }
 
 func TestPathsHostScoped(t *testing.T) {
-	t.Setenv("YEET_BASE_DIR", "/tmp/yeetbase")
+	t.Setenv("OB_BASE_DIR", "/tmp/obbase")
 	p := HostPaths()
-	if p.Base != "/tmp/yeetbase/_host" {
+	if p.Base != "/tmp/obbase/_host" {
 		t.Fatalf("base: %s", p.Base)
 	}
-	if p.Compose != "/tmp/yeetbase/_host/proxy/compose.yaml" || p.Apps != "/tmp/yeetbase/_host/proxy/apps" {
+	if p.Compose != "/tmp/obbase/_host/proxy/compose.yaml" || p.Apps != "/tmp/obbase/_host/proxy/apps" {
 		t.Fatalf("paths: %+v", p)
 	}
-	if p.Lock != "/tmp/yeetbase/_host/lock" || p.Acme != "/tmp/yeetbase/_host/proxy/acme" {
+	if p.Lock != "/tmp/obbase/_host/lock" || p.Acme != "/tmp/obbase/_host/proxy/acme" {
 		t.Fatalf("paths: %+v", p)
 	}
 }
 
 func TestRenderCompose(t *testing.T) {
-	b := string(RenderCompose("traefik:v3.7", "yeet-ingress", true))
+	b := string(RenderCompose("traefik:v3.7", "ob-ingress", true))
 	for _, want := range []string{
-		"container_name: yeet-proxy",
+		"container_name: ob-proxy",
 		"image: traefik:v3.7",
 		`"80:80"`, `"443:443"`,
 		"/var/run/docker.sock:/var/run/docker.sock:ro",
@@ -53,13 +53,13 @@ func TestRenderCompose(t *testing.T) {
 		"./acme:/letsencrypt",
 		"config/.env",
 		`["CMD", "traefik", "healthcheck"]`,
-		"name: yeet-ingress",
+		"name: ob-ingress",
 	} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("rendered compose missing %q:\n%s", want, b)
 		}
 	}
-	noEnv := string(RenderCompose("traefik:v3.7", "yeet-ingress", false))
+	noEnv := string(RenderCompose("traefik:v3.7", "ob-ingress", false))
 	if strings.Contains(noEnv, ".env") {
 		t.Fatalf("env_file must be omitted without .env:\n%s", noEnv)
 	}

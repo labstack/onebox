@@ -53,6 +53,7 @@ type Config struct {
 	Hooks     map[string]Hook  `yaml:"hooks,omitempty"`
 	Verify    []VerifyCheck    `yaml:"verify,omitempty"`
 	Proxy     Proxy            `yaml:"proxy,omitempty"`
+	Notify    *Notify          `yaml:"notify,omitempty"`
 	Registry  *Registry        `yaml:"registry,omitempty"`
 	Secrets   *Secrets         `yaml:"secrets,omitempty"`
 	Retain    int              `yaml:"retain,omitempty"`
@@ -213,6 +214,15 @@ type Registry struct {
 	PasswordEnv string `yaml:"password_env"`
 }
 
+// Notify: outcome webhooks — a generic JSON POST fired when a mutating verb
+// finishes. `on` picks which outcomes ("failure" is the default and the
+// point: the journals are write-only; this is the push). Fail-open by
+// design: a dead webhook warns, never blocks or fails the operation.
+type Notify struct {
+	Webhook string   `yaml:"webhook"`
+	On      []string `yaml:"on,omitempty"` // failure | success; default [failure]
+}
+
 // Secrets: a SOPS-encrypted flat YAML map, decrypted runner-side and shipped
 // as a mode-600 env file inside each release dir (design §07).
 type Secrets struct {
@@ -261,6 +271,9 @@ func LoadBytes(b []byte, filename string) (*Config, error) {
 	}
 	if cfg.Proxy.Managed && cfg.Proxy.Kind == "" {
 		cfg.Proxy.Kind = "traefik-docker" // the one managed provider
+	}
+	if cfg.Notify != nil && len(cfg.Notify.On) == 0 {
+		cfg.Notify.On = []string{"failure"} // pushes exist for the bad news
 	}
 	return cfg, nil
 }

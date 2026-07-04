@@ -26,7 +26,7 @@ func happyFake() *transport.Fake {
 			if strings.Contains(c, "docker rm OLD1") {
 				oldGone = true
 			}
-			if strings.Contains(c, "yeet-drain") {
+			if strings.Contains(c, "ob-drain") {
 				drained = true
 			}
 			if i := strings.Index(c, "docker rename "); i >= 0 {
@@ -51,7 +51,7 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "PG1\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && strings.Contains(cmd, "yeet.release="):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && strings.Contains(cmd, "ob.release="):
 			if scaled {
 				return transport.Result{Stdout: "NEW1\n"}, true
 			}
@@ -78,7 +78,7 @@ func happyFake() *transport.Fake {
 				return transport.Result{Stdout: "unhealthy\n"}, true
 			}
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "service=worker") && strings.Contains(cmd, "yeet.release="):
+		case strings.Contains(cmd, "service=worker") && strings.Contains(cmd, "ob.release="):
 			return transport.Result{Stdout: "W1\n"}, true
 		case strings.Contains(cmd, "service=worker"):
 			return transport.Result{Stdout: "W1\n"}, true
@@ -124,7 +124,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		last = i
 	}
 	// every mutation is fence-guarded
-	for _, mut := range []string{"--scale server=2", "touch /tmp/yeet-drain", "docker stop -t 30 OLD1", "--force-recreate worker", "ln -sfn"} {
+	for _, mut := range []string{"--scale server=2", "touch /tmp/ob-drain", "docker stop -t 30 OLD1", "--force-recreate worker", "ln -sfn"} {
 		for _, c := range f.Commands {
 			if strings.Contains(c, mut) && !strings.Contains(c, "ob-fenced") {
 				t.Fatalf("mutation not fence-guarded: %s", c)
@@ -132,7 +132,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		}
 	}
 	// lock released at the end
-	if !strings.Contains(seq, "rm -f '/var/lib/yeet/monk/lock'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/monk/lock'") {
 		t.Fatal("lock never released")
 	}
 }
@@ -163,7 +163,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 		}
 		last = i
 	}
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/yeet/monk/releases/R1") {
+	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/monk/releases/R1") {
 		t.Fatalf("transfer missing: %v", f.Uploads)
 	}
 }

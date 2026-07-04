@@ -59,7 +59,7 @@ func TestGateOpenAutoRollsBack(t *testing.T) {
 }
 
 // A job with no same-named hook auto-runs `compose run --rm --no-deps <job>` —
-// no `migrate` hook needed in yeet.yml.
+// no `migrate` hook needed in ob.yml.
 func TestJobAutoRunsWithoutHook(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks = map[string]config.Hook{} // drop the migrate hook; migrate stays a job
@@ -73,7 +73,7 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 		t.Fatalf("a job without a hook must auto-run compose run:\n%s", seq)
 	}
 	// gate protocol still applies to the auto-run job.
-	if !strings.Contains(seq, "YEET_RESULT_FILE=") {
+	if !strings.Contains(seq, "OB_RESULT_FILE=") {
 		t.Fatalf("auto-run job must run under the gate protocol:\n%s", seq)
 	}
 }
@@ -122,11 +122,11 @@ func TestMigrateHookGetsResultFileEnv(t *testing.T) {
 	}
 	found := false
 	for _, c := range f.Commands {
-		if strings.Contains(c, "YEET_RESULT_FILE=") && strings.Contains(c, "run --rm --no-deps migrate") {
+		if strings.Contains(c, "OB_RESULT_FILE=") && strings.Contains(c, "run --rm --no-deps migrate") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("migrate hook must receive YEET_RESULT_FILE:\n%s", strings.Join(f.Commands, "\n"))
+		t.Fatalf("migrate hook must receive OB_RESULT_FILE:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }

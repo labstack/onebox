@@ -25,25 +25,25 @@ registry: { server: ghcr.io, username: vishr, password_env: GHCR_TOKEN }
 `
 
 func TestCUEAcceptsValidConfig(t *testing.T) {
-	if err := ValidateCUE([]byte(cueSample), "yeet.yml"); err != nil {
+	if err := ValidateCUE([]byte(cueSample), "ob.yml"); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 }
 
 func TestCUERejectsTypoField(t *testing.T) {
 	bad := strings.Replace(cueSample, "order:", "orderz:", 1)
-	err := ValidateCUE([]byte(bad), "yeet.yml")
+	err := ValidateCUE([]byte(bad), "ob.yml")
 	if err == nil {
 		t.Fatal("typo'd field must be rejected")
 	}
-	if !strings.Contains(err.Error(), "orderz") || !strings.Contains(err.Error(), "yeet.yml:") {
+	if !strings.Contains(err.Error(), "orderz") || !strings.Contains(err.Error(), "ob.yml:") {
 		t.Fatalf("error should name the field with file:line position: %v", err)
 	}
 }
 
 func TestCUERejectsBadMode(t *testing.T) {
 	bad := strings.Replace(cueSample, "mode: rolling", "mode: sideways", 1)
-	err := ValidateCUE([]byte(bad), "yeet.yml")
+	err := ValidateCUE([]byte(bad), "ob.yml")
 	if err == nil {
 		t.Fatal("bad mode must be rejected")
 	}
@@ -54,13 +54,13 @@ func TestCUERejectsBadMode(t *testing.T) {
 
 func TestCUERejectsBadDuration(t *testing.T) {
 	bad := strings.Replace(cueSample, "port: 7500", "port: 7500, within: soon", 1)
-	if err := ValidateCUE([]byte(bad), "yeet.yml"); err == nil {
+	if err := ValidateCUE([]byte(bad), "ob.yml"); err == nil {
 		t.Fatal("bad duration must be rejected")
 	}
 }
 
 func TestHookUnmarshalForms(t *testing.T) {
-	cfg, err := LoadBytes([]byte(cueSample), "yeet.yml")
+	cfg, err := LoadBytes([]byte(cueSample), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}

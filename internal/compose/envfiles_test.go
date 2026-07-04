@@ -111,10 +111,10 @@ services:
 		EnvFiles: []string{"app.env"},
 	}
 	InjectEnvFiles(p, cfg)
-	InjectSecretsEnv(p, cfg, "./.yeet-secrets.env")
+	InjectSecretsEnv(p, cfg, "./.ob-secrets.env")
 
 	ef := p.Services["web"].EnvFiles
-	if len(ef) == 0 || ef[len(ef)-1].Path != "./.yeet-secrets.env" {
+	if len(ef) == 0 || ef[len(ef)-1].Path != "./.ob-secrets.env" {
 		t.Fatalf("secrets file must be the last env_file (authoritative): %+v", ef)
 	}
 }

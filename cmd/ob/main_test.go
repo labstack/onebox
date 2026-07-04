@@ -14,7 +14,7 @@ func TestRootHelpListsVerbs(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "yeet") {
+	if !strings.Contains(out.String(), "ob") {
 		t.Fatalf("help output missing binary name: %s", out.String())
 	}
 }

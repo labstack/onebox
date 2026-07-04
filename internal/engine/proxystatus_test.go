@@ -67,15 +67,15 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "project=yeet-proxy"):
+		case strings.Contains(cmd, "project=ob-proxy"):
 			return transport.Result{Stdout: "PX1\n"}, true
 		case strings.Contains(cmd, "PX1") && strings.Contains(cmd, "State.Health"):
 			return transport.Result{Stdout: proxyHealth + "\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/config.hash'"):
+		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
-		case strings.Contains(cmd, "ls -1 '/var/lib/yeet/_host/proxy/apps'"):
+		case strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'"):
 			return transport.Result{Stdout: "monk\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/acme/acme.json'"):
+		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
 		case strings.Contains(cmd, "service=server"):
 			return transport.Result{Stdout: "S1\n"}, true
@@ -83,11 +83,11 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 			return transport.Result{Stdout: "W1\n"}, true
 		case strings.Contains(cmd, "service=postgres"):
 			return transport.Result{Stdout: "PG1\n"}, true
-		case strings.Contains(cmd, "yeet.release"):
+		case strings.Contains(cmd, "ob.release"):
 			return transport.Result{Stdout: "R7\n"}, true
 		case strings.Contains(cmd, "State.Health"):
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "ls -1 '/var/lib/yeet/monk/journal'"):
+		case strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/journal'"):
 			return transport.Result{Stdout: ""}, true
 		}
 		return transport.Result{}, false
@@ -153,7 +153,7 @@ func TestStatusManagedProxyNotRunning(t *testing.T) {
 	e, f, out, _ := statusProxyEngine(t, &applied, "", "healthy")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "project=yeet-proxy") {
+		if strings.Contains(cmd, "project=ob-proxy") {
 			return transport.Result{Stdout: ""}, true
 		}
 		return base(cmd)
@@ -179,7 +179,7 @@ func TestStatusUnmanagedProxyUnchanged(t *testing.T) {
 			return transport.Result{Stdout: "W1\n"}, true
 		case strings.Contains(cmd, "service=postgres"):
 			return transport.Result{Stdout: "PG1\n"}, true
-		case strings.Contains(cmd, "yeet.release"):
+		case strings.Contains(cmd, "ob.release"):
 			return transport.Result{Stdout: "R7\n"}, true
 		case strings.Contains(cmd, "State.Health"):
 			return transport.Result{Stdout: "healthy\n"}, true

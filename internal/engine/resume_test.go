@@ -32,15 +32,15 @@ func interruptedFake(gateDetail string) *transport.Fake {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "ls -1 '/var/lib/yeet/monk/journal'"):
+		case strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/journal'"):
 			return transport.Result{Stdout: "R1.jsonl\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/yeet/monk/journal/R1.jsonl'"):
+		case strings.Contains(cmd, "cat '/var/lib/ob/monk/journal/R1.jsonl'"):
 			return transport.Result{Stdout: jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R0\n"}, true
-		case strings.Contains(cmd, "ls -1 '/var/lib/yeet/monk/releases'"):
+		case strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/releases'"):
 			return transport.Result{Stdout: "R0\nR1\n"}, true
 		}
 		return base(cmd)
@@ -59,7 +59,7 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	if strings.Contains(seq, "--scale server=2") {
 		t.Fatalf("web already rolled — resume must skip it:\n%s", seq)
 	}
-	if strings.Contains(seq, "YEET_RESULT_FILE") {
+	if strings.Contains(seq, "OB_RESULT_FILE") {
 		t.Fatalf("migrate already ran — resume must not re-run it:\n%s", seq)
 	}
 	if !strings.Contains(seq, "--force-recreate worker") {
@@ -77,10 +77,10 @@ func TestResumeWithNothingIncomplete(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/yeet/monk/journal'") {
+		if strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/journal'") {
 			return transport.Result{Stdout: "R1.jsonl\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/journal/R1.jsonl'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/journal/R1.jsonl'") {
 			return transport.Result{Stdout: journalLines(
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "start"},
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "finish", Status: "ok"},
@@ -105,7 +105,7 @@ func TestAbortRefusesClosedGate(t *testing.T) {
 
 func TestAbortReplaysPreviousRelease(t *testing.T) {
 	f := interruptedFake("changed=false")
-	// abort path: web rolled to R1 — its container carries yeet.release=R1;
+	// abort path: web rolled to R1 — its container carries ob.release=R1;
 	// replaying R0 must drain it. The fake: newcomer query for R0 returns the
 	// R0 container only after R0's up --scale ran.
 	base := f.Dynamic
@@ -126,7 +126,7 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 		return false
 	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "yeet.release=R0") && strings.Contains(cmd, "service=server") {
+		if strings.Contains(cmd, "ob.release=R0") && strings.Contains(cmd, "service=server") {
 			if r0Scaled() {
 				return transport.Result{Stdout: "PREV1\n"}, true
 			}
@@ -134,7 +134,7 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 		}
 		// live server set: OLD1 (the R1 container being replaced) until removed,
 		// plus the R0 newcomer PREV1 once the R0 scale ran.
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && !strings.Contains(cmd, "yeet.release=") {
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && !strings.Contains(cmd, "ob.release=") {
 			var ids []string
 			if !oldGone() {
 				ids = append(ids, "OLD1")
@@ -144,10 +144,10 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 			}
 			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
 		}
-		if strings.Contains(cmd, "yeet.release=R0") && strings.Contains(cmd, "service=worker") {
+		if strings.Contains(cmd, "ob.release=R0") && strings.Contains(cmd, "service=worker") {
 			return transport.Result{Stdout: ""}, true // worker never completed → recreate from R0
 		}
-		if strings.Contains(cmd, "yeet.release=R1") {
+		if strings.Contains(cmd, "ob.release=R1") {
 			return transport.Result{Stdout: ""}, true // straggler sweep finds none
 		}
 		if strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PREV1") {

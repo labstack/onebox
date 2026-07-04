@@ -42,7 +42,7 @@ services:
   postgres:
     image: postgres:17
 `
-	yeetYAML := `
+	obYAML := `
 app: demo
 compose: docker-compose.yaml
 environments: { production: { hosts: [deploy@example.invalid] } }
@@ -54,7 +54,7 @@ accessories: [postgres]
 	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(composeYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "yeet.yml"), []byte(yeetYAML), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -66,7 +66,7 @@ func run(t *testing.T, dir string, args ...string) (string, error) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs(append([]string{"-c", filepath.Join(dir, "yeet.yml")}, args...))
+	cmd.SetArgs(append([]string{"-c", filepath.Join(dir, "ob.yml")}, args...))
 	err := cmd.Execute()
 	return out.String(), err
 }
@@ -110,7 +110,7 @@ func TestRenderInjectsDrainGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
-	if !strings.Contains(out, "/tmp/yeet-drain") || !strings.Contains(out, "yeet.release") {
+	if !strings.Contains(out, "/tmp/ob-drain") || !strings.Contains(out, "ob.release") {
 		t.Fatalf("render missing injections:\n%s", out)
 	}
 }
@@ -157,7 +157,7 @@ services:
   postgres:
     image: postgres:17
 `
-	yeetYAML := `
+	obYAML := `
 app: demo
 compose: docker-compose.yaml
 environments: { production: { hosts: [deploy@example.invalid] } }
@@ -170,7 +170,7 @@ env_files: [app.env]
 `
 	for name, body := range map[string]string{
 		"docker-compose.yaml": composeYAML,
-		"yeet.yml":            yeetYAML,
+		"ob.yml":              obYAML,
 		"app.env":             "SECRET=leaky-xyz\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
@@ -193,7 +193,7 @@ env_files: [app.env]
 // contact, naming the file and key.
 func TestPreflightBlocksDeploy(t *testing.T) {
 	dir := writeProject(t)
-	yeetYAML := `
+	obYAML := `
 app: demo
 compose: docker-compose.yaml
 environments: { production: { hosts: [deploy@example.invalid] } }
@@ -204,7 +204,7 @@ accessories: [postgres]
 preflight:
   - { file: secrets.env, require: [MISSING_KEY] }
 `
-	if err := os.WriteFile(filepath.Join(dir, "yeet.yml"), []byte(yeetYAML), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "secrets.env"), []byte("PRESENT=1\n"), 0o600); err != nil {
@@ -223,7 +223,7 @@ preflight:
 // (it could never ship with the release) — caught by validate, before deploy.
 func TestEnvFilesOutsideProjectRejected(t *testing.T) {
 	dir := writeProject(t)
-	yeetYAML := `
+	obYAML := `
 app: demo
 compose: docker-compose.yaml
 environments: { production: { hosts: [deploy@example.invalid] } }
@@ -233,7 +233,7 @@ order: [web]
 accessories: [postgres]
 env_files: ["../escapes.env"]
 `
-	if err := os.WriteFile(filepath.Join(dir, "yeet.yml"), []byte(yeetYAML), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, dir, "validate")

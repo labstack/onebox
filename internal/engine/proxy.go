@@ -21,7 +21,7 @@ import (
 var appNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 // EnsureProxy converges the HOST-scoped managed proxy (design: one Traefik
-// per host, shared by every yeet app on it). Idempotent and ACME-safe: an
+// per host, shared by every ob app on it). Idempotent and ACME-safe: an
 // unchanged proxy is never touched; a compose change recreates the container
 // (`up -d`); a config-only change uploads + restarts (static config reloads
 // only on restart). Divergent config across registered apps is a named
@@ -35,7 +35,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	if !filepath.IsAbs(localCfg) {
 		localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 	}
-	staging, err := os.MkdirTemp("", "yeet-proxy")
+	staging, err := os.MkdirTemp("", "ob-proxy")
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {
 // ProxyApply is the CLI verb: converge the shared proxy outside any deploy.
 func (e *Engine) ProxyApply(ctx context.Context, deployID string, force bool) error {
 	if !e.Cfg.Proxy.Managed {
-		return fmt.Errorf("proxy is not managed (proxy.managed: true enables yeet-owned Traefik)")
+		return fmt.Errorf("proxy is not managed (proxy.managed: true enables ob-owned Traefik)")
 	}
 	return e.EnsureProxy(ctx, deployID, force)
 }

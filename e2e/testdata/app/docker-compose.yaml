@@ -7,7 +7,7 @@ services:
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:18080
       - --ping=true
-      - --providers.docker.network=yeete2e_default
+      - --providers.docker.network=obe2e_default
     ports: ["18080:18080"]
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
     healthcheck:

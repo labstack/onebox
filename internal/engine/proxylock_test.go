@@ -15,11 +15,11 @@ func TestHostLockHappyPath(t *testing.T) {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/yeet/_host/lock") {
+	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/ob/_host/lock") {
 		t.Fatalf("noclobber host lock creation missing:\n%s", seq)
 	}
 	e.releaseHostLock(context.Background())
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/yeet/_host/lock'") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/_host/lock'") {
 		t.Fatalf("release must remove the host lock:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
@@ -29,7 +29,7 @@ func TestHostLockHeldFreshRefuses(t *testing.T) {
 		if strings.Contains(cmd, "set -C") {
 			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/lock'") {
 			return transport.Result{Stdout: `{"owner":"alice@laptop","deploy_id":"unlock","epoch":0}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -51,11 +51,11 @@ func TestHostLockExpiredTakesOver(t *testing.T) {
 		if strings.Contains(cmd, "set -C") && !broke {
 			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
 		}
-		if strings.Contains(cmd, "rm -f '/var/lib/yeet/_host/lock'") {
+		if strings.Contains(cmd, "rm -f '/var/lib/ob/_host/lock'") {
 			broke = true
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/lock'") {
 			return transport.Result{Stdout: `{"owner":"bob@ci","deploy_id":"other","ttl_s":600}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -76,11 +76,11 @@ func TestHostLockForceBreaks(t *testing.T) {
 		if strings.Contains(cmd, "set -C") && !broke {
 			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
 		}
-		if strings.Contains(cmd, "rm -f '/var/lib/yeet/_host/lock'") {
+		if strings.Contains(cmd, "rm -f '/var/lib/ob/_host/lock'") {
 			broke = true
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/_host/lock'") {
 			return transport.Result{Stdout: `{"owner":"bob@ci","deploy_id":"other","ttl_s":600}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {

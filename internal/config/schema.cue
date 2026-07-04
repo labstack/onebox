@@ -1,4 +1,4 @@
-// yeet.yml schema — the CUE side of "YAML outside, CUE inside" (design §07).
+// ob.yml schema — the CUE side of "YAML outside, CUE inside" (design §07).
 // CUE owns shape, enums, and patterns; cross-field and compose-semantic
 // checks stay in Go (config.Validate / compose.Classify).
 
@@ -62,7 +62,7 @@
 	// compose file; roles to every service not named an accessory or job.
 	app?:     =~"^[a-z][a-z0-9-]*$"
 	compose?: string
-	// exactly one host: yeet is single-host by design
+	// exactly one host: onebox is single-host by design
 	environments!: {[string]: {hosts!: [string]}}
 	roles?: {[#Ident]: #Role}
 	order?: [...#Ident]

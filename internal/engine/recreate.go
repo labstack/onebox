@@ -75,7 +75,7 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 // RunHook executes a user hook verbatim (design §01: hooks are unplannable
 // commands — the operator's own, same trust level as their shell). Host
 // hooks get compose env exported so `docker compose ...` targets this
-// release; local hooks run on the runner (publish-style steps) with YEET_*
+// release; local hooks run on the runner (publish-style steps) with OB_*
 // env. Nonzero exit halts the deploy — no migration gate until M2, so the
 // only safe behavior is to stop.
 func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComposePath string) error {
@@ -111,14 +111,12 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir string) error {
 	c := exec.CommandContext(ctx, "sh", "-c", run) // verbatim by design
 	c.Dir = e.Opts.LocalDir
-	// OB_* is the vocabulary; YEET_* stays exported through the rename
-	// transition so existing hooks keep working
 	c.Env = append(os.Environ(),
-		"OB_APP="+e.Cfg.App, "YEET_APP="+e.Cfg.App,
-		"OB_HOST="+e.T.Host(), "YEET_HOST="+e.T.Host(),
-		"OB_TARGET="+e.T.Target(), "YEET_TARGET="+e.T.Target(), // user@host — for ssh/rsync in hooks
-		"OB_RELEASE_DIR="+remoteReleaseDir, "YEET_RELEASE_DIR="+remoteReleaseDir,
-		"OB_RELEASE_ID="+filepath.Base(remoteReleaseDir), "YEET_RELEASE_ID="+filepath.Base(remoteReleaseDir),
+		"OB_APP="+e.Cfg.App,
+		"OB_HOST="+e.T.Host(),
+		"OB_TARGET="+e.T.Target(), // user@host — for ssh/rsync in hooks
+		"OB_RELEASE_DIR="+remoteReleaseDir,
+		"OB_RELEASE_ID="+filepath.Base(remoteReleaseDir),
 	)
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb

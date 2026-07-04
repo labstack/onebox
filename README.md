@@ -1,9 +1,7 @@
 # onebox
 
 > CLI: `ob` · domain: [onebox.run](https://onebox.run) · formerly the `yeet` codename — single-host
-> is the product scope, so the product is named after the box. On-host identifiers
-> (/var/lib/yeet, yeet.* labels, yeet-proxy/yeet-ingress) rename in a planned stage-2 migration;
-> `ob` reads `ob.yml` (or the codename-era `yeet.yml`) and exports both OB_*/YEET_* to hooks.
+> is the product scope, so the product is named after the box.
 
 **Zero-downtime deploys for docker-compose apps: agentless, plan-before-apply, keep your proxy.**
 
@@ -22,13 +20,13 @@ webhook is a stderr warning, never the verb's result. Error strings are the same
 redaction-safe strings the terminal gets — secrets never travel, only hashes.
 
 **M4 — managed proxy (host-scoped).** `proxy: { managed: true, config: <dir> }` closes the rev 4/5
-design seam: yeet owns one Traefik **per host**, shared by every yeet app on the box.
+design seam: ob owns one Traefik **per host**, shared by every ob app on the box.
 
-- **Host scope**: `/var/lib/yeet/_host/` — its own noclobber lock (TTL, `--force`), its own
+- **Host scope**: `/var/lib/ob/_host/` — its own noclobber lock (TTL, `--force`), its own
   journal, and `proxy/apps/<app>` as the registration refcount. No app can claim the name.
 - **Contract**: `proxy.config` is a flat dir — `traefik.yml` required (must enable `ping: {}`,
   the healthcheck gates on it, and store ACME at `/letsencrypt/acme.json`); `dynamic.yml` and
-  `.env` optional. yeet renders the compose around it (docker provider, `80/443`, socket ro,
+  `.env` optional. ob renders the compose around it (docker provider, `80/443`, socket ro,
   ACME bind at `_host/proxy/acme/`).
 - **ACME-safe converge** (`ob proxy apply`, and `bootstrap` on first contact): unchanged
   config never touches the container; compose change → `up -d`; config-only change → upload +
@@ -37,7 +35,7 @@ design seam: yeet owns one Traefik **per host**, shared by every yeet app on the
   a divergent hash names both apps and refuses (`--force` makes the divergence explicit).
 - **Refcounted teardown**: `ob destroy` deregisters; `--proxy` removes the proxy only when no
   other app is registered — refusing (named) before any teardown otherwise.
-- **Network**: role services join the external `yeet-ingress` network at render time (the proxy
+- **Network**: role services join the external `ob-ingress` network at render time (the proxy
   project owns it); accessories and jobs stay app-private. Preflight asserts the proxy healthy
   before any deploy.
 - The proxy-inside-compose shape (traefik as an accessory — monk today) remains fully supported;
@@ -54,7 +52,7 @@ last canonical-shape verbs:
   declared). `push` hash-compares against the live release and bounces roles only on change;
   content never appears in a command or log, only hashes.
 - `ob destroy` — typed app-name confirmation; volumes kept unless `--volumes` (data loss is
-  opt-in); takes the lock, tears down, removes yeet's state dir.
+  opt-in); takes the lock, tears down, removes ob's state dir.
 - `ob logs [role] [-f] [--tail N]` / `ob exec <role> -- <cmd>` — streamed over the transport.
 - Single-host is now enforced by the schema (exactly one host per environment) and stated as the
   product boundary in the design (§02/§05); the multi-host protocol remains a sketch, deliberately
@@ -64,38 +62,38 @@ last canonical-shape verbs:
 
 - **App #2 onboarded with zero engine changes**: `ob init` against `../unlock` classified
   traefik→accessory, unlock→rolling candidate, and flagged its exact blocker
-  (`container_name`); the curated `../unlock/yeet.yml` validates and renders clean.
+  (`container_name`); the curated `../unlock/ob.yml` validates and renders clean.
   Caveat, per the design's own anti-overfit rule: unlock is monk-shaped (traefik + one service),
   so the real distribution test remains M3.5's alien app.
 - **Multi-host deferred deliberately** — the §05 protocol stays designed, the fleet executor
   unbuilt until a real fleet need exists (design §12 updated; speculative build = the
   maintenance-economics trap).
-- **`ob status`** — recorded (current symlink) vs actual (each role's `yeet.release` label +
+- **`ob status`** — recorded (current symlink) vs actual (each role's `ob.release` label +
   health), accessories, and any incomplete deploy. Divergence is an error exit — scriptable.
-- **`yeet.cue` accepted as config** — power users get let-bindings, interpolation, and
+- **`ob.cue` accepted as config** — power users get let-bindings, interpolation, and
   pattern defaults; the file unifies with the same `#Config` and flows through the same pipeline.
   YAML remains the default surface.
 
 **M2 — trustworthy.** The design's §05/§06 mechanisms, built and proven against the
 ops scenarios:
 
-- **Journal** — append-only synced JSONL per deploy at `/var/lib/yeet/<app>/journal/`; every phase
+- **Journal** — append-only synced JSONL per deploy at `/var/lib/ob/<app>/journal/`; every phase
   and role records intent/result; GC tied to the retention window (a journal outlives its release).
 - **Lock + fencing** — noclobber lock at the authority host with TTL (host clock) + heartbeat;
   breaking a fresh lock needs `--force` and prints the holder's journal tail. Every mutating
   command is wrapped host-side against a fence file — a zombie runner dies locally (exit 97),
   no cross-host call. One regime for every mutation: deploy, resume, abort, rollback, bootstrap.
 - **`ob resume`** — journal-driven: completed phases/roles skip; a half-rolled role is adopted
-  via its `yeet.release` label; the new epoch fences the dead runner. Proven live: runner killed
+  via its `ob.release` label; the new epoch fences the dead runner. Proven live: runner killed
   mid-roll, resumed, **1,629 requests / 0 failures across the crash**.
 - **`ob abort`** — reverts to the previous release by replaying it through the normal
   choreography (zero-downtime for rolling roles), migration-gated like auto-rollback.
-- **Migration gate** — `$YEET_RESULT_FILE` protocol: `changed=false` opens the gate; anything else
+- **Migration gate** — `$OB_RESULT_FILE` protocol: `changed=false` opens the gate; anything else
   fails safe. Verify failure → auto-rollback only if the gate is open or `migrations: expand-only`
   is asserted; otherwise **halt-and-page**. `--no-rollback` always halts.
 - **`ob audit`** — who deployed what, when, from which SHA, incl. failed and incomplete runs.
 
-M2 exit scenarios all pass as gated e2e tests (`YEET_E2E=1 go test ./e2e/`): kill-runner→resume,
+M2 exit scenarios all pass as gated e2e tests (`OB_E2E=1 go test ./e2e/`): kill-runner→resume,
 broken-worker→halt-with-old-serving, migrate-then-verify-fail→halt-and-page (unit).
 
 **M1 — plan/apply, CUE, bootstrap.** On top of the M0 engine:
@@ -105,7 +103,7 @@ broken-worker→halt-with-old-serving, migrate-then-verify-fail→halt-and-page 
   and the fidelity contract printed verbatim. Writes a JSON artifact.
 - `ob deploy --plan` — the artifact binds the apply: refuses on config change or host drift,
   ships the planned rendered bytes byte-for-byte.
-- Embedded CUE validation (`schema.cue`): shape/enum/pattern errors as `yeet.yml:<line>: message`;
+- Embedded CUE validation (`schema.cue`): shape/enum/pattern errors as `ob.yml:<line>: message`;
   cross-field and compose-semantic checks stay in Go.
 - `ob bootstrap` — dirs → user's `bootstrap` hook → registry login (password via stdin) →
   accessories up. Host provisioning stays the operator's; config management is a non-goal.
@@ -113,12 +111,12 @@ broken-worker→halt-with-old-serving, migrate-then-verify-fail→halt-and-page 
   with paths rewritten — compose files reference them relative to the release, not the runner.
 - Local hooks (`{run, local: true}`) + `pre_release`/`post_release`/`post_deploy` seams and
   advisory `url:` verify checks — monk's web-publish trick and smoke tests, quarantined in config.
-- Rollback replays the previous release's own `yeet.snapshot.yml` choreography.
+- Rollback replays the previous release's own `ob.snapshot.yml` choreography.
 - `ob init` — classify + scaffold + rollability doctor printing each role's exact compose delta.
 
-**Monk cutover:** `../monk/yeet.yml` is written and validates against monk's real compose file
+**Monk cutover:** `../monk/ob.yml` is written and validates against monk's real compose file
 (8 services, 3 roles, no rollability blockers). Remaining human step: run
-`SERVER_VERSION=... yeet plan && yeet deploy --plan yeet-plan.json` against production and retire
+`SERVER_VERSION=... ob plan && ob deploy --plan ob-plan.json` against production and retire
 `scripts/yeet.sh`.
 
 **M0 walking skeleton.** `ob validate | render | deploy | rollback` work end-to-end:
@@ -127,13 +125,13 @@ with enforced known-hosts, versioned release dirs with symlink activation and re
 and the scale–health–drain choreography with the rev 5 traffic-shift protocol (drain-before-SIGTERM
 via healthcheck poisoning).
 
-The zero-downtime claim is proven mechanically, not assumed: `YEET_E2E=1 go test ./e2e/` deploys a
+The zero-downtime claim is proven mechanically, not assumed: `OB_E2E=1 go test ./e2e/` deploys a
 Traefik+web fixture against local docker, hammers the edge with requests during a live v1→v2 roll,
 and fails on a single dropped request. Latest run: **1,583 requests, 0 failures**.
 
-Monk cutover checklist (M0 exit): write `../monk/yeet.yml` (roles `web`/`worker`/`scheduler`, job
+Monk cutover checklist (M0 exit): write `../monk/ob.yml` (roles `web`/`worker`/`scheduler`, job
 `migrate`, accessories `traefik`/`postgres`/`redis`/`ofelia`), then
-`ob validate && yeet deploy -e production --verbose`.
+`ob validate && ob deploy -e production --verbose`.
 
 Not yet built (by design, see roadmap): plan/apply + CUE (M1), journal/fencing/locks/resume/
 migration gate (M2), multi-host (M3).

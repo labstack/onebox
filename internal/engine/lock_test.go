@@ -18,7 +18,7 @@ func lockEngine(t *testing.T, f *transport.Fake) *Engine {
 
 func TestAcquireLockHappyPath(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/epoch'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/epoch'") {
 			return transport.Result{Stdout: "6\n"}, true
 		}
 		return transport.Result{}, false
@@ -32,10 +32,10 @@ func TestAcquireLockHappyPath(t *testing.T) {
 		t.Fatalf("epoch: %d", epoch)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/yeet/monk/lock") {
+	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/ob/monk/lock") {
 		t.Fatalf("noclobber lock creation missing:\n%s", seq)
 	}
-	if !strings.Contains(seq, "echo 7 > '/var/lib/yeet/monk/epoch'") {
+	if !strings.Contains(seq, "echo 7 > '/var/lib/ob/monk/epoch'") {
 		t.Fatalf("epoch not persisted:\n%s", seq)
 	}
 }
@@ -45,7 +45,7 @@ func TestAcquireLockHeldFreshRefuses(t *testing.T) {
 		if strings.Contains(cmd, "set -C") {
 			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/lock'") {
 			return transport.Result{Stdout: `{"owner":"alice@laptop","deploy_id":"R8","epoch":6}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") { // age computation
@@ -71,7 +71,7 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 			}
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/lock'") {
 			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R7","epoch":5}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -83,7 +83,7 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 	if _, err := e.AcquireLock(context.Background(), "R9", false); err != nil {
 		t.Fatalf("stale lock should be taken over: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/yeet/monk/lock'") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/monk/lock'") {
 		t.Fatal("stale lock not removed")
 	}
 }
@@ -99,7 +99,7 @@ func TestAcquireLockSameDeployReclaims(t *testing.T) {
 			}
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/lock'") {
 			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R9","epoch":6}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -124,7 +124,7 @@ func TestForceBreakPrintsHolderJournalTail(t *testing.T) {
 			}
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/yeet/monk/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/lock'") {
 			return transport.Result{Stdout: `{"owner":"bob@ci","deploy_id":"R8","epoch":6}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -156,7 +156,7 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := f.Commands[len(f.Commands)-1]
-	if !strings.Contains(last, `[ "$(cat '/var/lib/yeet/monk/fence' 2>/dev/null)" = 'R9 7' ]`) {
+	if !strings.Contains(last, `[ "$(cat '/var/lib/ob/monk/fence' 2>/dev/null)" = 'R9 7' ]`) {
 		t.Fatalf("fence guard missing: %s", last)
 	}
 	if !strings.Contains(last, "docker stop OLD1") {
@@ -179,7 +179,7 @@ func TestHeartbeatTouchesLock(t *testing.T) {
 	time.Sleep(90 * time.Millisecond) // > 2 intervals at TTL/10
 	stop()
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "touch '/var/lib/yeet/monk/lock'") {
+	if !strings.Contains(seq, "touch '/var/lib/ob/monk/lock'") {
 		t.Fatalf("heartbeat never touched lock:\n%s", seq)
 	}
 }

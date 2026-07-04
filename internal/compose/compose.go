@@ -5,6 +5,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -64,19 +65,36 @@ func load(ctx context.Context, composePath, projectName string, lenient bool, en
 			if o.Interpolate == nil {
 				return
 			}
-			// strict substitution first — set vars and :- defaults keep exact
-			// compose semantics; only a string that ERRORS (a ${VAR:?} miss)
-			// retries with missing vars as the visible placeholder ${VAR}
+			// Per-VARIABLE leniency via an overlay loop: substitute strictly;
+			// when a ${VAR:?}/${VAR?} requirement fails (unset OR set-but-empty
+			// — both error), overlay exactly that variable with the visible
+			// placeholder ${VAR} and retry. Every other variable keeps exact
+			// compose semantics (:- defaults, :+ presence, nested defaults) —
+			// a whole-string fallback mapping would corrupt them, and the
+			// template regex is too greedy for per-match interception (a
+			// default value swallows following ${...} into one match).
 			o.Interpolate.Substitute = func(s string, m template.Mapping) (string, error) {
-				if out, err := template.Substitute(s, m); err == nil {
-					return out, nil
-				}
-				return template.Substitute(s, func(key string) (string, bool) {
-					if v, ok := m(key); ok {
+				overlay := map[string]string{}
+				wrapped := func(key string) (string, bool) {
+					if v, ok := overlay[key]; ok {
 						return v, true
 					}
-					return "${" + key + "}", true // non-empty, so :? passes
-				})
+					return m(key)
+				}
+				for {
+					out, err := template.Substitute(s, wrapped)
+					if err == nil {
+						return out, nil
+					}
+					var missing *template.MissingRequiredError
+					if errors.As(err, &missing) {
+						if _, seen := overlay[missing.Variable]; !seen {
+							overlay[missing.Variable] = "${" + missing.Variable + "}"
+							continue // one failing variable per pass; loop is bounded by distinct vars
+						}
+					}
+					return out, err // non-required error, or no progress
+				}
 			}
 		}))
 	}

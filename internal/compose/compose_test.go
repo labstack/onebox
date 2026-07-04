@@ -102,7 +102,12 @@ services:
     image: ghcr.io/x/app:${MISSING_VERSION:?must be set}
     environment:
       WITH_DEFAULT: ${ABSENT:-fallback}
+      EMPTY_REQUIRED: ${EMPTY_SET:?must be non-empty}
+      # a failing :? and a defaulted var in the SAME string — the default
+      # must still apply (per-match leniency, not whole-string retry)
+      MIXED: ${ABSENT:-user}:${MISSING_VERSION:?must be set}@db
 `
+	t.Setenv("EMPTY_SET", "") // set-but-empty: :? errors on this too
 	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -122,5 +127,17 @@ services:
 	// :- defaults still apply
 	if v := proj.Services["server"].Environment["WITH_DEFAULT"]; v == nil || *v != "fallback" {
 		t.Fatalf("default fallback broken: %v", v)
+	}
+	// :? on a SET-but-EMPTY var must also be lenient (it errors like unset)
+	if v := proj.Services["server"].Environment["EMPTY_REQUIRED"]; v == nil || *v != "${EMPTY_SET}" {
+		t.Fatalf("set-but-empty required var must resolve to placeholder: %v", v)
+	}
+	// per-match: the failing :? gets the placeholder, the neighbor keeps its default
+	if v := proj.Services["server"].Environment["MIXED"]; v == nil || *v != "user:${MISSING_VERSION}@db" {
+		got := "<nil>"
+		if v != nil {
+			got = *v
+		}
+		t.Fatalf("mixed string: want %q, got %q", "user:${MISSING_VERSION}@db", got)
 	}
 }

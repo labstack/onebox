@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/config"
 )
 
 // verifyURL is the runner-side edge check (yeet.sh's smoke test, absorbed).

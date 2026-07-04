@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labstack/yeet/internal/proxy"
-	"github.com/labstack/yeet/internal/release"
+	"github.com/labstack/onebox/internal/proxy"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // Destroy tears the app down: containers via compose, then yeet's own state
@@ -119,7 +119,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// raced: another app registered between the upfront check and now
 			e.logf("--proxy skipped: %s registered with the shared proxy during teardown — it stays", strings.Join(others, ", "))
 		case len(others) == 0:
-			e.logf("shared proxy kept with no registered apps — `yeet destroy --proxy` removes it, or clean %s manually", hp.Dir)
+			e.logf("shared proxy kept with no registered apps — `ob destroy --proxy` removes it, or clean %s manually", hp.Dir)
 		}
 	}
 	e.logf("destroyed %s (volumes %s)", e.Cfg.App, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])

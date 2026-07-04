@@ -8,7 +8,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/config"
 )
 
 // InjectSecretsEnv adds the rendered secrets env file to every role service

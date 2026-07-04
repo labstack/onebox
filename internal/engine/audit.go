@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/labstack/yeet/internal/journal"
+	"github.com/labstack/onebox/internal/journal"
 )
 
 // Audit prints who deployed what, when, from which SHA — including runs

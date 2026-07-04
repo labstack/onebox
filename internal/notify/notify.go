@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/config"
 )
 
 const timeout = 5 * time.Second

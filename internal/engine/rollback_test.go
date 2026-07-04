@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 // The previous release's snapshot has a DIFFERENT choreography (worker only,

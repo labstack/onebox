@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/compose"
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/compose"
+	"github.com/labstack/onebox/internal/config"
 )
 
 const stopGraceSeconds = 30

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/yeet/internal/proxy"
+	"github.com/labstack/onebox/internal/proxy"
 )
 
 const sample = `

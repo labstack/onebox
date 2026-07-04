@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/config"
 )
 
 func TestConfirmDefaultsToNo(t *testing.T) {

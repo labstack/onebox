@@ -12,7 +12,7 @@ import (
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/yeet/internal/compose"
+	"github.com/labstack/onebox/internal/compose"
 )
 
 // wellKnownAccessories matches images of stateful deps and infra that should
@@ -23,7 +23,7 @@ var wellKnownAccessories = regexp.MustCompile(
 func addInitCommand(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "init",
-		Short: "scaffold yeet.yml from the compose file + rollability doctor",
+		Short: "scaffold ob.yml from the compose file + rollability doctor",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runInit(cmd.Context(), cmd, g)
 		},
@@ -119,7 +119,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	if clean {
 		fmt.Fprintln(out, "  no blockers — rolling roles are deploy-ready")
 	}
-	fmt.Fprintln(out, "\nnext: fill in CHANGE-ME values, then `yeet validate`")
+	fmt.Fprintln(out, "\nnext: fill in CHANGE-ME values, then `ob validate`")
 	return nil
 }
 

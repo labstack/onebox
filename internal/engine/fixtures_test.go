@@ -9,8 +9,8 @@ import (
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
-	"github.com/labstack/yeet/internal/compose"
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/compose"
+	"github.com/labstack/onebox/internal/config"
 )
 
 func testConfig() *config.Config {

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 type Record struct {

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/labstack/yeet/internal/journal"
-	"github.com/labstack/yeet/internal/release"
-	"github.com/labstack/yeet/internal/secrets"
+	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/secrets"
 )
 
 // SecretsPush ships freshly rendered secrets into the CURRENT release and
@@ -24,7 +24,7 @@ func (e *Engine) SecretsPush(ctx context.Context, envBytes []byte) error {
 		return err
 	}
 	if cur == "" {
-		return fmt.Errorf("nothing deployed yet — secrets ship with `yeet deploy`")
+		return fmt.Errorf("nothing deployed yet — secrets ship with `ob deploy`")
 	}
 	curDir := release.PathsFor(e.Cfg.App).Releases + "/" + cur
 	sum := sha256.Sum256(envBytes)

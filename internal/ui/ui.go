@@ -191,11 +191,11 @@ func (u *UI) Busy(label string) (update func(string), stop func()) {
 		u.Begin(label)
 		last := label
 		return func(l string) {
-				if l != last {
-					u.Begin(l)
-					last = l
-				}
-			}, func() {}
+			if l != last {
+				u.Begin(l)
+				last = l
+			}
+		}, func() {}
 	}
 	u.mu.Lock()
 	u.spinLabel, u.spinOn = label, true

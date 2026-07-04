@@ -16,7 +16,7 @@ import (
 	"github.com/compose-spec/compose-go/v2/template"
 	"github.com/compose-spec/compose-go/v2/types"
 
-	"github.com/labstack/yeet/internal/config"
+	"github.com/labstack/onebox/internal/config"
 )
 
 // DrainFile: the generated/wrapped healthcheck fails while this file exists,

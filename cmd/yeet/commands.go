@@ -24,6 +24,18 @@ import (
 )
 
 func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
+	return loadAllWith(ctx, g, compose.Load)
+}
+
+// loadAllLenient is for READ-ONLY verbs (status, logs, exec, audit) and proxy
+// apply — none consume interpolated compose values, so a missing ${VAR:?}
+// (e.g. an image version normally resolved by the deploy wrapper) must not
+// block a query.
+func loadAllLenient(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
+	return loadAllWith(ctx, g, compose.LoadLenient)
+}
+
+func loadAllWith(ctx context.Context, g *globalFlags, load func(context.Context, string, string, ...string) (*ctypes.Project, error)) (*config.Config, *ctypes.Project, error) {
 	cfg, err := config.Load(g.ConfigPath)
 	if err != nil {
 		return nil, nil, err
@@ -62,7 +74,7 @@ func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Proje
 		}
 		envFiles = append(envFiles, abs)
 	}
-	p, err := compose.Load(ctx, composePath, cfg.App, envFiles...)
+	p, err := load(ctx, composePath, cfg.App, envFiles...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -238,7 +250,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "status",
 		Short: "recorded vs actual per role — divergence is the point",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}
@@ -256,7 +268,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "audit",
 		Short: "who deployed what, when, from which SHA — incl. failed runs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}

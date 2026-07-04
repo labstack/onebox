@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -88,5 +90,37 @@ func TestCheckRollableAdoptsComposeHealthcheck(t *testing.T) {
 	errs := CheckRollable(p, cfg)
 	if len(errs) == 0 || !strings.Contains(errs[0].Error(), "adopt") {
 		t.Fatalf("rolling without any healthcheck must be refused: %v", errs)
+	}
+}
+
+func TestLoadLenientToleratesMissingRequiredVars(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "docker-compose.yaml")
+	src := `
+services:
+  server:
+    image: ghcr.io/x/app:${MISSING_VERSION:?must be set}
+    environment:
+      WITH_DEFAULT: ${ABSENT:-fallback}
+`
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// strict load: the :? contract holds for deploy-path verbs
+	if _, err := Load(context.Background(), p, "demo"); err == nil || !strings.Contains(err.Error(), "MISSING_VERSION") {
+		t.Fatalf("strict load must fail on required var, got %v", err)
+	}
+	// lenient load: read-only verbs (status/logs/exec) never consume the
+	// values — missing vars resolve to a visible placeholder
+	proj, err := LoadLenient(context.Background(), p, "demo")
+	if err != nil {
+		t.Fatalf("lenient load: %v", err)
+	}
+	if img := proj.Services["server"].Image; img != "ghcr.io/x/app:${MISSING_VERSION}" {
+		t.Fatalf("missing var must resolve to a placeholder, got %q", img)
+	}
+	// :- defaults still apply
+	if v := proj.Services["server"].Environment["WITH_DEFAULT"]; v == nil || *v != "fallback" {
+		t.Fatalf("default fallback broken: %v", v)
 	}
 }

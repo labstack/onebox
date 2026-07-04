@@ -11,6 +11,8 @@ import (
 	"sort"
 
 	"github.com/compose-spec/compose-go/v2/cli"
+	"github.com/compose-spec/compose-go/v2/loader"
+	"github.com/compose-spec/compose-go/v2/template"
 	"github.com/compose-spec/compose-go/v2/types"
 
 	"github.com/labstack/yeet/internal/config"
@@ -24,8 +26,20 @@ const DrainFile = "/tmp/yeet-drain"
 var ident = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 func Load(ctx context.Context, composePath, projectName string, envFiles ...string) (*types.Project, error) {
-	opts, err := cli.NewProjectOptions(
-		[]string{composePath},
+	return load(ctx, composePath, projectName, false, envFiles...)
+}
+
+// LoadLenient loads for READ-ONLY verbs (status, logs, exec, audit): they
+// never consume interpolated values, so a missing required variable
+// (`${VAR:?...}`) must not block a query — it resolves to the visible
+// placeholder `${VAR}` instead of an error. Deploy-path verbs keep the strict
+// contract via Load.
+func LoadLenient(ctx context.Context, composePath, projectName string, envFiles ...string) (*types.Project, error) {
+	return load(ctx, composePath, projectName, true, envFiles...)
+}
+
+func load(ctx context.Context, composePath, projectName string, lenient bool, envFiles ...string) (*types.Project, error) {
+	fns := []cli.ProjectOptionsFn{
 		cli.WithName(projectName),
 		cli.WithWorkingDirectory(filepath.Dir(composePath)),
 		cli.WithOsEnv,
@@ -42,7 +56,31 @@ func Load(ctx context.Context, composePath, projectName string, envFiles ...stri
 		// file itself is unaffected; env_file references survive and are shipped
 		// as a mode-600 payload file that `docker compose` reads at runtime.
 		cli.WithoutEnvironmentResolution,
-	)
+	}
+	if lenient {
+		fns = append(fns, cli.WithLoadOptions(func(o *loader.Options) {
+			// this mutator also runs for LoadConfigFiles' zero Options (no
+			// interpolation there) — only wrap the real interpolation pass
+			if o.Interpolate == nil {
+				return
+			}
+			// strict substitution first — set vars and :- defaults keep exact
+			// compose semantics; only a string that ERRORS (a ${VAR:?} miss)
+			// retries with missing vars as the visible placeholder ${VAR}
+			o.Interpolate.Substitute = func(s string, m template.Mapping) (string, error) {
+				if out, err := template.Substitute(s, m); err == nil {
+					return out, nil
+				}
+				return template.Substitute(s, func(key string) (string, bool) {
+					if v, ok := m(key); ok {
+						return v, true
+					}
+					return "${" + key + "}", true // non-empty, so :? passes
+				})
+			}
+		}))
+	}
+	opts, err := cli.NewProjectOptions([]string{composePath}, fns...)
 	if err != nil {
 		return nil, err
 	}

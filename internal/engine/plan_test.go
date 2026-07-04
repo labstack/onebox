@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,5 +154,80 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 	}
 	if strings.Contains(lines, "hook bootstrap") {
 		t.Fatalf("bootstrap hook must not appear in a deploy plan:\n%s", lines)
+	}
+}
+
+func TestOnlyReleaseLabelsChanged(t *testing.T) {
+	live := "services:\n  server:\n    labels:\n      yeet.app: monk\n      yeet.release: 20260704-203351-f65179e\n    image: x:1\n"
+	relabel := "services:\n  server:\n    labels:\n      yeet.app: monk\n      yeet.release: 20260704-214927-f65179e\n    image: x:1\n"
+	changed := "services:\n  server:\n    labels:\n      yeet.app: monk\n      yeet.release: 20260704-214927-f65179e\n    image: x:2\n"
+
+	if !OnlyReleaseLabelsChanged(live, relabel) {
+		t.Fatal("label-only change must be detected as content-identical")
+	}
+	if OnlyReleaseLabelsChanged(live, changed) {
+		t.Fatal("an image change must NOT read as label-only")
+	}
+	// first deploy: empty live is a real change
+	if OnlyReleaseLabelsChanged("", relabel) {
+		t.Fatal("empty live vs planned must not read as label-only")
+	}
+	// identical bytes: caller handles diff=="" first, but the helper must not lie
+	if !OnlyReleaseLabelsChanged(live, live) {
+		t.Fatal("identical input is trivially label-invariant")
+	}
+}
+
+func TestPayloadDigests(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("compose.yaml", "services: {}\n") // excluded: compared label-invariantly
+	write("yeet.snapshot.yml", "app: monk\n")
+	write("server/.env", "KEY=one\n")
+
+	d1, err := LocalPayloadDigest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// compose.yaml changes must NOT move the digest
+	write("compose.yaml", "services: {changed: {}}\n")
+	d2, err := LocalPayloadDigest(dir)
+	if err != nil || d1 != d2 {
+		t.Fatalf("compose.yaml must be excluded: %s vs %s (%v)", d1, d2, err)
+	}
+	// payload changes MUST move it
+	write("server/.env", "KEY=two\n")
+	d3, err := LocalPayloadDigest(dir)
+	if err != nil || d3 == d1 {
+		t.Fatalf("payload change must move the digest: %v", err)
+	}
+
+	// the remote side runs the equivalent shell pipeline; assert the command
+	// shape and that the fake's answer is returned verbatim
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "sha256sum") && strings.Contains(cmd, "releases/R7") {
+			return transport.Result{Stdout: "abc123  -\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	got, err := e.RemotePayloadDigest(context.Background(), "R7")
+	if err != nil || got != "abc123" {
+		t.Fatalf("remote digest: %q %v", got, err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, want := range []string{"! -name compose.yaml", "! -name '.job-*-result'", "LC_ALL=C sort"} {
+		if !strings.Contains(seq, want) {
+			t.Fatalf("remote pipeline missing %q:\n%s", want, seq)
+		}
 	}
 }

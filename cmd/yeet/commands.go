@@ -169,16 +169,17 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(planCmd)
 
 	var planFile string
-	var deployYes bool
+	var deployYes, deployRedeploy bool
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, planFile, false, deployYes)
+			return runDeploy(cmd, g, planFile, false, deployYes, deployRedeploy)
 		},
 	}
 	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; no prompt)")
 	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
+	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
 	deployCmd.Flags().BoolVar(&g.Force, "force", false, "break a held deploy lock (prints the holder first)")
 	root.AddCommand(deployCmd)
@@ -216,7 +217,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, "", true, true)
+			return runDeploy(cmd, g, "", true, true, false)
 		},
 	})
 
@@ -306,6 +307,7 @@ type preparedPlan struct {
 	e       *engine.Engine
 	art     *engine.Artifact
 	staging string
+	noop    bool   // content-identical to live: compose (label-invariant) AND payload digest
 	cleanup func() // closes the connection and removes the staging dir
 }
 
@@ -422,8 +424,22 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if diff == "" {
-		u.Infof("rendered compose: no change against live release")
+	noop := false
+	if diff == "" || engine.OnlyReleaseLabelsChanged(liveRedacted, string(renderedRedacted)) {
+		// the compose is content-identical — but env files and secrets ship
+		// BESIDE it, so only a payload digest match proves a true no-op
+		payloadSame := false
+		if hs.CurrentRelease != "" {
+			localD, lerr := engine.LocalPayloadDigest(staging)
+			remoteD, rerr := e.RemotePayloadDigest(ctx, hs.CurrentRelease)
+			payloadSame = lerr == nil && rerr == nil && localD != "" && localD == remoteD
+		}
+		if payloadSame {
+			noop = true
+			u.Infof("no changes — compose (release labels aside) and payload are byte-identical to live")
+		} else {
+			u.Infof("compose unchanged (release labels aside) — but the payload differs (env files / secrets); deploying ships it")
+		}
 	} else {
 		u.Diff(diff)
 		fmt.Fprintln(out)
@@ -472,7 +488,7 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 		HostState:  hs, PinnedImages: pins,
 		RenderedCompose: string(renderedRedacted), Commands: commands,
 	}
-	return &preparedPlan{cfg: cfg, e: e, art: a, staging: staging, cleanup: done}, nil
+	return &preparedPlan{cfg: cfg, e: e, art: a, staging: staging, noop: noop, cleanup: done}, nil
 }
 
 // runPlan writes the plan artifact for the CI/review flow.
@@ -598,7 +614,7 @@ func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id stri
 	return staging, cleanup, nil
 }
 
-func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, yes bool) error {
+func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, yes, redeploy bool) error {
 	ctx := cmd.Context()
 
 	// rollback and the CI-bound `--plan` flow need a connection but not a
@@ -636,6 +652,10 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, ye
 		return err
 	}
 	defer pl.cleanup()
+	if pl.noop && !redeploy {
+		pl.e.Opts.UI.Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", pl.art.HostState.CurrentRelease)
+		return nil
+	}
 	if !yes && !confirm(cmd, "\nApply this plan?") {
 		fmt.Fprintln(cmd.OutOrStdout(), "not applied")
 		return nil

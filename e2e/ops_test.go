@@ -27,8 +27,8 @@ import (
 
 func gate(t *testing.T) {
 	t.Helper()
-	if os.Getenv("YEET_E2E") != "1" {
-		t.Skip("set YEET_E2E=1 (requires local docker)")
+	if os.Getenv("OB_E2E") != "1" {
+		t.Skip("set OB_E2E=1 (requires local docker)")
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
 		t.Skip("docker not available")
@@ -95,17 +95,17 @@ func webContainers(project string) []string {
 func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	gate(t)
 	dir, _ := filepath.Abs("testdata/app")
-	t.Setenv("YEET_BASE_DIR", t.TempDir())
-	composeDown("yeete2e", dir)
-	t.Cleanup(func() { composeDown("yeete2e", dir) })
+	t.Setenv("OB_BASE_DIR", t.TempDir())
+	composeDown("obe2e", dir)
+	t.Cleanup(func() { composeDown("obe2e", dir) })
 
 	// traefik accessory up + healthy, then v1
-	up := exec.Command("docker", "compose", "-p", "yeete2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
+	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("traefik: %v\n%s", err, out)
 	}
-	waitHealthy(t, "yeete2e", "traefik", 60*time.Second)
-	e, id, staging := buildDeploy(t, dir, "yeet.yml", "v1")
+	waitHealthy(t, "obe2e", "traefik", 60*time.Second)
+	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1")
 	if err := e.Deploy(context.Background(), id, staging); err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
@@ -138,11 +138,11 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	}()
 
 	// v2 with a runner that "dies" as soon as the newcomer exists
-	e2, id2, staging2 := buildDeploy(t, dir, "yeet.yml", "v2")
+	e2, id2, staging2 := buildDeploy(t, dir, "ob.yml", "v2")
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		for {
-			if len(webContainers("yeete2e")) >= 2 {
+			if len(webContainers("obe2e")) >= 2 {
 				cancel() // the runner is dead
 				return
 			}
@@ -156,7 +156,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	t.Logf("runner killed as intended: %v", err)
 
 	// resume with a fresh runner
-	e3, _, _ := buildDeploy(t, dir, "yeet.yml", "v2")
+	e3, _, _ := buildDeploy(t, dir, "ob.yml", "v2")
 	if err := e3.Resume(context.Background()); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 		t.Fatalf("zero-downtime violated across crash+resume: %d/%d failed", f, total.Load())
 	}
 	waitBody(t, "http://localhost:18080/", "v2\n", 15*time.Second)
-	if n := len(webContainers("yeete2e")); n != 1 {
+	if n := len(webContainers("obe2e")); n != 1 {
 		t.Fatalf("expected exactly 1 web container after resume, got %d", n)
 	}
 	fmt.Printf("crash+resume proven: %d requests, 0 failures\n", total.Load())
@@ -178,17 +178,17 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 	gate(t)
 	dir, _ := filepath.Abs("testdata/worker")
-	t.Setenv("YEET_BASE_DIR", t.TempDir())
-	composeDown("yeetworker", dir)
-	t.Cleanup(func() { composeDown("yeetworker", dir) })
+	t.Setenv("OB_BASE_DIR", t.TempDir())
+	composeDown("obworker", dir)
+	t.Cleanup(func() { composeDown("obworker", dir) })
 
-	e, id, staging := buildDeploy(t, dir, "yeet.yml", "v1")
+	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1")
 	if err := e.Deploy(context.Background(), id, staging); err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
 	waitBody(t, "http://localhost:18081/", "v1\n", 30*time.Second)
 
-	e2, id2, staging2 := buildDeploy(t, dir, "yeet-broken.yml", "v2")
+	e2, id2, staging2 := buildDeploy(t, dir, "ob-broken.yml", "v2")
 	err := e2.Deploy(context.Background(), id2, staging2)
 	if err == nil || !strings.Contains(err.Error(), "worker") {
 		t.Fatalf("broken worker must halt the release: %v", err)
@@ -200,7 +200,7 @@ func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 
 	// and the journal knows
 	var audit bytes.Buffer
-	e3, _, _ := buildDeploy(t, dir, "yeet.yml", "v1")
+	e3, _, _ := buildDeploy(t, dir, "ob.yml", "v1")
 	e3.Opts.Out = &audit
 	if err := e3.Audit(context.Background(), 5); err != nil {
 		t.Fatal(err)

@@ -39,7 +39,7 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "yeet.yml"))
+	b, err := os.ReadFile(filepath.Join(dir, "ob.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +66,6 @@ func TestInitRefusesOverwrite(t *testing.T) {
 	dir := writeProject(t)
 	out, err := run(t, dir, "init")
 	if err == nil {
-		t.Fatalf("init must refuse to overwrite existing yeet.yml: %s", out)
+		t.Fatalf("init must refuse to overwrite existing ob.yml: %s", out)
 	}
 }

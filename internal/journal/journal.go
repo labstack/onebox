@@ -1,5 +1,5 @@
 // Package journal is the deploy journal (design §05): append-only JSONL at
-// /var/lib/yeet/<app>/journal/<deploy-id>.jsonl, one sync per record. It is
+// /var/lib/ob/<app>/journal/<deploy-id>.jsonl, one sync per record. It is
 // the mechanism behind resume, abort, fencing forensics, and audit — a spec,
 // not a noun.
 package journal

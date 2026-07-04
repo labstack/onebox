@@ -19,7 +19,7 @@ var schemaSrc string
 // user (design §02).
 func ValidateCUE(yamlBytes []byte, filename string) error {
 	ctx := cuecontext.New()
-	schema := ctx.CompileString(schemaSrc, cue.Filename("yeet-schema.cue"))
+	schema := ctx.CompileString(schemaSrc, cue.Filename("ob-schema.cue"))
 	if err := schema.Err(); err != nil {
 		return fmt.Errorf("internal: embedded schema broken: %w", err)
 	}
@@ -46,7 +46,7 @@ func ValidateCUE(yamlBytes []byte, filename string) error {
 // let-bindings, interpolation, and defaults; the engine sees one shape.
 func LoadCUEBytes(b []byte, filename string) (*Config, error) {
 	cctx := cuecontext.New()
-	schema := cctx.CompileString(schemaSrc, cue.Filename("yeet-schema.cue"))
+	schema := cctx.CompileString(schemaSrc, cue.Filename("ob-schema.cue"))
 	if err := schema.Err(); err != nil {
 		return nil, fmt.Errorf("internal: embedded schema broken: %w", err)
 	}

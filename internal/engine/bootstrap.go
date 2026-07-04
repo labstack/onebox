@@ -24,7 +24,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 	}
 
-	// the runtime is yeet's own precondition — the one universal piece of
+	// the runtime is ob's own precondition — the one universal piece of
 	// host provisioning (design §03: bootstrap provisions the runtime).
 	// Everything vendor-flavored (VPNs, NFS, kernel tuning) stays in the
 	// user's bootstrap hook.

@@ -71,7 +71,7 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 			}
 		}
 		switch {
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "yeet.release="):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "ob.release="):
 			return transport.Result{Stdout: strings.Join(news, "\n") + "\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server"):
 			return transport.Result{Stdout: strings.Join(append(append([]string{}, olds...), news...), "\n") + "\n"}, true
@@ -110,7 +110,7 @@ func noSleep(time.Duration) {}
 func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	early, rm, final := -1, -1, -1
@@ -138,14 +138,14 @@ func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 	f := replicaFake(1, []string{"OLD1"}, map[string]string{"OLD1": "server"}, true)
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("resume roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "--scale") || strings.Contains(seq, "pull --quiet") {
 		t.Fatalf("resume must not re-scale or re-pull:\n%s", seq)
 	}
-	if !strings.Contains(seq, "touch /tmp/yeet-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
+	if !strings.Contains(seq, "touch /tmp/ob-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
 		t.Fatalf("resume must continue drain+stop of old:\n%s", seq)
 	}
 }
@@ -153,15 +153,15 @@ func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 func TestRollRoleCommandSequence(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
-		"docker compose -p monk -f '/var/lib/yeet/monk/releases/R1/compose.yaml' pull --quiet server",
+		"docker compose -p monk -f '/var/lib/ob/monk/releases/R1/compose.yaml' pull --quiet server",
 		"up -d --no-deps --no-recreate --scale server=2 server",
 		"docker rename NEW1 server-new",
-		"docker exec OLD1 touch /tmp/yeet-drain",
+		"docker exec OLD1 touch /tmp/ob-drain",
 		"docker stop -t 30 OLD1",
 		"docker rm OLD1",
 	}
@@ -177,7 +177,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 		last = i
 	}
 	// drain MUST precede stop: SIGTERM never races the proxy (rev 5)
-	if strings.Index(seq, "yeet-drain") > strings.Index(seq, "docker stop") {
+	if strings.Index(seq, "ob-drain") > strings.Index(seq, "docker stop") {
 		t.Fatal("drain must happen before stop")
 	}
 }
@@ -216,7 +216,7 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	r.Replicas = 2
 	cfg.Roles["web"] = r
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/yeet/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("2-replica roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")

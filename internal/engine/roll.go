@@ -17,13 +17,13 @@ func (e *Engine) composeCmd(remoteComposePath string) string {
 	return "docker compose -p " + e.Cfg.App + " -f " + q(remoteComposePath)
 }
 
-// newcomerIDs finds containers of a specific release — the yeet.release
-// label render injects is what makes resume possible.
+// newcomerIDs finds containers of a specific release — the ob.release label
+// render injects is what makes resume possible.
 func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
 	res, err := e.T.Run(ctx,
 		"docker ps -q --filter label=com.docker.compose.project="+e.Cfg.App+
 			" --filter label=com.docker.compose.service="+svc+
-			" --filter label=yeet.release="+releaseID)
+			" --filter label=ob.release="+releaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +215,7 @@ func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int)
 	return nil
 }
 
-// renameContainer renames a container, idempotent and best-effort — yeet
+// renameContainer renames a container, idempotent and best-effort — ob
 // identifies containers by label, so a failed rename never affects correctness.
 func (e *Engine) renameContainer(ctx context.Context, id, name string) {
 	if cur, err := e.nameOf(ctx, id); err == nil && cur == name {

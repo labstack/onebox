@@ -13,7 +13,7 @@ import (
 )
 
 // The HOST lock serializes mutations of host-shared state (the managed proxy)
-// across ALL yeet apps on the box — same noclobber + TTL + holder-JSON
+// across ALL ob apps on the box — same noclobber + TTL + holder-JSON
 // protocol as the app lock, at _host/lock. No epoch and no fence: proxy
 // converge is one short idempotent critical section, not a resumable
 // multi-phase deploy. No deadlock with app locks is possible: every acquirer

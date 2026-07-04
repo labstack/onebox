@@ -8,18 +8,26 @@ package ui
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/term"
 )
 
 type UI struct {
 	mu      sync.Mutex
 	out     io.Writer
+	tty     bool
 	verbose bool
 	now     func() time.Time
+
+	// one live spinner line at a time; println clears it so narrative and
+	// spinner never collide, and the spinner repaints on its next tick
+	spinLabel string
+	spinOn    bool
 
 	sHeader lipgloss.Style
 	sOK     lipgloss.Style
@@ -31,8 +39,13 @@ type UI struct {
 
 func New(out io.Writer, verbose bool) *UI {
 	r := lipgloss.NewRenderer(out) // profile per writer: buffer/pipe → plain
+	tty := false
+	if f, ok := out.(*os.File); ok {
+		tty = term.IsTerminal(int(f.Fd()))
+	}
 	return &UI{
 		out:     out,
+		tty:     tty,
 		verbose: verbose,
 		now:     time.Now,
 		sHeader: r.NewStyle().Bold(true),
@@ -47,6 +60,9 @@ func New(out io.Writer, verbose bool) *UI {
 func (u *UI) println(s string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.spinOn {
+		_, _ = io.WriteString(u.out, "\r\x1b[K") // clear the spinner line first
+	}
 	_, _ = io.WriteString(u.out, s+"\n")
 }
 
@@ -149,4 +165,59 @@ func (u *UI) Diff(diff string) {
 			u.println(line)
 		}
 	}
+}
+
+var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// Busy shows a live spinner while a long step runs. On a TTY it repaints one
+// line in place (cleared by any interleaved output, repainted next tick); off
+// a TTY it prints one ⟳ line per distinct label — CI logs stay line-honest.
+// update relabels the spinner; stop erases it.
+func (u *UI) Busy(label string) (update func(string), stop func()) {
+	if !u.tty {
+		u.Begin(label)
+		last := label
+		return func(l string) {
+				if l != last {
+					u.Begin(l)
+					last = l
+				}
+			}, func() {}
+	}
+	u.mu.Lock()
+	u.spinLabel, u.spinOn = label, true
+	u.mu.Unlock()
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		t := time.NewTicker(120 * time.Millisecond)
+		defer t.Stop()
+		i := 0
+		for {
+			select {
+			case <-done:
+				u.mu.Lock()
+				_, _ = io.WriteString(u.out, "\r\x1b[K")
+				u.spinOn = false
+				u.mu.Unlock()
+				return
+			case <-t.C:
+				u.mu.Lock()
+				if u.spinOn {
+					_, _ = io.WriteString(u.out, "\r\x1b[K"+u.sDim.Render(spinFrames[i%len(spinFrames)]+" "+u.spinLabel))
+				}
+				u.mu.Unlock()
+				i++
+			}
+		}
+	}()
+	var once sync.Once
+	return func(l string) {
+			u.mu.Lock()
+			u.spinLabel = l
+			u.mu.Unlock()
+		}, func() {
+			once.Do(func() { close(done); <-finished })
+		}
 }

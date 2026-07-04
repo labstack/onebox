@@ -23,6 +23,7 @@ import (
 	"github.com/labstack/yeet/internal/release"
 	"github.com/labstack/yeet/internal/secrets"
 	"github.com/labstack/yeet/internal/transport"
+	"github.com/labstack/yeet/internal/ui"
 )
 
 func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
@@ -476,12 +477,14 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 	if err != nil {
 		return nil, nil, err
 	}
-	if g.Verbose {
-		t.Logger = func(host, c string) { fmt.Fprintf(cmd.ErrOrStderr(), "[%s] $ %s\n", host, c) }
-	}
+	// one UI instance for narrative AND the (verbose-only, dimmed) command
+	// log, so the two interleave in order on the same stream
+	u := ui.New(cmd.OutOrStdout(), g.Verbose)
+	t.Logger = u.Cmd
 	cfgBytes, _ := os.ReadFile(g.ConfigPath)
 	e := engine.New(cfg, p, t, engine.Options{
 		Verbose:    g.Verbose,
+		UI:         u,
 		Out:        cmd.OutOrStdout(),
 		LocalDir:   filepath.Dir(g.ConfigPath),
 		NoRollback: g.NoRollback,

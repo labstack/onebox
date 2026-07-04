@@ -311,6 +311,11 @@ func (c *Config) Validate() error {
 	if !appName.MatchString(c.App) {
 		return fmt.Errorf("app: %q must match %s", c.App, appName)
 	}
+	if c.App == "yeet-proxy" {
+		// reserved: the managed proxy's compose project — an app with this
+		// name would collide with the proxy's container queries
+		return fmt.Errorf("app: %q is reserved for the managed proxy", c.App)
+	}
 	if c.Compose == "" {
 		return fmt.Errorf("compose: required")
 	}

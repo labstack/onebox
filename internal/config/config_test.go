@@ -277,3 +277,20 @@ proxy: { kind: nginx, managed: true, config: traefik }
 		t.Fatal("expected CUE error: kind must be traefik-docker|none")
 	}
 }
+
+func TestAppNameYeetProxyReserved(t *testing.T) {
+	reserved := `
+app: yeet-proxy
+compose: c.yaml
+environments: { production: { hosts: [h] } }
+roles: { web: { service: server, mode: recreate } }
+order: [web]
+`
+	cfg, err := Load(write(t, reserved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("app name yeet-proxy must be reserved, got %v", err)
+	}
+}

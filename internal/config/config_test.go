@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/yeet/internal/proxy"
 )
 
 const sample = `
@@ -292,5 +294,13 @@ order: [web]
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("app name yeet-proxy must be reserved, got %v", err)
+	}
+}
+
+// Drift guard: Validate's reserved-name literal must track proxy.Project —
+// test-level coupling keeps internal/config a leaf package.
+func TestReservedAppNameTracksProxyProject(t *testing.T) {
+	if proxy.Project != "yeet-proxy" {
+		t.Fatalf("proxy.Project changed to %q — update the reserved-name check in config.Validate", proxy.Project)
 	}
 }

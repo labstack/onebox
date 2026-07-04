@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -177,6 +178,65 @@ const FidelityContract = `Plan fidelity (highest to lowest):
   images       digest-pinned where the registry resolved them; tag-bound otherwise (stated per image)
   choreography the command list below; runtime branches shown as branches
   hooks        verbatim commands — their effects are unplannable`
+
+// releaseLabelLine matches the one rendered line that changes on EVERY
+// deploy by construction: the yeet.release stamp.
+var releaseLabelLine = regexp.MustCompile(`(?m)^\s*yeet\.release: \S+\n?`)
+
+// OnlyReleaseLabelsChanged reports whether two rendered composes are
+// byte-identical once the yeet.release label lines are removed — i.e. the
+// planned deploy has no material change, only a new release identity. Used
+// by the plan to say "nothing changed" plainly instead of encoding it as
+// label-noise hunks. Empty inputs (first deploy) compare honestly: an empty
+// live side is a real change.
+func OnlyReleaseLabelsChanged(live, planned string) bool {
+	return releaseLabelLine.ReplaceAllString(live, "") == releaseLabelLine.ReplaceAllString(planned, "")
+}
+
+// LocalPayloadDigest hashes everything in a staging dir EXCEPT compose.yaml
+// (that's compared label-invariantly) — env files, secrets, snapshot, bind
+// sources. Same line format and ordering as the remote shell pipeline in
+// RemotePayloadDigest, so equal digests mean byte-equal payloads.
+func LocalPayloadDigest(dir string) (string, error) {
+	var lines []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !info.Mode().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "compose.yaml" || (strings.HasPrefix(rel, ".job-") && strings.HasSuffix(rel, "-result")) {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, fmt.Sprintf("%x  ./%s\n", sha256.Sum256(b), rel))
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(lines) // LC_ALL=C sort equivalent: bytewise on the whole line
+	sum := sha256.Sum256([]byte(strings.Join(lines, "")))
+	return fmt.Sprintf("%x", sum), nil
+}
+
+// RemotePayloadDigest computes the same digest over a release dir on the
+// host: per-file sha256 lines, bytewise-sorted, hashed together.
+func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
+	dir := release.PathsFor(e.Cfg.App).Releases + "/" + releaseID
+	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -name '.job-*-result' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
+	res, err := e.T.Run(ctx, cmd)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(res.Stdout), "-")), nil
+}
 
 // deploySeam is the set of hook names a deploy runs (see RunHook calls in
 // deploy.go). Hooks keyed by any other name — e.g. bootstrap — belong to a

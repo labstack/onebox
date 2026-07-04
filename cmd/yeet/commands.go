@@ -17,6 +17,8 @@ import (
 	"github.com/labstack/yeet/internal/compose"
 	"github.com/labstack/yeet/internal/config"
 	"github.com/labstack/yeet/internal/engine"
+	"github.com/labstack/yeet/internal/journal"
+	"github.com/labstack/yeet/internal/notify"
 	"github.com/labstack/yeet/internal/proxy"
 	"github.com/labstack/yeet/internal/release"
 	"github.com/labstack/yeet/internal/secrets"
@@ -230,7 +232,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer cleanup()
-			return e.Resume(cmd.Context())
+			err = e.Resume(cmd.Context())
+			notifyOutcome(cfg, g, "resume", "", err)
+			return err
 		},
 	})
 
@@ -247,7 +251,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer cleanup()
-			return e.Abort(cmd.Context(), g.Force)
+			err = e.Abort(cmd.Context(), g.Force)
+			notifyOutcome(cfg, g, "abort", "", err)
+			return err
 		},
 	}
 	abortCmd.Flags().BoolVar(&g.Force, "force", false, "abort past a closed migration gate (you assert schema compatibility)")
@@ -295,10 +301,33 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 // and staged release, so `plan` (save the artifact) and interactive `deploy`
 // (prompt, then apply the already-staged bytes) share one code path.
 type preparedPlan struct {
+	cfg     *config.Config
 	e       *engine.Engine
 	art     *engine.Artifact
 	staging string
 	cleanup func() // closes the connection and removes the staging dir
+}
+
+// notifyOutcome pushes a mutating verb's outcome to the configured webhook.
+// Fail-open: a webhook problem is a stderr warning, never the verb's result.
+func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, err error) {
+	if cfg == nil || cfg.Notify == nil {
+		return
+	}
+	host := ""
+	if env, eerr := cfg.Environment(g.Env); eerr == nil && len(env.Hosts) == 1 {
+		host = env.Hosts[0]
+	}
+	p := notify.Payload{
+		App: cfg.App, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
+		Status: "ok", Operator: journal.DefaultOperator(),
+	}
+	if err != nil {
+		p.Status, p.Error = "fail", err.Error()
+	}
+	if nerr := notify.Send(cfg.Notify, p); nerr != nil {
+		fmt.Fprintf(os.Stderr, "warn: notify webhook: %v\n", nerr)
+	}
 }
 
 // buildPlan refreshes host state, pins images, stages the release, prints the
@@ -413,7 +442,7 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 		HostState:  hs, PinnedImages: pins,
 		RenderedCompose: string(renderedRedacted), Commands: commands,
 	}
-	return &preparedPlan{e: e, art: a, staging: staging, cleanup: done}, nil
+	return &preparedPlan{cfg: cfg, e: e, art: a, staging: staging, cleanup: done}, nil
 }
 
 // runPlan writes the plan artifact for the CI/review flow.
@@ -553,12 +582,16 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, ye
 		}
 		defer cleanup()
 		if rollback {
-			return e.Rollback(ctx)
+			err := e.Rollback(ctx)
+			notifyOutcome(cfg, g, "rollback", "", err)
+			return err
 		}
 		if err := cfg.RunPreflight(filepath.Dir(g.ConfigPath)); err != nil {
 			return err
 		}
-		return applyPlan(cmd, g, cfg, p, e, planFile)
+		err = applyPlan(cmd, g, cfg, p, e, planFile)
+		notifyOutcome(cfg, g, "deploy", "", err)
+		return err
 	}
 
 	// Interactive deploy: show the plan, confirm, then apply the exact bytes we
@@ -572,7 +605,9 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, ye
 		fmt.Fprintln(cmd.OutOrStdout(), "not applied")
 		return nil
 	}
-	return pl.e.Deploy(ctx, pl.art.ID, pl.staging)
+	err = pl.e.Deploy(ctx, pl.art.ID, pl.staging)
+	notifyOutcome(pl.cfg, g, "deploy", pl.art.ID, err)
+	return err
 }
 
 // confirm reads a yes/no answer; anything but y/yes (incl. EOF on a

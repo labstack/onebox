@@ -95,6 +95,9 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 				return fmt.Errorf("remove proxy dir: %v %s", err, res.Stderr)
 			}
 			e.logf("shared proxy removed (no apps remain)")
+		case removeProxy:
+			// raced: another app registered between the upfront check and now
+			e.logf("--proxy skipped: %s registered with the shared proxy during teardown — it stays", strings.Join(others, ", "))
 		case len(others) == 0:
 			e.logf("shared proxy kept with no registered apps — `yeet destroy --proxy` removes it, or clean %s manually", hp.Dir)
 		}

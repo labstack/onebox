@@ -106,52 +106,70 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	}
 
 	_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "start", Detail: "hash=" + hash})
+	fail := func(detail string) {
+		_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail", Detail: detail})
+	}
 
 	if remoteHash != hash || remoteCompose == "" {
-		// stale config files must not linger in /etc/traefik (upload is
-		// additive tar — it never deletes)
-		if res, err := e.mutate(ctx, "rm -rf "+q(hp.ConfigDir)); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("clear proxy config: %v %s", err, res.Stderr)
+		// Stage remotely, then swap: the live container bind-mounts ConfigDir,
+		// so it must never see a half-written dir for the (seconds-long) upload
+		// window — only for the instant of the rm+mv. Stale files can't linger
+		// either (upload is additive tar; the swap replaces the whole dir).
+		stagedDir := hp.Dir + "/.staged"
+		if res, err := e.mutate(ctx, "rm -rf "+q(stagedDir)); err != nil || res.ExitCode != 0 {
+			return fmt.Errorf("clear proxy staging: %v %s", err, res.Stderr)
 		}
-		if err := e.T.Upload(ctx, staging, hp.Dir); err != nil {
+		if err := e.T.Upload(ctx, staging, stagedDir); err != nil {
 			return err
 		}
-		if res, err := e.mutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash)); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("write proxy hash: %v %s", err, res.Stderr)
+		swap := "rm -rf " + q(hp.ConfigDir) +
+			" && mv " + q(stagedDir+"/config") + " " + q(hp.ConfigDir) +
+			" && mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose) +
+			" && rm -rf " + q(stagedDir)
+		if res, err := e.mutate(ctx, swap); err != nil || res.ExitCode != 0 {
+			return fmt.Errorf("swap proxy config: %v %s", err, res.Stderr)
 		}
 	}
 
-	if composeChanged || len(ids) == 0 {
-		e.logf("proxy: converging (compose %s)", map[bool]string{true: "changed", false: "unchanged, container absent"}[composeChanged])
-		if res, err := e.mutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d"); err != nil {
-			_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail"})
-			return err
-		} else if res.ExitCode != 0 {
-			_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail", Detail: res.Stderr})
-			return fmt.Errorf("proxy up: %s", strings.TrimSpace(res.Stderr))
-		}
-	} else {
-		e.logf("proxy: config-only change — restarting %s", proxy.ContainerName)
-		if res, err := e.mutate(ctx, "docker restart "+proxy.ContainerName); err != nil {
-			_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail"})
-			return err
-		} else if res.ExitCode != 0 {
-			_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail", Detail: res.Stderr})
-			return fmt.Errorf("proxy restart: %s", strings.TrimSpace(res.Stderr))
-		}
+	// Converge by observation, not by disk state (a crash may have left the
+	// files new but the container old): `up -d` recreates only when the
+	// running container diverges from the compose file; if it didn't recreate,
+	// the change was config-only — restart so the static config reloads.
+	before := idSet(ids)
+	e.logf("proxy: converging")
+	if res, err := e.mutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d"); err != nil {
+		fail("")
+		return err
+	} else if res.ExitCode != 0 {
+		fail(res.Stderr)
+		return fmt.Errorf("proxy up: %s", strings.TrimSpace(res.Stderr))
 	}
-
 	ids, err = e.proxyContainerIDs(ctx)
 	if err != nil {
 		return err
 	}
 	if len(ids) == 0 {
-		_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail", Detail: "no container after converge"})
+		fail("no container after converge")
 		return fmt.Errorf("proxy: no container after converge")
 	}
+	if before[ids[0]] {
+		e.logf("proxy: container not recreated — restarting %s to load the new config", proxy.ContainerName)
+		if res, err := e.mutate(ctx, "docker restart "+proxy.ContainerName); err != nil {
+			fail("")
+			return err
+		} else if res.ExitCode != 0 {
+			fail(res.Stderr)
+			return fmt.Errorf("proxy restart: %s", strings.TrimSpace(res.Stderr))
+		}
+	}
 	if err := e.waitHealth(ctx, ids[0], "healthy", 180*time.Second, 5*time.Second); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail", Detail: err.Error()})
+		fail(err.Error())
 		return fmt.Errorf("proxy never became healthy (traefik.yml must enable ping: {}): %w", err)
+	}
+	// the applied-state marker — written ONLY after health confirms, so an
+	// interrupted converge is retried, never mistaken for "unchanged"
+	if res, err := e.mutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash)); err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("write proxy hash: %v %s", err, res.Stderr)
 	}
 	if err := e.registerProxyApp(ctx, hp, hash); err != nil {
 		return err

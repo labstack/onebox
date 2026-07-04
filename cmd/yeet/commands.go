@@ -112,7 +112,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "config",
 		Short: "print the fully-resolved config (defaults + inference applied)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, _, err := loadAll(cmd.Context(), g)
+			// lenient: inference reads structure (ports/healthchecks/names),
+			// never interpolated values — a pure diagnostic like status
+			cfg, _, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}
@@ -178,7 +180,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd.Flags().BoolVar(&g.Force, "force", false, "break a held deploy lock (prints the holder first)")
 	root.AddCommand(deployCmd)
 
-	root.AddCommand(&cobra.Command{
+	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "first contact: dirs + bootstrap hook + registry login + accessories",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -200,7 +202,12 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			defer sc()
 			return e.Bootstrap(ctx, id, staging)
 		},
-	})
+	}
+	// without this, a bootstrap killed while holding the app/host lock can
+	// only be retried after the full lock TTL: each retry mints a fresh
+	// deploy id, so the same-deploy reclaim path never fires
+	bootstrapCmd.Flags().BoolVar(&g.Force, "force", false, "break a held lock left by a crashed bootstrap (prints the holder first)")
+	root.AddCommand(bootstrapCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "rollback",

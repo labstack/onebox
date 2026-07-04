@@ -141,3 +141,41 @@ services:
 		t.Fatalf("mixed string: want %q, got %q", "user:${MISSING_VERSION}@db", got)
 	}
 }
+
+func TestCheckRollableRejectsNetworkModeWithManagedProxy(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "docker-compose.yaml")
+	src := `
+services:
+  server:
+    image: ghcr.io/x/app:v1
+    network_mode: host
+`
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := Load(context.Background(), p, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		App:   "demo",
+		Roles: map[string]config.Role{"server": {Service: "server", Mode: "recreate"}},
+		Proxy: config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"},
+	}
+	errs := CheckRollable(proj, cfg)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "network_mode") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("managed proxy + network_mode must be a validate error, got %v", errs)
+	}
+	// without managed proxy it stays legal
+	cfg.Proxy = config.Proxy{}
+	if errs := CheckRollable(proj, cfg); len(errs) != 0 {
+		t.Fatalf("network_mode without managed proxy must pass: %v", errs)
+	}
+}

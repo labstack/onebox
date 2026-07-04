@@ -182,3 +182,50 @@ func TestDestroyProxyFlagRequiresManaged(t *testing.T) {
 		t.Fatal("--proxy without proxy.managed must error")
 	}
 }
+
+func TestDestroyVolumesOnSweepPath(t *testing.T) {
+	// no release ever activated (bootstrap-only host): teardown sweeps by
+	// label — --volumes must still remove the project's named volumes
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "readlink") {
+			return transport.Result{Stdout: ""}, true // never activated
+		}
+		if strings.Contains(cmd, "docker ps -aq") {
+			return transport.Result{Stdout: "C1\n"}, true
+		}
+		if strings.Contains(cmd, "docker volume ls") {
+			return transport.Result{Stdout: "monk_pgdata\nmonk_cache\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), true, false); err != nil {
+		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker volume rm monk_pgdata monk_cache") {
+		t.Fatalf("--volumes on the sweep path must remove labeled volumes:\n%s", seq)
+	}
+
+	// and WITHOUT --volumes the sweep must not touch them
+	f2 := happyFake()
+	base2 := f2.Dynamic
+	f2.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "readlink") {
+			return transport.Result{Stdout: ""}, true
+		}
+		if strings.Contains(cmd, "docker ps -aq") {
+			return transport.Result{Stdout: "C1\n"}, true
+		}
+		return base2(cmd)
+	}
+	e2 := New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e2.Destroy(context.Background(), false, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(f2.Commands, "\n"), "docker volume") {
+		t.Fatalf("volumes must be kept without --volumes:\n%s", strings.Join(f2.Commands, "\n"))
+	}
+}

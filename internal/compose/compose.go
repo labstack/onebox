@@ -170,13 +170,19 @@ func Classify(p *types.Project, cfg *config.Config) error {
 func CheckRollable(p *types.Project, cfg *config.Config) []error {
 	var errs []error
 	for roleName, r := range cfg.Roles {
-		multi := r.Mode == "rolling" || r.Count() > 1
-		if !multi {
-			continue
-		}
 		svc, ok := p.Services[r.Service]
 		if !ok {
 			continue // Classify reports this
+		}
+		// managed proxy reaches roles via the injected ingress network;
+		// network_mode (host/container:) excludes `networks:` entirely, so
+		// the proxy could never route to this role — refuse at validate
+		if cfg.Proxy.Managed && svc.NetworkMode != "" {
+			errs = append(errs, fmt.Errorf("roles.%s (%q): network_mode %q conflicts with the managed proxy — roles must join the shared ingress network", roleName, r.Service, svc.NetworkMode))
+		}
+		multi := r.Mode == "rolling" || r.Count() > 1
+		if !multi {
+			continue
 		}
 		if svc.ContainerName != "" {
 			errs = append(errs, fmt.Errorf("roles.%s (%q): container_name forbids running multiple copies — remove it", roleName, r.Service))

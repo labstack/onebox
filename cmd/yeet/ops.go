@@ -118,7 +118,10 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "destroy",
 		Short: "tear the app down (typed confirmation; volumes kept unless --volumes)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			// lenient: destroy downs the REMOTE staged compose, never the
+			// local render — teardown must work even after the local env
+			// (versions, rotated secrets) is gone
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return err
 			}

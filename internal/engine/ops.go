@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -61,6 +62,25 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		for _, id := range strings.Fields(ids.Stdout) {
 			if validID.MatchString(id) {
 				_, _ = e.mutate(ctx, "docker rm -f "+id)
+			}
+		}
+		// `docker rm -f` never removes named volumes — honor --volumes here
+		// too (compose labels volumes with the project, same as containers)
+		if removeVolumes {
+			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+e.Cfg.App)
+			if err != nil {
+				return err
+			}
+			var vols []string
+			for _, v := range strings.Fields(res.Stdout) {
+				if volName.MatchString(v) { // volume names are never interpolated unvalidated
+					vols = append(vols, v)
+				}
+			}
+			if len(vols) > 0 {
+				if res, err := e.mutate(ctx, "docker volume rm "+strings.Join(vols, " ")); err != nil || res.ExitCode != 0 {
+					return fmt.Errorf("volume rm: %v %s", err, res.Stderr)
+				}
 			}
 		}
 	}
@@ -180,3 +200,7 @@ func (e *Engine) resolveService(name string) (string, error) {
 	}
 	return "", fmt.Errorf("%q is neither a role nor a compose service", name)
 }
+
+// volName: docker volume names — never interpolated back into a shell
+// command without matching this (injection rule).
+var volName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)

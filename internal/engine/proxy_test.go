@@ -138,14 +138,55 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker restart yeet-proxy") {
-		t.Fatalf("config-only change must restart (static config reloads on restart):\n%s", seq)
-	}
-	if strings.Contains(seq, "up -d") {
-		t.Fatalf("identical compose must not re-up:\n%s", seq)
+	// converge by observation: up -d is the no-op probe (container matches the
+	// compose file, so it doesn't recreate) and the restart loads the config
+	iUp := strings.Index(seq, "up -d")
+	iRestart := strings.Index(seq, "docker restart yeet-proxy")
+	if iUp < 0 || iRestart < 0 || iRestart < iUp {
+		t.Fatalf("config-only change must up (no-op) then restart:\n%s", seq)
 	}
 	if len(f.Uploads) != 1 {
 		t.Fatalf("changed config must upload: %v", f.Uploads)
+	}
+	// the config swap must be staged: never a bare upload into the live dir
+	if !strings.Contains(f.Uploads[0], ".staged") {
+		t.Fatalf("upload must land in the staging dir, not the live one: %v", f.Uploads)
+	}
+	if !strings.Contains(seq, "mv '/var/lib/yeet/_host/proxy/.staged/config' '/var/lib/yeet/_host/proxy/config'") {
+		t.Fatalf("config must swap in atomically:\n%s", seq)
+	}
+	// applied-state marker written ONLY after health confirms — an interrupted
+	// converge must be retried, never mistaken for "unchanged"
+	iHealth := strings.LastIndex(seq, "docker inspect")
+	iHash := strings.Index(seq, "> '/var/lib/yeet/_host/proxy/config.hash'")
+	if iHash < 0 || iHash < iHealth {
+		t.Fatalf("config.hash must be written after the health check:\n%s", seq)
+	}
+}
+
+func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
+	f := &transport.Fake{}
+	e, _, _ := proxyFixture(t, f)
+	rendered := string(proxy.RenderCompose("", "", true))
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/config.hash'") {
+			return transport.Result{Stdout: "deadbeef\n"}, true
+		}
+		if strings.Contains(cmd, "cat '/var/lib/yeet/_host/proxy/compose.yaml'") {
+			return transport.Result{Stdout: rendered}, true
+		}
+		if strings.Contains(cmd, "docker restart") {
+			return transport.Result{ExitCode: 1, Stderr: "cannot restart"}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "R7", false); err == nil {
+		t.Fatal("failed restart must error")
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "> '/var/lib/yeet/_host/proxy/config.hash'") {
+		t.Fatalf("failed converge must NOT record the applied hash (retry depends on it):\n%s", seq)
 	}
 }
 

@@ -130,7 +130,6 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	if err := e.reslot(ctx, svc, releaseID, desired); err != nil {
 		return err
 	}
-	e.logf("%s: %d replica(s) at %s", roleName, desired, releaseID)
 	return nil
 }
 

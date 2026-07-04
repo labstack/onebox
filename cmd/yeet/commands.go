@@ -385,7 +385,9 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 
 	u := e.Opts.UI
 	u.Header("plan " + id)
-	u.Println(u.Dim(engine.FidelityContract))
+	for _, l := range strings.Split(engine.FidelityContract, "\n") {
+		u.Println(u.Dim(l)) // line-by-line: multi-line Render pads a block
+	}
 	fmt.Fprintln(out)
 
 	// rendered diff against the live release — both sides redacted.

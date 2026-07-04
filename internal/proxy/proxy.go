@@ -11,11 +11,17 @@ package proxy
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 )
 
 const (
@@ -95,6 +101,55 @@ networks:
   ingress:
     name: %s
 `, ContainerName, image, envFile, network))
+}
+
+// CertExpiry is one issued certificate's identity and lifetime — the ONLY
+// data status extracts from acme.json (which also holds private keys; those
+// never leave the parse).
+type CertExpiry struct {
+	Domain   string
+	NotAfter time.Time
+}
+
+// CertExpiries parses a lego/Traefik acme.json store and returns each
+// certificate's main domain and expiry. An empty store (fresh acme.json is an
+// empty file) returns nothing; malformed JSON errors so status can say so.
+func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
+	if len(strings.TrimSpace(string(acmeJSON))) == 0 {
+		return nil, nil
+	}
+	// lego layout: {"<resolver>": {"Certificates": [{"domain": {"main": ...},
+	// "certificate": "<base64 PEM chain>", ...}]}}
+	var store map[string]struct {
+		Certificates []struct {
+			Domain struct {
+				Main string `json:"main"`
+			} `json:"domain"`
+			Certificate string `json:"certificate"`
+		} `json:"Certificates"`
+	}
+	if err := json.Unmarshal(acmeJSON, &store); err != nil {
+		return nil, fmt.Errorf("acme store: %w", err)
+	}
+	var out []CertExpiry
+	for _, resolver := range store {
+		for _, c := range resolver.Certificates {
+			pemChain, err := base64.StdEncoding.DecodeString(c.Certificate)
+			if err != nil {
+				continue // account blocks etc. — not a certificate
+			}
+			block, _ := pem.Decode(pemChain)
+			if block == nil || block.Type != "CERTIFICATE" {
+				continue
+			}
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				continue
+			}
+			out = append(out, CertExpiry{Domain: c.Domain.Main, NotAfter: cert.NotAfter})
+		}
+	}
+	return out, nil
 }
 
 // Stage builds the local staging payload for the host proxy: compose.yaml +

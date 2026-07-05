@@ -47,16 +47,16 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "2.29.1\n"}, true
 		case strings.Contains(cmd, "df -Pk"):
 			return transport.Result{Stdout: "4194304\n"}, true
-		case strings.Contains(cmd, "service=postgres"):
+		case strings.Contains(cmd, "service='postgres'"):
 			return transport.Result{Stdout: "PG1\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'") && strings.Contains(cmd, "ob.release="):
 			if scaled {
 				return transport.Result{Stdout: "NEW1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server"):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'"):
 			var ids []string
 			if !oldGone {
 				ids = append(ids, "OLD1")
@@ -78,9 +78,9 @@ func happyFake() *transport.Fake {
 				return transport.Result{Stdout: "unhealthy\n"}, true
 			}
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "service=worker") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release="):
 			return transport.Result{Stdout: "W1\n"}, true
-		case strings.Contains(cmd, "service=worker"):
+		case strings.Contains(cmd, "service='worker'"):
 			return transport.Result{Stdout: "W1\n"}, true
 		case strings.Contains(cmd, "{{.State.Status}}"):
 			return transport.Result{Stdout: "running\n"}, true

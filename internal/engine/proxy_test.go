@@ -52,7 +52,7 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 		return false
 	}
 	return func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project=ob-proxy") {
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project='ob-proxy'") {
 			if preRunning || upRan() {
 				return transport.Result{Stdout: "PX1\n"}, true
 			}

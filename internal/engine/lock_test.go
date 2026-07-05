@@ -216,8 +216,8 @@ func TestLockAgeCmdIsPortable(t *testing.T) {
 	for _, want := range []string{
 		"stat -c %Y '/var/lib/ob/monk/lock'", // GNU
 		"stat -f %m '/var/lib/ob/monk/lock'", // BSD/macOS fallback
-		"[ ! -e '/var/lib/ob/monk/lock' ]",   // absent → take over
-		"else echo 0; fi",                    // present-but-unreadable → fail closed
+		"[ -e '/var/lib/ob/monk/lock' ] || [ -L '/var/lib/ob/monk/lock' ]", // present → refuse (echo 0)
+		"else date +%s; fi",                                                // truly absent → take over
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lockAgeCmd missing %q:\n%s", want, got)
@@ -225,13 +225,13 @@ func TestLockAgeCmdIsPortable(t *testing.T) {
 	}
 }
 
-// lockAgeCmd must fail CLOSED: an absent lock reads as maximally old (take
-// over), a present one reads as young. Executed over the real shell so the
-// branch logic — not just the string — is what's verified.
+// lockAgeCmd fails CLOSED, executed over the real shell so branch LOGIC (not the
+// string) is verified: absent → maximally old (take over), present+readable →
+// young, present-but-unstattable (a dangling symlink) → 0 so the caller refuses.
 func TestLockAgeCmdBehavior(t *testing.T) {
-	lock := t.TempDir() + "/lock"
-	age := func() int {
-		res, err := transport.NewLocal().Run(context.Background(), lockAgeCmd(q(lock)))
+	dir := t.TempDir()
+	age := func(path string) int {
+		res, err := transport.NewLocal().Run(context.Background(), lockAgeCmd(q(path)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -241,14 +241,26 @@ func TestLockAgeCmdBehavior(t *testing.T) {
 		}
 		return n
 	}
-	if a := age(); a < 1_000_000 { // absent → ~current epoch, well past any TTL
+
+	lock := dir + "/lock"
+	if a := age(lock); a < 1_000_000 { // absent → ~current epoch, well past any TTL
 		t.Fatalf("absent lock must read as maximally old, got %d", a)
 	}
 	if err := os.WriteFile(lock, []byte("held"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if a := age(); a < 0 || a > 60 { // just created → tiny
+	if a := age(lock); a < 0 || a > 60 { // just created → tiny
 		t.Fatalf("fresh lock must read young, got %d", a)
+	}
+
+	// A dangling symlink is present (`-L`) but unstattable (stat follows it and
+	// fails) — the fail-closed branch. Age 0 → caller refuses, not take-over.
+	link := dir + "/link"
+	if err := os.Symlink(dir+"/nonexistent-target", link); err != nil {
+		t.Fatal(err)
+	}
+	if a := age(link); a != 0 {
+		t.Fatalf("present-but-unstattable lock must fail closed (age 0), got %d", a)
 	}
 }
 

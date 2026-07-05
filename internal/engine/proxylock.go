@@ -45,7 +45,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 		}
 		var holder lockMeta
 		_ = json.Unmarshal([]byte(strings.TrimSpace(hres.Stdout)), &holder)
-		ares, err := e.T.Run(ctx, "echo $(( $(date +%s) - $(stat -c %Y "+q(hp.Lock)+" 2>/dev/null || echo 0) ))")
+		ares, err := e.T.Run(ctx, lockAgeCmd(q(hp.Lock)))
 		if err != nil {
 			return err
 		}

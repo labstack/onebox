@@ -38,22 +38,31 @@ func (e *Engine) fencePath() string { return e.base() + "/fence" }
 // lock refuses (unless force, which prints the holder + its journal tail —
 // the operator sees who they are trampling).
 func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (int, error) {
-	res, err := e.T.Run(ctx, "mkdir -p "+q(e.base())+" && cat "+q(e.epochPath())+" 2>/dev/null || echo 0")
-	if err != nil {
+	if res, err := e.T.Run(ctx, "mkdir -p "+q(e.base())); err != nil {
 		return 0, err
+	} else if res.ExitCode != 0 {
+		return 0, fmt.Errorf("mkdir %s: %s", e.base(), res.Stderr)
 	}
-	prev, _ := strconv.Atoi(strings.TrimSpace(res.Stdout))
-	epoch := prev + 1
-
-	meta := lockMeta{
-		Owner: journal.DefaultOperator(), DeployID: deployID, Epoch: epoch,
-		TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339),
-	}
-	b, _ := json.Marshal(meta)
-	// noclobber: the remote shell refuses the redirect if the lock exists
-	create := "set -C; echo " + q(string(b)) + " > " + q(e.lockPath()) + " 2>/dev/null"
 
 	for attempt := 0; attempt < 2; attempt++ {
+		// Read the epoch fresh on every attempt. After breaking a stale lock the
+		// previous winner may have advanced it; fencing relies on a strictly
+		// increasing epoch, so a value read once before the loop could collide.
+		eres, err := e.T.Run(ctx, "cat "+q(e.epochPath())+" 2>/dev/null || echo 0")
+		if err != nil {
+			return 0, err
+		}
+		prev, _ := strconv.Atoi(strings.TrimSpace(eres.Stdout))
+		epoch := prev + 1
+
+		meta := lockMeta{
+			Owner: journal.DefaultOperator(), DeployID: deployID, Epoch: epoch,
+			TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		b, _ := json.Marshal(meta)
+		// noclobber: the remote shell refuses the redirect if the lock exists
+		create := "set -C; echo " + q(string(b)) + " > " + q(e.lockPath()) + " 2>/dev/null"
+
 		res, err := e.T.Run(ctx, create)
 		if err != nil {
 			return 0, err
@@ -74,7 +83,7 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		}
 		var holder lockMeta
 		_ = json.Unmarshal([]byte(strings.TrimSpace(hres.Stdout)), &holder)
-		ares, err := e.T.Run(ctx, "echo $(( $(date +%s) - $(stat -c %Y "+q(e.lockPath())+" 2>/dev/null || echo 0) ))")
+		ares, err := e.T.Run(ctx, lockAgeCmd(q(e.lockPath())))
 		if err != nil {
 			return 0, err
 		}
@@ -116,6 +125,14 @@ func (e *Engine) lockTTL() time.Duration {
 	return 10 * time.Minute
 }
 
+// lockAgeCmd computes a lock file's age in seconds. `stat -c %Y` is GNU; the
+// `stat -f %m` fallback keeps this correct on BSD/macOS hosts (the e2e suite
+// drives a macOS box through the Local transport). Missing file → age 0.
+// qpath must already be shell-quoted by the caller.
+func lockAgeCmd(qpath string) string {
+	return "echo $(( $(date +%s) - $(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null || echo 0) ))"
+}
+
 // StartHeartbeat keeps the lock fresh while the deploy runs; a crashed
 // runner stops touching it and the TTL frees the lock.
 func (e *Engine) StartHeartbeat(ctx context.Context) (stop func()) {
@@ -130,7 +147,12 @@ func (e *Engine) StartHeartbeat(ctx context.Context) (stop func()) {
 			case <-hctx.Done():
 				return
 			case <-t.C:
-				_, _ = e.T.Run(hctx, "touch "+q(e.lockPath()))
+				// `touch -c` refreshes the mtime but never CREATES the file, so a
+				// lock another runner deleted on takeover is never resurrected. The
+				// fence guard stops the heartbeat entirely once a newer deploy has
+				// re-fenced us — a fenced zombie must not touch host state.
+				refresh := `[ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ] && touch -c ` + q(e.lockPath())
+				_, _ = e.T.Run(hctx, refresh)
 			}
 		}
 	}()

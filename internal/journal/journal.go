@@ -70,9 +70,7 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 		return err
 	}
 	f := file(w.App, w.DeployID)
-	// `sync <file>` is GNU coreutils; BSD/macOS `sync` takes no operand, so fall
-	// back to a full `sync` there (the e2e suite writes journals on a macOS host).
-	cmd := "mkdir -p " + q(dir(w.App)) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && { sync " + q(f) + " 2>/dev/null || sync; }"
+	cmd := "mkdir -p " + q(dir(w.App)) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
 	res, err := w.T.Run(ctx, cmd)
 	if err != nil {
 		return err

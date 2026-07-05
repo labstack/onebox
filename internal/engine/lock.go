@@ -45,9 +45,10 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
-		// Read the epoch fresh on every attempt. After breaking a stale lock the
-		// previous winner may have advanced it; fencing relies on a strictly
-		// increasing epoch, so a value read once before the loop could collide.
+		// Read the epoch fresh on every attempt. A concurrent acquirer may have
+		// persisted a higher epoch between our attempts; fencing relies on a
+		// strictly increasing epoch, so a value read once before the loop could
+		// be reused and collide.
 		eres, err := e.T.Run(ctx, "cat "+q(e.epochPath())+" 2>/dev/null || echo 0")
 		if err != nil {
 			return 0, err
@@ -127,7 +128,11 @@ func (e *Engine) lockTTL() time.Duration {
 
 // lockAgeCmd computes a lock file's age in seconds. `stat -c %Y` is GNU; the
 // `stat -f %m` fallback keeps this correct on BSD/macOS hosts (the e2e suite
-// drives a macOS box through the Local transport). Missing file → age 0.
+// drives a macOS box through the Local transport). A missing or unreadable
+// mtime falls through to 0, so age resolves to ~now — the lock reads as
+// maximally old and the caller treats it as expired (fail-open). That is
+// acceptable in the single-host model: the age is only ever checked on a lock
+// we just confirmed exists, so "present but unstattable" is not a live path.
 // qpath must already be shell-quoted by the caller.
 func lockAgeCmd(qpath string) string {
 	return "echo $(( $(date +%s) - $(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null || echo 0) ))"
@@ -147,16 +152,28 @@ func (e *Engine) StartHeartbeat(ctx context.Context) (stop func()) {
 			case <-hctx.Done():
 				return
 			case <-t.C:
-				// `touch -c` refreshes the mtime but never CREATES the file, so a
-				// lock another runner deleted on takeover is never resurrected. The
-				// fence guard stops the heartbeat entirely once a newer deploy has
-				// re-fenced us — a fenced zombie must not touch host state.
-				refresh := `[ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ] && touch -c ` + q(e.lockPath())
-				_, _ = e.T.Run(hctx, refresh)
+				// A no-op (exit 3, fence no longer ours) is expected; any OTHER
+				// non-zero is a genuine refresh failure (transport down, EACCES,
+				// full disk) that leaves the lock silently going stale — surface it
+				// so it doesn't resurface later as a baffling ErrFenced. A transport
+				// error during shutdown (hctx cancelled) is not a failure.
+				if res, err := e.refreshLock(hctx); err == nil && res.ExitCode != 0 && res.ExitCode != 3 {
+					e.warnf("heartbeat: lock refresh failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+				}
 			}
 		}
 	}()
 	return func() { cancel(); <-done }
+}
+
+// refreshLock refreshes the lock's mtime, but only while the fence still names
+// this runner and only if the lock already exists — `touch -c` never creates,
+// so a lock another runner deleted on takeover is never resurrected. Exit 3
+// means the fence is no longer ours (a newer deploy re-fenced us): a no-op, not
+// a failure.
+func (e *Engine) refreshLock(ctx context.Context) (transport.Result, error) {
+	cmd := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then touch -c ` + q(e.lockPath()) + `; else exit 3; fi`
+	return e.T.Run(ctx, cmd)
 }
 
 // WriteFence stamps the host with this deploy's identity. Every mutating

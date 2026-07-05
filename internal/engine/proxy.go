@@ -219,7 +219,7 @@ func (e *Engine) registerProxyApp(ctx context.Context, hp proxy.Paths, hash stri
 }
 
 func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {
-	res, err := e.T.Run(ctx, "docker ps -q --filter label=com.docker.compose.project="+proxy.Project)
+	res, err := e.T.Run(ctx, "docker ps -q --filter label=com.docker.compose.project="+q(proxy.Project))
 	if err != nil {
 		return nil, err
 	}

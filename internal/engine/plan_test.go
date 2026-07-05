@@ -18,11 +18,11 @@ func planFake() *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R0\n"}, true
-		case strings.Contains(cmd, "service=server") && strings.Contains(cmd, "docker ps"):
+		case strings.Contains(cmd, "service='server'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "OLD1\n"}, true
-		case strings.Contains(cmd, "service=worker") && strings.Contains(cmd, "docker ps"):
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "W1\n"}, true
-		case strings.Contains(cmd, "service=migrate") && strings.Contains(cmd, "docker ps"):
+		case strings.Contains(cmd, "service='migrate'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "\n"}, true
 		case strings.Contains(cmd, "{{.Image}}"):
 			return transport.Result{Stdout: "sha256:aaaa\n"}, true

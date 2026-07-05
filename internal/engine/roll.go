@@ -21,9 +21,9 @@ func (e *Engine) composeCmd(remoteComposePath string) string {
 // render injects is what makes resume possible.
 func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+e.Cfg.App+
-			" --filter label=com.docker.compose.service="+svc+
-			" --filter label=ob.release="+releaseID)
+		"docker ps -q --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+			" --filter label=com.docker.compose.service="+q(svc)+
+			" --filter label=ob.release="+q(releaseID))
 	if err != nil {
 		return nil, err
 	}

@@ -126,16 +126,23 @@ func (e *Engine) lockTTL() time.Duration {
 	return 10 * time.Minute
 }
 
-// lockAgeCmd computes a lock file's age in seconds. `stat -c %Y` is GNU; the
-// `stat -f %m` fallback keeps this correct on BSD/macOS hosts (the e2e suite
-// drives a macOS box through the Local transport). A missing or unreadable
-// mtime falls through to 0, so age resolves to ~now — the lock reads as
-// maximally old and the caller treats it as expired (fail-open). That is
-// acceptable in the single-host model: the age is only ever checked on a lock
-// we just confirmed exists, so "present but unstattable" is not a live path.
-// qpath must already be shell-quoted by the caller.
+// lockAgeCmd prints a lock file's age in seconds. It is deliberately structured
+// so the caller (age > ttl → take over, else refuse) fails CLOSED on ambiguity:
+//
+//   - absent            → maximal age (`date +%s`) → reads as expired, take over
+//     (the holder released it between our failed create and this check)
+//   - present, readable → now − mtime, the real age
+//   - present, UNreadable → age 0 → caller refuses; we won't break a lock we
+//     can't prove is stale (EACCES on a shared host, a torn stat, etc.)
+//
+// `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
+// drives a macOS box through the Local transport). qpath must already be
+// shell-quoted by the caller. `--force` still breaks a lock in any of these
+// states (the force branch precedes the refuse default).
 func lockAgeCmd(qpath string) string {
-	return "echo $(( $(date +%s) - $(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null || echo 0) ))"
+	return "if [ ! -e " + qpath + " ]; then date +%s; " +
+		"elif M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
+		"else echo 0; fi"
 }
 
 // StartHeartbeat keeps the lock fresh while the deploy runs; a crashed

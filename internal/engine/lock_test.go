@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -215,11 +216,39 @@ func TestLockAgeCmdIsPortable(t *testing.T) {
 	for _, want := range []string{
 		"stat -c %Y '/var/lib/ob/monk/lock'", // GNU
 		"stat -f %m '/var/lib/ob/monk/lock'", // BSD/macOS fallback
-		"|| echo 0",                          // missing-file floor
+		"[ ! -e '/var/lib/ob/monk/lock' ]",   // absent → take over
+		"else echo 0; fi",                    // present-but-unreadable → fail closed
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lockAgeCmd missing %q:\n%s", want, got)
 		}
+	}
+}
+
+// lockAgeCmd must fail CLOSED: an absent lock reads as maximally old (take
+// over), a present one reads as young. Executed over the real shell so the
+// branch logic — not just the string — is what's verified.
+func TestLockAgeCmdBehavior(t *testing.T) {
+	lock := t.TempDir() + "/lock"
+	age := func() int {
+		res, err := transport.NewLocal().Run(context.Background(), lockAgeCmd(q(lock)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+		if err != nil {
+			t.Fatalf("non-numeric age %q", res.Stdout)
+		}
+		return n
+	}
+	if a := age(); a < 1_000_000 { // absent → ~current epoch, well past any TTL
+		t.Fatalf("absent lock must read as maximally old, got %d", a)
+	}
+	if err := os.WriteFile(lock, []byte("held"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if a := age(); a < 0 || a > 60 { // just created → tiny
+		t.Fatalf("fresh lock must read young, got %d", a)
 	}
 }
 

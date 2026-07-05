@@ -55,7 +55,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 	} else {
 		// no release ever activated: sweep by project label
-		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+e.Cfg.App)
+		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.Cfg.App))
 		if err != nil {
 			return err
 		}
@@ -67,7 +67,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// `docker rm -f` never removes named volumes — honor --volumes here
 		// too (compose labels volumes with the project, same as containers)
 		if removeVolumes {
-			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+e.Cfg.App)
+			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.Cfg.App))
 			if err != nil {
 				return err
 			}

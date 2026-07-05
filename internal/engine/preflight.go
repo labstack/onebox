@@ -84,8 +84,8 @@ func (e *Engine) containerID(ctx context.Context, svc string) (string, error) {
 
 func (e *Engine) containerIDs(ctx context.Context, svc string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+e.Cfg.App+
-			" --filter label=com.docker.compose.service="+svc)
+		"docker ps -q --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+			" --filter label=com.docker.compose.service="+q(svc))
 	if err != nil {
 		return nil, err
 	}

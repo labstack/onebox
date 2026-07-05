@@ -126,23 +126,32 @@ func (e *Engine) lockTTL() time.Duration {
 	return 10 * time.Minute
 }
 
-// lockAgeCmd prints a lock file's age in seconds. It is deliberately structured
-// so the caller (age > ttl → take over, else refuse) fails CLOSED on ambiguity:
+// lockAgeCmd prints a lock file's age in seconds, structured so BOTH callers
+// (AcquireLock and acquireHostLock: age > ttl → take over, else refuse) fail
+// CLOSED wherever the shell can observe the lock:
 //
-//   - absent            → maximal age (`date +%s`) → reads as expired, take over
-//     (the holder released it between our failed create and this check)
-//   - present, readable → now − mtime, the real age
-//   - present, UNreadable → age 0 → caller refuses; we won't break a lock we
-//     can't prove is stale (EACCES on a shared host, a torn stat, etc.)
+//   - stat succeeds       → now − mtime, the real age
+//   - stat fails, present  → age 0 → caller refuses; we won't break another
+//     holder's lock we can't read (a dangling symlink, a torn/ESTALE stat)
+//   - truly absent         → maximal age (`date +%s`) → take over (the holder
+//     released it between our failed create and this check)
+//
+// Stat first, so a present-but-unstattable lock is caught by `-e`/`-L` and
+// refused rather than misread as absent. Limit: if the lock's PARENT dir is
+// unsearchable, neither stat nor `-e`/`-L` can observe the lock, so it reads as
+// absent and is taken over (fail open). Not a live path — the runner owns
+// /var/lib/ob/<app> (Preflight asserts it writable) — so the guarantee is "fail
+// closed while the lock is observable", not absolute.
 //
 // `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
 // drives a macOS box through the Local transport). qpath must already be
-// shell-quoted by the caller. `--force` still breaks a lock in any of these
-// states (the force branch precedes the refuse default).
+// shell-quoted. `--force` breaks the lock in every state (force precedes the
+// refuse default in both callers); in AcquireLock a same-deploy holder is
+// reclaimed rather than refused — breaking your own lock is authorized.
 func lockAgeCmd(qpath string) string {
-	return "if [ ! -e " + qpath + " ]; then date +%s; " +
-		"elif M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
-		"else echo 0; fi"
+	return "if M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
+		"elif [ -e " + qpath + " ] || [ -L " + qpath + " ]; then echo 0; " +
+		"else date +%s; fi"
 }
 
 // StartHeartbeat keeps the lock fresh while the deploy runs; a crashed

@@ -105,7 +105,7 @@ func TestAbortRefusesClosedGate(t *testing.T) {
 
 func TestAbortReplaysPreviousRelease(t *testing.T) {
 	f := interruptedFake("changed=false")
-	// abort path: web rolled to R1 — its container carries ob.release=R1;
+	// abort path: web rolled to R1 — its container carries ob.release='R1';
 	// replaying R0 must drain it. The fake: newcomer query for R0 returns the
 	// R0 container only after R0's up --scale ran.
 	base := f.Dynamic
@@ -126,7 +126,7 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 		return false
 	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ob.release=R0") && strings.Contains(cmd, "service=server") {
+		if strings.Contains(cmd, "ob.release='R0'") && strings.Contains(cmd, "service='server'") {
 			if r0Scaled() {
 				return transport.Result{Stdout: "PREV1\n"}, true
 			}
@@ -134,7 +134,7 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 		}
 		// live server set: OLD1 (the R1 container being replaced) until removed,
 		// plus the R0 newcomer PREV1 once the R0 scale ran.
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server") && !strings.Contains(cmd, "ob.release=") {
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'") && !strings.Contains(cmd, "ob.release=") {
 			var ids []string
 			if !oldGone() {
 				ids = append(ids, "OLD1")
@@ -144,10 +144,10 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 			}
 			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
 		}
-		if strings.Contains(cmd, "ob.release=R0") && strings.Contains(cmd, "service=worker") {
+		if strings.Contains(cmd, "ob.release='R0'") && strings.Contains(cmd, "service='worker'") {
 			return transport.Result{Stdout: ""}, true // worker never completed → recreate from R0
 		}
-		if strings.Contains(cmd, "ob.release=R1") {
+		if strings.Contains(cmd, "ob.release='R1'") {
 			return transport.Result{Stdout: ""}, true // straggler sweep finds none
 		}
 		if strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PREV1") {

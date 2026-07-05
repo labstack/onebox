@@ -73,7 +73,7 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 		switch {
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "ob.release="):
 			return transport.Result{Stdout: strings.Join(news, "\n") + "\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service=server"):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'"):
 			return transport.Result{Stdout: strings.Join(append(append([]string{}, olds...), news...), "\n") + "\n"}, true
 		case strings.Contains(cmd, "{{.Name}}"):
 			id := lastField(cmd)

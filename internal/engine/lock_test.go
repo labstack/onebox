@@ -175,11 +175,18 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 func TestHeartbeatTouchesLock(t *testing.T) {
 	f := &transport.Fake{}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LockTTL: 200 * time.Millisecond})
+	_ = e.WriteFence(context.Background(), "D1", 1)
 	stop := e.StartHeartbeat(context.Background())
 	time.Sleep(90 * time.Millisecond) // > 2 intervals at TTL/10
 	stop()
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "touch '/var/lib/ob/monk/lock'") {
+	// `touch -c` refreshes the mtime but never creates the file — a lock another
+	// runner deleted on takeover must not be resurrected.
+	if !strings.Contains(seq, "touch -c '/var/lib/ob/monk/lock'") {
 		t.Fatalf("heartbeat never touched lock:\n%s", seq)
+	}
+	// and it only refreshes while the fence still names this runner.
+	if !strings.Contains(seq, "cat '/var/lib/ob/monk/fence'") {
+		t.Fatalf("heartbeat must be fence-guarded:\n%s", seq)
 	}
 }

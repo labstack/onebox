@@ -198,6 +198,33 @@ func TestReplicasParseAndCount(t *testing.T) {
 	}
 }
 
+func TestStopGraceSeconds(t *testing.T) {
+	cases := []struct {
+		drain *Drain
+		want  int
+	}{
+		{nil, 30},      // unset → conservative default
+		{&Drain{}, 30}, // present but no grace → default
+		{&Drain{Grace: Duration(8 * time.Second)}, 8},        // configured
+		{&Drain{Grace: Duration(500 * time.Millisecond)}, 1}, // sub-second rounds UP, never 0 (immediate SIGKILL)
+		{&Drain{Grace: Duration(1500 * time.Millisecond)}, 2},
+	}
+	for _, c := range cases {
+		if got := (Role{Drain: c.drain}).StopGraceSeconds(); got != c.want {
+			t.Errorf("StopGraceSeconds(%+v) = %d, want %d", c.drain, got, c.want)
+		}
+	}
+}
+
+func TestHealthRetries(t *testing.T) {
+	if got := (Role{}).HealthRetries(); got != 3 { // unset → Docker's default
+		t.Errorf("default HealthRetries = %d, want 3", got)
+	}
+	if got := (Role{Ready: &Ready{Retries: 1}}).HealthRetries(); got != 1 {
+		t.Errorf("configured HealthRetries = %d, want 1", got)
+	}
+}
+
 func TestProxyManaged(t *testing.T) {
 	managed := `
 app: monk

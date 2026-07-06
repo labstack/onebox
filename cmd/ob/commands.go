@@ -3,10 +3,13 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -278,6 +281,21 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		},
 	})
 
+	var lsHost string
+	var lsJSON, lsFailOnDrift, lsIncomplete bool
+	lsCmd := &cobra.Command{
+		Use:   "ls",
+		Short: "every app on the host — release, health, drift (host-wide, config-free)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runList(cmd, g, lsHost, lsJSON, lsFailOnDrift, lsIncomplete)
+		},
+	}
+	lsCmd.Flags().StringVar(&lsHost, "host", "", "connect directly to [user@]host[:port] instead of using an ob.yml")
+	lsCmd.Flags().BoolVar(&lsJSON, "json", false, "emit JSON (apps sorted alphabetically)")
+	lsCmd.Flags().BoolVar(&lsFailOnDrift, "fail-on-drift", false, "exit non-zero if any app is not running or diverged")
+	lsCmd.Flags().BoolVar(&lsIncomplete, "incomplete", false, "also flag apps with an unfinished deploy (one extra host read)")
+	root.AddCommand(lsCmd)
+
 	var auditN int
 	auditCmd := &cobra.Command{
 		Use:   "audit",
@@ -541,6 +559,132 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 		ConfigHash: engine.HashBytes(cfgBytes),
 	})
 	return e, func() { t.Close() }, nil
+}
+
+// runList drives `ob ls` — the host-wide overview. It resolves a transport from
+// either --host or the ambient ob.yml, then renders engine.HostList.
+func runList(cmd *cobra.Command, g *globalFlags, host string, jsonOut, failOnDrift, incomplete bool) error {
+	ctx := cmd.Context()
+	// In --json mode the spinner and any connect narrative must not touch
+	// stdout — that stream is the machine payload (`ob ls --json | jq`). Route
+	// the human UI to stderr so progress still shows on a slow link without
+	// corrupting the JSON.
+	u := newUI(cmd, g)
+	if jsonOut {
+		u = ui.New(cmd.ErrOrStderr(), g.Verbose)
+	}
+	t, closeT, err := dialHost(ctx, cmd, g, host, u)
+	if err != nil {
+		return err
+	}
+	defer closeT()
+
+	ov, err := engine.HostList(ctx, t, u, engine.ListOptions{Incomplete: incomplete})
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		return writeHostJSON(cmd.OutOrStdout(), ov)
+	}
+	renderHostList(u, cmd.OutOrStdout(), t.Host(), ov)
+	if failOnDrift && ov.HasProblems() {
+		return fmt.Errorf("ob ls: drift detected (--fail-on-drift)")
+	}
+	return nil
+}
+
+// dialHost opens the transport for a host-level command: --host connects
+// directly (no ob.yml), otherwise the ambient config's env host is used.
+func dialHost(ctx context.Context, cmd *cobra.Command, g *globalFlags, host string, u *ui.UI) (transport.Transport, func(), error) {
+	if host != "" {
+		s, err := transport.NewSSH(host)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.Logger = u.Cmd
+		return s, func() { s.Close() }, nil
+	}
+	cfg, p, err := loadAllLenient(ctx, g)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ob ls needs an ob.yml for the host, or --host [user@]host: %w", err)
+	}
+	e, cleanup, err := connect(cmd, g, cfg, p, u)
+	if err != nil {
+		return nil, nil, err
+	}
+	return e.T, cleanup, nil
+}
+
+func renderHostList(u *ui.UI, w io.Writer, host string, ov engine.HostOverview) {
+	if ov.Proxy.Managed {
+		switch {
+		case !ov.Proxy.Running:
+			u.Println(fmt.Sprintf("proxy %-10s %s", proxy.ContainerName, u.Warn("NOT RUNNING ⚠ — `ob proxy apply`")))
+		case ov.Proxy.Health != "healthy":
+			u.Println(fmt.Sprintf("proxy %-10s %s", proxy.ContainerName, u.Warn(ov.Proxy.Health)))
+		default:
+			u.Println(fmt.Sprintf("proxy %-10s %s", proxy.ContainerName, u.OK(ov.Proxy.Health)))
+		}
+		fmt.Fprintln(w)
+	}
+	if len(ov.Apps) == 0 {
+		fmt.Fprintf(w, "no apps deployed on %s\n", host)
+		return
+	}
+	u.Println(u.Bold(fmt.Sprintf("%-14s %-28s %-8s %-12s %-6s %s", "APP", "RECORDED", "RUNNING", "HEALTH", "PROXY", "STATE")))
+	rows := append([]engine.AppRow(nil), ov.Apps...)
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Problem() && !rows[j].Problem() })
+	for _, r := range rows {
+		proxied := "-"
+		if r.Proxied {
+			proxied = "✓"
+		}
+		rec := r.Recorded
+		if rec == "" {
+			rec = "-"
+		}
+		state := u.OK(r.StateLabel())
+		if r.Problem() {
+			state = u.Warn(r.StateLabel() + " ⚠")
+		}
+		if r.Incomplete {
+			state += u.Warn("  INCOMPLETE")
+		}
+		u.Println(fmt.Sprintf("%-14s %-28s %-8d %-12s %-6s %s", r.App, rec, r.Running, r.Health, proxied, state))
+	}
+	if ov.Foreign > 0 {
+		fmt.Fprintln(w)
+		u.Println(u.Dim(fmt.Sprintf("%d foreign compose project(s) not managed by ob", ov.Foreign)))
+	}
+}
+
+func writeHostJSON(w io.Writer, ov engine.HostOverview) error {
+	type appJSON struct {
+		App        string `json:"app"`
+		Recorded   string `json:"recorded"`
+		Running    int    `json:"running"`
+		Health     string `json:"health"`
+		Proxied    bool   `json:"proxied"`
+		State      string `json:"state"`
+		Incomplete bool   `json:"incomplete"`
+	}
+	out := struct {
+		Proxy struct {
+			Managed bool   `json:"managed"`
+			Running bool   `json:"running"`
+			Health  string `json:"health"`
+		} `json:"proxy"`
+		Apps    []appJSON `json:"apps"`
+		Foreign int       `json:"foreign"`
+	}{}
+	out.Proxy.Managed, out.Proxy.Running, out.Proxy.Health = ov.Proxy.Managed, ov.Proxy.Running, ov.Proxy.Health
+	for _, r := range ov.Apps { // already alphabetical
+		out.Apps = append(out.Apps, appJSON{r.App, r.Recorded, r.Running, r.Health, r.Proxied, r.StateKey(), r.Incomplete})
+	}
+	out.Foreign = ov.Foreign
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 // applyPins rewrites service image refs to the plan's pinned digests so an

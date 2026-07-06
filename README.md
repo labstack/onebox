@@ -11,6 +11,17 @@ keeping your own proxy, database, and conventions.
 
 ## Status
 
+**Host overview.** `ob ls` — one screen for every ob app on a host, not just the one in your
+`ob.yml`. Where `ob status` is app-scoped and config-aware (recorded vs actual for the app you're
+standing in), `ob ls` is a config-free inventory: it reads only what the host and Docker themselves
+know — a host-wide `docker ps`, each app's `current` symlink, and the managed proxy's registry — so
+it works from any directory or against `--host` with no app config at all. One line per app (recorded
+release, running count, health, proxied, state: in sync / DIVERGED / NOT RUNNING / never activated),
+a proxy health line, and a foreign-project footer. The whole picture is **three host reads in one
+concurrent wave** (a fourth with `--incomplete`), never a per-app fan-out — it stays fast on a
+high-latency link. `--json` for scripts; `--fail-on-drift` exits non-zero when any app is off its
+recorded release or down.
+
 **Notifications.** `notify: { webhook: <url>, on: [failure] }` — one generic JSON POST when a
 mutating verb finishes (deploy, rollback, resume, abort, accessory/proxy apply, destroy). The
 journals are write-only forensics; this is the page. Payload carries app/env/host/verb/deploy

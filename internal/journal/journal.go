@@ -167,6 +167,58 @@ func Journals(ctx context.Context, t transport.Transport, app string) ([]string,
 	return ids, byID, nil
 }
 
+const (
+	hostAppMarker  = "@@ob-app@@"  // precedes an app name
+	hostFileMarker = "@@ob-file@@" // separates a file's records within an app
+)
+
+// HostIncomplete returns the set of apps under root that have a started-but-
+// unfinished deploy, read across EVERY app in ONE round trip (host-level
+// commands must not fan out per app). Per-file markers delimit the concatenated
+// journals; Summarize runs here, per deploy, unchanged. root comes from
+// release.Root() (never hardcode the base path).
+func HostIncomplete(ctx context.Context, t transport.Transport, root string) (map[string]bool, error) {
+	cmd := "cd " + q(root) + " 2>/dev/null && for a in $(ls -1 2>/dev/null); do " +
+		"[ \"$a\" = _host ] && continue; [ -d \"$a/journal\" ] || continue; " +
+		"echo " + q(hostAppMarker) + "\"$a\"; " +
+		"for f in $(ls -1 \"$a/journal\"/*.jsonl 2>/dev/null); do echo " + q(hostFileMarker) + "; cat \"$f\"; echo; done; " +
+		"done || true"
+	res, err := t.Run(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	incomplete := map[string]bool{}
+	curApp := ""
+	var recs []Record
+	checkFile := func() {
+		if curApp != "" && len(recs) > 0 {
+			if s := Summarize(recs); s.Started && !s.Finished && !s.Aborted {
+				incomplete[curApp] = true
+			}
+		}
+		recs = nil
+	}
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, hostAppMarker):
+			checkFile()
+			curApp = strings.TrimPrefix(line, hostAppMarker)
+		case line == hostFileMarker:
+			checkFile()
+		case line == "" || curApp == "":
+			continue
+		default:
+			var r Record
+			if json.Unmarshal([]byte(line), &r) == nil && r.DeployID != "" {
+				recs = append(recs, r)
+			}
+		}
+	}
+	checkFile()
+	return incomplete, nil
+}
+
 // PruneCandidates returns journal ids beyond the keep window, oldest first.
 // A journal outlives its release (design §05): keep is typically 2× the
 // release retention.

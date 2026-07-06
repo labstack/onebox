@@ -18,12 +18,19 @@ import (
 
 type Paths struct{ Base, Releases, Current string }
 
-func PathsFor(app string) Paths {
-	root := os.Getenv("OB_BASE_DIR") // test hook (e2e on macOS); default is the real layout
-	if root == "" {
-		root = "/var/lib/ob"
+// Root is the directory that holds every app's per-app tree (plus _host). The
+// OB_BASE_DIR override is the e2e/macOS test hook; the default is the real
+// layout. Never hardcode "/var/lib/ob" — host-level commands (ob ls) enumerate
+// this dir and would look in the wrong place under the test hook.
+func Root() string {
+	if root := os.Getenv("OB_BASE_DIR"); root != "" {
+		return root
 	}
-	base := root + "/" + app
+	return "/var/lib/ob"
+}
+
+func PathsFor(app string) Paths {
+	base := Root() + "/" + app
 	return Paths{Base: base, Releases: base + "/releases", Current: base + "/current"}
 }
 

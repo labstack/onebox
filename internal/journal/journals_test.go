@@ -96,6 +96,45 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 	}
 }
 
+// HostIncomplete flags only apps whose journal shows a started-but-unfinished
+// deploy, across every app in one read. Incompleteness is per deploy file:
+// blog's newer finished deploy must not mask its older stuck one; monk is clean.
+func TestHostIncomplete(t *testing.T) {
+	rec := func(recs ...Record) string {
+		var ls []string
+		for _, r := range recs {
+			b, _ := json.Marshal(r)
+			ls = append(ls, string(b))
+		}
+		return strings.Join(ls, "\n")
+	}
+	out := hostAppMarker + "monk\n" +
+		hostFileMarker + "\n" +
+		rec(Record{DeployID: "M1", Event: "start"}, Record{DeployID: "M1", Event: "finish", Status: "ok"}) + "\n\n" +
+		hostAppMarker + "blog\n" +
+		hostFileMarker + "\n" + // older, stuck (start, no finish)
+		rec(Record{DeployID: "B1", Event: "start"}) + "\n\n" +
+		hostFileMarker + "\n" + // newer, finished
+		rec(Record{DeployID: "B2", Event: "start"}, Record{DeployID: "B2", Event: "finish", Status: "ok"}) + "\n\n"
+
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for a in") {
+			return transport.Result{Stdout: out}, true
+		}
+		return transport.Result{}, false
+	}}
+	inc, err := HostIncomplete(context.Background(), f, "/var/lib/ob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inc["monk"] {
+		t.Fatal("monk is clean — must not be flagged incomplete")
+	}
+	if !inc["blog"] {
+		t.Fatal("blog has an older stuck deploy behind a finished one — must be flagged")
+	}
+}
+
 // A never-deployed host has no journal dir: the command exits clean with no
 // output, and Journals returns nothing rather than erroring.
 func TestJournalsNoJournalDir(t *testing.T) {

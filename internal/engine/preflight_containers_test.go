@@ -66,13 +66,22 @@ func TestProjectContainersGroupsByService(t *testing.T) {
 	}
 }
 
-// healthFromStatus mirrors what docker inspect .State.Health.Status would say.
+// healthFromStatus mirrors what docker inspect .State.Health.Status would say
+// for a RUNNING container, and reports "down" for one that isn't up — a
+// crash-looping (Restarting) container must not read as a healthy no-healthcheck
+// one ("none"), which is exactly what status treats as fine.
 func TestHealthFromStatus(t *testing.T) {
 	cases := map[string]string{
 		"Up 25 hours":                     "none",
 		"Up 25 hours (healthy)":           "healthy",
 		"Up 3 minutes (unhealthy)":        "unhealthy",
 		"Up 5 seconds (health: starting)": "starting",
+		"Restarting (1) 5 seconds ago":    "down", // crash loop — was silently "none" before
+		"Up 2 hours (Paused)":             "down", // up but not serving; must not read as none
+		"Exited (1) 2 seconds ago":        "down",
+		"Created":                         "down",
+		"Dead":                            "down",
+		"Removing":                        "down",
 	}
 	for status, want := range cases {
 		if got := healthFromStatus(status); got != want {

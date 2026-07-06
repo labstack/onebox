@@ -2,11 +2,17 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 )
+
+// ErrNoIncomplete means the journal shows no deploy needing resume/abort — a
+// normal state. It is a distinct sentinel so `ob status` can tell it apart from
+// a genuine journal-read failure (which must not be reported as "all in sync").
+var ErrNoIncomplete = errors.New("no incomplete deploy found in the journal")
 
 // FindIncomplete returns the newest journal that started but never finished
 // or aborted — the deploy a crashed runner left behind.
@@ -21,7 +27,7 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 			return s, nil
 		}
 	}
-	return journal.Summary{}, fmt.Errorf("no incomplete deploy found in the journal")
+	return journal.Summary{}, ErrNoIncomplete
 }
 
 // Resume continues an interrupted deploy from the journal: completed phases

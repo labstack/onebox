@@ -142,9 +142,50 @@ func TestStatusFlagsCrashLoopingRole(t *testing.T) {
 	if err := e.Status(context.Background()); err == nil {
 		t.Fatalf("a crash-looping role must be a divergence:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "(down)") {
-		t.Fatalf("crash-looping role must show 'down' health:\n%s", out.String())
+	// tie it to the web row's HEALTH column specifically (field 4:
+	// ROLE MODE ACTUAL HEALTH STATE), not just a "(down)" state suffix anywhere.
+	// (State reads "in sync (down)" here — DIVERGED is release-drift; a health
+	// problem still error-exits, which the err check above already asserts.)
+	if fields := strings.Fields(roleLine(out.String(), "web")); len(fields) < 4 || fields[3] != "down" {
+		t.Fatalf("web row HEALTH column must be 'down', got %v:\n%s", fields, out.String())
 	}
+}
+
+// A crash-looping (Restarting) accessory is present in docker ps but not
+// serving. A fully-exited accessory already diverges (NOT RUNNING); a
+// crash-looping one must too, not silently pass as "in sync".
+func TestStatusFlagsCrashLoopingAccessory(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R2\n"}, true
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+			return transport.Result{Stdout: "S1|server|R2|Up (healthy)\n" +
+				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Restarting (1) 2 seconds ago\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: ""}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err == nil { // roles healthy → postgres is the sole cause
+		t.Fatalf("a crash-looping accessory must be a divergence:\n%s", out.String())
+	}
+	if line := roleLine(out.String(), "accessory postgres"); !strings.Contains(line, "down") {
+		t.Fatalf("crash-looping accessory must show 'down', got %q:\n%s", line, out.String())
+	}
+}
+
+// roleLine returns the first output line starting with prefix (plain text — the
+// test UI renders without color), or "" if none.
+func roleLine(out, prefix string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	return ""
 }
 
 // A read that errors inside the concurrent wave must fail status — not yield a

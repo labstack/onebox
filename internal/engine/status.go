@@ -90,12 +90,21 @@ func (e *Engine) Status(ctx context.Context) error {
 		}
 	}
 
-	// accessories: running/health only — they converge separately
+	// accessories: running/health only — they converge separately, so an
+	// unhealthy/starting one is shown but not a divergence. Absent (NOT RUNNING)
+	// and present-but-not-serving ("down": crash-looping/paused) are both real
+	// problems — a fully-exited accessory already diverged, so a crash-looping
+	// one must too.
 	fmt.Fprintln(e.Opts.Out)
 	for _, acc := range e.Cfg.Accessories {
 		cs := byService[acc]
 		if len(cs) == 0 {
 			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("NOT RUNNING ⚠")))
+			diverged = true
+			continue
+		}
+		if cs[0].health == "down" {
+			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("down ⚠")))
 			diverged = true
 			continue
 		}

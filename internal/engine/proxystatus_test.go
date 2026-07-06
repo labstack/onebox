@@ -67,9 +67,9 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "project='ob-proxy'"):
+		case strings.Contains(cmd, "project='ob-proxy'"): // proxy container id
 			return transport.Result{Stdout: "PX1\n"}, true
-		case strings.Contains(cmd, "PX1") && strings.Contains(cmd, "State.Health"):
+		case strings.Contains(cmd, "docker inspect"): // proxy health (single-id)
 			return transport.Result{Stdout: proxyHealth + "\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
@@ -78,11 +78,8 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
 		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='monk'"):
-			return transport.Result{Stdout: "S1 server\nW1 worker\nPG1 postgres\n"}, true
-		case strings.Contains(cmd, "ob.release"):
-			return transport.Result{Stdout: "R7|healthy\n"}, true
-		case strings.Contains(cmd, "State.Health"):
-			return transport.Result{Stdout: "healthy\n"}, true
+			return transport.Result{Stdout: "S1|server|R7|Up (healthy)\n" +
+				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal"):
 			return transport.Result{Stdout: ""}, true
 		}
@@ -170,11 +167,8 @@ func TestStatusUnmanagedProxyUnchanged(t *testing.T) {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
 		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='monk'"):
-			return transport.Result{Stdout: "S1 server\nW1 worker\nPG1 postgres\n"}, true
-		case strings.Contains(cmd, "ob.release"):
-			return transport.Result{Stdout: "R7|healthy\n"}, true
-		case strings.Contains(cmd, "State.Health"):
-			return transport.Result{Stdout: "healthy\n"}, true
+			return transport.Result{Stdout: "S1|server|R7|Up (healthy)\n" +
+				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
 		}
 		return transport.Result{}, false
 	}

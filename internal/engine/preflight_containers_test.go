@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+// projectContainers reads "id|service|ob.release|status" lines.
 func containerEngine(t *testing.T, psOut string) (*Engine, *transport.Fake) {
 	t.Helper()
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -21,68 +22,61 @@ func containerEngine(t *testing.T, psOut string) (*Engine, *transport.Fake) {
 	return e, f
 }
 
-// The injection guard: a container id from `docker ps` that isn't a plain
-// hex/alnum token must abort, not be interpolated into the next docker command.
+// The injection guard: a container id that isn't a plain hex/alnum token must
+// abort, not flow into the map a caller might reuse in a command.
 func TestProjectContainersRejectsSuspiciousID(t *testing.T) {
-	// exactly two fields, but the id carries shell metacharacters
-	e, _ := containerEngine(t, "S1;reboot server\n")
+	e, _ := containerEngine(t, "S1;reboot|server|R2|Up (healthy)\n")
 	if _, err := e.projectContainers(context.Background()); err == nil {
-		t.Fatal("a non-alnum container id must be rejected, not reused in a command")
+		t.Fatal("a non-alnum container id must be rejected")
 	}
-	// a 65-char id (validID caps at 64) is likewise refused
-	e2, _ := containerEngine(t, strings.Repeat("a", 65)+" server\n")
+	e2, _ := containerEngine(t, strings.Repeat("a", 65)+"|server|R2|Up\n") // >64 chars
 	if _, err := e2.projectContainers(context.Background()); err == nil {
 		t.Fatal("an over-length container id must be rejected")
 	}
 }
 
-// Blank lines and containers with no compose-service label (a single field)
-// are dropped without error; real services still map.
-func TestProjectContainersDropsUnlabeled(t *testing.T) {
-	e, _ := containerEngine(t, "S1 server\nORPHAN\n\nPG1 postgres\n")
+// Blank lines and containers with no compose-service label are dropped; real
+// services still map, carrying release + parsed health.
+func TestProjectContainersParsesAndDropsUnlabeled(t *testing.T) {
+	e, _ := containerEngine(t, "S1|server|R2|Up 2 hours (healthy)\nORPHAN\n\nPG1|postgres||Up 2 days\n")
 	byService, err := e.projectContainers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(byService) != 2 || len(byService["server"]) != 1 || len(byService["postgres"]) != 1 {
+	if len(byService) != 2 {
 		t.Fatalf("want only server+postgres, got %v", byService)
+	}
+	if c := byService["server"][0]; c.id != "S1" || c.release != "R2" || c.health != "healthy" {
+		t.Fatalf("server parse wrong: %+v", c)
+	}
+	if c := byService["postgres"][0]; c.release != "" || c.health != "none" { // no label, no healthcheck
+		t.Fatalf("postgres parse wrong: %+v", c)
 	}
 }
 
 // Multiple containers of one service keep docker's newest-first order.
 func TestProjectContainersGroupsByService(t *testing.T) {
-	e, _ := containerEngine(t, "A1 server\nA2 server\nP1 postgres\n")
+	e, _ := containerEngine(t, "A1|server|R2|Up (healthy)\nA2|server|R2|Up (healthy)\nP1|postgres||Up\n")
 	byService, err := e.projectContainers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := byService["server"]; len(got) != 2 || got[0] != "A1" || got[1] != "A2" {
+	if got := byService["server"]; len(got) != 2 || got[0].id != "A1" || got[1].id != "A2" {
 		t.Fatalf("server ids/order wrong: %v", got)
 	}
 }
 
-func TestContainerStatusParsesLabelAndHealth(t *testing.T) {
-	inspect := func(out string) *Engine {
-		f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-			if strings.Contains(cmd, "docker inspect") {
-				return transport.Result{Stdout: out}, true
-			}
-			return transport.Result{}, false
-		}}
-		return New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+// healthFromStatus mirrors what docker inspect .State.Health.Status would say.
+func TestHealthFromStatus(t *testing.T) {
+	cases := map[string]string{
+		"Up 25 hours":                     "none",
+		"Up 25 hours (healthy)":           "healthy",
+		"Up 3 minutes (unhealthy)":        "unhealthy",
+		"Up 5 seconds (health: starting)": "starting",
 	}
-	cases := []struct{ out, wantRel, wantHealth string }{
-		{"20260705-000808-e80fea1|healthy\n", "20260705-000808-e80fea1", "healthy"},
-		{"|none\n", "", "none"},                               // no ob.release label, no healthcheck
-		{"<no value>|unhealthy\n", "<no value>", "unhealthy"}, // nil Labels map
-	}
-	for _, c := range cases {
-		rel, health, err := inspect(c.out).containerStatus(context.Background(), "ID1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if rel != c.wantRel || health != c.wantHealth {
-			t.Fatalf("%q → (%q,%q), want (%q,%q)", c.out, rel, health, c.wantRel, c.wantHealth)
+	for status, want := range cases {
+		if got := healthFromStatus(status); got != want {
+			t.Fatalf("healthFromStatus(%q) = %q, want %q", status, got, want)
 		}
 	}
 }

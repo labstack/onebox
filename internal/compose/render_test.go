@@ -75,12 +75,22 @@ func TestRenderReadyRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := doc["services"].(map[string]any)["server"].(map[string]any)["healthcheck"].(map[string]any)
-	if h["retries"] == nil {
-		t.Fatalf("ready.retries must set the healthcheck retries: %v", h)
+	if got := h["retries"]; got != 1 { // the actual value, not just presence
+		t.Fatalf("ready.retries: 1 must render retries: 1, got %v", got)
 	}
-	// default (no ready.retries) emits no retries key
+	// default (no ready.retries) emits no retries key → Docker's default 3 stands
 	if hDefault := renderDoc(t)["server"].(map[string]any)["healthcheck"].(map[string]any); hDefault["retries"] != nil {
 		t.Fatalf("without ready.retries, no retries key should be emitted: %v", hDefault)
+	}
+}
+
+// The generated drain-guard healthcheck defaults to a 2s cadence (the roll's
+// drain flip is retries × interval, so this is per-replica overhead). Pinning
+// it makes any future default change a visible, test-gated edit.
+func TestRenderDefaultHealthcheckInterval(t *testing.T) {
+	h := renderDoc(t)["server"].(map[string]any)["healthcheck"].(map[string]any)
+	if h["interval"] != "2s" {
+		t.Fatalf("default generated healthcheck interval must be 2s, got %v", h["interval"])
 	}
 }
 

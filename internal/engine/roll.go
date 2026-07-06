@@ -140,7 +140,12 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
 		return err
 	}
-	drainBudget := 5 * pollEvery
+	// Budget the drain wait off the ACTUAL flip cost (retries × interval) plus
+	// two poll-intervals of slack, so a raised ready.retries can't make the flip
+	// exceed the budget — that would time out and SIGTERM a container the proxy
+	// may still be routing to. At the default 3 retries this is 5*pollEvery, the
+	// prior value.
+	drainBudget := time.Duration(role.HealthRetries()+2) * pollEvery
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
 	}

@@ -12,11 +12,13 @@
 	interval?:     #Dur
 	start_period?: #Dur
 	within?:       #Dur
+	retries?:      int & >0 // generated-healthcheck failure count before the drain flip (default: Docker's 3)
 }
 
 #Drain: {
 	signal?: =~"^[A-Z0-9]+$"
 	wait?:   #Dur
+	grace?:  #Dur // docker stop -t timeout when retiring a drained container (default 30s)
 }
 
 #Role: {

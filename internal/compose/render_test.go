@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,6 +51,46 @@ func TestRenderWrapsHealthcheckWithDrainGuard(t *testing.T) {
 	}
 	if !strings.Contains(got, "/healthz") {
 		t.Fatalf("server healthcheck should probe ready.http path: %s", got)
+	}
+}
+
+// ready.retries lands on the generated healthcheck so the drain guard flips a
+// container to unhealthy in one probe instead of Docker's default 3. Absent, no
+// retries key is emitted (Docker default stands).
+func TestRenderReadyRetries(t *testing.T) {
+	p, err := Load(context.Background(), "testdata/simple/docker-compose.yaml", "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testCfg()
+	r := cfg.Roles["web"]
+	r.Ready = &config.Ready{HTTP: "/healthz", Port: 8080, Retries: 1}
+	cfg.Roles["web"] = r
+	out, err := Render(p, cfg, "R1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	h := doc["services"].(map[string]any)["server"].(map[string]any)["healthcheck"].(map[string]any)
+	if got := h["retries"]; got != 1 { // the actual value, not just presence
+		t.Fatalf("ready.retries: 1 must render retries: 1, got %v", got)
+	}
+	// default (no ready.retries) emits no retries key → Docker's default 3 stands
+	if hDefault := renderDoc(t)["server"].(map[string]any)["healthcheck"].(map[string]any); hDefault["retries"] != nil {
+		t.Fatalf("without ready.retries, no retries key should be emitted: %v", hDefault)
+	}
+}
+
+// The generated drain-guard healthcheck defaults to a 2s cadence (the roll's
+// drain flip is retries × interval, so this is per-replica overhead). Pinning
+// it makes any future default change a visible, test-gated edit.
+func TestRenderDefaultHealthcheckInterval(t *testing.T) {
+	h := renderDoc(t)["server"].(map[string]any)["healthcheck"].(map[string]any)
+	if h["interval"] != "2s" {
+		t.Fatalf("default generated healthcheck interval must be 2s, got %v", h["interval"])
 	}
 }
 

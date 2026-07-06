@@ -41,6 +41,19 @@ func TestCUERejectsTypoField(t *testing.T) {
 	}
 }
 
+// The perf knobs (ready.retries, drain.grace) must be accepted by the CUE
+// schema — CUE structs are closed (see TestCUERejectsTypoField), so an omitted
+// field would make the whole knob unreachable through a real ob.yml even though
+// the Go structs and render/roll wiring exist.
+func TestCUEAcceptsTimingKnobs(t *testing.T) {
+	cfg := strings.Replace(cueSample,
+		"ready: { http: /healthz, port: 7500 }",
+		"ready: { http: /healthz, port: 7500, retries: 1 }, drain: { grace: 8s }", 1)
+	if err := ValidateCUE([]byte(cfg), "ob.yml"); err != nil {
+		t.Fatalf("ready.retries / drain.grace must validate: %v", err)
+	}
+}
+
 func TestCUERejectsBadMode(t *testing.T) {
 	bad := strings.Replace(cueSample, "mode: rolling", "mode: sideways", 1)
 	err := ValidateCUE([]byte(bad), "ob.yml")

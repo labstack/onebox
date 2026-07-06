@@ -109,8 +109,13 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 		}
 		if probe != "" {
 			// timing: ready knobs win; an ADOPTED healthcheck keeps its own
-			// tuning (the app author calibrated it); else defaults
-			interval, start := 5*time.Second, 5*time.Second
+			// tuning (the app author calibrated it); else defaults. A 2s interval
+			// (vs Docker's slower feel) makes the drain guard flip fast by
+			// default — the roll's drain step waits retries × interval for Docker
+			// to flip the container to unhealthy (then a converge buffer for the
+			// proxy to drop it), so this is pure per-replica overhead we pay every
+			// roll. Blip tolerance stays at Docker's default 3 retries.
+			interval, start := 2*time.Second, 5*time.Second
 			var retries *uint64
 			if probe == adopted && orig != nil {
 				if orig.Interval != nil {
@@ -126,6 +131,13 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 			}
 			if r.Ready != nil && r.Ready.StartPeriod > 0 {
 				start = time.Duration(r.Ready.StartPeriod)
+			}
+			// ready.retries overrides the drain-flip speed: the guard flips a
+			// container to unhealthy after Retries consecutive failed probes, so
+			// retries: 1 drains in a single interval instead of Docker's default 3.
+			if r.Ready != nil && r.Ready.Retries > 0 {
+				n := uint64(r.Ready.Retries)
+				retries = &n
 			}
 			iv, sp := types.Duration(interval), types.Duration(start)
 			svc.HealthCheck = &types.HealthCheckConfig{

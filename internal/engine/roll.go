@@ -11,8 +11,6 @@ import (
 	"github.com/labstack/onebox/internal/config"
 )
 
-const stopGraceSeconds = 30
-
 func (e *Engine) composeCmd(remoteComposePath string) string {
 	return "docker compose -p " + e.Cfg.App + " -f " + q(remoteComposePath)
 }
@@ -142,7 +140,12 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
 		return err
 	}
-	drainBudget := 5 * pollEvery
+	// Budget the drain wait off the ACTUAL flip cost (retries × interval) plus
+	// two poll-intervals of slack, so a raised ready.retries can't make the flip
+	// exceed the budget — that would time out and SIGTERM a container the proxy
+	// may still be routing to. At the default 3 retries this is 5*pollEvery, the
+	// prior value.
+	drainBudget := time.Duration(role.HealthRetries()+2) * pollEvery
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
 	}
@@ -155,7 +158,7 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 		e.sleepBusy("drain wait ("+time.Duration(role.Drain.Wait).String()+")", time.Duration(role.Drain.Wait))
 	}
 
-	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", stopGraceSeconds, id)); err != nil {
+	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", role.StopGraceSeconds(), id)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("stop %s: %s", id, res.Stderr)
@@ -258,7 +261,10 @@ func idSet(ids []string) map[string]bool {
 // readiness is ADOPTED from the compose healthcheck (ready absent or
 // timing-only).
 func readyTiming(role config.Role) (within, interval time.Duration) {
-	within, interval = 120*time.Second, 5*time.Second
+	// 2s poll matches the generated healthcheck's default interval so ob detects
+	// the join (newcomer healthy) and the drain flip (old unhealthy) promptly,
+	// instead of leaving up to 5s of slack on each wait. within bounds the join.
+	within, interval = 120*time.Second, 2*time.Second
 	if role.Ready != nil {
 		if role.Ready.Within > 0 {
 			within = time.Duration(role.Ready.Within)

@@ -19,8 +19,9 @@ it works from any directory or against `--host` with no app config at all. One l
 release, running count, health, proxied, state: in sync / DIVERGED / NOT RUNNING / never activated),
 a proxy health line, and a foreign-project footer. The whole picture is **three host reads in one
 concurrent wave** (a fourth with `--incomplete`), never a per-app fan-out — it stays fast on a
-high-latency link. `--json` for scripts; `--fail-on-drift` exits non-zero when any app is off its
-recorded release or down.
+high-latency link. `--json` for scripts (progress goes to stderr, so stdout stays pure JSON for
+`ob ls --json | jq`); `--fail-on-drift` exits non-zero when the managed proxy is
+down or any app is off its recorded release, unhealthy, or not running.
 
 **Notifications.** `notify: { webhook: <url>, on: [failure] }` — one generic JSON POST when a
 mutating verb finishes (deploy, rollback, resume, abort, accessory/proxy apply, destroy). The

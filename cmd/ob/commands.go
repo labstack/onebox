@@ -292,7 +292,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	}
 	lsCmd.Flags().StringVar(&lsHost, "host", "", "connect directly to [user@]host[:port] instead of using an ob.yml")
 	lsCmd.Flags().BoolVar(&lsJSON, "json", false, "emit JSON (apps sorted alphabetically)")
-	lsCmd.Flags().BoolVar(&lsFailOnDrift, "fail-on-drift", false, "exit non-zero if any app is not running or diverged")
+	lsCmd.Flags().BoolVar(&lsFailOnDrift, "fail-on-drift", false, "exit non-zero if the managed proxy is down or any app is not running, running unrecorded, or diverged")
 	lsCmd.Flags().BoolVar(&lsIncomplete, "incomplete", false, "also flag apps with an unfinished deploy (one extra host read)")
 	root.AddCommand(lsCmd)
 
@@ -583,14 +583,22 @@ func runList(cmd *cobra.Command, g *globalFlags, host string, jsonOut, failOnDri
 	if err != nil {
 		return err
 	}
+	// The drift gate applies to BOTH output modes — `ob ls --json --fail-on-drift`
+	// is the canonical CI shape (payload to jq, exit code gates the build), so it
+	// must not silently exit 0. Emit the chosen output first, then return the
+	// gate error so the exit code reflects drift either way.
+	var driftErr error
+	if failOnDrift && ov.HasProblems() {
+		driftErr = fmt.Errorf("ob ls: drift detected (--fail-on-drift)")
+	}
 	if jsonOut {
-		return writeHostJSON(cmd.OutOrStdout(), ov)
+		if err := writeHostJSON(cmd.OutOrStdout(), ov); err != nil {
+			return err
+		}
+		return driftErr
 	}
 	renderHostList(u, cmd.OutOrStdout(), t.Host(), ov)
-	if failOnDrift && ov.HasProblems() {
-		return fmt.Errorf("ob ls: drift detected (--fail-on-drift)")
-	}
-	return nil
+	return driftErr
 }
 
 // dialHost opens the transport for a host-level command: --host connects
@@ -677,6 +685,7 @@ func writeHostJSON(w io.Writer, ov engine.HostOverview) error {
 		Apps    []appJSON `json:"apps"`
 		Foreign int       `json:"foreign"`
 	}{}
+	out.Apps = []appJSON{} // encode an empty host as [] rather than null
 	out.Proxy.Managed, out.Proxy.Running, out.Proxy.Health = ov.Proxy.Managed, ov.Proxy.Running, ov.Proxy.Health
 	for _, r := range ov.Apps { // already alphabetical
 		out.Apps = append(out.Apps, appJSON{r.App, r.Recorded, r.Running, r.Health, r.Proxied, r.StateKey(), r.Incomplete})

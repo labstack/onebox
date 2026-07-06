@@ -178,14 +178,21 @@ const (
 // journals; Summarize runs here, per deploy, unchanged. root comes from
 // release.Root() (never hardcode the base path).
 func HostIncomplete(ctx context.Context, t transport.Transport, root string) (map[string]bool, error) {
-	cmd := "cd " + q(root) + " 2>/dev/null && for a in $(ls -1 2>/dev/null); do " +
+	// Fail closed on a present-but-unreadable root: silently omitting an app
+	// would be a false all-clear on the one signal --incomplete exists to give.
+	// A genuinely absent root exits 0 (never-deployed host, nothing incomplete).
+	cmd := "root=" + q(root) + "; [ -e \"$root\" ] || exit 0; cd \"$root\" 2>/dev/null || exit 17; " +
+		"entries=$(ls -1) || exit 17; for a in $entries; do " +
 		"[ \"$a\" = _host ] && continue; [ -d \"$a/journal\" ] || continue; " +
 		"echo " + q(hostAppMarker) + "\"$a\"; " +
 		"for f in $(ls -1 \"$a/journal\"/*.jsonl 2>/dev/null); do echo " + q(hostFileMarker) + "; cat \"$f\"; echo; done; " +
-		"done || true"
+		"done"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("scanning journals under %s failed (exit %d): %s", root, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	incomplete := map[string]bool{}
 	curApp := ""

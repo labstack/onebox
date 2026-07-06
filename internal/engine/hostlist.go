@@ -15,18 +15,20 @@ import (
 
 // ob ls — host-wide overview. Unlike Status (one app, config-aware), this is a
 // config-free inventory of every app on the host, derived from three concurrent
-// host reads: a host-wide docker ps, the /<root>/<app>/current symlinks, and
-// the proxy's app registry. It reads no per-app ob.yml, so it reports only what
-// the host and Docker themselves know.
+// host reads (a fourth with --incomplete): a host-wide docker ps, the
+// /<root>/<app>/current symlinks, and the proxy's app registry. It reads no
+// per-app ob.yml, so it reports only what the host and Docker themselves know.
 
 type appState int
 
 const (
-	stateInSync appState = iota
-	stateNotRunning        // recorded a release, but nothing is running
-	stateNeverActivated    // an app dir exists but was never activated (no current)
-	stateRunningUnrecorded // containers run but there's no current symlink
-	stateDiverged          // a running container is off the recorded release, or unhealthy
+	stateUnknown           appState = iota // zero value — never a real row; guards a bare AppRow{}
+	stateInSync                            // running the recorded release, all containers healthy/none
+	stateStarting                          // on the recorded release but a container's healthcheck is still warming up (not drift)
+	stateNotRunning                        // recorded a release, but nothing is running
+	stateNeverActivated                    // an app dir exists but was never activated (no current)
+	stateRunningUnrecorded                 // containers run but there's no current symlink
+	stateDiverged                          // a running container is off the recorded release, or unhealthy
 )
 
 func (s appState) problem() bool {
@@ -51,6 +53,8 @@ func (r AppRow) StateLabel() string {
 	switch r.State {
 	case stateInSync:
 		return "in sync"
+	case stateStarting:
+		return "starting"
 	case stateNotRunning:
 		return "NOT RUNNING"
 	case stateNeverActivated:
@@ -69,6 +73,8 @@ func (r AppRow) StateKey() string {
 	switch r.State {
 	case stateInSync:
 		return "in_sync"
+	case stateStarting:
+		return "starting"
 	case stateNotRunning:
 		return "not_running"
 	case stateNeverActivated:
@@ -97,8 +103,14 @@ type HostOverview struct {
 	Foreign int // running compose projects ob doesn't manage
 }
 
-// HasProblems reports whether any app is not running or diverged (for --fail-on-drift).
+// HasProblems reports whether the host has anything a --fail-on-drift gate
+// should catch: a managed proxy that is registered but not running (it fronts
+// every app on the host), or any app that is not running, running unrecorded,
+// or diverged. A merely-starting or never-activated app is not a problem.
 func (o HostOverview) HasProblems() bool {
+	if o.Proxy.Managed && !o.Proxy.Running {
+		return true
+	}
 	for _, a := range o.Apps {
 		if a.State.problem() {
 			return true
@@ -141,8 +153,15 @@ func HostList(ctx context.Context, t transport.Transport, u *ui.UI, opts ListOpt
 	}
 
 	ov := HostOverview{}
-	if pc := byProject[proxy.Project]; len(pc) > 0 {
+	switch pc := byProject[proxy.Project]; {
+	case len(pc) > 0:
 		ov.Proxy = ProxySummary{Managed: true, Running: true, Health: pc[0].health}
+	case len(proxied) > 0:
+		// The proxy container is absent from docker ps, but apps are registered
+		// behind a managed proxy — so it is managed and DOWN (docker ps lists only
+		// running containers, so absence is the only signal we get config-free). A
+		// down shared proxy takes every app on the host offline, so surface it.
+		ov.Proxy = ProxySummary{Managed: true, Running: false}
 	}
 	// foreign = a running project that is neither an app (has a dir) nor the proxy
 	for project := range byProject {
@@ -175,16 +194,23 @@ func buildRow(app, recorded string, cs []svcContainer, proxied, incomplete bool)
 	case len(cs) == 0:
 		row.State = stateNotRunning
 	default:
+		// A container is DRIFT if it runs a release other than the recorded one,
+		// or is unhealthy. Release drift applies only to release-labeled (role)
+		// containers — accessories in the app's project legitimately carry no
+		// ob.release label, so an empty label is "running", not drift. (Foreign
+		// containers never reach here: buildRow only sees the app's own project.)
+		// A container that is merely still `starting` (healthcheck warming up, e.g.
+		// just after a deploy) is NOT drift — it gets the softer stateStarting so
+		// it doesn't trip --fail-on-drift. Drift wins over starting. (ob ls can't
+		// know a role is *expected* but missing — that needs the config; use status.)
 		row.State = stateInSync
 		for _, c := range cs {
-			// Release drift applies only to release-labeled (role) containers —
-			// accessories and foreign containers legitimately carry no ob.release,
-			// so an empty label is "running", not drift. An unhealthy container of
-			// any kind is worth surfacing on a host overview. (ob ls can't know a
-			// role is *expected* but missing — that needs the config; use status.)
-			if (c.release != "" && c.release != recorded) || (c.health != "healthy" && c.health != "none") {
+			if (c.release != "" && c.release != recorded) || c.health == "unhealthy" {
 				row.State = stateDiverged
 				break
+			}
+			if c.health == "starting" {
+				row.State = stateStarting // keep scanning: a later container may still be DIVERGED
 			}
 		}
 	}
@@ -228,6 +254,13 @@ func hostContainers(ctx context.Context, t transport.Transport) (map[string][]sv
 	if err != nil {
 		return nil, err
 	}
+	// An empty host still exits 0 with empty output — a non-zero exit means the
+	// daemon is down or the socket is unreadable, NOT "nothing running". Fail
+	// closed: reporting every app as NOT RUNNING (or the host as empty) when
+	// Docker was merely unreachable would be a dangerous false all-clear.
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("docker ps failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
 	byProject := map[string][]svcContainer{}
 	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
 		line = strings.TrimSpace(line)
@@ -252,12 +285,21 @@ func hostContainers(ctx context.Context, t transport.Transport) (map[string][]sv
 // nullglob) and empty-host-safe. The base root honors OB_BASE_DIR.
 func recordedReleases(ctx context.Context, t transport.Transport) (map[string]string, error) {
 	root := release.Root()
-	cmd := "cd " + q(root) + " 2>/dev/null && for a in $(ls -1 2>/dev/null); do " +
+	// Fail closed on a present-but-unreadable root. This map IS the app
+	// inventory; if a permission error silently yielded an empty map, ob ls
+	// would report a clean, empty host — and --fail-on-drift would exit 0 — on a
+	// host that actually has apps. So: a genuinely absent root exits 0 (clean
+	// empty), but an unenterable/unlistable root exits non-zero and errors.
+	cmd := "root=" + q(root) + "; [ -e \"$root\" ] || exit 0; cd \"$root\" 2>/dev/null || exit 17; " +
+		"entries=$(ls -1) || exit 17; for a in $entries; do " +
 		"[ \"$a\" = _host ] && continue; [ -d \"$a\" ] || continue; " +
-		"printf '%s|%s\\n' \"$a\" \"$(readlink \"$a/current\" 2>/dev/null)\"; done || true"
+		"printf '%s|%s\\n' \"$a\" \"$(readlink \"$a/current\" 2>/dev/null)\"; done"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("reading release root %s failed (exit %d): %s", root, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	out := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
@@ -280,9 +322,17 @@ func recordedReleases(ctx context.Context, t transport.Transport) (map[string]st
 
 // proxyRegisteredApps is read 3: the apps registered behind the managed proxy.
 func proxyRegisteredApps(ctx context.Context, t transport.Transport) (map[string]bool, error) {
-	res, err := t.Run(ctx, "ls -1 "+q(proxy.HostPaths().Apps)+" 2>/dev/null || true")
+	// An absent registry dir is normal (no managed proxy) → exit 0, empty. A
+	// present-but-unreadable dir must error rather than silently render every
+	// app as not-proxied (and hide a managed-but-down proxy behind an empty set).
+	dir := proxy.HostPaths().Apps
+	cmd := "dir=" + q(dir) + "; [ -d \"$dir\" ] || exit 0; ls -1 \"$dir\" || exit 17"
+	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("reading proxy registry %s failed (exit %d): %s", dir, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	set := map[string]bool{}
 	for _, f := range strings.Fields(res.Stdout) {

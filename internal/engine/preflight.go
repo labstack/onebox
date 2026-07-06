@@ -118,7 +118,7 @@ func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 type svcContainer struct {
 	id      string
 	release string // the ob.release label ("" for a non-ob container)
-	health  string // healthy | unhealthy | starting | none
+	health  string // healthy | unhealthy | starting | none | down (not running)
 }
 
 // projectContainers reads every running container in the app's compose project
@@ -161,9 +161,13 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 	return byService, nil
 }
 
-// healthFromStatus maps a `docker ps` .Status string to the same word
-// `docker inspect .State.Health.Status` would report. A container with no
-// healthcheck has no health suffix → "none".
+// healthFromStatus maps a `docker ps` .Status string to a health word. For a
+// running container it mirrors `docker inspect .State.Health.Status`
+// (healthy | unhealthy | starting), and "none" for one with no healthcheck.
+// A container that is NOT actually up — Restarting (crash-looping), Exited,
+// Created, Dead, Removing — reports "down": status treats anything other than
+// healthy/none as a problem, so a container flapping AFTER a deploy is surfaced
+// rather than mistaken for a healthy no-healthcheck one (both were "none" before).
 func healthFromStatus(status string) string {
 	switch {
 	case strings.Contains(status, "(healthy)"):
@@ -172,8 +176,10 @@ func healthFromStatus(status string) string {
 		return "unhealthy"
 	case strings.Contains(status, "health: starting"):
 		return "starting"
+	case strings.HasPrefix(strings.TrimSpace(status), "Up"):
+		return "none" // running, no healthcheck
 	default:
-		return "none"
+		return "down" // Restarting / Exited / Created / Dead / Removing — not serving
 	}
 }
 

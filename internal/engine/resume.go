@@ -11,16 +11,12 @@ import (
 // FindIncomplete returns the newest journal that started but never finished
 // or aborted — the deploy a crashed runner left behind.
 func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
-	ids, err := journal.List(ctx, e.T, e.Cfg.App)
+	ids, byID, err := journal.Journals(ctx, e.T, e.Cfg.App)
 	if err != nil {
 		return journal.Summary{}, err
 	}
 	for i := len(ids) - 1; i >= 0; i-- {
-		recs, err := journal.Read(ctx, e.T, e.Cfg.App, ids[i])
-		if err != nil {
-			return journal.Summary{}, err
-		}
-		s := journal.Summarize(recs)
+		s := journal.Summarize(byID[ids[i]])
 		if s.Started && !s.Finished && !s.Aborted {
 			return s, nil
 		}

@@ -114,4 +114,45 @@ func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 	return strings.TrimSpace(res.Stdout), nil
 }
 
+// containerStatus returns a container's ob.release label and health in ONE
+// docker inspect. Status walks every running container, and each previously
+// cost two inspects (label, then health) — one round trip apiece against a
+// high-latency host. The label is a release id and the health is a single
+// docker word, so neither can contain the '|' we join on.
+func (e *Engine) containerStatus(ctx context.Context, id string) (release, health string, err error) {
+	res, err := e.T.Run(ctx,
+		"docker inspect -f '{{index .Config.Labels \"ob.release\"}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "+id)
+	if err != nil {
+		return "", "", err
+	}
+	release, health, _ = strings.Cut(strings.TrimSpace(res.Stdout), "|")
+	return release, strings.TrimSpace(health), nil
+}
+
+// projectContainers lists every running container in the app's compose project
+// as service->ids in ONE docker ps. Status previously ran a separate docker ps
+// per role and per accessory; this collapses them into a single query. IDs keep
+// docker's newest-first order, so ids[0] is still the newest like containerID.
+func (e *Engine) projectContainers(ctx context.Context) (map[string][]string, error) {
+	res, err := e.T.Run(ctx,
+		"docker ps --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+			" --format '{{.ID}} {{.Label \"com.docker.compose.service\"}}'")
+	if err != nil {
+		return nil, err
+	}
+	byService := map[string][]string{}
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue // blank line, or a container with no compose-service label
+		}
+		id, svc := fields[0], fields[1]
+		if !validID.MatchString(id) {
+			return nil, fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", id)
+		}
+		byService[svc] = append(byService[svc], id)
+	}
+	return byService, nil
+}
+
 func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

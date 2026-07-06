@@ -125,14 +125,19 @@ func List(ctx context.Context, t transport.Transport, app string) ([]string, err
 const journalMarker = "@@ob-journal@@"
 
 // Journals returns every deploy's records keyed by id, plus the ids oldest
-// first, in a SINGLE round trip. FindIncomplete/audit previously ran one `cat`
-// per journal (O(deploys) round trips against a high-latency host, paid in full
+// first, in a SINGLE round trip. FindIncomplete previously ran one `cat` per
+// journal (O(deploys) round trips against a high-latency host, paid in full
 // whenever no deploy is incomplete); a per-file marker lets one command carry
-// them all while parsing/Summarize stays here, unchanged.
+// them all while parsing/Summarize stays here, unchanged. (Audit still reads
+// per-file — it is not on the status hot path.)
 func Journals(ctx context.Context, t transport.Transport, app string) ([]string, map[string][]Record, error) {
 	// cd fails on a never-deployed host → `|| true` yields empty output, no ids.
+	// The `echo` after each `cat` guarantees a newline before the next marker:
+	// a crash can leave a journal's last record un-terminated, and without it
+	// that record's line would swallow the following file's marker (design §05:
+	// a torn write must not corrupt recovery).
 	cmd := "cd " + q(dir(app)) + " 2>/dev/null && for f in $(ls -1 *.jsonl 2>/dev/null); do echo " +
-		q(journalMarker) + "\"$f\"; cat \"$f\"; done || true"
+		q(journalMarker) + "\"$f\"; cat \"$f\"; echo; done || true"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err

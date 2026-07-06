@@ -119,6 +119,54 @@ func List(ctx context.Context, t transport.Transport, app string) ([]string, err
 	return ids, nil
 }
 
+// journalMarker prefixes each file's contents in the bulk read below. Journal
+// records are single-line JSON objects (they start with '{'), so a line
+// starting with this marker is unambiguous.
+const journalMarker = "@@ob-journal@@"
+
+// Journals returns every deploy's records keyed by id, plus the ids oldest
+// first, in a SINGLE round trip. FindIncomplete previously ran one `cat` per
+// journal (O(deploys) round trips against a high-latency host, paid in full
+// whenever no deploy is incomplete); a per-file marker lets one command carry
+// them all while parsing/Summarize stays here, unchanged. (Audit still reads
+// per-file — it is not on the status hot path.)
+func Journals(ctx context.Context, t transport.Transport, app string) ([]string, map[string][]Record, error) {
+	// cd fails on a never-deployed host → `|| true` yields empty output, no ids.
+	// The `echo` after each `cat` guarantees a newline before the next marker:
+	// a crash can leave a journal's last record un-terminated, and without it
+	// that record's line would swallow the following file's marker (design §05:
+	// a torn write must not corrupt recovery).
+	cmd := "cd " + q(dir(app)) + " 2>/dev/null && for f in $(ls -1 *.jsonl 2>/dev/null); do echo " +
+		q(journalMarker) + "\"$f\"; cat \"$f\"; echo; done || true"
+	res, err := t.Run(ctx, cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+	byID := map[string][]Record{}
+	var ids []string
+	cur := ""
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if f, ok := strings.CutPrefix(strings.TrimSpace(line), journalMarker); ok {
+			cur = strings.TrimSuffix(f, ".jsonl")
+			if _, seen := byID[cur]; !seen {
+				byID[cur] = nil
+				ids = append(ids, cur)
+			}
+			continue
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || cur == "" {
+			continue
+		}
+		var r Record
+		if json.Unmarshal([]byte(line), &r) == nil && r.DeployID != "" {
+			byID[cur] = append(byID[cur], r)
+		}
+	}
+	sort.Strings(ids) // ids are lexically time-ordered by construction
+	return ids, byID, nil
+}
+
 // PruneCandidates returns journal ids beyond the keep window, oldest first.
 // A journal outlives its release (design §05): keep is typically 2× the
 // release retention.

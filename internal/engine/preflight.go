@@ -114,4 +114,67 @@ func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 	return strings.TrimSpace(res.Stdout), nil
 }
 
+// svcContainer is one running container's status, read entirely from docker ps.
+type svcContainer struct {
+	id      string
+	release string // the ob.release label ("" for a non-ob container)
+	health  string // healthy | unhealthy | starting | none
+}
+
+// projectContainers reads every running container in the app's compose project
+// — id, service, ob.release label, and health — in ONE docker ps, grouped by
+// service in docker's newest-first order. This is the whole of status's app
+// side: `docker ps` already carries the release label and a health hint in
+// `.Status`, so no per-container `docker inspect` is needed. (A single batched
+// inspect emitting BOTH the ob.release label and health was tried and can't be
+// relied on: over multiple containers, a template that reads .Config.Labels and
+// guards .State.Health errors — "map has no entry for key Health" — on any
+// container without a healthcheck. A single-id health inspect is fine, but that
+// puts us back to one round trip per container.)
+func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContainer, error) {
+	res, err := e.T.Run(ctx,
+		"docker ps --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Status}}'")
+	if err != nil {
+		return nil, err
+	}
+	byService := map[string][]svcContainer{}
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) != 4 || parts[1] == "" {
+			continue // blank line, or a container with no compose-service label
+		}
+		id := parts[0]
+		// ids aren't reused in a command anymore, but validate defensively so a
+		// future caller can't reintroduce injection through this map.
+		if !validID.MatchString(id) {
+			return nil, fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", id)
+		}
+		byService[parts[1]] = append(byService[parts[1]], svcContainer{
+			id: id, release: parts[2], health: healthFromStatus(parts[3]),
+		})
+	}
+	return byService, nil
+}
+
+// healthFromStatus maps a `docker ps` .Status string to the same word
+// `docker inspect .State.Health.Status` would report. A container with no
+// healthcheck has no health suffix → "none".
+func healthFromStatus(status string) string {
+	switch {
+	case strings.Contains(status, "(healthy)"):
+		return "healthy"
+	case strings.Contains(status, "(unhealthy)"):
+		return "unhealthy"
+	case strings.Contains(status, "health: starting"):
+		return "starting"
+	default:
+		return "none"
+	}
+}
+
 func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

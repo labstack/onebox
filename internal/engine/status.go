@@ -15,9 +15,9 @@ import (
 // (design §05). Recorded = the current symlink; actual = what each role's
 // container says via its ob.release label and health.
 //
-// The host is high-latency and every command is a full SSH round trip (~2×RTT;
-// the docker work itself is negligible), so status is round-trip-bound. It
-// fires every read concurrently in one wave — SSH multiplexes channels over the
+// The host is high-latency and every command is a full SSH round trip (the
+// docker work itself is negligible), so status is round-trip-bound. It fires
+// every read concurrently in one wave — SSH multiplexes channels over the
 // single connection, so their latencies overlap instead of summing — behind a
 // spinner, since nothing streams until the whole table renders at the end.
 func (e *Engine) Status(ctx context.Context) error {

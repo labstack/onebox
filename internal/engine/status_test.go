@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -92,6 +93,78 @@ func TestStatusFlagsNotRunning(t *testing.T) {
 	s := out.String()
 	if c := strings.Count(s, "NOT RUNNING"); c != 2 { // worker role + postgres accessory
 		t.Fatalf("want NOT RUNNING for worker and postgres, got %d:\n%s", c, s)
+	}
+}
+
+// Health now rides in docker ps .Status; an unhealthy role must still force
+// divergence. Release matches recorded, so only health drives the result.
+func TestStatusFlagsUnhealthyRole(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R2\n"}, true
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+			return transport.Result{Stdout: "S1|server|R2|Up (unhealthy)\n" +
+				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: ""}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("an unhealthy role must be a divergence:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "(unhealthy)") {
+		t.Fatalf("unhealthy health must be shown:\n%s", out.String())
+	}
+}
+
+// A read that errors inside the concurrent wave must fail status — not yield a
+// partial table that still ends in "all in sync". A suspicious id from the ps
+// makes projectContainers error; gather must propagate it.
+func TestStatusSurfacesReadError(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R2\n"}, true
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+			return transport.Result{Stdout: "S1;reboot|server|R2|Up (healthy)\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: ""}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatal("a read error in the wave must fail status")
+	}
+	if strings.Contains(out.String(), "all in sync") || strings.Contains(out.String(), "ROLE") {
+		t.Fatalf("status must not render a table on a failed read:\n%s", out.String())
+	}
+}
+
+// A transport-level journal read failure must surface as an error — never be
+// mistaken for a clean journal and reported "all in sync". This is the whole
+// reason FindIncomplete returns the ErrNoIncomplete sentinel.
+func TestStatusSurfacesJournalReadError(t *testing.T) {
+	f := statusFake("R2", "R2") // everything else in sync
+	f.Err = func(cmd string) error {
+		if strings.Contains(cmd, "for f in") { // the journal.Journals command
+			return errors.New("connection reset")
+		}
+		return nil
+	}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	err := e.Status(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("a journal read failure must surface, got %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "all in sync") {
+		t.Fatalf("must not report clean on a failed journal read:\n%s", out.String())
 	}
 }
 

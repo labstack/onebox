@@ -18,9 +18,13 @@ type Rule struct {
 // The mutex makes it safe under concurrent Run calls — the engine fans status
 // reads out over the transport, so the double must tolerate the same.
 type Fake struct {
-	mu         sync.Mutex
-	Script     []Rule
-	Dynamic    func(cmd string) (Result, bool)
+	mu      sync.Mutex
+	Script  []Rule
+	Dynamic func(cmd string) (Result, bool)
+	// Err (if set and non-nil for a command) makes Run/RunInput return that
+	// error — the only way to model a transport-level failure, since Result
+	// carries an exit code but not an error.
+	Err        func(cmd string) error
 	Commands   []string
 	Inputs     []string // stdin passed to RunInput calls
 	Uploads    []string
@@ -33,6 +37,11 @@ func (f *Fake) RunInput(_ context.Context, cmd, stdin string) (Result, error) {
 	defer f.mu.Unlock()
 	f.Inputs = append(f.Inputs, stdin)
 	f.Commands = append(f.Commands, cmd)
+	if f.Err != nil {
+		if err := f.Err(cmd); err != nil {
+			return Result{}, err
+		}
+	}
 	return f.evalLocked(cmd), nil
 }
 
@@ -49,6 +58,11 @@ func (f *Fake) Run(_ context.Context, cmd string) (Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Commands = append(f.Commands, cmd)
+	if f.Err != nil {
+		if err := f.Err(cmd); err != nil {
+			return Result{}, err
+		}
+	}
 	return f.evalLocked(cmd), nil
 }
 

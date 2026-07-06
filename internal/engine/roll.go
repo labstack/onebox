@@ -256,7 +256,10 @@ func idSet(ids []string) map[string]bool {
 // readiness is ADOPTED from the compose healthcheck (ready absent or
 // timing-only).
 func readyTiming(role config.Role) (within, interval time.Duration) {
-	within, interval = 120*time.Second, 5*time.Second
+	// 2s poll matches the generated healthcheck's default interval so ob detects
+	// the join (newcomer healthy) and the drain flip (old unhealthy) promptly,
+	// instead of leaving up to 5s of slack on each wait. within bounds the join.
+	within, interval = 120*time.Second, 2*time.Second
 	if role.Ready != nil {
 		if role.Ready.Within > 0 {
 			within = time.Duration(role.Ready.Within)

@@ -15,17 +15,15 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + recorded + "\n"}, true
-		case strings.Contains(cmd, "service='server'"):
-			return transport.Result{Stdout: "S1\n"}, true
-		case strings.Contains(cmd, "service='worker'"):
-			return transport.Result{Stdout: "W1\n"}, true
-		case strings.Contains(cmd, "service='postgres'"):
-			return transport.Result{Stdout: "PG1\n"}, true
+		// one project-wide docker ps → every container as "id service"
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+			return transport.Result{Stdout: "S1 server\nW1 worker\nPG1 postgres\n"}, true
+		// merged inspect: "<ob.release>|<health>"
 		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "S1"):
-			return transport.Result{Stdout: webRelease + "\n"}, true
+			return transport.Result{Stdout: webRelease + "|healthy\n"}, true
 		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "W1"):
-			return transport.Result{Stdout: recorded + "\n"}, true
-		case strings.Contains(cmd, "Health"):
+			return transport.Result{Stdout: recorded + "|healthy\n"}, true
+		case strings.Contains(cmd, "Health"): // accessory health-only inspect
 			return transport.Result{Stdout: "healthy\n"}, true
 		case strings.Contains(cmd, "ls -1"): // no journals
 			return transport.Result{Stdout: ""}, true
@@ -33,6 +31,35 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 		return transport.Result{}, false
 	}
 	return f
+}
+
+// The perf contract: status must not fan out a docker ps per role/accessory,
+// and must not inspect a container twice for label+health. For the 2-role +
+// 1-accessory fixture that means exactly one project-wide ps and one inspect
+// per container — a regression here is what made status slow on a high-latency
+// host.
+func TestStatusRoundTripBudget(t *testing.T) {
+	f := statusFake("R2", "R2")
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("status: %v\n%s", err, out.String())
+	}
+	var ps, inspect int
+	for _, c := range f.Commands {
+		switch {
+		case strings.Contains(c, "docker ps"):
+			ps++
+		case strings.Contains(c, "docker inspect"):
+			inspect++
+		}
+	}
+	if ps != 1 {
+		t.Fatalf("want exactly 1 docker ps (project-wide), got %d:\n%s", ps, strings.Join(f.Commands, "\n"))
+	}
+	if inspect != 3 { // S1 + W1 (roles) + PG1 (accessory)
+		t.Fatalf("want 3 docker inspect (one per container), got %d:\n%s", inspect, strings.Join(f.Commands, "\n"))
+	}
 }
 
 func TestStatusInSync(t *testing.T) {

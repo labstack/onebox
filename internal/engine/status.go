@@ -23,30 +23,29 @@ func (e *Engine) Status(ctx context.Context) error {
 	fmt.Fprintf(e.Opts.Out, "recorded: %s\n\n", recorded)
 	e.ui.Println(e.ui.Bold(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
 
+	// One docker ps for the whole project, then one inspect per container —
+	// instead of a docker ps + two inspects for every role and accessory.
+	byService, err := e.projectContainers(ctx)
+	if err != nil {
+		return err
+	}
+
 	diverged := false
 	for _, roleName := range e.Cfg.Order {
 		role := e.Cfg.Roles[roleName]
-		ids, err := e.containerIDs(ctx, role.Service)
-		if err != nil {
-			return err
-		}
+		ids := byService[role.Service]
 		if len(ids) == 0 {
 			diverged = true
 			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
 			continue
 		}
 		for _, id := range ids {
-			res, err := e.T.Run(ctx, "docker inspect -f '{{index .Config.Labels \"ob.release\"}}' "+id)
+			actual, health, err := e.containerStatus(ctx, id)
 			if err != nil {
 				return err
 			}
-			actual := strings.TrimSpace(res.Stdout)
 			if actual == "" || actual == "<no value>" {
 				actual = "(not ob-deployed)"
-			}
-			health, err := e.healthOf(ctx, id)
-			if err != nil {
-				return err
 			}
 			state := e.ui.OK("in sync")
 			if actual != strings.TrimSpace(recorded) {
@@ -64,16 +63,13 @@ func (e *Engine) Status(ctx context.Context) error {
 	// accessories: running/health only — they converge separately
 	fmt.Fprintln(e.Opts.Out)
 	for _, acc := range e.Cfg.Accessories {
-		id, err := e.containerID(ctx, acc)
-		if err != nil {
-			return err
-		}
-		if id == "" {
+		ids := byService[acc]
+		if len(ids) == 0 {
 			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("NOT RUNNING ⚠")))
 			diverged = true
 			continue
 		}
-		health, _ := e.healthOf(ctx, id)
+		health, _ := e.healthOf(ctx, ids[0])
 		fmt.Fprintf(e.Opts.Out, "accessory %-12s %s\n", acc, health)
 	}
 

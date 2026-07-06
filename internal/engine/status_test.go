@@ -121,6 +121,32 @@ func TestStatusFlagsUnhealthyRole(t *testing.T) {
 	}
 }
 
+// A crash-looping (Restarting) role container is on the recorded release yet is
+// not serving. It must force divergence and show its "down" health — before, its
+// status parsed to "none" and read as a healthy no-healthcheck container.
+func TestStatusFlagsCrashLoopingRole(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R2\n"}, true
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+			return transport.Result{Stdout: "S1|server|R2|Restarting (1) 3 seconds ago\n" +
+				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: ""}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("a crash-looping role must be a divergence:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "(down)") {
+		t.Fatalf("crash-looping role must show 'down' health:\n%s", out.String())
+	}
+}
+
 // A read that errors inside the concurrent wave must fail status — not yield a
 // partial table that still ends in "all in sync". A suspicious id from the ps
 // makes projectContainers error; gather must propagate it.

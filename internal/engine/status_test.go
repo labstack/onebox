@@ -16,15 +16,10 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + recorded + "\n"}, true
 		// one project-wide docker ps → every container as "id service"
+		// one docker ps carries id|service|ob.release|status for every container
 		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
-			return transport.Result{Stdout: "S1 server\nW1 worker\nPG1 postgres\n"}, true
-		// merged inspect: "<ob.release>|<health>"
-		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "S1"):
-			return transport.Result{Stdout: webRelease + "|healthy\n"}, true
-		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "W1"):
-			return transport.Result{Stdout: recorded + "|healthy\n"}, true
-		case strings.Contains(cmd, "Health"): // accessory health-only inspect
-			return transport.Result{Stdout: "healthy\n"}, true
+			return transport.Result{Stdout: "S1|server|" + webRelease + "|Up (healthy)\n" +
+				"W1|worker|" + recorded + "|Up (healthy)\nPG1|postgres|" + recorded + "|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"): // no journals
 			return transport.Result{Stdout: ""}, true
 		}
@@ -33,11 +28,10 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 	return f
 }
 
-// The perf contract: status must not fan out a docker ps per role/accessory,
-// and must not inspect a container twice for label+health. For the 2-role +
-// 1-accessory fixture that means exactly one project-wide ps and one inspect
-// per container — a regression here is what made status slow on a high-latency
-// host.
+// The perf contract: status must not fan a docker ps or inspect out per
+// container. For any number of roles/accessories it issues exactly one
+// project-wide ps and one batched inspect covering every container — the whole
+// reason status went from ~35 round trips to a handful on a high-latency host.
 func TestStatusRoundTripBudget(t *testing.T) {
 	f := statusFake("R2", "R2")
 	var out bytes.Buffer
@@ -57,8 +51,8 @@ func TestStatusRoundTripBudget(t *testing.T) {
 	if ps != 1 {
 		t.Fatalf("want exactly 1 docker ps (project-wide), got %d:\n%s", ps, strings.Join(f.Commands, "\n"))
 	}
-	if inspect != 3 { // S1 + W1 (roles) + PG1 (accessory)
-		t.Fatalf("want 3 docker inspect (one per container), got %d:\n%s", inspect, strings.Join(f.Commands, "\n"))
+	if inspect != 0 { // health rides in docker ps .Status; no per-container inspect
+		t.Fatalf("want 0 docker inspect (health from ps), got %d:\n%s", inspect, strings.Join(f.Commands, "\n"))
 	}
 }
 
@@ -84,9 +78,7 @@ func TestStatusFlagsNotRunning(t *testing.T) {
 			return transport.Result{Stdout: "releases/R2\n"}, true
 		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
 			// only the web role's container is up: worker + postgres are gone
-			return transport.Result{Stdout: "S1 server\n"}, true
-		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "S1"):
-			return transport.Result{Stdout: "R2|healthy\n"}, true
+			return transport.Result{Stdout: "S1|server|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
 			return transport.Result{Stdout: ""}, true
 		}

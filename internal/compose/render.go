@@ -127,6 +127,13 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 			if r.Ready != nil && r.Ready.StartPeriod > 0 {
 				start = time.Duration(r.Ready.StartPeriod)
 			}
+			// ready.retries overrides the drain-flip speed: the guard flips a
+			// container to unhealthy after Retries consecutive failed probes, so
+			// retries: 1 drains in a single interval instead of Docker's default 3.
+			if r.Ready != nil && r.Ready.Retries > 0 {
+				n := uint64(r.Ready.Retries)
+				retries = &n
+			}
 			iv, sp := types.Duration(interval), types.Duration(start)
 			svc.HealthCheck = &types.HealthCheckConfig{
 				// The drain guard: while DrainFile exists the check fails, the

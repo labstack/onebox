@@ -74,6 +74,35 @@ func TestStatusInSync(t *testing.T) {
 	}
 }
 
+// After collapsing the per-service queries into one project-wide ps, a role or
+// accessory simply absent from the map must still render NOT RUNNING and force
+// divergence — the crashed-service signal must survive the refactor.
+func TestStatusFlagsNotRunning(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R2\n"}, true
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+			// only the web role's container is up: worker + postgres are gone
+			return transport.Result{Stdout: "S1 server\n"}, true
+		case strings.Contains(cmd, "ob.release") && strings.Contains(cmd, "S1"):
+			return transport.Result{Stdout: "R2|healthy\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: ""}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("a missing role/accessory must be divergence:\n%s", out.String())
+	}
+	s := out.String()
+	if c := strings.Count(s, "NOT RUNNING"); c != 2 { // worker role + postgres accessory
+		t.Fatalf("want NOT RUNNING for worker and postgres, got %d:\n%s", c, s)
+	}
+}
+
 func TestStatusFlagsDivergence(t *testing.T) {
 	f := statusFake("R1", "R2") // web still runs old release
 	var out bytes.Buffer

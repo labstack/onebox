@@ -60,6 +60,42 @@ func TestJournalsOneRoundTrip(t *testing.T) {
 	}
 }
 
+// A crash can leave a journal's final record without its trailing newline. The
+// bulk command's `echo` after each `cat` must still separate it from the next
+// file's marker, so no records leak across deploys and every file enters ids.
+func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
+	// R1's last line has no trailing "\n" (torn write); the command's echo adds
+	// one before R2's marker. R1's torn line is dropped, R2 stays intact.
+	out := journalMarker + "R1.jsonl\n" +
+		`{"deploy_id":"R1","event":"start"}` + "\n" +
+		`{"deploy_id":"R1","event":"result","status":"ok"` + // <- torn, no closing brace/newline
+		"\n" + // the trailing `echo`
+		journalMarker + "R2.jsonl\n" +
+		`{"deploy_id":"R2","event":"start"}` + "\n\n"
+
+	var gotCmd string
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for f in") {
+			gotCmd = cmd
+			return transport.Result{Stdout: out}, true
+		}
+		return transport.Result{}, false
+	}}
+	ids, byID, err := Journals(context.Background(), f, "monk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotCmd, `cat "$f"; echo;`) {
+		t.Fatalf("command must echo a newline after each cat to fence torn writes: %s", gotCmd)
+	}
+	if len(ids) != 2 || ids[1] != "R2" {
+		t.Fatalf("R2 must not be swallowed by R1's torn line: ids=%v", ids)
+	}
+	if len(byID["R2"]) != 1 {
+		t.Fatalf("R2's record misattributed or lost: %v", byID["R2"])
+	}
+}
+
 // A never-deployed host has no journal dir: the command exits clean with no
 // output, and Journals returns nothing rather than erroring.
 func TestJournalsNoJournalDir(t *testing.T) {

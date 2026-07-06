@@ -32,10 +32,8 @@ func interruptedFake(gateDetail string) *transport.Fake {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/journal'"):
-			return transport.Result{Stdout: "R1.jsonl\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/ob/monk/journal/R1.jsonl'"):
-			return transport.Result{Stdout: jr}, true
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal"):
+			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
@@ -77,11 +75,8 @@ func TestResumeWithNothingIncomplete(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/journal'") {
-			return transport.Result{Stdout: "R1.jsonl\n"}, true
-		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/monk/journal/R1.jsonl'") {
-			return transport.Result{Stdout: journalLines(
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal") {
+			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + journalLines(
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "start"},
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "finish", Status: "ok"},
 			)}, true

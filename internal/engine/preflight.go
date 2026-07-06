@@ -114,7 +114,8 @@ func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 	return strings.TrimSpace(res.Stdout), nil
 }
 
-// svcContainer is one running container's status, read entirely from docker ps.
+// svcContainer is one container's status as docker ps reports it (a "down"
+// container is present but not serving, so not strictly running).
 type svcContainer struct {
 	id      string
 	release string // the ob.release label ("" for a non-ob container)
@@ -164,10 +165,14 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 // healthFromStatus maps a `docker ps` .Status string to a health word. For a
 // running container it mirrors `docker inspect .State.Health.Status`
 // (healthy | unhealthy | starting), and "none" for one with no healthcheck.
-// A container that is NOT actually up — Restarting (crash-looping), Exited,
-// Created, Dead, Removing — reports "down": status treats anything other than
-// healthy/none as a problem, so a container flapping AFTER a deploy is surfaced
-// rather than mistaken for a healthy no-healthcheck one (both were "none" before).
+// A container that is present but NOT serving — Restarting (crash-looping) or
+// Paused — reports "down": status treats anything other than healthy/none as a
+// problem, so a container flapping AFTER a deploy is surfaced rather than
+// mistaken for a healthy no-healthcheck one (both were "none" before).
+//
+// The callers run `docker ps` without -a, so in practice only Up/Restarting/
+// Paused reach here; a fully Exited/Created/Dead container drops out of ps and
+// surfaces as NOT RUNNING (len==0). Those states are mapped defensively anyway.
 func healthFromStatus(status string) string {
 	switch {
 	case strings.Contains(status, "(healthy)"):
@@ -176,10 +181,12 @@ func healthFromStatus(status string) string {
 		return "unhealthy"
 	case strings.Contains(status, "health: starting"):
 		return "starting"
+	case strings.Contains(status, "(Paused)"): // up but not serving; must precede the Up prefix
+		return "down"
 	case strings.HasPrefix(strings.TrimSpace(status), "Up"):
 		return "none" // running, no healthcheck
 	default:
-		return "down" // Restarting / Exited / Created / Dead / Removing — not serving
+		return "down" // Restarting (crash loop) / Exited / Created / Dead / Removing — not serving
 	}
 }
 

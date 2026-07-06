@@ -77,9 +77,11 @@ func TestHealthFromStatus(t *testing.T) {
 		"Up 3 minutes (unhealthy)":        "unhealthy",
 		"Up 5 seconds (health: starting)": "starting",
 		"Restarting (1) 5 seconds ago":    "down", // crash loop — was silently "none" before
+		"Up 2 hours (Paused)":             "down", // up but not serving; must not read as none
 		"Exited (1) 2 seconds ago":        "down",
 		"Created":                         "down",
 		"Dead":                            "down",
+		"Removing":                        "down",
 	}
 	for status, want := range cases {
 		if got := healthFromStatus(status); got != want {

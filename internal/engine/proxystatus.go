@@ -35,15 +35,15 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 	hp := proxy.HostPaths()
 	return []func() error{
 		func() error {
-			ids, err := e.proxyContainerIDs(ctx)
+			id, health, err := e.proxyContainer(ctx)
 			if err != nil {
 				return err
 			}
-			px.ids = ids
-			if len(ids) > 0 {
-				px.health, err = e.healthOf(ctx, ids[0])
+			if id != "" {
+				px.ids = []string{id}
 			}
-			return err
+			px.health = health
+			return nil
 		},
 		func() error {
 			res, err := e.T.Run(ctx, "cat "+q(hp.Hash)+" 2>/dev/null || true")
@@ -80,6 +80,27 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return err
 		},
 	}
+}
+
+// proxyContainer returns the managed proxy's id and health from ONE docker ps —
+// the proxy is a single container, so status doesn't need the id-then-inspect
+// two-step (that was the last serial hop in the read wave). Health is parsed
+// from .Status like the app side. Empty id when the proxy isn't running.
+func (e *Engine) proxyContainer(ctx context.Context) (id, health string, err error) {
+	res, err := e.T.Run(ctx, "docker ps --filter label=com.docker.compose.project="+q(proxy.Project)+
+		" --format '{{.ID}}|{{.Status}}'")
+	if err != nil {
+		return "", "", err
+	}
+	line := strings.SplitN(strings.TrimSpace(res.Stdout), "\n", 2)[0] // single container
+	if line == "" {
+		return "", "", nil
+	}
+	id, status, _ := strings.Cut(line, "|")
+	if !validID.MatchString(id) {
+		return "", "", fmt.Errorf("suspicious proxy container id %q from docker ps", id)
+	}
+	return id, healthFromStatus(status), nil
 }
 
 // renderProxy prints the managed proxy under the same recorded-vs-actual

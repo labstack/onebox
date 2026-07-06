@@ -67,10 +67,8 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "project='ob-proxy'"): // proxy container id
-			return transport.Result{Stdout: "PX1\n"}, true
-		case strings.Contains(cmd, "docker inspect"): // proxy health (single-id)
-			return transport.Result{Stdout: proxyHealth + "\n"}, true
+		case strings.Contains(cmd, "project='ob-proxy'"): // proxy id + health in one ps
+			return transport.Result{Stdout: "PX1|Up 2 days (" + proxyHealth + ")\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
 		case strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'"):

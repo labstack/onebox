@@ -4,6 +4,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -89,25 +90,40 @@ func (r Role) Count() int {
 
 // StopGraceSeconds is the `docker stop -t` timeout used when retiring a drained
 // container: drain.grace if set, else 30s (design §03's conservative default).
+// A positive sub-second grace rounds UP to 1s — `docker stop -t` is integer
+// seconds, and truncating (e.g. 500ms → 0) would mean an immediate SIGKILL, the
+// opposite of a graceful stop.
 func (r Role) StopGraceSeconds() int {
 	if r.Drain != nil && r.Drain.Grace > 0 {
-		return int(time.Duration(r.Drain.Grace).Seconds())
+		return int(math.Ceil(time.Duration(r.Drain.Grace).Seconds()))
 	}
 	return 30
+}
+
+// HealthRetries is the consecutive-failure count Docker uses on the generated
+// healthcheck before it flips health: ready.retries if set, else Docker's own
+// default of 3. The drain step derives its wait budget from this, so the two
+// can't drift (a high retries needs a proportionally longer drain budget).
+func (r Role) HealthRetries() int {
+	if r.Ready != nil && r.Ready.Retries > 0 {
+		return r.Ready.Retries
+	}
+	return 3
 }
 
 type Ready struct {
 	HTTP        string   `yaml:"http,omitempty"` // path, e.g. /healthz
 	Exec        string   `yaml:"exec,omitempty"` // command run inside the container
 	Port        int      `yaml:"port,omitempty"`
-	Interval    Duration `yaml:"interval,omitempty"`     // default 5s
+	Interval    Duration `yaml:"interval,omitempty"`     // generated-healthcheck cadence, default 2s
 	StartPeriod Duration `yaml:"start_period,omitempty"` // default 5s
 	Within      Duration `yaml:"within,omitempty"`       // overall gate timeout, default 120s
 	// Retries is the generated healthcheck's consecutive-failure count before
 	// Docker flips health (default: Docker's own default of 3). It governs how
 	// fast the drain guard flips a container to `unhealthy` so the proxy drops
 	// it: the flip takes Retries × Interval. Set retries: 1 for a fast drain.
-	// Adopted (author-authored) healthchecks keep their own retries.
+	// Adopted (author-authored) healthchecks keep their own retries unless
+	// ready.retries is set (it overrides the adopted count too).
 	Retries int `yaml:"retries,omitempty"`
 }
 
@@ -117,8 +133,10 @@ type Drain struct {
 	// Grace is the `docker stop -t` timeout for the SIGTERM→SIGKILL window when
 	// retiring a drained container (default 30s). By the time stop runs the
 	// container is already out of rotation (the proxy dropped it via the drain
-	// guard), so this is pure shutdown slack — lower it for a fast-exiting
-	// process to save ~grace per replica.
+	// guard), so this is pure SIGTERM slack. `docker stop -t` returns the instant
+	// the process exits, so lowering grace only speeds up a process that ignores
+	// SIGTERM and would otherwise ride the timeout to SIGKILL — a prompt-exiting
+	// server never pays it. Sub-second values round up to 1s.
 	Grace Duration `yaml:"grace,omitempty"`
 }
 

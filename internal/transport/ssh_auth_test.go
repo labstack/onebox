@@ -96,6 +96,30 @@ func TestSSHAuthsEncryptedKeyIsDiagnosed(t *testing.T) {
 	}
 }
 
+// A present-but-unreadable key (mode 000) must be diagnosed, not treated like
+// an absent one — otherwise the user sees a misleading "no usable auth".
+func TestSSHAuthsUnreadableKeyIsDiagnosed(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "id_ed25519")
+	if err := os.WriteFile(path, []byte("unreadable"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("running as a user that can read mode-000 files (e.g. root)")
+	}
+	auths, diag := sshAuths(home, "")
+	if len(auths) != 0 {
+		t.Fatalf("unreadable key must yield no auth, got %d", len(auths))
+	}
+	if !strings.Contains(strings.Join(diag, "; "), "unreadable") {
+		t.Fatalf("unreadable key must be diagnosed, got %v", diag)
+	}
+}
+
 // An unencrypted on-disk key is usable.
 func TestSSHAuthsUnencryptedKeyIsUsed(t *testing.T) {
 	home := t.TempDir()

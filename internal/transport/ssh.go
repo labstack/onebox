@@ -109,6 +109,11 @@ func sshAuths(home, authSock string) (auths []ssh.AuthMethod, diag []string) {
 		path := filepath.Join(home, ".ssh", name)
 		b, err := os.ReadFile(path)
 		if err != nil {
+			// A missing key is normal; a present-but-unreadable one (wrong owner,
+			// mode 000) is the actionable case the generic "no auth" would hide.
+			if !errors.Is(err, os.ErrNotExist) {
+				diag = append(diag, fmt.Sprintf("%s: unreadable: %v", path, err))
+			}
 			continue
 		}
 		signer, err := ssh.ParsePrivateKey(b)

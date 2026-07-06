@@ -117,8 +117,8 @@ func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 // containerStatus returns a container's ob.release label and health in ONE
 // docker inspect. Status walks every running container, and each previously
 // cost two inspects (label, then health) — one round trip apiece against a
-// high-latency host. The label is a release id and the health is a single
-// docker word, so neither can contain the '|' we join on.
+// high-latency host. The label is empty or a release id (YYYYMMDD-HHMMSS-<sha>)
+// and health is a single docker word, so neither can contain the '|' we join on.
 func (e *Engine) containerStatus(ctx context.Context, id string) (release, health string, err error) {
 	res, err := e.T.Run(ctx,
 		"docker inspect -f '{{index .Config.Labels \"ob.release\"}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "+id)

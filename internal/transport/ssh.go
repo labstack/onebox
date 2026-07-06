@@ -51,21 +51,13 @@ func NewSSH(addr string) (*SSH, error) {
 	if err != nil {
 		return nil, fmt.Errorf("known_hosts (required — ob never skips host verification): %w", err)
 	}
-	var auths []ssh.AuthMethod
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if conn, err := net.Dial("unix", sock); err == nil {
-			auths = append(auths, ssh.PublicKeysCallback(agent.NewClient(conn).Signers))
-		}
-	}
-	for _, name := range []string{"id_ed25519", "id_rsa"} {
-		if b, err := os.ReadFile(filepath.Join(home, ".ssh", name)); err == nil {
-			if signer, err := ssh.ParsePrivateKey(b); err == nil {
-				auths = append(auths, ssh.PublicKeys(signer))
-			}
-		}
-	}
+	auths, diag := sshAuths(home, os.Getenv("SSH_AUTH_SOCK"))
 	if len(auths) == 0 {
-		return nil, fmt.Errorf("no SSH auth available (agent or ~/.ssh/id_ed25519|id_rsa)")
+		msg := "no usable SSH auth found (need an ssh-agent identity or ~/.ssh/id_ed25519|id_rsa)"
+		if len(diag) > 0 {
+			msg += ": " + strings.Join(diag, "; ")
+		}
+		return nil, errors.New(msg)
 	}
 	client, err := ssh.Dial("tcp", net.JoinHostPort(host, port), &ssh.ClientConfig{
 		User:            user,
@@ -81,6 +73,57 @@ func NewSSH(addr string) (*SSH, error) {
 		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
 	}
 	return &SSH{client: client, host: host, target: user + "@" + host}, nil
+}
+
+// sshAuths gathers publickey auth methods from the ssh-agent and on-disk keys.
+// Alongside the methods it returns a diagnostic for every source it found but
+// could not use — an empty agent, a passphrase-encrypted key — which the caller
+// surfaces only when NO method is usable. That turns what the server would
+// otherwise report as a bare "handshake failed" into an actionable message.
+//
+// ob deliberately does not prompt for or keychain-decrypt on-disk keys: an
+// encrypted key is usable only via the agent (design §11). The empty-agent
+// guard matters because a reachable-but-empty agent's Signers callback offers
+// nothing yet would still make len(auths) non-zero, masking that diagnostic.
+func sshAuths(home, authSock string) (auths []ssh.AuthMethod, diag []string) {
+	if authSock != "" {
+		conn, err := net.Dial("unix", authSock)
+		if err != nil {
+			diag = append(diag, fmt.Sprintf("SSH_AUTH_SOCK set but agent unreachable: %v", err))
+		} else {
+			ag := agent.NewClient(conn)
+			switch signers, err := ag.Signers(); {
+			case err != nil:
+				conn.Close()
+				diag = append(diag, fmt.Sprintf("ssh-agent error: %v", err))
+			case len(signers) == 0:
+				conn.Close()
+				diag = append(diag, "ssh-agent has no identities (try: ssh-add ~/.ssh/id_ed25519)")
+			default:
+				// conn stays open — the callback re-lists at handshake time.
+				auths = append(auths, ssh.PublicKeysCallback(ag.Signers))
+			}
+		}
+	}
+	for _, name := range []string{"id_ed25519", "id_rsa"} {
+		path := filepath.Join(home, ".ssh", name)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		signer, err := ssh.ParsePrivateKey(b)
+		if err != nil {
+			var need *ssh.PassphraseMissingError
+			if errors.As(err, &need) {
+				diag = append(diag, fmt.Sprintf("%s is passphrase-encrypted — ob can't decrypt on-disk keys; load it into your agent: ssh-add %s", path, path))
+			} else {
+				diag = append(diag, fmt.Sprintf("%s: %v", path, err))
+			}
+			continue
+		}
+		auths = append(auths, ssh.PublicKeys(signer))
+	}
+	return auths, diag
 }
 
 // knownHostKeyAlgos returns the host-key algorithms pinned for addr in

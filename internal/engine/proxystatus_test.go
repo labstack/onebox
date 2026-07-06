@@ -139,6 +139,37 @@ func TestStatusManagedProxyCertRenewalOverdue(t *testing.T) {
 	}
 }
 
+// An up-but-unhealthy proxy (health parsed from ps .Status) must force
+// divergence — all other proxy tests only ever pass "healthy".
+func TestStatusManagedProxyUnhealthy(t *testing.T) {
+	applied := ""
+	acme := acmeFixture(t, "monk.trade", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	e, _, out, _ := statusProxyEngine(t, &applied, acme, "unhealthy")
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("an unhealthy proxy must be a divergence:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "unhealthy") {
+		t.Fatalf("proxy health must be shown:\n%s", out.String())
+	}
+}
+
+// proxyContainer parses an id from docker ps; a non-alnum id must be rejected,
+// mirroring projectContainers' guard.
+func TestProxyContainerRejectsSuspiciousID(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "project='ob-proxy'") {
+			return transport.Result{Stdout: "PX1;rm -rf|Up (healthy)\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	cfg := testConfig()
+	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if _, _, err := e.proxyContainer(context.Background()); err == nil {
+		t.Fatal("a suspicious proxy container id must be rejected")
+	}
+}
+
 func TestStatusManagedProxyNotRunning(t *testing.T) {
 	applied := ""
 	e, f, out, _ := statusProxyEngine(t, &applied, "", "healthy")

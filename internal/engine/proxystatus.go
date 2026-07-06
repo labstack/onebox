@@ -18,7 +18,7 @@ const renewalFloorDays = 21
 // app-side reads.
 type proxyRaw struct {
 	ids       []string
-	health    string // proxy container health (single-id inspect, not batched)
+	health    string // proxy container health, parsed from docker ps .Status
 	applied   string // config hash the host applied
 	apps      string // raw `ls` of the registered-apps dir
 	acme      string // raw acme.json (parsed at render; keys never leave, design §07)
@@ -29,8 +29,7 @@ type proxyRaw struct {
 // gather — the host round trips (container+health, config hash, apps, acme) run
 // concurrently with the app-side reads, and the local config hash is computed
 // in the same wave. Each thunk writes a distinct proxyRaw field, so they share
-// no state. The proxy is a single container, so its health uses a plain
-// single-id inspect (unlike the app side, which reads health from docker ps).
+// no state. Health comes from docker ps .Status, same as the app side.
 func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 	hp := proxy.HostPaths()
 	return []func() error{

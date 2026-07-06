@@ -125,9 +125,12 @@ type svcContainer struct {
 // — id, service, ob.release label, and health — in ONE docker ps, grouped by
 // service in docker's newest-first order. This is the whole of status's app
 // side: `docker ps` already carries the release label and a health hint in
-// `.Status`, so no per-container `docker inspect` is needed (and a batched
-// inspect can't be used — its template runs with missingkey=error and blows up
-// on a container that has no healthcheck).
+// `.Status`, so no per-container `docker inspect` is needed. (A single batched
+// inspect emitting BOTH the ob.release label and health was tried and can't be
+// relied on: over multiple containers, a template that reads .Config.Labels and
+// guards .State.Health errors — "map has no entry for key Health" — on any
+// container without a healthcheck. A single-id health inspect is fine, but that
+// puts us back to one round trip per container.)
 func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContainer, error) {
 	res, err := e.T.Run(ctx,
 		"docker ps --filter label=com.docker.compose.project="+q(e.Cfg.App)+

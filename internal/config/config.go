@@ -87,6 +87,15 @@ func (r Role) Count() int {
 	return r.Replicas
 }
 
+// StopGraceSeconds is the `docker stop -t` timeout used when retiring a drained
+// container: drain.grace if set, else 30s (design §03's conservative default).
+func (r Role) StopGraceSeconds() int {
+	if r.Drain != nil && r.Drain.Grace > 0 {
+		return int(time.Duration(r.Drain.Grace).Seconds())
+	}
+	return 30
+}
+
 type Ready struct {
 	HTTP        string   `yaml:"http,omitempty"` // path, e.g. /healthz
 	Exec        string   `yaml:"exec,omitempty"` // command run inside the container
@@ -94,11 +103,23 @@ type Ready struct {
 	Interval    Duration `yaml:"interval,omitempty"`     // default 5s
 	StartPeriod Duration `yaml:"start_period,omitempty"` // default 5s
 	Within      Duration `yaml:"within,omitempty"`       // overall gate timeout, default 120s
+	// Retries is the generated healthcheck's consecutive-failure count before
+	// Docker flips health (default: Docker's own default of 3). It governs how
+	// fast the drain guard flips a container to `unhealthy` so the proxy drops
+	// it: the flip takes Retries × Interval. Set retries: 1 for a fast drain.
+	// Adopted (author-authored) healthchecks keep their own retries.
+	Retries int `yaml:"retries,omitempty"`
 }
 
 type Drain struct {
 	Signal string   `yaml:"signal,omitempty"`
 	Wait   Duration `yaml:"wait,omitempty"`
+	// Grace is the `docker stop -t` timeout for the SIGTERM→SIGKILL window when
+	// retiring a drained container (default 30s). By the time stop runs the
+	// container is already out of rotation (the proxy dropped it via the drain
+	// guard), so this is pure shutdown slack — lower it for a fast-exiting
+	// process to save ~grace per replica.
+	Grace Duration `yaml:"grace,omitempty"`
 }
 
 type VerifyCheck struct {
@@ -369,6 +390,12 @@ func (c *Config) Validate() error {
 		}
 		if r.Drain != nil && r.Drain.Signal != "" && !signalRe.MatchString(r.Drain.Signal) {
 			return fmt.Errorf("roles.%s: drain.signal %q must match %s", name, r.Drain.Signal, signalRe)
+		}
+		if r.Ready != nil && r.Ready.Retries < 0 {
+			return fmt.Errorf("roles.%s: ready.retries must be >= 1 (0/absent = Docker default 3)", name)
+		}
+		if r.Drain != nil && r.Drain.Grace < 0 {
+			return fmt.Errorf("roles.%s: drain.grace must not be negative", name)
 		}
 		if !inOrder[name] {
 			return fmt.Errorf("order: must include every role; missing %q", name)

@@ -233,6 +233,27 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	}
 }
 
+// drain.grace sets the docker stop -t timeout when retiring a drained container;
+// absent it stays at the conservative 30s (asserted by the sequence tests).
+func TestRollRoleDrainGraceConfigurable(t *testing.T) {
+	f := rollFake()
+	cfg := testConfig()
+	r := cfg.Roles["web"]
+	r.Drain = &config.Drain{Grace: config.Duration(8 * time.Second)}
+	cfg.Roles["web"] = r
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
+		t.Fatalf("roll: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker stop -t 8 OLD1") {
+		t.Fatalf("drain.grace: want `docker stop -t 8 OLD1`:\n%s", seq)
+	}
+	if strings.Contains(seq, "docker stop -t 30") {
+		t.Fatalf("drain.grace not applied — still using default 30:\n%s", seq)
+	}
+}
+
 func withinMillis(r config.Role, ms int) config.Role {
 	rd := *r.Ready
 	rd.Within = config.Duration(time.Duration(ms) * time.Millisecond)

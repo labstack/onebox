@@ -11,8 +11,6 @@ import (
 	"github.com/labstack/onebox/internal/config"
 )
 
-const stopGraceSeconds = 30
-
 func (e *Engine) composeCmd(remoteComposePath string) string {
 	return "docker compose -p " + e.Cfg.App + " -f " + q(remoteComposePath)
 }
@@ -155,7 +153,7 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 		e.sleepBusy("drain wait ("+time.Duration(role.Drain.Wait).String()+")", time.Duration(role.Drain.Wait))
 	}
 
-	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", stopGraceSeconds, id)); err != nil {
+	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", role.StopGraceSeconds(), id)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("stop %s: %s", id, res.Stderr)

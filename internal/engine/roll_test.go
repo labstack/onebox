@@ -254,6 +254,19 @@ func TestRollRoleDrainGraceConfigurable(t *testing.T) {
 	}
 }
 
+// readyTiming defaults the ob-side health poll to 2s (matching the generated
+// healthcheck cadence) so joins and drain flips are detected promptly; within
+// stays 120s. Role-set values still win (asserted by the sequence tests).
+func TestReadyTimingDefaults(t *testing.T) {
+	within, interval := readyTiming(config.Role{})
+	if interval != 2*time.Second {
+		t.Fatalf("default poll interval = %v, want 2s", interval)
+	}
+	if within != 120*time.Second {
+		t.Fatalf("default within = %v, want 120s", within)
+	}
+}
+
 func withinMillis(r config.Role, ms int) config.Role {
 	rd := *r.Ready
 	rd.Within = config.Duration(time.Duration(ms) * time.Millisecond)

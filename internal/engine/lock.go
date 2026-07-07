@@ -149,7 +149,13 @@ func (e *Engine) lockTTL() time.Duration {
 // refuse default in both callers); in AcquireLock a same-deploy holder is
 // reclaimed rather than refused — breaking your own lock is authorized.
 func lockAgeCmd(qpath string) string {
-	return "if M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
+	// A dangling symlink is "present but not resolvable" → fail closed (age 0).
+	// Detect it FIRST and portably: `test -e` follows the link (false when the
+	// target is gone) while `test -L` stays true. Relying on stat to fail here is
+	// NOT portable — BSD stat (macOS) lstat's a symlink and returns the LINK's
+	// own mtime, so a dangling lock would read as fresh. GNU stat dereferences.
+	return "if [ -L " + qpath + " ] && [ ! -e " + qpath + " ]; then echo 0; " +
+		"elif M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
 		"elif [ -e " + qpath + " ] || [ -L " + qpath + " ]; then echo 0; " +
 		"else date +%s; fi"
 }

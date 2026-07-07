@@ -130,14 +130,16 @@ func (e *Engine) lockTTL() time.Duration {
 // (AcquireLock and acquireHostLock: age > ttl → take over, else refuse) fail
 // CLOSED wherever the shell can observe the lock:
 //
+//   - dangling symlink     → age 0 → caller refuses; checked FIRST because BSD
+//     stat can't detect it (see the inline note on -L/-e below)
 //   - stat succeeds       → now − mtime, the real age
 //   - stat fails, present  → age 0 → caller refuses; we won't break another
-//     holder's lock we can't read (a dangling symlink, a torn/ESTALE stat)
+//     holder's lock we can't read (a torn/ESTALE stat)
 //   - truly absent         → maximal age (`date +%s`) → take over (the holder
 //     released it between our failed create and this check)
 //
-// Stat first, so a present-but-unstattable lock is caught by `-e`/`-L` and
-// refused rather than misread as absent. Limit: if the lock's PARENT dir is
+// Dangling-check first, then stat, so a present-but-unstattable lock is caught
+// by `-e`/`-L` and refused rather than misread as absent. Limit: if the lock's PARENT dir is
 // unsearchable, neither stat nor `-e`/`-L` can observe the lock, so it reads as
 // absent and is taken over (fail open). Not a live path — the runner owns
 // /var/lib/ob/<app> (Preflight asserts it writable) — so the guarantee is "fail
@@ -149,7 +151,13 @@ func (e *Engine) lockTTL() time.Duration {
 // refuse default in both callers); in AcquireLock a same-deploy holder is
 // reclaimed rather than refused — breaking your own lock is authorized.
 func lockAgeCmd(qpath string) string {
-	return "if M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
+	// A dangling symlink is "present but not resolvable" → fail closed (age 0).
+	// Detect it FIRST and portably: `test -e` follows the link (false when the
+	// target is gone) while `test -L` stays true. Relying on stat to fail here is
+	// NOT portable — BSD stat (macOS) lstat's a symlink and returns the LINK's
+	// own mtime, so a dangling lock would read as fresh. GNU stat dereferences.
+	return "if [ -L " + qpath + " ] && [ ! -e " + qpath + " ]; then echo 0; " +
+		"elif M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
 		"elif [ -e " + qpath + " ] || [ -L " + qpath + " ]; then echo 0; " +
 		"else date +%s; fi"
 }

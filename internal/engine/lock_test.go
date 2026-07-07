@@ -214,6 +214,7 @@ func TestRefreshLockNeverResurrectsDeletedLock(t *testing.T) {
 func TestLockAgeCmdIsPortable(t *testing.T) {
 	got := lockAgeCmd("'/var/lib/ob/monk/lock'")
 	for _, want := range []string{
+		"[ -L '/var/lib/ob/monk/lock' ] && [ ! -e '/var/lib/ob/monk/lock' ]", // dangling symlink → refuse, portably
 		"stat -c %Y '/var/lib/ob/monk/lock'", // GNU
 		"stat -f %m '/var/lib/ob/monk/lock'", // BSD/macOS fallback
 		"[ -e '/var/lib/ob/monk/lock' ] || [ -L '/var/lib/ob/monk/lock' ]", // present → refuse (echo 0)

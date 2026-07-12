@@ -35,9 +35,14 @@ type Transport interface {
 	Upload(ctx context.Context, localDir, remoteDir string) error
 	// Host is the bare hostname (for display, drift, and error context).
 	Host() string
-	// Target is the full ssh/rsync destination (user@host) — what a hook
-	// needs to reach the same host, so nothing is hardcoded in ob.yml.
+	// Target is the normalized OpenSSH destination (user@host). The port is
+	// separate because OpenSSH does not accept user@host:port.
 	Target() string
+	// SSHUser is the resolved SSH username, exposed separately for tools whose
+	// remote-spec grammar differs across implementations (notably IPv6 rsync).
+	SSHUser() string
+	// SSHPort is the target's SSH port, or empty when SSH is not applicable.
+	SSHPort() string
 	Close() error
 }
 
@@ -87,9 +92,11 @@ func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
 	return err
 }
 
-func (l *Local) Host() string   { return "local" }
-func (l *Local) Target() string { return "local" }
-func (l *Local) Close() error   { return nil }
+func (l *Local) Host() string    { return "local" }
+func (l *Local) Target() string  { return "local" }
+func (l *Local) SSHUser() string { return "" }
+func (l *Local) SSHPort() string { return "" }
+func (l *Local) Close() error    { return nil }
 
 // shq single-quotes a shell argument.
 func shq(s string) string {

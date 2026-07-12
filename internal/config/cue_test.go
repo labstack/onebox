@@ -6,20 +6,23 @@ import (
 )
 
 const cueSample = `
+api_version: onebox.run/v1
 app: monk
 compose: docker-compose.yaml
 environments:
-  production: { hosts: [deploy@monk.labstack.net] }
-roles:
-  web: { service: server, mode: rolling, ready: { http: /healthz, port: 7500 } }
-order: [web]
-accessories: [postgres]
-jobs: [migrate]
+  production: { target: deploy@monk.labstack.net }
+components:
+  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 7500 } }
+  postgres: { type: postgres, persistence: { mode: durable } }
+  migrate:
+    type: job
+    data_effect: migration
+    command: docker compose run --rm --no-deps migrate
+deployment: { order: [web] }
 hooks:
-  migrate: docker compose run --rm --no-deps migrate
-  publish_web: { run: "rsync -az web/dist/ host:/data/web/", local: true }
-verify:
-  - { http: /healthz, role: web }
+  post_deploy: { run: "rsync -az web/dist/ host:/data/web/", local: true }
+verification:
+  - { http: /healthz, component: web }
   - { url: "https://monk.trade/", contains: 'id="root"', advisory: true }
 registry: { server: ghcr.io, username: vishr, password_env: GHCR_TOKEN }
 `
@@ -31,7 +34,7 @@ func TestCUEAcceptsValidConfig(t *testing.T) {
 }
 
 func TestCUERejectsTypoField(t *testing.T) {
-	bad := strings.Replace(cueSample, "order:", "orderz:", 1)
+	bad := strings.Replace(cueSample, "deployment: { order:", "deployment: { orderz:", 1)
 	err := ValidateCUE([]byte(bad), "ob.yml")
 	if err == nil {
 		t.Fatal("typo'd field must be rejected")
@@ -47,15 +50,15 @@ func TestCUERejectsTypoField(t *testing.T) {
 // the Go structs and render/roll wiring exist.
 func TestCUEAcceptsTimingKnobs(t *testing.T) {
 	cfg := strings.Replace(cueSample,
-		"ready: { http: /healthz, port: 7500 }",
-		"ready: { http: /healthz, port: 7500, retries: 1 }, drain: { grace: 8s }", 1)
+		"readiness: { http: /healthz, port: 7500 }",
+		"readiness: { http: /healthz, port: 7500, retries: 1 }, drain: { grace: 8s }", 1)
 	if err := ValidateCUE([]byte(cfg), "ob.yml"); err != nil {
 		t.Fatalf("ready.retries / drain.grace must validate: %v", err)
 	}
 }
 
 func TestCUERejectsBadMode(t *testing.T) {
-	bad := strings.Replace(cueSample, "mode: rolling", "mode: sideways", 1)
+	bad := strings.Replace(cueSample, "strategy: rolling", "strategy: sideways", 1)
 	err := ValidateCUE([]byte(bad), "ob.yml")
 	if err == nil {
 		t.Fatal("bad mode must be rejected")
@@ -80,7 +83,7 @@ func TestHookUnmarshalForms(t *testing.T) {
 	if h := cfg.Hooks["migrate"]; h.Run == "" || h.Local {
 		t.Fatalf("string hook: %+v", h)
 	}
-	if h := cfg.Hooks["publish_web"]; !h.Local || !strings.Contains(h.Run, "rsync") {
+	if h := cfg.Hooks["post_deploy"]; !h.Local || !strings.Contains(h.Run, "rsync") {
 		t.Fatalf("map hook: %+v", h)
 	}
 	if cfg.Registry == nil || cfg.Registry.PasswordEnv != "GHCR_TOKEN" {

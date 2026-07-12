@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,8 +26,8 @@ func newRootCmd() *cobra.Command {
 	g := &globalFlags{}
 	root := &cobra.Command{
 		Use:           "ob",
-		Short:         "onebox — plan-before-apply, zero-downtime deploys for one box",
-		Long:          "onebox (ob) — plan-before-apply, zero-downtime deploys for compose-first apps.\nAgentless (SSH), journaled, fenced; your compose file is the contract. One box is the product scope.",
+		Short:         "onebox — MCP-first production operations for one box",
+		Long:          "onebox (ob) — MCP-first, plan-before-apply production operations for Compose applications on one server.\nAgentless over SSH, health-gated, journaled, and fenced; Compose is the runtime contract and one box is the product scope.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -36,23 +38,31 @@ func newRootCmd() *cobra.Command {
 	addCommands(root, g)
 	addInitCommand(root, g)
 	addOpsCommands(root, g)
+	addMCPCommand(root, g)
 	return root
 }
 
 func main() {
-	// an interrupt mid-spinner must not leave the terminal cursorless —
-	// restore, then die with the conventional code (cleanup semantics are
-	// unchanged: Ctrl-C was always an abrupt kill; resume/TTL handle it)
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	// Cancel first so command defers can close SSH sessions and erase staging
+	// payloads. A second signal uses the OS default and remains the force-exit.
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	go func() {
-		<-sig
-		ui.RestoreCursor(os.Stdout)
-		os.Exit(130)
+		<-ctx.Done()
+		// stderr is still the same terminal for interactive commands, while MCP
+		// reserves stdout exclusively for protocol frames.
+		ui.RestoreCursor(os.Stderr)
+		stopSignals()
 	}()
-	if err := newRootCmd().Execute(); err != nil {
+	if err := newRootCmd().ExecuteContext(ctx); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			os.Exit(130)
+		}
 		// the one line every failure ends on — red where the terminal allows
 		ui.New(os.Stderr, false).Failf("ob: %v", err)
 		os.Exit(1)
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		os.Exit(130)
 	}
 }

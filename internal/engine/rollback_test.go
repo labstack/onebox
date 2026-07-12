@@ -12,12 +12,14 @@ import (
 // The previous release's snapshot has a DIFFERENT choreography (worker only,
 // recreate) — rollback must replay THAT, not the current ob.yml.
 const oldSnapshot = `
+api_version: onebox.run/v1
 app: monk
 compose: docker-compose.yaml
-environments: { production: { hosts: [deploy@h] } }
-roles:
-  worker: { service: worker, mode: recreate }
-order: [worker]
+environments: { production: { target: deploy@h } }
+components:
+  worker: { type: worker, service: worker, deployment: { strategy: recreate } }
+deployment:
+  order: [worker]
 `
 
 func TestRollbackReplaysSnapshotChoreography(t *testing.T) {

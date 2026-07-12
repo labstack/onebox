@@ -89,7 +89,11 @@ func TestDestroySequence(t *testing.T) {
 func TestLogsAndExecShapes(t *testing.T) {
 	f := opsFake("x")
 	var out bytes.Buffer
-	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	cfg := testConfig()
+	cfg.Components = map[string]config.Component{
+		"database": {Type: "postgres", Service: "postgres"},
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Logs(context.Background(), "web", true, 50, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -97,12 +101,29 @@ func TestLogsAndExecShapes(t *testing.T) {
 	if !strings.Contains(seq, "logs --tail 50 --follow server") {
 		t.Fatalf("logs shape wrong:\n%s", seq)
 	}
+	if err := e.Logs(context.Background(), "database", false, 20, &out); err != nil {
+		t.Fatal(err)
+	}
+	seq = strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "logs --tail 20 postgres") {
+		t.Fatalf("component logs shape wrong:\n%s", seq)
+	}
 	if err := e.ExecIn(context.Background(), "web", "alembic current", &out); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
+	}
+	if err := e.ExecIn(context.Background(), "database", "psql --version", &out); err != nil {
+		t.Fatal(err)
+	}
+	seq = strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker exec PG1 sh -c 'psql --version'") {
+		t.Fatalf("component exec shape wrong:\n%s", seq)
+	}
+	if svc, err := e.resolveService("postgres"); err != nil || svc != "postgres" {
+		t.Fatalf("raw compose service resolution = %q, %v", svc, err)
 	}
 	if _, err := e.resolveService("nope"); err == nil {
 		t.Fatal("unknown name must error")

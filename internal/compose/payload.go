@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -18,10 +19,19 @@ import (
 // project dir (/var/run/docker.sock, /data/...) are host paths — untouched.
 // This is what makes the release dir self-contained (design §04 transfer).
 func StagePayload(p *types.Project, stagingDir string) (map[string]string, error) {
+	return StagePayloadContext(context.Background(), p, stagingDir)
+}
+
+// StagePayloadContext is StagePayload with cancellation checks while walking
+// and copying project payloads.
+func StagePayloadContext(ctx context.Context, p *types.Project, stagingDir string) (map[string]string, error) {
 	rewrites := PayloadRewrites(p)
 	for abs, rel := range rewrites {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		dst := filepath.Join(stagingDir, filepath.FromSlash(strings.TrimPrefix(rel, "./")))
-		if err := copyTree(abs, dst); err != nil {
+		if err := copyTreeContext(ctx, abs, dst); err != nil {
 			return nil, fmt.Errorf("stage %s: %w", rel, err)
 		}
 	}
@@ -68,14 +78,24 @@ func RewriteSources(rendered []byte, rewrites map[string]string) []byte {
 }
 
 func copyTree(src, dst string) error {
+	return copyTreeContext(context.Background(), src, dst)
+}
+
+func copyTreeContext(ctx context.Context, src, dst string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
-		return copyFile(src, dst, info.Mode())
+		return copyFileContext(ctx, src, dst, info.Mode())
 	}
 	return filepath.Walk(src, func(path string, fi os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -87,11 +107,15 @@ func copyTree(src, dst string) error {
 		if fi.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		return copyFile(path, target, fi.Mode())
+		return copyFileContext(ctx, path, target, fi.Mode())
 	})
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
+	return copyFileContext(context.Background(), src, dst, mode)
+}
+
+func copyFileContext(ctx context.Context, src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
@@ -105,6 +129,18 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, in)
+	_, err = io.Copy(out, contextReader{ctx: ctx, reader: in})
 	return err
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }

@@ -40,7 +40,8 @@ func (e *Engine) Resume(ctx context.Context) error {
 	}
 	e.logf("resuming %s (started %s by %s; done: transfer=%v migrate=%v)",
 		s.DeployID, s.StartedAt, s.Operator, s.Done["transfer"], s.Done["migrate"])
-	e.gateOpen = s.GateOpen // the journal remembers what migrate declared
+	e.gateOpen = s.GateOpen
+	e.rollbackCovered = s.RollbackCovered // preserve the interrupted deploy's effect policy
 	return e.deployCore(ctx, s.DeployID, "", s.Done)
 }
 
@@ -52,8 +53,8 @@ func (e *Engine) Abort(ctx context.Context, force bool) error {
 	if err != nil {
 		return err
 	}
-	if !s.GateOpen && e.Cfg.Migrations != "expand-only" && !force {
-		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a migrate step that did not declare changed=false, so reverting could put old code against a new schema. Fix-forward + `ob resume`, or `ob abort --force` if you know the schema is compatible", s.DeployID)
+	if !s.RollbackCovered && !force {
+		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --force` if you know the data is compatible", s.DeployID)
 	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
 	if err != nil {

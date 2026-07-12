@@ -37,22 +37,34 @@ func (e *Engine) gateSteps() []string {
 func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[string]bool, remoteDir, remoteCompose string) error {
 	steps := e.gateSteps()
 	if len(steps) == 0 {
-		e.gateOpen = true
+		// Fresh deploys persist the safe baseline before transfer. Resumes keep
+		// the reconstructed aggregate unchanged, including fail-closed legacy
+		// journals that have no baseline record.
 		return nil
 	}
-	allSafe := true
+	// Start from the durable baseline restored/created by deployCore. It may
+	// already be closed by rollback debt inherited from an earlier deploy.
+	allSafe := e.gateOpen
+	allCovered := e.rollbackCovered
 	for _, job := range steps {
 		key := "job:" + job
 		if done[key] || done["migrate"] { // "migrate" = pre-jobs journal key
 			if e.jobDataEffect(job) == "none" {
 				e.logf("%s: already complete (resume) — rollback-safe by data_effect=none declaration", key)
+			} else if e.gateOpen {
+				e.logf("%s: already complete (resume) — rollback-safe result recovered from journal", key)
 			} else {
-				e.logf("%s: already complete (resume) — gate stays closed (result unverifiable)", key)
-				allSafe = false
+				e.logf("%s: already complete (resume) — aggregate gate stays closed", key)
 			}
 			continue
 		}
-		_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: key, Event: "intent"})
+		policySafe := e.jobRollbackPolicySafe(job)
+		if err := jw.Append(ctx, journal.Record{
+			Phase: "pre-release", SubStep: key, Event: "intent",
+			RollbackPolicySafe: policySafe,
+		}); err != nil {
+			return fmt.Errorf("journal %s intent: %w", key, err)
+		}
 		st := e.ui.Step("job "+job, true)
 		safe, detail, err := e.runOneJob(ctx, job, remoteDir, remoteCompose)
 		if err == nil {
@@ -60,15 +72,27 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 		}
 		st(err)
 		if err != nil {
-			_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: key, Event: "result", Status: "fail", Detail: err.Error()})
+			_ = jw.Append(ctx, journal.Record{
+				Phase: "pre-release", SubStep: key, Event: "result", Status: "fail", Detail: err.Error(),
+				RollbackPolicySafe: policySafe,
+			})
 			return err
 		}
 		if !safe {
 			allSafe = false
 		}
-		_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: key, Event: "result", Status: "ok", Detail: detail})
+		if !safe && !policySafe {
+			allCovered = false
+		}
+		if err := jw.Append(ctx, journal.Record{
+			Phase: "pre-release", SubStep: key, Event: "result", Status: "ok", Detail: detail,
+			RollbackSafe: safe, RollbackPolicySafe: policySafe,
+		}); err != nil {
+			return fmt.Errorf("journal %s result: %w", key, err)
+		}
 	}
 	e.gateOpen = allSafe
+	e.rollbackCovered = allCovered
 	return nil
 }
 
@@ -125,14 +149,12 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 // --no-rollback.
 func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releaseID, prev string, verr error) error {
 	_ = jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "fail", Detail: verr.Error()})
-	gateOpen := e.gateOpen && !e.hasRollbackUnknownLifecycleHook()
-	expandOnly := e.expandOnlyCoversRollbackEffects()
 	switch {
 	case e.Opts.NoRollback:
 		return fmt.Errorf("verify: %w — halting (--no-rollback); release NOT activated", verr)
 	case prev == "":
 		return fmt.Errorf("verify: %w — first deploy, nothing to roll back to; release NOT activated", verr)
-	case !gateOpen && !expandOnly:
+	case !e.rollbackCovered:
 		return fmt.Errorf("verify: %w — HALT-AND-PAGE: a job or lifecycle hook has rollback-unknown data effects not covered by a safe result or migration_policy. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --force`", verr)
 	}
 	e.logf("verify failed — auto-rollback to %s (gate open: effects declared safe, changed=false, or expand-only migrations)", prev)
@@ -162,25 +184,9 @@ func (e *Engine) jobDataEffect(service string) string {
 	return "unknown"
 }
 
-func (e *Engine) hasRollbackUnknownLifecycleHook() bool {
-	for _, name := range []string{"pre_release", "post_release"} {
-		if hook, ok := e.Cfg.Hooks[name]; ok && hook.Run != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func (e *Engine) expandOnlyCoversRollbackEffects() bool {
-	if e.Cfg.Migrations != "expand-only" || e.hasRollbackUnknownLifecycleHook() {
-		return false
-	}
-	for _, job := range e.Cfg.Jobs {
-		if e.jobDataEffect(job) == "unknown" {
-			return false
-		}
-	}
-	return true
+func (e *Engine) jobRollbackPolicySafe(service string) bool {
+	effect := e.jobDataEffect(service)
+	return effect == "none" || e.Cfg.Migrations == "expand-only" && effect == "migration"
 }
 
 // removeNewcomers stops and removes every container of the given release

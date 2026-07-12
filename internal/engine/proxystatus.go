@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/labstack/onebox/internal/proxy"
+	"github.com/labstack/onebox/internal/transport"
 )
 
 // renewalFloor: lego renews 30 days before expiry; a cert inside 21 days
@@ -45,25 +46,26 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return nil
 		},
 		func() error {
-			res, err := e.T.Run(ctx, "cat "+q(hp.Hash)+" 2>/dev/null || true")
+			res, err := e.T.Run(ctx, "if [ -r "+q(hp.Hash)+" ]; then cat "+q(hp.Hash)+"; elif [ -e "+q(hp.Hash)+" ]; then exit 2; fi")
 			if err == nil {
 				px.applied = strings.TrimSpace(res.Stdout)
 			}
-			return err
+			return statusReadResult("proxy applied configuration", res, err)
 		},
 		func() error {
-			res, err := e.T.Run(ctx, "ls -1 "+q(hp.Apps)+" 2>/dev/null || true")
+			res, err := e.T.Run(ctx, "if [ -d "+q(hp.Apps)+" ]; then ls -1 "+q(hp.Apps)+"; elif [ -e "+q(hp.Apps)+" ]; then exit 2; fi")
 			if err == nil {
 				px.apps = res.Stdout
 			}
-			return err
+			return statusReadResult("proxy registered applications", res, err)
 		},
 		func() error {
-			res, err := e.T.Run(ctx, "cat "+q(hp.Acme+"/acme.json")+" 2>/dev/null || true")
+			path := hp.Acme + "/acme.json"
+			res, err := e.T.Run(ctx, "if [ -r "+q(path)+" ]; then cat "+q(path)+"; elif [ -e "+q(path)+" ]; then exit 2; fi")
 			if err == nil {
 				px.acme = res.Stdout
 			}
-			return err
+			return statusReadResult("proxy certificate store", res, err)
 		},
 		func() error {
 			localCfg := e.Cfg.Proxy.Config
@@ -81,6 +83,16 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 	}
 }
 
+func statusReadResult(component string, result transport.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("read %s failed (exit %d): %s", component, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	return nil
+}
+
 // proxyContainer returns the managed proxy's id and health from ONE docker ps —
 // the proxy is a single container, so status doesn't need the id-then-inspect
 // two-step (that was the last serial hop in the read wave). Health is parsed
@@ -90,6 +102,9 @@ func (e *Engine) proxyContainer(ctx context.Context) (id, health string, err err
 		" --format '{{.ID}}|{{.Status}}'")
 	if err != nil {
 		return "", "", err
+	}
+	if res.ExitCode != 0 {
+		return "", "", fmt.Errorf("proxy docker ps failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	line := strings.SplitN(strings.TrimSpace(res.Stdout), "\n", 2)[0] // single container
 	if line == "" {

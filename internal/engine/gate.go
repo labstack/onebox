@@ -31,8 +31,9 @@ func (e *Engine) gateSteps() []string {
 // `docker compose run --rm --no-deps <job>` — so `jobs: [migrate]` needs no
 // hook at all. The rollback gate opens only if EVERY step declared
 // changed=false; anything else (a real change, no result written, a local
-// hook, or a step skipped on resume) fails safe — auto-rollback is withheld
-// unless migrations:expand-only is asserted.
+// hook, or a step skipped on resume) fails safe. A v1 data_effect:none job is
+// rollback-safe by operator declaration. expand-only covers migration jobs,
+// never unknown jobs or untyped lifecycle hooks.
 func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[string]bool, remoteDir, remoteCompose string) error {
 	steps := e.gateSteps()
 	if len(steps) == 0 {
@@ -43,8 +44,12 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 	for _, job := range steps {
 		key := "job:" + job
 		if done[key] || done["migrate"] { // "migrate" = pre-jobs journal key
-			e.logf("%s: already complete (resume) — gate stays closed (result unverifiable)", key)
-			allSafe = false
+			if e.jobDataEffect(job) == "none" {
+				e.logf("%s: already complete (resume) — rollback-safe by data_effect=none declaration", key)
+			} else {
+				e.logf("%s: already complete (resume) — gate stays closed (result unverifiable)", key)
+				allSafe = false
+			}
 			continue
 		}
 		_ = jw.Append(ctx, journal.Record{Phase: "pre-release", SubStep: key, Event: "intent"})
@@ -70,6 +75,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 // runOneJob runs a single gate step and reports whether it declared itself
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
+	safeByDeclaration := e.jobDataEffect(job) == "none"
 	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps " + job
 	if h, ok := e.Cfg.Hooks[job]; ok && h.Run != "" {
 		if h.Local {
@@ -77,6 +83,9 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 			e.logf("job %s (local hook): %s", job, h.Run)
 			if err := e.RunHook(ctx, job, remoteDir, remoteCompose); err != nil {
 				return false, "", err
+			}
+			if safeByDeclaration {
+				return true, "rollback-safe by data_effect=none declaration", nil
 			}
 			return false, "changed=unknown (local hook — gate closed, fail-safe)", nil
 		}
@@ -97,6 +106,9 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	if res.ExitCode != 0 {
 		return false, "", fmt.Errorf("job %s failed (exit %d): %s", job, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
+	if safeByDeclaration {
+		return true, "rollback-safe by data_effect=none declaration", nil
+	}
 	rres, err := e.T.Run(ctx, "cat "+q(resultFile)+" 2>/dev/null || true")
 	if err != nil {
 		return false, "", err
@@ -109,20 +121,21 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 
 // onVerifyFailure decides between auto-rollback and halt-and-page (design
 // §06). Auto-rollback needs an OPEN gate (migrate declared no-op) or the
-// operator's informed promise (migrations: expand-only), and not
+// operator's informed promise (migration_policy: expand-only), and not
 // --no-rollback.
 func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releaseID, prev string, verr error) error {
 	_ = jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "fail", Detail: verr.Error()})
-	expandOnly := e.Cfg.Migrations == "expand-only"
+	gateOpen := e.gateOpen && !e.hasRollbackUnknownLifecycleHook()
+	expandOnly := e.expandOnlyCoversRollbackEffects()
 	switch {
 	case e.Opts.NoRollback:
 		return fmt.Errorf("verify: %w — halting (--no-rollback); release NOT activated", verr)
 	case prev == "":
 		return fmt.Errorf("verify: %w — first deploy, nothing to roll back to; release NOT activated", verr)
-	case !e.gateOpen && !expandOnly:
-		return fmt.Errorf("verify: %w — HALT-AND-PAGE: the migrate step did not declare changed=false and migrations is not expand-only, so auto-rollback could put old code against a new schema. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --force`", verr)
+	case !gateOpen && !expandOnly:
+		return fmt.Errorf("verify: %w — HALT-AND-PAGE: a job or lifecycle hook has rollback-unknown data effects not covered by a safe result or migration_policy. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --force`", verr)
 	}
-	e.logf("verify failed — auto-rollback to %s (gate open: migrate no-op or expand-only asserted)", prev)
+	e.logf("verify failed — auto-rollback to %s (gate open: effects declared safe, changed=false, or expand-only migrations)", prev)
 	_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "intent", Detail: "to=" + prev})
 	if err := e.removeNewcomers(ctx, releaseID); err != nil {
 		return fmt.Errorf("verify failed (%v) AND auto-rollback could not remove new containers: %w", verr, err)
@@ -138,6 +151,36 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	}
 	_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "ok"})
 	return fmt.Errorf("verify: %w — auto-rolled back to %s (healthy); new release NOT activated", verr, prev)
+}
+
+func (e *Engine) jobDataEffect(service string) string {
+	for _, component := range e.Cfg.Components {
+		if component.Type == "job" && component.Service == service {
+			return component.DataEffect
+		}
+	}
+	return "unknown"
+}
+
+func (e *Engine) hasRollbackUnknownLifecycleHook() bool {
+	for _, name := range []string{"pre_release", "post_release"} {
+		if hook, ok := e.Cfg.Hooks[name]; ok && hook.Run != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) expandOnlyCoversRollbackEffects() bool {
+	if e.Cfg.Migrations != "expand-only" || e.hasRollbackUnknownLifecycleHook() {
+		return false
+	}
+	for _, job := range e.Cfg.Jobs {
+		if e.jobDataEffect(job) == "unknown" {
+			return false
+		}
+	}
+	return true
 }
 
 // removeNewcomers stops and removes every container of the given release

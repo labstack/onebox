@@ -35,7 +35,7 @@ type Transport interface {
 	Upload(ctx context.Context, localDir, remoteDir string) error
 	// Host is the bare hostname (for display, drift, and error context).
 	Host() string
-	// Target is the full ssh/rsync destination (user@host) — what a hook
+	// Target is the normalized configured destination (user@host[:port]) — what a hook
 	// needs to reach the same host, so nothing is hardcoded in ob.yml.
 	Target() string
 	Close() error

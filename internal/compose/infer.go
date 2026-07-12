@@ -25,6 +25,7 @@ import (
 // to bleed connections after de-routing, which signal to send), not something
 // stop_grace_period expresses — docker already honors that grace on stop.
 func Infer(cfg *config.Config, p *types.Project) {
+	componentAuthored := len(cfg.Components) > 0
 	if cfg.Roles == nil {
 		cfg.Roles = map[string]config.Role{}
 	}
@@ -43,15 +44,18 @@ func Infer(cfg *config.Config, p *types.Project) {
 		}
 		claimed[r.Service] = true
 	}
-	// Auto-classify every remaining service as a role named after the service.
-	var svcNames []string
-	for name := range p.Services {
-		svcNames = append(svcNames, name)
-	}
-	sort.Strings(svcNames)
-	for _, name := range svcNames {
-		if !claimed[name] {
-			cfg.Roles[name] = config.Role{Service: name}
+	// The stable v1 schema requires explicit components. Auto-classification is
+	// retained only for in-memory legacy fixtures used by the engine package.
+	if !componentAuthored {
+		var svcNames []string
+		for name := range p.Services {
+			svcNames = append(svcNames, name)
+		}
+		sort.Strings(svcNames)
+		for _, name := range svcNames {
+			if !claimed[name] {
+				cfg.Roles[name] = config.Role{Service: name}
+			}
 		}
 	}
 	// Per-role defaults from the service definition.
@@ -64,9 +68,16 @@ func Infer(cfg *config.Config, p *types.Project) {
 			r.Mode = inferMode(svc)
 		}
 		cfg.Roles[rn] = r
+		if component, ok := cfg.Components[rn]; ok {
+			deployment := config.ComponentDeployment{Strategy: r.Mode, Replicas: r.Replicas}
+			component.Service = r.Service
+			component.Deployment = &deployment
+			cfg.Components[rn] = component
+		}
 	}
 	if len(cfg.Order) == 0 {
 		cfg.Order = inferOrder(cfg, p)
+		cfg.Deployment.Order = append([]string(nil), cfg.Order...)
 	}
 }
 
@@ -83,7 +94,7 @@ func inferMode(svc types.ServiceConfig) string {
 	if svc.Deploy != nil && svc.Deploy.Replicas != nil {
 		rollable = false
 	}
-	hasHC := svc.HealthCheck != nil && len(svc.HealthCheck.Test) > 0 && svc.HealthCheck.Test[0] != "NONE"
+	hasHC := adoptedProbe(svc) != ""
 	if rollable && hasHC {
 		return "rolling"
 	}

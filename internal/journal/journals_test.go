@@ -85,8 +85,8 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(gotCmd, `cat "$f"; echo;`) {
-		t.Fatalf("command must echo a newline after each cat to fence torn writes: %s", gotCmd)
+	if !strings.Contains(gotCmd, `cat "$f" || exit; echo;`) {
+		t.Fatalf("command must fail on unreadable journals and fence torn writes with a newline: %s", gotCmd)
 	}
 	if len(ids) != 2 || ids[1] != "R2" {
 		t.Fatalf("R2 must not be swallowed by R1's torn line: ids=%v", ids)

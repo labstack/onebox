@@ -11,19 +11,25 @@ import (
 )
 
 const sample = `
+api_version: onebox.run/v1
 app: monk
 compose: docker-compose.yaml
 environments:
-  production: { hosts: [deploy@monk.labstack.net] }
-roles:
-  web:    { service: server, mode: rolling, ready: { http: /healthz, port: 7500 } }
-  worker: { service: worker, mode: recreate, drain: { signal: TERM, wait: 30s } }
-order: [web, worker]
-accessories: [postgres, redis, traefik]
-jobs: [migrate]
-hooks: { migrate: docker compose run --rm --no-deps migrate }
-verify:
-  - { http: /healthz, role: web }
+  production: { target: deploy@monk.labstack.net }
+components:
+  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 7500 } }
+  worker: { type: worker, service: worker, deployment: { strategy: recreate }, drain: { signal: TERM, wait: 30s } }
+  postgres: { type: postgres, persistence: { mode: durable } }
+  redis: { type: redis, persistence: { mode: ephemeral } }
+  traefik: { type: service }
+  migrate:
+    type: job
+    data_effect: migration
+    command: docker compose run --rm --no-deps migrate
+deployment:
+  order: [web, worker]
+verification:
+  - { http: /healthz, component: web }
 `
 
 func write(t *testing.T, s string) string {
@@ -63,13 +69,52 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
-func TestValidateRejects(t *testing.T) {
-	badMode := `
+func TestStableV1NormalizesComponents(t *testing.T) {
+	cfg, err := Load(write(t, sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIVersion != APIVersion {
+		t.Fatalf("api version = %q, want %q", cfg.APIVersion, APIVersion)
+	}
+	if got := cfg.Roles["web"]; got.Service != "server" || got.Mode != "rolling" {
+		t.Fatalf("application normalization: %+v", got)
+	}
+	if got := cfg.Roles["worker"]; got.Service != "worker" || got.Mode != "recreate" {
+		t.Fatalf("worker normalization: %+v", got)
+	}
+	if got, want := strings.Join(cfg.Accessories, ","), "postgres,redis,traefik"; got != want {
+		t.Fatalf("accessories = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(cfg.Jobs, ","), "migrate"; got != want {
+		t.Fatalf("jobs = %q, want %q", got, want)
+	}
+	if got := cfg.Environments["production"].Hosts; len(got) != 1 || got[0] != "deploy@monk.labstack.net" {
+		t.Fatalf("normalized target: %v", got)
+	}
+}
+
+func TestLegacyAuthoringSchemaRejected(t *testing.T) {
+	legacy := `
 app: monk
 compose: c.yaml
 environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: sideways } }
+roles: { web: { service: server, mode: recreate } }
 order: [web]
+`
+	if _, err := Load(write(t, legacy)); err == nil {
+		t.Fatal("legacy roles/hosts authoring must be rejected")
+	}
+}
+
+func TestValidateRejects(t *testing.T) {
+	badMode := `
+api_version: onebox.run/v1
+app: monk
+compose: c.yaml
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: sideways } } }
+deployment: { order: [web] }
 `
 	// shape errors are now caught by CUE at Load time
 	if _, err := Load(write(t, badMode)); err == nil {
@@ -80,11 +125,12 @@ order: [web]
 	// may be ADOPTED from the compose healthcheck; compose.CheckRollable
 	// enforces the cross-file rule
 	noReady := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: rolling } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: rolling } } }
+deployment: { order: [web] }
 `
 	cfg, err := Load(write(t, noReady))
 	if err != nil {
@@ -95,13 +141,14 @@ order: [web]
 	}
 
 	orderGap := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles:
-  web: { service: server, mode: recreate }
-  bg:  { service: bg, mode: recreate }
-order: [web]
+environments: { production: { target: h } }
+components:
+  web: { type: application, service: server, deployment: { strategy: recreate } }
+  bg:  { type: worker, service: bg, deployment: { strategy: recreate } }
+deployment: { order: [web] }
 `
 	cfg, err = Load(write(t, orderGap))
 	if err != nil {
@@ -112,22 +159,24 @@ order: [web]
 	}
 
 	badSignal := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate, drain: { signal: "TERM; rm -rf /", wait: 1s } } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate }, drain: { signal: "TERM; rm -rf /", wait: 1s } } }
+deployment: { order: [web] }
 `
 	if _, err := Load(write(t, badSignal)); err == nil {
 		t.Fatal("expected CUE error: signal must be [A-Z0-9]+")
 	}
 
 	badRole := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { "web$(x)": { service: server, mode: recreate } }
-order: ["web$(x)"]
+environments: { production: { target: h } }
+components: { "web$(x)": { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: ["web$(x)"] }
 `
 	if _, err := Load(write(t, badRole)); err == nil {
 		t.Fatal("expected CUE error: role name must be identifier-safe")
@@ -135,7 +184,7 @@ order: ["web$(x)"]
 }
 
 func TestEnvFilesParse(t *testing.T) {
-	cfg, err := Load(write(t, sample+"env_files: [server/.env, server/.env.production]\n"))
+	cfg, err := Load(write(t, sample+"runtime:\n  env_files: [server/.env, server/.env.production]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +230,8 @@ func TestRunPreflight(t *testing.T) {
 
 func TestReplicasParseAndCount(t *testing.T) {
 	cfg, err := Load(write(t, strings.ReplaceAll(sample,
-		"web:    { service: server, mode: rolling, ready: { http: /healthz, port: 7500 } }",
-		"web:    { service: server, mode: rolling, replicas: 3, ready: { http: /healthz, port: 7500 } }")))
+		"deployment: { strategy: rolling }, readiness: { http: /healthz, port: 7500 }",
+		"deployment: { strategy: rolling, replicas: 3 }, readiness: { http: /healthz, port: 7500 }")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,11 +276,12 @@ func TestHealthRetries(t *testing.T) {
 
 func TestProxyManaged(t *testing.T) {
 	managed := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
 proxy: { managed: true, config: traefik }
 `
 	cfg, err := Load(write(t, managed))
@@ -246,11 +296,12 @@ proxy: { managed: true, config: traefik }
 	}
 
 	noConfig := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
 proxy: { managed: true }
 `
 	cfg, err = Load(write(t, noConfig))
@@ -262,11 +313,12 @@ proxy: { managed: true }
 	}
 
 	kindNone := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
 proxy: { kind: none, managed: true, config: traefik }
 `
 	cfg, err = Load(write(t, kindNone))
@@ -279,11 +331,12 @@ proxy: { kind: none, managed: true, config: traefik }
 
 	// external stays legal and unconstrained
 	external := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
 proxy: { kind: traefik-docker, managed: false }
 `
 	cfg, err = Load(write(t, external))
@@ -295,11 +348,12 @@ proxy: { kind: traefik-docker, managed: false }
 	}
 
 	badKind := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
 proxy: { kind: nginx, managed: true, config: traefik }
 `
 	if _, err := Load(write(t, badKind)); err == nil {
@@ -309,11 +363,12 @@ proxy: { kind: nginx, managed: true, config: traefik }
 
 func TestAppNameObProxyReserved(t *testing.T) {
 	reserved := `
+api_version: onebox.run/v1
 app: ob-proxy
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
 `
 	cfg, err := Load(write(t, reserved))
 	if err != nil {
@@ -334,12 +389,13 @@ func TestReservedAppNameTracksProxyProject(t *testing.T) {
 
 func TestNotifyParseAndValidate(t *testing.T) {
 	ok := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
-notify: { webhook: "https://ntfy.example/ob", on: [failure, success] }
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
+notifications: { webhook: "https://ntfy.example/ob", on: [failure, success] }
 `
 	cfg, err := Load(write(t, ok))
 	if err != nil {
@@ -354,12 +410,13 @@ notify: { webhook: "https://ntfy.example/ob", on: [failure, success] }
 
 	// on: defaults to [failure] when omitted
 	defaulted := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
-notify: { webhook: "https://ntfy.example/ob" }
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
+notifications: { webhook: "https://ntfy.example/ob" }
 `
 	cfg, err = Load(write(t, defaulted))
 	if err != nil {
@@ -371,12 +428,13 @@ notify: { webhook: "https://ntfy.example/ob" }
 
 	// bad event name is a CUE error
 	badOn := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
-notify: { webhook: "https://x", on: [sometimes] }
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
+notifications: { webhook: "https://x", on: [sometimes] }
 `
 	if _, err := Load(write(t, badOn)); err == nil {
 		t.Fatal("expected CUE error for on: sometimes")
@@ -384,12 +442,13 @@ notify: { webhook: "https://x", on: [sometimes] }
 
 	// webhook must be http(s)
 	badURL := `
+api_version: onebox.run/v1
 app: monk
 compose: c.yaml
-environments: { production: { hosts: [h] } }
-roles: { web: { service: server, mode: recreate } }
-order: [web]
-notify: { webhook: "ftp://x" }
+environments: { production: { target: h } }
+components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
+deployment: { order: [web] }
+notifications: { webhook: "ftp://x" }
 `
 	if _, err := Load(write(t, badURL)); err == nil {
 		t.Fatal("expected CUE error for non-http webhook")

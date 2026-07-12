@@ -117,6 +117,9 @@ func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
 		if err != nil {
 			return hs, err
 		}
+		if res.ExitCode != 0 {
+			return hs, fmt.Errorf("docker inspect image for service %q failed (exit %d): %s", svc, res.ExitCode, strings.TrimSpace(res.Stderr))
+		}
 		hs.ImageIDs[svc] = strings.TrimSpace(res.Stdout)
 	}
 	return hs, nil
@@ -198,8 +201,15 @@ func OnlyReleaseLabelsChanged(live, planned string) bool {
 // sources. Same line format and ordering as the remote shell pipeline in
 // RemotePayloadDigest, so equal digests mean byte-equal payloads.
 func LocalPayloadDigest(dir string) (string, error) {
+	return LocalPayloadDigestContext(context.Background(), dir)
+}
+
+func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) {
 	var lines []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil || !info.Mode().IsRegular() {
 			return err
 		}
@@ -234,6 +244,9 @@ func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (str
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("read payload digest for release %q failed (exit %d): %s", releaseID, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(res.Stdout), "-")), nil
 }

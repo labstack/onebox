@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 )
@@ -14,6 +15,14 @@ func TestLocalRunCapturesExitAndOutput(t *testing.T) {
 	}
 	if res.ExitCode != 3 || res.Stdout != "hi\n" {
 		t.Fatalf("got %+v", res)
+	}
+}
+
+func TestNewSSHContextHonorsPreCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := NewSSHContext(ctx, "example.invalid"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("NewSSHContext error = %v; want context cancellation", err)
 	}
 }
 

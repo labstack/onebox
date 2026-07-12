@@ -64,9 +64,12 @@ func Push(ctx context.Context, t transport.Transport, stagingDir, app, id string
 
 func Current(ctx context.Context, t transport.Transport, app string) (string, error) {
 	p := PathsFor(app)
-	res, err := t.Run(ctx, "readlink "+q(p.Current)+" || true")
+	res, err := t.Run(ctx, "if [ -L "+q(p.Current)+" ]; then readlink "+q(p.Current)+"; elif [ -e "+q(p.Current)+" ]; then exit 2; fi")
 	if err != nil {
 		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("read current release failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	link := strings.TrimSpace(res.Stdout)
 	if link == "" {

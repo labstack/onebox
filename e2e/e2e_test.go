@@ -22,6 +22,26 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+// Keep the checked-in examples on the stable authoring contract even when the
+// Docker-gated deployment tests are skipped.
+func TestV1ConfigFixturesLoad(t *testing.T) {
+	for _, path := range []string{
+		"testdata/app/ob.yml",
+		"testdata/worker/ob.yml",
+		"testdata/worker/ob-broken.yml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("load stable v1 config: %v", err)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("validate stable v1 config: %v", err)
+			}
+		})
+	}
+}
+
 func TestZeroDowntimeDeploy(t *testing.T) {
 	if os.Getenv("OB_E2E") != "1" {
 		t.Skip("set OB_E2E=1 (requires local docker)")

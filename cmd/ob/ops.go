@@ -17,11 +17,11 @@ import (
 )
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
-	// accessory apply
-	accessory := &cobra.Command{Use: "accessory", Short: "manage stateful services"}
-	accessory.AddCommand(&cobra.Command{
+	// supporting/data service apply
+	serviceCmd := &cobra.Command{Use: "service", Aliases: []string{"accessory"}, Short: "manage supporting and data services"}
+	serviceCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
-		Short: "planned convergence of accessories — diff shown, destructive mounts refused without --force",
+		Short: "planned service convergence — diff shown, destructive mounts refused without --force",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// strict: this RENDERS and ships a compose — an unresolved
 			// ${VAR:?} must fail here, not on the host
@@ -41,12 +41,12 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			}
 			defer sc()
 			err = e.AccessoryApply(cmd.Context(), id, staging, g.Force)
-			notifyOutcome(cfg, g, "accessory apply", id, err)
+			notifyOutcome(cfg, g, "service apply", id, err)
 			return err
 		},
 	})
-	accessory.PersistentFlags().BoolVar(&g.Force, "force", false, "proceed past destructive mount changes")
-	root.AddCommand(accessory)
+	serviceCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "proceed past destructive mount changes")
+	root.AddCommand(serviceCmd)
 
 	// proxy apply — converge the HOST-scoped managed proxy (shared by every
 	// ob app on the box; see proxy.managed)
@@ -93,7 +93,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	})
 	secretsCmd.AddCommand(&cobra.Command{
 		Use:   "push",
-		Short: "re-render secrets into the live release and bounce roles if changed",
+		Short: "re-render secrets into the live release and restart workloads if changed",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAll(cmd.Context(), g)
 			if err != nil {
@@ -153,7 +153,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	var follow bool
 	var tail int
 	logsCmd := &cobra.Command{
-		Use:   "logs [role|service]",
+		Use:   "logs [component|service]",
 		Short: "compose logs from the current release",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -179,8 +179,8 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 
 	// exec
 	root.AddCommand(&cobra.Command{
-		Use:   "exec <role|service> -- <command...>",
-		Short: "run a command inside a role's container",
+		Use:   "exec <component|service> -- <command...>",
+		Short: "run a command inside a workload or service container",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
@@ -199,7 +199,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 
 // loadConfigOnly skips compose loading and inference (secrets edit needs no
 // host or compose — only cfg.Secrets). CUE validation already ran in Load;
-// the role/order checks in Validate can't run without the compose project.
+// component/order checks in Validate can't run without the compose project.
 func loadConfigOnly(g *globalFlags) (*config.Config, error) {
 	return config.Load(g.ConfigPath)
 }

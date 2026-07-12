@@ -12,22 +12,24 @@ package ob
 
 let HOST = "root@monk.labstack.net"
 
+api_version: "onebox.run/v1"
 app:     "monk"
 compose: "docker-compose.yaml"
 
-environments: production: hosts: [HOST]
+environments: production: target: HOST
 
-roles: {
+components: {
 	web: {
-		service: "server"
-		mode:    "rolling"
-		ready: {http: "/healthz", port: 7500}
+		type:       "application"
+		service:    "server"
+		deployment: strategy: "rolling"
+		readiness: {http: "/healthz", port: 7500}
 	}
-	worker: {service: "worker", mode: "recreate"}
+	worker: {type: "worker", service: "worker", deployment: strategy: "recreate"}
+	postgres: {type: "postgres", persistence: mode: "durable"}
 }
-order: ["web", "worker"]
-accessories: ["postgres"]
-hooks: publish: {run: "rsync dist/ \(HOST):/data/web/", local: true}
+deployment: order: ["web", "worker"]
+hooks: post_deploy: {run: "rsync dist/ \(HOST):/data/web/", local: true}
 `
 
 func TestLoadCUEConfig(t *testing.T) {
@@ -49,13 +51,13 @@ func TestLoadCUEConfig(t *testing.T) {
 	if cfg.Environments["production"].Hosts[0] != "root@monk.labstack.net" {
 		t.Fatalf("hosts: %+v", cfg.Environments["production"])
 	}
-	if !strings.Contains(cfg.Hooks["publish"].Run, "root@monk.labstack.net:/data/web/") {
-		t.Fatalf("interpolation not resolved: %+v", cfg.Hooks["publish"])
+	if !strings.Contains(cfg.Hooks["post_deploy"].Run, "root@monk.labstack.net:/data/web/") {
+		t.Fatalf("interpolation not resolved: %+v", cfg.Hooks["post_deploy"])
 	}
 }
 
 func TestLoadCUERejectsSchemaViolation(t *testing.T) {
-	bad := strings.Replace(cueConfig, `mode:    "rolling"`, `mode:    "sideways"`, 1)
+	bad := strings.Replace(cueConfig, `strategy: "rolling"`, `strategy: "sideways"`, 1)
 	p := filepath.Join(t.TempDir(), "ob.cue")
 	if err := os.WriteFile(p, []byte(bad), 0o644); err != nil {
 		t.Fatal(err)

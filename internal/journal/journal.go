@@ -131,16 +131,21 @@ const journalMarker = "@@ob-journal@@"
 // them all while parsing/Summarize stays here, unchanged. (Audit still reads
 // per-file — it is not on the status hot path.)
 func Journals(ctx context.Context, t transport.Transport, app string) ([]string, map[string][]Record, error) {
-	// cd fails on a never-deployed host → `|| true` yields empty output, no ids.
+	// A missing journal directory is a valid never-deployed state. Existing but
+	// unreadable directories/files fail so status cannot report false completeness.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
 	// that record's line would swallow the following file's marker (design §05:
 	// a torn write must not corrupt recovery).
-	cmd := "cd " + q(dir(app)) + " 2>/dev/null && for f in $(ls -1 *.jsonl 2>/dev/null); do echo " +
-		q(journalMarker) + "\"$f\"; cat \"$f\"; echo; done || true"
+	cmd := "if [ -d " + q(dir(app)) + " ]; then cd " + q(dir(app)) + " || exit; " +
+		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
+		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(app)) + " ]; then exit 2; fi"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, nil, fmt.Errorf("read deployment journals failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	byID := map[string][]Record{}
 	var ids []string

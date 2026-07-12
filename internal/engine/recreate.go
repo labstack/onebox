@@ -12,7 +12,7 @@ import (
 )
 
 // RecreateRole replaces a role's containers in place: a stated brief gap, the
-// mode for workers, singletons, and anything that can't roll. Honors replicas —
+// mode for workers and anything that can't roll. Honors replicas —
 // recreates the whole fleet at the desired count and gives each a clean slot
 // name.
 func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath string) error {

@@ -89,6 +89,9 @@ func (e *Engine) containerIDs(ctx context.Context, svc string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("docker ps for service %q failed (exit %d): %s", svc, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
 	return splitIDs(res.Stdout)
 }
 
@@ -138,6 +141,9 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Status}}'")
 	if err != nil {
 		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("docker ps failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	byService := map[string][]svcContainer{}
 	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {

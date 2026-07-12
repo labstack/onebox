@@ -43,13 +43,14 @@ services:
     image: postgres:17
 `
 	obYAML := `
+api_version: onebox.run/v1
 app: demo
 compose: docker-compose.yaml
-environments: { production: { hosts: [deploy@example.invalid] } }
-roles:
-  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
-order: [web]
-accessories: [postgres]
+environments: { production: { target: deploy@example.invalid } }
+components:
+  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
+  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
+deployment: { order: [web] }
 `
 	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(composeYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -158,15 +159,16 @@ services:
     image: postgres:17
 `
 	obYAML := `
+api_version: onebox.run/v1
 app: demo
 compose: docker-compose.yaml
-environments: { production: { hosts: [deploy@example.invalid] } }
-roles:
-  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
-order: [web]
-accessories: [postgres]
-jobs: [migrate]
-env_files: [app.env]
+environments: { production: { target: deploy@example.invalid } }
+components:
+  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
+  migrate: { type: job, service: migrate, data_effect: migration }
+  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
+deployment: { order: [web] }
+runtime: { env_files: [app.env] }
 `
 	for name, body := range map[string]string{
 		"docker-compose.yaml": composeYAML,
@@ -194,15 +196,17 @@ env_files: [app.env]
 func TestPreflightBlocksDeploy(t *testing.T) {
 	dir := writeProject(t)
 	obYAML := `
+api_version: onebox.run/v1
 app: demo
 compose: docker-compose.yaml
-environments: { production: { hosts: [deploy@example.invalid] } }
-roles:
-  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
-order: [web]
-accessories: [postgres]
-preflight:
-  - { file: secrets.env, require: [MISSING_KEY] }
+environments: { production: { target: deploy@example.invalid } }
+components:
+  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
+  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
+deployment: { order: [web] }
+runtime:
+  preflight:
+    - { file: secrets.env, require: [MISSING_KEY] }
 `
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -224,14 +228,15 @@ preflight:
 func TestEnvFilesOutsideProjectRejected(t *testing.T) {
 	dir := writeProject(t)
 	obYAML := `
+api_version: onebox.run/v1
 app: demo
 compose: docker-compose.yaml
-environments: { production: { hosts: [deploy@example.invalid] } }
-roles:
-  web: { service: server, mode: rolling, ready: { http: /healthz, port: 8080 } }
-order: [web]
-accessories: [postgres]
-env_files: ["../escapes.env"]
+environments: { production: { target: deploy@example.invalid } }
+components:
+  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
+  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
+deployment: { order: [web] }
+runtime: { env_files: ["../escapes.env"] }
 `
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)

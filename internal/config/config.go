@@ -1,21 +1,31 @@
-// Package config models ob.yml (M0 subset — plain YAML; CUE validation is M1).
+// Package config models the stable onebox.run/v1 authoring contract and its
+// normalized runtime view.
 package config
 
 import (
 	"bytes"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
+	"github.com/labstack/onebox/internal/target"
 	"gopkg.in/yaml.v3"
 )
 
 // Duration is a yaml-parseable time.Duration ("30s", "2m").
 type Duration time.Duration
+
+const APIVersion = "onebox.run/v1"
+
+var lifecycleHookNames = [...]string{"bootstrap", "pre_release", "post_release", "post_deploy"}
 
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	var s string
@@ -23,6 +33,13 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 		return err
 	}
 	v, err := time.ParseDuration(s)
+	if err != nil && strings.HasSuffix(s, "d") {
+		days, dayErr := strconv.ParseUint(strings.TrimSuffix(s, "d"), 10, 64)
+		maxDays := uint64(time.Duration(1<<63-1) / (24 * time.Hour))
+		if dayErr == nil && days <= maxDays {
+			v, err = time.Duration(days)*24*time.Hour, nil
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("invalid duration %q: %w", s, err)
 	}
@@ -35,37 +52,286 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
 type Config struct {
-	App          string                 `yaml:"app,omitempty"`
-	Compose      string                 `yaml:"compose,omitempty"`
-	Environments map[string]Environment `yaml:"environments"`
-	Roles        map[string]Role        `yaml:"roles"`
-	Order        []string               `yaml:"order,omitempty"`
-	Accessories  []string               `yaml:"accessories,omitempty"`
-	Jobs         []string               `yaml:"jobs,omitempty"`
-	// EnvFiles are shipped to every role/job service as `env_file:` (runtime
-	// container env) AND fed to compose ${VAR} interpolation, in listed order
-	// (later files win). One list replaces a hand-assembled .env — the split
-	// secret files become the single source (design §07).
-	EnvFiles []string `yaml:"env_files,omitempty"`
-	// Preflight asserts local config files exist and carry required keys before
-	// a deploy runs — the declarative form of the `grep -qE` guards a deploy
-	// recipe would otherwise carry.
-	Preflight []PreflightCheck `yaml:"preflight,omitempty"`
-	Hooks     map[string]Hook  `yaml:"hooks,omitempty"`
-	Verify    []VerifyCheck    `yaml:"verify,omitempty"`
-	Proxy     Proxy            `yaml:"proxy,omitempty"`
-	Notify    *Notify          `yaml:"notify,omitempty"`
-	Registry  *Registry        `yaml:"registry,omitempty"`
-	Secrets   *Secrets         `yaml:"secrets,omitempty"`
-	Retain    int              `yaml:"retain,omitempty"`
-	// Migrations "expand-only" is the operator's informed promise that old
-	// code tolerates the new schema — it permits auto-rollback past the
-	// migration gate (design §06).
-	Migrations string `yaml:"migrations,omitempty"`
+	APIVersion     string                 `yaml:"api_version"`
+	App            string                 `yaml:"app,omitempty"`
+	Compose        string                 `yaml:"compose,omitempty"`
+	Environments   map[string]Environment `yaml:"environments"`
+	Components     map[string]Component   `yaml:"components"`
+	Deployment     Deployment             `yaml:"deployment,omitempty"`
+	Runtime        Runtime                `yaml:"runtime,omitempty"`
+	LifecycleHooks map[string]Hook        `yaml:"hooks,omitempty"`
+	Verify         []VerifyCheck          `yaml:"verification,omitempty"`
+	Proxy          Proxy                  `yaml:"proxy,omitempty"`
+	Notify         *Notify                `yaml:"notifications,omitempty"`
+	Registry       *Registry              `yaml:"registry,omitempty"`
+	Secrets        *Secrets               `yaml:"secrets,omitempty"`
+	Observability  Observability          `yaml:"observability,omitempty"`
+
+	// Normalized runtime fields. The engine consumes these; they are derived
+	// from Components/Deployment/Runtime and never accepted in v1 authoring.
+	Roles       map[string]Role  `yaml:"-"`
+	Order       []string         `yaml:"-"`
+	Accessories []string         `yaml:"-"`
+	Jobs        []string         `yaml:"-"`
+	EnvFiles    []string         `yaml:"-"`
+	Preflight   []PreflightCheck `yaml:"-"`
+	Retain      int              `yaml:"-"`
+	Migrations  string           `yaml:"-"`
+	Hooks       map[string]Hook  `yaml:"-"`
+	authoring   bool             `yaml:"-"`
 }
 
 type Environment struct {
-	Hosts []string `yaml:"hosts"`
+	Target string            `yaml:"target,omitempty"`
+	Policy EnvironmentPolicy `yaml:"policy,omitempty"`
+	Hosts  []string          `yaml:"-"`
+}
+
+type EnvironmentPolicy struct {
+	RequireApproval     *bool `yaml:"require_approval,omitempty"`
+	AllowAgentProposals *bool `yaml:"allow_agent_proposals,omitempty"`
+}
+
+func (p EnvironmentPolicy) ApprovalRequired() bool {
+	return p.RequireApproval == nil || *p.RequireApproval
+}
+
+func (p EnvironmentPolicy) AgentProposalsAllowed() bool {
+	return p.AllowAgentProposals == nil || *p.AllowAgentProposals
+}
+
+type Component struct {
+	Type        string               `yaml:"type"`
+	Service     string               `yaml:"service,omitempty"`
+	Deployment  *ComponentDeployment `yaml:"deployment,omitempty"`
+	Readiness   *Ready               `yaml:"readiness,omitempty"`
+	Drain       *Drain               `yaml:"drain,omitempty"`
+	Command     *Hook                `yaml:"command,omitempty"`
+	DataEffect  string               `yaml:"data_effect,omitempty"`
+	Persistence *Persistence         `yaml:"persistence,omitempty"`
+	Protection  *Protection          `yaml:"protection,omitempty"`
+}
+
+type ComponentDeployment struct {
+	Strategy string `yaml:"strategy,omitempty"`
+	Replicas int    `yaml:"replicas,omitempty"`
+}
+
+type Deployment struct {
+	Order           []string `yaml:"order,omitempty"`
+	RetainReleases  int      `yaml:"retain_releases,omitempty"`
+	MigrationPolicy string   `yaml:"migration_policy,omitempty"`
+}
+
+type Runtime struct {
+	// EnvFiles feed Compose interpolation and ship as runtime env files.
+	EnvFiles  []string         `yaml:"env_files,omitempty"`
+	Preflight []PreflightCheck `yaml:"preflight,omitempty"`
+}
+
+type Persistence struct {
+	Mode    string   `yaml:"mode"`
+	Volumes []string `yaml:"volumes,omitempty"`
+}
+
+type Protection struct {
+	Backup       *BackupPolicy       `yaml:"backup,omitempty"`
+	RestoreDrill *RestoreDrillPolicy `yaml:"restore_drill,omitempty"`
+}
+
+type BackupPolicy struct {
+	Schedule      Schedule `yaml:"schedule"`
+	RetentionDays int      `yaml:"retention_days"`
+}
+
+type RestoreDrillPolicy struct {
+	Schedule Schedule `yaml:"schedule"`
+}
+
+// Schedule is a five-field cron expression evaluated in an explicit IANA
+// timezone. Requiring both values now prevents future control planes from
+// silently changing when a protection action runs.
+type Schedule struct {
+	Cron     string `yaml:"cron"`
+	Timezone string `yaml:"timezone"`
+}
+
+type Observability struct {
+	Logs    *LogPolicy    `yaml:"logs,omitempty"`
+	Metrics *MetricPolicy `yaml:"metrics,omitempty"`
+	Alerts  *AlertPolicy  `yaml:"alerts,omitempty"`
+}
+
+type LogPolicy struct {
+	Enabled       bool `yaml:"enabled"`
+	RetentionDays int  `yaml:"retention_days,omitempty"`
+}
+
+type MetricPolicy struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+type AlertPolicy struct {
+	UnhealthyAfter Duration `yaml:"unhealthy_after"`
+}
+
+func (c *Config) Normalize() error {
+	c.Roles = map[string]Role{}
+	c.Accessories = nil
+	c.Jobs = nil
+	c.Order = append([]string(nil), c.Deployment.Order...)
+	c.EnvFiles = append([]string(nil), c.Runtime.EnvFiles...)
+	c.Preflight = append([]PreflightCheck(nil), c.Runtime.Preflight...)
+	c.Retain = c.Deployment.RetainReleases
+	if c.Retain <= 0 {
+		c.Retain = 5
+		c.Deployment.RetainReleases = c.Retain
+	}
+	if c.Deployment.MigrationPolicy == "" {
+		c.Deployment.MigrationPolicy = "manual"
+	}
+	c.Migrations = ""
+	if c.Deployment.MigrationPolicy == "expand-only" {
+		c.Migrations = "expand-only"
+	}
+	c.Hooks = make(map[string]Hook, len(c.LifecycleHooks))
+	for name, hook := range c.LifecycleHooks {
+		c.Hooks[name] = hook
+	}
+
+	environmentNames := make([]string, 0, len(c.Environments))
+	for name := range c.Environments {
+		environmentNames = append(environmentNames, name)
+	}
+	sort.Strings(environmentNames)
+	for _, name := range environmentNames {
+		environment := c.Environments[name]
+		environment.Hosts = nil
+		if environment.Target != "" {
+			environment.Hosts = []string{environment.Target}
+		}
+		c.Environments[name] = environment
+	}
+
+	names := make([]string, 0, len(c.Components))
+	for name := range c.Components {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		component := c.Components[name]
+		service := component.Service
+		if service == "" {
+			service = name
+			component.Service = service
+			c.Components[name] = component
+		}
+		switch component.Type {
+		case "application", "worker":
+			deployment := component.Deployment
+			if deployment == nil {
+				deployment = &ComponentDeployment{}
+				component.Deployment = deployment
+				c.Components[name] = component
+			}
+			c.Roles[name] = Role{
+				Service: service, Mode: deployment.Strategy, Replicas: deployment.Replicas,
+				Ready: component.Readiness, Drain: component.Drain,
+			}
+		case "job":
+			if isLifecycleHook(service) {
+				return fmt.Errorf("components.%s.service: %q is reserved for a lifecycle hook", name, service)
+			}
+			c.Jobs = append(c.Jobs, service)
+			if component.Command != nil {
+				if _, exists := c.Hooks[service]; exists {
+					return fmt.Errorf("components.%s.command conflicts with hooks.%s", name, service)
+				}
+				c.Hooks[service] = *component.Command
+			}
+		case "postgres", "mysql", "redis", "service":
+			c.Accessories = append(c.Accessories, service)
+		default:
+			return fmt.Errorf("components.%s.type: unsupported component type %q", name, component.Type)
+		}
+	}
+	return nil
+}
+
+func (c *Config) syncAuthoringFromRuntime() {
+	if c.APIVersion == "" {
+		c.APIVersion = APIVersion
+	}
+	for name, environment := range c.Environments {
+		if environment.Target == "" && len(environment.Hosts) == 1 {
+			environment.Target = environment.Hosts[0]
+			c.Environments[name] = environment
+		}
+	}
+	for _, name := range lifecycleHookNames {
+		if hook, ok := c.Hooks[name]; ok {
+			if c.LifecycleHooks == nil {
+				c.LifecycleHooks = map[string]Hook{}
+			}
+			c.LifecycleHooks[name] = hook
+		}
+	}
+	if len(c.Components) == 0 {
+		c.Components = map[string]Component{}
+		roleNames := make([]string, 0, len(c.Roles))
+		for name := range c.Roles {
+			roleNames = append(roleNames, name)
+		}
+		sort.Strings(roleNames)
+		for _, name := range roleNames {
+			role := c.Roles[name]
+			componentType := "application"
+			if strings.Contains(strings.ToLower(name), "worker") {
+				componentType = "worker"
+			}
+			c.Components[name] = Component{
+				Type: componentType, Service: role.Service,
+				Deployment: &ComponentDeployment{Strategy: role.Mode, Replicas: role.Replicas},
+				Readiness:  role.Ready, Drain: role.Drain,
+			}
+		}
+		for _, service := range c.Accessories {
+			c.Components[service] = Component{Type: "service", Service: service}
+		}
+		for _, service := range c.Jobs {
+			component := Component{Type: "job", Service: service, DataEffect: "unknown"}
+			if hook, ok := c.Hooks[service]; ok {
+				hookCopy := hook
+				component.Command = &hookCopy
+			}
+			c.Components[service] = component
+		}
+	}
+	for name, component := range c.Components {
+		if component.Type != "job" || component.Command != nil {
+			continue
+		}
+		service := component.Service
+		if service == "" {
+			service = name
+		}
+		if hook, ok := c.Hooks[service]; ok {
+			hookCopy := hook
+			component.Command = &hookCopy
+			c.Components[name] = component
+		}
+	}
+	c.Deployment.Order = append([]string(nil), c.Order...)
+	if c.Retain > 0 {
+		c.Deployment.RetainReleases = c.Retain
+	}
+	if c.Migrations == "expand-only" {
+		c.Deployment.MigrationPolicy = "expand-only"
+	} else if c.Deployment.MigrationPolicy == "" {
+		c.Deployment.MigrationPolicy = "manual"
+	}
+	c.Runtime.EnvFiles = append([]string(nil), c.EnvFiles...)
+	c.Runtime.Preflight = append([]PreflightCheck(nil), c.Preflight...)
 }
 
 type Role struct {
@@ -74,10 +340,9 @@ type Role struct {
 	// Replicas is the steady-state instance count (default 1). >1 runs a
 	// load-balanced fleet named <service>-1..<service>-N; a rolling deploy
 	// surges one new replica at a time. 0/absent means 1.
-	Replicas  int    `yaml:"replicas,omitempty"`
-	Singleton bool   `yaml:"singleton,omitempty"`
-	Ready     *Ready `yaml:"ready,omitempty"`
-	Drain     *Drain `yaml:"drain,omitempty"`
+	Replicas int    `yaml:"replicas,omitempty"`
+	Ready    *Ready `yaml:"ready,omitempty"`
+	Drain    *Drain `yaml:"drain,omitempty"`
 }
 
 // Count is the resolved replica count (default 1).
@@ -144,7 +409,7 @@ type VerifyCheck struct {
 	HTTP     string `yaml:"http,omitempty"` // path, host-side against the container IP
 	Exec     string `yaml:"exec,omitempty"`
 	URL      string `yaml:"url,omitempty"` // runner-side edge check — advisory territory
-	Role     string `yaml:"role,omitempty"`
+	Role     string `yaml:"component,omitempty"`
 	Port     int    `yaml:"port,omitempty"`     // defaults to the role's ready.port
 	Contains string `yaml:"contains,omitempty"` // for url checks: substring the body must contain
 	Advisory bool   `yaml:"advisory,omitempty"` // warn-only, never fails the deploy
@@ -278,9 +543,12 @@ type Proxy struct {
 }
 
 var (
-	appName  = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	ident    = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-	signalRe = regexp.MustCompile(`^[A-Z0-9]+$`)
+	appName        = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	ident          = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	signalRe       = regexp.MustCompile(`^[A-Z0-9]+$`)
+	registryServer = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.:-]*$`)
+	registryUser   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	envVar         = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 )
 
 func Load(path string) (*Config, error) {
@@ -300,14 +568,15 @@ func LoadBytes(b []byte, filename string) (*Config, error) {
 	if err := ValidateCUE(b, filename); err != nil {
 		return nil, err
 	}
-	cfg := &Config{Retain: 5}
+	cfg := &Config{}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
-	if cfg.Retain <= 0 {
-		cfg.Retain = 5
+	cfg.authoring = true
+	if err := cfg.Normalize(); err != nil {
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if cfg.Proxy.Managed && cfg.Proxy.Kind == "" {
 		cfg.Proxy.Kind = "traefik-docker" // the one managed provider
@@ -358,9 +627,20 @@ func FindCompose(dir string) string {
 // YAML marshals the resolved config — what the release snapshot stores so
 // rollback replays the exact choreography (explicit roles, modes, order) that
 // this deploy ran, not a re-inference against a possibly-changed compose file.
-func (c *Config) YAML() ([]byte, error) { return yaml.Marshal(c) }
+func (c *Config) YAML() ([]byte, error) {
+	c.syncAuthoringFromRuntime()
+	return yaml.Marshal(c)
+}
 
 func (c *Config) Validate() error {
+	if c.authoring {
+		if c.APIVersion != APIVersion {
+			return fmt.Errorf("api_version: got %q, want %q", c.APIVersion, APIVersion)
+		}
+		if len(c.Components) == 0 {
+			return fmt.Errorf("components: at least one required")
+		}
+	}
 	if !appName.MatchString(c.App) {
 		return fmt.Errorf("app: %q must match %s", c.App, appName)
 	}
@@ -376,17 +656,80 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("environments: at least one required")
 	}
 	for name, e := range c.Environments {
+		if !ident.MatchString(name) {
+			return fmt.Errorf("environments: name %q must match %s", name, ident)
+		}
 		if len(e.Hosts) != 1 {
 			return fmt.Errorf("environments.%s: ob is single-host by design — exactly one host per environment, got %d", name, len(e.Hosts))
 		}
+		if c.authoring && e.Target == "" {
+			return fmt.Errorf("environments.%s.target: required", name)
+		}
+		if e.Target != "" {
+			parsed, err := target.Parse(e.Target)
+			if err != nil {
+				return fmt.Errorf("environments.%s.target: %w", name, err)
+			}
+			if parsed.Host == "CHANGE-ME" {
+				return fmt.Errorf("environments.%s.target: replace the scaffold CHANGE-ME value", name)
+			}
+		}
+	}
+	claimedServices := map[string]string{}
+	for name, component := range c.Components {
+		if !ident.MatchString(name) {
+			return fmt.Errorf("components: name %q must match %s", name, ident)
+		}
+		if !ident.MatchString(component.Service) {
+			return fmt.Errorf("components.%s.service: %q must match %s", name, component.Service, ident)
+		}
+		if previous, exists := claimedServices[component.Service]; exists {
+			return fmt.Errorf("components.%s.service: %q is already claimed by component %q", name, component.Service, previous)
+		}
+		claimedServices[component.Service] = name
+		switch component.Type {
+		case "application", "worker":
+			if component.Deployment == nil || (component.Deployment.Strategy != "rolling" && component.Deployment.Strategy != "recreate") {
+				return fmt.Errorf("components.%s.deployment.strategy: must be rolling|recreate", name)
+			}
+			if component.Deployment.Replicas < 0 {
+				return fmt.Errorf("components.%s.deployment.replicas: must be positive when set", name)
+			}
+		case "job":
+			if component.DataEffect != "none" && component.DataEffect != "migration" && component.DataEffect != "unknown" {
+				return fmt.Errorf("components.%s.data_effect: must be none|migration|unknown", name)
+			}
+			if isLifecycleHook(component.Service) {
+				return fmt.Errorf("components.%s.service: %q is reserved for a lifecycle hook", name, component.Service)
+			}
+			if component.Command != nil && component.Command.Run == "" {
+				return fmt.Errorf("components.%s.command.run: must not be empty", name)
+			}
+		case "postgres", "mysql", "redis":
+			if component.Persistence == nil {
+				return fmt.Errorf("components.%s.persistence: required for %s", name, component.Type)
+			}
+		case "service":
+		default:
+			return fmt.Errorf("components.%s.type: unsupported component type %q", name, component.Type)
+		}
+		if err := validatePersistence("components."+name+".persistence", component.Persistence); err != nil {
+			return err
+		}
+		if err := validateProtection("components."+name+".protection", component.Protection); err != nil {
+			return err
+		}
 	}
 	if len(c.Roles) == 0 {
-		return fmt.Errorf("roles: at least one required (all-accessory apps land post-M0)")
+		return fmt.Errorf("components: at least one application or worker required")
 	}
 	inOrder := map[string]bool{}
 	for _, r := range c.Order {
 		if _, ok := c.Roles[r]; !ok {
-			return fmt.Errorf("order: %q is not a role", r)
+			return fmt.Errorf("deployment.order: %q is not an application or worker component", r)
+		}
+		if inOrder[r] {
+			return fmt.Errorf("deployment.order: duplicate component %q", r)
 		}
 		inOrder[r] = true
 	}
@@ -403,20 +746,32 @@ func (c *Config) Validate() error {
 		// rolling needs a readiness contract, but it may be ADOPTED from the
 		// compose file's own healthcheck (design §03) — that cross-file check
 		// lives in compose.CheckRollable, which can see both files.
-		if r.Ready != nil && r.Ready.HTTP != "" && r.Ready.Port == 0 {
-			return fmt.Errorf("roles.%s: ready.http requires port", name)
+		if r.Ready != nil {
+			hasHTTP, hasExec := r.Ready.HTTP != "", r.Ready.Exec != ""
+			if hasHTTP == hasExec {
+				return fmt.Errorf("components.%s.readiness: exactly one of http or exec is required", name)
+			}
+			if hasHTTP && r.Ready.Port == 0 {
+				return fmt.Errorf("components.%s.readiness: http requires port", name)
+			}
+			if hasExec && r.Ready.Port != 0 {
+				return fmt.Errorf("components.%s.readiness: port is only valid with http", name)
+			}
+			if r.Ready.Interval < 0 || r.Ready.StartPeriod < 0 || r.Ready.Within < 0 {
+				return fmt.Errorf("components.%s.readiness: durations must not be negative", name)
+			}
 		}
 		if r.Drain != nil && r.Drain.Signal != "" && !signalRe.MatchString(r.Drain.Signal) {
-			return fmt.Errorf("roles.%s: drain.signal %q must match %s", name, r.Drain.Signal, signalRe)
+			return fmt.Errorf("components.%s.drain.signal: %q must match %s", name, r.Drain.Signal, signalRe)
 		}
 		if r.Ready != nil && r.Ready.Retries < 0 {
-			return fmt.Errorf("roles.%s: ready.retries must be >= 1 (0/absent = Docker default 3)", name)
+			return fmt.Errorf("components.%s.readiness.retries: must be >= 1 (0/absent = Docker default 3)", name)
 		}
-		if r.Drain != nil && r.Drain.Grace < 0 {
-			return fmt.Errorf("roles.%s: drain.grace must not be negative", name)
+		if r.Drain != nil && (r.Drain.Wait < 0 || r.Drain.Grace < 0) {
+			return fmt.Errorf("components.%s.drain: durations must not be negative", name)
 		}
 		if !inOrder[name] {
-			return fmt.Errorf("order: must include every role; missing %q", name)
+			return fmt.Errorf("deployment.order: must include every application and worker; missing %q", name)
 		}
 	}
 	for _, a := range c.Accessories {
@@ -429,6 +784,73 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("jobs: %q must match %s", j, ident)
 		}
 	}
+	for name, hook := range c.LifecycleHooks {
+		if !isLifecycleHook(name) {
+			return fmt.Errorf("hooks.%s: unsupported lifecycle hook", name)
+		}
+		if hook.Run == "" {
+			return fmt.Errorf("hooks.%s.run: must not be empty", name)
+		}
+	}
+	if c.Deployment.MigrationPolicy != "" && c.Deployment.MigrationPolicy != "manual" && c.Deployment.MigrationPolicy != "expand-only" {
+		return fmt.Errorf("deployment.migration_policy: must be manual|expand-only")
+	}
+	for i, check := range c.Verify {
+		kinds := 0
+		if check.HTTP != "" {
+			kinds++
+		}
+		if check.Exec != "" {
+			kinds++
+		}
+		if check.URL != "" {
+			kinds++
+		}
+		path := fmt.Sprintf("verification.%d", i)
+		if kinds != 1 {
+			return fmt.Errorf("%s: exactly one of http, exec, or url is required", path)
+		}
+		if check.URL != "" {
+			u, err := url.ParseRequestURI(check.URL)
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+				return fmt.Errorf("%s.url: must be an absolute HTTP(S) URL", path)
+			}
+			if check.Role != "" || check.Port != 0 {
+				return fmt.Errorf("%s: component and port are not valid for a URL check", path)
+			}
+			continue
+		}
+		role, ok := c.Roles[check.Role]
+		if !ok {
+			return fmt.Errorf("%s.component: unknown application or worker %q", path, check.Role)
+		}
+		if check.Contains != "" || check.Advisory {
+			return fmt.Errorf("%s: contains and advisory are only valid for URL checks", path)
+		}
+		if check.Exec != "" && check.Port != 0 {
+			return fmt.Errorf("%s.port: only valid for an HTTP check", path)
+		}
+		if check.HTTP != "" && check.Port == 0 && (role.Ready == nil || role.Ready.Port == 0) {
+			return fmt.Errorf("%s.port: required when component readiness has no HTTP port", path)
+		}
+	}
+	if c.Registry != nil {
+		if !registryServer.MatchString(c.Registry.Server) {
+			return fmt.Errorf("registry.server: %q is not option-safe", c.Registry.Server)
+		}
+		if !registryUser.MatchString(c.Registry.Username) {
+			return fmt.Errorf("registry.username: %q is not option-safe", c.Registry.Username)
+		}
+		if !envVar.MatchString(c.Registry.PasswordEnv) {
+			return fmt.Errorf("registry.password_env: %q is not an environment variable name", c.Registry.PasswordEnv)
+		}
+	}
+	if c.Observability.Logs != nil && c.Observability.Logs.RetentionDays < 0 {
+		return fmt.Errorf("observability.logs.retention_days: must be positive when set")
+	}
+	if c.Observability.Alerts != nil && c.Observability.Alerts.UnhealthyAfter <= 0 {
+		return fmt.Errorf("observability.alerts.unhealthy_after: must be positive")
+	}
 	if c.Proxy.Managed {
 		if c.Proxy.Kind == "none" {
 			return fmt.Errorf("proxy: managed: true contradicts kind: none — a managed proxy is one ob runs")
@@ -440,6 +862,131 @@ func (c *Config) Validate() error {
 	// ready timing defaults live at the point of use (engine.readyTiming,
 	// compose.Render) — injecting them here would stomp timings ADOPTED from
 	// the compose file's own healthcheck.
+	return nil
+}
+
+func isLifecycleHook(name string) bool {
+	for _, allowed := range lifecycleHookNames {
+		if name == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func validatePersistence(path string, persistence *Persistence) error {
+	if persistence == nil {
+		return nil
+	}
+	if persistence.Mode != "durable" && persistence.Mode != "ephemeral" && persistence.Mode != "external" {
+		return fmt.Errorf("%s.mode: must be durable|ephemeral|external", path)
+	}
+	seen := map[string]bool{}
+	for _, volume := range persistence.Volumes {
+		if !ident.MatchString(volume) {
+			return fmt.Errorf("%s.volumes: %q must match %s", path, volume, ident)
+		}
+		if seen[volume] {
+			return fmt.Errorf("%s.volumes: %q appears more than once", path, volume)
+		}
+		seen[volume] = true
+	}
+	return nil
+}
+
+func validateProtection(path string, protection *Protection) error {
+	if protection == nil {
+		return nil
+	}
+	if protection.Backup == nil && protection.RestoreDrill == nil {
+		return fmt.Errorf("%s: backup or restore_drill is required", path)
+	}
+	if protection.Backup != nil {
+		if protection.Backup.RetentionDays <= 0 {
+			return fmt.Errorf("%s.backup.retention_days: must be positive", path)
+		}
+		if err := validateSchedule(path+".backup.schedule", protection.Backup.Schedule); err != nil {
+			return err
+		}
+	}
+	if protection.RestoreDrill != nil {
+		if err := validateSchedule(path+".restore_drill.schedule", protection.RestoreDrill.Schedule); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSchedule(path string, schedule Schedule) error {
+	if err := validateCron(schedule.Cron); err != nil {
+		return fmt.Errorf("%s.cron: %w", path, err)
+	}
+	if schedule.Timezone == "" {
+		return fmt.Errorf("%s.timezone: required", path)
+	}
+	if _, err := time.LoadLocation(schedule.Timezone); err != nil {
+		return fmt.Errorf("%s.timezone: unknown IANA timezone %q", path, schedule.Timezone)
+	}
+	return nil
+}
+
+func validateCron(expression string) error {
+	fields := strings.Fields(expression)
+	if len(fields) != 5 {
+		return fmt.Errorf("must be a five-field numeric cron expression")
+	}
+	limits := [...]struct {
+		name     string
+		min, max int
+	}{
+		{"minute", 0, 59},
+		{"hour", 0, 23},
+		{"day-of-month", 1, 31},
+		{"month", 1, 12},
+		{"day-of-week", 0, 7},
+	}
+	for i, field := range fields {
+		if err := validateCronField(field, limits[i].min, limits[i].max); err != nil {
+			return fmt.Errorf("invalid %s field %q: %w", limits[i].name, field, err)
+		}
+	}
+	return nil
+}
+
+func validateCronField(field string, min, max int) error {
+	for _, item := range strings.Split(field, ",") {
+		if item == "" {
+			return fmt.Errorf("empty list item")
+		}
+		parts := strings.Split(item, "/")
+		if len(parts) > 2 || parts[0] == "" {
+			return fmt.Errorf("expected value, range, wildcard, or optional step")
+		}
+		if len(parts) == 2 {
+			step, err := strconv.Atoi(parts[1])
+			if err != nil || step <= 0 {
+				return fmt.Errorf("step must be a positive integer")
+			}
+		}
+		base := parts[0]
+		if base == "*" {
+			continue
+		}
+		rangeParts := strings.Split(base, "-")
+		if len(rangeParts) > 2 {
+			return fmt.Errorf("range has too many bounds")
+		}
+		start, err := strconv.Atoi(rangeParts[0])
+		if err != nil || start < min || start > max {
+			return fmt.Errorf("value must be between %d and %d", min, max)
+		}
+		if len(rangeParts) == 2 {
+			end, err := strconv.Atoi(rangeParts[1])
+			if err != nil || end < min || end > max || end < start {
+				return fmt.Errorf("range end must be between %d and %d and not precede its start", min, max)
+			}
+		}
+	}
 	return nil
 }
 

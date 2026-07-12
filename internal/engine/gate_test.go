@@ -95,10 +95,55 @@ func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 	f := gateFake("") // silent migrate
 	cfg := testConfig()
 	cfg.Migrations = "expand-only"
+	cfg.Components = map[string]config.Component{
+		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Deploy(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
 		t.Fatalf("expand-only must permit auto-rollback: %v", err)
+	}
+}
+
+func TestDataEffectNoneOpensGateWithoutResultFile(t *testing.T) {
+	f := gateFake("")
+	cfg := testConfig()
+	cfg.Components = map[string]config.Component{
+		"migrate": {Type: "job", Service: "migrate", DataEffect: "none"},
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
+		t.Fatalf("data_effect=none must keep application rollback safe: %v", err)
+	}
+}
+
+func TestExpandOnlyDoesNotCoverUnknownJob(t *testing.T) {
+	f := gateFake("")
+	cfg := testConfig()
+	cfg.Migrations = "expand-only"
+	cfg.Components = map[string]config.Component{
+		"migrate": {Type: "job", Service: "migrate", DataEffect: "unknown"},
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
+		t.Fatalf("expand-only must not cover an unknown data effect: %v", err)
+	}
+}
+
+func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
+	f := gateFake("")
+	cfg := testConfig()
+	cfg.Migrations = "expand-only"
+	cfg.Components = map[string]config.Component{
+		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+	}
+	cfg.Hooks["pre_release"] = config.Hook{Run: "true"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
+		t.Fatalf("expand-only must not cover an untyped lifecycle hook: %v", err)
 	}
 }
 

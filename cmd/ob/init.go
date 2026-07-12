@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
@@ -15,10 +16,19 @@ import (
 	"github.com/labstack/onebox/internal/compose"
 )
 
-// wellKnownAccessories matches images of stateful deps and infra that should
-// never be rolled — converged, not released.
-var wellKnownAccessories = regexp.MustCompile(
-	`(^|/)(postgres|mysql|mariadb|redis|valkey|memcached|rabbitmq|kafka|minio|traefik|ofelia|dozzle|nats|etcd|typesense|nginx|caddy)([:@-]|$)`)
+// wellKnownServices matches supporting infrastructure that should be
+// converged, not released. Data services are classified more specifically by
+// classify before this fallback is used.
+var wellKnownServices = regexp.MustCompile(
+	"(^|[[:space:]/_-])(memcached|rabbitmq|kafka|minio|traefik|ofelia|dozzle|nats|etcd|typesense|nginx|caddy)([[:space:]:@/_-]|$)")
+
+var (
+	postgresService = regexp.MustCompile("(^|[[:space:]/_-])postgres(?:ql)?([[:space:]:@/_-]|$)")
+	mysqlService    = regexp.MustCompile("(^|[[:space:]/_-])(mysql|mariadb)([[:space:]:@/_-]|$)")
+	redisService    = regexp.MustCompile("(^|[[:space:]/_-])(redis|valkey)([[:space:]:@/_-]|$)")
+	workerService   = regexp.MustCompile("(^|[[:space:]_/-])(worker|sidekiq|celery|taskiq|rq)([[:space:]_/-]|$)")
+	httpHealthcheck = regexp.MustCompile("https?://(localhost|127\\.0\\.0\\.1|\\[::1\\]):([0-9]+)(/[^[:space:]\"']*)")
+)
 
 func addInitCommand(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
@@ -52,87 +62,164 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	}
 
 	out := cmd.OutOrStdout()
-	var roles, accessories, jobs []string
+	var workloads, dataServices, services, jobs []string
+	types := map[string]string{}
 	rolling := map[string]bool{}
 	for name, svc := range p.Services {
-		switch classify(name, svc) {
-		case "accessory":
-			accessories = append(accessories, name)
+		typ := classify(name, svc)
+		types[name] = typ
+		switch typ {
+		case "postgres", "mysql", "redis":
+			dataServices = append(dataServices, name)
+		case "service":
+			services = append(services, name)
 		case "job":
 			jobs = append(jobs, name)
-		default:
-			roles = append(roles, name)
-			rolling[name] = svc.HealthCheck != nil || hasTraefikLabels(svc)
+		case "application", "worker":
+			workloads = append(workloads, name)
+			rolling[name] = hasUsableHealthcheck(svc) || hasTraefikLabels(svc)
 		}
 	}
-	sort.Strings(roles)
-	sort.Strings(accessories)
+	sort.Strings(workloads)
+	sort.Strings(dataServices)
+	sort.Strings(services)
 	sort.Strings(jobs)
+	componentNames := append([]string{}, workloads...)
+	componentNames = append(componentNames, dataServices...)
+	componentNames = append(componentNames, services...)
+	componentNames = append(componentNames, jobs...)
+	sort.Strings(componentNames)
 
 	var b strings.Builder
+	b.WriteString("api_version: onebox.run/v1\n")
 	fmt.Fprintf(&b, "app: %s\ncompose: %s\n", app, composePath)
-	b.WriteString("environments:\n  production: { hosts: [deploy@CHANGE-ME] }\n")
-	b.WriteString("roles:\n")
-	for _, r := range roles {
-		if rolling[r] {
-			fmt.Fprintf(&b, "  %s: { service: %s, mode: rolling, ready: { http: /healthz, port: CHANGE-ME } }\n", r, r)
-		} else {
-			fmt.Fprintf(&b, "  %s: { service: %s, mode: recreate }\n", r, r)
+	b.WriteString("environments:\n  production:\n    target: deploy@CHANGE-ME\n")
+	b.WriteString("components:\n")
+	for _, name := range componentNames {
+		typ := types[name]
+		fmt.Fprintf(&b, "  %s:\n    type: %s\n    service: %s\n", name, typ, name)
+		switch typ {
+		case "application", "worker":
+			strategy := "recreate"
+			if rolling[name] {
+				strategy = "rolling"
+			}
+			fmt.Fprintf(&b, "    deployment: { strategy: %s }\n", strategy)
+			if strategy == "rolling" {
+				path, port, ok := inferHTTPReadiness(p.Services[name])
+				switch {
+				case ok:
+					fmt.Fprintf(&b, "    readiness: { http: %s, port: %d }\n", path, port)
+				case p.Services[name].HealthCheck == nil:
+					b.WriteString("    readiness: { http: /healthz, port: CHANGE-ME }\n")
+				}
+			}
+		case "job":
+			effect := "unknown"
+			if isMigration(name, p.Services[name]) {
+				effect = "migration"
+			}
+			fmt.Fprintf(&b, "    data_effect: %s\n", effect)
+		case "postgres", "mysql":
+			b.WriteString("    persistence: { mode: durable }\n")
+		case "redis":
+			// Redis is commonly a cache. A declared volume is a strong signal
+			// that this instance instead carries durable application data.
+			mode := "ephemeral"
+			if len(p.Services[name].Volumes) > 0 {
+				mode = "durable"
+			}
+			fmt.Fprintf(&b, "    persistence: { mode: %s }\n", mode)
 		}
 	}
-	fmt.Fprintf(&b, "order: [%s]\n", strings.Join(roles, ", "))
-	if len(accessories) > 0 {
-		fmt.Fprintf(&b, "accessories: [%s]\n", strings.Join(accessories, ", "))
-	}
-	if len(jobs) > 0 {
-		fmt.Fprintf(&b, "jobs: [%s]\n", strings.Join(jobs, ", "))
-		fmt.Fprintf(&b, "hooks: { migrate: docker compose run --rm --no-deps %s }\n", jobs[0])
+	if len(workloads) > 0 {
+		b.WriteString("deployment:\n")
+		fmt.Fprintf(&b, "  order: [%s]\n", strings.Join(workloads, ", "))
 	}
 	if err := os.WriteFile(g.ConfigPath, []byte(b.String()), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "wrote %s (%d roles, %d accessories, %d jobs)\n\n", g.ConfigPath, len(roles), len(accessories), len(jobs))
+	fmt.Fprintf(out, "wrote %s (%s, %s, %s, %s)\n\n", g.ConfigPath,
+		countLabel(len(workloads), "workload"), countLabel(len(dataServices), "data service"),
+		countLabel(len(services), "supporting service"), countLabel(len(jobs), "job"))
 
-	// the doctor: the exact compose delta each rolling candidate needs
+	// The doctor reports the exact compose delta each rolling candidate needs.
 	fmt.Fprintln(out, "rollability doctor:")
 	clean := true
-	for _, r := range roles {
-		if !rolling[r] {
+	for _, name := range workloads {
+		if !rolling[name] {
 			continue
 		}
-		svc := p.Services[r]
+		svc := p.Services[name]
 		if svc.ContainerName != "" {
 			clean = false
-			fmt.Fprintf(out, "  %s: remove `container_name: %s` — two copies can't share a name\n", r, svc.ContainerName)
+			fmt.Fprintf(out, "  %s: remove `container_name: %s` — two copies can't share a name\n", name, svc.ContainerName)
 		}
 		for _, port := range svc.Ports {
 			if port.Published != "" {
 				clean = false
-				fmt.Fprintf(out, "  %s: unbind host port %s:%d — the proxy routes instead; two containers can't share a host port\n", r, port.Published, port.Target)
+				fmt.Fprintf(out, "  %s: unbind host port %s:%d — the proxy routes instead; two containers can't share a host port\n", name, port.Published, port.Target)
 			}
 		}
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
 			clean = false
-			fmt.Fprintf(out, "  %s: remove `deploy.replicas` — ob manages scale during rolls\n", r)
+			fmt.Fprintf(out, "  %s: remove `deploy.replicas` — ob manages scale during rolls\n", name)
 		}
 	}
 	if clean {
-		fmt.Fprintln(out, "  no blockers — rolling roles are deploy-ready")
+		fmt.Fprintln(out, "  no blockers — rolling components are deploy-ready")
 	}
 	fmt.Fprintln(out, "\nnext: fill in CHANGE-ME values, then `ob validate`")
 	return nil
 }
 
 func classify(name string, svc ctypes.ServiceConfig) string {
-	command := strings.Join(svc.Command, " ")
-	if name == "migrate" || strings.Contains(command, "migrate") ||
-		strings.Contains(command, "upgrade head") {
+	if isMigration(name, svc) {
 		return "job"
 	}
-	if wellKnownAccessories.MatchString(svc.Image) {
-		return "accessory"
+	haystack := strings.ToLower(name + " " + svc.Image)
+	switch {
+	case postgresService.MatchString(haystack):
+		return "postgres"
+	case mysqlService.MatchString(haystack):
+		return "mysql"
+	case redisService.MatchString(haystack):
+		return "redis"
+	case wellKnownServices.MatchString(haystack):
+		return "service"
+	case workerService.MatchString(strings.ToLower(name + " " + strings.Join(svc.Command, " "))):
+		return "worker"
+	default:
+		return "application"
 	}
-	return "role"
+}
+
+func isMigration(name string, svc ctypes.ServiceConfig) bool {
+	command := strings.ToLower(strings.Join(svc.Command, " "))
+	return name == "migrate" || strings.Contains(command, "migrate") ||
+		strings.Contains(command, "upgrade head")
+}
+
+func inferHTTPReadiness(svc ctypes.ServiceConfig) (string, int, bool) {
+	if svc.HealthCheck == nil {
+		return "", 0, false
+	}
+	match := httpHealthcheck.FindStringSubmatch(strings.Join(svc.HealthCheck.Test, " "))
+	if len(match) != 4 {
+		return "", 0, false
+	}
+	port, err := strconv.Atoi(match[2])
+	if err != nil {
+		return "", 0, false
+	}
+	return match[3], port, true
+}
+
+func hasUsableHealthcheck(svc ctypes.ServiceConfig) bool {
+	if svc.HealthCheck == nil || len(svc.HealthCheck.Test) < 2 {
+		return false
+	}
+	return svc.HealthCheck.Test[0] == "CMD" || svc.HealthCheck.Test[0] == "CMD-SHELL"
 }
 
 func hasTraefikLabels(svc ctypes.ServiceConfig) bool {
@@ -144,7 +231,15 @@ func hasTraefikLabels(svc ctypes.ServiceConfig) bool {
 	return false
 }
 
-var unsafeApp = regexp.MustCompile(`[^a-z0-9-]`)
+func countLabel(count int, singular string) string {
+	label := singular
+	if count != 1 {
+		label += "s"
+	}
+	return fmt.Sprintf("%d %s", count, label)
+}
+
+var unsafeApp = regexp.MustCompile("[^a-z0-9-]")
 
 func sanitizeApp(s string) string {
 	s = unsafeApp.ReplaceAllString(strings.ToLower(s), "-")

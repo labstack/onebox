@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ctypes "github.com/compose-spec/compose-go/v2/types"
+
 	"github.com/labstack/onebox/internal/config"
 )
 
@@ -30,6 +32,50 @@ func TestLoadAndClassifyReportsOrphan(t *testing.T) {
 	err = Classify(p, testCfg())
 	if err == nil || !strings.Contains(err.Error(), "rogue") {
 		t.Fatalf("want orphan error naming 'rogue', got %v", err)
+	}
+}
+
+func TestClassifyValidatesDeclaredNamedVolumes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "compose.yaml")
+	source := `
+services:
+  web: { image: example/web }
+  database:
+    image: postgres:17
+    volumes: [database-data:/var/lib/postgresql/data]
+volumes:
+  database-data: {}
+`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project, err := Load(context.Background(), path, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Components: map[string]config.Component{
+		"web": {
+			Type: "application", Service: "web",
+			Deployment: &config.ComponentDeployment{Strategy: "recreate"},
+		},
+		"database": {
+			Type: "postgres", Service: "database",
+			Persistence: &config.Persistence{Mode: "durable", Volumes: []string{"database-data"}},
+		},
+	}}
+	if err := cfg.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Classify(project, cfg); err != nil {
+		t.Fatalf("mounted named volume must validate: %v", err)
+	}
+	cfg.Components["database"] = config.Component{
+		Type: "postgres", Service: "database",
+		Persistence: &config.Persistence{Mode: "durable", Volumes: []string{"database-typo"}},
+	}
+	if err := Classify(project, cfg); err == nil || !strings.Contains(err.Error(), "database-typo") {
+		t.Fatalf("unmounted declared volume must be rejected explicitly: %v", err)
 	}
 }
 
@@ -93,6 +139,32 @@ func TestCheckRollableAdoptsComposeHealthcheck(t *testing.T) {
 	}
 }
 
+func TestCheckRollableRejectsDisabledOrMalformedComposeHealthcheck(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		test ctypes.HealthCheckTest
+	}{
+		{name: "disabled", test: ctypes.HealthCheckTest{"NONE"}},
+		{name: "empty command", test: ctypes.HealthCheckTest{"CMD"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p, err := Load(context.Background(), "testdata/simple/docker-compose.yaml", "demo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			service := p.Services["server"]
+			service.HealthCheck.Test = test.test
+			p.Services["server"] = service
+			cfg := testCfg()
+			cfg.Roles["web"] = config.Role{Service: "server", Mode: "rolling"}
+			errs := CheckRollable(p, cfg)
+			if len(errs) == 0 || !strings.Contains(errs[0].Error(), "healthcheck") {
+				t.Fatalf("non-executable Compose healthcheck must not satisfy rolling readiness: %v", errs)
+			}
+		})
+	}
+}
+
 func TestLoadLenientToleratesMissingRequiredVars(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "docker-compose.yaml")
@@ -112,8 +184,8 @@ services:
 		t.Fatal(err)
 	}
 	// strict load: the :? contract holds for deploy-path verbs
-	if _, err := Load(context.Background(), p, "demo"); err == nil || !strings.Contains(err.Error(), "MISSING_VERSION") {
-		t.Fatalf("strict load must fail on required var, got %v", err)
+	if _, err := Load(context.Background(), p, "demo"); err == nil || (!strings.Contains(err.Error(), "MISSING_VERSION") && !strings.Contains(err.Error(), "EMPTY_SET")) {
+		t.Fatalf("strict load must fail on one of the required vars, got %v", err)
 	}
 	// lenient load: read-only verbs (status/logs/exec) never consume the
 	// values — missing vars resolve to a visible placeholder

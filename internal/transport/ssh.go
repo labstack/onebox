@@ -11,35 +11,51 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	obtarget "github.com/labstack/onebox/internal/target"
 )
 
 // SSH is the production transport: agentless, key-auth only, host keys
 // verified against ~/.ssh/known_hosts — never skipped (design §11).
 type SSH struct {
 	client *ssh.Client
+	user   string
 	host   string
-	target string // user@host — the full ssh/rsync destination
+	target string // user@host — valid as an OpenSSH destination
+	port   string // separate because user@host:port is invalid for both tools
 	Logger func(host, cmd string)
 }
 
 // ParseAddr splits [user@]host[:port]; port defaults to 22.
 func ParseAddr(addr string) (user, host, port string) {
-	port = "22"
-	if i := strings.Index(addr, "@"); i >= 0 {
-		user, addr = addr[:i], addr[i+1:]
+	parsed, err := obtarget.Parse(addr)
+	if err != nil {
+		return "", "", ""
 	}
-	if h, p, err := net.SplitHostPort(addr); err == nil {
-		return user, h, p
-	}
-	return user, addr, port
+	return parsed.User, parsed.Host, parsed.Port
 }
 
 func NewSSH(addr string) (*SSH, error) {
-	user, host, port := ParseAddr(addr)
+	return NewSSHContext(context.Background(), addr)
+}
+
+// NewSSHContext dials and completes the SSH handshake within the caller's
+// cancellation/deadline. A bounded fallback prevents an MCP tool from hanging
+// indefinitely when its target is unreachable or stops during handshake.
+func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parsed, err := obtarget.Parse(addr)
+	if err != nil {
+		return nil, fmt.Errorf("target %q: %w", addr, err)
+	}
+	user, host, port := parsed.User, parsed.Host, parsed.Port
 	if user == "" {
 		user = os.Getenv("USER")
 	}
@@ -59,7 +75,7 @@ func NewSSH(addr string) (*SSH, error) {
 		}
 		return nil, errors.New(msg)
 	}
-	client, err := ssh.Dial("tcp", net.JoinHostPort(host, port), &ssh.ClientConfig{
+	config := &ssh.ClientConfig{
 		User:            user,
 		Auth:            auths,
 		HostKeyCallback: hk,
@@ -68,11 +84,44 @@ func NewSSH(addr string) (*SSH, error) {
 		// differ from what known_hosts holds (OpenSSH's TOFU writes a single
 		// ed25519 line), and knownhosts then reports a spurious "key mismatch".
 		HostKeyAlgorithms: knownHostKeyAlgos(hk, net.JoinHostPort(host, port)),
-	})
+	}
+	address := net.JoinHostPort(host, port)
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
 	}
-	return &SSH{client: client, host: host, target: user + "@" + host}, nil
+	handshakeDeadline := time.Now().Add(15 * time.Second)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(handshakeDeadline) {
+		handshakeDeadline = deadline
+	}
+	_ = conn.SetDeadline(handshakeDeadline)
+	cancelWatch := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-cancelWatch:
+		}
+	}()
+	sshConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
+	close(cancelWatch)
+	if err != nil {
+		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = sshConn.Close()
+		return nil, ctxErr
+	}
+	_ = conn.SetDeadline(time.Time{})
+	client := ssh.NewClient(sshConn, channels, requests)
+	return &SSH{
+		client: client, user: user, host: host, port: port,
+		target: parsed.Destination(user),
+	}, nil
 }
 
 // sshAuths gathers publickey auth methods from the ssh-agent and on-disk keys.
@@ -236,23 +285,85 @@ func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {
 	if s.Logger != nil {
 		s.Logger(s.host, "upload "+localDir+" -> "+remoteDir)
 	}
-	sess, err := s.client.NewSession()
+	return uploadWithClient(ctx, &sshUploadClient{client: s.client}, localDir, remoteDir)
+}
+
+type uploadClient interface {
+	NewSession() (uploadSession, error)
+	Close() error
+}
+
+type sshUploadClient struct {
+	client *ssh.Client
+}
+
+func (c *sshUploadClient) NewSession() (uploadSession, error) {
+	sess, err := c.client.NewSession()
 	if err != nil {
+		return nil, err
+	}
+	return &sshUploadSession{Session: sess}, nil
+}
+
+func (c *sshUploadClient) Close() error { return c.client.Close() }
+
+type uploadSession interface {
+	StdinPipe() (io.WriteCloser, error)
+	Start(string) error
+	Wait() error
+	Close() error
+	setStderr(io.Writer)
+}
+
+type sshUploadSession struct {
+	*ssh.Session
+}
+
+func (s *sshUploadSession) setStderr(w io.Writer) { s.Stderr = w }
+
+// uploadWithClient installs cancellation before NewSession and force-closes the
+// underlying SSH connection. A channel-level Close is only a protocol message
+// and a wedged peer need not acknowledge it; closing the connection is what
+// guarantees that session creation, writes, and Wait all unblock.
+func uploadWithClient(ctx context.Context, client uploadClient, localDir, remoteDir string) error {
+	if err := ctx.Err(); err != nil {
+		_ = client.Close()
+		return err
+	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = client.Close() })
+	defer stopCancel()
+	sess, err := client.NewSession()
+	if err != nil {
+		return uploadError(ctx, err)
+	}
+	return uploadWithSession(ctx, sess, localDir, remoteDir)
+}
+
+// uploadWithSession streams the archive after uploadWithClient has installed
+// the connection-level cancellation guard.
+func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remoteDir string) error {
+	if err := ctx.Err(); err != nil {
+		_ = sess.Close()
 		return err
 	}
 	defer sess.Close()
+
 	pw, err := sess.StdinPipe()
 	if err != nil {
-		return err
+		return uploadError(ctx, err)
 	}
 	var errb strings.Builder
-	sess.Stderr = &errb
+	sess.setStderr(&errb)
 	if err := sess.Start("mkdir -p " + shq(remoteDir) + " && tar -xzf - -C " + shq(remoteDir)); err != nil {
-		return err
+		_ = pw.Close()
+		return uploadError(ctx, err)
 	}
 	gz := gzip.NewWriter(pw)
 	tw := tar.NewWriter(gz)
 	walkErr := filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -273,31 +384,59 @@ func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
-			_, err = io.Copy(tw, f)
-			return err
+			_, copyErr := io.Copy(tw, &contextReader{ctx: ctx, r: f})
+			closeErr := f.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
 		}
 		return nil
 	})
+	closeErr := closeUploadWriters(tw, gz, pw)
 	if walkErr != nil {
-		return walkErr
+		return uploadError(ctx, walkErr)
 	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	if err := gz.Close(); err != nil {
-		return err
-	}
-	if err := pw.Close(); err != nil {
-		return err
+	if closeErr != nil {
+		return uploadError(ctx, closeErr)
 	}
 	if err := sess.Wait(); err != nil {
-		return fmt.Errorf("remote untar: %w (%s)", err, strings.TrimSpace(errb.String()))
+		return uploadError(ctx, fmt.Errorf("remote untar: %w (%s)", err, strings.TrimSpace(errb.String())))
 	}
-	_ = ctx
-	return nil
+	return ctx.Err()
 }
 
-func (s *SSH) Host() string   { return s.host }
-func (s *SSH) Target() string { return s.target }
-func (s *SSH) Close() error   { return s.client.Close() }
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r *contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(p)
+}
+
+func closeUploadWriters(tw *tar.Writer, gz *gzip.Writer, pw io.WriteCloser) error {
+	var first error
+	for _, closeFn := range []func() error{tw.Close, gz.Close, pw.Close} {
+		if err := closeFn(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func uploadError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
+func (s *SSH) Host() string    { return s.host }
+func (s *SSH) Target() string  { return s.target }
+func (s *SSH) SSHUser() string { return s.user }
+func (s *SSH) SSHPort() string { return s.port }
+func (s *SSH) Close() error    { return s.client.Close() }

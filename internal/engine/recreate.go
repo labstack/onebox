@@ -12,7 +12,7 @@ import (
 )
 
 // RecreateRole replaces a role's containers in place: a stated brief gap, the
-// mode for workers, singletons, and anything that can't roll. Honors replicas —
+// mode for workers and anything that can't roll. Honors replicas —
 // recreates the whole fleet at the desired count and gives each a clean slot
 // name.
 func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath string) error {
@@ -114,7 +114,9 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	c.Env = append(os.Environ(),
 		"OB_APP="+e.Cfg.App,
 		"OB_HOST="+e.T.Host(),
-		"OB_TARGET="+e.T.Target(), // user@host — for ssh/rsync in hooks
+		"OB_TARGET="+e.T.Target(), // OpenSSH user@host (IPv6 unbracketed)
+		"OB_SSH_USER="+e.T.SSHUser(),
+		"OB_SSH_PORT="+e.T.SSHPort(),
 		"OB_RELEASE_DIR="+remoteReleaseDir,
 		"OB_RELEASE_ID="+filepath.Base(remoteReleaseDir),
 	)

@@ -18,18 +18,23 @@ import (
 )
 
 type Record struct {
-	DeployID   string `json:"deploy_id"`
-	Epoch      int    `json:"epoch"`
-	Phase      string `json:"phase"`
-	SubStep    string `json:"sub_step,omitempty"`
-	Role       string `json:"role,omitempty"`
-	Event      string `json:"event"`            // start | intent | result | finish | abort
-	Status     string `json:"status,omitempty"` // ok | fail
-	Detail     string `json:"detail,omitempty"`
-	TS         string `json:"ts"`
-	Operator   string `json:"operator,omitempty"`
-	GitSHA     string `json:"git_sha,omitempty"`
-	ConfigHash string `json:"config_hash,omitempty"`
+	DeployID     string `json:"deploy_id"`
+	Epoch        int    `json:"epoch"`
+	Phase        string `json:"phase"`
+	SubStep      string `json:"sub_step,omitempty"`
+	Role         string `json:"role,omitempty"`
+	Event        string `json:"event"`            // start | intent | result | finish | abort
+	Status       string `json:"status,omitempty"` // ok | fail
+	Detail       string `json:"detail,omitempty"`
+	RollbackSafe bool   `json:"rollback_safe,omitempty"`
+	// RollbackPolicySafe records that the interrupted deploy's own policy
+	// covers this effect even when it cannot prove a no-op result. Keeping this
+	// on the journal prevents a later config edit from weakening abort safety.
+	RollbackPolicySafe bool   `json:"rollback_policy_safe,omitempty"`
+	TS                 string `json:"ts"`
+	Operator           string `json:"operator,omitempty"`
+	GitSHA             string `json:"git_sha,omitempty"`
+	ConfigHash         string `json:"config_hash,omitempty"`
 }
 
 type Writer struct {
@@ -131,16 +136,21 @@ const journalMarker = "@@ob-journal@@"
 // them all while parsing/Summarize stays here, unchanged. (Audit still reads
 // per-file — it is not on the status hot path.)
 func Journals(ctx context.Context, t transport.Transport, app string) ([]string, map[string][]Record, error) {
-	// cd fails on a never-deployed host → `|| true` yields empty output, no ids.
+	// A missing journal directory is a valid never-deployed state. Existing but
+	// unreadable directories/files fail so status cannot report false completeness.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
 	// that record's line would swallow the following file's marker (design §05:
 	// a torn write must not corrupt recovery).
-	cmd := "cd " + q(dir(app)) + " 2>/dev/null && for f in $(ls -1 *.jsonl 2>/dev/null); do echo " +
-		q(journalMarker) + "\"$f\"; cat \"$f\"; echo; done || true"
+	cmd := "if [ -d " + q(dir(app)) + " ]; then cd " + q(dir(app)) + " || exit; " +
+		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
+		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(app)) + " ]; then exit 2; fi"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, nil, fmt.Errorf("read deployment journals failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	byID := map[string][]Record{}
 	var ids []string
@@ -180,27 +190,82 @@ func PruneCandidates(ctx context.Context, t transport.Transport, app string, kee
 
 // Summary is the journal reduced to what resume/abort/audit need.
 type Summary struct {
-	DeployID    string
-	Epoch       int
-	Started     bool
-	Finished    bool
-	Failed      bool
-	Aborted     bool
-	PrevRelease string
-	GateOpen    bool
-	Done        map[string]bool // "transfer", "migrate", "release:<role>"
-	Operator    string
-	GitSHA      string
-	StartedAt   string
+	DeployID string
+	Epoch    int
+	Started  bool
+	Finished bool
+	Failed   bool
+	Aborted  bool
+	// DeploySucceeded is sticky and operation-scoped: later maintenance records
+	// may share this journal id, but cannot erase a compatible code activation.
+	DeploySucceeded bool
+	PrevRelease     string
+	GateOpen        bool
+	// RollbackCovered is true only when every recorded effect attempt was
+	// either explicitly rollback-safe or covered by the interrupted deploy's
+	// own policy declaration.
+	RollbackCovered bool
+	Done            map[string]bool // "transfer", "migrate", "job:<service>", "hook:<name>", "release:<role>", DoneGateRecorded
+	Operator        string
+	GitSHA          string
+	StartedAt       string
+}
+
+// DoneGateRecorded marks that this journal contains a rollback-effect
+// decision. Resume uses it to preserve the aggregate result across retries.
+const DoneGateRecorded = "gate:recorded"
+
+// EffectBaselineSubStep is written durably before transfer or any effect can
+// start. Later job/hook attempts join the aggregate and may close it; if the
+// runner dies during upload, the journal still proves rollback is safe.
+const EffectBaselineSubStep = "gate:baseline"
+
+type effectAttempt struct {
+	resolved   bool
+	explicitOK bool
+	policyOK   bool
+}
+
+type effectAttemptKey struct {
+	subStep string
+	epoch   int
 }
 
 func Summarize(recs []Record) Summary {
 	s := Summary{Done: map[string]bool{}}
+	var attempts []effectAttempt
+	active := map[effectAttemptKey]int{}
 	for _, r := range recs {
 		s.DeployID = r.DeployID
 		if r.Epoch > s.Epoch {
 			s.Epoch = r.Epoch
 		}
+		effectStep := r.SubStep == "migrate" || r.SubStep == EffectBaselineSubStep ||
+			strings.HasPrefix(r.SubStep, "job:") || strings.HasPrefix(r.SubStep, "hook:")
+		if effectStep {
+			s.Done[DoneGateRecorded] = true
+			key := effectAttemptKey{subStep: r.SubStep, epoch: r.Epoch}
+			switch r.Event {
+			case "intent":
+				// Every intent is a distinct attempt. If a runner disappears and a
+				// later epoch retries the same job, the unresolved first attempt stays
+				// in the aggregate and can never be erased by the retry's result.
+				attempts = append(attempts, effectAttempt{policyOK: r.RollbackPolicySafe})
+				active[key] = len(attempts) - 1
+			case "result":
+				idx, ok := active[key]
+				if !ok {
+					// Legacy journals sometimes contain only the completed result.
+					attempts = append(attempts, effectAttempt{})
+					idx = len(attempts) - 1
+				}
+				attempts[idx].resolved = true
+				attempts[idx].explicitOK = r.Status == "ok" && recordRollbackSafe(r)
+				attempts[idx].policyOK = attempts[idx].policyOK || r.RollbackPolicySafe
+				delete(active, key)
+			}
+		}
+
 		switch r.Event {
 		case "start":
 			s.Started = true
@@ -210,6 +275,9 @@ func Summarize(recs []Record) Summary {
 			}
 		case "finish":
 			s.Finished = true
+			if r.Phase == "deploy" && r.Status == "ok" {
+				s.DeploySucceeded = true
+			}
 			if r.Status == "fail" {
 				s.Failed = true
 			}
@@ -224,15 +292,38 @@ func Summarize(recs []Record) Summary {
 				s.Done["transfer"] = true
 			case r.SubStep == "migrate": // legacy journals (pre auto-run jobs)
 				s.Done["migrate"] = true
-				s.GateOpen = strings.Contains(r.Detail, "changed=false")
 			case strings.HasPrefix(r.SubStep, "job:"):
+				s.Done[r.SubStep] = true
+			case strings.HasPrefix(r.SubStep, "hook:"):
 				s.Done[r.SubStep] = true
 			case r.Phase == "release" && r.Role != "":
 				s.Done["release:"+r.Role] = true
 			}
 		}
 	}
+	if len(attempts) > 0 {
+		s.GateOpen = true
+		s.RollbackCovered = true
+		for _, attempt := range attempts {
+			explicitSafe := attempt.resolved && attempt.explicitOK
+			if !explicitSafe {
+				s.GateOpen = false
+			}
+			if !explicitSafe && !attempt.policyOK {
+				s.RollbackCovered = false
+			}
+		}
+	}
 	return s
+}
+
+func recordRollbackSafe(r Record) bool {
+	if r.RollbackSafe {
+		return true
+	}
+	// Recognize journals written before rollback_safe became explicit.
+	detail := strings.TrimSpace(r.Detail)
+	return detail == "changed=false" || strings.Contains(detail, "rollback-safe by data_effect=none")
 }
 
 func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

@@ -24,7 +24,7 @@ import (
 // traffic-shift protocol, "poison its health state").
 const DrainFile = "/tmp/ob-drain"
 
-var ident = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+var ident = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 func Load(ctx context.Context, composePath, projectName string, envFiles ...string) (*types.Project, error) {
 	return load(ctx, composePath, projectName, false, envFiles...)
@@ -44,6 +44,10 @@ func load(ctx context.Context, composePath, projectName string, lenient bool, en
 		cli.WithName(projectName),
 		cli.WithWorkingDirectory(filepath.Dir(composePath)),
 		cli.WithOsEnv,
+		// Onebox models the complete production contract. Profile-gated jobs and
+		// maintenance services still need classification and may be explicitly
+		// targeted by the engine, so load every declared profile.
+		cli.WithProfiles([]string{"*"}),
 		// WithEnvFiles(envFiles...) feeds ${VAR} INTERPOLATION (image tags, etc.)
 		// from the config's env_files; with none it falls back to <project-dir>/.env.
 		// WithDotEnv reads them. Order matters: os env is merged first and wins
@@ -127,23 +131,23 @@ func Classify(p *types.Project, cfg *config.Config) error {
 	}
 	for name, r := range cfg.Roles {
 		if _, ok := p.Services[r.Service]; !ok {
-			return fmt.Errorf("roles.%s: compose has no service %q", name, r.Service)
+			return fmt.Errorf("components.%s: Compose has no service %q", name, r.Service)
 		}
-		if err := claim(r.Service, "role"); err != nil {
+		if err := claim(r.Service, "workload"); err != nil {
 			return err
 		}
 	}
 	for _, a := range cfg.Accessories {
 		if _, ok := p.Services[a]; !ok {
-			return fmt.Errorf("accessories: compose has no service %q", a)
+			return fmt.Errorf("supporting/data component: Compose has no service %q", a)
 		}
-		if err := claim(a, "accessory"); err != nil {
+		if err := claim(a, "supporting/data service"); err != nil {
 			return err
 		}
 	}
 	for _, j := range cfg.Jobs {
 		if _, ok := p.Services[j]; !ok {
-			return fmt.Errorf("jobs: compose has no service %q", j)
+			return fmt.Errorf("job component: Compose has no service %q", j)
 		}
 		if err := claim(j, "job"); err != nil {
 			return err
@@ -157,7 +161,24 @@ func Classify(p *types.Project, cfg *config.Config) error {
 	}
 	sort.Strings(orphans)
 	if len(orphans) > 0 {
-		return fmt.Errorf("every service needs exactly one class (role|accessory|job); unclassified: %v", orphans)
+		return fmt.Errorf("every Compose service needs exactly one component classification; unclassified: %v", orphans)
+	}
+	for name, component := range cfg.Components {
+		if component.Persistence == nil || len(component.Persistence.Volumes) == 0 {
+			continue
+		}
+		service := p.Services[component.Service]
+		mounted := map[string]bool{}
+		for _, volume := range service.Volumes {
+			if volume.Type == types.VolumeTypeVolume && volume.Source != "" {
+				mounted[volume.Source] = true
+			}
+		}
+		for _, volume := range component.Persistence.Volumes {
+			if !mounted[volume] {
+				return fmt.Errorf("components.%s.persistence.volumes: named volume %q is not mounted by Compose service %q", name, volume, component.Service)
+			}
+		}
 	}
 	return nil
 }
@@ -174,34 +195,34 @@ func CheckRollable(p *types.Project, cfg *config.Config) []error {
 		if !ok {
 			continue // Classify reports this
 		}
-		// managed proxy reaches roles via the injected ingress network;
+		// managed proxy reaches workloads via the injected ingress network;
 		// network_mode (host/container:) excludes `networks:` entirely, so
-		// the proxy could never route to this role — refuse at validate
+		// the proxy could never route to this workload — refuse at validate
 		if cfg.Proxy.Managed && svc.NetworkMode != "" {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): network_mode %q conflicts with the managed proxy — roles must join the shared ingress network", roleName, r.Service, svc.NetworkMode))
+			errs = append(errs, fmt.Errorf("components.%s (%q): network_mode %q conflicts with the managed proxy — workloads must join the shared ingress network", roleName, r.Service, svc.NetworkMode))
 		}
 		multi := r.Mode == "rolling" || r.Count() > 1
 		if !multi {
 			continue
 		}
 		if svc.ContainerName != "" {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): container_name forbids running multiple copies — remove it", roleName, r.Service))
+			errs = append(errs, fmt.Errorf("components.%s (%q): container_name forbids running multiple copies — remove it", roleName, r.Service))
 		}
 		for _, port := range svc.Ports {
 			if port.Published != "" {
-				errs = append(errs, fmt.Errorf("roles.%s (%q): host port %s:%d — copies cannot share a host port; route via the proxy instead", roleName, r.Service, port.Published, port.Target))
+				errs = append(errs, fmt.Errorf("components.%s (%q): host port %s:%d — copies cannot share a host port; route via the proxy instead", roleName, r.Service, port.Published, port.Target))
 			}
 		}
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
-			errs = append(errs, fmt.Errorf("roles.%s (%q): deploy.replicas conflicts with ob-managed scaling — use replicas: in ob.yml", roleName, r.Service))
+			errs = append(errs, fmt.Errorf("components.%s (%q): deploy.replicas conflicts with Onebox-managed scaling — use components.%s.deployment.replicas", roleName, r.Service, roleName))
 		}
 		// readiness rule (design §03): rolling gates on a healthcheck — from
 		// ready.http/exec, or ADOPTED from the compose file's own
 		if r.Mode == "rolling" {
 			hasReadyKind := r.Ready != nil && (r.Ready.HTTP != "" || r.Ready.Exec != "")
-			hasComposeHC := svc.HealthCheck != nil && len(svc.HealthCheck.Test) > 0
+			hasComposeHC := adoptedProbe(svc) != ""
 			if !hasReadyKind && !hasComposeHC {
-				errs = append(errs, fmt.Errorf("roles.%s (%q): rolling requires ready.http/exec, or a healthcheck in the compose file to adopt", roleName, r.Service))
+				errs = append(errs, fmt.Errorf("components.%s (%q): rolling requires readiness.http/exec, or an executable healthcheck in the Compose file to adopt", roleName, r.Service))
 			}
 		}
 	}

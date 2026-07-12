@@ -84,3 +84,107 @@ func TestReadAndSummary(t *testing.T) {
 		t.Fatalf("list: %v %v", ids, err)
 	}
 }
+
+func TestSummarizeReconstructsAggregateGate(t *testing.T) {
+	tests := []struct {
+		name    string
+		recs    []Record
+		open    bool
+		covered bool
+	}{
+		{
+			name: "explicit data-effect-none result",
+			recs: []Record{
+				{SubStep: "job:index", Event: "intent"},
+				{SubStep: "job:index", Event: "result", Status: "ok", RollbackSafe: true},
+			},
+			open: true, covered: true,
+		},
+		{
+			name: "legacy changed-false result",
+			recs: []Record{
+				{SubStep: "migrate", Event: "result", Status: "ok", Detail: "changed=false"},
+			},
+			open: true, covered: true,
+		},
+		{
+			name: "one unsafe completed job closes aggregate",
+			recs: []Record{
+				{SubStep: "job:index", Event: "result", Status: "ok", RollbackSafe: true},
+				{SubStep: "job:migrate", Event: "result", Status: "ok", Detail: "changed=unknown"},
+			},
+		},
+		{
+			name: "interrupted attempt closes aggregate",
+			recs: []Record{
+				{SubStep: "job:index", Event: "result", Status: "ok", RollbackSafe: true},
+				{SubStep: "job:migrate", Event: "intent"},
+			},
+		},
+		{
+			name: "later safe retry cannot erase unsafe attempt",
+			recs: []Record{
+				{SubStep: "job:migrate", Event: "intent"},
+				{SubStep: "job:migrate", Event: "result", Status: "fail"},
+				{SubStep: "job:migrate", Event: "intent"},
+				{SubStep: "job:migrate", Event: "result", Status: "ok", RollbackSafe: true},
+			},
+		},
+		{
+			name: "safe retry cannot erase interrupted attempt",
+			recs: []Record{
+				{Epoch: 1, SubStep: "job:migrate", Event: "intent"},
+				{Epoch: 2, SubStep: "job:migrate", Event: "intent"},
+				{Epoch: 2, SubStep: "job:migrate", Event: "result", Status: "ok", RollbackSafe: true},
+			},
+		},
+		{
+			name: "interrupted migration covered by original expand-only policy",
+			recs: []Record{
+				{Epoch: 1, SubStep: "job:migrate", Event: "intent", RollbackPolicySafe: true},
+			},
+			covered: true,
+		},
+		{
+			name: "pre-effect baseline is explicitly safe",
+			recs: []Record{
+				{SubStep: EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+			},
+			open: true, covered: true,
+		},
+		{
+			name: "untyped lifecycle hook is not covered",
+			recs: []Record{
+				{SubStep: "hook:pre_release", Event: "intent"},
+				{SubStep: "hook:pre_release", Event: "result", Status: "ok"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := Summarize(tt.recs)
+			if s.GateOpen != tt.open {
+				t.Fatalf("GateOpen=%v, want %v: %+v", s.GateOpen, tt.open, s)
+			}
+			if s.RollbackCovered != tt.covered {
+				t.Fatalf("RollbackCovered=%v, want %v: %+v", s.RollbackCovered, tt.covered, s)
+			}
+			if !s.Done[DoneGateRecorded] {
+				t.Fatalf("gate history must be marked for resume: %+v", s.Done)
+			}
+		})
+	}
+}
+
+func TestSummarizeDeploySuccessSurvivesMaintenanceFailure(t *testing.T) {
+	s := Summarize([]Record{
+		{Phase: "deploy", Event: "start"},
+		{Phase: "deploy", Event: "finish", Status: "ok"},
+		{Phase: "secrets-push", Event: "start"},
+		{Phase: "secrets-push", Event: "finish", Status: "fail"},
+	})
+	if !s.DeploySucceeded {
+		t.Fatal("later maintenance must not erase the compatible deploy checkpoint")
+	}
+}

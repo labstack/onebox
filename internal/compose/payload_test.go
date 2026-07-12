@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,5 +56,17 @@ func TestStagePayloadRewritesProjectRelativeSources(t *testing.T) {
 		}
 	} else if !strings.Contains(out, "FOO") {
 		t.Fatalf("env_file neither preserved nor folded into environment:\n%s", out)
+	}
+}
+
+func TestStagePayloadContextHonorsCancellation(t *testing.T) {
+	p, err := Load(context.Background(), "testdata/payload/docker-compose.yaml", "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := StagePayloadContext(ctx, p, t.TempDir()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("StagePayloadContext error = %v; want context cancellation", err)
 	}
 }

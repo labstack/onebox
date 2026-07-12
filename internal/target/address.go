@@ -121,20 +121,16 @@ func isASCIIAlphaNumeric(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
-// Destination returns a normalized SSH identity. resolvedUser is used when
-// the author omitted a user. Explicit ports and IPv6 brackets are preserved.
+// Destination returns a normalized OpenSSH destination. resolvedUser is used
+// when the author omitted a user. The port is deliberately excluded because
+// OpenSSH needs it as -p. IPv6 stays unbracketed: OpenSSH treats brackets as
+// literal hostname characters.
 func (a Address) Destination(resolvedUser string) string {
 	user := a.User
 	if user == "" {
 		user = resolvedUser
 	}
 	host := a.Host
-	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
-	}
-	if a.ExplicitPort {
-		host += ":" + a.Port
-	}
 	if user == "" {
 		return host
 	}

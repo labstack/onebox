@@ -8,10 +8,10 @@ func TestParse(t *testing.T) {
 	}{
 		{"example.com", "", "example.com", "22", "deploy@example.com"},
 		{"root@example.com", "root", "example.com", "22", "root@example.com"},
-		{"example.com:2222", "", "example.com", "2222", "deploy@example.com:2222"},
-		{"root@10.0.0.5:22", "root", "10.0.0.5", "22", "root@10.0.0.5:22"},
-		{"[2001:db8::1]", "", "2001:db8::1", "22", "deploy@[2001:db8::1]"},
-		{"root@[2001:db8::1]:2200", "root", "2001:db8::1", "2200", "root@[2001:db8::1]:2200"},
+		{"example.com:2222", "", "example.com", "2222", "deploy@example.com"},
+		{"root@10.0.0.5:22", "root", "10.0.0.5", "22", "root@10.0.0.5"},
+		{"[2001:db8::1]", "", "2001:db8::1", "22", "deploy@2001:db8::1"},
+		{"root@[2001:db8::1]:2200", "root", "2001:db8::1", "2200", "root@2001:db8::1"},
 	}
 	for _, test := range tests {
 		t.Run(test.raw, func(t *testing.T) {

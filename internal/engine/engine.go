@@ -52,9 +52,11 @@ type Engine struct {
 	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
 	// mutate() guards every mutating command with it.
 	fenceVal string
-	// gateOpen: the migration gate state (design §06). Set by runMigrate, or
-	// by Resume from the journal. Closed by default — fail safe.
-	gateOpen bool
+	// gateOpen is the explicit no-effect result; rollbackCovered also includes
+	// the interrupted deploy's typed policy promises. Resume restores both from
+	// the journal. They are closed by default — fail safe.
+	gateOpen        bool
+	rollbackCovered bool // aggregate explicit/policy coverage for every effect attempt
 }
 
 func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options) *Engine {

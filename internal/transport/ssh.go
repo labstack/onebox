@@ -24,8 +24,10 @@ import (
 // verified against ~/.ssh/known_hosts — never skipped (design §11).
 type SSH struct {
 	client *ssh.Client
+	user   string
 	host   string
-	target string // user@host[:port] — the normalized configured destination
+	target string // user@host — valid as an OpenSSH destination
+	port   string // separate because user@host:port is invalid for both tools
 	Logger func(host, cmd string)
 }
 
@@ -116,7 +118,10 @@ func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
 	}
 	_ = conn.SetDeadline(time.Time{})
 	client := ssh.NewClient(sshConn, channels, requests)
-	return &SSH{client: client, host: host, target: parsed.Destination(user)}, nil
+	return &SSH{
+		client: client, user: user, host: host, port: port,
+		target: parsed.Destination(user),
+	}, nil
 }
 
 // sshAuths gathers publickey auth methods from the ssh-agent and on-disk keys.
@@ -280,23 +285,85 @@ func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {
 	if s.Logger != nil {
 		s.Logger(s.host, "upload "+localDir+" -> "+remoteDir)
 	}
-	sess, err := s.client.NewSession()
+	return uploadWithClient(ctx, &sshUploadClient{client: s.client}, localDir, remoteDir)
+}
+
+type uploadClient interface {
+	NewSession() (uploadSession, error)
+	Close() error
+}
+
+type sshUploadClient struct {
+	client *ssh.Client
+}
+
+func (c *sshUploadClient) NewSession() (uploadSession, error) {
+	sess, err := c.client.NewSession()
 	if err != nil {
+		return nil, err
+	}
+	return &sshUploadSession{Session: sess}, nil
+}
+
+func (c *sshUploadClient) Close() error { return c.client.Close() }
+
+type uploadSession interface {
+	StdinPipe() (io.WriteCloser, error)
+	Start(string) error
+	Wait() error
+	Close() error
+	setStderr(io.Writer)
+}
+
+type sshUploadSession struct {
+	*ssh.Session
+}
+
+func (s *sshUploadSession) setStderr(w io.Writer) { s.Stderr = w }
+
+// uploadWithClient installs cancellation before NewSession and force-closes the
+// underlying SSH connection. A channel-level Close is only a protocol message
+// and a wedged peer need not acknowledge it; closing the connection is what
+// guarantees that session creation, writes, and Wait all unblock.
+func uploadWithClient(ctx context.Context, client uploadClient, localDir, remoteDir string) error {
+	if err := ctx.Err(); err != nil {
+		_ = client.Close()
+		return err
+	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = client.Close() })
+	defer stopCancel()
+	sess, err := client.NewSession()
+	if err != nil {
+		return uploadError(ctx, err)
+	}
+	return uploadWithSession(ctx, sess, localDir, remoteDir)
+}
+
+// uploadWithSession streams the archive after uploadWithClient has installed
+// the connection-level cancellation guard.
+func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remoteDir string) error {
+	if err := ctx.Err(); err != nil {
+		_ = sess.Close()
 		return err
 	}
 	defer sess.Close()
+
 	pw, err := sess.StdinPipe()
 	if err != nil {
-		return err
+		return uploadError(ctx, err)
 	}
 	var errb strings.Builder
-	sess.Stderr = &errb
+	sess.setStderr(&errb)
 	if err := sess.Start("mkdir -p " + shq(remoteDir) + " && tar -xzf - -C " + shq(remoteDir)); err != nil {
-		return err
+		_ = pw.Close()
+		return uploadError(ctx, err)
 	}
 	gz := gzip.NewWriter(pw)
 	tw := tar.NewWriter(gz)
 	walkErr := filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -317,31 +384,59 @@ func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
-			_, err = io.Copy(tw, f)
-			return err
+			_, copyErr := io.Copy(tw, &contextReader{ctx: ctx, r: f})
+			closeErr := f.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
 		}
 		return nil
 	})
+	closeErr := closeUploadWriters(tw, gz, pw)
 	if walkErr != nil {
-		return walkErr
+		return uploadError(ctx, walkErr)
 	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	if err := gz.Close(); err != nil {
-		return err
-	}
-	if err := pw.Close(); err != nil {
-		return err
+	if closeErr != nil {
+		return uploadError(ctx, closeErr)
 	}
 	if err := sess.Wait(); err != nil {
-		return fmt.Errorf("remote untar: %w (%s)", err, strings.TrimSpace(errb.String()))
+		return uploadError(ctx, fmt.Errorf("remote untar: %w (%s)", err, strings.TrimSpace(errb.String())))
 	}
-	_ = ctx
-	return nil
+	return ctx.Err()
 }
 
-func (s *SSH) Host() string   { return s.host }
-func (s *SSH) Target() string { return s.target }
-func (s *SSH) Close() error   { return s.client.Close() }
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r *contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(p)
+}
+
+func closeUploadWriters(tw *tar.Writer, gz *gzip.Writer, pw io.WriteCloser) error {
+	var first error
+	for _, closeFn := range []func() error{tw.Close, gz.Close, pw.Close} {
+		if err := closeFn(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func uploadError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
+func (s *SSH) Host() string    { return s.host }
+func (s *SSH) Target() string  { return s.target }
+func (s *SSH) SSHUser() string { return s.user }
+func (s *SSH) SSHPort() string { return s.port }
+func (s *SSH) Close() error    { return s.client.Close() }

@@ -3,10 +3,12 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -78,6 +80,62 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 	}
 }
 
+func TestDeployPersistsSafeEffectBaseline(t *testing.T) {
+	cfg := testConfig()
+	cfg.Jobs = nil
+	cfg.Components = map[string]config.Component{}
+	cfg.Hooks = map[string]config.Hook{}
+	f := happyFake()
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, `"sub_step":"`+journal.EffectBaselineSubStep+`"`) {
+		t.Fatalf("deploy must persist a rollback-safe baseline before effects:\n%s", seq)
+	}
+}
+
+func TestJobDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
+	f := happyFake()
+	f.Err = func(cmd string) error {
+		if strings.Contains(cmd, `"sub_step":"job:migrate"`) && strings.Contains(cmd, `"event":"intent"`) {
+			return errors.New("journal unavailable")
+		}
+		return nil
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	jw := &journal.Writer{T: f, App: e.Cfg.App, DeployID: "R1", Epoch: 1}
+	err := e.runJobs(context.Background(), jw, nil, "/remote", "/remote/compose.yaml")
+	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
+		t.Fatalf("intent journal failure must stop the job: %v", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "OB_RESULT_FILE") {
+		t.Fatalf("job ran without a durable intent:\n%s", seq)
+	}
+}
+
+func TestLifecycleHookDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
+	f := happyFake()
+	f.Err = func(cmd string) error {
+		if strings.Contains(cmd, `"sub_step":"hook:pre_release"`) && strings.Contains(cmd, `"event":"intent"`) {
+			return errors.New("journal unavailable")
+		}
+		return nil
+	}
+	cfg := testConfig()
+	cfg.Hooks["pre_release"] = config.Hook{Run: "echo SHOULD_NOT_RUN"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	jw := &journal.Writer{T: f, App: e.Cfg.App, DeployID: "R1", Epoch: 1}
+	err := e.runRollbackEffectHook(context.Background(), jw, nil, "pre_release", "/remote", "/remote/compose.yaml")
+	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
+		t.Fatalf("intent journal failure must stop the hook: %v", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "SHOULD_NOT_RUN") {
+		t.Fatalf("hook ran without a durable intent:\n%s", seq)
+	}
+}
+
 func TestGateClosedHaltsAndPages(t *testing.T) {
 	f := gateFake("") // migrate wrote nothing — fail safe
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
@@ -88,6 +146,37 @@ func TestGateClosedHaltsAndPages(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "releases/R0/compose.yaml") {
 		t.Fatalf("closed gate must NOT auto-rollback:\n%s", seq)
+	}
+}
+
+func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
+	f := gateFake("changed=false\n") // R2's retry is locally safe
+	failed := journalLines(
+		journal.Record{DeployID: "R1", Epoch: 1, Phase: "deploy", Event: "start", Detail: "prev=R0"},
+		journal.Record{DeployID: "R1", Epoch: 1, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+		journal.Record{DeployID: "R1", Epoch: 1, Phase: "pre-release", SubStep: "job:migrate", Event: "intent"},
+		journal.Record{DeployID: "R1", Epoch: 1, Phase: "pre-release", SubStep: "job:migrate", Event: "result", Status: "ok", Detail: "changed=unknown"},
+		journal.Record{DeployID: "R1", Epoch: 1, Phase: "deploy", Event: "finish", Status: "fail"},
+	)
+	maintenance := journalLines(
+		journal.Record{DeployID: "R1-service", Epoch: 1, Phase: "accessory-apply", Event: "start"},
+		journal.Record{DeployID: "R1-service", Epoch: 1, Phase: "accessory-apply", Event: "finish", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal") {
+			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + failed +
+				journalMarkerLine + "R1-service.jsonl\n" + maintenance}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "R2", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
+		t.Fatalf("a safe retry must not erase R1's uncovered effect: %v", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "releases/R0/compose.yaml") {
+		t.Fatalf("rollback debt must prevent R2 from auto-rolling back to R0:\n%s", seq)
 	}
 }
 
@@ -144,6 +233,9 @@ func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 	err := e.Deploy(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
 		t.Fatalf("expand-only must not cover an untyped lifecycle hook: %v", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, `"sub_step":"hook:pre_release"`) {
+		t.Fatalf("lifecycle effect must be persisted for abort recovery:\n%s", seq)
 	}
 }
 

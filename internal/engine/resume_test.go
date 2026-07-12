@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 )
@@ -22,11 +23,15 @@ func journalLines(recs ...journal.Record) string {
 
 // interruptedFake: R1 crashed after web rolled; worker pending. R0 is live.
 func interruptedFake(gateDetail string) *transport.Fake {
+	return interruptedFakeWithPolicy(gateDetail, false)
+}
+
+func interruptedFakeWithPolicy(gateDetail string, policySafe bool) *transport.Fake {
 	f := happyFake()
 	jr := journalLines(
 		journal.Record{DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0", Operator: "v@mac", TS: "2026-07-03T00:00:00Z"},
 		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: "migrate", Event: "result", Status: "ok", Detail: gateDetail},
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: "migrate", Event: "result", Status: "ok", Detail: gateDetail, RollbackPolicySafe: policySafe},
 		journal.Record{DeployID: "R1", Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
 	)
 	base := f.Dynamic
@@ -52,6 +57,9 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Resume(context.Background()); err != nil {
 		t.Fatalf("resume: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	if !e.gateOpen {
+		t.Fatal("resume must restore the completed job's changed=false gate result")
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "--scale server=2") {
@@ -98,8 +106,40 @@ func TestAbortRefusesClosedGate(t *testing.T) {
 	}
 }
 
-func TestAbortReplaysPreviousRelease(t *testing.T) {
-	f := interruptedFake("changed=false")
+func TestAbortUsesInterruptedEffectPolicyAfterConfigEdit(t *testing.T) {
+	f := interruptedFake("changed=unknown (no result declared — gate closed, fail-safe)")
+	cfg := testConfig()
+	cfg.Migrations = "expand-only"
+	cfg.Components = map[string]config.Component{
+		// The current config now claims this is a covered migration. Abort must
+		// still honor the interrupted journal, which recorded it as uncovered.
+		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Abort(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
+		t.Fatalf("a config edit must not cover the interrupted job retroactively: %v", err)
+	}
+}
+
+func TestAbortExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
+	f := interruptedFake("changed=unknown (no result declared — gate closed, fail-safe)")
+	cfg := testConfig()
+	cfg.Migrations = "expand-only"
+	cfg.Components = map[string]config.Component{
+		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+	}
+	cfg.Hooks["pre_release"] = config.Hook{Run: "true"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Abort(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
+		t.Fatalf("expand-only must not cover an untyped lifecycle hook during abort: %v", err)
+	}
+}
+
+func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe bool) {
+	t.Helper()
+	f := interruptedFakeWithPolicy(gateDetail, policySafe)
 	// abort path: web rolled to R1 — its container carries ob.release='R1';
 	// replaying R0 must drain it. The fake: newcomer query for R0 returns the
 	// R0 container only after R0's up --scale ran.
@@ -162,4 +202,19 @@ func TestAbortReplaysPreviousRelease(t *testing.T) {
 	if !strings.Contains(seq, `"event":"abort","status":"ok"`) {
 		t.Fatalf("abort must journal:\n%s", seq)
 	}
+}
+
+func TestAbortReplaysPreviousRelease(t *testing.T) {
+	testAbortReplaysPreviousRelease(t, "changed=false", false)
+}
+
+func TestAbortAllowsRecoveredDataEffectNoneGate(t *testing.T) {
+	testAbortReplaysPreviousRelease(t, "rollback-safe by data_effect=none declaration", false)
+}
+
+func TestAbortUsesInterruptedExpandOnlyPolicyAfterConfigEdit(t *testing.T) {
+	// The interrupted deploy recorded expand-only coverage. A later working-tree
+	// edit back to manual policy must not turn that historical decision into an
+	// unsafe refusal or, in the opposite direction, weaken an uncovered attempt.
+	testAbortReplaysPreviousRelease(t, "changed=unknown", true)
 }

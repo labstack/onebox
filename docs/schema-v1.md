@@ -394,6 +394,16 @@ hooks:
   post_deploy: scripts/announce-release.sh
 ```
 
+A map-form hook with `local: true` runs on the operator machine. It receives
+`OB_TARGET` as an OpenSSH destination plus `OB_SSH_USER`, `OB_HOST`, and
+`OB_SSH_PORT` separately. For example, use
+`ssh -p "$OB_SSH_PORT" "$OB_TARGET" ...`. DNS names and IPv4 can also use
+`"$OB_TARGET:/path"` with rsync and pass the port through its remote shell.
+IPv6 remote-spec parsing differs between GNU rsync and macOS openrsync, so
+hooks should construct the form accepted by their installed rsync from the
+separate user and host values. The port is never appended to `OB_TARGET`,
+because OpenSSH treats `user@host:port` as a hostname rather than a port.
+
 Hooks and job commands are operator-authored shell and therefore have weaker
 planability than typed operations. The MCP hides their bodies and can mark a
 proposal as not ready for agent-only approval.

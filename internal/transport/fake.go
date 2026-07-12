@@ -24,12 +24,14 @@ type Fake struct {
 	// Err (if set and non-nil for a command) makes Run/RunInput return that
 	// error — the only way to model a transport-level failure, since Result
 	// carries an exit code but not an error.
-	Err        func(cmd string) error
-	Commands   []string
-	Inputs     []string // stdin passed to RunInput calls
-	Uploads    []string
-	HostName   string
-	TargetName string // full user@host; falls back to HostName
+	Err         func(cmd string) error
+	Commands    []string
+	Inputs      []string // stdin passed to RunInput calls
+	Uploads     []string
+	HostName    string
+	TargetName  string // full user@host; falls back to HostName
+	SSHUserName string
+	SSHPortName string // falls back to 22 when TargetName is set
 }
 
 func (f *Fake) RunInput(_ context.Context, cmd, stdin string) (Result, error) {
@@ -101,6 +103,18 @@ func (f *Fake) Target() string {
 		return f.TargetName
 	}
 	return f.Host()
+}
+
+func (f *Fake) SSHUser() string { return f.SSHUserName }
+
+func (f *Fake) SSHPort() string {
+	if f.SSHPortName != "" {
+		return f.SSHPortName
+	}
+	if f.TargetName != "" {
+		return "22"
+	}
+	return ""
 }
 
 func (f *Fake) Close() error { return nil }

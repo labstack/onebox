@@ -35,6 +35,13 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err != nil {
 		return err
 	}
+	rollbackDebt := false
+	if done == nil {
+		rollbackDebt, err = e.rollbackEffectDebt(ctx, prev)
+		if err != nil {
+			return fmt.Errorf("rollback effect history: %w", err)
+		}
+	}
 
 	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
 	if err != nil {
@@ -50,7 +57,31 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
 	}
-	_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + prev})
+	if err := jw.Append(ctx, journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + prev}); err != nil {
+		e.ReleaseLock(ctx)
+		return fmt.Errorf("journal deploy start: %w", err)
+	}
+	if done == nil {
+		// Persist a safe baseline before transfer. If the runner dies during
+		// upload, no rollback-relevant effect could have started yet; later
+		// job/hook intents join this aggregate and may close it. An uncovered
+		// effect from a prior failed deploy is carried forward until compatible
+		// code activates, so a new deploy cannot erase rollback risk.
+		detail := "no effects started"
+		if rollbackDebt {
+			detail = "inherits uncovered effects from an earlier failed deploy"
+		}
+		if err := jw.Append(ctx, journal.Record{
+			Phase: "pre-release", SubStep: journal.EffectBaselineSubStep,
+			Event: "result", Status: "ok", Detail: detail, RollbackSafe: !rollbackDebt,
+		}); err != nil {
+			_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: "fail", Detail: "effect baseline: " + err.Error()})
+			e.ReleaseLock(ctx)
+			return fmt.Errorf("journal effect baseline: %w", err)
+		}
+		e.gateOpen = !rollbackDebt
+		e.rollbackCovered = !rollbackDebt
+	}
 
 	err = e.runPhases(ctx, jw, releaseID, localStagingDir, prev, done)
 	if err == nil {
@@ -73,6 +104,32 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		e.ReleaseLock(ctx)
 	}
 	return err
+}
+
+// rollbackEffectDebt carries rollback-unknown effects across deploy IDs. A
+// failed deploy can mutate data even though its runner exits cleanly and writes
+// finish:fail; a later successful activation/current release or an explicit
+// abort clears that historical debt.
+func (e *Engine) rollbackEffectDebt(ctx context.Context, current string) (bool, error) {
+	ids, byID, err := journal.Journals(ctx, e.T, e.Cfg.App)
+	if err != nil {
+		return false, err
+	}
+	debt := false
+	for _, id := range ids {
+		summary := journal.Summarize(byID[id])
+		if id == current || summary.DeploySucceeded {
+			debt = false
+			continue
+		}
+		if summary.Aborted {
+			continue
+		}
+		if summary.Done[journal.DoneGateRecorded] && !summary.RollbackCovered {
+			debt = true
+		}
+	}
+	return debt, nil
 }
 
 func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, localStagingDir, prev string, done map[string]bool) error {
@@ -104,7 +161,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	if err := e.runJobs(ctx, jw, done, remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("pre-release: %w", err)
 	}
-	if err := e.RunHook(ctx, "pre_release", remoteDir, remoteCompose); err != nil {
+	if err := e.runRollbackEffectHook(ctx, jw, done, "pre_release", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("pre-release: %w", err)
 	}
 
@@ -133,7 +190,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		}
 		_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "ok"})
 	}
-	if err := e.RunHook(ctx, "post_release", remoteDir, remoteCompose); err != nil {
+	if err := e.runRollbackEffectHook(ctx, jw, done, "post_release", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("post-release: %w", err)
 	}
 
@@ -159,6 +216,36 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("post-deploy: %w", err)
 	}
 	return nil
+}
+
+// runRollbackEffectHook journals untyped lifecycle hooks as rollback-unknown
+// effects. Abort must decide from the interrupted deploy's history, not from a
+// possibly edited working-tree config. Successful hooks are also skipped on
+// resume so a recovered deploy does not repeat their side effects.
+func (e *Engine) runRollbackEffectHook(ctx context.Context, jw *journal.Writer, done map[string]bool, name, remoteDir, remoteCompose string) error {
+	hook, ok := e.Cfg.Hooks[name]
+	if !ok || hook.Run == "" {
+		return nil
+	}
+	key := "hook:" + name
+	if done[key] {
+		e.logf("%s: already complete (resume)", key)
+		return nil
+	}
+	e.rollbackCovered = false // lifecycle hooks have no typed rollback-effect contract
+	if err := jw.Append(ctx, journal.Record{Phase: name, SubStep: key, Event: "intent"}); err != nil {
+		return fmt.Errorf("journal %s intent: %w", key, err)
+	}
+	err := e.RunHook(ctx, name, remoteDir, remoteCompose)
+	result := journal.Record{Phase: name, SubStep: key, Event: "result", Status: "ok"}
+	if err != nil {
+		result.Status = "fail"
+		result.Detail = err.Error()
+	}
+	if journalErr := jw.Append(ctx, result); journalErr != nil {
+		return errors.Join(err, fmt.Errorf("journal %s result: %w", key, journalErr))
+	}
+	return err
 }
 
 func (e *Engine) activate(ctx context.Context, id string) error {

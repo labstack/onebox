@@ -174,7 +174,7 @@ func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer
 		return err
 	}
 	if svc == "" {
-		return fmt.Errorf("exec needs a role or service name")
+		return fmt.Errorf("exec needs a component or service name")
 	}
 	id, err := e.containerID(ctx, svc)
 	if err != nil {
@@ -186,11 +186,14 @@ func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer
 	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), out)
 }
 
-// resolveService maps a role name to its compose service; a raw service or
-// accessory name passes through; empty means "all" (logs only).
+// resolveService maps a logical component (or legacy role) name to its Compose
+// service; a raw service name passes through; empty means "all" (logs only).
 func (e *Engine) resolveService(name string) (string, error) {
 	if name == "" {
 		return "", nil
+	}
+	if component, ok := e.Cfg.Components[name]; ok {
+		return component.Service, nil
 	}
 	if r, ok := e.Cfg.Roles[name]; ok {
 		return r.Service, nil
@@ -198,7 +201,7 @@ func (e *Engine) resolveService(name string) (string, error) {
 	if _, ok := e.Project.Services[name]; ok {
 		return name, nil
 	}
-	return "", fmt.Errorf("%q is neither a role nor a compose service", name)
+	return "", fmt.Errorf("%q is neither a component nor a compose service", name)
 }
 
 // volName: docker volume names — never interpolated back into a shell

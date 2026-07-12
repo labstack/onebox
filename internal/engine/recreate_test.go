@@ -37,15 +37,18 @@ func TestRecreateRoleSequence(t *testing.T) {
 // A local hook must see the FULL user@host in $OB_TARGET (not the bare
 // hostname), so hooks can ssh/rsync the deploy host without hardcoding it.
 func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
-	f := &transport.Fake{HostName: "myhost", TargetName: "root@myhost"}
+	f := &transport.Fake{
+		HostName: "2001:db8::1", TargetName: "root@2001:db8::1",
+		SSHUserName: "root", SSHPortName: "2222",
+	}
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = config.Hook{
-		Run:   `test "$OB_TARGET" = "root@myhost" || { echo "got [$OB_TARGET] want [root@myhost]" >&2; exit 1; }`,
+		Run:   `test "$OB_TARGET" = "root@2001:db8::1" && test "$OB_SSH_USER" = "root" && test "$OB_HOST" = "2001:db8::1" && test "$OB_SSH_PORT" = "2222" || { echo "got target=[$OB_TARGET] user=[$OB_SSH_USER] host=[$OB_HOST] port=[$OB_SSH_PORT]" >&2; exit 1; }`,
 		Local: true,
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
 	if err := e.RunHook(context.Background(), "pre_release", "/r", "/r/compose.yaml"); err != nil {
-		t.Fatalf("OB_TARGET must be the full user@host: %v", err)
+		t.Fatalf("hook must receive an OpenSSH/rsync target and separate port: %v", err)
 	}
 }
 

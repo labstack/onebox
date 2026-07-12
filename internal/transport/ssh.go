@@ -11,10 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	obtarget "github.com/labstack/onebox/internal/target"
 )
 
 // SSH is the production transport: agentless, key-auth only, host keys
@@ -22,24 +25,35 @@ import (
 type SSH struct {
 	client *ssh.Client
 	host   string
-	target string // user@host — the full ssh/rsync destination
+	target string // user@host[:port] — the normalized configured destination
 	Logger func(host, cmd string)
 }
 
 // ParseAddr splits [user@]host[:port]; port defaults to 22.
 func ParseAddr(addr string) (user, host, port string) {
-	port = "22"
-	if i := strings.Index(addr, "@"); i >= 0 {
-		user, addr = addr[:i], addr[i+1:]
+	parsed, err := obtarget.Parse(addr)
+	if err != nil {
+		return "", "", ""
 	}
-	if h, p, err := net.SplitHostPort(addr); err == nil {
-		return user, h, p
-	}
-	return user, addr, port
+	return parsed.User, parsed.Host, parsed.Port
 }
 
 func NewSSH(addr string) (*SSH, error) {
-	user, host, port := ParseAddr(addr)
+	return NewSSHContext(context.Background(), addr)
+}
+
+// NewSSHContext dials and completes the SSH handshake within the caller's
+// cancellation/deadline. A bounded fallback prevents an MCP tool from hanging
+// indefinitely when its target is unreachable or stops during handshake.
+func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parsed, err := obtarget.Parse(addr)
+	if err != nil {
+		return nil, fmt.Errorf("target %q: %w", addr, err)
+	}
+	user, host, port := parsed.User, parsed.Host, parsed.Port
 	if user == "" {
 		user = os.Getenv("USER")
 	}
@@ -59,7 +73,7 @@ func NewSSH(addr string) (*SSH, error) {
 		}
 		return nil, errors.New(msg)
 	}
-	client, err := ssh.Dial("tcp", net.JoinHostPort(host, port), &ssh.ClientConfig{
+	config := &ssh.ClientConfig{
 		User:            user,
 		Auth:            auths,
 		HostKeyCallback: hk,
@@ -68,11 +82,41 @@ func NewSSH(addr string) (*SSH, error) {
 		// differ from what known_hosts holds (OpenSSH's TOFU writes a single
 		// ed25519 line), and knownhosts then reports a spurious "key mismatch".
 		HostKeyAlgorithms: knownHostKeyAlgos(hk, net.JoinHostPort(host, port)),
-	})
+	}
+	address := net.JoinHostPort(host, port)
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
 	}
-	return &SSH{client: client, host: host, target: user + "@" + host}, nil
+	handshakeDeadline := time.Now().Add(15 * time.Second)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(handshakeDeadline) {
+		handshakeDeadline = deadline
+	}
+	_ = conn.SetDeadline(handshakeDeadline)
+	cancelWatch := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-cancelWatch:
+		}
+	}()
+	sshConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
+	close(cancelWatch)
+	if err != nil {
+		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = sshConn.Close()
+		return nil, ctxErr
+	}
+	_ = conn.SetDeadline(time.Time{})
+	client := ssh.NewClient(sshConn, channels, requests)
+	return &SSH{client: client, host: host, target: parsed.Destination(user)}, nil
 }
 
 // sshAuths gathers publickey auth methods from the ssh-agent and on-disk keys.

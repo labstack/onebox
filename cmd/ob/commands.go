@@ -94,7 +94,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, load func(context.Context,
 func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "validate",
-		Short: "schema + rollability + class assignment — no side effects",
+		Short: "validate schema, components, and rollability — no side effects",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAll(cmd.Context(), g)
 			if err != nil {
@@ -106,7 +106,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 				}
 				return fmt.Errorf("%d rollability error(s)", len(errs))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "ok: %d services, %d roles\n", len(p.Services), len(cfg.Roles))
+			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s, %s)\n",
+				countLabel(len(cfg.Components), "component"), countLabel(len(cfg.Roles), "workload"),
+				countLabel(len(cfg.Jobs), "job"), countLabel(len(cfg.Accessories), "supporting/data service"))
 			return nil
 		},
 	})
@@ -186,7 +188,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 
 	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "first contact: dirs + bootstrap hook + registry login + accessories",
+		Short: "first contact: host setup, registry login, and supporting/data services",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, p, err := loadAll(ctx, g)
@@ -263,7 +265,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 
 	root.AddCommand(&cobra.Command{
 		Use:   "status",
-		Short: "recorded vs actual per role — divergence is the point",
+		Short: "recorded versus actual state per workload and service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {

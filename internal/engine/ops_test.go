@@ -35,11 +35,14 @@ func TestSecretsPushBouncesOnChange(t *testing.T) {
 	if !strings.Contains(seq, `"phase":"secrets-push"`) {
 		t.Fatalf("not journaled:\n%s", seq)
 	}
-	if !strings.Contains(seq, "--force-recreate worker") || !strings.Contains(seq, "--scale server=2") {
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") || !strings.Contains(seq, "--scale server=2") {
 		t.Fatalf("roles not bounced:\n%s", seq)
 	}
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "releases/R7") {
-		t.Fatalf("secrets not shipped to current release: %v", f.Uploads)
+	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/.secrets-") {
+		t.Fatalf("secrets not uploaded to an epoch-private staging dir: %v", f.Uploads)
+	}
+	if !strings.Contains(seq, "cp '/var/lib/ob/monk/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/monk/releases/R7/.ob-secrets.env'") {
+		t.Fatalf("secrets were not installed behind the app fence:\n%s", seq)
 	}
 	if strings.Contains(seq, "KEY=new") {
 		t.Fatal("secret content must never appear in a command")

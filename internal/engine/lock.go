@@ -26,6 +26,7 @@ type lockMeta struct {
 	ConfigHash string `json:"config_hash,omitempty"`
 	TTLSeconds int    `json:"ttl_s"`
 	AcquiredAt string `json:"acquired_at"`
+	Token      string `json:"token,omitempty"`
 }
 
 func (e *Engine) base() string      { return release.PathsFor(e.Cfg.App).Base }
@@ -38,13 +39,14 @@ func (e *Engine) fencePath() string { return e.base() + "/fence" }
 // lock refuses (unless force, which prints the holder + its journal tail —
 // the operator sees who they are trampling).
 func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (int, error) {
+	e.lockVal = ""
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(e.base())); err != nil {
 		return 0, err
 	} else if res.ExitCode != 0 {
 		return 0, fmt.Errorf("mkdir %s: %s", e.base(), res.Stderr)
 	}
 
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < 4; attempt++ {
 		// Read the epoch fresh on every attempt. A concurrent acquirer may have
 		// persisted a higher epoch between our attempts; fencing relies on a
 		// strictly increasing epoch, so a value read once before the loop could
@@ -69,21 +71,24 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 			return 0, err
 		}
 		if res.ExitCode == 0 {
+			e.lockVal = string(b)
 			if res, err := e.T.Run(ctx, "echo "+strconv.Itoa(epoch)+" > "+q(e.epochPath())); err != nil || res.ExitCode != 0 {
+				e.ReleaseLock(ctx)
 				return 0, fmt.Errorf("persist epoch: %v %s", err, res.Stderr)
 			}
 			return epoch, nil
-		}
-		if attempt == 1 {
-			break
 		}
 		// held — inspect holder + age
 		hres, err := e.T.Run(ctx, "cat "+q(e.lockPath())+" 2>/dev/null || true")
 		if err != nil {
 			return 0, err
 		}
+		observed := strings.TrimSpace(hres.Stdout)
+		if observed == "" {
+			continue
+		}
 		var holder lockMeta
-		_ = json.Unmarshal([]byte(strings.TrimSpace(hres.Stdout)), &holder)
+		_ = json.Unmarshal([]byte(observed), &holder)
 		ares, err := e.T.Run(ctx, lockAgeCmd(q(e.lockPath())))
 		if err != nil {
 			return 0, err
@@ -108,7 +113,12 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 			return 0, fmt.Errorf("deploy lock held by %s (deploy %s, age %ds, ttl %ds) — wait, or --force to break it",
 				holder.Owner, holder.DeployID, age, int(e.lockTTL().Seconds()))
 		}
-		if res, err := e.T.Run(ctx, "rm -f "+q(e.lockPath())); err != nil || res.ExitCode != 0 {
+		removeObserved := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(observed) + ` ]; then rm -f ` + q(e.lockPath()) + `; else exit 75; fi`
+		if res, err := e.T.Run(ctx, removeObserved); err != nil {
+			return 0, fmt.Errorf("break lock: %w", err)
+		} else if res.ExitCode == 75 {
+			continue
+		} else if res.ExitCode != 0 {
 			return 0, fmt.Errorf("break lock: %v %s", err, res.Stderr)
 		}
 	}
@@ -116,7 +126,18 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 }
 
 func (e *Engine) ReleaseLock(ctx context.Context) {
-	_, _ = e.T.Run(ctx, "rm -f "+q(e.lockPath()))
+	if e.lockVal == "" {
+		return
+	}
+	expected := e.lockVal
+	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := e.T.Run(cleanupContext, `if [ "$(cat `+q(e.lockPath())+` 2>/dev/null)" = `+q(expected)+` ]; then rm -f `+q(e.lockPath())+`; fi`)
+	if err != nil || res.ExitCode != 0 {
+		e.warnf("release lock failed: %v %s", err, strings.TrimSpace(res.Stderr))
+		return
+	}
+	e.lockVal = ""
 }
 
 func (e *Engine) lockTTL() time.Duration {
@@ -204,10 +225,17 @@ func (e *Engine) refreshLock(ctx context.Context) (transport.Result, error) {
 // command checks it host-side (mutate); a newer deploy re-stamps and the old
 // runner's next mutation dies with exit 97 — locally, no cross-host call.
 func (e *Engine) WriteFence(ctx context.Context, deployID string, epoch int) error {
+	if e.lockVal == "" {
+		return fmt.Errorf("write fence: app lock is not owned")
+	}
 	val := deployID + " " + strconv.Itoa(epoch)
-	res, err := e.T.Run(ctx, "echo "+q(val)+" > "+q(e.fencePath()))
+	cmd := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(e.lockVal) + ` ]; then echo ` + q(val) + ` > ` + q(e.fencePath()) + `; else echo ob-lock-lost >&2; exit 96; fi`
+	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return err
+	}
+	if res.ExitCode == 96 && strings.Contains(res.Stderr, "ob-lock-lost") {
+		return ErrFenced
 	}
 	if res.ExitCode != 0 {
 		return fmt.Errorf("write fence: %s", res.Stderr)

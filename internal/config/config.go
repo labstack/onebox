@@ -353,8 +353,8 @@ func (r Role) Count() int {
 	return r.Replicas
 }
 
-// StopGraceSeconds is the `docker stop -t` timeout used when retiring a drained
-// container: drain.grace if set, else 30s (design §03's conservative default).
+// StopGraceSeconds is the integer timeout used by `docker stop -t` and Compose
+// recreate: drain.grace if set, else 30s (design §03's conservative default).
 // A positive sub-second grace rounds UP to 1s — `docker stop -t` is integer
 // seconds, and truncating (e.g. 500ms → 0) would mean an immediate SIGKILL, the
 // opposite of a graceful stop.
@@ -395,13 +395,10 @@ type Ready struct {
 type Drain struct {
 	Signal string   `yaml:"signal,omitempty"`
 	Wait   Duration `yaml:"wait,omitempty"`
-	// Grace is the `docker stop -t` timeout for the SIGTERM→SIGKILL window when
-	// retiring a drained container (default 30s). By the time stop runs the
-	// container is already out of rotation (the proxy dropped it via the drain
-	// guard), so this is pure SIGTERM slack. `docker stop -t` returns the instant
-	// the process exits, so lowering grace only speeds up a process that ignores
-	// SIGTERM and would otherwise ride the timeout to SIGKILL — a prompt-exiting
-	// server never pays it. Sub-second values round up to 1s.
+	// Grace is the SIGTERM→SIGKILL timeout: `docker stop -t` for rolling
+	// retirement and `docker compose up --timeout` for recreate replacement
+	// (default 30s). A prompt-exiting process never pays the full timeout.
+	// Sub-second values round up to 1s.
 	Grace Duration `yaml:"grace,omitempty"`
 }
 

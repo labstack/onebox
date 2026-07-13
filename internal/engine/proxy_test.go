@@ -152,7 +152,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	if !strings.Contains(f.Uploads[0], ".staged") {
 		t.Fatalf("upload must land in the staging dir, not the live one: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "mv '/var/lib/ob/_host/proxy/.staged/config' '/var/lib/ob/_host/proxy/config'") {
+	if !strings.Contains(seq, "mv '/var/lib/ob/_host/proxy/.staged-") || !strings.Contains(seq, "/config' '/var/lib/ob/_host/proxy/config'") {
 		t.Fatalf("config must swap in atomically:\n%s", seq)
 	}
 	// applied-state marker written ONLY after health confirms — an interrupted

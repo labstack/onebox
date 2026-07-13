@@ -57,6 +57,9 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	if !policy.AllowAgentProposals {
 		return DeploymentProposal{}, fmt.Errorf("environment %q policy does not allow agent deployment proposals", environment)
 	}
+	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, ExecutableDeployPlanSchemaVersion); err != nil {
+		return DeploymentProposal{}, err
+	}
 	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return DeploymentProposal{}, err
 	}

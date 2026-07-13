@@ -82,7 +82,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 
-	jw := &journal.Writer{T: e.T, App: "_host", DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash}
+	jw := &journal.Writer{T: e.T, App: "_host", DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 
 	if remoteHash == hash && len(ids) > 0 {
 		e.logf("proxy: unchanged and running — not touched")

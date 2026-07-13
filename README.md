@@ -41,20 +41,30 @@ See the [product specification](docs/product.md), the stable
 The schema can already declare desired backup, restore-drill, log, metric, and
 alert capabilities. The local engine does **not** manage those continuous
 services yet, and reports them as declared rather than managed. The planned
-dashboard/control plane will add approvals, evidence, policy, and recovery
-assurance without becoming a generic Docker UI.
+dashboard/control plane will add authenticated team approvals, continuous
+evidence, shared policy, and recovery assurance without becoming a generic
+Docker UI.
 
 ## Start using it
 
-Build the binary:
+Build or install the binary into `~/.local/bin`:
 
 ```sh
-mkdir -p ./bin
-go build -o ./bin/ob ./cmd/ob
+just build
 ```
 
-Add this repository's `bin` directory to `PATH`, or invoke the binary by its
-absolute path.
+`just install` is an alias for the same target. Ensure `~/.local/bin` is on
+`PATH`; set `OB_BIN_DIR` to use another destination. Run `just --list` to see
+the available build, test, formatting, and check targets.
+
+Confirm which runner will execute plans and check the local safety setup:
+
+```sh
+ob version
+ob doctor
+```
+
+Both commands also support `--json`.
 
 From a repository with a working Compose file, scaffold and inspect `ob.yml`:
 
@@ -70,10 +80,12 @@ Review production without changing it:
 ob plan --out ob-plan.json
 ```
 
-Apply exactly that state-bound plan when you are ready:
+Create a short-lived approval for that exact plan, then deploy with both
+artifacts:
 
 ```sh
-ob deploy --plan ob-plan.json
+ob approve --plan ob-plan.json --out ob-approval.json
+ob deploy --plan ob-plan.json --approval ob-approval.json
 ```
 
 The plan is a mode-`0600`, digest-protected executable envelope containing the
@@ -85,6 +97,77 @@ payload change requires a new plan.
 types, persistence semantics, readiness, job data effects, and the environment
 target before running a plan. The [schema guide](docs/schema-v1.md) contains a
 complete example and the one-time mapping from the earlier alpha shape.
+
+## Execution contracts
+
+Executable plans use
+`onebox.run/executable-deploy-plan/v1alpha2` and include the planner's version,
+source revision, build time, dirty state, and supported schemas. Schema-less
+legacy plans and unsupported schemas are rejected. Environment policy can set
+`minimum_onebox_version` and `minimum_plan_schema`; `ob doctor` reports whether
+the runner selected by `PATH` is compatible.
+
+`ob approve` writes a mode-`0600`, digest-bound grant covering the plan,
+target, inputs, risk, operator, and expiry. A changed or expired plan needs a
+new grant. When approval policy is enabled, migrations and unknown data
+effects use the strong ceremony, where the operator types the release ID.
+
+For automation, `--output` accepts `human`, `json`, or `ndjson`:
+
+```sh
+ob plan --output json --out ob-plan.json
+ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
+ob status --output json
+```
+
+Plans and status produce versioned documents. A JSON deploy buffers ordered
+operation events and its result into one envelope; NDJSON streams event records
+and a terminal result/error record. Diagnostics stay on stderr.
+
+When environment policy sets `require_migration_backup: true`, the executable
+plan binds protected resources, evidence age, restore-test requirements, and
+key-material names. Seal externally validated, secret-free facts into a
+plan-bound receipt and apply it with the plan:
+
+```sh
+ob backup-evidence create --plan ob-plan.json --manifest backup-facts.json --out ob-backup-evidence.json
+ob deploy --plan ob-plan.json --approval ob-approval.json --backup-evidence ob-backup-evidence.json
+```
+
+The facts manifest uses `onebox.run/migration-backup-facts/v1alpha1` and records
+artifact, integrity, restore-test, and key-usability facts, never backup bytes
+or secrets. An audited override requires the exact plan's strong or
+break-glass grant:
+
+```sh
+ob deploy --plan ob-plan.json --approval ob-approval.json --override-migration-backup "incident reason"
+```
+
+Pre-release jobs can write JSON or `key=value` data to `$OB_RESULT_FILE` using
+the `onebox.run/job-result/v1alpha1` protocol. Provider-aware evidence records
+`changed`, `provider`, and ordered `before_revisions`/`after_revisions`; Atlas
+results must extend history without rewriting it. A missing or invalid result
+from a migration becomes `changed=unknown` and halts before workload
+replacement unless a strong or break-glass grant authorized that exact plan.
+
+External URL verification can assert allowed status codes, exact response
+headers, and scalar JSON values. Migration verification can bind the expected
+provider and applied revisions to the captured job-result evidence:
+
+```yaml
+verification:
+  - url: https://app.example.com/healthz
+    status_codes: [200]
+    required_headers:
+      X-App-Ready: "yes"
+    json_assertions:
+      - path: service.ready
+        equals: true
+  - migration_revisions:
+      job: migrate
+      provider: atlas
+      applied_revisions: ["202607130001"]
+```
 
 ## MCP-first, not MCP-only
 

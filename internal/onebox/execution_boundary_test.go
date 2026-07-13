@@ -69,6 +69,7 @@ func sealedTestDeployPlan(t *testing.T, createdAt, expiresAt time.Time) DeployPl
 	}
 	plan := DeployPlan{
 		SchemaVersion: ExecutableDeployPlanSchemaVersion,
+		Runner:        CurrentRunnerProvenance(),
 		Operation:     operation,
 		Artifact:      artifact,
 	}
@@ -154,6 +155,109 @@ func TestDeployPlanSaveLoadIsStrictAndProtected(t *testing.T) {
 			t.Fatalf("tampered no-op decision was not rejected: %v", err)
 		}
 	})
+}
+
+func TestLoadDeployPlanRejectsOversizedArtifact(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized-plan.json")
+	if err := os.WriteFile(path, make([]byte, maxExecutableDeployPlanBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadDeployPlan(path); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized plan error = %v", err)
+	}
+}
+
+func TestLegacyDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
+	base := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
+	valid := sealedTestDeployPlan(t, base, base.Add(15*time.Minute))
+
+	tests := []struct {
+		name          string
+		schemaVersion string
+		omitSchema    bool
+		wantReason    string
+	}{
+		{
+			name:       "missing schema",
+			omitSchema: true,
+			wantReason: "legacy executable deploy plan has no schema_version",
+		},
+		{
+			name:          "older schema",
+			schemaVersion: "onebox.run/executable-deploy-plan/v1alpha1",
+			wantReason:    `unsupported executable deploy plan schema "onebox.run/executable-deploy-plan/v1alpha1"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			document, err := json.Marshal(valid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(document, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if tt.omitSchema {
+				delete(fields, "schema_version")
+			} else {
+				fields["schema_version"] = tt.schemaVersion
+			}
+			document, err = json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "legacy-plan.json")
+			if err := os.WriteFile(path, document, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = LoadDeployPlan(path)
+			assertLegacyPlanGuidance(t, err, tt.wantReason)
+
+			plan := valid
+			plan.SchemaVersion = tt.schemaVersion
+			connected := false
+			fake := serviceFake()
+			svc := New(Options{
+				ConfigPath: filepath.Join(t.TempDir(), "must-not-be-read.yml"),
+				Now:        func() time.Time { return base },
+				Connect: func(context.Context, string) (transport.Transport, error) {
+					connected = true
+					return fake, nil
+				},
+			})
+			result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+			assertLegacyPlanGuidance(t, err, tt.wantReason)
+			if connected {
+				t.Fatal("legacy plan connected to the target")
+			}
+			if len(fake.Commands) != 0 || len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+				t.Fatalf("legacy plan reached a mutation path: commands=%v uploads=%v inputs=%v", fake.Commands, fake.Uploads, fake.Inputs)
+			}
+			if result.Status != "failed" {
+				t.Fatalf("legacy plan result status = %q, want failed", result.Status)
+			}
+		})
+	}
+}
+
+func assertLegacyPlanGuidance(t *testing.T, err error, wantReason string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("legacy plan was accepted")
+	}
+	for _, fragment := range []string{
+		wantReason,
+		ExecutableDeployPlanSchemaVersion,
+		"upgrade `ob`",
+		"`ob plan`",
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("legacy-plan error %q does not contain actionable guidance %q", err, fragment)
+		}
+	}
 }
 
 func TestExecuteRejectsExpiredDeployBeforeConnecting(t *testing.T) {
@@ -378,7 +482,8 @@ func TestExecuteRejectsStagedPayloadDriftBeforeMutation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "app.env"), []byte("RUNTIME_SECRET=rotated-after-plan\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	approval := approvalForTestPlan(t, &plan)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
 	if err == nil || !strings.Contains(err.Error(), "release payload differs from the plan") {
 		t.Fatalf("payload drift was not rejected: result=%#v err=%v", result, err)
 	}
@@ -405,7 +510,8 @@ func TestExecuteRejectsResealedGraphMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake.Commands = nil
-	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	approval := approvalForTestPlan(t, &plan)
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
 	if err == nil || !strings.Contains(err.Error(), "operation graph differs") {
 		t.Fatalf("resealed graph mismatch was not rejected: %v", err)
 	}
@@ -435,7 +541,8 @@ func TestExecuteRejectsLiveBaselineDrift(t *testing.T) {
 		return baseDynamic(command)
 	}
 	fake.Commands = nil
-	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	approval := approvalForTestPlan(t, &plan)
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
 	if err == nil || !strings.Contains(err.Error(), "live Compose changed since plan") {
 		t.Fatalf("live baseline drift was not rejected: %v", err)
 	}
@@ -469,7 +576,8 @@ func TestExecuteRechecksBindingAfterTakingFence(t *testing.T) {
 		return baseDynamic(command)
 	}
 	fake.Commands = nil
-	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	approval := approvalForTestPlan(t, &plan)
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
 	if err == nil || !strings.Contains(err.Error(), "deploy precondition under lock: live Compose changed") {
 		t.Fatalf("under-lock drift was not rejected: %v", err)
 	}

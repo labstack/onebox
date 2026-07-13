@@ -10,7 +10,9 @@ import (
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 	"github.com/labstack/onebox/internal/ui"
 )
@@ -38,6 +40,29 @@ type Options struct {
 	// GitSHA and ConfigHash ride into the journal and lock metadata.
 	GitSHA     string
 	ConfigHash string
+	// Approval fields are the exact plan-bound grant accepted by the canonical
+	// execution boundary. They ride on every deploy journal record.
+	ApprovalDigest string
+	ApprovedBy     string
+	ApprovalSource string
+	ApprovalClass  string
+	// AllowUnknownMigration is true only when the canonical boundary validated
+	// a strong grant over a plan whose operation digest explicitly names the
+	// provider/job-result-or-strong-unknown fallback.
+	AllowUnknownMigration bool
+	Runner                buildinfo.Runner
+	// Environment selects the policy that applies to this execution. MigrationBackup
+	// is produced only after the canonical boundary validates an exact plan-bound
+	// receipt or explicit override.
+	Environment string
+	// MigrationBackupWasRequired is persisted from the original executable
+	// plan so resume cannot weaken the gate by reading a newer environment
+	// policy that no longer requires evidence.
+	MigrationBackupWasRequired bool
+	MigrationBackup            *journal.MigrationBackupEvidence
+	// Progress receives redaction-safe lifecycle transitions for structured
+	// adapters. Detailed command failures remain on the trusted local path.
+	Progress func(phase, status, message string)
 	// DeployPrecondition runs after this runner owns the lock and fence but
 	// before any journaled deployment effect. State-bound adapters use it to
 	// close the observation-to-lock race.
@@ -65,6 +90,7 @@ type Engine struct {
 	// the journal. They are closed by default — fail safe.
 	gateOpen        bool
 	rollbackCovered bool // aggregate explicit/policy coverage for every effect attempt
+	jobResults      map[string]journal.JobResultEvidence
 }
 
 func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options) *Engine {
@@ -86,6 +112,9 @@ func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options
 	if o.UI == nil {
 		o.UI = ui.New(o.Out, o.Verbose)
 	}
+	if o.Runner.Version == "" {
+		o.Runner = buildinfo.CurrentRunner()
+	}
 	return &Engine{Cfg: cfg, Project: p, T: t, Opts: o, ui: o.UI}
 }
 
@@ -95,6 +124,12 @@ func (e *Engine) logf(format string, a ...any) {
 
 func (e *Engine) warnf(format string, a ...any) {
 	e.ui.Warnf(format, a...)
+}
+
+func (e *Engine) progress(phase, status, message string) {
+	if e.Opts.Progress != nil {
+		e.Opts.Progress(phase, status, message)
+	}
 }
 
 // sleepBusy is a labeled Sleep — the deliberate protocol waits (converge

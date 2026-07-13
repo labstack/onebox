@@ -336,6 +336,38 @@ func TestProposeDeployRespectsEnvironmentPolicyBeforeConnecting(t *testing.T) {
 	}
 }
 
+func TestProposeDeployEnforcesRunnerPolicyBeforeConnecting(t *testing.T) {
+	configPath := writeServiceProject(t)
+	source, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = []byte(strings.Replace(
+		string(source),
+		"allow_agent_proposals: true",
+		"allow_agent_proposals: true\n      minimum_plan_schema: onebox.run/executable-deploy-plan/v1",
+		1,
+	))
+	if err := os.WriteFile(configPath, source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	connected := false
+	svc := New(Options{
+		ConfigPath: configPath,
+		Connect: func(context.Context, string) (transport.Transport, error) {
+			connected = true
+			return serviceFake(), nil
+		},
+	})
+	_, err = svc.ProposeDeploy(context.Background(), ProposeDeployRequest{})
+	if err == nil || !strings.Contains(err.Error(), "executable plan schema") {
+		t.Fatalf("proposal runner policy refusal missing: %v", err)
+	}
+	if connected {
+		t.Fatal("runner policy refusal must happen before any production connection")
+	}
+}
+
 func TestProposeDeployOmitsUnknownLiveDiff(t *testing.T) {
 	f := serviceFake()
 	base := f.Dynamic

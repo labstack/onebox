@@ -2,12 +2,15 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 )
+
+const rollbackUnavailableConsequence = "automatic rollback is unavailable after this step; if a later step fails, halt, fix-forward, then run `ob resume`"
 
 // gateSteps is the ordered set of jobs run at the pre-release gate: every
 // `jobs` service, plus a legacy `migrate` hook that isn't itself a job (older
@@ -54,7 +57,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 			} else if e.gateOpen {
 				e.logf("%s: already complete (resume) — rollback-safe result recovered from journal", key)
 			} else {
-				e.logf("%s: already complete (resume) — aggregate gate stays closed", key)
+				e.logf("%s: already complete (resume) — %s", key, rollbackUnavailableConsequence)
 			}
 			continue
 		}
@@ -84,10 +87,15 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 		if !safe && !policySafe {
 			allCovered = false
 		}
-		if err := jw.Append(ctx, journal.Record{
+		resultRecord := journal.Record{
 			Phase: "pre-release", SubStep: key, Event: "result", Status: "ok", Detail: detail,
 			RollbackSafe: safe, RollbackPolicySafe: policySafe,
-		}); err != nil {
+		}
+		if evidence, ok := e.jobResults[job]; ok {
+			evidence := evidence
+			resultRecord.JobResult = &evidence
+		}
+		if err := jw.Append(ctx, resultRecord); err != nil {
 			return fmt.Errorf("journal %s result: %w", key, err)
 		}
 	}
@@ -100,7 +108,12 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
 	safeByDeclaration := e.jobDataEffect(job) == "none"
-	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps " + job
+	resultFile := remoteDir + "/.job-" + job + "-result"
+	const containerResultFile = "/run/onebox/job-result"
+	containerized := true
+	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps" +
+		" -e OB_RESULT_FILE=" + containerResultFile +
+		" -v " + q(resultFile+":"+containerResultFile+":rw") + " " + job
 	if h, ok := e.Cfg.Hooks[job]; ok && h.Run != "" {
 		if h.Local {
 			// a local hook can't reach the host result file — run it, fail safe
@@ -111,18 +124,30 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 			if safeByDeclaration {
 				return true, "rollback-safe by data_effect=none declaration", nil
 			}
-			return false, "changed=unknown (local hook — gate closed, fail-safe)", nil
+			return e.unknownJobResult(job, "local hook cannot write the result file")
 		}
 		runCmd = h.Run // custom command for this job (e.g. extra flags)
+		var injected bool
+		runCmd, injected = injectComposeJobResult(runCmd, resultFile, containerResultFile)
+		containerized = injected
 	}
 	e.ui.Cmd("job", runCmd) // verbose only — the plan lists it
-	resultFile := remoteDir + "/.job-" + job + "-result"
+	resultMode := "600"
+	if containerized {
+		// The job may run as an arbitrary container UID. The bind-mounted file is
+		// writable only for the duration of this fenced command and is sealed back
+		// to 0600 before its contents are read or journaled.
+		resultMode = "666"
+	}
 	cmd := "cd " + q(remoteDir) +
-		" && rm -f " + q(resultFile) +
+		" && rm -f " + q(resultFile) + " && install -m " + resultMode + " /dev/null " + q(resultFile) +
 		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
 		" COMPOSE_FILE=" + q(remoteCompose) +
 		" OB_RESULT_FILE=" + q(resultFile) +
 		" " + runCmd
+	if containerized {
+		cmd += "; job_status=$?; chmod 600 " + q(resultFile) + "; exit $job_status"
+	}
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {
 		return false, "", err
@@ -133,14 +158,67 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	if safeByDeclaration {
 		return true, "rollback-safe by data_effect=none declaration", nil
 	}
-	rres, err := e.T.Run(ctx, "cat "+q(resultFile)+" 2>/dev/null || true")
+	rres, err := e.T.Run(ctx, "head -c "+fmt.Sprint(maxJobResultBytes+1)+" "+q(resultFile)+" 2>/dev/null || true")
 	if err != nil {
 		return false, "", err
 	}
-	if strings.Contains(rres.Stdout, "changed=false") {
-		return true, "changed=false", nil
+	evidence, resultErr := parseJobResult([]byte(rres.Stdout))
+	if resultErr != nil {
+		reason := "result file is missing"
+		if !errors.Is(resultErr, errJobResultMissing) {
+			reason = "result file is invalid"
+		}
+		return e.unknownJobResult(job, reason)
 	}
-	return false, "changed=unknown (no result declared — gate closed, fail-safe)", nil
+	if e.jobResults == nil {
+		e.jobResults = make(map[string]journal.JobResultEvidence)
+	}
+	e.jobResults[job] = evidence
+	if evidence.Provider != "" {
+		e.progress("migration", "evidence_recorded", "provider revision evidence recorded")
+	}
+	return !evidence.Changed, jobResultDetail(evidence), nil
+}
+
+func injectComposeJobResult(command, hostResultFile, containerResultFile string) (string, bool) {
+	runIndex := strings.Index(command, " run ")
+	if runIndex < 0 {
+		return command, false
+	}
+	prefix := command[:runIndex]
+	if !strings.Contains(prefix, "docker compose") && !strings.Contains(prefix, "docker-compose") {
+		return command, false
+	}
+	flags := " run -e OB_RESULT_FILE=" + containerResultFile +
+		" -v " + q(hostResultFile+":"+containerResultFile+":rw") + " "
+	return prefix + flags + command[runIndex+len(" run "):], true
+}
+
+func (e *Engine) unknownJobResult(job, reason string) (bool, string, error) {
+	detail := "changed=unknown (" + reason + "); " + rollbackUnavailableConsequence
+	if e.jobDataEffect(job) != "migration" {
+		return false, detail, nil
+	}
+	strongApproval := e.Opts.AllowUnknownMigration && e.Opts.ApprovalDigest != "" &&
+		(e.Opts.ApprovalClass == "strong" || e.Opts.ApprovalClass == "break_glass")
+	if !strongApproval {
+		return false, "", fmt.Errorf(
+			"migration job %s completed with changed=unknown (%s); rollout halted before workload replacement because no strong plan-bound approval authorizes that transition — repair the job-result protocol, or abort after compatibility review and re-plan with required approval",
+			job, reason,
+		)
+	}
+	e.warnf("migration job %s: %s (authorized by strong plan-bound approval)", job, detail)
+	e.progress("migration", "unknown_approved", "changed=unknown transition authorized by strong plan-bound approval")
+	return false, detail + " (strong plan-bound approval recorded)", nil
+}
+
+func jobResultDetail(evidence journal.JobResultEvidence) string {
+	detail := fmt.Sprintf("changed=%t", evidence.Changed)
+	if evidence.Provider != "" {
+		detail += fmt.Sprintf(" provider=%s before_revisions=%d after_revisions=%d evidence=%s",
+			evidence.Provider, len(evidence.BeforeRevisions), len(evidence.AfterRevisions), evidence.Digest)
+	}
+	return detail
 }
 
 // onVerifyFailure decides between auto-rollback and halt-and-page (design

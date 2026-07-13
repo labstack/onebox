@@ -15,9 +15,9 @@ import (
 	"github.com/labstack/onebox/internal/secrets"
 )
 
-// Execute is the canonical local mutation boundary. It deliberately does not
-// accept an approval token yet; M1 adds that binding before this method is
-// exposed over MCP. The CLI is trusted local operator input in M0.
+// Execute is the canonical local mutation boundary. Deploy approvals are
+// checked here, after the local plan binding is re-derived and before any
+// connection or write-capable transport operation.
 func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (OperationResult, error) {
 	started := s.now().UTC()
 	if request.Kind == "" && request.Plan != nil {
@@ -25,7 +25,16 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	}
 	result := OperationResult{
 		Kind: request.Kind, Status: "running",
-		StartedAt: started.Format(time.RFC3339Nano),
+		StartedAt: started.Format(time.RFC3339Nano), Runner: s.runner,
+	}
+	if request.Approval != nil {
+		result.ApprovalDigest = request.Approval.ApprovalDigest
+	}
+	if request.BackupEvidence != nil {
+		result.BackupEvidenceDigest = request.BackupEvidence.EvidenceDigest
+	}
+	if request.MigrationBackupOverride != nil {
+		result.MigrationBackupOverrideDigest = request.MigrationBackupOverride.OverrideDigest
 	}
 	if request.Plan != nil && request.Plan.Operation.ID != "" {
 		result.ID = request.Plan.Operation.ID
@@ -47,6 +56,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			OperationID:   result.ID, EvidenceID: result.EvidenceID, Sequence: sequence,
 			Time: s.now().UTC().Format(time.RFC3339Nano), Kind: request.Kind,
 			Phase: phase, Status: status, Message: message,
+			Runner: s.runner,
 		})
 	}
 	finish := func(err error) (OperationResult, error) {
@@ -91,6 +101,13 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	if err := ensureEnvironment(lp.config, s.environment); err != nil {
 		return finish(err)
 	}
+	environmentConfig, err := lp.config.Environment(s.environment)
+	if err != nil {
+		return finish(err)
+	}
+	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, ExecutableDeployPlanSchemaVersion); err != nil {
+		return finish(err)
+	}
 	if err := s.verifyExecutionBinding(lp, request.ExpectedBinding); err != nil {
 		return finish(err)
 	}
@@ -104,6 +121,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	e, cleanup, _, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
 		options.ForceLock = request.Force
 		options.NoRollback = request.NoRollback
+		options.Progress = emit
 	})
 	if err != nil {
 		return finish(fmt.Errorf("connect target: %w", err))
@@ -194,6 +212,13 @@ func (s *Service) executeDeploy(
 	if err := ensureEnvironment(lp.config, s.environment); err != nil {
 		return false, err
 	}
+	environmentConfig, err := lp.config.Environment(s.environment)
+	if err != nil {
+		return false, err
+	}
+	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, plan.SchemaVersion); err != nil {
+		return false, err
+	}
 	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return false, err
 	}
@@ -207,7 +232,18 @@ func (s *Service) executeDeploy(
 	if !reflect.DeepEqual(plan.Operation.Steps, expectedGraph) {
 		return false, errors.New("operation graph differs from the resolved configuration — re-plan")
 	}
-	expectedRisk, expectedReversibility, expectedApproval := classifyDeployment(expectedGraph, plan.Artifact.HostState.CurrentRelease)
+	expectedMigrationBackup, err := migrationBackupRequirement(lp.config, environmentConfig.Policy, expectedGraph)
+	if err != nil {
+		return false, fmt.Errorf("build expected migration backup requirement: %w", err)
+	}
+	if !reflect.DeepEqual(plan.MigrationBackup, expectedMigrationBackup) {
+		return false, errors.New("migration backup requirement differs from the resolved configuration — re-plan")
+	}
+	expectedRisk, expectedReversibility, expectedApproval := classifyDeploymentForPolicy(
+		expectedGraph,
+		plan.Artifact.HostState.CurrentRelease,
+		environmentConfig.Policy.ApprovalRequired(),
+	)
 	if plan.Operation.Risk != expectedRisk ||
 		plan.Operation.Reversibility != expectedReversibility ||
 		plan.Operation.Approval != expectedApproval {
@@ -226,10 +262,55 @@ func (s *Service) executeDeploy(
 	if engine.HashBytes(lp.composeBytes) != binding.ComposeDigest {
 		return false, errors.New("Compose file changed since plan — re-plan")
 	}
+	approvalRequired := environmentConfig.Policy.ApprovalRequired() && (!plan.NoOp || request.Redeploy)
+	if approvalRequired {
+		emit("approval", "started", "")
+		if request.Approval == nil {
+			return false, fmt.Errorf(
+				"%s approval is required for this exact deployment plan; create a bound grant with `ob approve --plan PLAN` and apply it with `ob deploy --plan PLAN --approval APPROVAL`",
+				plan.Operation.Approval,
+			)
+		}
+		if err := request.Approval.ValidateForPlan(plan, s.now().UTC()); err != nil {
+			return false, fmt.Errorf("validate deployment approval: %w", err)
+		}
+		emit("approval", "succeeded", "")
+	} else if request.Approval != nil {
+		// A supplied grant is never ignored: accepting a mismatched receipt just
+		// because policy no longer requires it would make audit evidence lie.
+		if err := request.Approval.ValidateForPlan(plan, s.now().UTC()); err != nil {
+			return false, fmt.Errorf("validate deployment approval: %w", err)
+		}
+	}
+	backupRequired := plan.MigrationBackup != nil && (!plan.NoOp || request.Redeploy)
+	if backupRequired || request.BackupEvidence != nil || request.MigrationBackupOverride != nil {
+		emit("migration_backup", "started", "")
+	}
+	migrationBackupAudit, err := validateMigrationBackupForExecution(
+		plan, request.BackupEvidence, request.MigrationBackupOverride, request.Approval,
+		backupRequired, s.now().UTC(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("validate migration backup authorization: %w", err)
+	}
+	if migrationBackupAudit != nil {
+		emit("migration_backup", "succeeded", "")
+	}
 	applyPinnedImages(lp.project, plan.Artifact.PinnedImages)
 	e, cleanup, target, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
 		options.ForceLock = request.Force
 		options.NoRollback = request.NoRollback
+		options.Progress = emit
+		options.MigrationBackupWasRequired = plan.MigrationBackup != nil
+		options.MigrationBackup = migrationBackupAudit
+		if request.Approval != nil {
+			options.ApprovalDigest = request.Approval.ApprovalDigest
+			options.ApprovedBy = request.Approval.ApprovedBy
+			options.ApprovalSource = request.Approval.Source
+			options.ApprovalClass = string(request.Approval.Approval)
+			options.AllowUnknownMigration = hasMigrationStep(plan.Operation.Steps) &&
+				(request.Approval.Approval == ApprovalStrong || request.Approval.Approval == ApprovalBreakGlass)
+		}
 		options.DeployPrecondition = func(preconditionContext context.Context, locked *engine.Engine) error {
 			if expiresAt.Before(s.now().UTC()) {
 				return errors.New("deployment plan expired before mutation — re-plan")

@@ -87,6 +87,12 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	jw := &journal.Writer{
 		T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
+		ApprovalDigest: e.Opts.ApprovalDigest, ApprovalClass: e.Opts.ApprovalClass,
+		ApprovedBy: e.Opts.ApprovedBy, ApprovalSource: e.Opts.ApprovalSource,
+		AllowUnknownMigration:   e.Opts.AllowUnknownMigration,
+		Runner:                  &e.Opts.Runner,
+		MigrationBackupRequired: e.Opts.MigrationBackupWasRequired,
+		MigrationBackup:         e.Opts.MigrationBackup,
 	}
 	if err := jw.Append(ctx, journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + prev}); err != nil {
 		return fmt.Errorf("journal deploy start: %w", err)
@@ -181,6 +187,10 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		_ = jw.Append(ctx, journal.Record{Phase: "transfer", Event: "result", Status: "ok"})
 	}
 
+	if err := e.enforceMigrationBackup(ctx, jw, done); err != nil {
+		return fmt.Errorf("pre-release: %w", err)
+	}
+
 	// Jobs run first, gated (migrations before new code). runJobs journals each
 	// step and sets the rollback gate.
 	if err := e.runJobs(ctx, jw, done, remoteDir, remoteCompose); err != nil {
@@ -219,24 +229,49 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("post-release: %w", err)
 	}
 
+	e.progress("verification", "started", "")
 	vf := e.ui.Step("verify", false)
 	if err := e.Verify(ctx); err != nil {
 		vf(err)
+		e.progress("verification", "failed", "verification failed; inspect journal evidence")
 		return e.onVerifyFailure(ctx, jw, releaseID, prev, err)
 	}
 	vf(nil)
 	_ = jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"})
+	e.progress("verification", "succeeded", "")
 
+	e.progress("activation", "started", "")
 	fin := e.ui.Step("activate", false)
+	if err := jw.Append(ctx, journal.Record{
+		Phase: "activation", Event: "intent", Detail: "release=" + releaseID,
+	}); err != nil {
+		fin(err)
+		e.progress("activation", "failed", "activation evidence could not be persisted")
+		return fmt.Errorf("journal activation intent: %w", err)
+	}
 	if err := e.activate(ctx, releaseID); err != nil {
 		fin(err)
+		_ = jw.Append(ctx, journal.Record{
+			Phase: "activation", Event: "result", Status: "fail", Detail: "release=" + releaseID,
+		})
+		e.progress("activation", "failed", "activation failed; inspect journal evidence")
 		return fmt.Errorf("finalize: %w", err)
 	}
-	if err := e.pruneRetention(ctx); err != nil {
+	if err := jw.Append(ctx, journal.Record{
+		Phase: "activation", Event: "result", Status: "ok", Detail: "release=" + releaseID,
+	}); err != nil {
 		fin(err)
-		return fmt.Errorf("prune: %w", err)
+		e.progress("activation", "failed", "activation succeeded but its evidence could not be persisted")
+		return fmt.Errorf("journal activation result: %w", err)
 	}
 	fin(nil)
+	e.progress("activation", "succeeded", "")
+	e.progress("cleanup", "started", "")
+	if err := e.pruneRetention(ctx); err != nil {
+		e.progress("cleanup", "failed", "retention cleanup failed after activation; inspect journal evidence")
+		return fmt.Errorf("prune: %w", err)
+	}
+	e.progress("cleanup", "succeeded", "")
 	if err := e.RunHook(ctx, "post_deploy", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("post-deploy: %w", err)
 	}
@@ -366,7 +401,7 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 		return err
 	}
 	replay.fenceVal = e.fenceVal
-	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator()}
+	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
 	_ = jw.Append(ctx, journal.Record{Phase: "rollback", Event: "start"})
 
 	e.logf("rolling back to %s", prev)

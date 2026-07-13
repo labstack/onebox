@@ -13,9 +13,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
+
+// MigrationBackupEvidence is the secret-free authorization accepted before a
+// migration. Receipt mode identifies validated backup artifacts; override mode
+// retains the explicit break-glass operator, reason, and time.
+type MigrationBackupEvidence struct {
+	Mode               string   `json:"mode"` // receipt | override
+	ReceiptDigest      string   `json:"receipt_digest,omitempty"`
+	OverrideDigest     string   `json:"override_digest,omitempty"`
+	ProtectedResources []string `json:"protected_resources"`
+	ValidUntil         string   `json:"valid_until"`
+	RecordedBy         string   `json:"recorded_by,omitempty"`
+	RecordedAt         string   `json:"recorded_at,omitempty"`
+	OverrideOperator   string   `json:"override_operator,omitempty"`
+	OverrideReason     string   `json:"override_reason,omitempty"`
+	OverrideCreatedAt  string   `json:"override_created_at,omitempty"`
+	OverrideSource     string   `json:"override_source,omitempty"`
+}
 
 type Record struct {
 	DeployID     string `json:"deploy_id"`
@@ -26,25 +44,43 @@ type Record struct {
 	Event        string `json:"event"`            // start | intent | result | finish | abort
 	Status       string `json:"status,omitempty"` // ok | fail
 	Detail       string `json:"detail,omitempty"`
+	ErrorCode    string `json:"error_code,omitempty"`
 	RollbackSafe bool   `json:"rollback_safe,omitempty"`
 	// RollbackPolicySafe records that the interrupted deploy's own policy
 	// covers this effect even when it cannot prove a no-op result. Keeping this
 	// on the journal prevents a later config edit from weakening abort safety.
-	RollbackPolicySafe bool   `json:"rollback_policy_safe,omitempty"`
-	TS                 string `json:"ts"`
-	Operator           string `json:"operator,omitempty"`
-	GitSHA             string `json:"git_sha,omitempty"`
-	ConfigHash         string `json:"config_hash,omitempty"`
+	RollbackPolicySafe      bool                     `json:"rollback_policy_safe,omitempty"`
+	TS                      string                   `json:"ts"`
+	Operator                string                   `json:"operator,omitempty"`
+	GitSHA                  string                   `json:"git_sha,omitempty"`
+	ConfigHash              string                   `json:"config_hash,omitempty"`
+	ApprovalDigest          string                   `json:"approval_digest,omitempty"`
+	ApprovalClass           string                   `json:"approval_class,omitempty"`
+	ApprovedBy              string                   `json:"approved_by,omitempty"`
+	ApprovalSource          string                   `json:"approval_source,omitempty"`
+	AllowUnknownMigration   bool                     `json:"allow_unknown_migration,omitempty"`
+	Runner                  *buildinfo.Runner        `json:"runner,omitempty"`
+	MigrationBackupRequired bool                     `json:"migration_backup_required,omitempty"`
+	MigrationBackup         *MigrationBackupEvidence `json:"migration_backup,omitempty"`
+	JobResult               *JobResultEvidence       `json:"job_result,omitempty"`
 }
 
 type Writer struct {
-	T          transport.Transport
-	App        string
-	DeployID   string
-	Epoch      int
-	Operator   string
-	GitSHA     string
-	ConfigHash string
+	T                       transport.Transport
+	App                     string
+	DeployID                string
+	Epoch                   int
+	Operator                string
+	GitSHA                  string
+	ConfigHash              string
+	ApprovalDigest          string
+	ApprovalClass           string
+	ApprovedBy              string
+	ApprovalSource          string
+	AllowUnknownMigration   bool
+	Runner                  *buildinfo.Runner
+	MigrationBackupRequired bool
+	MigrationBackup         *MigrationBackupEvidence
 }
 
 func dir(app string) string      { return release.PathsFor(app).Base + "/journal" }
@@ -61,6 +97,15 @@ func DefaultOperator() string {
 func (w *Writer) Append(ctx context.Context, r Record) error {
 	r.DeployID, r.Epoch = w.DeployID, w.Epoch
 	r.TS = time.Now().UTC().Format(time.RFC3339)
+	// Command stderr can contain decrypted credentials or provider responses.
+	// It remains on the trusted local error path and never becomes durable
+	// evidence. Journal failures retain a stable taxonomy and phase/sub-step.
+	if r.Status == "fail" {
+		r.Detail = "operation failed; inspect trusted local diagnostics"
+		if r.ErrorCode == "" {
+			r.ErrorCode = "execution_failed"
+		}
+	}
 	if r.Operator == "" {
 		r.Operator = w.Operator
 	}
@@ -69,6 +114,37 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	}
 	if r.ConfigHash == "" {
 		r.ConfigHash = w.ConfigHash
+	}
+	// Durable authorization context belongs on the deploy start (so a crash
+	// before the first protected step remains resumable) and on the explicit
+	// backup-evidence decision. Avoid copying operator-provided fields onto every
+	// journal line.
+	authorizationRecord := r.Phase == "deploy" && r.Event == "start" || r.SubStep == MigrationBackupSubStep
+	if authorizationRecord {
+		if r.ApprovalDigest == "" {
+			r.ApprovalDigest = w.ApprovalDigest
+		}
+		if r.ApprovalClass == "" {
+			r.ApprovalClass = w.ApprovalClass
+		}
+		if r.ApprovedBy == "" {
+			r.ApprovedBy = w.ApprovedBy
+		}
+		if r.ApprovalSource == "" {
+			r.ApprovalSource = w.ApprovalSource
+		}
+		if w.AllowUnknownMigration {
+			r.AllowUnknownMigration = true
+		}
+	}
+	if r.Runner == nil {
+		r.Runner = w.Runner
+	}
+	if w.MigrationBackupRequired {
+		r.MigrationBackupRequired = true
+	}
+	if authorizationRecord && r.MigrationBackup == nil {
+		r.MigrationBackup = w.MigrationBackup
 	}
 	b, err := json.Marshal(r)
 	if err != nil {
@@ -204,11 +280,19 @@ type Summary struct {
 	// RollbackCovered is true only when every recorded effect attempt was
 	// either explicitly rollback-safe or covered by the interrupted deploy's
 	// own policy declaration.
-	RollbackCovered bool
-	Done            map[string]bool // "transfer", "migrate", "job:<service>", "hook:<name>", "release:<role>", DoneGateRecorded
-	Operator        string
-	GitSHA          string
-	StartedAt       string
+	RollbackCovered         bool
+	Done                    map[string]bool // "transfer", "migrate", "job:<service>", "hook:<name>", "release:<role>", DoneGateRecorded
+	Operator                string
+	GitSHA                  string
+	StartedAt               string
+	MigrationBackupRequired bool
+	MigrationBackup         *MigrationBackupEvidence
+	ApprovalDigest          string
+	ApprovalClass           string
+	ApprovedBy              string
+	ApprovalSource          string
+	AllowUnknownMigration   bool
+	JobResults              map[string]JobResultEvidence
 }
 
 // DoneGateRecorded marks that this journal contains a rollback-effect
@@ -219,6 +303,10 @@ const DoneGateRecorded = "gate:recorded"
 // start. Later job/hook attempts join the aggregate and may close it; if the
 // runner dies during upload, the journal still proves rollback is safe.
 const EffectBaselineSubStep = "gate:baseline"
+
+// MigrationBackupSubStep is the durable marker that a receipt or explicit
+// override was accepted before a pending migration job could start.
+const MigrationBackupSubStep = "migration-backup:evidence"
 
 type effectAttempt struct {
 	resolved   bool
@@ -232,13 +320,31 @@ type effectAttemptKey struct {
 }
 
 func Summarize(recs []Record) Summary {
-	s := Summary{Done: map[string]bool{}}
+	s := Summary{Done: map[string]bool{}, JobResults: map[string]JobResultEvidence{}}
 	var attempts []effectAttempt
 	active := map[effectAttemptKey]int{}
 	for _, r := range recs {
 		s.DeployID = r.DeployID
 		if r.Epoch > s.Epoch {
 			s.Epoch = r.Epoch
+		}
+		if r.MigrationBackup != nil {
+			s.MigrationBackup = r.MigrationBackup
+		}
+		if r.MigrationBackupRequired {
+			s.MigrationBackupRequired = true
+		}
+		if r.ApprovalDigest != "" {
+			s.ApprovalDigest = r.ApprovalDigest
+			s.ApprovalClass = r.ApprovalClass
+			s.ApprovedBy = r.ApprovedBy
+			s.ApprovalSource = r.ApprovalSource
+		}
+		if r.AllowUnknownMigration {
+			s.AllowUnknownMigration = true
+		}
+		if r.JobResult != nil && strings.HasPrefix(r.SubStep, "job:") {
+			s.JobResults[strings.TrimPrefix(r.SubStep, "job:")] = *r.JobResult
 		}
 		effectStep := r.SubStep == "migrate" || r.SubStep == EffectBaselineSubStep ||
 			strings.HasPrefix(r.SubStep, "job:") || strings.HasPrefix(r.SubStep, "hook:")
@@ -290,6 +396,8 @@ func Summarize(recs []Record) Summary {
 			switch {
 			case r.Phase == "transfer":
 				s.Done["transfer"] = true
+			case r.SubStep == MigrationBackupSubStep:
+				s.Done[MigrationBackupSubStep] = true
 			case r.SubStep == "migrate": // legacy journals (pre auto-run jobs)
 				s.Done["migrate"] = true
 			case strings.HasPrefix(r.SubStep, "job:"):

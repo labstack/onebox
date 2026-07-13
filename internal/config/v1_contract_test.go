@@ -32,8 +32,12 @@ environments:
   production:
     target: deploy@example.test
     policy:
-      require_approval: false
+      require_approval: true
       allow_agent_proposals: false
+      require_migration_backup: true
+      migration_backup_max_age: 24h
+      require_migration_restore_test: true
+      migration_backup_key_material: [runtime_environment, application_encryption_key]
 components:
   web:
     type: application
@@ -90,7 +94,17 @@ hooks:
 verification:
   - { component: web, http: /healthz, port: 8080 }
   - { component: worker, exec: "test -f /tmp/ready" }
-  - { url: "https://example.test/", contains: ready, advisory: true }
+  - url: "https://example.test/"
+    contains: ready
+    advisory: true
+    status_codes: [200, 204]
+    required_headers: { Content-Type: application/json }
+    json_assertions:
+      - { path: service.ready, equals: true }
+  - migration_revisions:
+      job: schema
+      provider: atlas
+      applied_revisions: ["202607010001", "202607130001"]
 notifications:
   webhook: "https://notify.example.test/onebox"
   on: [failure, success]

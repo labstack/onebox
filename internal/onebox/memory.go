@@ -17,9 +17,17 @@ import (
 const memoryProposalLifetime = 15 * time.Minute
 
 var (
-	secretAssignment = regexp.MustCompile(`(?i)(?:password|passwd|secret|token|api[ _-]?key|private[ _-]?key|credential)\s*[:=]\s*\S+`)
+	// The [\w-]* after each keyword catches compound names like
+	// aws_secret_access_key= or access-token: that a bare keyword+separator
+	// would miss. A separator is still required, so prose ("the secret sauce",
+	// "rotate the API key next week") does not trip it.
+	secretAssignment = regexp.MustCompile(`(?i)(?:password|passwd|secret|token|api[ _-]?key|access[ _-]?key|private[ _-]?key|credential)[\w-]*\s*[:=]\s*\S+`)
 	secretBearer     = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/=-]+`)
-	secretKnownToken = regexp.MustCompile(`(?i)(?:\bsk-[a-z0-9_-]{12,}|\bghp_[a-z0-9]{12,}|\bgithub_pat_[a-z0-9_]{12,}|\bxox[baprs]-[a-z0-9-]{12,}|\bAKIA[A-Z0-9]{16})`)
+	secretKnownToken = regexp.MustCompile(`(?i)(?:\bsk-[a-z0-9_-]{12,}|\bghp_[a-z0-9]{12,}|\bgithub_pat_[a-z0-9_]{12,}|\bxox[baprs]-[a-z0-9-]{12,}|\bAKIA[A-Z0-9]{16}|\bAIza[a-z0-9_-]{35}|\beyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{5,})`)
+	// Match every PEM private-key header variant (RSA, EC, OPENSSH, PGP, …),
+	// not just the bare "PRIVATE KEY" form.
+	secretPEM         = regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY`)
+	secretURLUserinfo = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@`)
 )
 
 func (s *Service) ReadMemory(ctx context.Context, _ ReadMemoryRequest) (OperationalMemory, error) {
@@ -362,8 +370,9 @@ func validateAndCopyPolicyPatch(memory OperationalMemory, input *MemoryPolicyPat
 }
 
 func containsSecretLikeValue(value string) bool {
-	return strings.Contains(value, "-----BEGIN PRIVATE KEY-----") ||
-		secretAssignment.MatchString(value) || secretBearer.MatchString(value) || secretKnownToken.MatchString(value)
+	return secretPEM.MatchString(value) ||
+		secretAssignment.MatchString(value) || secretBearer.MatchString(value) ||
+		secretKnownToken.MatchString(value) || secretURLUserinfo.MatchString(value)
 }
 
 func oneOf(value string, allowed ...string) bool {

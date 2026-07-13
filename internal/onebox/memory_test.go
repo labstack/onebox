@@ -180,6 +180,50 @@ func TestProposeMemoryChangeRejectsUnsafeOrEmptyRequests(t *testing.T) {
 	}
 }
 
+func TestContainsSecretLikeValueDetectsSecretsAndSparesProse(t *testing.T) {
+	// The redaction gate is the only barrier stopping a leaked secret in the two
+	// free-text proposal inputs, so it must catch representative formats without
+	// failing open — and it must not reject legitimate operator prose.
+	secrets := []string{
+		"password: hunter2",
+		"api_key = ABCDEF123456",
+		"aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		"access-token: abcdef123456",
+		"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+		"sk-abcdefghijklmnop",
+		"ghp_abcdefghijklmnop1234",
+		"github_pat_11ABCDEFG0abcdefghij",
+		"xoxb-123456789012-abcdefghijkl",
+		"AKIAIOSFODNN7EXAMPLE",
+		"AIzaSyD-1234567890abcdefghijklmnopqrstuv",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+		"-----BEGIN PRIVATE KEY-----",
+		"-----BEGIN RSA PRIVATE KEY-----",
+		"-----BEGIN OPENSSH PRIVATE KEY-----",
+		"-----BEGIN EC PRIVATE KEY-----",
+		"postgres://admin:s3cr3t@db.internal:5432/app",
+	}
+	for _, value := range secrets {
+		if !containsSecretLikeValue(value) {
+			t.Errorf("secret-like value not detected: %q", value)
+		}
+	}
+	prose := []string{
+		"Scale the web workload before the next release.",
+		"Rotate the API key next week during the maintenance window.",
+		"Document the token bucket limiter for the gateway.",
+		"The secret sauce is careful capacity planning.",
+		"Connect to the database at db.internal:5432 over the private network.",
+		"Increase replicas to handle Black Friday traffic.",
+		"Move persistence to an external managed service.",
+	}
+	for _, value := range prose {
+		if containsSecretLikeValue(value) {
+			t.Errorf("legitimate prose flagged as secret: %q", value)
+		}
+	}
+}
+
 func TestProposeMemoryChangeSortsComponentPatches(t *testing.T) {
 	svc := New(Options{
 		ConfigPath: writeServiceProject(t),

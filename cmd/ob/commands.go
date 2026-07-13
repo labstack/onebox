@@ -674,15 +674,17 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		return err
 	}
 	if !plannedNoOp && approval == nil && !yes {
-		if !confirmPlanApproval(cmd, &pl.plan) {
-			fmt.Fprintln(cmd.OutOrStdout(), "not approved")
+		if !confirmInteractiveDeploy(cmd, &pl.plan) {
+			fmt.Fprintln(cmd.OutOrStdout(), "not applied")
 			return nil
 		}
-		grant, err := onebox.NewApprovalGrant(&pl.plan, journal.DefaultOperator(), time.Now())
-		if err != nil {
-			return err
+		if pl.plan.Operation.Approval != onebox.ApprovalNone {
+			grant, err := onebox.NewApprovalGrant(&pl.plan, journal.DefaultOperator(), time.Now())
+			if err != nil {
+				return err
+			}
+			approval = &grant
 		}
-		approval = &grant
 	}
 	result, err := pl.svc.Execute(cmd.Context(), onebox.ExecuteRequest{
 		Kind: onebox.KindDeploy, Plan: &pl.plan, Approval: approval, Force: g.Force,
@@ -771,6 +773,13 @@ func confirmPlanApproval(cmd *cobra.Command, plan *onebox.DeployPlan) bool {
 	fmt.Fprintf(cmd.OutOrStdout(), "Type release ID %s to approve: ", want)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	return strings.TrimSpace(line) == want
+}
+
+func confirmInteractiveDeploy(cmd *cobra.Command, plan *onebox.DeployPlan) bool {
+	if plan.Operation.Approval == onebox.ApprovalNone {
+		return confirm(cmd, "\nApply this plan?")
+	}
+	return confirmPlanApproval(cmd, plan)
 }
 
 // confirm reads a yes/no answer; anything but y/yes (incl. EOF on a

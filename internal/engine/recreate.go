@@ -36,7 +36,15 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 			return err
 		}
 		for _, id := range ids {
-			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
+			// A per-container non-zero exit (vanished container, or a misspelled
+			// drain.signal that docker rejects) must not silently degrade every
+			// recreate to an abrupt stop — surface it. A transport/fence error
+			// aborts: recreating under a lost lock is never correct.
+			if res, err := e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id); err != nil {
+				return err
+			} else if res.ExitCode != 0 {
+				e.warnf("drain signal %s to %s failed: %s", role.Drain.Signal, svc, strings.TrimSpace(res.Stderr))
+			}
 		}
 		if len(ids) > 0 {
 			e.Opts.Sleep(time.Duration(role.Drain.Wait))

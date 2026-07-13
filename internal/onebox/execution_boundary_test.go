@@ -199,6 +199,174 @@ func TestExecuteRejectsExpiredDeployBeforeConnecting(t *testing.T) {
 	}
 }
 
+func TestExecuteRejectsFutureDeployBeforeConnecting(t *testing.T) {
+	now := time.Date(2026, 7, 12, 19, 0, 0, 0, time.UTC)
+	// Created 5 minutes ahead — beyond the 1-minute skew tolerance — but not yet
+	// expired. A broken runner clock must not silently disable the expiry window.
+	plan := sealedTestDeployPlan(t, now.Add(5*time.Minute), now.Add(20*time.Minute))
+	connected := false
+	svc := New(Options{
+		ConfigPath: filepath.Join(t.TempDir(), "must-not-be-read.yml"),
+		Now:        func() time.Time { return now },
+		Connect: func(context.Context, string) (transport.Transport, error) {
+			connected = true
+			return serviceFake(), nil
+		},
+	})
+	_, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "created in the future") {
+		t.Fatalf("future-dated plan was not rejected: %v", err)
+	}
+	if connected {
+		t.Fatal("future-dated plan connected to the target")
+	}
+}
+
+func TestExecuteRejectsResealedRiskMismatch(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The graph is untouched, so only the re-derived risk classification can catch
+	// a plan whose sealed risk was downgraded — the check the graph shadows in
+	// TestExecuteRejectsResealedGraphMismatch.
+	plan.Operation.Risk = RiskLow
+	if err := plan.Operation.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "risk classification differs") {
+		t.Fatalf("resealed risk mismatch was not rejected: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("risk mismatch reached a write-capable transport operation: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+func TestExecuteRejectsResealedApplicationMismatch(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A plan sealed for a different application must never execute here even
+	// though its graph matches — the highest-blast-radius cross-target mistake.
+	plan.Artifact.App = "tenant-b"
+	plan.Operation.Binding.Application = "tenant-b"
+	stateDigest, err := artifactDigest(plan.Artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Operation.Binding.StateDigest = stateDigest
+	if err := plan.Operation.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "plan application is") {
+		t.Fatalf("resealed application mismatch was not rejected: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("application mismatch reached a write-capable transport operation: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+func TestExecuteRejectsResealedEnvironmentMismatch(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A plan sealed for a different environment must not execute against
+	// production, even though the resolved app and graph match.
+	plan.Artifact.Env = "staging"
+	plan.Operation.Binding.Environment = "staging"
+	stateDigest, err := artifactDigest(plan.Artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Operation.Binding.StateDigest = stateDigest
+	if err := plan.Operation.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "plan environment is") {
+		t.Fatalf("resealed environment mismatch was not rejected: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("environment mismatch reached a write-capable transport operation: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+func TestExecuteRejectsConfigDriftBeforeMutation(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A byte-level config edit the operator never planned. The parsed graph,
+	// risk, app, and env are all identical, so only the config digest can catch
+	// it (e.g. an environment-policy or migration-policy change).
+	source, err := os.ReadFile(svc.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(svc.configPath, append(source, []byte("\n# drift introduced after planning\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "configuration changed since plan") {
+		t.Fatalf("config drift was not rejected: result=%#v err=%v", result, err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("config drift reached a write-capable transport operation: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+func TestExecuteRejectsComposeDriftBeforeMutation(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A Compose edit that leaves the parsed service set (and thus the graph)
+	// intact — only the Compose digest binds it.
+	composePath := filepath.Join(filepath.Dir(svc.configPath), "docker-compose.yaml")
+	source, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(composePath, append(source, []byte("\n# drift introduced after planning\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "Compose file changed since plan") {
+		t.Fatalf("compose drift was not rejected: result=%#v err=%v", result, err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("compose drift reached a write-capable transport operation: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
 func TestExecuteRejectsStagedPayloadDriftBeforeMutation(t *testing.T) {
 	fake := serviceFake()
 	svc := newTestService(t, fake)

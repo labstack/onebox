@@ -43,7 +43,7 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 		t.Fatalf("rollback: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "--force-recreate worker") {
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
 		t.Fatalf("snapshot choreography (worker recreate) not replayed:\n%s", seq)
 	}
 	// current ob.yml rolls web — snapshot doesn't; web must NOT be touched

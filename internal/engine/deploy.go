@@ -20,17 +20,58 @@ func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) 
 	return e.deployCore(ctx, releaseID, localStagingDir, nil)
 }
 
+// ValidateDeployNoOp establishes the same lock/fence authority as Deploy and
+// re-runs preflight plus the adapter's bound-state precondition. It performs no
+// release transfer or workload mutation. This makes a no-op result an
+// authoritative point-in-time decision rather than a stale pre-lock guess.
+func (e *Engine) ValidateDeployNoOp(ctx context.Context, operationID string) error {
+	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
+	if err != nil {
+		return err
+	}
+	defer e.ReleaseLock(ctx)
+	if err := e.WriteFence(ctx, operationID, epoch); err != nil {
+		return err
+	}
+	stopHeartbeat := e.StartHeartbeat(ctx)
+	defer stopHeartbeat()
+	if err := e.Preflight(ctx); err != nil {
+		return fmt.Errorf("preflight: %w", err)
+	}
+	if e.Opts.DeployPrecondition != nil {
+		if err := e.Opts.DeployPrecondition(ctx, e); err != nil {
+			return fmt.Errorf("deploy precondition under lock: %w", err)
+		}
+	}
+	return nil
+}
+
 // deployCore: done != nil means resume — completed steps skip; staging may be
 // empty (the release dir already lives on the host).
 func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir string, done map[string]bool) error {
 	e.ui.Header("deploy " + releaseID)
 	t0 := time.Now()
+	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
+	if err != nil {
+		return err
+	}
+	defer e.ReleaseLock(ctx)
+	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
+		return err
+	}
+	stopHB := e.StartHeartbeat(ctx)
+	defer stopHB()
 	pf := e.ui.Step("preflight", false)
 	if err := e.Preflight(ctx); err != nil {
 		pf(err)
 		return fmt.Errorf("preflight: %w", err)
 	}
 	pf(nil)
+	if e.Opts.DeployPrecondition != nil {
+		if err := e.Opts.DeployPrecondition(ctx, e); err != nil {
+			return fmt.Errorf("deploy precondition under lock: %w", err)
+		}
+	}
 	prev, err := release.Current(ctx, e.T, e.Cfg.App)
 	if err != nil {
 		return err
@@ -43,22 +84,11 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		}
 	}
 
-	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
-	if err != nil {
-		return err
-	}
-	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
-		return err
-	}
-	stopHB := e.StartHeartbeat(ctx)
-	defer stopHB()
-
 	jw := &journal.Writer{
 		T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
 	}
 	if err := jw.Append(ctx, journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + prev}); err != nil {
-		e.ReleaseLock(ctx)
 		return fmt.Errorf("journal deploy start: %w", err)
 	}
 	if done == nil {
@@ -76,7 +106,6 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 			Event: "result", Status: "ok", Detail: detail, RollbackSafe: !rollbackDebt,
 		}); err != nil {
 			_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: "fail", Detail: "effect baseline: " + err.Error()})
-			e.ReleaseLock(ctx)
 			return fmt.Errorf("journal effect baseline: %w", err)
 		}
 		e.gateOpen = !rollbackDebt
@@ -98,10 +127,6 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: status, Detail: err.Error()})
 	} else {
 		_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: status})
-	}
-	// a fenced runner's lock belongs to the NEW deploy — never remove it
-	if !errors.Is(err, ErrFenced) {
-		e.ReleaseLock(ctx)
 	}
 	return err
 }
@@ -291,10 +316,22 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 // old image locally (design §06 "rollback never pulls"), and its own ob.yml
 // snapshot drives the choreography — old release, old config, old modes.
 func (e *Engine) Rollback(ctx context.Context) error {
+	_, err := e.RollbackWithJournalID(ctx)
+	return err
+}
+
+// RollbackWithJournalID rolls back to the previous release and returns the
+// journal identity used for the rollback evidence. The identity is returned
+// even when execution fails after the target release has been resolved.
+func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
 	prev, err := release.Previous(ctx, e.T, e.Cfg.App)
 	if err != nil {
-		return err
+		return "", err
 	}
+	return prev, e.rollbackTo(ctx, prev)
+}
+
+func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 	prevDir := release.PathsFor(e.Cfg.App).Releases + "/" + prev
 	remoteCompose := prevDir + "/compose.yaml"
 

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/onebox"
 )
 
 func TestConfirmDefaultsToNo(t *testing.T) {
@@ -282,6 +283,14 @@ func TestNotifyOutcome(t *testing.T) {
 	}
 	if !strings.Contains(got["text"].(string), "HALT-AND-PAGE") {
 		t.Fatalf("text: %v", got["text"])
+	}
+	// A saved-plan no-op must not claim that its unactivated release succeeded.
+	cfg.Notify.On = []string{"success", "failure"}
+	notifyOperationOutcome(cfg, g, "deploy", onebox.OperationResult{
+		Status: "no_op", NoOp: true, ReleaseID: "UNACTIVATED",
+	}, nil)
+	if hits != 1 {
+		t.Fatal("no-op must not notify as a successful deploy")
 	}
 	// nil notify config: silent no-op
 	cfg.Notify = nil

@@ -27,9 +27,14 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("pull %s: %s", svc, res.Stderr)
 	}
-	// bleed before recreate for non-TERM signals (TERM is what stop sends anyway)
-	if role.Drain != nil && role.Drain.Wait > 0 && role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
-		ids, _ := e.containerIDs(ctx, svc)
+	// Signal before recreate whenever the contract declares a fixed drain wait.
+	// Compose sends TERM during replacement too, but doing it only then skipped
+	// drain.wait entirely and left recreate workers at Compose's default timeout.
+	if role.Drain != nil && role.Drain.Wait > 0 && role.Drain.Signal != "" {
+		ids, err := e.containerIDs(ctx, svc)
+		if err != nil {
+			return err
+		}
 		for _, id := range ids {
 			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
 		}
@@ -41,7 +46,8 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	if desired > 1 {
 		scaleArg = fmt.Sprintf(" --scale %s=%d", svc, desired)
 	}
-	if res, err := e.mutate(ctx, cc+" up -d --no-deps --force-recreate"+scaleArg+" "+svc); err != nil {
+	timeoutArg := fmt.Sprintf(" --timeout %d", role.StopGraceSeconds())
+	if res, err := e.mutate(ctx, cc+" up -d --no-deps --force-recreate"+timeoutArg+scaleArg+" "+svc); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("recreate %s: %s", svc, res.Stderr)

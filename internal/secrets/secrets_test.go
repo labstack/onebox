@@ -1,6 +1,8 @@
 package secrets
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,14 @@ func stubSops(t *testing.T, plaintext string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestRenderContextHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := RenderContext(ctx, t.TempDir(), "secrets.enc.yaml"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RenderContext error = %v, want context canceled", err)
+	}
 }
 
 func TestRenderSortedEnv(t *testing.T) {

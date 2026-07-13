@@ -15,12 +15,18 @@ import (
 )
 
 type recordingService struct {
-	observeRequests []onebox.ObserveRequest
-	proposeRequests []onebox.ProposeDeployRequest
-	observation     onebox.Observation
-	proposal        onebox.DeploymentProposal
-	observeErr      error
-	proposeErr      error
+	observeRequests             []onebox.ObserveRequest
+	proposeRequests             []onebox.ProposeRequest
+	readMemoryRequests          []onebox.ReadMemoryRequest
+	proposeMemoryChangeRequests []onebox.ProposeMemoryChangeRequest
+	observation                 onebox.Observation
+	proposal                    onebox.DeploymentProposal
+	memory                      onebox.OperationalMemory
+	memoryProposal              onebox.MemoryChangeProposal
+	observeErr                  error
+	proposeErr                  error
+	readMemoryErr               error
+	proposeMemoryChangeErr      error
 }
 
 func (s *recordingService) Observe(_ context.Context, req onebox.ObserveRequest) (onebox.Observation, error) {
@@ -28,18 +34,37 @@ func (s *recordingService) Observe(_ context.Context, req onebox.ObserveRequest)
 	return s.observation, s.observeErr
 }
 
-func (s *recordingService) ProposeDeploy(_ context.Context, req onebox.ProposeDeployRequest) (onebox.DeploymentProposal, error) {
+func (s *recordingService) Propose(_ context.Context, req onebox.ProposeRequest) (onebox.DeploymentProposal, error) {
 	s.proposeRequests = append(s.proposeRequests, req)
 	return s.proposal, s.proposeErr
 }
 
+func (s *recordingService) ReadMemory(_ context.Context, req onebox.ReadMemoryRequest) (onebox.OperationalMemory, error) {
+	s.readMemoryRequests = append(s.readMemoryRequests, req)
+	return s.memory, s.readMemoryErr
+}
+
+func (s *recordingService) ProposeMemoryChange(_ context.Context, req onebox.ProposeMemoryChangeRequest) (onebox.MemoryChangeProposal, error) {
+	s.proposeMemoryChangeRequests = append(s.proposeMemoryChangeRequests, req)
+	return s.memoryProposal, s.proposeMemoryChangeErr
+}
+
 func TestToolErrorsDoNotExposeServiceDiagnostics(t *testing.T) {
 	const secret = "host-output-must-not-reach-model"
-	service := &recordingService{observeErr: errors.New(secret), proposeErr: errors.New(secret)}
+	service := &recordingService{
+		observeErr: errors.New(secret), proposeErr: errors.New(secret),
+		readMemoryErr: errors.New(secret), proposeMemoryChangeErr: errors.New(secret),
+	}
 	client := connectTestClient(t, service)
 
-	for _, name := range []string{"onebox_observe", "onebox_propose_deploy"} {
-		result, err := client.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: name, Arguments: map[string]any{}})
+	toolArguments := map[string]map[string]any{
+		"onebox_observe":               {},
+		"onebox_propose_deploy":        {},
+		"onebox_read_memory":           {},
+		"onebox_propose_memory_change": {"expected_revision": "revision", "rationale": "rationale"},
+	}
+	for name, arguments := range toolArguments {
+		result, err := client.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: name, Arguments: arguments})
 		if err != nil {
 			t.Fatalf("CallTool(%s): %v", name, err)
 		}
@@ -64,7 +89,7 @@ func TestNewListsReadOnlyTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if got, want := len(result.Tools), 2; got != want {
+	if got, want := len(result.Tools), 4; got != want {
 		t.Fatalf("tool count = %d, want %d", got, want)
 	}
 
@@ -72,7 +97,13 @@ func TestNewListsReadOnlyTools(t *testing.T) {
 	for _, tool := range result.Tools {
 		tools[tool.Name] = tool
 	}
-	for _, name := range []string{"onebox_observe", "onebox_propose_deploy"} {
+	externalReads := map[string]bool{
+		"onebox_observe":               true,
+		"onebox_propose_deploy":        true,
+		"onebox_read_memory":           false,
+		"onebox_propose_memory_change": false,
+	}
+	for name, wantOpenWorld := range externalReads {
 		tool, ok := tools[name]
 		if !ok {
 			t.Errorf("tool %q is not advertised", name)
@@ -84,8 +115,8 @@ func TestNewListsReadOnlyTools(t *testing.T) {
 		if tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint {
 			t.Errorf("tool %q does not advertise destructiveHint=false", name)
 		}
-		if tool.Annotations == nil || tool.Annotations.OpenWorldHint == nil || !*tool.Annotations.OpenWorldHint {
-			t.Errorf("tool %q should disclose external host/registry reads", name)
+		if tool.Annotations == nil || tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint != wantOpenWorld {
+			t.Errorf("tool %q openWorldHint = %v, want %v", name, tool.Annotations.OpenWorldHint, wantOpenWorld)
 		}
 		schema, err := json.Marshal(tool.InputSchema)
 		if err != nil {
@@ -167,6 +198,28 @@ func TestToolsDelegateTypedRequestsAndReturnStructuredOutput(t *testing.T) {
 			Verification: []string{},
 			Warnings:     []string{},
 		},
+		memory: onebox.OperationalMemory{
+			SchemaVersion:   onebox.MemorySchemaVersion,
+			Application:     "storefront",
+			Environment:     "production",
+			RevisionDigest:  "memory-sha256",
+			MigrationPolicy: "expand-only",
+			Components: []onebox.MemoryComponent{
+				{Name: "database", Role: "data_service", Type: "postgres", Service: "postgres", PersistenceMode: "durable", BackupDeclared: true},
+			},
+			Provenance: []onebox.Provenance{{Kind: "config", Source: "ob.yml"}},
+		},
+		memoryProposal: onebox.MemoryChangeProposal{
+			SchemaVersion: onebox.MemoryProposalSchemaVersion,
+			ID:            "memory-change-deadbeef",
+			Application:   "storefront",
+			Environment:   "production",
+			BaseRevision:  "memory-sha256",
+			CreatedAt:     capturedAt.Format(time.RFC3339),
+			ExpiresAt:     capturedAt.Add(15 * time.Minute).Format(time.RFC3339),
+			Rationale:     "record backup ownership",
+			Digest:        "memory-proposal-sha256",
+		},
 	}
 	client := connectTestClient(t, service)
 
@@ -210,8 +263,8 @@ func TestToolsDelegateTypedRequestsAndReturnStructuredOutput(t *testing.T) {
 	if proposeResult.IsError {
 		t.Fatalf("CallTool(onebox_propose_deploy) returned tool error: %#v", proposeResult.Content)
 	}
-	if got, want := service.proposeRequests, []onebox.ProposeDeployRequest{{}}; !equalJSON(got, want) {
-		t.Fatalf("ProposeDeploy requests = %#v, want %#v", got, want)
+	if got, want := service.proposeRequests, []onebox.ProposeRequest{{Kind: onebox.KindDeploy}}; !equalJSON(got, want) {
+		t.Fatalf("Propose requests = %#v, want %#v", got, want)
 	}
 	proposal := decodeStructured[onebox.DeploymentProposal](t, proposeResult.StructuredContent)
 	if got, want := proposal.ID, service.proposal.ID; got != want {
@@ -222,6 +275,50 @@ func TestToolsDelegateTypedRequestsAndReturnStructuredOutput(t *testing.T) {
 	}
 	if !proposal.Policy.RequireApproval || !proposal.Policy.AllowAgentProposals {
 		t.Errorf("proposal policy was lost across MCP: %#v", proposal.Policy)
+	}
+
+	readMemoryResult, err := client.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "onebox_read_memory",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(onebox_read_memory): %v", err)
+	}
+	if readMemoryResult.IsError {
+		t.Fatalf("CallTool(onebox_read_memory) returned tool error: %#v", readMemoryResult.Content)
+	}
+	if got, want := service.readMemoryRequests, []onebox.ReadMemoryRequest{{}}; !equalJSON(got, want) {
+		t.Fatalf("ReadMemory requests = %#v, want %#v", got, want)
+	}
+	memory := decodeStructured[onebox.OperationalMemory](t, readMemoryResult.StructuredContent)
+	if got, want := memory.RevisionDigest, service.memory.RevisionDigest; got != want {
+		t.Errorf("memory revision digest = %q, want %q", got, want)
+	}
+	if len(memory.Components) != 1 || memory.Components[0].PersistenceMode != "durable" || !memory.Components[0].BackupDeclared {
+		t.Errorf("operational memory metadata was lost across MCP: %#v", memory.Components)
+	}
+
+	memoryChangeRequest := onebox.ProposeMemoryChangeRequest{
+		ExpectedRevision: service.memory.RevisionDigest,
+		Rationale:        "record backup ownership",
+		ComponentPatches: []onebox.ComponentMemoryPatch{{Component: "database", BackupDeclared: boolPointer(true)}},
+	}
+	proposeMemoryResult, err := client.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "onebox_propose_memory_change",
+		Arguments: memoryChangeRequest,
+	})
+	if err != nil {
+		t.Fatalf("CallTool(onebox_propose_memory_change): %v", err)
+	}
+	if proposeMemoryResult.IsError {
+		t.Fatalf("CallTool(onebox_propose_memory_change) returned tool error: %#v", proposeMemoryResult.Content)
+	}
+	if got, want := service.proposeMemoryChangeRequests, []onebox.ProposeMemoryChangeRequest{memoryChangeRequest}; !equalJSON(got, want) {
+		t.Fatalf("ProposeMemoryChange requests = %#v, want %#v", got, want)
+	}
+	memoryProposal := decodeStructured[onebox.MemoryChangeProposal](t, proposeMemoryResult.StructuredContent)
+	if got, want := memoryProposal.Digest, service.memoryProposal.Digest; got != want {
+		t.Errorf("memory proposal digest = %q, want %q", got, want)
 	}
 }
 

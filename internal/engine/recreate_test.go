@@ -55,6 +55,35 @@ func TestRecreateRoleHonorsDrainGrace(t *testing.T) {
 	}
 }
 
+func TestRecreateRoleSurfacesFailedDrainSignal(t *testing.T) {
+	// A misspelled drain.signal makes `docker kill` exit non-zero. That must be
+	// surfaced (not silently swallowed) so the operator learns their declared
+	// drain never fires — while the recreate still proceeds.
+	out := &bytes.Buffer{}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker ps -q") {
+			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Status}}") {
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		if strings.Contains(cmd, "docker kill --signal=") {
+			return transport.Result{ExitCode: 125, Stderr: "Error response from daemon: invalid signal: TERM_TYPO"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: out, Sleep: noSleep})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatalf("a per-container drain-signal rejection must not abort recreate: %v", err)
+	}
+	if !strings.Contains(out.String(), "drain signal") || !strings.Contains(out.String(), "invalid signal") {
+		t.Fatalf("failed drain signal was not surfaced to the operator: %q", out.String())
+	}
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "up -d --no-deps --force-recreate") {
+		t.Fatalf("recreate must still proceed after a surfaced drain failure:\n%s", seq)
+	}
+}
+
 // A local hook must see the FULL user@host in $OB_TARGET (not the bare
 // hostname), so hooks can ssh/rsync the deploy host without hardcoding it.
 func TestLocalHookGetsFullTargetInEnv(t *testing.T) {

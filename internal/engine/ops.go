@@ -61,7 +61,15 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 		for _, id := range strings.Fields(ids.Stdout) {
 			if validID.MatchString(id) {
-				_, _ = e.mutate(ctx, "docker rm -f "+id)
+				// Don't report a clean destroy while a container survives: a
+				// non-zero removal is surfaced so the operator knows teardown was
+				// partial. A transport/fence error aborts before the state dir is
+				// removed.
+				if res, err := e.mutate(ctx, "docker rm -f "+id); err != nil {
+					return err
+				} else if res.ExitCode != 0 {
+					e.warnf("remove container %s failed: %s", id, strings.TrimSpace(res.Stderr))
+				}
 			}
 		}
 		// `docker rm -f` never removes named volumes — honor --volumes here

@@ -33,6 +33,31 @@ func TestConfirmDefaultsToNo(t *testing.T) {
 	}
 }
 
+func TestConfirmInteractiveDeployRequiresConfirmationWithoutPolicyApproval(t *testing.T) {
+	plan := &onebox.DeployPlan{Operation: onebox.OperationPlan{Approval: onebox.ApprovalNone}}
+	for _, tt := range []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "defaults to no", input: "", want: false},
+		{name: "explicit yes", input: "yes\n", want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			var out bytes.Buffer
+			cmd.SetIn(strings.NewReader(tt.input))
+			cmd.SetOut(&out)
+			if got := confirmInteractiveDeploy(cmd, plan); got != tt.want {
+				t.Fatalf("confirmation = %v, want %v", got, tt.want)
+			}
+			if !strings.Contains(out.String(), "Apply this plan? [y/N]") {
+				t.Fatalf("generic deploy confirmation missing: %q", out.String())
+			}
+		})
+	}
+}
+
 func writeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

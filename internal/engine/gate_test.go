@@ -314,7 +314,7 @@ func TestNoRollbackFlagAlwaysHalts(t *testing.T) {
 	}
 }
 
-func TestMigrateComposeJobGetsWritableBoundResultFile(t *testing.T) {
+func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
@@ -322,13 +322,21 @@ func TestMigrateComposeJobGetsWritableBoundResultFile(t *testing.T) {
 	}
 	found := false
 	for _, c := range f.Commands {
-		if strings.Contains(c, "run -e OB_RESULT_FILE=/run/onebox/job-result") &&
-			strings.Contains(c, "-v '/var/lib/ob/monk/releases/R1/.job-migrate-result:/run/onebox/job-result:rw'") &&
-			strings.Contains(c, "install -m 666") && strings.Contains(c, "chmod 600") {
+		const (
+			resultDir  = "/var/lib/ob/monk/releases/R1/.job-migrate-result"
+			resultFile = resultDir + "/result"
+		)
+		privateDir := strings.Index(c, "install -d -m 700 '"+resultDir+"'")
+		writableFile := strings.Index(c, "install -m 666 /dev/null '"+resultFile+"'")
+		mount := strings.Index(c, "-v '"+resultFile+":/run/onebox/job-result:rw'")
+		sealedFile := strings.Index(c, "chmod 600 '"+resultFile+"'")
+		if strings.Contains(c, "rm -rf '"+resultDir+"'") &&
+			strings.Contains(c, "run -e OB_RESULT_FILE=/run/onebox/job-result") &&
+			privateDir >= 0 && privateDir < writableFile && writableFile < mount && mount < sealedFile {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("migrate container must receive a writable, subsequently sealed result file:\n%s", strings.Join(f.Commands, "\n"))
+		t.Fatalf("migrate container must receive a privately staged, writable, subsequently sealed result file:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }

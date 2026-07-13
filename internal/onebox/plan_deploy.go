@@ -37,6 +37,13 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err := ensureEnvironment(lp.config, s.environment); err != nil {
 		return DeployPlan{}, err
 	}
+	environmentConfig, err := lp.config.Environment(s.environment)
+	if err != nil {
+		return DeployPlan{}, err
+	}
+	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, ExecutableDeployPlanSchemaVersion); err != nil {
+		return DeployPlan{}, err
+	}
 	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return DeployPlan{}, err
 	}
@@ -123,7 +130,15 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, err
 	}
-	risk, reversibility, approval := classifyDeployment(steps, hostState.CurrentRelease)
+	migrationBackup, err := migrationBackupRequirement(lp.config, environmentConfig.Policy, steps)
+	if err != nil {
+		return DeployPlan{}, fmt.Errorf("build migration backup requirement: %w", err)
+	}
+	risk, reversibility, approval := classifyDeploymentForPolicy(
+		steps,
+		hostState.CurrentRelease,
+		environmentConfig.Policy.ApprovalRequired(),
+	)
 	operation := OperationPlan{
 		SchemaVersion: OperationPlanSchemaVersion,
 		ID:            releaseID,
@@ -147,7 +162,9 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	}
 	plan := DeployPlan{
 		SchemaVersion: ExecutableDeployPlanSchemaVersion,
+		Runner:        s.runner,
 		Operation:     operation, Artifact: artifact, Diff: diff, NoOp: noOp,
+		MigrationBackup: migrationBackup,
 	}
 	if err := plan.Seal(); err != nil {
 		return DeployPlan{}, fmt.Errorf("seal executable deployment plan: %w", err)
@@ -168,6 +185,14 @@ func classifyDeployment(steps []OperationStep, currentRelease string) (RiskClass
 		return RiskModerate, ReversibilityConditional, ApprovalOneTime
 	}
 	return RiskModerate, ReversibilityReversible, ApprovalOneTime
+}
+
+func classifyDeploymentForPolicy(steps []OperationStep, currentRelease string, approvalRequired bool) (RiskClass, ReversibilityClass, ApprovalClass) {
+	risk, reversibility, approval := classifyDeployment(steps, currentRelease)
+	if !approvalRequired {
+		approval = ApprovalNone
+	}
+	return risk, reversibility, approval
 }
 
 func readLiveComposeState(ctx context.Context, e *engine.Engine, app, currentRelease string) (string, string, error) {

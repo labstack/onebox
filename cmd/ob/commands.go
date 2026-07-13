@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/spf13/cobra"
@@ -172,16 +174,32 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	planCmd.Flags().StringVarP(&planOut, "out", "o", "ob-plan.json", "plan artifact path")
 	root.AddCommand(planCmd)
 
-	var planFile string
+	var approvePlanFile, approveOut string
+	approveCmd := &cobra.Command{
+		Use:   "approve",
+		Short: "create a short-lived approval bound to one exact executable plan",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runApprove(cmd, approvePlanFile, approveOut)
+		},
+	}
+	approveCmd.Flags().StringVar(&approvePlanFile, "plan", "", "executable plan artifact to approve")
+	approveCmd.Flags().StringVarP(&approveOut, "out", "o", "ob-approval.json", "approval grant path")
+	_ = approveCmd.MarkFlagRequired("plan")
+	root.AddCommand(approveCmd)
+
+	var planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason string
 	var deployYes, deployRedeploy bool
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, planFile, deployYes, deployRedeploy)
+			return runDeploy(cmd, g, planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason, deployYes, deployRedeploy)
 		},
 	}
-	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; no prompt)")
+	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; approval is separate)")
+	deployCmd.Flags().StringVar(&approvalFile, "approval", "", "apply a plan-bound approval grant")
+	deployCmd.Flags().StringVar(&backupEvidenceFile, "backup-evidence", "", "apply a plan-bound migration backup evidence receipt")
+	deployCmd.Flags().StringVar(&migrationBackupOverrideReason, "override-migration-backup", "", "audited break-glass reason for proceeding without required backup evidence (requires --approval)")
 	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
 	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
@@ -192,10 +210,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := operationsService(cmd, g).Execute(cmd.Context(), onebox.ExecuteRequest{
+			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindBootstrap, Force: g.Force,
-			})
-			return err
+			}, "bootstrap")
 		},
 	}
 	// without this, a bootstrap killed while holding the app/host lock can
@@ -234,16 +251,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "status",
 		Short: "recorded versus actual state per workload and service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAllLenient(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			return e.Status(cmd.Context())
+			return runStatus(cmd, g)
 		},
 	})
 
@@ -293,7 +301,10 @@ func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, er
 		Status: "ok", Operator: journal.DefaultOperator(),
 	}
 	if err != nil {
-		p.Status, p.Error = "fail", err.Error()
+		// Remote stderr and provider responses can contain credentials. Detailed
+		// failures stay on the trusted local stderr path; webhooks receive only a
+		// stable, redaction-safe outcome.
+		p.Status, p.Error = "fail", "operation failed; inspect trusted local diagnostics and journal evidence"
 	}
 	if nerr := notify.Send(cfg.Notify, p); nerr != nil {
 		fmt.Fprintf(os.Stderr, "warn: notify webhook: %v\n", nerr)
@@ -330,13 +341,16 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	renderDeployPlan(cmd, u, plan)
+	if !isStructuredOutput(g) {
+		renderDeployPlan(cmd, u, plan)
+	}
 	return &preparedPlan{cfg: cfg, svc: svc, plan: plan, ui: u}, nil
 }
 
 func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 	out := cmd.OutOrStdout()
 	u.Header("plan " + plan.Operation.ReleaseID)
+	u.Println(u.Dim("planner: " + formatRunnerProvenance(plan.Runner)))
 	for _, line := range strings.Split(engine.FidelityContract, "\n") {
 		u.Println(u.Dim(line))
 	}
@@ -361,6 +375,9 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 		if step.DataEffect != onebox.DataEffectNone {
 			detail += "  data_effect=" + string(step.DataEffect)
 		}
+		if step.ResultPolicy != "" {
+			detail += "  result_policy=" + string(step.ResultPolicy)
+		}
 		if step.Strategy != "" {
 			detail += "  strategy=" + step.Strategy
 		}
@@ -368,6 +385,11 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 			detail = "  " + detail
 		}
 		u.Println("  " + step.ID + detail)
+	}
+	if plan.MigrationBackup != nil {
+		u.Println(fmt.Sprintf("  migration_backup=max_age:%s restore_test:%t resources:%d keys:%d",
+			plan.MigrationBackup.MaxAge, plan.MigrationBackup.RequireRestoreTest,
+			len(plan.MigrationBackup.Resources), len(plan.MigrationBackup.RequiredKeyMaterial)))
 	}
 	fmt.Fprintln(out)
 
@@ -412,10 +434,13 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 	pl, err := buildPlan(cmd, g)
 	if err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
 	if err := pl.plan.Save(outPath); err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
+	}
+	if isStructuredOutput(g) {
+		return writeCLIJSON(cmd.OutOrStdout(), pl.plan, g.Output == "json")
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s — apply with: ob deploy --plan %s\n", outPath, outPath)
 	return nil
@@ -425,7 +450,7 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 // newUI builds the one UI instance a command shares across the connect
 // spinner, narrative, and command log — one stream, one line discipline.
 func newUI(cmd *cobra.Command, g *globalFlags) *ui.UI {
-	return ui.New(cmd.OutOrStdout(), g.Verbose)
+	return ui.New(commandOutput(cmd, g), g.Verbose && !isStructuredOutput(g))
 }
 
 // cliConnector is replaceable by in-package tests and honors OB_LOCAL for the
@@ -460,7 +485,7 @@ func operationsServiceWithUI(cmd *cobra.Command, g *globalFlags, u *ui.UI) *oneb
 	}
 	return onebox.New(onebox.Options{
 		ConfigPath: g.ConfigPath, Environment: g.Env, Connect: connector,
-		EngineOptions: engine.Options{Verbose: g.Verbose, UI: u, Out: cmd.OutOrStdout()},
+		EngineOptions: engine.Options{Verbose: g.Verbose, UI: u, Out: commandOutput(cmd, g)},
 	})
 }
 
@@ -478,11 +503,74 @@ func notificationConfig(g *globalFlags) (*config.Config, error) {
 func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteRequest, verb string) error {
 	cfg, err := notificationConfig(g)
 	if err != nil {
-		return err
+		return writeEarlyOperationFailure(cmd, g, err)
+	}
+	var structured *cliOperationOutput
+	if isStructuredOutput(g) {
+		structured = newCLIOperationOutput(cmd, g)
+		previousSink := request.Events
+		request.Events = func(event onebox.OperationEvent) {
+			if previousSink != nil {
+				previousSink(event)
+			}
+			structured.event(event)
+		}
 	}
 	result, err := operationsService(cmd, g).Execute(cmd.Context(), request)
 	notifyOperationOutcome(cfg, g, verb, result, err)
+	if structured != nil {
+		if outputErr := structured.finish(&result, err); outputErr != nil && err == nil {
+			return outputErr
+		}
+	}
 	return err
+}
+
+func runStatus(cmd *cobra.Command, g *globalFlags) error {
+	cfg, p, err := loadAllLenient(cmd.Context(), g)
+	if err != nil {
+		return writeStatusFailure(cmd, g, err)
+	}
+	e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
+	if err != nil {
+		return writeStatusFailure(cmd, g, err)
+	}
+	defer cleanup()
+	if !isStructuredOutput(g) {
+		return e.Status(cmd.Context())
+	}
+	snapshot, err := e.StatusSnapshot(cmd.Context())
+	if err != nil {
+		return writeStatusFailure(cmd, g, err)
+	}
+	snapshot = safeStatusSnapshot(snapshot)
+	envelope := cliStatusEnvelope{SchemaVersion: cliStatusSchemaVersion, Status: &snapshot}
+	if snapshot.Diverged {
+		envelope.Error = &cliPublicError{Code: "divergence_detected", Message: "recorded and observed state diverge"}
+	}
+	if err := writeCLIJSON(cmd.OutOrStdout(), envelope, g.Output == "json"); err != nil {
+		return err
+	}
+	if snapshot.Diverged {
+		return fmt.Errorf("status: divergence detected")
+	}
+	return nil
+}
+
+func writeStatusFailure(cmd *cobra.Command, g *globalFlags, statusErr error) error {
+	if !isStructuredOutput(g) {
+		return statusErr
+	}
+	if err := writeCLIJSON(cmd.OutOrStdout(), cliStatusEnvelope{
+		SchemaVersion: cliStatusSchemaVersion,
+		Error: &cliPublicError{
+			Code:    "status_failed",
+			Message: "status failed; inspect stderr for local diagnostics",
+		},
+	}, g.Output == "json"); err != nil {
+		return err
+	}
+	return statusErr
 }
 
 func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
@@ -499,26 +587,75 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 	e := engine.New(cfg, p, t, engine.Options{
 		Verbose:    g.Verbose,
 		UI:         u,
-		Out:        cmd.OutOrStdout(),
+		Out:        commandOutput(cmd, g),
 		LocalDir:   filepath.Dir(g.ConfigPath),
 		NoRollback: g.NoRollback,
 		ForceLock:  g.Force,
 		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
 		ConfigHash: engine.HashBytes(cfgBytes),
+		Runner:     onebox.CurrentRunnerProvenance(),
 	})
 	return e, func() { _ = t.Close() }, nil
 }
 
-func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, yes, redeploy bool) error {
+func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason string, yes, redeploy bool) error {
+	if backupEvidenceFile != "" && migrationBackupOverrideReason != "" {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--backup-evidence and --override-migration-backup are mutually exclusive"))
+	}
+	if planFile == "" && (backupEvidenceFile != "" || migrationBackupOverrideReason != "") {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("migration backup evidence and overrides require --plan"))
+	}
+	if planFile == "" && approvalFile != "" {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--approval requires --plan so the exact approved artifact is applied"))
+	}
+	if migrationBackupOverrideReason != "" && approvalFile == "" {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--override-migration-backup requires a strong plan-bound --approval file"))
+	}
+	if isStructuredOutput(g) && planFile == "" {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("structured deploy requires --plan; run `ob plan --output %s` first", g.Output))
+	}
 	if planFile != "" {
 		plan, err := onebox.LoadDeployPlan(planFile)
 		if err != nil {
-			return err
+			return writeEarlyOperationFailure(cmd, g, err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "→ applying plan %s (bound; drift will be rechecked)\n", plan.Operation.ReleaseID)
+		approval, err := loadApproval(approvalFile)
+		if err != nil {
+			return writeEarlyOperationFailure(cmd, g, err)
+		}
+		needsMutation := !plan.NoOp || redeploy
+		if isStructuredOutput(g) && approval == nil && needsMutation && plan.Operation.Approval != onebox.ApprovalNone {
+			return writeEarlyOperationFailure(cmd, g, fmt.Errorf(
+				"structured deploy requires an explicit plan-bound --approval artifact; run `ob approve --plan %s` first",
+				planFile,
+			))
+		}
+		if approval == nil && needsMutation && plan.Operation.Approval != onebox.ApprovalNone && !yes {
+			renderApprovalSummary(cmd, plan)
+			if !confirmPlanApproval(cmd, plan) {
+				fmt.Fprintln(cmd.OutOrStdout(), "not approved")
+				return nil
+			}
+			grant, err := onebox.NewApprovalGrant(plan, journal.DefaultOperator(), time.Now())
+			if err != nil {
+				return err
+			}
+			approval = &grant
+		}
+		backupEvidence, backupOverride, err := loadMigrationBackupAuthorization(
+			plan, approval, backupEvidenceFile, migrationBackupOverrideReason, time.Now(),
+		)
+		if err != nil {
+			return writeEarlyOperationFailure(cmd, g, err)
+		}
+		if !isStructuredOutput(g) {
+			fmt.Fprintf(cmd.OutOrStdout(), "→ runner %s; applying plan %s (bound; drift will be rechecked)\n",
+				formatRunnerProvenance(onebox.CurrentRunnerProvenance()), plan.Operation.ReleaseID)
+		}
 		return runMutation(cmd, g, onebox.ExecuteRequest{
-			Kind: onebox.KindDeploy, Plan: plan, Force: g.Force,
+			Kind: onebox.KindDeploy, Plan: plan, Approval: approval, Force: g.Force,
 			NoRollback: g.NoRollback, Redeploy: redeploy,
+			BackupEvidence: backupEvidence, MigrationBackupOverride: backupOverride,
 		}, "deploy")
 	}
 
@@ -529,12 +666,26 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, yes, redeplo
 		return err
 	}
 	plannedNoOp := pl.plan.NoOp && !redeploy
-	if !plannedNoOp && !yes && !confirm(cmd, "\nApply this plan?") {
-		fmt.Fprintln(cmd.OutOrStdout(), "not applied")
-		return nil
+	if !plannedNoOp && pl.plan.MigrationBackup != nil {
+		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan`, create a receipt with `ob backup-evidence create`, then use `ob deploy --plan PLAN --backup-evidence RECEIPT --approval APPROVAL` (or the audited override flags)")
+	}
+	approval, err := loadApproval(approvalFile)
+	if err != nil {
+		return err
+	}
+	if !plannedNoOp && approval == nil && !yes {
+		if !confirmPlanApproval(cmd, &pl.plan) {
+			fmt.Fprintln(cmd.OutOrStdout(), "not approved")
+			return nil
+		}
+		grant, err := onebox.NewApprovalGrant(&pl.plan, journal.DefaultOperator(), time.Now())
+		if err != nil {
+			return err
+		}
+		approval = &grant
 	}
 	result, err := pl.svc.Execute(cmd.Context(), onebox.ExecuteRequest{
-		Kind: onebox.KindDeploy, Plan: &pl.plan, Force: g.Force,
+		Kind: onebox.KindDeploy, Plan: &pl.plan, Approval: approval, Force: g.Force,
 		NoRollback: g.NoRollback, Redeploy: redeploy,
 	})
 	if err == nil && result.NoOp {
@@ -543,6 +694,83 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, yes, redeplo
 	}
 	notifyOperationOutcome(pl.cfg, g, "deploy", result, err)
 	return err
+}
+
+func loadMigrationBackupAuthorization(
+	plan *onebox.DeployPlan,
+	approval *onebox.ApprovalGrant,
+	evidencePath, overrideReason string,
+	now time.Time,
+) (*onebox.BackupEvidenceReceipt, *onebox.MigrationBackupOverride, error) {
+	if evidencePath != "" {
+		receipt, err := onebox.LoadBackupEvidenceReceipt(evidencePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		return receipt, nil, nil
+	}
+	if overrideReason == "" {
+		return nil, nil, nil
+	}
+	if approval == nil {
+		return nil, nil, errors.New("migration backup override requires a strong plan-bound approval")
+	}
+	override, err := onebox.NewMigrationBackupOverride(plan, journal.DefaultOperator(), overrideReason, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &override, nil
+}
+
+func loadApproval(path string) (*onebox.ApprovalGrant, error) {
+	if path == "" {
+		return nil, nil
+	}
+	return onebox.LoadApprovalGrant(path)
+}
+
+func runApprove(cmd *cobra.Command, planPath, outPath string) error {
+	plan, err := onebox.LoadDeployPlan(planPath)
+	if err != nil {
+		return err
+	}
+	renderApprovalSummary(cmd, plan)
+	if !confirmPlanApproval(cmd, plan) {
+		fmt.Fprintln(cmd.OutOrStdout(), "not approved")
+		return nil
+	}
+	approval, err := onebox.NewApprovalGrant(plan, journal.DefaultOperator(), time.Now())
+	if err != nil {
+		return err
+	}
+	if err := approval.Save(outPath); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "approval written to %s — apply with: ob deploy --plan %s --approval %s\n", outPath, planPath, outPath)
+	return nil
+}
+
+func renderApprovalSummary(cmd *cobra.Command, plan *onebox.DeployPlan) {
+	binding := plan.Operation.Binding
+	fmt.Fprintf(cmd.OutOrStdout(), "\nApprove exact plan:\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "  release: %s\n", plan.Operation.ReleaseID)
+	fmt.Fprintf(cmd.OutOrStdout(), "  digest:  %s\n", plan.PlanDigest)
+	fmt.Fprintf(cmd.OutOrStdout(), "  target:  %s (%s/%s)\n", binding.Target, binding.Application, binding.Environment)
+	fmt.Fprintf(cmd.OutOrStdout(), "  risk:    %s (%s)\n", plan.Operation.Risk, plan.Operation.Approval)
+	fmt.Fprintf(cmd.OutOrStdout(), "  expires: %s\n", plan.Operation.ExpiresAt)
+}
+
+func confirmPlanApproval(cmd *cobra.Command, plan *onebox.DeployPlan) bool {
+	if plan.Operation.Approval == onebox.ApprovalNone {
+		return true
+	}
+	if plan.Operation.Approval != onebox.ApprovalStrong && plan.Operation.Approval != onebox.ApprovalBreakGlass {
+		return confirm(cmd, "Approve this exact plan?")
+	}
+	want := plan.Operation.ReleaseID
+	fmt.Fprintf(cmd.OutOrStdout(), "Type release ID %s to approve: ", want)
+	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	return strings.TrimSpace(line) == want
 }
 
 // confirm reads a yes/no answer; anything but y/yes (incl. EOF on a

@@ -79,6 +79,70 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	}
 }
 
+func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
+	f := happyFake()
+	jr := journalLines(
+		journal.Record{
+			DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0",
+			Operator: "v@mac", TS: "2026-07-03T00:00:00Z",
+			ApprovalDigest: "sha256:approved", ApprovalClass: "strong",
+			AllowUnknownMigration: allowUnknown,
+		},
+		journal.Record{
+			DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep,
+			Event: "result", Status: "ok", RollbackSafe: true,
+		},
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal"):
+			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
+		case strings.Contains(cmd, "test -d"):
+			return transport.Result{ExitCode: 0}, true
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R0\n"}, true
+		}
+		return base(cmd)
+	}
+	return f
+}
+
+func TestResumeRestoresOnlyExplicitUnknownMigrationAuthority(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		allowed bool
+		wantErr bool
+	}{
+		{name: "plan bound authority", allowed: true},
+		{name: "legacy strong approval is not enough", allowed: false, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := interruptedBeforeMigrationFake(tt.allowed)
+			cfg := testConfig()
+			cfg.Components = map[string]config.Component{
+				"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+			}
+			var out bytes.Buffer
+			e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
+			err := e.Resume(context.Background())
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "no strong plan-bound approval") {
+					t.Fatalf("resume error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resume: %v\n%s", err, strings.Join(f.Commands, "\n"))
+			}
+			if !e.Opts.AllowUnknownMigration || !strings.Contains(out.String(), "authorized by strong plan-bound approval") {
+				t.Fatalf("plan-bound unknown authority was not restored: opts=%v output=%s", e.Opts.AllowUnknownMigration, out.String())
+			}
+		})
+	}
+}
+
 func TestResumeWithNothingIncomplete(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic

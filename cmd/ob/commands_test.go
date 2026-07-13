@@ -273,16 +273,17 @@ func TestNotifyOutcome(t *testing.T) {
 	if hits != 0 {
 		t.Fatal("success must be filtered")
 	}
-	// failure fires with the verb, host, and error
-	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("verify: HALT-AND-PAGE"))
+	// failure fires with the verb and host, but detailed errors never leave the
+	// trusted local path.
+	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("verify: Authorization=Bearer super-secret"))
 	if hits != 1 {
 		t.Fatal("failure must fire")
 	}
 	if got["verb"] != "deploy" || got["deploy_id"] != "R1" || got["host"] != "root@h" {
 		t.Fatalf("payload: %v", got)
 	}
-	if !strings.Contains(got["text"].(string), "HALT-AND-PAGE") {
-		t.Fatalf("text: %v", got["text"])
+	if text := got["text"].(string); strings.Contains(text, "super-secret") || !strings.Contains(text, "inspect trusted local diagnostics") {
+		t.Fatalf("notification text was not safely redacted: %v", text)
 	}
 	// A saved-plan no-op must not claim that its unactivated release succeeded.
 	cfg.Notify.On = []string{"success", "failure"}

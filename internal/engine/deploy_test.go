@@ -110,6 +110,8 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		`"role":"web","event":"result","status":"ok"`,
 		`"role":"worker","event":"result","status":"ok"`,
 		`"phase":"verify","event":"result","status":"ok"`,
+		`"phase":"activation","event":"intent"`,
+		`"phase":"activation","event":"result","status":"ok"`,
 		`"event":"finish","status":"ok"`,
 	}
 	last := -1
@@ -137,6 +139,31 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 	}
 }
 
+func TestDeployEmitsVerificationAndActivationProgress(t *testing.T) {
+	f := happyFake()
+	var transitions []string
+	e := New(testConfig(), testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Sleep: noSleep,
+		Progress: func(phase, status, message string) {
+			transitions = append(transitions, phase+":"+status+":"+message)
+		},
+	})
+	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	want := []string{
+		"verification:started:",
+		"verification:succeeded:",
+		"activation:started:",
+		"activation:succeeded:",
+		"cleanup:started:",
+		"cleanup:succeeded:",
+	}
+	if strings.Join(transitions, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("transitions = %#v, want %#v", transitions, want)
+	}
+}
+
 func TestDeployPhaseOrder(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
@@ -146,7 +173,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	phases := []string{
 		"docker version",                                // preflight
-		"run --rm --no-deps migrate",                    // pre-release hook (after upload)
+		"--rm --no-deps migrate",                        // pre-release hook (after upload)
 		"--scale server=2 server",                       // release: web rolls first (order)
 		"--force-recreate --timeout 30 worker",          // then worker recreates
 		"curl -fsS -m 5 http://172.20.0.5:7500/healthz", // verify

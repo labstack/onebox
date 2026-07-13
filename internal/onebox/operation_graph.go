@@ -39,14 +39,18 @@ func deploymentGraph(cfg *config.Config, releaseID string) ([]OperationStep, err
 	for _, name := range orderedComponents(cfg, "job") {
 		component := cfg.Components[name]
 		service := componentService(name, component)
-		appendStep(OperationStep{
+		step := OperationStep{
 			ID:         "job:" + service,
 			Kind:       StepJob,
 			Component:  name,
 			Service:    service,
 			DataEffect: DataEffectClass(component.DataEffect),
 			Mutation:   true,
-		})
+		}
+		if step.DataEffect == DataEffectMigration {
+			step.ResultPolicy = JobResultProviderOrStrongUnknown
+		}
+		appendStep(step)
 	}
 
 	if hasLifecycleHook(cfg, "pre_release") {

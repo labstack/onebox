@@ -34,25 +34,45 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 // and roles skip; the half-rolled role is adopted via its ob.release label.
 // A NEW lock epoch is taken, which fences the old runner if it still lives.
 func (e *Engine) Resume(ctx context.Context) error {
+	_, err := e.ResumeWithJournalID(ctx)
+	return err
+}
+
+// ResumeWithJournalID resumes the incomplete deploy and returns the journal
+// identity it operated on. The identity is returned even when execution fails
+// after the incomplete journal has been resolved.
+func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 	s, err := e.FindIncomplete(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	e.logf("resuming %s (started %s by %s; done: transfer=%v migrate=%v)",
 		s.DeployID, s.StartedAt, s.Operator, s.Done["transfer"], s.Done["migrate"])
 	e.gateOpen = s.GateOpen
 	e.rollbackCovered = s.RollbackCovered // preserve the interrupted deploy's effect policy
-	return e.deployCore(ctx, s.DeployID, "", s.Done)
+	return s.DeployID, e.deployCore(ctx, s.DeployID, "", s.Done)
 }
 
 // Abort reverts an interrupted deploy to the previous release. The migration
 // gate governs abort exactly like auto-rollback (design §06 rev 4): aborting
 // after a schema change is the same hazard.
 func (e *Engine) Abort(ctx context.Context, force bool) error {
+	_, err := e.AbortWithJournalID(ctx, force)
+	return err
+}
+
+// AbortWithJournalID aborts the incomplete deploy and returns the journal
+// identity it operated on. The identity is returned even when the abort fails
+// after the incomplete journal has been resolved.
+func (e *Engine) AbortWithJournalID(ctx context.Context, force bool) (string, error) {
 	s, err := e.FindIncomplete(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
+	return s.DeployID, e.abort(ctx, s, force)
+}
+
+func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) error {
 	if !s.RollbackCovered && !force {
 		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --force` if you know the data is compatible", s.DeployID)
 	}

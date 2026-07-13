@@ -56,9 +56,12 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 	defer e.releaseHostLock(ctx)
+	if res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true"); err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("clean stale proxy staging: %v %s", err, strings.TrimSpace(res.Stderr))
+	}
 
 	acmeJSON := hp.Acme + "/acme.json"
-	if res, err := e.T.Run(ctx, "mkdir -p "+q(hp.Apps)+" "+q(hp.Acme)+" && { test -f "+q(acmeJSON)+" || (touch "+q(acmeJSON)+" && chmod 600 "+q(acmeJSON)+"); }"); err != nil {
+	if res, err := e.hostMutate(ctx, "mkdir -p "+q(hp.Apps)+" "+q(hp.Acme)+" && { test -f "+q(acmeJSON)+" || (touch "+q(acmeJSON)+" && chmod 600 "+q(acmeJSON)+"); }"); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("host proxy dirs: %s", res.Stderr)
@@ -115,8 +118,13 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		// so it must never see a half-written dir for the (seconds-long) upload
 		// window — only for the instant of the rm+mv. Stale files can't linger
 		// either (upload is additive tar; the swap replaces the whole dir).
-		stagedDir := hp.Dir + "/.staged"
-		if res, err := e.mutate(ctx, "rm -rf "+q(stagedDir)); err != nil || res.ExitCode != 0 {
+		stagedDir := hp.Dir + "/.staged-" + e.hostLockToken
+		defer func() {
+			cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = e.hostMutate(cleanupContext, "rm -rf "+q(stagedDir))
+		}()
+		if res, err := e.hostMutate(ctx, "rm -rf "+q(stagedDir)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("clear proxy staging: %v %s", err, res.Stderr)
 		}
 		if err := e.T.Upload(ctx, staging, stagedDir); err != nil {
@@ -126,7 +134,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 			" && mv " + q(stagedDir+"/config") + " " + q(hp.ConfigDir) +
 			" && mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose) +
 			" && rm -rf " + q(stagedDir)
-		if res, err := e.mutate(ctx, swap); err != nil || res.ExitCode != 0 {
+		if res, err := e.hostMutate(ctx, swap); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("swap proxy config: %v %s", err, res.Stderr)
 		}
 	}
@@ -137,7 +145,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	// the change was config-only — restart so the static config reloads.
 	before := idSet(ids)
 	e.logf("proxy: converging")
-	if res, err := e.mutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d"); err != nil {
+	if res, err := e.hostMutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d"); err != nil {
 		fail("")
 		return err
 	} else if res.ExitCode != 0 {
@@ -154,7 +162,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	}
 	if before[ids[0]] {
 		e.logf("proxy: container not recreated — restarting %s to load the new config", proxy.ContainerName)
-		if res, err := e.mutate(ctx, "docker restart "+proxy.ContainerName); err != nil {
+		if res, err := e.hostMutate(ctx, "docker restart "+proxy.ContainerName); err != nil {
 			fail("")
 			return err
 		} else if res.ExitCode != 0 {
@@ -168,7 +176,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	}
 	// the applied-state marker — written ONLY after health confirms, so an
 	// interrupted converge is retried, never mistaken for "unchanged"
-	if res, err := e.mutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash)); err != nil || res.ExitCode != 0 {
+	if res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("write proxy hash: %v %s", err, res.Stderr)
 	}
 	if err := e.registerProxyApp(ctx, hp, hash); err != nil {
@@ -208,7 +216,7 @@ func (e *Engine) proxyConflict(ctx context.Context, hp proxy.Paths, hash string,
 }
 
 func (e *Engine) registerProxyApp(ctx context.Context, hp proxy.Paths, hash string) error {
-	res, err := e.mutate(ctx, "echo "+q(hash)+" > "+q(hp.Apps+"/"+e.Cfg.App))
+	res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Apps+"/"+e.Cfg.App))
 	if err != nil {
 		return err
 	}

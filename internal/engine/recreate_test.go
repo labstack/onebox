@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/transport"
@@ -25,12 +26,61 @@ func TestRecreateRoleSequence(t *testing.T) {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "up -d --no-deps --force-recreate worker") {
+	if !strings.Contains(seq, "up -d --no-deps --force-recreate --timeout 30 worker") {
 		t.Fatalf("missing force-recreate:\n%s", seq)
 	}
-	// worker drain is TERM: left to docker's own stop during recreate
-	if strings.Contains(seq, "--signal=TERM") {
-		t.Fatalf("TERM bleed should be left to stop/recreate:\n%s", seq)
+	if !strings.Contains(seq, "docker kill --signal=TERM W1") {
+		t.Fatalf("TERM drain signal must precede recreate:\n%s", seq)
+	}
+}
+
+func TestRecreateRoleHonorsDrainGrace(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker ps -q") {
+			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Status}}") {
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	cfg := testConfig()
+	cfg.Roles["worker"].Drain.Grace = config.Duration(45 * time.Second)
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatal(err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "up -d --no-deps --force-recreate --timeout 45 worker") {
+		t.Fatalf("recreate did not honor drain grace:\n%s", seq)
+	}
+}
+
+func TestRecreateRoleSurfacesFailedDrainSignal(t *testing.T) {
+	// A misspelled drain.signal makes `docker kill` exit non-zero. That must be
+	// surfaced (not silently swallowed) so the operator learns their declared
+	// drain never fires — while the recreate still proceeds.
+	out := &bytes.Buffer{}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker ps -q") {
+			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Status}}") {
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		if strings.Contains(cmd, "docker kill --signal=") {
+			return transport.Result{ExitCode: 125, Stderr: "Error response from daemon: invalid signal: TERM_TYPO"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: out, Sleep: noSleep})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatalf("a per-container drain-signal rejection must not abort recreate: %v", err)
+	}
+	if !strings.Contains(out.String(), "drain signal") || !strings.Contains(out.String(), "invalid signal") {
+		t.Fatalf("failed drain signal was not surfaced to the operator: %q", out.String())
+	}
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "up -d --no-deps --force-recreate") {
+		t.Fatalf("recreate must still proceed after a surfaced drain failure:\n%s", seq)
 	}
 }
 

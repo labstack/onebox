@@ -68,7 +68,7 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	if strings.Contains(seq, "OB_RESULT_FILE") {
 		t.Fatalf("migrate already ran — resume must not re-run it:\n%s", seq)
 	}
-	if !strings.Contains(seq, "--force-recreate worker") {
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
 		t.Fatalf("pending worker must be released:\n%s", seq)
 	}
 	if !strings.Contains(seq, "ln -sfn 'releases/R1'") {

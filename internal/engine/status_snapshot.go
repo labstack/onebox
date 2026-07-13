@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
@@ -31,6 +32,7 @@ type StatusSnapshot struct {
 	Diverged        bool              `json:"diverged"`
 	Complete        bool              `json:"complete"`
 	Warnings        []StatusWarning   `json:"warnings,omitempty"`
+	Runner          buildinfo.Runner  `json:"runner"`
 }
 
 // StatusRole is one configured application role and its observed containers.
@@ -138,6 +140,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		App:         e.Cfg.App,
 		Host:        e.T.Host(),
 		CapturedAt:  e.Opts.Now().UTC(),
+		Runner:      e.Opts.Runner,
 		Roles:       make([]StatusRole, 0, len(e.Cfg.Order)),
 		Accessories: make([]StatusAccessory, 0, len(e.Cfg.Accessories)),
 		Complete:    true,

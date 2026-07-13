@@ -3,16 +3,18 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/ui"
 )
 
-var version = "0.0.1-m0"
+var version = buildinfo.Read().Version
 
 type globalFlags struct {
 	Verbose    bool
@@ -20,6 +22,7 @@ type globalFlags struct {
 	ConfigPath string
 	NoRollback bool
 	Force      bool
+	Output     string
 }
 
 func newRootCmd() *cobra.Command {
@@ -31,10 +34,22 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			switch g.Output {
+			case "human", "json", "ndjson":
+				return nil
+			default:
+				return fmt.Errorf("--output must be human, json, or ndjson")
+			}
+		},
 	}
 	root.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "print every remote command")
 	root.PersistentFlags().StringVarP(&g.Env, "env", "e", "production", "environment name")
 	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "ob.yml", "path to ob.yml")
+	root.PersistentFlags().StringVar(&g.Output, "output", "human", "output mode for plan, deploy, status, and operation events: human|json|ndjson")
+	addVersionCommand(root)
+	addDoctorCommand(root, g)
+	addBackupEvidenceCommand(root, g)
 	addCommands(root, g)
 	addInitCommand(root, g)
 	addOpsCommands(root, g)

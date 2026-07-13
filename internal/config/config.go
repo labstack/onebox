@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/labstack/onebox/internal/target"
+	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
 )
 
@@ -88,8 +90,14 @@ type Environment struct {
 }
 
 type EnvironmentPolicy struct {
-	RequireApproval     *bool `yaml:"require_approval,omitempty"`
-	AllowAgentProposals *bool `yaml:"allow_agent_proposals,omitempty"`
+	RequireApproval             *bool    `yaml:"require_approval,omitempty"`
+	AllowAgentProposals         *bool    `yaml:"allow_agent_proposals,omitempty"`
+	MinimumOneboxVersion        string   `yaml:"minimum_onebox_version,omitempty"`
+	MinimumPlanSchema           string   `yaml:"minimum_plan_schema,omitempty"`
+	RequireMigrationBackup      *bool    `yaml:"require_migration_backup,omitempty"`
+	MigrationBackupMaxAge       Duration `yaml:"migration_backup_max_age,omitempty"`
+	RequireMigrationRestoreTest *bool    `yaml:"require_migration_restore_test,omitempty"`
+	MigrationBackupKeyMaterial  []string `yaml:"migration_backup_key_material,omitempty"`
 }
 
 func (p EnvironmentPolicy) ApprovalRequired() bool {
@@ -98,6 +106,14 @@ func (p EnvironmentPolicy) ApprovalRequired() bool {
 
 func (p EnvironmentPolicy) AgentProposalsAllowed() bool {
 	return p.AllowAgentProposals == nil || *p.AllowAgentProposals
+}
+
+func (p EnvironmentPolicy) MigrationBackupRequired() bool {
+	return p.RequireMigrationBackup != nil && *p.RequireMigrationBackup
+}
+
+func (p EnvironmentPolicy) MigrationRestoreTestRequired() bool {
+	return p.RequireMigrationRestoreTest == nil || *p.RequireMigrationRestoreTest
 }
 
 type Component struct {
@@ -403,13 +419,34 @@ type Drain struct {
 }
 
 type VerifyCheck struct {
-	HTTP     string `yaml:"http,omitempty"` // path, host-side against the container IP
-	Exec     string `yaml:"exec,omitempty"`
-	URL      string `yaml:"url,omitempty"` // runner-side edge check — advisory territory
-	Role     string `yaml:"component,omitempty"`
-	Port     int    `yaml:"port,omitempty"`     // defaults to the role's ready.port
-	Contains string `yaml:"contains,omitempty"` // for url checks: substring the body must contain
-	Advisory bool   `yaml:"advisory,omitempty"` // warn-only, never fails the deploy
+	HTTP               string                      `yaml:"http,omitempty"` // path, host-side against the container IP
+	Exec               string                      `yaml:"exec,omitempty"`
+	URL                string                      `yaml:"url,omitempty"` // runner-side edge check — advisory territory
+	Role               string                      `yaml:"component,omitempty"`
+	Port               int                         `yaml:"port,omitempty"`             // defaults to the role's ready.port
+	Contains           string                      `yaml:"contains,omitempty"`         // for url checks: substring the body must contain
+	Advisory           bool                        `yaml:"advisory,omitempty"`         // warn-only, never fails the deploy
+	StatusCodes        []int                       `yaml:"status_codes,omitempty"`     // defaults to any 2xx response
+	RequiredHeaders    map[string]string           `yaml:"required_headers,omitempty"` // exact response-header values
+	JSONAssertions     []JSONAssertion             `yaml:"json_assertions,omitempty"`  // scalar equality at dotted paths
+	MigrationRevisions *MigrationRevisionAssertion `yaml:"migration_revisions,omitempty"`
+}
+
+// MigrationRevisionAssertion compares provider-aware job evidence captured at
+// the pre-release gate. It contains revision identifiers only, never database
+// credentials or command output.
+type MigrationRevisionAssertion struct {
+	Job              string   `yaml:"job"`
+	Provider         string   `yaml:"provider"`
+	AppliedRevisions []string `yaml:"applied_revisions"`
+}
+
+type JSONAssertion struct {
+	// Path is a dot-separated sequence of object keys and zero-based array
+	// indexes, for example "service.ready" or "items.0.id".
+	Path string `yaml:"path"`
+	// Equals is restricted by the schema and Validate to a JSON scalar.
+	Equals any `yaml:"equals"`
 }
 
 // PreflightCheck asserts that File exists and contains each key. Require keys
@@ -540,12 +577,16 @@ type Proxy struct {
 }
 
 var (
-	appName        = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	ident          = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-	signalRe       = regexp.MustCompile(`^[A-Z0-9]+$`)
-	registryServer = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.:-]*$`)
-	registryUser   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-	envVar         = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	appName              = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	ident                = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	signalRe             = regexp.MustCompile(`^[A-Z0-9]+$`)
+	registryServer       = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.:-]*$`)
+	registryUser         = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	envVar               = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	executablePlanSchema = regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v[0-9]+((alpha|beta)[0-9]+)?$`)
+	headerName           = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+	jsonPath             = regexp.MustCompile(`^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)*$`)
+	migrationRevisionID  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$`)
 )
 
 func Load(path string) (*Config, error) {
@@ -661,6 +702,38 @@ func (c *Config) Validate() error {
 		}
 		if c.authoring && e.Target == "" {
 			return fmt.Errorf("environments.%s.target: required", name)
+		}
+		if minimum := strings.TrimSpace(e.Policy.MinimumOneboxVersion); minimum != "" {
+			normalized := minimum
+			if !strings.HasPrefix(normalized, "v") {
+				normalized = "v" + normalized
+			}
+			if !semver.IsValid(normalized) {
+				return fmt.Errorf("environments.%s.policy.minimum_onebox_version: %q is not a semantic version", name, minimum)
+			}
+		}
+		if minimum := strings.TrimSpace(e.Policy.MinimumPlanSchema); minimum != "" && !executablePlanSchema.MatchString(minimum) {
+			return fmt.Errorf("environments.%s.policy.minimum_plan_schema: %q is not an executable deploy plan schema", name, minimum)
+		}
+		backupRequired := e.Policy.MigrationBackupRequired()
+		if backupRequired && e.Policy.MigrationBackupMaxAge <= 0 {
+			return fmt.Errorf("environments.%s.policy.migration_backup_max_age: must be positive when require_migration_backup is true", name)
+		}
+		if backupRequired && !e.Policy.ApprovalRequired() {
+			return fmt.Errorf("environments.%s.policy: require_migration_backup requires require_approval so overrides cannot bypass a strong approval ceremony", name)
+		}
+		if !backupRequired && (e.Policy.MigrationBackupMaxAge != 0 || e.Policy.RequireMigrationRestoreTest != nil || len(e.Policy.MigrationBackupKeyMaterial) > 0) {
+			return fmt.Errorf("environments.%s.policy: migration backup settings require require_migration_backup: true", name)
+		}
+		seenKeyMaterial := make(map[string]bool, len(e.Policy.MigrationBackupKeyMaterial))
+		for _, material := range e.Policy.MigrationBackupKeyMaterial {
+			if !ident.MatchString(material) {
+				return fmt.Errorf("environments.%s.policy.migration_backup_key_material: %q must match %s", name, material, ident)
+			}
+			if seenKeyMaterial[material] {
+				return fmt.Errorf("environments.%s.policy.migration_backup_key_material: duplicate %q", name, material)
+			}
+			seenKeyMaterial[material] = true
 		}
 		if e.Target != "" {
 			parsed, err := target.Parse(e.Target)
@@ -803,9 +876,52 @@ func (c *Config) Validate() error {
 		if check.URL != "" {
 			kinds++
 		}
+		if check.MigrationRevisions != nil {
+			kinds++
+		}
 		path := fmt.Sprintf("verification.%d", i)
 		if kinds != 1 {
-			return fmt.Errorf("%s: exactly one of http, exec, or url is required", path)
+			return fmt.Errorf("%s: exactly one of http, exec, url, or migration_revisions is required", path)
+		}
+		if assertion := check.MigrationRevisions; assertion != nil {
+			if check.Role != "" || check.Port != 0 || check.Contains != "" || check.Advisory ||
+				len(check.StatusCodes) > 0 || len(check.RequiredHeaders) > 0 || len(check.JSONAssertions) > 0 {
+				return fmt.Errorf("%s: migration_revisions cannot be combined with component, port, or URL assertion fields", path)
+			}
+			if !ident.MatchString(assertion.Job) {
+				return fmt.Errorf("%s.migration_revisions.job: must match %s", path, ident)
+			}
+			migrationJob := false
+			for name, component := range c.Components {
+				service := component.Service
+				if service == "" {
+					service = name
+				}
+				if component.Type == "job" && component.DataEffect == "migration" && service == assertion.Job {
+					migrationJob = true
+					break
+				}
+			}
+			if !migrationJob {
+				return fmt.Errorf("%s.migration_revisions.job: %q is not a configured migration job service", path, assertion.Job)
+			}
+			if !ident.MatchString(assertion.Provider) {
+				return fmt.Errorf("%s.migration_revisions.provider: must match %s", path, ident)
+			}
+			if len(assertion.AppliedRevisions) == 0 {
+				return fmt.Errorf("%s.migration_revisions.applied_revisions: at least one revision is required", path)
+			}
+			seen := make(map[string]bool, len(assertion.AppliedRevisions))
+			for _, revision := range assertion.AppliedRevisions {
+				if !migrationRevisionID.MatchString(revision) {
+					return fmt.Errorf("%s.migration_revisions.applied_revisions: invalid revision identifier", path)
+				}
+				if seen[revision] {
+					return fmt.Errorf("%s.migration_revisions.applied_revisions: duplicate revision %q", path, revision)
+				}
+				seen[revision] = true
+			}
+			continue
 		}
 		if check.URL != "" {
 			u, err := url.ParseRequestURI(check.URL)
@@ -815,14 +931,52 @@ func (c *Config) Validate() error {
 			if check.Role != "" || check.Port != 0 {
 				return fmt.Errorf("%s: component and port are not valid for a URL check", path)
 			}
+			seenStatus := make(map[int]bool, len(check.StatusCodes))
+			for _, status := range check.StatusCodes {
+				if status < 100 || status > 599 {
+					return fmt.Errorf("%s.status_codes: status %d must be between 100 and 599", path, status)
+				}
+				if seenStatus[status] {
+					return fmt.Errorf("%s.status_codes: duplicate status %d", path, status)
+				}
+				seenStatus[status] = true
+			}
+			headerNames := make([]string, 0, len(check.RequiredHeaders))
+			for name := range check.RequiredHeaders {
+				headerNames = append(headerNames, name)
+			}
+			sort.Strings(headerNames)
+			seenHeaders := make(map[string]string, len(headerNames))
+			for _, name := range headerNames {
+				if !headerName.MatchString(name) {
+					return fmt.Errorf("%s.required_headers: invalid HTTP header name %q", path, name)
+				}
+				folded := strings.ToLower(name)
+				if previous, exists := seenHeaders[folded]; exists {
+					return fmt.Errorf("%s.required_headers: header %q is configured more than once (also %q)", path, name, previous)
+				}
+				seenHeaders[folded] = name
+				if strings.ContainsAny(check.RequiredHeaders[name], "\r\n") {
+					return fmt.Errorf("%s.required_headers.%s: value must not contain a newline", path, name)
+				}
+			}
+			for assertionIndex, assertion := range check.JSONAssertions {
+				assertionPath := fmt.Sprintf("%s.json_assertions.%d", path, assertionIndex)
+				if !jsonPath.MatchString(assertion.Path) {
+					return fmt.Errorf("%s.path: must be a dot-separated JSON path", assertionPath)
+				}
+				if !isJSONScalar(assertion.Equals) {
+					return fmt.Errorf("%s.equals: must be a string, number, boolean, or null", assertionPath)
+				}
+			}
 			continue
 		}
 		role, ok := c.Roles[check.Role]
 		if !ok {
 			return fmt.Errorf("%s.component: unknown application or worker %q", path, check.Role)
 		}
-		if check.Contains != "" || check.Advisory {
-			return fmt.Errorf("%s: contains and advisory are only valid for URL checks", path)
+		if check.Contains != "" || check.Advisory || len(check.StatusCodes) > 0 || len(check.RequiredHeaders) > 0 || len(check.JSONAssertions) > 0 {
+			return fmt.Errorf("%s: contains, advisory, status_codes, required_headers, and json_assertions are only valid for URL checks", path)
 		}
 		if check.Exec != "" && check.Port != 0 {
 			return fmt.Errorf("%s.port: only valid for an HTTP check", path)
@@ -860,6 +1014,24 @@ func (c *Config) Validate() error {
 	// compose.Render) — injecting them here would stomp timings ADOPTED from
 	// the compose file's own healthcheck.
 	return nil
+}
+
+func isJSONScalar(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	case reflect.Float32, reflect.Float64:
+		value := v.Float()
+		return !math.IsNaN(value) && !math.IsInf(value, 0)
+	default:
+		return false
+	}
 }
 
 func isLifecycleHook(name string) bool {

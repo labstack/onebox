@@ -103,7 +103,7 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash}
+	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Cfg.Accessories, ",")})
 
 	pushed, err := release.Push(ctx, e.T, localStagingDir, e.Cfg.App, releaseID)

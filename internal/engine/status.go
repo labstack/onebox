@@ -60,7 +60,18 @@ func (e *Engine) Status(ctx context.Context) error {
 		recorded = "(none — never deployed)"
 	}
 	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.Cfg.App, e.T.Host())
-	fmt.Fprintf(e.Opts.Out, "recorded: %s\n\n", recorded)
+	fmt.Fprintf(e.Opts.Out, "recorded: %s\n", recorded)
+	revision := e.Opts.Runner.VCSRevision
+	if revision == "" {
+		revision = "unknown"
+	} else if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	dirty := ""
+	if e.Opts.Runner.Dirty {
+		dirty = "+dirty"
+	}
+	fmt.Fprintf(e.Opts.Out, "runner:   ob %s (%s%s)\n\n", e.Opts.Runner.Version, revision, dirty)
 	e.ui.Println(e.ui.Bold(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
 
 	diverged := false

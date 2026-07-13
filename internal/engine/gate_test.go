@@ -28,7 +28,7 @@ func gateFake(migrateResult string) *transport.Fake {
 				}
 			}
 			return transport.Result{ExitCode: 22, Stderr: "500"}, true
-		case strings.Contains(cmd, "cat") && strings.Contains(cmd, "job-migrate-result"):
+		case strings.Contains(cmd, "job-migrate-result"):
 			return transport.Result{Stdout: migrateResult}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R0\n"}, true
@@ -71,7 +71,7 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 		t.Fatalf("deploy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "run --rm --no-deps migrate") {
+	if !strings.Contains(seq, "run --rm --no-deps -e OB_RESULT_FILE=/run/onebox/job-result") {
 		t.Fatalf("a job without a hook must auto-run compose run:\n%s", seq)
 	}
 	// gate protocol still applies to the auto-run job.
@@ -149,6 +149,63 @@ func TestGateClosedHaltsAndPages(t *testing.T) {
 	}
 }
 
+func assertRollbackUnavailableMessage(t *testing.T, got string) {
+	t.Helper()
+	for _, want := range []string{
+		"automatic rollback is unavailable after this step",
+		"if a later step fails, halt, fix-forward, then run `ob resume`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rollback consequence missing %q from message:\n%s", want, got)
+		}
+	}
+	for _, old := range []string{"gate closed", "gate stays closed"} {
+		if strings.Contains(got, old) {
+			t.Fatalf("ambiguous phrase %q remains in message:\n%s", old, got)
+		}
+	}
+}
+
+func TestUnknownJobMessagesExplainRollbackConsequence(t *testing.T) {
+	t.Run("no result declaration", func(t *testing.T) {
+		f := happyFake()
+		e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+		safe, detail, err := e.runOneJob(context.Background(), "migrate", "/remote", "/remote/compose.yaml")
+		if err != nil {
+			t.Fatalf("run job: %v", err)
+		}
+		if safe {
+			t.Fatal("a job without a result declaration must remain rollback-unsafe")
+		}
+		assertRollbackUnavailableMessage(t, detail)
+	})
+
+	t.Run("local hook", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Hooks["migrate"] = config.Hook{Run: "true", Local: true}
+		e := New(cfg, testProject(t), happyFake(), Options{
+			Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir(),
+		})
+		safe, detail, err := e.runOneJob(context.Background(), "migrate", "/remote", "/remote/compose.yaml")
+		if err != nil {
+			t.Fatalf("run local job: %v", err)
+		}
+		if safe {
+			t.Fatal("a local hook without a data-effect declaration must remain rollback-unsafe")
+		}
+		assertRollbackUnavailableMessage(t, detail)
+	})
+}
+
+func TestRecoveredUnknownJobMessageExplainsRollbackConsequence(t *testing.T) {
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), happyFake(), Options{Out: &out, Sleep: noSleep})
+	if err := e.runJobs(context.Background(), nil, map[string]bool{"job:migrate": true}, "/remote", "/remote/compose.yaml"); err != nil {
+		t.Fatalf("recover completed job: %v", err)
+	}
+	assertRollbackUnavailableMessage(t, out.String())
+}
+
 func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
 	f := gateFake("changed=false\n") // R2's retry is locally safe
 	failed := journalLines(
@@ -187,7 +244,10 @@ func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 	cfg.Components = map[string]config.Component{
 		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
 	}
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e := New(cfg, testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Sleep: noSleep,
+		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
+	})
 	err := e.Deploy(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
 		t.Fatalf("expand-only must permit auto-rollback: %v", err)
@@ -229,7 +289,10 @@ func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
 	}
 	cfg.Hooks["pre_release"] = config.Hook{Run: "true"}
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e := New(cfg, testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Sleep: noSleep,
+		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
+	})
 	err := e.Deploy(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
 		t.Fatalf("expand-only must not cover an untyped lifecycle hook: %v", err)
@@ -251,7 +314,7 @@ func TestNoRollbackFlagAlwaysHalts(t *testing.T) {
 	}
 }
 
-func TestMigrateHookGetsResultFileEnv(t *testing.T) {
+func TestMigrateComposeJobGetsWritableBoundResultFile(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
@@ -259,11 +322,13 @@ func TestMigrateHookGetsResultFileEnv(t *testing.T) {
 	}
 	found := false
 	for _, c := range f.Commands {
-		if strings.Contains(c, "OB_RESULT_FILE=") && strings.Contains(c, "run --rm --no-deps migrate") {
+		if strings.Contains(c, "run -e OB_RESULT_FILE=/run/onebox/job-result") &&
+			strings.Contains(c, "-v '/var/lib/ob/monk/releases/R1/.job-migrate-result:/run/onebox/job-result:rw'") &&
+			strings.Contains(c, "install -m 666") && strings.Contains(c, "chmod 600") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("migrate hook must receive OB_RESULT_FILE:\n%s", strings.Join(f.Commands, "\n"))
+		t.Fatalf("migrate container must receive a writable, subsequently sealed result file:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }

@@ -33,6 +33,12 @@ environments:
     policy:
       require_approval: true
       allow_agent_proposals: true
+      minimum_onebox_version: 0.0.1-m0
+      minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+      require_migration_backup: true
+      migration_backup_max_age: 24h
+      require_migration_restore_test: true
+      migration_backup_key_material: [application-key]
 
 components:
   web:
@@ -102,7 +108,16 @@ verification:
     http: /healthz
     port: 8080
   - url: https://app.example.com/healthz
-    contains: ok
+    status_codes: [200]
+    required_headers:
+      Content-Type: application/json
+    json_assertions:
+      - path: service.ready
+        equals: true
+  - migration_revisions:
+      job: migrate
+      provider: atlas
+      applied_revisions: ["202607130001", "202607130002"]
 
 notifications:
   webhook: https://alerts.example.com/onebox
@@ -138,6 +153,11 @@ the host and creates a mode-`0600`, digest-bound executable operation envelope;
 it does not deploy. The envelope expires after 15 minutes and binds the v1
 config, root Compose file, host state, image pins, rendered Compose, and staged
 payload, so a changed input must be planned again.
+
+The current executable artifact schema is
+`onebox.run/executable-deploy-plan/v1alpha2`. Missing, legacy, or other schema
+versions are rejected before Onebox connects to the target; regenerate them
+with the PATH-selected current binary rather than editing an artifact.
 
 ## Compatibility promise
 
@@ -207,27 +227,42 @@ environments:
     policy:
       require_approval: true
       allow_agent_proposals: true
+      minimum_onebox_version: 0.0.1-m0
+      minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+      require_migration_backup: true
+      migration_backup_max_age: 24h
+      require_migration_restore_test: true
+      migration_backup_key_material: [application-key]
 ```
 
-Both policy values default to `true` when omitted:
+The two agent/approval switches default to `true` when omitted:
 
 - `require_approval` declares that consequential operations need human
-  approval. The current MCP has no mutation tool, so this is also the safe
-  current behavior.
+  approval. CLI deploy execution enforces an exact, unexpired plan-bound grant.
 - `allow_agent_proposals` controls whether the MCP may prepare deployment
   proposals for that environment. Set it to `false` for environments an agent
   may observe but not plan against.
+- `minimum_onebox_version` and `minimum_plan_schema` reject an older runner or
+  executable-plan contract during planning and execution. Use `ob version` and
+  `ob doctor` to inspect the runner selected by `PATH`.
+- `require_migration_backup` is opt-in. When true,
+  `migration_backup_max_age` is required, restore-test evidence defaults to
+  required, and `migration_backup_key_material` names any protected keys that
+  need separate integrity and usability evidence. It also requires
+  `require_approval: true` so an override cannot bypass the approval ceremony.
 
-These fields describe policy consistently across adapters. A future managed
-control plane must enforce the same policy rather than creating a dashboard-only
-rule.
+Create and apply a local approval grant with:
 
-Today this is declared control-plane policy, not a credential sandbox around
-the local CLI. The CLI treats the local operator who invokes or confirms a
-mutation as the authority; it does not verify a dashboard identity or signed
-approval yet. Do not give an agent unrestricted shell access if it must be
-unable to bypass MCP policy. Managed execution must enforce this declaration
-before Onebox adds any MCP mutation tool.
+```sh
+ob approve --plan ob-plan.json --out ob-approval.json
+ob deploy --plan ob-plan.json --approval ob-approval.json
+```
+
+The mode-`0600` grant is digest-protected and binds the plan and operation
+digests, application, environment, target, config, Compose, observed/live
+state, payload, risk, approval class, operator, and expiry. A local grant proves
+the explicit CLI ceremony; it is not an external identity-provider signature.
+The MCP remains read-only and cannot mint or consume approval authority.
 
 ## Components
 
@@ -300,8 +335,10 @@ Every job states its production data consequence:
 - `unknown`: Onebox must treat rollback safety as unknown.
 
 `none` is an operator declaration that keeps application rollback open after a
-successful job. `unknown` stays fail-closed unless that particular run writes
-`changed=false` to `$OB_RESULT_FILE`.
+successful job. A missing or invalid result for a migration becomes
+`changed=unknown`: automatic rollback is unavailable, and workload replacement
+halts unless the exact plan carries strong or break-glass approval for that
+transition.
 
 Jobs run before workload release. With rolling workloads, the previous code is
 still serving while a migration runs and old/new replicas coexist during the
@@ -310,9 +347,26 @@ regardless of migration policy. `manual` controls rollback behavior; it does
 not create a maintenance window or make an incompatible migration safe.
 
 `command` optionally overrides the default `docker compose run` behavior with
-an explicit hook. A migration job should write the documented
-`$OB_RESULT_FILE` result so the existing migration gate can determine whether
-automatic application rollback remains safe.
+an explicit hook. Onebox mounts `$OB_RESULT_FILE` into containerized jobs. The
+job should write either strict key/value data or
+`onebox.run/job-result/v1alpha1` JSON. A generic result needs `changed`; a
+provider-aware result also needs ordered `before_revisions` and
+`after_revisions`:
+
+```json
+{
+  "schema_version": "onebox.run/job-result/v1alpha1",
+  "changed": true,
+  "provider": "atlas",
+  "before_revisions": ["202607130001"],
+  "after_revisions": ["202607130001", "202607130002"]
+}
+```
+
+Revision identifiers must be unique, `changed` must agree with the lists, and
+Atlas history must extend the before-list without rewriting it. Only normalized
+revision identifiers and their evidence digest enter journals; command output
+and connection details do not.
 
 `deployment.migration_policy: expand-only` is an operator assertion that
 `migration`-labeled jobs stay compatible with the previous release. It never
@@ -359,6 +413,31 @@ restore drills and does not report declared protection as managed.** Continue
 operating and testing your existing backup system until Onebox implements and
 verifies that capability.
 
+Migration backup evidence is a separate execution gate. When the environment
+policy requires it, the executable plan binds every durable/external resource,
+freshness, restore-test requirement, and named key material. Onebox does not run
+a backup: an external process supplies validation facts, which the CLI seals
+into a plan-bound receipt:
+
+```sh
+ob backup-evidence create \
+  --plan ob-plan.json \
+  --manifest backup-facts.json \
+  --out ob-backup-evidence.json
+
+ob deploy --plan ob-plan.json --approval ob-approval.json \
+  --backup-evidence ob-backup-evidence.json
+```
+
+The facts manifest uses
+`onebox.run/migration-backup-facts/v1alpha1` and records artifact identifiers,
+creation times, integrity digests/methods, restore-test facts, and key-material
+usability facts—never backup bytes, keys, or credentials. The receipt is
+freshness-checked and bound to the exact plan, target, resources, and key names.
+For audited break-glass use, `--override-migration-backup "reason"` replaces
+`--backup-evidence`; the two flags are mutually exclusive, and the override
+requires the exact plan's strong approval grant.
+
 ## Deployment and runtime
 
 `deployment.order` lists every `application` and `worker` component in
@@ -379,18 +458,32 @@ HTTP/exec check:
 ```yaml
 verification:
   - url: https://app.example.com/healthz
-    contains: ok
+    status_codes: [200, 204]
+    required_headers:
+      Content-Type: application/json
+    json_assertions:
+      - path: service.ready
+        equals: true
   - component: web
     http: /healthz
     port: 8080
   - component: worker
     exec: /app/bin/smoke
+  - migration_revisions:
+      job: migrate
+      provider: atlas
+      applied_revisions: ["202607130001", "202607130002"]
 ```
 
 URL, component HTTP, and component exec forms cannot be combined in one entry.
-On a URL check, `contains` can assert a response-body marker and
-`advisory: true` reports failure without making the release fail. Keep checks
-narrow, deterministic, and free of secret-bearing URLs.
+On a URL check, `status_codes` defaults to any 2xx response,
+`required_headers` uses exact values, `contains` asserts a body marker, and
+`json_assertions` compares scalar values at dotted object/array paths.
+`advisory: true` reports failure without making the release fail. A
+`migration_revisions` entry is exclusive of HTTP/exec/URL forms and compares
+the complete expected revision list with provider evidence captured from the
+named job's `$OB_RESULT_FILE`. Keep checks narrow, deterministic, and free of
+secret-bearing URLs.
 
 Top-level `hooks` is closed to `bootstrap`, `pre_release`, `post_release`, and
 `post_deploy`. A job-specific command belongs on that job component:
@@ -424,6 +517,15 @@ proposal as not ready for agent-only approval.
 Notifications send a generic outcome webhook. `on` defaults to `[failure]` and
 may include `success`; delivery is fail-open so an alerting outage does not
 change the deployment result.
+
+For agents and CI, the root `--output` flag accepts `human` (default), `json`,
+or `ndjson`. Structured `plan` emits the executable plan, `status` emits a
+`onebox.run/status/v1alpha1` envelope, and mutation commands emit ordered
+redaction-safe events plus their result/error. JSON uses one
+`onebox.run/cli-operation/v1alpha1` envelope; NDJSON streams
+`onebox.run/cli-record/v1alpha1` event records followed by a result or error.
+Structured deploy requires `--plan`, keeping automation on the same immutable
+reviewed artifact as human execution.
 
 ## Observability status
 

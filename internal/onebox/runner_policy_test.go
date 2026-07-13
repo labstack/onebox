@@ -62,3 +62,15 @@ func TestExecutableSchemaOrdering(t *testing.T) {
 		}
 	}
 }
+
+func TestExecutableSchemaRejectsNumericOverflow(t *testing.T) {
+	overflow := strings.Repeat("9", 100)
+	for _, schema := range []string{
+		"onebox.run/executable-deploy-plan/v" + overflow,
+		"onebox.run/executable-deploy-plan/v1alpha" + overflow,
+	} {
+		if _, err := parseExecutableSchemaVersion(schema); err == nil || !strings.Contains(err.Error(), "out of range") {
+			t.Fatalf("overflowing schema %q error = %v", schema, err)
+		}
+	}
+}

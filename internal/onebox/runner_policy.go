@@ -88,14 +88,21 @@ func parseExecutableSchemaVersion(schema string) (schemaVersion, error) {
 	if matches == nil {
 		return schemaVersion{}, fmt.Errorf("unsupported executable plan schema %q", schema)
 	}
-	major, _ := strconv.Atoi(matches[1])
+	major, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return schemaVersion{}, fmt.Errorf("unsupported executable plan schema %q: major version is out of range", schema)
+	}
 	version := schemaVersion{major: major, stage: 2}
 	if matches[2] != "" {
 		version.stage = 0
 		if matches[2] == "beta" {
 			version.stage = 1
 		}
-		version.minor, _ = strconv.Atoi(matches[3])
+		minor, err := strconv.Atoi(matches[3])
+		if err != nil {
+			return schemaVersion{}, fmt.Errorf("unsupported executable plan schema %q: prerelease version is out of range", schema)
+		}
+		version.minor = minor
 	}
 	return version, nil
 }

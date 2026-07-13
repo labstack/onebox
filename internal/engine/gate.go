@@ -108,7 +108,8 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
 	safeByDeclaration := e.jobDataEffect(job) == "none"
-	resultFile := remoteDir + "/.job-" + job + "-result"
+	resultDir := remoteDir + "/.job-" + job + "-result"
+	resultFile := resultDir + "/result"
 	const containerResultFile = "/run/onebox/job-result"
 	containerized := true
 	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps" +
@@ -135,18 +136,21 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	resultMode := "600"
 	if containerized {
 		// The job may run as an arbitrary container UID. The bind-mounted file is
-		// writable only for the duration of this fenced command and is sealed back
-		// to 0600 before its contents are read or journaled.
+		// writable only for the duration of this fenced command. Its 0666 mode is
+		// hidden from other host users by the private 0700 result directory, then
+		// the file is sealed back to 0600 before it is read or journaled.
 		resultMode = "666"
 	}
 	cmd := "cd " + q(remoteDir) +
-		" && rm -f " + q(resultFile) + " && install -m " + resultMode + " /dev/null " + q(resultFile) +
+		" && rm -rf " + q(resultDir) +
+		" && install -d -m 700 " + q(resultDir) +
+		" && install -m " + resultMode + " /dev/null " + q(resultFile) +
 		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
 		" COMPOSE_FILE=" + q(remoteCompose) +
 		" OB_RESULT_FILE=" + q(resultFile) +
 		" " + runCmd
 	if containerized {
-		cmd += "; job_status=$?; chmod 600 " + q(resultFile) + "; exit $job_status"
+		cmd += "; job_status=$?; chmod 600 " + q(resultFile) + " || exit 125; exit $job_status"
 	}
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {

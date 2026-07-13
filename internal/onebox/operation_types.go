@@ -80,6 +80,16 @@ const (
 	DataEffectUnknown   DataEffectClass = "unknown"
 )
 
+type JobResultPolicy string
+
+const (
+	// JobResultProviderOrStrongUnknown makes the fallback authority explicit in
+	// the digest-bound operation: provider revisions or the job-result protocol
+	// are preferred; changed=unknown may proceed only under the exact plan's
+	// strong/break-glass grant.
+	JobResultProviderOrStrongUnknown JobResultPolicy = "provider_or_job_result_or_strong_unknown"
+)
+
 // OperationBinding identifies the exact authority and state against which a
 // plan was calculated. PayloadDigest may be empty for operations that do not
 // transfer a release, but the remaining fields are required for every plan.
@@ -101,14 +111,15 @@ type OperationBinding struct {
 // Lifecycle hooks identify only the configured seam; their bodies are never
 // copied into a plan.
 type OperationStep struct {
-	ID         string            `json:"id"`
-	Kind       OperationStepKind `json:"kind"`
-	DependsOn  []string          `json:"depends_on,omitempty"`
-	Component  string            `json:"component,omitempty"`
-	Service    string            `json:"service,omitempty"`
-	DataEffect DataEffectClass   `json:"data_effect,omitempty"`
-	Strategy   string            `json:"strategy,omitempty"`
-	Mutation   bool              `json:"mutation"`
+	ID           string            `json:"id"`
+	Kind         OperationStepKind `json:"kind"`
+	DependsOn    []string          `json:"depends_on,omitempty"`
+	Component    string            `json:"component,omitempty"`
+	Service      string            `json:"service,omitempty"`
+	DataEffect   DataEffectClass   `json:"data_effect,omitempty"`
+	ResultPolicy JobResultPolicy   `json:"result_policy,omitempty"`
+	Strategy     string            `json:"strategy,omitempty"`
+	Mutation     bool              `json:"mutation"`
 }
 
 // OperationPlan is the canonical executable representation shared by every
@@ -255,6 +266,13 @@ func (p OperationPlan) Validate() error {
 		}
 		if !validDataEffect(step.DataEffect) {
 			return fmt.Errorf("step %q has unknown data effect %q", step.ID, step.DataEffect)
+		}
+		if step.Kind == StepJob && step.DataEffect == DataEffectMigration {
+			if step.ResultPolicy != JobResultProviderOrStrongUnknown {
+				return fmt.Errorf("step %q migration result_policy must be %q", step.ID, JobResultProviderOrStrongUnknown)
+			}
+		} else if step.ResultPolicy != "" {
+			return fmt.Errorf("step %q result_policy is only valid for migration jobs", step.ID)
 		}
 		if (step.Kind == StepJob || step.Kind == StepHook || step.Kind == StepWorkloadRelease) && strings.TrimSpace(step.Component) == "" {
 			return fmt.Errorf("step %q component is required", step.ID)

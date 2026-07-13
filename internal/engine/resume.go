@@ -50,6 +50,17 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 		s.DeployID, s.StartedAt, s.Operator, s.Done["transfer"], s.Done["migrate"])
 	e.gateOpen = s.GateOpen
 	e.rollbackCovered = s.RollbackCovered // preserve the interrupted deploy's effect policy
+	e.Opts.MigrationBackupWasRequired = s.MigrationBackupRequired
+	e.Opts.MigrationBackup = s.MigrationBackup
+	e.Opts.ApprovalDigest = s.ApprovalDigest
+	e.Opts.ApprovalClass = s.ApprovalClass
+	e.Opts.ApprovedBy = s.ApprovedBy
+	e.Opts.ApprovalSource = s.ApprovalSource
+	e.Opts.AllowUnknownMigration = s.AllowUnknownMigration
+	e.jobResults = make(map[string]journal.JobResultEvidence, len(s.JobResults))
+	for job, result := range s.JobResults {
+		e.jobResults[job] = result
+	}
 	return s.DeployID, e.deployCore(ctx, s.DeployID, "", s.Done)
 }
 
@@ -84,7 +95,15 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) error
 	if err := e.WriteFence(ctx, s.DeployID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: s.DeployID, Epoch: epoch, Operator: journal.DefaultOperator()}
+	jw := &journal.Writer{
+		T: e.T, App: e.Cfg.App, DeployID: s.DeployID, Epoch: epoch,
+		Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner,
+		ApprovalDigest: s.ApprovalDigest, ApprovalClass: s.ApprovalClass,
+		ApprovedBy: s.ApprovedBy, ApprovalSource: s.ApprovalSource,
+		AllowUnknownMigration:   s.AllowUnknownMigration,
+		MigrationBackupRequired: s.MigrationBackupRequired,
+		MigrationBackup:         s.MigrationBackup,
+	}
 	_ = jw.Append(ctx, journal.Record{Phase: "abort", Event: "intent", Detail: "to=" + s.PrevRelease})
 
 	if s.PrevRelease == "" {

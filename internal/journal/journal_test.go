@@ -37,6 +37,57 @@ func TestAppendCommandShape(t *testing.T) {
 	}
 }
 
+func TestAppendRedactsFailureDetails(t *testing.T) {
+	f := &transport.Fake{}
+	w := &Writer{T: f, App: "monk", DeployID: "R1", Epoch: 1}
+	if err := w.Append(context.Background(), Record{
+		Phase: "verify", Event: "result", Status: "fail",
+		Detail: "request failed: Authorization=Bearer super-secret-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	command := strings.Join(f.Commands, "\n")
+	if strings.Contains(command, "super-secret-token") {
+		t.Fatalf("journal command leaked failure detail: %s", command)
+	}
+	for _, want := range []string{
+		`"detail":"operation failed; inspect trusted local diagnostics"`,
+		`"error_code":"execution_failed"`,
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("journal command missing %s: %s", want, command)
+		}
+	}
+}
+
+func TestAppendScopesAuthorizationContextToEvidenceRecords(t *testing.T) {
+	f := &transport.Fake{}
+	w := &Writer{
+		T: f, App: "monk", DeployID: "R1", Epoch: 1,
+		ApprovalDigest: "sha256:approval", ApprovedBy: "operator@example",
+		MigrationBackup: &MigrationBackupEvidence{
+			Mode: "override", OverrideReason: "incident INC-42", ProtectedResources: []string{"database/postgres"},
+		},
+	}
+	if err := w.Append(context.Background(), Record{Phase: "deploy", Event: "start"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Append(context.Background(), Record{Phase: "release", Role: "web", Event: "result", Status: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Commands) != 2 {
+		t.Fatalf("commands = %d", len(f.Commands))
+	}
+	for _, want := range []string{"sha256:approval", "operator@example", "incident INC-42"} {
+		if !strings.Contains(f.Commands[0], want) {
+			t.Fatalf("deploy start omitted %q: %s", want, f.Commands[0])
+		}
+		if strings.Contains(f.Commands[1], want) {
+			t.Fatalf("release record repeated %q: %s", want, f.Commands[1])
+		}
+	}
+}
+
 func TestReadAndSummary(t *testing.T) {
 	recs := []Record{
 		{DeployID: "R2", Epoch: 4, Phase: "deploy", Event: "start", Detail: "prev=R1"},

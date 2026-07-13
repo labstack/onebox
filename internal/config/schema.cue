@@ -49,13 +49,38 @@
 	exec!:      string & !=""
 }
 
-#URLVerification: {
-	url!:      string & =~"^https?://"
-	contains?: string
-	advisory?: bool
+#HeaderName:  =~"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+#HeaderValue: string & !~"[\r\n]"
+#JSONPath:    =~"^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)*$"
+#JSONScalar:  string | number | bool | null
+
+#JSONAssertion: {
+	path!:   #JSONPath
+	equals!: #JSONScalar
 }
 
-#Verification: #HTTPVerification | #ExecVerification | #URLVerification
+#URLVerification: {
+	url!:               string & =~"^https?://"
+	contains?:          string
+	advisory?:          bool
+	// Absent status_codes preserves the original any-2xx contract.
+	status_codes?:      [int & >=100 & <=599, ...(int & >=100 & <=599)]
+	// Header names are case-insensitive at runtime; values match exactly.
+	required_headers?:  {[#HeaderName]: #HeaderValue}
+	// Paths use dotted object keys and zero-based array indexes (items.0.id).
+	// equals is deliberately scalar so comparisons stay deterministic.
+	json_assertions?:   [#JSONAssertion, ...#JSONAssertion]
+}
+
+#MigrationRevisionVerification: {
+	migration_revisions!: {
+		job!:               #Ident
+		provider!:          #Ident
+		applied_revisions!: [=~"^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$", ...=~"^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$"]
+	}
+}
+
+#Verification: #HTTPVerification | #ExecVerification | #URLVerification | #MigrationRevisionVerification
 
 #Registry: {
 	server!:       string & =~"^[a-zA-Z0-9][a-zA-Z0-9.:-]*$"
@@ -70,8 +95,14 @@
 }
 
 #EnvironmentPolicy: {
-	require_approval?:      bool
-	allow_agent_proposals?: bool
+	require_approval?:                bool
+	allow_agent_proposals?:           bool
+	minimum_onebox_version?:          string & !=""
+	minimum_plan_schema?:             string & =~"^onebox\\.run/executable-deploy-plan/v[0-9]+((alpha|beta)[0-9]+)?$"
+	require_migration_backup?:        bool
+	migration_backup_max_age?:        #Dur
+	require_migration_restore_test?:  bool
+	migration_backup_key_material?:   [...#Ident]
 }
 
 #Environment: {

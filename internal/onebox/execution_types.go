@@ -8,26 +8,56 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/engine"
 )
 
 const (
-	ExecutableDeployPlanSchemaVersion = "onebox.run/executable-deploy-plan/v1alpha1"
+	ExecutableDeployPlanSchemaVersion = "onebox.run/executable-deploy-plan/v1alpha2"
 	OperationEventSchemaVersion       = "onebox.run/operation-event/v1alpha1"
+	maxExecutableDeployPlanBytes      = 16 << 20
+	maxApprovalGrantBytes             = 1 << 20
 )
+
+func readBoundedArtifact(path, kind string, limit int) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", kind, err)
+	}
+	defer file.Close()
+	encoded, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", kind, err)
+	}
+	if len(encoded) > limit {
+		return nil, fmt.Errorf("%s exceeds %d bytes", kind, limit)
+	}
+	return encoded, nil
+}
+
+func SupportedExecutableDeployPlanSchemas() []string {
+	return []string{ExecutableDeployPlanSchemaVersion}
+}
+
+func CurrentRunnerProvenance() buildinfo.Runner {
+	return buildinfo.CurrentRunner(SupportedExecutableDeployPlanSchemas()...)
+}
 
 // DeployPlan is the local executable envelope. Operation is the canonical
 // adapter-independent graph; Artifact retains the engine's exact drift and
 // render binding. Neither contains decrypted secret values.
 type DeployPlan struct {
-	SchemaVersion string          `json:"schema_version"`
-	Operation     OperationPlan   `json:"operation"`
-	Artifact      engine.Artifact `json:"artifact"`
-	Diff          string          `json:"diff,omitempty"`
-	NoOp          bool            `json:"no_op"`
-	PlanDigest    string          `json:"plan_digest"`
+	SchemaVersion   string                      `json:"schema_version"`
+	Runner          buildinfo.Runner            `json:"runner"`
+	Operation       OperationPlan               `json:"operation"`
+	Artifact        engine.Artifact             `json:"artifact"`
+	Diff            string                      `json:"diff,omitempty"`
+	NoOp            bool                        `json:"no_op"`
+	MigrationBackup *MigrationBackupRequirement `json:"migration_backup,omitempty"`
+	PlanDigest      string                      `json:"plan_digest"`
 }
 
 func artifactDigest(artifact engine.Artifact) (string, error) {
@@ -40,7 +70,10 @@ func artifactDigest(artifact engine.Artifact) (string, error) {
 
 func (p DeployPlan) validateContent() error {
 	if p.SchemaVersion != ExecutableDeployPlanSchemaVersion {
-		return fmt.Errorf("schema_version must be %q", ExecutableDeployPlanSchemaVersion)
+		return unsupportedDeployPlanSchemaError(p.SchemaVersion)
+	}
+	if err := validateRunnerProvenance(p.Runner, p.SchemaVersion); err != nil {
+		return fmt.Errorf("runner: %w", err)
 	}
 	if err := p.Operation.Validate(); err != nil {
 		return fmt.Errorf("operation: %w", err)
@@ -78,22 +111,34 @@ func (p DeployPlan) validateContent() error {
 			return errors.New("live compose and payload digests are required for an existing release")
 		}
 	}
+	if p.MigrationBackup != nil {
+		if !hasMigrationStep(p.Operation.Steps) {
+			return errors.New("migration backup requirement is present without a migration step")
+		}
+		if err := p.MigrationBackup.validate(); err != nil {
+			return fmt.Errorf("migration backup requirement: %w", err)
+		}
+	}
 	return nil
 }
 
 func (p DeployPlan) ComputeDigest() (string, error) {
 	encoded, err := json.Marshal(struct {
-		SchemaVersion string          `json:"schema_version"`
-		Operation     OperationPlan   `json:"operation"`
-		Artifact      engine.Artifact `json:"artifact"`
-		Diff          string          `json:"diff,omitempty"`
-		NoOp          bool            `json:"no_op"`
+		SchemaVersion   string                      `json:"schema_version"`
+		Runner          buildinfo.Runner            `json:"runner"`
+		Operation       OperationPlan               `json:"operation"`
+		Artifact        engine.Artifact             `json:"artifact"`
+		Diff            string                      `json:"diff,omitempty"`
+		NoOp            bool                        `json:"no_op"`
+		MigrationBackup *MigrationBackupRequirement `json:"migration_backup,omitempty"`
 	}{
-		SchemaVersion: p.SchemaVersion,
-		Operation:     p.Operation,
-		Artifact:      p.Artifact,
-		Diff:          p.Diff,
-		NoOp:          p.NoOp,
+		SchemaVersion:   p.SchemaVersion,
+		Runner:          p.Runner,
+		Operation:       p.Operation,
+		Artifact:        p.Artifact,
+		Diff:            p.Diff,
+		NoOp:            p.NoOp,
+		MigrationBackup: p.MigrationBackup,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode executable deploy plan digest: %w", err)
@@ -170,9 +215,18 @@ func (p DeployPlan) Save(path string) error {
 }
 
 func LoadDeployPlan(path string) (*DeployPlan, error) {
-	encoded, err := os.ReadFile(path)
+	encoded, err := readBoundedArtifact(path, "executable deploy plan", maxExecutableDeployPlanBytes)
 	if err != nil {
-		return nil, fmt.Errorf("read executable deploy plan: %w", err)
+		return nil, err
+	}
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		return nil, fmt.Errorf("decode executable deploy plan: %w", err)
+	}
+	if envelope.SchemaVersion != ExecutableDeployPlanSchemaVersion {
+		return nil, unsupportedDeployPlanSchemaError(envelope.SchemaVersion)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
@@ -199,13 +253,14 @@ type OperationEvent struct {
 	// EvidenceID is the engine's stable release/journal lookup key. It can name
 	// intended evidence when an operation fails before its first journal append;
 	// consumers must read the journal to determine which evidence was persisted.
-	EvidenceID string        `json:"evidence_id,omitempty"`
-	Sequence   int           `json:"sequence"`
-	Time       string        `json:"time"`
-	Kind       OperationKind `json:"kind"`
-	Phase      string        `json:"phase"`
-	Status     string        `json:"status"`
-	Message    string        `json:"message,omitempty"`
+	EvidenceID string           `json:"evidence_id,omitempty"`
+	Sequence   int              `json:"sequence"`
+	Time       string           `json:"time"`
+	Kind       OperationKind    `json:"kind"`
+	Phase      string           `json:"phase"`
+	Status     string           `json:"status"`
+	Message    string           `json:"message,omitempty"`
+	Runner     buildinfo.Runner `json:"runner"`
 }
 
 type EventSink func(OperationEvent)
@@ -222,17 +277,21 @@ type ExecutionBinding struct {
 }
 
 // ExecuteRequest is the sole mutation entry point used by local adapters.
-// M1 will attach an approval to the same request before exposing it over MCP.
+// Approval is validated again at this boundary; adapter-side checks are never
+// treated as execution authority.
 type ExecuteRequest struct {
-	Kind            OperationKind
-	Plan            *DeployPlan
-	Force           bool
-	NoRollback      bool
-	Redeploy        bool
-	RemoveVolumes   bool
-	RemoveProxy     bool
-	ExpectedBinding *ExecutionBinding
-	Events          EventSink
+	Kind                    OperationKind
+	Plan                    *DeployPlan
+	Approval                *ApprovalGrant
+	BackupEvidence          *BackupEvidenceReceipt
+	MigrationBackupOverride *MigrationBackupOverride
+	Force                   bool
+	NoRollback              bool
+	Redeploy                bool
+	RemoveVolumes           bool
+	RemoveProxy             bool
+	ExpectedBinding         *ExecutionBinding
+	Events                  EventSink
 }
 
 type OperationResult struct {
@@ -242,10 +301,42 @@ type OperationResult struct {
 	ReleaseID string        `json:"release_id,omitempty"`
 	// EvidenceID is the engine's release/journal correlation key, not a claim
 	// that a journal append completed. An early failure may leave no evidence.
-	EvidenceID string `json:"evidence_id,omitempty"`
-	StartedAt  string `json:"started_at"`
-	FinishedAt string `json:"finished_at"`
-	NoOp       bool   `json:"no_op,omitempty"`
+	EvidenceID                    string           `json:"evidence_id,omitempty"`
+	StartedAt                     string           `json:"started_at"`
+	FinishedAt                    string           `json:"finished_at"`
+	NoOp                          bool             `json:"no_op,omitempty"`
+	ApprovalDigest                string           `json:"approval_digest,omitempty"`
+	BackupEvidenceDigest          string           `json:"backup_evidence_digest,omitempty"`
+	MigrationBackupOverrideDigest string           `json:"migration_backup_override_digest,omitempty"`
+	Runner                        buildinfo.Runner `json:"runner"`
+}
+
+func validateRunnerProvenance(runner buildinfo.Runner, planSchema string) error {
+	if strings.TrimSpace(runner.Version) == "" {
+		return errors.New("version is required")
+	}
+	for _, supported := range runner.SupportedExecutablePlanSchemas {
+		if supported == planSchema {
+			return nil
+		}
+	}
+	return fmt.Errorf("runner does not declare support for executable plan schema %q", planSchema)
+}
+
+func unsupportedDeployPlanSchemaError(schema string) error {
+	if strings.TrimSpace(schema) == "" {
+		return fmt.Errorf(
+			"legacy executable deploy plan has no schema_version; this ob %s runner only executes %q — upgrade `ob` if needed, then regenerate the plan with the current `ob plan`",
+			buildinfo.Read().Version,
+			ExecutableDeployPlanSchemaVersion,
+		)
+	}
+	return fmt.Errorf(
+		"unsupported executable deploy plan schema %q; this ob %s runner supports %q — upgrade `ob` if needed, then regenerate the plan with the current `ob plan`",
+		schema,
+		buildinfo.Read().Version,
+		ExecutableDeployPlanSchemaVersion,
+	)
 }
 
 func parseOperationTime(value, name string) (time.Time, error) {

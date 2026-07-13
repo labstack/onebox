@@ -67,6 +67,13 @@ type Observation struct {
 // launch-time environment and never performs a production mutation.
 type ProposeDeployRequest struct{}
 
+// ProposeRequest is the adapter-neutral proposal request. M0 supports deploy
+// proposals; later milestones add approved execution without changing this
+// service boundary.
+type ProposeRequest struct {
+	Kind OperationKind `json:"kind" jsonschema:"Operation kind to propose; currently deploy"`
+}
+
 type ProposalHostState struct {
 	Host           string            `json:"host" jsonschema:"Bare target hostname"`
 	CurrentRelease string            `json:"current_release,omitempty" jsonschema:"Currently activated release, if any"`
@@ -127,6 +134,7 @@ type DeploymentProposal struct {
 	PayloadMaterialized       bool                         `json:"payload_materialized" jsonschema:"Whether every runtime payload value was materialized while proposing"`
 	HostState                 ProposalHostState            `json:"host_state" jsonschema:"Relevant target state observed while planning"`
 	Preconditions             ProposalPreconditions        `json:"preconditions" jsonschema:"Observed readiness and blockers"`
+	OperationGraph            []OperationStep              `json:"operation_graph" jsonschema:"Canonical typed deployment choreography; hook bodies are never included"`
 	Images                    []ImagePin                   `json:"images" jsonschema:"Planned images in deterministic service order"`
 	RenderedCompose           string                       `json:"rendered_compose" jsonschema:"Non-executable Compose structure with every scalar value replaced by a proposal-local opaque marker"`
 	Diff                      string                       `json:"diff,omitempty" jsonschema:"Unified structural diff whose scalar values are proposal-local opaque markers"`

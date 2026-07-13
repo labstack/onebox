@@ -29,6 +29,16 @@ const ProposalSchemaVersion = "onebox.run/deployment-proposal/v1alpha1"
 
 const MCPFidelityContract = "This read-only proposal records Onebox-generated deployment choreography and exact content identities. Every Compose scalar value and every operator-authored hook body is hidden from model output. Data-effect labels, protection, and observability are operator declarations; this proposal does not prove those controls are active. Lifecycle hooks remain unplannable and require local review. The MCP tool cannot execute this proposal."
 
+func (s *Service) Propose(ctx context.Context, request ProposeRequest) (DeploymentProposal, error) {
+	if request.Kind == "" {
+		request.Kind = KindDeploy
+	}
+	if request.Kind != KindDeploy {
+		return DeploymentProposal{}, fmt.Errorf("proposals for operation kind %q are not supported", request.Kind)
+	}
+	return s.ProposeDeploy(ctx, ProposeDeployRequest{})
+}
+
 func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (DeploymentProposal, error) {
 	now := s.now().UTC()
 	lp, err := loadProject(ctx, s.configPath, false)
@@ -249,6 +259,10 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		return DeploymentProposal{}, fmt.Errorf("encode state digest: %w", err)
 	}
 	stateDigest := engine.HashBytes(stateBytes)
+	operationGraph, err := DeploymentGraph(lp.config, releaseID)
+	if err != nil {
+		return DeploymentProposal{}, fmt.Errorf("build operation graph: %w", err)
+	}
 	createdAt := now.Format(timeFormat)
 	expiresAt := now.Add(15 * time.Minute).Format(timeFormat)
 	proposalBytes, err := json.Marshal(struct {
@@ -271,6 +285,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		PayloadMaterialized       bool                         `json:"payload_materialized"`
 		HostState                 ProposalHostState            `json:"host_state"`
 		Preconditions             ProposalPreconditions        `json:"preconditions"`
+		OperationGraph            []OperationStep              `json:"operation_graph"`
 		Images                    []ImagePin                   `json:"images"`
 		Commands                  []string                     `json:"commands"`
 		ComposeComparison         ComparisonStatus             `json:"compose_comparison"`
@@ -296,6 +311,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		PayloadMaterialized:       payloadMaterialized,
 		HostState:                 hostState,
 		Preconditions:             preconditions,
+		OperationGraph:            operationGraph,
 		Images:                    images,
 		Commands:                  fullCommands,
 		ComposeComparison:         composeComparison,
@@ -329,6 +345,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		PayloadMaterialized:       payloadMaterialized,
 		HostState:                 hostState,
 		Preconditions:             preconditions,
+		OperationGraph:            operationGraph,
 		Images:                    images,
 		RenderedCompose:           string(renderedMasked),
 		Diff:                      diff,

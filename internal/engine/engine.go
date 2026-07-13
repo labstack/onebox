@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"context"
 	"io"
 	"os"
 	"time"
@@ -37,6 +38,10 @@ type Options struct {
 	// GitSHA and ConfigHash ride into the journal and lock metadata.
 	GitSHA     string
 	ConfigHash string
+	// DeployPrecondition runs after this runner owns the lock and fence but
+	// before any journaled deployment effect. State-bound adapters use it to
+	// close the observation-to-lock race.
+	DeployPrecondition func(context.Context, *Engine) error
 	// UI is the output layer; built from Out+Verbose when unset (cmd shares
 	// one instance so the command log and narrative interleave in order).
 	UI *ui.UI
@@ -51,7 +56,10 @@ type Engine struct {
 
 	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
 	// mutate() guards every mutating command with it.
-	fenceVal string
+	fenceVal      string
+	lockVal       string
+	hostLockVal   string
+	hostLockToken string
 	// gateOpen is the explicit no-effect result; rollbackCovered also includes
 	// the interrupted deploy's typed policy promises. Resume restores both from
 	// the journal. They are closed by default — fail safe.

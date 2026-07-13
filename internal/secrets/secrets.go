@@ -5,6 +5,7 @@
 package secrets
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -24,12 +25,21 @@ var keyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Render decrypts the SOPS file and renders sorted KEY=VALUE lines.
 // The encrypted file must be a flat map — nesting is an error, not a guess.
 func Render(configDir, sopsFile string) ([]byte, error) {
+	return RenderContext(context.Background(), configDir, sopsFile)
+}
+
+// RenderContext is Render with cancellation propagated to SOPS and any KMS or
+// age plugin it invokes.
+func RenderContext(ctx context.Context, configDir, sopsFile string) ([]byte, error) {
 	path := sopsFile
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(configDir, sopsFile)
 	}
-	out, err := exec.Command("sops", "-d", path).Output()
+	out, err := exec.CommandContext(ctx, "sops", "-d", path).Output()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			return nil, fmt.Errorf("sops -d %s: %s", sopsFile, strings.TrimSpace(string(ee.Stderr)))
 		}

@@ -7,11 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
-	"time"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
-	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"
 
 	"github.com/labstack/onebox/internal/compose"
@@ -19,9 +18,8 @@ import (
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/notify"
+	"github.com/labstack/onebox/internal/onebox"
 	"github.com/labstack/onebox/internal/proxy"
-	"github.com/labstack/onebox/internal/release"
-	"github.com/labstack/onebox/internal/secrets"
 	"github.com/labstack/onebox/internal/transport"
 	"github.com/labstack/onebox/internal/ui"
 )
@@ -142,7 +140,11 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			}
 			compose.InjectEnvFiles(p, cfg)
 			if cfg.Proxy.Managed {
-				compose.InjectProxyNetwork(p, cfg, proxyNetwork(cfg))
+				network := cfg.Proxy.Network
+				if network == "" {
+					network = proxy.DefaultNetwork
+				}
+				compose.InjectProxyNetwork(p, cfg, network)
 			}
 			out, err := compose.Render(p, cfg, "render-preview")
 			if err != nil {
@@ -176,7 +178,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, planFile, false, deployYes, deployRedeploy)
+			return runDeploy(cmd, g, planFile, deployYes, deployRedeploy)
 		},
 	}
 	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; no prompt)")
@@ -190,23 +192,10 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			cfg, p, err := loadAll(ctx, g)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath))) + "-bootstrap"
-			staging, sc, err := stageRelease(g, cfg, p, id)
-			if err != nil {
-				return err
-			}
-			defer sc()
-			return e.Bootstrap(ctx, id, staging)
+			_, err := operationsService(cmd, g).Execute(cmd.Context(), onebox.ExecuteRequest{
+				Kind: onebox.KindBootstrap, Force: g.Force,
+			})
+			return err
 		},
 	}
 	// without this, a bootstrap killed while holding the app/host lock can
@@ -219,7 +208,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDeploy(cmd, g, "", true, true, false)
+			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindRollback}, "rollback")
 		},
 	})
 
@@ -227,18 +216,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "resume",
 		Short: "continue an interrupted deploy from the journal (fences the old runner)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			err = e.Resume(cmd.Context())
-			notifyOutcome(cfg, g, "resume", "", err)
-			return err
+			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindResume}, "resume")
 		},
 	})
 
@@ -246,18 +224,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "abort",
 		Short: "revert an interrupted deploy to the previous release (migration-gated)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			err = e.Abort(cmd.Context(), g.Force)
-			notifyOutcome(cfg, g, "abort", "", err)
-			return err
+			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, Force: g.Force}, "abort")
 		},
 	}
 	abortCmd.Flags().BoolVar(&g.Force, "force", false, "abort past a closed migration gate (you assert schema compatibility)")
@@ -301,16 +268,14 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(auditCmd)
 }
 
-// preparedPlan bundles a computed-and-displayed plan with the connected engine
-// and staged release, so `plan` (save the artifact) and interactive `deploy`
-// (prompt, then apply the already-staged bytes) share one code path.
+// preparedPlan is the CLI projection of the canonical onebox plan. The service
+// owns host observation, image pinning, staging, binding, and execution; the
+// adapter only renders the result and asks for confirmation.
 type preparedPlan struct {
-	cfg     *config.Config
-	e       *engine.Engine
-	art     *engine.Artifact
-	staging string
-	noop    bool   // content-identical to live: compose (label-invariant) AND payload digest
-	cleanup func() // closes the connection and removes the staging dir
+	cfg  *config.Config
+	svc  *onebox.Service
+	plan onebox.DeployPlan
+	ui   *ui.UI
 }
 
 // notifyOutcome pushes a mutating verb's outcome to the configured webhook.
@@ -335,120 +300,85 @@ func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, er
 	}
 }
 
-// buildPlan refreshes host state, pins images, stages the release, prints the
-// fidelity contract + redacted diff + images + command list, and returns the
-// artifact and staging. It mutates nothing on the host.
+// notifyOperationOutcome maps the canonical result to legacy webhook fields.
+// A no-op is deliberately silent: reporting the planned release ID as deployed
+// would claim an activation that never happened.
+func notifyOperationOutcome(cfg *config.Config, g *globalFlags, verb string, result onebox.OperationResult, err error) {
+	if err == nil && result.NoOp {
+		return
+	}
+	evidenceID := result.EvidenceID
+	if evidenceID == "" {
+		evidenceID = result.ReleaseID
+	}
+	notifyOutcome(cfg, g, verb, evidenceID, err)
+}
+
+// buildPlan asks the canonical service for an executable graph, then renders
+// its redaction-safe CLI projection. It mutates nothing on the host.
 func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
-	ctx := cmd.Context()
-	cfg, p, err := loadAll(ctx, g)
-	if err != nil {
-		return nil, err
-	}
-	if err := cfg.RunPreflight(filepath.Dir(g.ConfigPath)); err != nil {
-		return nil, err
-	}
-	if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
-		return nil, fmt.Errorf("not rollable: %v", errs)
-	}
-	pu := newUI(cmd, g)
-	// the silent stretch between `deploy` and the plan: ssh dial, host
-	// refresh, one registry round-trip per image — show where the time goes
-	busy, stopBusy := pu.Busy("connecting to " + cfg.App)
-	defer stopBusy()
-	e, closeConn, err := connect(cmd, g, cfg, p, pu)
-	if err != nil {
-		return nil, err
-	}
-	done := func() { closeConn() }
-	fail := func(err error) (*preparedPlan, error) { stopBusy(); done(); return nil, err }
-	out := cmd.OutOrStdout()
-
-	busy("refreshing host state")
-	hs, err := e.Refresh(ctx)
-	if err != nil {
-		return fail(fmt.Errorf("refresh: %w", err))
-	}
-	busy("pinning images (registry digests)")
-	pins, err := e.PinImages(ctx)
-	if err != nil {
-		return fail(fmt.Errorf("pin images: %w", err))
-	}
-	busy("rendering + staging release")
-	id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath)))
-	// Render through the exact staging path apply uses (p is already pinned by
-	// PinImages above), so the plan's stored compose is byte-identical to what
-	// apply re-renders. The canonical bytes are what release.Stage wrote.
-	staging, sc, err := stageRelease(g, cfg, p, id)
-	if err != nil {
-		return fail(err)
-	}
+	u := newUI(cmd, g)
+	busy, stopBusy := u.Busy("building executable plan")
+	busy("observing host, pinning images, and staging release")
+	svc := operationsServiceWithUI(cmd, g, u)
+	plan, err := svc.PlanDeploy(cmd.Context(), onebox.PlanDeployRequest{})
 	stopBusy()
-	done = func() { sc(); closeConn() } // staging now needs cleanup too
-	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
 	if err != nil {
-		return fail(err)
+		return nil, err
 	}
-	// Everything displayed or persisted is redacted: environment VALUES become
-	// content hashes so secrets never reach the terminal or the plan file
-	// (design §07). Only the hash travels.
-	renderedRedacted, err := compose.RedactEnvYAML(rendered)
+	cfg, err := notificationConfig(g)
 	if err != nil {
-		return fail(err)
+		return nil, err
+	}
+	renderDeployPlan(cmd, u, plan)
+	return &preparedPlan{cfg: cfg, svc: svc, plan: plan, ui: u}, nil
+}
+
+func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
+	out := cmd.OutOrStdout()
+	u.Header("plan " + plan.Operation.ReleaseID)
+	for _, line := range strings.Split(engine.FidelityContract, "\n") {
+		u.Println(u.Dim(line))
+	}
+	fmt.Fprintln(out)
+	if plan.Diff != "" {
+		u.Diff(plan.Diff)
+		fmt.Fprintln(out)
+	} else if plan.NoOp {
+		u.Infof("no changes — compose (release labels aside) and payload are byte-identical to live")
+	} else {
+		u.Infof("compose unchanged (release labels aside) — but the payload differs (env files / secrets); deploying ships it")
 	}
 
-	u := e.Opts.UI
-	u.Header("plan " + id)
-	for _, l := range strings.Split(engine.FidelityContract, "\n") {
-		u.Println(u.Dim(l)) // line-by-line: multi-line Render pads a block
+	u.Println(u.Bold("operation:"))
+	u.Println(fmt.Sprintf("  risk=%s  reversibility=%s  approval=%s",
+		plan.Operation.Risk, plan.Operation.Reversibility, plan.Operation.Approval))
+	for _, step := range plan.Operation.Steps {
+		detail := step.Component
+		if step.Service != "" && step.Service != step.Component {
+			detail += " → " + step.Service
+		}
+		if step.DataEffect != onebox.DataEffectNone {
+			detail += "  data_effect=" + string(step.DataEffect)
+		}
+		if step.Strategy != "" {
+			detail += "  strategy=" + step.Strategy
+		}
+		if detail != "" {
+			detail = "  " + detail
+		}
+		u.Println("  " + step.ID + detail)
 	}
 	fmt.Fprintln(out)
 
-	// rendered diff against the live release — both sides redacted.
-	live := ""
-	if hs.CurrentRelease != "" {
-		res, err := e.T.Run(ctx, "cat '"+release.PathsFor(cfg.App).Releases+"/"+hs.CurrentRelease+"/compose.yaml' 2>/dev/null || true")
-		if err != nil {
-			return fail(err)
-		}
-		live = res.Stdout
-	}
-	liveRedacted := ""
-	if strings.TrimSpace(live) != "" {
-		// Never fall back to raw live on a parse failure — that could expose it.
-		if lr, rerr := compose.RedactEnvYAML([]byte(live)); rerr == nil {
-			liveRedacted = string(lr)
-		}
-	}
-	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-		A: difflib.SplitLines(liveRedacted), B: difflib.SplitLines(string(renderedRedacted)),
-		FromFile: "live (" + orNone(hs.CurrentRelease) + ")", ToFile: "planned (" + id + ")", Context: 3,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	noop := false
-	if diff == "" || engine.OnlyReleaseLabelsChanged(liveRedacted, string(renderedRedacted)) {
-		// the compose is content-identical — but env files and secrets ship
-		// BESIDE it, so only a payload digest match proves a true no-op
-		payloadSame := false
-		if hs.CurrentRelease != "" {
-			localD, lerr := engine.LocalPayloadDigest(staging)
-			remoteD, rerr := e.RemotePayloadDigest(ctx, hs.CurrentRelease)
-			payloadSame = lerr == nil && rerr == nil && localD != "" && localD == remoteD
-		}
-		if payloadSame {
-			noop = true
-			u.Infof("no changes — compose (release labels aside) and payload are byte-identical to live")
-		} else {
-			u.Infof("compose unchanged (release labels aside) — but the payload differs (env files / secrets); deploying ships it")
-		}
-	} else {
-		u.Diff(diff)
-		fmt.Fprintln(out)
-	}
-
 	u.Println(u.Bold("images:"))
-	for svc, ref := range pins {
+	services := make([]string, 0, len(plan.Artifact.PinnedImages))
+	for service := range plan.Artifact.PinnedImages {
+		services = append(services, service)
+	}
+	sort.Strings(services)
+	for _, service := range services {
+		ref := plan.Artifact.PinnedImages[service]
 		mark := u.OK("[pinned]")
 		if !strings.Contains(ref, "@sha256:") {
 			mark = u.Warn("[TAG-BOUND (unpinned)]")
@@ -457,40 +387,25 @@ func buildPlan(cmd *cobra.Command, g *globalFlags) (*preparedPlan, error) {
 		if i := strings.Index(ref, "@"); i >= 0 {
 			name, digest = ref[:i], ref[i:]
 		}
-		u.Println(fmt.Sprintf("  %-12s %s%s  %s", svc, name, u.Dim(digest), mark))
+		u.Println(fmt.Sprintf("  %-12s %s%s  %s", service, name, u.Dim(digest), mark))
 	}
 	fmt.Fprintln(out)
 
-	remoteCompose := release.PathsFor(cfg.App).Releases + "/" + id + "/compose.yaml"
-	commands := e.Describe(remoteCompose)
 	u.Println(u.Bold("commands:"))
-	for _, c := range commands {
+	for _, command := range plan.Artifact.Commands {
 		switch {
-		case strings.HasPrefix(c, " "): // sub-command / branch line
-			u.Println("  " + u.Dim(c))
-		case strings.HasSuffix(c, ":"): // release <role> (...) header
-			u.Println("  " + u.Bold(c))
-		default: // "job X (...): <cmd>" / "hook X (...): <cmd>" — bold label, dim command
-			if i := strings.Index(c, "): "); i >= 0 {
-				u.Println("  " + u.Bold(c[:i+2]) + " " + u.Dim(c[i+3:]))
+		case strings.HasPrefix(command, " "):
+			u.Println("  " + u.Dim(command))
+		case strings.HasSuffix(command, ":"):
+			u.Println("  " + u.Bold(command))
+		default:
+			if i := strings.Index(command, "): "); i >= 0 {
+				u.Println("  " + u.Bold(command[:i+2]) + " " + u.Dim(command[i+3:]))
 			} else {
-				u.Println("  " + c)
+				u.Println("  " + command)
 			}
 		}
 	}
-
-	cfgBytes, err := os.ReadFile(g.ConfigPath)
-	if err != nil {
-		return fail(err)
-	}
-	a := &engine.Artifact{
-		ID: id, App: cfg.App, Env: g.Env, CreatedAt: time.Now(),
-		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
-		ConfigHash: engine.HashBytes(cfgBytes),
-		HostState:  hs, PinnedImages: pins,
-		RenderedCompose: string(renderedRedacted), Commands: commands,
-	}
-	return &preparedPlan{cfg: cfg, e: e, art: a, staging: staging, noop: noop, cleanup: done}, nil
 }
 
 // runPlan writes the plan artifact for the CI/review flow.
@@ -499,19 +414,11 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
 	if err != nil {
 		return err
 	}
-	defer pl.cleanup()
-	if err := pl.art.Save(outPath); err != nil {
+	if err := pl.plan.Save(outPath); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s — apply with: ob deploy --plan %s\n", outPath, outPath)
 	return nil
-}
-
-func orNone(s string) string {
-	if s == "" {
-		return "none"
-	}
-	return s
 }
 
 // connect builds the SSH-backed engine for the selected environment.
@@ -521,16 +428,73 @@ func newUI(cmd *cobra.Command, g *globalFlags) *ui.UI {
 	return ui.New(cmd.OutOrStdout(), g.Verbose)
 }
 
+// cliConnector is replaceable by in-package tests and honors OB_LOCAL for the
+// existing local-docker workflow. Production uses cancellable SSH dialing.
+var cliConnector onebox.Connector = func(ctx context.Context, target string) (transport.Transport, error) {
+	if value := strings.TrimSpace(strings.ToLower(os.Getenv("OB_LOCAL"))); value == "1" || value == "true" {
+		return transport.NewLocal(), nil
+	}
+	return transport.NewSSHContext(ctx, target)
+}
+
+func attachTransportLogger(t transport.Transport, logger func(string, string)) {
+	switch typed := t.(type) {
+	case *transport.SSH:
+		typed.Logger = logger
+	case *transport.Local:
+		typed.Logger = logger
+	}
+}
+
+func operationsService(cmd *cobra.Command, g *globalFlags) *onebox.Service {
+	return operationsServiceWithUI(cmd, g, newUI(cmd, g))
+}
+
+func operationsServiceWithUI(cmd *cobra.Command, g *globalFlags, u *ui.UI) *onebox.Service {
+	connector := func(ctx context.Context, target string) (transport.Transport, error) {
+		t, err := cliConnector(ctx, target)
+		if err == nil {
+			attachTransportLogger(t, u.Cmd)
+		}
+		return t, err
+	}
+	return onebox.New(onebox.Options{
+		ConfigPath: g.ConfigPath, Environment: g.Env, Connect: connector,
+		EngineOptions: engine.Options{Verbose: g.Verbose, UI: u, Out: cmd.OutOrStdout()},
+	})
+}
+
+func notificationConfig(g *globalFlags) (*config.Config, error) {
+	cfg, err := config.Load(g.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.App == "" {
+		cfg.App = config.DefaultApp(g.ConfigPath)
+	}
+	return cfg, nil
+}
+
+func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteRequest, verb string) error {
+	cfg, err := notificationConfig(g)
+	if err != nil {
+		return err
+	}
+	result, err := operationsService(cmd, g).Execute(cmd.Context(), request)
+	notifyOperationOutcome(cfg, g, verb, result, err)
+	return err
+}
+
 func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
 	env, err := cfg.Environment(g.Env)
 	if err != nil {
 		return nil, nil, err
 	}
-	t, err := transport.NewSSH(env.Hosts[0])
+	t, err := cliConnector(cmd.Context(), env.Hosts[0])
 	if err != nil {
 		return nil, nil, err
 	}
-	t.Logger = u.Cmd
+	attachTransportLogger(t, u.Cmd)
 	cfgBytes, _ := os.ReadFile(g.ConfigPath)
 	e := engine.New(cfg, p, t, engine.Options{
 		Verbose:    g.Verbose,
@@ -542,128 +506,42 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.P
 		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
 		ConfigHash: engine.HashBytes(cfgBytes),
 	})
-	return e, func() { t.Close() }, nil
+	return e, func() { _ = t.Close() }, nil
 }
 
-// applyPins rewrites service image refs to the plan's pinned digests so an
-// apply-time re-render reproduces the planned images without re-hitting the
-// registry (which could resolve a moved tag differently).
-func applyPins(p *ctypes.Project, pins map[string]string) {
-	for svc, ref := range pins {
-		if ref == "" {
-			continue
-		}
-		if s, ok := p.Services[svc]; ok {
-			s.Image = ref
-			p.Services[svc] = s
-		}
-	}
-}
-
-// stageRelease renders + stages the full release payload locally, including
-// decrypted secrets (mode 600) when declared.
-// proxyNetwork: the shared ingress network name, defaulted at the point of use.
-func proxyNetwork(cfg *config.Config) string {
-	if cfg.Proxy.Network != "" {
-		return cfg.Proxy.Network
-	}
-	return proxy.DefaultNetwork
-}
-
-func stageRelease(g *globalFlags, cfg *config.Config, p *ctypes.Project, id string) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "ob-"+cfg.App)
-	if err != nil {
-		return "", nil, err
-	}
-	cleanup := func() { os.RemoveAll(staging) }
-	fail := func(err error) (string, func(), error) { cleanup(); return "", nil, err }
-
-	// Order matters: compose applies env_file entries left to right, later
-	// overriding earlier. env_files go first, then the SOPS secrets file last,
-	// so a decrypted secret always wins over a same-named plaintext key.
-	compose.InjectEnvFiles(p, cfg)
-	if cfg.Proxy.Managed {
-		compose.InjectProxyNetwork(p, cfg, proxyNetwork(cfg))
-	}
-	if cfg.Secrets != nil {
-		envBytes, err := secrets.Render(filepath.Dir(g.ConfigPath), cfg.Secrets.Sops)
-		if err != nil {
-			return fail(err)
-		}
-		if err := os.WriteFile(filepath.Join(staging, secrets.EnvFileName), envBytes, 0o600); err != nil {
-			return fail(err)
-		}
-		compose.InjectSecretsEnv(p, cfg, "./"+secrets.EnvFileName)
-	}
-	rendered, err := compose.Render(p, cfg, id)
-	if err != nil {
-		return fail(err)
-	}
-	// The snapshot is the RESOLVED config (inference applied), so rollback
-	// replays this deploy's exact choreography.
-	snapshot, err := cfg.YAML()
-	if err != nil {
-		return fail(err)
-	}
-	rewrites, err := compose.StagePayload(p, staging)
-	if err != nil {
-		return fail(err)
-	}
-	rendered = compose.RewriteSources(rendered, rewrites)
-	if err := release.Stage(staging, rendered, snapshot); err != nil {
-		return fail(err)
-	}
-	return staging, cleanup, nil
-}
-
-func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, rollback, yes, redeploy bool) error {
-	ctx := cmd.Context()
-
-	// rollback and the CI-bound `--plan` flow need a connection but not a
-	// freshly-shown plan.
-	if rollback || planFile != "" {
-		cfg, p, err := loadAll(ctx, g)
+func runDeploy(cmd *cobra.Command, g *globalFlags, planFile string, yes, redeploy bool) error {
+	if planFile != "" {
+		plan, err := onebox.LoadDeployPlan(planFile)
 		if err != nil {
 			return err
 		}
-		if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
-			return fmt.Errorf("not rollable: %v", errs)
-		}
-		e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-		if err != nil {
-			return err
-		}
-		defer cleanup()
-		if rollback {
-			err := e.Rollback(ctx)
-			notifyOutcome(cfg, g, "rollback", "", err)
-			return err
-		}
-		if err := cfg.RunPreflight(filepath.Dir(g.ConfigPath)); err != nil {
-			return err
-		}
-		err = applyPlan(cmd, g, cfg, p, e, planFile)
-		notifyOutcome(cfg, g, "deploy", "", err)
-		return err
+		fmt.Fprintf(cmd.OutOrStdout(), "→ applying plan %s (bound; drift will be rechecked)\n", plan.Operation.ReleaseID)
+		return runMutation(cmd, g, onebox.ExecuteRequest{
+			Kind: onebox.KindDeploy, Plan: plan, Force: g.Force,
+			NoRollback: g.NoRollback, Redeploy: redeploy,
+		}, "deploy")
 	}
 
-	// Interactive deploy: show the plan, confirm, then apply the exact bytes we
-	// just staged — one command in place of plan → eyeball → deploy --plan.
+	// Interactive deploy: show the canonical plan, confirm, then execute it
+	// through the same binding checks as the saved-plan flow.
 	pl, err := buildPlan(cmd, g)
 	if err != nil {
 		return err
 	}
-	defer pl.cleanup()
-	if pl.noop && !redeploy {
-		pl.e.Opts.UI.Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", pl.art.HostState.CurrentRelease)
-		return nil
-	}
-	if !yes && !confirm(cmd, "\nApply this plan?") {
+	plannedNoOp := pl.plan.NoOp && !redeploy
+	if !plannedNoOp && !yes && !confirm(cmd, "\nApply this plan?") {
 		fmt.Fprintln(cmd.OutOrStdout(), "not applied")
 		return nil
 	}
-	err = pl.e.Deploy(ctx, pl.art.ID, pl.staging)
-	notifyOutcome(pl.cfg, g, "deploy", pl.art.ID, err)
+	result, err := pl.svc.Execute(cmd.Context(), onebox.ExecuteRequest{
+		Kind: onebox.KindDeploy, Plan: &pl.plan, Force: g.Force,
+		NoRollback: g.NoRollback, Redeploy: redeploy,
+	})
+	if err == nil && result.NoOp {
+		pl.ui.Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", pl.plan.Artifact.HostState.CurrentRelease)
+		return nil
+	}
+	notifyOperationOutcome(pl.cfg, g, "deploy", result, err)
 	return err
 }
 
@@ -678,51 +556,6 @@ func confirm(cmd *cobra.Command, prompt string) bool {
 		return true
 	}
 	return false
-}
-
-// applyPlan re-renders the release from source and deploys it after verifying
-// the binding: same env, same config, no host drift, and a rendered compose
-// that still matches the plan. The plan stores only a REDACTED compose (secret
-// values hashed), so the real bytes are produced fresh here — secrets never
-// persist in the plan file (design §07). Re-rendering with the plan's pins is
-// deterministic, so the redacted re-render must equal the plan's; any
-// difference means the compose file or a secret value changed — drift.
-func applyPlan(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, e *engine.Engine, planFile string) error {
-	ctx := cmd.Context()
-	a, err := engine.LoadArtifact(planFile)
-	if err != nil {
-		return err
-	}
-	cfgBytes, err := os.ReadFile(g.ConfigPath)
-	if err != nil {
-		return err
-	}
-	fresh, err := e.Refresh(ctx)
-	if err != nil {
-		return fmt.Errorf("refresh: %w", err)
-	}
-	if err := a.VerifyBinding(g.Env, cfgBytes, fresh); err != nil {
-		return err
-	}
-	applyPins(p, a.PinnedImages)
-	staging, sc, err := stageRelease(g, cfg, p, a.ID)
-	if err != nil {
-		return err
-	}
-	defer sc()
-	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
-	if err != nil {
-		return err
-	}
-	redacted, err := compose.RedactEnvYAML(rendered)
-	if err != nil {
-		return err
-	}
-	if string(redacted) != a.RenderedCompose {
-		return fmt.Errorf("compose drift: the rendered compose no longer matches the plan (a compose file or secret value changed) — re-plan")
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "→ applying plan %s (bound, no drift)\n", a.ID)
-	return e.Deploy(ctx, a.ID, staging)
 }
 
 func gitShortSHA(dir string) string {

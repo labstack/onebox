@@ -13,6 +13,7 @@ import (
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
@@ -31,6 +32,7 @@ type Options struct {
 	// leaves this zero-valued (output is discarded); the CLI supplies its UI,
 	// output stream, verbosity, and break-glass flags.
 	EngineOptions engine.Options
+	Runner        buildinfo.Runner
 }
 
 type Service struct {
@@ -41,6 +43,7 @@ type Service struct {
 	entropy      io.Reader
 	entropyMu    sync.Mutex
 	engineOpts   engine.Options
+	runner       buildinfo.Runner
 	operationSeq uint64
 }
 
@@ -75,10 +78,15 @@ func New(opts Options) *Service {
 	if opts.Entropy == nil {
 		opts.Entropy = rand.Reader
 	}
+	if opts.Runner.Version == "" {
+		opts.Runner = CurrentRunnerProvenance()
+	} else if len(opts.Runner.SupportedExecutablePlanSchemas) == 0 {
+		opts.Runner.SupportedExecutablePlanSchemas = SupportedExecutableDeployPlanSchemas()
+	}
 	return &Service{
 		configPath: opts.ConfigPath, environment: opts.Environment,
 		now: opts.Now, connect: opts.Connect, entropy: opts.Entropy,
-		engineOpts: opts.EngineOptions,
+		engineOpts: opts.EngineOptions, runner: opts.Runner,
 	}
 }
 
@@ -111,6 +119,8 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	engineOpts.Now = s.now
 	engineOpts.ConfigHash = engine.HashBytes(lp.configBytes)
 	engineOpts.GitSHA = gitShortSHA(ctx, filepath.Dir(lp.configPath))
+	engineOpts.Runner = s.runner
+	engineOpts.Environment = environment
 	if configure != nil {
 		configure(&engineOpts)
 	}

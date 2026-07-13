@@ -144,7 +144,7 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 	for _, want := range []string{
 		"--scale server=<+1>",
 		"unhealthy/timeout →",                  // the branch
-		"--force-recreate worker",              // recreate role
+		"--force-recreate --timeout 30 worker", // recreate role
 		"job migrate (gated",                   // the migrate job, auto-run + gated
 		"hook pre_release (local, unplannable", // a real hook still flagged
 	} {

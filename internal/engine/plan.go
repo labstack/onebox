@@ -317,8 +317,13 @@ func (e *Engine) Describe(remoteCompose string) []string {
 			if n := role.Count(); n > 1 {
 				scale = fmt.Sprintf(" --scale %s=%d", svc, n)
 			}
+			if role.Drain != nil && role.Drain.Signal != "" && role.Drain.Wait > 0 {
+				out = append(out,
+					fmt.Sprintf("  docker kill --signal=%s <current %s>; wait %s", role.Drain.Signal, svc, time.Duration(role.Drain.Wait)),
+				)
+			}
 			out = append(out,
-				fmt.Sprintf("  %s up -d --no-deps --force-recreate%s %s", cc, scale, svc),
+				fmt.Sprintf("  %s up -d --no-deps --force-recreate --timeout %d%s %s", cc, role.StopGraceSeconds(), scale, svc),
 				"  wait ready (or running) — brief gap, stated",
 			)
 		}

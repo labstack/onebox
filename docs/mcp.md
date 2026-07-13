@@ -2,8 +2,9 @@
 
 Onebox now exposes its first agent-facing interface over MCP stdio. This
 milestone is deliberately read-only: an MCP client can inspect a configured
-single-host application and prepare a deployment proposal, but it cannot
-execute a deployment or otherwise mutate production.
+single-host application, prepare a deployment proposal, read resolved
+operational memory, and propose a typed memory change. It cannot execute a
+deployment, rewrite configuration, or otherwise mutate production.
 
 The project must use the stable `api_version: onebox.run/v1` contract. See the
 [schema guide](schema-v1.md) for a complete example and the one-time migration
@@ -89,17 +90,26 @@ general shell access—when policy must be a hard boundary.
   incomplete operations, drift, provenance, and observation warnings.
 - `onebox_propose_deploy` reads configuration and target state, resolves image
   digests where possible, and returns a state-bound deployment proposal with
-  keyed content commitments, readiness blockers, an opaque structural Compose diff,
-  command summary, risks, and verification outline. Every scalar Compose value
+  keyed content commitments, readiness blockers, the canonical typed operation
+  graph, an opaque structural Compose diff, command summary, risks, and
+  verification outline. Every scalar Compose value
   uses a per-proposal keyed marker, so values cannot be read, brute-forced from
   a stable hash, or correlated across proposals. Image results expose the
   service and resolved immutable digest only; mutable source references and
   interpolated tags remain hidden.
+- `onebox_read_memory` returns a deterministic, revision-bound, redaction-safe
+  projection of resolved component semantics, deployment and migration policy,
+  and declared protection and observability. It reads local project files and
+  does not contact or mutate production.
+- `onebox_propose_memory_change` accepts an expected revision, rationale, and a
+  narrow typed patch. It returns an immutable, expiring, digest-bound proposal;
+  it never edits `ob.yml` or changes policy. Stale revisions, unknown
+  components, secret-like input, and untyped changes are rejected.
 
 Each MCP process is bound to the `--env` value supplied when it is launched;
 tool input cannot switch environments. Configure a separate MCP entry when you
-want an agent to access another environment. Both tools are marked read-only. A
-proposal describes work; it does not authorize or perform it.
+want an agent to access another environment. All tools are marked read-only. A
+proposal describes work; it does not authorize, apply, or perform it.
 
 Component protection and observability fields are desired state. MCP results
 report whether a declared capability is actually managed; the current local
@@ -135,9 +145,10 @@ The MCP client must inherit the relevant environment, especially
 ## Current safety boundary
 
 There is intentionally no MCP deploy-execution tool yet. Continue to use the
-existing reviewed CLI plan/deploy workflow for mutations. A later milestone
-can add execution only after plans, approvals, drift checks, fencing, streamed
-events, and audit evidence share one canonical operation model.
+reviewed CLI plan/deploy workflow for mutations. CLI planning and execution now
+share the canonical operation graph, service boundary, drift checks, fencing,
+structured events, and engine audit mechanisms. A later milestone can expose
+execution only after a dashboard-issued approval is bound to that exact plan.
 
 The CLI is therefore useful now, not a competing product direction: it is the
 deterministic mutation path, the development and CI surface, and the

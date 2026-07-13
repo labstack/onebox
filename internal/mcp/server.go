@@ -14,7 +14,9 @@ import (
 
 type Service interface {
 	Observe(context.Context, onebox.ObserveRequest) (onebox.Observation, error)
-	ProposeDeploy(context.Context, onebox.ProposeDeployRequest) (onebox.DeploymentProposal, error)
+	Propose(context.Context, onebox.ProposeRequest) (onebox.DeploymentProposal, error)
+	ReadMemory(context.Context, onebox.ReadMemoryRequest) (onebox.OperationalMemory, error)
+	ProposeMemoryChange(context.Context, onebox.ProposeMemoryChangeRequest) (onebox.MemoryChangeProposal, error)
 }
 
 func New(service Service, version string) *mcpsdk.Server {
@@ -49,11 +51,47 @@ func New(service Service, version string) *mcpsdk.Server {
 			Title:           "Propose a Onebox deployment",
 		},
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input onebox.ProposeDeployRequest) (*mcpsdk.CallToolResult, onebox.DeploymentProposal, error) {
-		output, err := service.ProposeDeploy(ctx, input)
+		output, err := service.Propose(ctx, onebox.ProposeRequest{Kind: onebox.KindDeploy})
 		if err != nil {
 			return nil, onebox.DeploymentProposal{}, publicToolError(ctx, "onebox_propose_deploy", "ask the operator to inspect project policy and run `ob plan` locally if appropriate", err)
 		}
 		return nil, output, err
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "onebox_read_memory",
+		Title:       "Read Onebox operational memory",
+		Description: "Read the configured project's deterministic, redaction-safe operational model. This tool reads local declarations only and never writes project configuration.",
+		Annotations: &mcpsdk.ToolAnnotations{
+			ReadOnlyHint:    true,
+			DestructiveHint: boolPointer(false),
+			OpenWorldHint:   boolPointer(false),
+			Title:           "Read Onebox operational memory",
+		},
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input onebox.ReadMemoryRequest) (*mcpsdk.CallToolResult, onebox.OperationalMemory, error) {
+		output, err := service.ReadMemory(ctx, input)
+		if err != nil {
+			return nil, onebox.OperationalMemory{}, publicToolError(ctx, "onebox_read_memory", "ask the operator to inspect `ob.yml` locally", err)
+		}
+		return nil, output, nil
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "onebox_propose_memory_change",
+		Title:       "Propose a Onebox memory change",
+		Description: "Create an immutable, revision-bound suggestion for operational-memory declarations. This tool returns a proposal only and never writes project configuration or production state.",
+		Annotations: &mcpsdk.ToolAnnotations{
+			ReadOnlyHint:    true,
+			DestructiveHint: boolPointer(false),
+			OpenWorldHint:   boolPointer(false),
+			Title:           "Propose a Onebox memory change",
+		},
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input onebox.ProposeMemoryChangeRequest) (*mcpsdk.CallToolResult, onebox.MemoryChangeProposal, error) {
+		output, err := service.ProposeMemoryChange(ctx, input)
+		if err != nil {
+			return nil, onebox.MemoryChangeProposal{}, publicToolError(ctx, "onebox_propose_memory_change", "read operational memory again and ask the operator to review the suggested declarations", err)
+		}
+		return nil, output, nil
 	})
 
 	return server

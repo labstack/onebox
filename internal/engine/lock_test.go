@@ -42,6 +42,30 @@ func TestAcquireLockHappyPath(t *testing.T) {
 	}
 }
 
+func TestReleaseLockRemovesOnlyOwnedToken(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "cat '/var/lib/ob/monk/epoch'") {
+			return transport.Result{Stdout: "2\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := lockEngine(t, f)
+	if _, err := e.AcquireLock(context.Background(), "R-owned", false); err != nil {
+		t.Fatal(err)
+	}
+	f.Commands = nil
+	e.ReleaseLock(context.Background())
+	if len(f.Commands) != 1 {
+		t.Fatalf("release commands = %v", f.Commands)
+	}
+	command := f.Commands[0]
+	if !strings.Contains(command, "$(cat '/var/lib/ob/monk/lock'") ||
+		!strings.Contains(command, `"deploy_id":"R-owned"`) ||
+		!strings.Contains(command, "then rm -f '/var/lib/ob/monk/lock'") {
+		t.Fatalf("release is not ownership-conditional: %s", command)
+	}
+}
+
 func TestAcquireLockHeldFreshRefuses(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "set -C") {
@@ -170,11 +194,12 @@ func TestRefreshLockNeverResurrectsDeletedLock(t *testing.T) {
 	if err := os.MkdirAll(e.base(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.WriteFence(ctx, "D1", 1); err != nil {
-		t.Fatal(err)
-	}
 	lock := e.lockPath()
 	if err := os.WriteFile(lock, []byte("held"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.lockVal = "held"
+	if err := e.WriteFence(ctx, "D1", 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -215,10 +240,10 @@ func TestLockAgeCmdIsPortable(t *testing.T) {
 	got := lockAgeCmd("'/var/lib/ob/monk/lock'")
 	for _, want := range []string{
 		"[ -L '/var/lib/ob/monk/lock' ] && [ ! -e '/var/lib/ob/monk/lock' ]", // dangling symlink → refuse, portably
-		"stat -c %Y '/var/lib/ob/monk/lock'", // GNU
-		"stat -f %m '/var/lib/ob/monk/lock'", // BSD/macOS fallback
-		"[ -e '/var/lib/ob/monk/lock' ] || [ -L '/var/lib/ob/monk/lock' ]", // present → refuse (echo 0)
-		"else date +%s; fi",                                                // truly absent → take over
+		"stat -c %Y '/var/lib/ob/monk/lock'",                                 // GNU
+		"stat -f %m '/var/lib/ob/monk/lock'",                                 // BSD/macOS fallback
+		"[ -e '/var/lib/ob/monk/lock' ] || [ -L '/var/lib/ob/monk/lock' ]",   // present → refuse (echo 0)
+		"else date +%s; fi", // truly absent → take over
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lockAgeCmd missing %q:\n%s", want, got)
@@ -300,6 +325,7 @@ func TestForceBreakPrintsHolderJournalTail(t *testing.T) {
 func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 	f := &transport.Fake{}
 	e := lockEngine(t, f)
+	e.lockVal = "owned"
 	if err := e.WriteFence(context.Background(), "R9", 7); err != nil {
 		t.Fatal(err)
 	}
@@ -327,6 +353,7 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 func TestHeartbeatTouchesLock(t *testing.T) {
 	f := &transport.Fake{}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LockTTL: 200 * time.Millisecond})
+	e.lockVal = "owned"
 	_ = e.WriteFence(context.Background(), "D1", 1)
 	stop := e.StartHeartbeat(context.Background())
 	time.Sleep(90 * time.Millisecond) // > 2 intervals at TTL/10

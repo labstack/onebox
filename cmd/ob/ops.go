@@ -7,13 +7,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/labstack/onebox/internal/config"
-	"github.com/labstack/onebox/internal/release"
-	"github.com/labstack/onebox/internal/secrets"
+	"github.com/labstack/onebox/internal/onebox"
 )
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
@@ -23,26 +21,9 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "apply",
 		Short: "planned service convergence — diff shown, destructive mounts refused without --force",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// strict: this RENDERS and ships a compose — an unresolved
-			// ${VAR:?} must fail here, not on the host
-			cfg, p, err := loadAll(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath))) + "-acc"
-			staging, sc, err := stageRelease(g, cfg, p, id)
-			if err != nil {
-				return err
-			}
-			defer sc()
-			err = e.AccessoryApply(cmd.Context(), id, staging, g.Force)
-			notifyOutcome(cfg, g, "service apply", id, err)
-			return err
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindServiceApply, Force: g.Force,
+			}, "service apply")
 		},
 	})
 	serviceCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "proceed past destructive mount changes")
@@ -55,19 +36,9 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "apply",
 		Short: "converge the shared proxy — diff shown; unchanged config never touches the container (ACME-safe)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAllLenient(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			id := release.NewID(time.Now(), gitShortSHA(filepath.Dir(g.ConfigPath))) + "-proxy"
-			err = e.ProxyApply(cmd.Context(), id, g.Force)
-			notifyOutcome(cfg, g, "proxy apply", id, err)
-			return err
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindProxyApply, Force: g.Force,
+			}, "proxy apply")
 		},
 	})
 	proxyCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "break the host lock / override a cross-app config conflict")
@@ -95,23 +66,10 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "push",
 		Short: "re-render secrets into the live release and restart workloads if changed",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			if cfg.Secrets == nil {
-				return fmt.Errorf("no secrets: {sops: ...} declared in %s", g.ConfigPath)
-			}
-			envBytes, err := secrets.Render(filepath.Dir(g.ConfigPath), cfg.Secrets.Sops)
-			if err != nil {
-				return err
-			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			return e.SecretsPush(cmd.Context(), envBytes)
+			_, err := operationsService(cmd, g).Execute(cmd.Context(), onebox.ExecuteRequest{
+				Kind: onebox.KindSecretsPush,
+			})
+			return err
 		},
 	})
 	root.AddCommand(secretsCmd)
@@ -122,26 +80,29 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "destroy",
 		Short: "tear the app down (typed confirmation; volumes kept unless --volumes)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// lenient: destroy downs the REMOTE staged compose, never the
-			// local render — teardown must work even after the local env
-			// (versions, rotated secrets) is gone
-			cfg, p, err := loadAllLenient(cmd.Context(), g)
+			svc := operationsService(cmd, g)
+			binding, err := svc.ResolveExecutionBinding(cmd.Context(), onebox.KindDestroy)
 			if err != nil {
 				return err
+			}
+			cfg, err := notificationConfig(g)
+			if err != nil {
+				return err
+			}
+			if cfg.App != binding.Application {
+				return fmt.Errorf("configuration changed while preparing destroy — retry")
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "This tears down every %s container and ob's state dir on %s.\nVolumes are %s.\nType the app name (%s) to confirm: ",
-				cfg.App, g.Env, map[bool]string{true: "REMOVED — data loss", false: "kept"}[destroyVolumes], cfg.App)
+				binding.Application, binding.Environment, map[bool]string{true: "REMOVED — data loss", false: "kept"}[destroyVolumes], binding.Application)
 			line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-			if strings.TrimSpace(line) != cfg.App {
+			if strings.TrimSpace(line) != binding.Application {
 				return fmt.Errorf("confirmation mismatch — aborted, nothing touched")
 			}
-			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			err = e.Destroy(cmd.Context(), destroyVolumes, destroyProxy)
-			notifyOutcome(cfg, g, "destroy", "", err)
+			result, err := svc.Execute(cmd.Context(), onebox.ExecuteRequest{
+				Kind: onebox.KindDestroy, RemoveVolumes: destroyVolumes, RemoveProxy: destroyProxy,
+				ExpectedBinding: &binding,
+			})
+			notifyOutcome(cfg, g, "destroy", result.ID, err)
 			return err
 		},
 	}

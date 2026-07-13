@@ -134,7 +134,10 @@ ob plan --out ob-plan.json
 
 `ob validate` checks the project schema, Compose service references, and rollout
 constraints. `ob config` prints the normalized configuration. `ob plan` reads
-the host and creates a state-bound artifact; it does not deploy.
+the host and creates a mode-`0600`, digest-bound executable operation envelope;
+it does not deploy. The envelope expires after 15 minutes and binds the v1
+config, root Compose file, host state, image pins, rendered Compose, and staged
+payload, so a changed input must be planned again.
 
 ## Compatibility promise
 
@@ -282,7 +285,11 @@ For an explicitly declared readiness probe, omitted timing values resolve to a
 2-second interval, 5-second start period, 120-second gate timeout, and three
 retries. An adopted Compose health check retains its interval, start period,
 and retry tuning. `drain.grace` defaults to 30 seconds; an omitted `drain.wait`
-adds no fixed wait.
+adds no fixed wait. Recreate workloads receive the declared drain signal before
+`drain.wait`, then Compose replacement uses `drain.grace` as its TERM-to-KILL
+timeout. Rolling workloads first leave traffic, optionally receive a declared
+non-TERM bleed signal, wait `drain.wait`, and finally receive TERM from
+`docker stop` with `drain.grace`, one retiring replica at a time.
 
 ### Jobs and data effects
 
@@ -295,6 +302,12 @@ Every job states its production data consequence:
 `none` is an operator declaration that keeps application rollback open after a
 successful job. `unknown` stays fail-closed unless that particular run writes
 `changed=false` to `$OB_RESULT_FILE`.
+
+Jobs run before workload release. With rolling workloads, the previous code is
+still serving while a migration runs and old/new replicas coexist during the
+roll. Database changes must therefore be backward-compatible with both versions
+regardless of migration policy. `manual` controls rollback behavior; it does
+not create a maintenance window or make an incompatible migration safe.
 
 `command` optionally overrides the default `docker compose run` behavior with
 an explicit hook. A migration job should write the documented

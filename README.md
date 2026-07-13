@@ -28,9 +28,13 @@ See the [product specification](docs/product.md), the stable
   versioned releases, retention, and rollback.
 - Locks, fencing, append-only journals, resume, abort, migration gates, status,
   audit, SOPS secrets, accessories, proxy operations, and notifications.
-- `ob mcp` with redaction-safe `onebox_observe` and
-  `onebox_propose_deploy` tools. Both are read-only; there is no MCP mutation
-  tool yet.
+- A canonical, versioned operation graph and one shared Go service for
+  observation, proposals, execution, structured events, and operational
+  memory. The CLI is an adapter over that service; engine locks, fencing,
+  journals, drift checks, and rollback gates remain the execution authority.
+- `ob mcp` with redaction-safe observation, deployment-proposal, memory-read,
+  and memory-change-proposal tools. All are read-only; there is no MCP
+  production-mutation tool yet.
 - The `ob` CLI as the current execution path and as a lasting adapter for local
   development, CI, support, and break-glass recovery.
 
@@ -72,6 +76,11 @@ Apply exactly that state-bound plan when you are ready:
 ob deploy --plan ob-plan.json
 ```
 
+The plan is a mode-`0600`, digest-protected executable envelope containing the
+typed operation graph and exact config, Compose, host-state, image, rendered
+Compose, and payload bindings. It expires after 15 minutes; any drift or local
+payload change requires a new plan.
+
 `ob init` is a starting point, not permission to deploy. Review component
 types, persistence semantics, readiness, job data effects, and the environment
 target before running a plan. The [schema guide](docs/schema-v1.md) contains a
@@ -84,9 +93,9 @@ that role by returning typed, secret-safe state and immutable proposals rather
 than asking a model to interpret arbitrary shell output.
 
 The CLI remains useful because it is deterministic, composable in CI, easy to
-test, available if an MCP client is down, and currently owns the reviewed
-mutation workflow. CLI and MCP adapters are expected to share the same Go
-operations service and safety rules.
+test, and available if an MCP client is down. It now calls the same canonical
+operations service used by MCP-facing reads and proposals; mutation remains
+local-only until approval-bound MCP execution is implemented.
 
 Connect Claude, Codex, or another MCP client using [docs/mcp.md](docs/mcp.md).
 

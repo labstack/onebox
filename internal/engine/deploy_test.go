@@ -124,7 +124,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		last = i
 	}
 	// every mutation is fence-guarded
-	for _, mut := range []string{"--scale server=2", "touch /tmp/ob-drain", "docker stop -t 30 OLD1", "--force-recreate worker", "ln -sfn"} {
+	for _, mut := range []string{"--scale server=2", "touch /tmp/ob-drain", "docker stop -t 30 OLD1", "--force-recreate --timeout 30 worker", "ln -sfn"} {
 		for _, c := range f.Commands {
 			if strings.Contains(c, mut) && !strings.Contains(c, "ob-fenced") {
 				t.Fatalf("mutation not fence-guarded: %s", c)
@@ -148,7 +148,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 		"docker version",                                // preflight
 		"run --rm --no-deps migrate",                    // pre-release hook (after upload)
 		"--scale server=2 server",                       // release: web rolls first (order)
-		"--force-recreate worker",                       // then worker recreates
+		"--force-recreate --timeout 30 worker",          // then worker recreates
 		"curl -fsS -m 5 http://172.20.0.5:7500/healthz", // verify
 		"ln -sfn 'releases/R1'",                         // finalize: activate
 	}

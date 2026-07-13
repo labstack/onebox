@@ -66,6 +66,10 @@ The repository now also contains the first MCP product slice:
   [`schema-v1.md`](schema-v1.md). New v1 releases preserve existing files and
   add only optional capabilities.
 - A typed `internal/onebox` service shared independently of CLI presentation.
+- A canonical, digest-bound executable operation graph with typed steps, risk,
+  reversibility, approval class, target/state bindings, and expiry.
+- A single service execution boundary used by CLI mutations, preserving the
+  existing engine's locks, fencing, journals, drift checks, and rollback gates.
 - A read-only production observation tool with structured health, drift,
   incomplete-deployment, accessory, proxy, and certificate state.
 - A read-only deployment-proposal tool with immutable image resolution,
@@ -73,13 +77,16 @@ The repository now also contains the first MCP product slice:
   diffs, explicit risk, and keyed content-bound proposal identities.
 - A model-facing secret boundary: arbitrary remote errors, Compose scalar
   values, verification endpoints, and operator hook bodies are not forwarded.
+- Deterministic operational-memory reads and immutable, revision-bound memory
+  change proposals. These are configuration-derived in this milestone; durable
+  encrypted cloud memory remains future work.
 - No MCP production mutation tool. Existing CLI workflows remain the execution
-  path while the canonical operation/approval model is built.
+  path until approval-bound MCP execution is built.
 
 The following product layers are proposed and not yet implemented:
 
-- Canonical typed operation graph shared by every adapter.
-- MCP execution tools, approval capabilities, and a durable memory API.
+- MCP execution tools and dashboard-issued approval capabilities.
+- Durable encrypted operational memory and evidence synchronization.
 - Credential or capability isolation suitable for a shell-capable agent.
 - Onebox Cloud accounts, device pairing, policy, approvals, and evidence.
 - Dashboard overview, approval, timeline, and recovery surfaces.
@@ -1154,7 +1161,7 @@ The first sellable outcome is:
 
 ## Delivery plan
 
-### Milestone 0 — canonical operations service
+### Milestone 0 — canonical operations service (implemented)
 
 Refactor any remaining command-owned behavior behind a shared Go service:
 

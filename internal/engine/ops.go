@@ -97,7 +97,10 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			return err
 		}
 		defer e.releaseHostLock(ctx)
-		if res, err := e.T.Run(ctx, "rm -f "+q(hp.Apps+"/"+e.Cfg.App)); err != nil || res.ExitCode != 0 {
+		// The app state (and its fence) is intentionally gone; subsequent
+		// mutations are protected solely by the host-scoped lock token.
+		e.fenceVal = ""
+		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.Cfg.App)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("deregister from proxy: %v %s", err, res.Stderr)
 		}
 		others, err := e.proxyRegistryOthers(ctx)
@@ -106,12 +109,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 		switch {
 		case removeProxy && len(others) == 0:
-			if res, err := e.T.Run(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" down"); err != nil {
+			if res, err := e.hostMutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" down"); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("proxy down: %s", strings.TrimSpace(res.Stderr))
 			}
-			if res, err := e.T.Run(ctx, "rm -rf "+q(hp.Dir)); err != nil || res.ExitCode != 0 {
+			if res, err := e.hostMutate(ctx, "rm -rf "+q(hp.Dir)); err != nil || res.ExitCode != 0 {
 				return fmt.Errorf("remove proxy dir: %v %s", err, res.Stderr)
 			}
 			e.logf("shared proxy removed (no apps remain)")

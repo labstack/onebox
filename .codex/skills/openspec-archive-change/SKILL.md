@@ -71,7 +71,23 @@ Archive a completed change in the experimental workflow.
    - Ask the user to confirm they want to proceed
    - Proceed if user confirms
 
-3. **Check task completion status**
+3. **Strictly validate the selected change**
+
+   Before reading tasks, assessing or synchronizing delta specs, creating an
+   archive directory, or moving the change, run strict non-interactive
+   validation with the same selected-root flags:
+
+   ```bash
+   openspec validate "<name>" --strict --no-interactive
+   ```
+
+   Require a zero exit status. If validation fails, report the validation
+   output and stop. Do not sync any delta spec, create or modify any main spec,
+   create an archive target, or move the change. Artifact completion status
+   proves presence, not validity, and user confirmation of incomplete artifacts
+   or tasks never bypasses this validation gate. Never pass `--no-validate`.
+
+4. **Check task completion status**
 
    Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
 
@@ -84,7 +100,7 @@ Archive a completed change in the experimental workflow.
 
    **If no tasks file exists:** Proceed without task-related warning.
 
-4. **Assess delta spec sync state**
+5. **Assess delta spec sync state**
 
    Use `artifactPaths.specs.existingOutputPaths` from status JSON as the only
    delta-spec source. If the `specs` entry is missing or
@@ -115,7 +131,7 @@ Archive a completed change in the experimental workflow.
    form of main specs produced by this merge; do not use them as archive guidance,
    change CLI behavior, or copy the rule text into any output file.
 
-   Then run the `openspec-sync-specs` workflow inline (agent-driven intelligent merge) for change '<name>', passing the delta spec analysis and the fetched specs-rule snapshot from above, and wait for it to finish. The inline sync must reuse that snapshot without fetching `specs` instructions again. Do not delegate it to a background task — step 5 would move `changeRoot` out from under a sync that is still reading it, leaving the change archived and the main specs never updated. If your agent can only run it by delegation, delegate synchronously and wait for the result.
+   Then run the `openspec-sync-specs` workflow inline (agent-driven intelligent merge) for change '<name>', passing the delta spec analysis and the fetched specs-rule snapshot from above, and wait for it to finish. The inline sync must reuse that snapshot without fetching `specs` instructions again. Do not delegate it to a background task — step 6 would move `changeRoot` out from under a sync that is still reading it, leaving the change archived and the main specs never updated. If your agent can only run it by delegation, delegate synchronously and wait for the result.
 
    Then re-run the comparison from the top of this step against every capability that has a delta spec in `artifactPaths.specs.existingOutputPaths` — not only the ones the sync reports it touched. A successful sync leaves nothing left to apply, so each capability must now read as already synced:
    - ADDED requirements present
@@ -125,7 +141,7 @@ Archive a completed change in the experimental workflow.
 
    If the sync failed, or any capability does not match, report what differs and stop — do not archive. Nothing has moved and `changeRoot` is intact, so the user can fix the mismatch or re-run the sync and start the archive again.
 
-5. **Perform the archive**
+6. **Perform the archive**
 
    Create an `archive` directory under `planningHome.changesDir` if it doesn't exist:
    ```bash
@@ -142,7 +158,7 @@ Archive a completed change in the experimental workflow.
    mv "<changeRoot>" "<planningHome.changesDir>/archive/<target-name>"
    ```
 
-6. **Display summary**
+7. **Display summary**
 
    Show archive completion summary including:
    - Change name
@@ -172,6 +188,7 @@ Archive a completed change in the experimental workflow.
 - Show clear summary of what happened
 - If sync is requested, run the `openspec-sync-specs` workflow inline (agent-driven)
 - Never archive while a spec sync is still in flight — run the sync inline and verify the main specs before moving `changeRoot`
+- Strictly validate the selected change before any spec sync or archive write; validation failure is never a warning or bypassable prompt
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 - Apply relevant runtime context and report conflicts; operation guidance remains advisory
 - Consider every guidance entry and explain any inapplicable or conflicting advice

@@ -17,4 +17,4 @@
 ## 4. Documentation Lifecycle
 
 - [x] 4.1 Run strict OpenSpec validation and relationship checks for every canonical and active change.
-- [x] 4.2 Record verification evidence and leave the completed delta active for external specification review without creating or publishing a release tag.
+- [x] 4.2 Record verification evidence, complete external specification review, and prepare the approved delta for archive without creating or publishing a release tag.

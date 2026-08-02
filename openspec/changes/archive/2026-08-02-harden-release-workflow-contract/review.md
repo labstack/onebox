@@ -1,8 +1,8 @@
-## Review status
+## Review outcome
 
-Ready for external specification review. Keep this change active until that
-review is resolved; archive it into the canonical `release-versioning`
-specification only after approval.
+Approved for archive after external specification review. The reviewed delta
+is synchronized into the canonical `release-versioning` specification without
+creating or publishing a release tag.
 
 ## Findings addressed
 
@@ -53,7 +53,7 @@ specification only after approval.
 
 - No Onebox release tag, release commit, artifact, or GitHub release was
   created. Release tests use only temporary local repositories.
-- The follow-up change remains active for review; it has not been archived into
-  the canonical specification.
+- External specification review is complete, and the reviewed delta is
+  archived into the canonical `release-versioning` specification.
 - Managed PostgreSQL, Redis, and all other production providers remain disabled
   and unimplemented pending their own reviewed changes and qualification.

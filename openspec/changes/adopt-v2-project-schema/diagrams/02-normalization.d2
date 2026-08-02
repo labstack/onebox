@@ -1,0 +1,29 @@
+# Both authoring versions converge on one internal model before generation.
+#
+# Expansion is drawn before defaults because the order is load-bearing: a
+# defaulted value must never be mistakable for a shorthand expansion, and both
+# must finish before cross-field checks see the project.
+direction: right
+
+v2: "ob.yml\nonebox.run/v2"
+v1: "ob.yml\nonebox.run/v1"
+
+cue: "CUE\nshape · enums · patterns"
+expand: "Expand shorthand\nscalar to object\ntop-level to workload"
+defaults: "Resolve defaults\nrecord origin per field"
+semantic: "Go\ncross-field + compose semantics"
+
+model: "Normalized model\none shape, both versions" {
+  style.bold: true
+}
+
+gen: "Generate runtime"
+seal: "Seal plan\nbind runtime digest"
+
+v2 -> cue -> expand -> defaults -> semantic -> model
+v1 -> semantic: "frozen loader,\ndeprecated one cycle" {
+  style.stroke-dash: 3
+  style.stroke: "#8a5200"
+  style.font-color: "#8a5200"
+}
+model -> gen -> seal

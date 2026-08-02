@@ -1,0 +1,41 @@
+# The enumerated overlay onto a Compose-referenced workload.
+#
+# The whole point is that the overlay set is closed: four keys go in, every
+# other field passes through untouched, and a collision on any of the four
+# stops generation rather than winning silently. Drawn with the decision after
+# both inputs so the failure edge reads as the default, not the exception.
+#
+# dagre rather than elk: elk placed the two decision edges on the same side and
+# the labels overprinted.
+# d2-layout: dagre
+direction: down
+
+src: "User-authored Compose service\nreferenced as file#service"
+
+overlay: "Onebox overlays exactly four things" {
+  a: "Ingress network attachment"
+  b: "Release identity labels"
+  c: "Proxy routing from declared domain"
+  d: "Rolling container naming"
+}
+
+check: "Does the referenced service\nalready set an overlaid key?" {
+  shape: diamond
+}
+
+fail: "GENERATION FAILS\nnames the key and the file" {
+  style.bold: true
+}
+
+out: "Generated workload service\nevery other field passes through untouched"
+
+src -> check
+overlay -> check
+check -> fail: "yes — never overwritten" {
+  style.stroke: "#c0392b"
+  style.font-color: "#c0392b"
+}
+check -> out: "no" {
+  style.stroke: "#2f9e6b"
+  style.font-color: "#2f9e6b"
+}

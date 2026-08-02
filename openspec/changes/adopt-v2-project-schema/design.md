@@ -21,7 +21,8 @@ unchanged for a release cycle, so the engine cannot be rewritten around a v2-onl
 model. And the sealed-plan contract binds exact content, so whatever generation
 produces has to be reproducible from the plan's own inputs at execution time.
 
-Diagrams below are D2 source, validated against d2 0.7.1.
+Diagrams are rendered from the D2 sources in `diagrams/`; run `just diagrams`
+after editing one, which `just docs-check` enforces.
 
 ## Goals / Non-Goals
 
@@ -50,31 +51,7 @@ Diagrams below are D2 source, validated against d2 0.7.1.
 
 ### The ownership boundary is expressed as two blocks, not three
 
-```d2
-direction: down
-
-user: User declares {
-  style.fill: "#eef6ff"
-  wl: "workloads\nbuild: | image: | compose:"
-  sv: "services\ndriver + version + settings"
-}
-
-onebox: Onebox derives {
-  style.fill: "#f5f5f5"
-  net: networks
-  vol: volumes
-  route: proxy routes
-  rel: release identity
-}
-
-runtime: "generated runtime (digest-bound)" {
-  style.fill: "#e8f5e9"
-}
-
-user.wl -> runtime
-user.sv -> runtime: "inert in this change"
-onebox -> runtime
-```
+![What the user declares versus what Onebox derives; a service declaration is inert in this change.](./diagrams/01-ownership-boundary.svg)
 
 A container that is neither built by the user nor backed by a driver — searxng,
 clamav, ofelia, mailpit — is a workload sourced by image reference. The
@@ -104,44 +81,7 @@ round-trips the corpus of valid and invalid fixtures through both.
 
 ### Normalization is a pipeline with one canonical output
 
-```d2
-direction: right
-
-input: "ob.yml (v2)" {
-  style.fill: "#eef6ff"
-}
-v1: "ob.yml (v1)" {
-  style.fill: "#eeeeee"
-}
-
-cue: "CUE\nshape, enums, patterns" {
-  style.fill: "#f5f5f5"
-}
-expand: "expand shorthand\nscalar -> object\ntop-level -> workload" {
-  style.fill: "#f5f5f5"
-}
-defaults: "resolve defaults\nrecord origin per field" {
-  style.fill: "#f5f5f5"
-}
-semantic: "Go\ncross-field + compose-semantic" {
-  style.fill: "#f5f5f5"
-}
-
-model: "normalized model\n(one shape, both versions)" {
-  style.fill: "#fff8e1"
-}
-
-gen: "generate runtime" {
-  style.fill: "#e8f5e9"
-}
-plan: "seal plan\nbind runtime digest" {
-  style.fill: "#e8f5e9"
-}
-
-input -> cue -> expand -> defaults -> semantic -> model
-v1 -> semantic: "v1 loader, deprecated"
-model -> gen -> plan
-```
+![Both authoring versions converge on one normalized model before anything is generated.](./diagrams/02-normalization.svg)
 
 Expansion happens before defaults so that a defaulted value can never be
 mistaken for a shorthand expansion, and both happen before cross-field checks so
@@ -158,6 +98,8 @@ host-derived tuning in this change — that arrives with drivers — so the chai
 no environmental input and normalization stays a pure function.
 
 ### The Compose merge boundary is enumerated, and conflicts are errors
+
+![Four keys are overlaid onto a Compose-referenced workload; a collision on any of them stops generation rather than winning silently.](./diagrams/03-merge-boundary.svg)
 
 A workload sourced by `compose: file#service` is copied verbatim, and Onebox
 overlays exactly four things: attachment to the ingress network, release

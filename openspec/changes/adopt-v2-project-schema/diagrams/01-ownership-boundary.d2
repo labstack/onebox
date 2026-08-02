@@ -1,0 +1,34 @@
+# What the user declares versus what Onebox derives.
+#
+# Drawn as two sources feeding one runtime rather than three stacked layers.
+# The layering is an ownership fact, not a runtime one, and stacking it implied
+# a call order between platform and services that does not exist.
+#
+# No explicit fills anywhere: an explicit style wins over the theme in both
+# light and dark, so semantic colour lives on strokes and labels only.
+direction: right
+
+user: "User declares" {
+  wl: "workloads\nbuild: · image: · compose:"
+  sv: "services\ndriver · version · settings"
+}
+
+onebox: "Onebox derives" {
+  net: "networks + volumes"
+  route: "proxy routes\nfrom declared domains"
+  rel: "release identity"
+}
+
+runtime: "Generated runtime\ndigest-bound into the plan" {
+  style.bold: true
+}
+
+user.wl -> runtime
+user.sv -> runtime: "inert in this change" {
+  style.stroke-dash: 3
+  style.stroke: "#8a5200"
+  style.font-color: "#8a5200"
+}
+onebox.net -> runtime
+onebox.route -> runtime
+onebox.rel -> runtime

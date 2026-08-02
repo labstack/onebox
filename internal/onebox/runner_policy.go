@@ -8,7 +8,6 @@ import (
 
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/config"
-	"golang.org/x/mod/semver"
 )
 
 var executableSchemaVersion = regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v([0-9]+)(?:(alpha|beta)([0-9]+))?$`)
@@ -21,16 +20,19 @@ func CheckRunnerCompatibility(policy config.EnvironmentPolicy, runner buildinfo.
 
 func enforceRunnerPolicy(policy config.EnvironmentPolicy, runner buildinfo.Runner, planSchema string) error {
 	if minimum := strings.TrimSpace(policy.MinimumOneboxVersion); minimum != "" {
-		currentVersion := normalizeSemver(runner.Version)
-		minimumVersion := normalizeSemver(minimum)
-		if !semver.IsValid(currentVersion) {
+		minimumVersion, err := buildinfo.ParseReleaseVersion(minimum)
+		if err != nil {
+			return fmt.Errorf("environment minimum Onebox version is invalid: %w", err)
+		}
+		currentVersion, err := buildinfo.ParseReleaseVersion(runner.Version)
+		if err != nil {
 			return fmt.Errorf(
-				"runner version %q cannot be compared with environment minimum %q — install a released ob binary and run `ob doctor`",
+				"runner version %q is not a released Onebox CalVer and cannot be compared with environment minimum %q — install a released ob binary and run `ob doctor`",
 				runner.Version,
 				minimum,
 			)
 		}
-		if semver.Compare(currentVersion, minimumVersion) < 0 {
+		if buildinfo.CompareReleaseVersions(currentVersion, minimumVersion) < 0 {
 			return fmt.Errorf(
 				"runner version %s is below environment minimum %s — update the ob binary selected by PATH and run `ob doctor`",
 				runner.Version,
@@ -67,14 +69,6 @@ func enforceRunnerPolicy(policy config.EnvironmentPolicy, runner buildinfo.Runne
 		}
 	}
 	return nil
-}
-
-func normalizeSemver(version string) string {
-	version = strings.TrimSpace(version)
-	if version != "" && !strings.HasPrefix(version, "v") {
-		version = "v" + version
-	}
-	return version
 }
 
 type schemaVersion struct {

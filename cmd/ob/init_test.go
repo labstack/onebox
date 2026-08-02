@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-const monkShaped = `
+const sampleShaped = `
 services:
   traefik:
     image: traefik:v3.7
     ports: ["80:80", "443:443"]
   postgres:
-    image: ghcr.io/x/monk-postgres:1
+    image: ghcr.io/x/sample-postgres:1
     ports: ["127.0.0.1:5432:5432"]
   mysql:
     image: mariadb:11
@@ -35,7 +35,7 @@ services:
 
 func TestInitClassifiesAndDoctors(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(monkShaped), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(sampleShaped), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, dir, "init")
@@ -70,9 +70,9 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 			t.Fatalf("scaffold missing %q:\n%s", want, y)
 		}
 	}
-	for _, legacy := range []string{"roles:", "accessories:", "jobs:"} {
-		if strings.Contains(y, legacy) {
-			t.Fatalf("scaffold must not emit legacy field %q:\n%s", legacy, y)
+	for _, unsupportedField := range []string{"roles:", "accessories:", "jobs:"} {
+		if strings.Contains(y, unsupportedField) {
+			t.Fatalf("scaffold must not emit unsupported field %q:\n%s", unsupportedField, y)
 		}
 	}
 	// doctor output: server wants rolling but has container_name

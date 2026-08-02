@@ -1,6 +1,6 @@
 // Package release manages the versioned remote layout:
 // /var/lib/ob/<app>/releases/<id>/ + a `current` symlink. Nothing live is
-// ever overwritten (design §04); rollback re-activates a previous dir.
+// ever overwritten; rollback re-activates a previous directory.
 package release
 
 import (
@@ -39,7 +39,7 @@ func NewID(now time.Time, gitSHA string) string {
 }
 
 // Stage writes the release payload into a local staging dir: the rendered
-// compose plus the ob.yml snapshot (design §04 — rollback replays the OLD
+// compose plus the ob.yml snapshot so rollback replays the prior
 // choreography from the release's own snapshot).
 func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -124,7 +124,7 @@ func Activate(ctx context.Context, t transport.Transport, app, id string) error 
 
 // PruneCandidates returns releases beyond retain, never the current target.
 // Removal is the caller's job (the engine fences it). Images are deliberately
-// NOT pruned (design §06: rollback never pulls).
+// NOT pruned, because rollback never pulls.
 func PruneCandidates(ctx context.Context, t transport.Transport, app string, retain int) ([]string, error) {
 	ids, err := list(ctx, t, app)
 	if err != nil || len(ids) <= retain {

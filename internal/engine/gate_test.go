@@ -221,7 +221,7 @@ func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal") {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
 			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + failed +
 				journalMarkerLine + "R1-service.jsonl\n" + maintenance}, true
 		}
@@ -323,7 +323,7 @@ func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 	found := false
 	for _, c := range f.Commands {
 		const (
-			resultDir  = "/var/lib/ob/monk/releases/R1/.job-migrate-result"
+			resultDir  = "/var/lib/ob/sample/releases/R1/.job-migrate-result"
 			resultFile = resultDir + "/result"
 		)
 		privateDir := strings.Index(c, "install -d -m 700 '"+resultDir+"'")

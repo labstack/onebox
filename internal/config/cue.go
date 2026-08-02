@@ -16,7 +16,7 @@ var schemaSrc string
 
 // ValidateCUE checks the raw ob.yml against the embedded CUE schema and
 // rewords CUE errors into plain, located messages — CUE never reaches the
-// user (design §02).
+// user.
 func ValidateCUE(yamlBytes []byte, filename string) error {
 	ctx := cuecontext.New()
 	schema := ctx.CompileString(schemaSrc, cue.Filename("ob-schema.cue"))

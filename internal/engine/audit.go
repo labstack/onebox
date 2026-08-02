@@ -8,7 +8,7 @@ import (
 )
 
 // Audit prints who deployed what, when, from which SHA — including runs
-// whose terminal scrolled away (design §05: that's the point).
+// whose terminal scrolled away.
 func (e *Engine) Audit(ctx context.Context, n int) error {
 	ids, err := journal.List(ctx, e.T, e.Cfg.App)
 	if err != nil {

@@ -8,7 +8,7 @@ import (
 	"github.com/labstack/onebox/internal/journal"
 )
 
-func TestParseJobResultLegacyChangedFalse(t *testing.T) {
+func TestParseJobResultKeyValueChangedFalse(t *testing.T) {
 	result, err := parseJobResult([]byte("changed=false\n"))
 	if err != nil {
 		t.Fatal(err)

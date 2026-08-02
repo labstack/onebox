@@ -1,4 +1,4 @@
-// Package engine orchestrates the M0 deploy lifecycle:
+// Package engine orchestrates the deploy lifecycle:
 // preflight → transfer → pre-release → release → verify → finalize.
 package engine
 
@@ -24,7 +24,7 @@ type Options struct {
 	Sleep func(time.Duration)
 	Now   func() time.Time
 	// ConvergeBuffer is the bounded wait for the proxy to observe a health
-	// change (rev 5 traffic-shift protocol, the "converged" step).
+	// change during the traffic-shift protocol's converged step.
 	ConvergeBuffer time.Duration
 	// LocalDir is the config file's directory — cwd for local hooks.
 	LocalDir string

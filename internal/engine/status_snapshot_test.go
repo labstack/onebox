@@ -29,7 +29,7 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if !snapshot.Complete || snapshot.Diverged {
 		t.Fatalf("want complete, converged snapshot, got complete=%v diverged=%v warnings=%v", snapshot.Complete, snapshot.Diverged, snapshot.Warnings)
 	}
-	if snapshot.App != "monk" || snapshot.Host != "fake" || snapshot.RecordedRelease != "R2" {
+	if snapshot.App != "sample" || snapshot.Host != "fake" || snapshot.RecordedRelease != "R2" {
 		t.Fatalf("unexpected identity: %#v", snapshot)
 	}
 	if want := now.UTC(); !snapshot.CapturedAt.Equal(want) || snapshot.CapturedAt.Location() != time.UTC {
@@ -235,7 +235,7 @@ func TestStatusSnapshotDoesNotHideProxyReadCommandFailures(t *testing.T) {
 
 func TestStatusSnapshotManagedProxy(t *testing.T) {
 	applied := ""
-	acme := acmeFixture(t, "monk.trade", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))
 	e, _, out, localHash := statusProxyEngine(t, &applied, acme, "healthy")
 
 	snapshot, err := e.StatusSnapshot(context.Background())
@@ -252,10 +252,10 @@ func TestStatusSnapshotManagedProxy(t *testing.T) {
 	if px.LocalConfigHash != localHash || px.AppliedConfigHash != localHash || px.ConfigDiverged {
 		t.Fatalf("unexpected proxy hashes: %#v", px)
 	}
-	if len(px.RegisteredApps) != 1 || px.RegisteredApps[0] != "monk" {
+	if len(px.RegisteredApps) != 1 || px.RegisteredApps[0] != "sample" {
 		t.Fatalf("unexpected registered apps: %v", px.RegisteredApps)
 	}
-	if len(px.Certificates) != 1 || px.Certificates[0].Domain != "monk.trade" || px.Certificates[0].DaysRemaining != 10 || !px.Certificates[0].RenewalOverdue {
+	if len(px.Certificates) != 1 || px.Certificates[0].Domain != "app.example.com" || px.Certificates[0].DaysRemaining != 10 || !px.Certificates[0].RenewalOverdue {
 		t.Fatalf("unexpected certificates: %#v", px.Certificates)
 	}
 	if out.Len() != 0 {

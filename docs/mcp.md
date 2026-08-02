@@ -1,14 +1,19 @@
 # Onebox MCP quick start
 
-Onebox now exposes its first agent-facing interface over MCP stdio. This
-milestone is deliberately read-only: an MCP client can inspect a configured
+> Status: implemented interface for the current binary
+>
+> This guide lists shipped tools only. Proposed tools and behavior are
+> normative in active OpenSpec changes, not here. See the
+> [documentation authority map](README.md).
+
+Onebox exposes its current agent-facing interface over MCP stdio. This
+interface is deliberately read-only: an MCP client can inspect a configured
 single-host application, prepare a deployment proposal, read resolved
 operational memory, and propose a typed memory change. It cannot execute a
 deployment, rewrite configuration, or otherwise mutate production.
 
 The project must use the stable `api_version: onebox.run/v1` contract. See the
-[schema guide](schema-v1.md) for a complete example and the one-time migration
-from the earlier alpha shape.
+[schema guide](schema-v1.md) for a complete example.
 
 ## Build
 
@@ -21,13 +26,19 @@ ob version --json
 ob doctor --json
 ```
 
-Both targets write `~/.local/bin/ob`; add it to `PATH` if needed, set
-`OB_BIN_DIR` to change the directory, or set `OB_VERSION` to inject a release
-version. `ob version` reports the running
-release, VCS/build provenance, Go version, and supported executable-plan
-schemas. `ob doctor` also checks PATH shadowing/stale candidates, SSH-agent
-usability, project policy compatibility, approval support, and unavailable
-declared protection capabilities.
+Both targets write `~/.local/bin/ob`; add it to `PATH` if needed or set
+`OB_BIN_DIR` to change the directory. Builds derive their version from Git by
+default; packagers can set `OB_VERSION` explicitly. Releases use
+`vYEAR.MONTH.SEQUENCE` (for example `v2026.08.1`), with the sequence increasing
+for each release in that month; an explicit `OB_VERSION` must use the same
+form. Checkout and dirty builds retain Git-derived development provenance and
+do not qualify as released runners when an environment configures
+`minimum_onebox_version`.
+
+`ob version` reports the running release, VCS/build provenance, Go version, and
+supported executable-plan schemas. `ob doctor` also checks PATH
+shadowing/stale candidates, SSH-agent usability, project policy compatibility,
+approval support, and unavailable declared protection capabilities.
 
 The MCP client launches `ob mcp`; you normally do not run that command in a
 terminal yourself.
@@ -151,7 +162,7 @@ ob deploy --plan ob-plan.json --approval ob-approval.json
 ```
 
 The current executable envelope is
-`onebox.run/executable-deploy-plan/v1alpha2`. Missing or legacy schemas are
+`onebox.run/executable-deploy-plan/v1alpha2`. Missing or unsupported schemas are
 rejected before target connection with guidance to update the PATH-selected
 binary and re-plan. The grant is mode-`0600`, digest-protected, expires no later
 than the plan, and binds the exact application, environment, target, risk,
@@ -201,14 +212,37 @@ secure SSH transport as the CLI:
 The MCP client must inherit the relevant environment, especially
 `SSH_AUTH_SOCK` when agent-based authentication is used.
 
+## Proposed managed-service interface
+
+The active
+[`managed-service-operation-contract`](../openspec/changes/managed-service-operation-contract/)
+defines the proposed LLM-first interface for managed supporting services. It
+adds catalog discovery, typed setting proposals, durable operation polling,
+trusted approved execution, and bounded cancellation. It also extends
+`onebox_observe` with desired/applied/actual service state.
+
+The proposed tool names are `onebox_service_catalog`,
+`onebox_propose_service_change`, `onebox_apply_project_change`, `onebox_get_operation`,
+`onebox_execute_approved_operation`, and `onebox_cancel_operation`. They are not
+registered by the current server and must not be invoked or advertised as
+available until the OpenSpec change is implemented and its conformance tests
+pass.
+
+The local project-change tool persists an exact semantic patch bound to the
+current project revision, validates it, and never connects to production. This
+keeps desired state durable without requiring a person or model to author YAML.
+The design deliberately avoids arbitrary YAML, shell, plaintext-secret, and
+model-asserted approval inputs. Large evidence is returned through opaque,
+bounded resources so normal agent turns stay compact.
+
 ## Current safety boundary
 
 There is intentionally no MCP deploy-execution tool yet. Continue to use the
 reviewed CLI plan/deploy workflow for mutations. CLI planning and execution now
 share the canonical operation graph, exact plan/grant bindings, runner policy,
 migration backup and job-result gates, drift checks, fencing, structured events,
-and engine audit mechanisms. A later milestone can expose execution only
-through equally bound, authenticated approval authority.
+and engine audit mechanisms. The active OpenSpec change permits MCP execution
+only through equally bound, authenticated approval authority.
 
 The CLI is therefore useful now, not a competing product direction: it is the
 deterministic mutation path, the development and CI surface, and the

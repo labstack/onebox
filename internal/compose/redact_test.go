@@ -19,7 +19,7 @@ services:
       - path: ./.env
         required: true
     environment:
-      DATABASE_URL: postgresql://postgres:supersecret@postgres:5432/monk
+      DATABASE_URL: postgresql://postgres:supersecret@postgres:5432/sample
       EMPTY_ONE: null
 `
 

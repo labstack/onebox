@@ -1,6 +1,6 @@
 // Package secrets renders a SOPS-encrypted YAML file into a flat env file.
 // Decryption is runner-side (`sops -d` — sops+age is the curated provider,
-// design §03); the host only ever sees the rendered file at mode 600 inside
+// package; the host only ever sees the rendered file at mode 600 inside
 // a release dir.
 package secrets
 

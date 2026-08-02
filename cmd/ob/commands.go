@@ -153,7 +153,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			// Redact environment values — even a preview must never print
-			// secrets to the terminal (design §07).
+			// secrets to the terminal.
 			out, err = compose.RedactEnvYAML(out)
 			if err != nil {
 				return err
@@ -311,7 +311,7 @@ func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, er
 	}
 }
 
-// notifyOperationOutcome maps the canonical result to legacy webhook fields.
+// notifyOperationOutcome maps the canonical result to the stable webhook fields.
 // A no-op is deliberately silent: reporting the planned release ID as deployed
 // would claim an activation that never happened.
 func notifyOperationOutcome(cfg *config.Config, g *globalFlags, verb string, result onebox.OperationResult, err error) {

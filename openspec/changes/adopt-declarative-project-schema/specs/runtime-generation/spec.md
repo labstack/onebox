@@ -57,12 +57,12 @@ SHALL modify nothing else:
 
 | Addition | Exact content |
 |---|---|
-| Ingress network | append the environment's `proxy.network` to the service's networks, preserving existing entries in order |
+| Ingress network | append the project's `proxy.network`, resolved for the environment, to the service's networks, preserving existing entries in order |
 | Identity labels | `ob.app`, `ob.release`, `ob.workload` |
 | Routing labels | `traefik.enable`, `traefik.docker.network`, and per route: `traefik.<protocol>.routers.<router>.rule`, `.entrypoints`, `.tls`, and `traefik.<protocol>.services.<service>.loadbalancer.server.port`, using the router and proxy service names from the naming table |
 
-The ingress network SHALL be the environment's configured `proxy.network`, not a
-fixed name. When `proxy.kind` is `none` or `proxy.managed` is false, Onebox SHALL
+The ingress network SHALL be the project's `proxy.network` as resolved for the
+selected environment, not a fixed name. When `proxy.kind` is `none` or `proxy.managed` is false, Onebox SHALL
 add neither routing labels nor a network, and a workload declaring a route under
 that configuration SHALL fail validation naming the conflict. Routing labels SHALL
 otherwise be added only when the workload declares at least one route.
@@ -72,28 +72,30 @@ service already attaches the ingress network, already declares a label in the
 `ob.` namespace, or — when the workload declares a route — already declares a
 label in the `traefik.` namespace.
 
-`container_name` SHALL be refused only when it cannot coexist with the workload's
-rollout: that is, when `replicas` exceeds one or the strategy is `rolling`. A
-single-replica workload using the recreate strategy MAY keep a fixed container
-name, because the container runtime permits it and refusing it would make an
-existing worker inexpressible. Onebox SHALL NOT silently remove the key in
-either case.
+`container_name` SHALL be refused unconditionally, and SHALL NOT be silently
+removed. Onebox owns container naming, because container names are host-global
+and an authored name reintroduces exactly the cross-application collision the
+naming contract exists to prevent. An earlier draft permitted a fixed name on a
+single-replica recreate workload; that exception contradicted the naming
+contract, since a preserved name such as `feed` is not application-scoped.
+Conversion removes the key, which is a one-line edit.
 
-A referenced service declaring `network_mode` SHALL be refused, because the
-container runtime rejects a service carrying both `network_mode` and `networks`,
-and the overlay must attach a network.
+A referenced service declaring `network_mode` SHALL be refused **when a network
+would be attached**, because the container runtime rejects a service carrying
+both `network_mode` and `networks`. When the proxy is disabled no network is
+attached, so `network_mode` SHALL be preserved.
 
-#### Scenario: Fixed container name conflicts with a rolling rollout
-- **WHEN** a Compose-referenced workload sets `container_name` and uses the rolling strategy or more than one replica
+#### Scenario: Fixed container name is refused
+- **WHEN** a Compose-referenced workload sets `container_name`
 - **THEN** generation fails naming the key and the file, and the key is not removed
 
-#### Scenario: Fixed container name on a single recreate workload
-- **WHEN** a Compose-referenced workload sets `container_name`, declares one replica, and uses the recreate strategy
-- **THEN** generation succeeds and the name is preserved
+#### Scenario: network_mode with the proxy enabled
+- **WHEN** a referenced Compose service declares `network_mode` and a network would be attached
+- **THEN** generation fails naming the key
 
-#### Scenario: Referenced service sets network_mode
-- **WHEN** a referenced Compose service declares `network_mode`
-- **THEN** generation fails naming the key, because a network cannot also be attached
+#### Scenario: network_mode with the proxy disabled
+- **WHEN** a referenced Compose service declares `network_mode` and the proxy is disabled
+- **THEN** generation succeeds and the key is preserved
 
 #### Scenario: Proxy disabled
 - **WHEN** the environment disables the proxy and a workload declares a route
@@ -184,7 +186,6 @@ runtime in project and volume names, so underscore SHALL join every derived name
 | Service Compose project | `ob_<app>_<service>` | `ob_ledger_postgres` |
 | Service volume | `ob_<app>_<service>_<volume>` | `ob_ledger_postgres_data` |
 | Workload volume | `ob_<app>_<workload>_<volume>` | `ob_ledger_web_uploads` |
-| Container | `<app>_<workload>` or `<app>_<workload>_<n>` | `ledger_web_1` |
 | Router | `<app>_<workload>_<index>` | `ledger_web_0` |
 | Proxy service | `<app>_<workload>` | `ledger_web` |
 | Shared ingress network | the environment's `proxy.network` | `ob-ingress` |
@@ -204,14 +205,23 @@ contract the first time a release ships.
 A service's volume identifiers come from its declared `volumes`; a service that
 declares none reserves no volume name.
 
-The application Compose project is the application identifier alone. It cannot
+Workload and service identifiers are unique across both blocks, so the workload
+and service volume patterns cannot produce the same name for different
+resources. The application Compose project is the application identifier alone. It cannot
 collide with any derived name because identifiers may not contain underscore and
 may not begin `ob-`, which reserves both the underscore-joined namespace and the
 two pre-existing hyphenated host-scoped names.
 
+Every derived name, including the transient name a rollout uses before assigning
+a stable slot, SHALL be application-scoped and SHALL be included in the preflight
+collision check.
+
 Names SHALL be stable across releases so a rollback cannot orphan a resource. A
-derived name exceeding the container runtime's sixty-three-character limit SHALL
+derived name exceeding sixty-three characters SHALL
 be **refused at validation**, naming the offending identifiers and the limit.
+Sixty-three characters is an Onebox limit chosen for headroom, not a documented
+container-runtime maximum, and the same number applies wherever Onebox derives a
+name.
 
 Truncation with a hash suffix was specified and withdrawn: a review produced two
 valid workload identifiers whose derived volume names collided under a

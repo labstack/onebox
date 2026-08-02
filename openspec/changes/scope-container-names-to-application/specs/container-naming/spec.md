@@ -39,11 +39,38 @@ installation agree on which container is which.
 - **WHEN** a release is rolled back
 - **THEN** the names derived for the restored release match those the rollout used
 
+### Requirement: Every derived name is application-scoped, including transient ones
+
+The rollout assigns a temporary name to a new container before promoting it to a
+stable slot. That transient name SHALL be application-scoped like every other,
+and SHALL be included in the pre-mutation collision check. A transient name that
+is not scoped is the same host-global collision as a stable one, arriving in the
+middle of a rollout when two applications deploy at once.
+
+An authored fixed container name SHALL NOT be honoured. Onebox owns container
+naming, so a name declared in a referenced Compose file is refused rather than
+preserved; preserving it would reintroduce exactly the collision this contract
+removes.
+
+#### Scenario: Transient name collides across applications
+- **WHEN** two applications deploy components with the same name at the same time
+- **THEN** their transient container names differ
+
+#### Scenario: Transient name is checked before mutation
+- **WHEN** a foreign container holds the transient name a rollout would use
+- **THEN** the deployment fails before any container is started, stopped, or renamed
+
+#### Scenario: Authored fixed name is refused
+- **WHEN** a referenced Compose service declares a fixed container name
+- **THEN** the deployment fails naming the key, and the name is not preserved
+
 ### Requirement: An over-long derived name is refused, not truncated
 
-A derived container name exceeding the container runtime's limit SHALL be refused
-during validation, naming the application identifier, the component identifier,
-and the limit. It SHALL NOT be truncated, because truncation reintroduces the
+A derived container name exceeding sixty-three characters SHALL be refused during
+validation, naming the application identifier, the component identifier, and the
+limit. Sixty-three is an Onebox limit chosen for headroom rather than a
+documented container-runtime maximum, and is the same number the declarative
+schema change applies to every other derived name. It SHALL NOT be truncated, because truncation reintroduces the
 collision this contract exists to remove.
 
 #### Scenario: Derived name exceeds the limit

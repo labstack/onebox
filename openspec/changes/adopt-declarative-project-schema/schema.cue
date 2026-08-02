@@ -1,55 +1,74 @@
 // Normative shape for the onebox.run/v1 authoring contract.
 //
-// This file is part of the specification, not the implementation. It exists
-// because prose cannot state requiredness, exclusivity, bounds, and closure
-// precisely enough for two implementations to accept the same corpus — the
-// finding that ended two review rounds. The behavioural requirements live in
-// specs/project-schema/spec.md; the shape lives here, and it compiles.
+// Part of the specification, not the implementation. Prose cannot state
+// requiredness, exclusivity, bounds, and closure precisely enough for two
+// implementations to accept the same corpus; this can, and it compiles.
 //
-// Path kinds are distinguished deliberately. #RepoPath is resolved against the
-// directory holding the project file and may not escape the repository.
-// #AbsPath is a path on the target. #UrlPath is a request path. Conflating
-// them made the required default base path invalid under the old blanket rule.
+// Two CUE rules govern the style here, both learned from review:
+//
+//   - A default only materialises on a REGULAR field. `a?: int | *1` leaves `a`
+//     absent when omitted; `a: int | *1` yields 1. Every field carrying a
+//     documented default is therefore regular, not optional.
+//   - Cardinality validators (struct.MinFields, list.MinItems) evaluate eagerly
+//     and fail against the bare definition, which would break the loader's own
+//     schema check. Non-emptiness — at least one environment, a non-empty
+//     workloads block, non-empty assertion lists — is therefore enforced by the
+//     loader and stated in the specification, not here.
+//   - This schema describes the NORMALISED project: the loader expands shorthand
+//     and fills documented defaults first, then validates. A discriminator left
+//     to a default keeps every branch of a disjunction alive — a workload with
+//     no `role` satisfies the worker branch as readily as the application one —
+//     so discriminators are required here and supplied by normalisation.
+//   - Closure is not discrimination. A disjunction that merely anchors one key
+//     still admits every other key on every branch, so variants are written as
+//     separate closed structs.
+//
+// Path kinds are distinguished: #RepoPath resolves against the project file and
+// stays inside the repository, #AbsPath is a path on the target, #UrlPath is a
+// request path.
 package obschema
 
 // ---------- scalars ----------
 
-// One character is legal: an identifier of "a" is fine, and forbidding it
-// would have to be relaxed later, which narrowing rules forbid.
-#Ident: =~"^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
-
-// The application identifier additionally reserves the generated namespace.
-// Underscore is already excluded by #Ident and joins derived names.
+#Ident:    =~"^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
 #AppIdent: #Ident & !~"^ob-" & !="ob" & !="proxy" & !="_host"
 
-#Port:    int & >0 & <65536
-#PosInt:  int & >0
-#Days:    int & >0
-#Dur:     =~"^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
-#Cron:    =~"^[-0-9*/,A-Za-z ]+$"
-#TZ:      string & !=""
-#Signal:  =~"^[A-Z][A-Z0-9]*$"
-#Size:    =~"^[0-9]+(\\.[0-9]+)?(B|KB|MB|GB|TB)$"
-#Cpus:    =~"^[0-9]+(\\.[0-9]+)?$"
+#Port:       int & >0 & <65536
+#StatusCode: int & >=100 & <=599
+#PosInt:     int & >0
+#Days:       int & >0
 
-// A repository-relative path. Never absolute, never escaping upward.
-#RepoPath: string & !="" & !~"^/" & !~"(^|/)\\.\\.(/|$)"
-// A path on the target host.
+// Compound Go durations plus the whole-day form the previous contract accepted.
+#Dur: =~"^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$"
+
+#Cron:   =~"^[-0-9*/,A-Za-z ]+$"
+#TZ:     string & !=""
+#Signal: =~"^[A-Z][A-Z0-9]*$"
+#Size:   =~"^[0-9]+(\\.[0-9]+)?(B|KB|MB|GB|TB)$"
+#Cpus:   =~"^[0-9]+(\\.[0-9]+)?$"
+
+// Repository-relative. Absolute is refused lexically; escaping the repository
+// is a semantic check the loader performs after resolution, because `a/../b`
+// is legal and resolves inside.
+#RepoPath: string & !="" & !~"^/"
+
 #AbsPath: =~"^/"
-// A request path.
 #UrlPath: =~"^/"
 
 #ImageRef: string & !=""
 #EnvName:  =~"^[A-Za-z_][A-Za-z0-9_]*$"
 #Scalar:   string | int | float | bool
 
-// Extension keys are accepted anywhere a mapping is accepted, and ignored.
+#PlanSchema: =~"^onebox\\.run/executable-deploy-plan/v[1-9][0-9]*((alpha|beta)[1-9][0-9]*)?$"
+#CalVer:     =~"^v[0-9]{4}\\.(0[1-9]|1[0-2])\\.[1-9][0-9]*$"
+
+// Extension keys, accepted and ignored wherever a mapping is accepted.
 #X: {[=~"^x-"]: _}
 
 // ---------- sources ----------
 
 #Build: #RepoPath | {
-	context!:    #RepoPath
+	context:     #RepoPath
 	dockerfile?: #RepoPath
 	target?:     string & !=""
 	args?: [#EnvName]: #Scalar
@@ -58,241 +77,327 @@ package obschema
 }
 
 #Image: #ImageRef | {
-	reference!: #ImageRef
-	platform?:  string & !=""
-	pull?:      "always" | "missing" | "never" | *"missing"
-	registry?:  #Ident // names an entry in registries
+	reference: #ImageRef
+	platform?: string & !=""
+	pull:      "always" | "missing" | "never" | *"missing"
+	registry?: #Ident
 	#X
 }
 
-// file#service — the bounded escape hatch.
-#ComposeRef: =~"^[^#]+#[a-zA-Z0-9._-]+$"
+// file#service. The file part is a repository path, so it may not be absolute.
+#ComposeRef: =~"^[^/#][^#]*#[a-zA-Z0-9._-]+$"
 
 // ---------- health ----------
 
-#Health: #UrlPath | {
-	{http!: #UrlPath} | {exec!: string & !=""} | {tcp!: true}
-	port?:         #Port
+#HealthHTTP: {http: #UrlPath, port?: #Port, #HealthTiming, #X}
+#HealthExec: {exec: string & !="", #HealthTiming, #X}
+#HealthTCP:  {tcp: true, port: #Port, #HealthTiming, #X}
+
+#HealthTiming: {
+	...
 	interval?:     #Dur
 	start_period?: #Dur
 	within?:       #Dur
 	retries?:      #PosInt
-	#X
 }
+
+#Health: #UrlPath | #HealthHTTP | #HealthExec | #HealthTCP
 
 // ---------- routing ----------
 
-// entrypoint names the listener the proxy exposes; port is the container port
-// behind it. Separating them is what makes a non-HTTP listener expressible.
+// entrypoint names the proxy listener; port is the container port behind it.
+// Separating them is what makes a non-HTTP listener expressible.
 #Route: {
-	domain!:     string & !=""
-	path?:       #UrlPath | *"/"
-	port!:       #Port
-	entrypoint?: string & !=""
-	protocol?:   "http" | "tcp" | *"http"
-	tls?:        "terminate" | "passthrough" | "none" | *"terminate"
+	domain:     string & !=""
+	path:       #UrlPath | *"/"
+	port:       #Port
+	entrypoint: string & !="" | *"websecure"
+	protocol:   "http" | "tcp" | *"http"
+	tls:        "terminate" | "passthrough" | "none" | *"terminate"
 	#X
 }
 
 // ---------- storage ----------
 
 #Volume: #Ident | {
-	name!: #Ident
+	name:  #Ident
 	path?: #AbsPath
-	mode?: "rw" | "ro" | *"rw"
+	mode:  "rw" | "ro" | *"rw"
 	#X
 }
 
 #Persistence: {
-	mode?: "durable" | "ephemeral" | "external" | *"durable"
+	mode: "durable" | "ephemeral" | "external" | *"durable"
 	#X
 }
+
+#Resources: {memory?: #Size, cpus?: #Cpus, #X}
 
 // ---------- protection ----------
 
 #Schedule: {
-	cron!:     #Cron
-	timezone?: #TZ | *"UTC"
+	cron:     #Cron
+	timezone: #TZ | *"UTC"
+	#X
+}
+
+#Backup: {
+	schedule?:       #Schedule
+	retention_days?: #Days
+	restore_drill?:  {schedule: #Schedule, #X}
+	destination?:    string & !=""
 	#X
 }
 
 #Protection: {
-	backup?: {
-		schedule!:       #Schedule
-		retention_days?: #Days
-		destination?:    string & !=""
-		#X
-	}
-	restore_drill?: {
-		schedule!: #Schedule
-		#X
-	}
+	backup?:        #Backup
+	restore_drill?: {schedule: #Schedule, #X}
+	#X
+}
+
+// A command is an argument list, a bare string, or the hook form.
+#Command: string & !="" | [...string] | {
+	run:   string & !=""
+	local: bool | *false
 	#X
 }
 
 // ---------- workloads ----------
 
-// A command is a list, or the hook form when it must run somewhere specific.
-#Command: [...string] | {
-	run!:   string & !=""
-	local?: bool | *false
+// Exclusivity is written as explicit negation on open structs. A closed struct
+// cannot be embedded into another closed struct without collapsing the
+// disjunction, and an open struct alone would let a second source slip in.
+#Source: {build: #Build, image?: _|_, compose?: _|_, ...} |
+	{image: #Image, build?: _|_, compose?: _|_, ...} |
+	{compose: #ComposeRef, build?: _|_, image?: _|_, ...}
+
+#WorkloadCommon: {
+	...
+	command?:  #Command
+	replicas:  #PosInt | *1
+	health?:   #Health
+	drain?:    {signal: #Signal | *"TERM", wait?: #Dur, grace?: #Dur, #X}
+	resources?: #Resources
+	env?: {[#EnvName]: #Scalar}
+	volumes?: [...#Volume]
+	persistence?: #Persistence
+	protection?:  #Protection
+	needs?: [...#Ident]
 	#X
 }
 
-#Workload: {
-	role?: "application" | "worker" | "job" | *"application"
-
-	// Exactly one source.
-	{build!: #Build} | {image!: #Image} | {compose!: #ComposeRef}
-
-	command?:  #Command
-	replicas?: #PosInt | *1
-	strategy?: "rolling" | "recreate"
-
-	// Scalar shorthand for a single route; mutually exclusive with routes.
+// Routing fields are optional here and their exclusivity — the scalar pair or
+// the list, never both, and the pair always together — is enforced by the
+// loader. Expressing it as a disjunction with an empty branch leaves the union
+// unresolvable, because a branch missing a required field is incomplete rather
+// than invalid and never drops out.
+#Routing: {
+	...
 	domain?: string & !=""
 	port?:   #Port
 	routes?: [...#Route]
-
-	health?:      #Health
-	drain?:       {signal?: #Signal | *"TERM", wait?: #Dur, grace?: #Dur, #X}
-	resources?:   {memory?: #Size, cpus?: #Cpus, #X}
-	env?:         {[#EnvName]: #Scalar}
-	volumes?:     [...#Volume]
-	persistence?: #Persistence
-	protection?:  #Protection
-
-	// Declared prerequisites; a name in services or another workload.
-	needs?: [...#Ident]
-
-	// Job only. data_effect is required for a job and carries `unknown`,
-	// which the previous contract accepted and an operator may honestly mean.
-	run?:         "pre_release" | "post_release" | "manual"
-	data_effect?: "none" | "migration" | "destructive" | "unknown"
-	#X
 }
+
+// Job-only fields are explicitly negated on the other roles: #WorkloadCommon is
+// open so embedding works, and an open struct would otherwise admit them.
+// Roles are separate structs so job-only fields cannot appear elsewhere,
+// and so a job cannot omit its data effect.
+#WorkloadApplication: {
+	role:      "application"
+	run?:         _|_
+	data_effect?: _|_
+	schedule?:    _|_
+	strategy:  "rolling" | "recreate" | *"rolling"
+	#Source
+	#Routing
+	#WorkloadCommon
+}
+
+#WorkloadWorker: {
+	role:     "worker"
+	run?:         _|_
+	data_effect?: _|_
+	schedule?:    _|_
+	strategy: "rolling" | "recreate" | *"recreate"
+	#Source
+	#WorkloadCommon
+}
+
+// A long-running supporting container the user owns: a database they still
+// author, a cache, a cron runner, a scanner. Distinguished from application and
+// worker because environment files are not projected into it and it never
+// receives ingress unless it declares a route.
+#WorkloadDaemon: {
+	role:     "daemon"
+	run?:         _|_
+	data_effect?: _|_
+	schedule?:    _|_
+	strategy: "recreate" | *"recreate"
+	#Source
+	#Routing
+	#WorkloadCommon
+}
+
+// A job runs to completion: at a release phase, on a schedule, or on demand.
+#WorkloadJob: {
+	role:        "job"
+	run:         "pre_release" | "post_release" | "manual" | *"manual"
+	data_effect: "none" | "migration" | "destructive" | "unknown"
+	schedule?:   #Schedule
+	#Source
+	#WorkloadCommon
+}
+
+#Workload: #WorkloadApplication | #WorkloadWorker | #WorkloadDaemon | #WorkloadJob
 
 // ---------- services ----------
 
-#Backup: {
-	schedule?:       #Schedule
-	retention_days?: #Days
-	restore_drill?:  {schedule!: #Schedule, #X}
-	destination?:    string & !=""
-	#X
-}
-
-// Volume identifiers are declared, not invented, because their generated
-// names are permanent and must be reservable before any driver exists.
 #Service: string | int | {
 	driver?:  #Ident
-	version!: string | int
+	version:  string | int
 	volumes?: [...#Ident]
 	persistence?: #Persistence
-	resources?:   {memory?: #Size, cpus?: #Cpus, #X}
-	settings?:    {[string]: #Scalar}
-	backup?:      #Backup
+	resources?:   #Resources
+	settings?: {[string]: #Scalar}
+	backup?: #Backup
 	#X
 }
 
 // ---------- environments ----------
 
 #Server: string & !="" | {
-	host!: string & !=""
+	host:  string & !=""
 	user?: string & !=""
 	port?: #Port
 	#X
 }
 
 #Policy: {
-	require_approval?:               bool | *true
-	allow_agent_proposals?:          bool | *true
-	minimum_onebox_version?:         =~"^v[0-9]{4}\\.(0[1-9]|1[0-2])\\.[1-9][0-9]*$"
-	minimum_plan_schema?:            string & !=""
-	require_migration_backup?:       bool | *false
-	migration_backup_max_age?:       #Dur
-	require_migration_restore_test?: bool | *false
+	require_approval:               bool | *true
+	allow_agent_proposals:          bool | *true
+	minimum_onebox_version?:        #CalVer
+	minimum_plan_schema?:           #PlanSchema
+	require_migration_backup:       bool | *false
+	migration_backup_max_age?:      #Dur
+	require_migration_restore_test: bool | *false
 	migration_backup_key_material?: [...string]
 	#X
 }
 
+// Null removes a key. Nested maps admit null members so a single setting can be
+// removed without replacing the whole object.
 #Overrides: {
 	workloads?: [#Ident]: {
 		replicas?:  #PosInt | null
 		resources?: {memory?: #Size | null, cpus?: #Cpus | null, #X} | null
-		env?:       {[#EnvName]: #Scalar | null} | null
-		strategy?:  "rolling" | "recreate" | null
+		env?: {[#EnvName]: #Scalar | null} | null
+		strategy?: "rolling" | "recreate" | null
 		routes?: [...#Route] | null
 		#X
 	}
 	services?: [#Ident]: {
 		resources?: {memory?: #Size | null, cpus?: #Cpus | null, #X} | null
-		settings?:  {[string]: #Scalar | null} | null
-		backup?:    #Backup | null
+		settings?: {[string]: #Scalar | null} | null
+		backup?: {
+			schedule?:       #Schedule | null
+			retention_days?: #Days | null
+			restore_drill?:  {schedule: #Schedule, #X} | null
+			destination?:    string | null
+			#X
+		} | null
 		#X
 	}
 	#X
 }
 
 #Environment: {
-	server!:    #Server
+	server:     #Server
 	base_path?: #AbsPath
-	policy?:    #Policy
+	policy:     #Policy
 	overrides?: #Overrides
 	#X
 }
 
 // ---------- verification ----------
 
-#Verification: {
-	{workload!: #Ident} | {url!: =~"^https?://"} | {migration_revisions!: {
-		job!:      #Ident
-		provider?: string & !=""
-		applied_revisions!: [...string]
-		#X
-	}}
-	http?:   #UrlPath
-	exec?:   string & !=""
-	port?:   #Port
-	status_codes?: [...#Port]
+#VerifyHTTP: {workload: #Ident, http: #UrlPath, port?: #Port, exec?: _|_, url?: _|_, migration_revisions?: _|_, contains?: _|_, status_codes?: _|_, required_headers?: _|_, json_assertions?: _|_, #VerifyCommon}
+#VerifyExec: {workload: #Ident, exec: string & !="", http?: _|_, url?: _|_, migration_revisions?: _|_, contains?: _|_, status_codes?: _|_, required_headers?: _|_, json_assertions?: _|_, #VerifyCommon}
+
+#VerifyURL: {
+	url: =~"^https?://"
+	workload?:            _|_
+	http?:                _|_
+	exec?:                _|_
+	migration_revisions?: _|_
+	status_codes?: [...#StatusCode]
 	required_headers?: {[string]: string}
 	contains?: string & !=""
-	json_assertions?: [...{path!: string & !="", equals!: #Scalar, #X}]
-	advisory?: bool | *false
+	json_assertions?: [...{path: string & !="", equals: #Scalar | null, #X}]
+	#VerifyCommon
+}
+
+#VerifyMigration: {
+	workload?:        _|_
+	url?:             _|_
+	http?:            _|_
+	exec?:            _|_
+	contains?:        _|_
+	status_codes?:    _|_
+	required_headers?: _|_
+	json_assertions?: _|_
+	migration_revisions: {
+		job:       #Ident
+		provider?: string & !=""
+		applied_revisions: [...string & !=""]
+		#X
+	}
+	#VerifyCommon
+}
+
+#VerifyCommon: {
+	...
+	advisory: bool | *false
 	#X
 }
 
+#Verification: #VerifyHTTP | #VerifyExec | #VerifyURL | #VerifyMigration
+
 // ---------- top level ----------
 
+// Exactly one of: top-level shorthand describing a single workload, or an
+// explicit non-empty workloads block. Never both, never neither.
 #Config: {
-	api_version!: "onebox.run/v1"
-	app!:         #AppIdent
-	base_path?:   #AbsPath | *"/var/lib/ob"
+	api_version: "onebox.run/v1"
+	app:         #AppIdent
+	base_path:   #AbsPath | *"/var/lib/ob"
 
-	environments!: {[#Ident]: #Environment}
+	environments: {[#Ident]: #Environment}
 
-	// Top-level workload shorthand. Mutually exclusive with `workloads`.
-	build?:  #Build
-	image?:  #Image
+	// Exactly one of: top-level shorthand describing a single workload, or a
+	// non-empty explicit workloads block. Never both, never neither. Enforced by
+	// the loader for the same reason routing exclusivity is.
+	build?:   #Build
+	image?:   #Image
 	compose?: #ComposeRef
-	port?:   #Port
-	health?: #Health
-	domain?: string & !=""
-
+	domain?:  string & !=""
+	port?:    #Port
+	health?:  #Health
+	routes?: [...#Route]
 	workloads?: {[#Ident]: #Workload}
-	services?:  {[#Ident]: #Service}
 
-	deployment?: {
+	services?: {[#Ident]: #Service}
+
+	deployment: {
 		order?: [...#Ident]
-		retain_releases?:  #PosInt | *5
-		migration_policy?: "manual" | "auto" | "expand-only" | *"manual"
+		retain_releases:  #PosInt | *5
+		migration_policy: "manual" | "auto" | "expand-only" | *"manual"
 		#X
 	}
 
 	runtime?: {
 		env_files?: [...#RepoPath]
 		preflight?: [...{
-			file!: #RepoPath
+			file: #RepoPath
 			require?: [...#EnvName]
 			present?: [...#EnvName]
 			#X
@@ -311,37 +416,37 @@ package obschema
 	verification?: [...#Verification]
 
 	notifications?: {[#Ident]: {
-		webhook!: =~"^https?://"
+		webhook: =~"^https?://"
 		on?: [..."success" | "failure"]
-		format?: "text" | "json" | *"text"
+		format: "text" | "json" | *"text"
 		#X
 	}}
 
 	registries?: {[#Ident]: {
-		server!:       string & !=""
+		server:        string & !=""
 		username?:     string & !=""
 		password_env?: #EnvName
 		#X
 	}}
 
-	proxy?: {
-		managed?: bool | *true
-		kind?:    "traefik-docker" | "none" | *"traefik-docker"
-		image?:   #ImageRef
-		config?:  #RepoPath
-		network?: string & !="" | *"ob-ingress"
+	proxy: {
+		managed: bool | *true
+		kind:    "traefik-docker" | "none" | *"traefik-docker"
+		image?:  #ImageRef
+		config?: #RepoPath
+		network: string & !="" | *"ob-ingress"
 		#X
 	}
 
-	secrets?: {[#Ident]: {
-		provider!: "sops" | "age"
-		file!:     #RepoPath
+	secrets?: {[#Ident]: #RepoPath | {
+		provider: "sops" | "age" | *"sops"
+		file:     #RepoPath
 		#X
 	}}
 
 	observability?: {
-		logs?:    {enabled?: bool | *false, retention_days?: #Days, #X}
-		metrics?: {enabled?: bool | *false, #X}
+		logs?:    {enabled: bool | *false, retention_days?: #Days, #X}
+		metrics?: {enabled: bool | *false, #X}
 		alerts?:  {unhealthy_after?: #Dur, #X}
 		#X
 	}

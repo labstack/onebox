@@ -184,12 +184,12 @@ A workload sourced by a Compose reference is copied verbatim, and Onebox adds
 exactly three things: attachment to the environment's ingress network, release
 identity labels, and routing labels derived from declared routes.
 
-`container_name` is not one of them. An earlier draft had Onebox remove it, then
-refuse it outright; both were wrong. It is refused only when it cannot coexist
-with the rollout — more than one replica, or the rolling strategy — because a
-single-replica recreate worker may legitimately keep a fixed name, and monk has
-one. A referenced service declaring `network_mode` is refused, because the
-container runtime rejects a service carrying both that and `networks`.
+`container_name` is not one of them, and is refused unconditionally. Onebox owns
+container naming because those names are host-global; a preserved name like
+`feed` is not application-scoped and reintroduces the collision the sibling
+naming change exists to remove. A conditional exception was drafted and
+withdrawn for exactly that reason. `network_mode` is refused only when a network
+would actually be attached, since a disabled proxy attaches none.
 
 The overlay set is closed and stated in the specification. If the referenced
 service already sets one of those keys, generation fails and names the conflict
@@ -264,8 +264,11 @@ Application identifiers may not begin `ob-`, which reserves the two pre-existing
 hyphenated host-scoped names. Together these make derivation injective, which is
 not a nicety — a collision here means two applications sharing a database volume.
 
-Names are stable across releases so a rollback cannot orphan a resource, and are
-truncated deterministically with a hash suffix when they exceed Docker's limit.
+Names are stable across releases so a rollback cannot orphan a resource. A name
+that would exceed the length limit is refused at validation rather than
+truncated: a review constructed two identifiers whose truncated volume names
+collided under a hash suffix, and a collision here means two applications
+sharing a database volume.
 
 Volume names get a stronger rule: they are permanent. A later change to the
 pattern that would derive a different volume name for an existing resource is a
@@ -355,9 +358,12 @@ preflight files, proxy configuration, and secrets, and today's wrapper scripts
 all `cd` to the repository root first so those paths resolve. That is an implicit
 contract nobody wrote down.
 
-Every path now resolves relative to the directory containing the project file,
-regardless of the working directory, and a path escaping the repository root —
-including through a symlink — is refused. Without this, generation and ejection
+Paths are now of three kinds. A repository path resolves relative to the
+directory containing the project file and may not escape the repository root,
+including through a symlink. A target path — the base path, a volume mount — is
+absolute and lives on the server. A request path is a location in a URL. An
+earlier draft applied repository containment to all of them, which made the
+required default base path invalid under its own rule. Without this, generation and ejection
 can disagree about what a path means depending on where they were invoked, which
 is exactly the class of bug that makes generated configuration untrustworthy.
 

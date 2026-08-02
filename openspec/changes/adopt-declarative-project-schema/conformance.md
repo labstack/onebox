@@ -2,43 +2,96 @@
 
 These cases are the acceptance test for `schema.cue`. They exist because a
 review found that two implementations could satisfy the prose and still accept
-different projects. Every case below was verified against `schema.cue` before
-this change was proposed; they become the fixture corpus for task 3.8.
+different projects. Every case was verified against `schema.cue` before this
+change was proposed, and each becomes a fixture in task 3.2.
 
-`accept` means the project validates. `reject` means validation fails.
+`accept` means the normalised project validates. `reject` means it fails.
+
+## Enforced by the schema
 
 | # | Case | Expected |
 |---|---|---|
-| 1 | Minimum project: identifier, server, one build source | accept |
-| 2 | One-character identifier (`app: a`) | accept |
-| 3 | Application identifier beginning `ob-` | reject |
-| 4 | Identifier containing an underscore | reject |
-| 5 | Unknown top-level field | reject |
-| 6 | `x-` extension key | accept |
-| 7 | Port outside 1–65535 | reject |
-| 8 | `replicas: 0` | reject |
-| 9 | Workload declaring both `build` and `image` | reject |
-| 10 | Job with `data_effect: unknown` | accept |
-| 11 | `migration_policy: expand-only` | accept |
-| 12 | `persistence.mode: external` | accept |
-| 13 | Volume declared as a scalar identifier | accept |
-| 14 | Service declaring its volume identifiers | accept |
-| 15 | Service declared as a scalar version | accept |
-| 16 | Route with `protocol: tcp`, an entrypoint, and `tls: passthrough` | accept |
-| 17 | Route with an unsupported protocol | reject |
-| 18 | Absolute path in `runtime.env_files` | reject |
-| 19 | `runtime.env_files` entry escaping the repository (`../`) | reject |
-| 20 | Repository-relative `runtime.env_files` entry | accept |
-| 21 | Absolute `base_path` | accept |
-| 22 | Hook declared with `local: true` | accept |
-| 23 | Job `command` in the hook form | accept |
-| 24 | `protection` declared on a workload | accept |
-| 25 | `proxy: {kind: none, managed: false}` | accept |
-| 26 | Verification with `contains` and `advisory` | accept |
-| 27 | Environment override setting a mapping key to null | accept |
-| 28 | Environment override of a workload's `image` | reject |
+| 1 | minimum project | accept |
+| 2 | explicit workloads block | accept |
+| 3 | one-char identifier | accept |
+| 4 | app starting ob- | reject |
+| 5 | underscore identifier | reject |
+| 6 | unknown top-level field | reject |
+| 7 | x- extension accepted | accept |
+| 8 | port out of range | reject |
+| 9 | zero replicas | reject |
+| 10 | job requires data_effect | reject |
+| 11 | job with data_effect | accept |
+| 12 | job data_effect unknown | accept |
+| 13 | application with data_effect | reject |
+| 14 | application with run | reject |
+| 15 | worker with schedule | reject |
+| 16 | scheduled job | accept |
+| 17 | daemon role | accept |
+| 18 | daemon with route | accept |
+| 19 | routes list | accept |
+| 20 | bad protocol | reject |
+| 21 | absolute compose ref | reject |
+| 22 | relative compose ref | accept |
+| 23 | absolute env_file | reject |
+| 24 | relative env_file | accept |
+| 25 | internal .. in path is lexically ok | accept |
+| 26 | base_path absolute | accept |
+| 27 | duration in days | accept |
+| 28 | duration micro sign | accept |
+| 29 | calver minimum version | accept |
+| 30 | non-calver minimum version | reject |
+| 31 | valid plan schema | accept |
+| 32 | incomplete plan schema | reject |
+| 33 | arbitrary plan schema | reject |
+| 34 | hook with local | accept |
+| 35 | command as bare string | accept |
+| 36 | protection on a workload | accept |
+| 37 | secret as scalar path | accept |
+| 38 | secret as object | accept |
+| 39 | verification http | accept |
+| 40 | verification workload without probe | reject |
+| 41 | verification url with exec | reject |
+| 42 | verification url contains advisory | accept |
+| 43 | status code 600 | reject |
+| 44 | json equals null | accept |
+| 45 | migration with contains | reject |
+| 46 | override null inside backup | accept |
+| 47 | override of image refused | reject |
+| 48 | proxy kind none | accept |
+| 49 | migration_policy expand-only | accept |
+| 50 | persistence external | accept |
+| 51 | volume scalar | accept |
+| 52 | service with volumes | accept |
+| 53 | service scalar | accept |
 
-Cases 3, 4, 18, 19, and 28 are the ones a permissive implementation is most
-likely to get wrong, and each of them protects something that cannot be fixed
-later: the generated-name namespace, name injectivity, path containment, and
-the override boundary.
+## Enforced by the loader, not the schema
+
+CUE cannot express these without leaving a disjunction unresolvable or failing
+against the bare definition, so the loader enforces them and the specification
+states them. They are fixtures all the same.
+
+| # | Case | Expected |
+|---|---|---|
+| L1 | no environments | reject |
+| L2 | empty workloads block | reject |
+| L3 | no workload source at all | reject |
+| L4 | shorthand and workloads together | reject |
+| L5 | top-level build and image together | reject |
+| L6 | two sources on a workload | reject |
+| L7 | domain without port | reject |
+| L8 | domain and routes together | reject |
+| L9 | empty routes list | reject |
+| L10 | empty applied_revisions | reject |
+
+## Defaults that must materialise
+
+A default on an optional CUE field never appears in output. These four are
+checked explicitly because the first draft got every one of them wrong.
+
+| Path | Value |
+|---|---|
+| `base_path` | `/var/lib/ob` |
+| `proxy.network` | `ob-ingress` |
+| `deployment.retain_releases` | `5` |
+| `environments.<env>.policy.require_approval` | `true` |

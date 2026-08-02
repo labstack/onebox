@@ -10,7 +10,10 @@ second redefinition.
 
 ### Requirement: The field model is normative and machine-checkable
 
-The accepted shape SHALL be `schema.cue` in this change directory. Keys, types,
+The accepted shape SHALL be `schema.cue` in this change directory. It describes
+the **normalised** project — shorthand expanded, documented defaults filled —
+because a discriminator left to a default keeps every branch of a disjunction
+alive, and a default on an optional field never materialises at all. Keys, types,
 requiredness, exclusivity, bounds, enumerations, defaults, and closure are
 normative there. Prose in this specification SHALL NOT contradict it; where they
 disagree, the schema governs.
@@ -35,6 +38,19 @@ health: /healthz
 services:
   postgres: 18
 ```
+
+Four rules cannot be expressed in the schema and SHALL be enforced by the
+loader: at least one environment; a non-empty `workloads` block when one is
+declared; exactly one workload source, both at the top level and per workload;
+and routing exclusivity, where `domain` and `port` appear together or `routes`
+appears alone, never both. Cardinality validators fail against the bare
+definition, and an exclusivity disjunction with an empty branch never resolves,
+because a branch missing a required field is incomplete rather than invalid.
+`conformance.md` records these as loader cases.
+
+#### Scenario: Loader-enforced rule is still enforced
+- **WHEN** a project declares top-level shorthand alongside a `workloads` block
+- **THEN** loading fails naming both locations, even though the schema alone accepts it
 
 #### Scenario: Two implementations agree
 - **WHEN** two implementations are given the conformance corpus
@@ -162,11 +178,25 @@ and `domain` SHALL be shorthand for a single workload named for the application.
 
 ### Requirement: A workload declares exactly one source and one role
 
-A workload SHALL declare exactly one of `build`, `image`, or `compose`. A
-container that is neither built by the user nor backed by a driver SHALL be
-expressible as a workload by image reference. `run` and `data_effect` SHALL apply
-only to the `job` role, and `data_effect` SHALL be required for a job because its
-effect on data cannot be inferred.
+A workload SHALL declare exactly one of `build`, `image`, or `compose`, and
+exactly one role from `application`, `worker`, `daemon`, or `job`.
+
+The `daemon` role SHALL exist for a long-running supporting container the user
+still authors — a database they run themselves, a cache, a cron runner, a
+scanner. It is distinguished from `application` and `worker` because environment
+files SHALL NOT be projected into it and it SHALL NOT receive ingress unless it
+declares a route. Without it, converting a running data service forces a choice
+between calling it an application, which changes what is injected into it, and
+calling it a job, which is false.
+
+`run`, `schedule`, and `data_effect` SHALL apply only to the `job` role.
+`data_effect` SHALL be required for a job because its effect on data cannot be
+inferred.
+
+A job MAY declare a `schedule`, so that a recurring task — a backup push, a
+retention sweep, a nightly prune — is a first-class job that Onebox runs, rather
+than requiring a third-party cron container whose runs are invisible to the
+journal.
 
 #### Scenario: Workload declares two sources
 - **WHEN** a workload declares both a build context and an image reference
@@ -175,6 +205,14 @@ effect on data cannot be inferred.
 #### Scenario: Job without a declared data effect
 - **WHEN** a workload with the job role omits `data_effect`
 - **THEN** validation fails, because the effect on data is an operator assertion and is never inferred
+
+#### Scenario: Data service converts to a daemon
+- **WHEN** a running data service is converted
+- **THEN** it becomes a `daemon` workload, no environment files are projected into it, and it receives no ingress network unless it declares a route
+
+#### Scenario: Recurring job
+- **WHEN** a job declares a schedule
+- **THEN** the project validates and Onebox owns the schedule, with runs recorded like any other operation
 
 #### Scenario: Job field on a non-job workload
 - **WHEN** an application or worker declares `run` or `data_effect`

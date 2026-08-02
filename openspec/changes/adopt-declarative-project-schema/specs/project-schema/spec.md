@@ -8,120 +8,74 @@ second redefinition.
 
 ## ADDED Requirements
 
-### Requirement: The canonical field model is normative
+### Requirement: The field model is normative and machine-checkable
 
-The contract SHALL be the field model below. Keys, nesting, types, enumerations,
-and defaults are normative; two implementations of this specification SHALL
-accept and reject the same projects.
+The accepted shape SHALL be `schema.cue` in this change directory. Keys, types,
+requiredness, exclusivity, bounds, enumerations, defaults, and closure are
+normative there. Prose in this specification SHALL NOT contradict it; where they
+disagree, the schema governs.
+
+The shape is stated as a compiled artifact rather than prose because two review
+rounds established that prose cannot carry requiredness, exclusivity, and bounds
+precisely enough for two implementations to accept the same corpus. `schema.cue`
+compiles and is exercised by the corpus in `conformance.md`, which SHALL be the
+acceptance test.
+
+A minimum project, for illustration only:
 
 ```yaml
-api_version: onebox.run/v1        # required
-app: <identifier>                 # required
-base_path: <path>                 # default /var/lib/ob
-
-environments:                     # required, at least one
-  <identifier>:
-    server: <user@host>           # required; scalar, or {host, user, port}
-    base_path: <path>             # default: the project value
-    policy:
-      require_approval: <bool>              # default true
-      allow_agent_proposals: <bool>         # default true
-      minimum_onebox_version: <release>     # optional
-      minimum_plan_schema: <identity>       # optional
-      require_migration_backup: <bool>      # default false
-      migration_backup_max_age: <duration>  # optional
-      require_migration_restore_test: <bool> # default false
-      migration_backup_key_material: [<name>] # optional
-    overrides:                              # optional
-      workloads: {<identifier>: {<overridable>}}
-      services:  {<identifier>: {<overridable>}}
-
-workloads:                        # required, at least one
-  <identifier>:
-    role: application | worker | job        # default application
-    build: <path> | {context, dockerfile, target, args, platform}
-    image: <reference> | {reference, platform, pull}
-    compose: <file>#<service>               # exactly one of build|image|compose
-    command: [<arg>]                        # optional
-    replicas: <int>                         # default 1; application and worker only
-    strategy: rolling | recreate            # default rolling (application), recreate (worker)
-    routes:                                 # optional; `domain: <name>` is shorthand for one route
-      - domain: <name>
-        path: <prefix>                      # default /
-        port: <int>                         # required
-        protocol: http | tcp                # default http
-        tls: terminate | passthrough | none  # default terminate
-    health: <path> | {http, exec, tcp, port, interval, start_period, within, retries}
-    drain: {signal, wait, grace}            # default {TERM, 0s, 30s}
-    resources: {memory, cpus}               # optional
-    env: {<KEY>: <value>}                   # optional
-    volumes: [{name, path, mode}]           # mode: rw | ro, default rw
-    persistence: {mode: durable | ephemeral} # default durable when volumes declared
-    run: pre_release | post_release | manual # job only, default manual
-    data_effect: none | migration | destructive # job only, required
-
-services:                         # optional
-  <identifier>: <version> | {driver, version, persistence, resources, settings, backup}
-    # driver defaults to the declaration key; version required
-    # backup: {schedule, timezone, retain, restore_drill, destination}
-
-deployment:
-  order: [<workload>]             # default: declaration order
-  retain_releases: <int>          # default 5
-  migration_policy: manual | auto # default manual
-
-runtime:
-  env_files: [<path>]             # applied in order, later wins
-  preflight: [{file, require: [<KEY>], present: [<KEY>]}]
-
-hooks:                            # each: <command> | {run, local}
-  bootstrap: ...                  # local defaults false (runs on the target)
-  pre_release: ...
-  post_release: ...
-  post_deploy: ...
-
-verification:
-  - workload: <identifier>        # one of workload | url | migration_revisions
-    http: <path>
-    exec: <command>
-    port: <int>
-    url: <absolute-url>
-    status_codes: [<int>]
-    required_headers: {<Name>: <value>}
-    contains: <string>
-    json_assertions: [{path, equals}]
-    migration_revisions: {job, provider, applied_revisions: [<id>]}
-    advisory: <bool>              # default false
-
-notifications:
-  <identifier>: {webhook, on: [success | failure], format: text | json}
-
-registries:
-  <identifier>: {server, username, password_env}
-
-proxy:
-  managed: <bool>                 # default true
-  kind: traefik-docker | none     # default traefik-docker
-  image: <reference>
-  config: <path>
-  network: <name>                 # default ob-ingress
-
-secrets:
-  <identifier>: {provider: sops | age, file: <path>}
-
-observability:
-  logs: {enabled, retention_days}
-  metrics: {enabled}
-  alerts: {unhealthy_after}
+api_version: onebox.run/v1
+app: ledger
+environments:
+  production:
+    server: root@1.2.3.4
+build: .
+port: 8080
+health: /healthz
+services:
+  postgres: 18
 ```
 
 #### Scenario: Two implementations agree
-- **WHEN** two implementations of this contract are given the same corpus of valid and invalid projects
+- **WHEN** two implementations are given the conformance corpus
 - **THEN** they accept and reject the same projects and produce the same canonical form
 
+#### Scenario: Schema and prose disagree
+- **WHEN** a prose statement in this specification conflicts with the schema
+- **THEN** the schema governs and the prose is a defect to be corrected
+
 #### Scenario: Default is applied and attributed
-- **WHEN** a project omits a field carrying a default in the model
+- **WHEN** a project omits a field carrying a default
 - **THEN** the canonical form contains the documented default and reports its origin as a default
+
+### Requirement: Path kinds are distinguished
+
+The contract SHALL distinguish three kinds of path, because a single rule cannot
+govern them. A **repository path** — Compose references, environment files,
+preflight files, proxy configuration, secret files, build contexts, the ejection
+destination — SHALL resolve relative to the directory containing the project
+file regardless of the working directory, and SHALL be refused if it is absolute
+or resolves outside the repository root, including through a symbolic link. A
+**target path** — the base path, a volume's mount point — SHALL be absolute and
+is not subject to repository containment. A **request path** — a route's path, a
+health check's HTTP path, a verification path — SHALL begin with `/` and denotes
+a location in a URL, not on any filesystem.
+
+#### Scenario: Working directory does not affect resolution
+- **WHEN** the same project is loaded from two different working directories
+- **THEN** every repository path resolves identically and the canonical forms match
+
+#### Scenario: Repository path escapes the repository
+- **WHEN** a repository path resolves outside the repository root, directly or through a symbolic link
+- **THEN** validation fails and names the path
+
+#### Scenario: Absolute repository path
+- **WHEN** an environment file is declared as an absolute path
+- **THEN** validation fails, because environment files are repository paths
+
+#### Scenario: Target path is absolute
+- **WHEN** a base path is declared
+- **THEN** it is required to be absolute and is not subject to repository containment
 
 ### Requirement: Every fact the classifier contract expressed has a home
 
@@ -131,13 +85,16 @@ expressible, with the stated home:
 | Previous fact | New home |
 |---|---|
 | `components.<>.type` application, worker, job | `workloads.<>.role` |
-| `components.<>.type` postgres, mysql, redis | `services.<>` |
+| `components.<>.type` postgres, mysql, redis | `services.<>` for new declarations; **existing installations convert to `workloads.<>`** — see below |
 | `components.<>.type` service | `workloads.<>` sourced by image |
 | `components.<>.service` | `workloads.<>.compose`, or the generated service |
-| `components.<>.command`, `data_effect` | `workloads.<>.command`, `.data_effect` |
+| `components.<>.command` (string or `{run, local}`) | `workloads.<>.command`, same union |
+| `components.<>.data_effect` including `unknown` | `workloads.<>.data_effect`, same members |
 | `deployment.strategy`, `replicas` | `workloads.<>.strategy`, `.replicas` |
-| `readiness`, `drain`, `persistence` | `workloads.<>.health`, `.drain`, `.persistence` |
-| `components.<>.protection` | `services.<>.backup` |
+| `readiness`, `drain` | `workloads.<>.health`, `.drain` |
+| `persistence.mode` including `external`, and volume identities | `workloads.<>.persistence`, `.volumes` |
+| `components.<>.protection` on a data service | `services.<>.backup`, with independent backup and restore-drill schedules |
+| `components.<>.protection` on an application, worker, or generic service | `workloads.<>.protection` |
 | `policy.*` including `allow_agent_proposals`, `minimum_plan_schema` | `environments.<>.policy.*` |
 | `verification` http, exec, url, `contains`, `advisory` | `verification[]` |
 | `hooks.<phase>.local` | `hooks.<phase>.local` |
@@ -146,7 +103,18 @@ expressible, with the stated home:
 | `registry.server`, `username`, `password_env` | `registries.<name>.*` |
 | `observability.logs`, `metrics`, `alerts` | `observability.*` |
 | `runtime.env_files`, `preflight` | `runtime.*` |
-| `deployment.order`, `retain_releases`, `migration_policy` | `deployment.*` |
+| `deployment.order`, `retain_releases` | `deployment.*` |
+| `migration_policy` including `expand-only` | `deployment.migration_policy`, same members |
+
+Because a service declaration is inert in this change, a data service that is
+already running SHALL convert to a workload sourced by its existing Compose
+service, preserving exactly what runs. `services.<>` is the destination once a
+driver exists to run it; converting a live database to an inert declaration
+would delete it, so this contract SHALL NOT do that.
+
+#### Scenario: Running data service converts without loss
+- **WHEN** a project already running a data service is converted
+- **THEN** it becomes a workload sourced by its existing Compose service and the generated runtime still runs it
 
 #### Scenario: Every existing project is expressible
 - **WHEN** each existing project in this organization is expressed under this contract
@@ -315,22 +283,6 @@ scalar `port` SHALL remain accepted as shorthand for a single HTTP route at path
 - **WHEN** two workloads in one environment declare the same domain and path
 - **THEN** validation fails and the error names both workloads
 
-### Requirement: Relative paths resolve against the project file
-
-Every path in a project — Compose references, environment files, preflight files,
-proxy configuration, secret files, build contexts, and the ejection destination —
-SHALL resolve relative to the directory containing the project file, regardless
-of the working directory. A path resolving outside the repository root, including
-through a symbolic link, SHALL be refused.
-
-#### Scenario: Working directory does not affect resolution
-- **WHEN** the same project is loaded from two different working directories
-- **THEN** every path resolves identically and the canonical forms match
-
-#### Scenario: Path escapes the repository
-- **WHEN** a declared path resolves outside the repository root, directly or through a symbolic link
-- **THEN** validation fails and names the path
-
 ### Requirement: Environment file semantics are defined
 
 Environment files SHALL be applied in declared order, with a later file
@@ -355,13 +307,17 @@ exist.
 ### Requirement: Identifiers are constrained, reserved, and permanent
 
 Application, workload, and service identifiers SHALL match
-`^[a-z][a-z0-9-]{0,38}[a-z0-9]$`. Underscore is excluded so that it can join
+`^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$`, so a single-letter identifier is legal. Underscore is excluded so that it can join
 derived names injectively. An application identifier SHALL NOT begin `ob-`, which
 is reserved for generated resources, and SHALL NOT be `_host`, `ob`, or `proxy`.
 
 The application identifier names the layout, projects, and volumes and SHALL be
 permanent: a declared identifier disagreeing with the one recorded on the target
 SHALL be refused rather than silently producing a second, empty installation.
+
+#### Scenario: Single-character identifier
+- **WHEN** an identifier is a single letter
+- **THEN** validation succeeds
 
 #### Scenario: Reserved prefix
 - **WHEN** an application identifier begins `ob-`

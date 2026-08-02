@@ -14,12 +14,12 @@ direction: down
 src: "User-authored Compose service\nreferenced as file#service"
 
 overlay: "Onebox adds exactly three things" {
-  a: "ob-ingress appended to networks\n(existing entries kept, in order)"
+  a: "proxy.network appended to networks\n(existing entries kept, in order)"
   b: "ob.app · ob.release · ob.workload"
   c: "traefik.* derived per declared route\n(only when a route is declared)"
 }
 
-check: "Does the service already set\ncontainer_name, ob-ingress,\nan ob.* label, or — with a route —\na traefik.* label?" {
+check: "Conflict?\nnetwork_mode set · ingress network already attached\nob.* label · traefik.* label with a route\ncontainer_name with rolling or replicas > 1" {
   shape: diamond
 }
 

@@ -180,10 +180,16 @@ cannot publish a schema that disagrees with the contract it enforces.
 
 ![Four keys are overlaid onto a Compose-referenced workload; a collision on any of them stops generation rather than winning silently.](./diagrams/03-merge-boundary.svg)
 
-A workload sourced by a Compose reference is copied verbatim, and Onebox overlays
-exactly four things: attachment to the ingress network, release identity labels,
-routing derived from declared domains, and the rolling-deployment container
-naming that forbids a fixed container name.
+A workload sourced by a Compose reference is copied verbatim, and Onebox adds
+exactly three things: attachment to the environment's ingress network, release
+identity labels, and routing labels derived from declared routes.
+
+`container_name` is not one of them. An earlier draft had Onebox remove it, then
+refuse it outright; both were wrong. It is refused only when it cannot coexist
+with the rollout — more than one replica, or the rolling strategy — because a
+single-replica recreate worker may legitimately keep a fixed name, and monk has
+one. A referenced service declaring `network_mode` is refused, because the
+container runtime rejects a service carrying both that and `networks`.
 
 The overlay set is closed and stated in the specification. If the referenced
 service already sets one of those keys, generation fails and names the conflict
@@ -196,6 +202,24 @@ letting it appear at deploy time.
 Alternative considered: a general deep-merge with precedence rules. Rejected — a
 deep merge is unpredictable at exactly the moment someone is debugging
 production, and its rules cannot be stated in one sentence.
+
+### The shape is a compiled schema, not prose
+
+Two review rounds ended at the same place: prose plus a YAML sketch cannot state
+requiredness, exclusivity, bounds, and closure precisely enough for two
+implementations to accept the same projects. Bare key lists left `build`,
+`health`, `backup`, and `verification` untyped; ports and replica counts were
+unbounded where the contract they replace bounded them.
+
+The normative shape is therefore `schema.cue` in this change directory, with a
+conformance corpus beside it. It compiles, and the corpus was run against it
+before this was proposed. Prose keeps the behavioural requirements and defers to
+the schema on shape.
+
+This is unusual for an OpenSpec change — normally a spec avoids implementation
+artifacts. The justification is that for a *schema* capability the shape is the
+observable contract, and a contract that cannot be mechanically checked is one
+the next review will find another hole in.
 
 ### The layout follows the platform convention, and is relocatable
 

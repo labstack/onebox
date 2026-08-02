@@ -57,24 +57,47 @@ SHALL modify nothing else:
 
 | Addition | Exact content |
 |---|---|
-| Ingress network | append `ob-ingress` to the service's networks, preserving existing entries in order |
+| Ingress network | append the environment's `proxy.network` to the service's networks, preserving existing entries in order |
 | Identity labels | `ob.app`, `ob.release`, `ob.workload` |
-| Routing labels | `traefik.enable`, `traefik.docker.network`, and the `traefik.http.*` or `traefik.tcp.*` keys derived from each declared route |
+| Routing labels | `traefik.enable`, `traefik.docker.network`, and per route: `traefik.<protocol>.routers.<router>.rule`, `.entrypoints`, `.tls`, and `traefik.<protocol>.services.<service>.loadbalancer.server.port`, using the router and proxy service names from the naming table |
 
-Routing labels SHALL be added only when the workload declares at least one route.
-No other key SHALL be added, removed, or modified.
+The ingress network SHALL be the environment's configured `proxy.network`, not a
+fixed name. When `proxy.kind` is `none` or `proxy.managed` is false, Onebox SHALL
+add neither routing labels nor a network, and a workload declaring a route under
+that configuration SHALL fail validation naming the conflict. Routing labels SHALL
+otherwise be added only when the workload declares at least one route.
 
-If the referenced service already sets `container_name`, already attaches
-`ob-ingress`, or already declares any label in the `ob.` namespace — or, when the
-workload declares a route, any label in the `traefik.` namespace — generation
-SHALL fail and name both the key and the file. Onebox SHALL NOT silently remove
-or overwrite a key the user authored, including `container_name`, because a
-rolling rollout's requirement that the name be absent is a reason to refuse the
-combination, not to discard the declaration.
+The overlay SHALL be refused, naming the key and the file, when the referenced
+service already attaches the ingress network, already declares a label in the
+`ob.` namespace, or — when the workload declares a route — already declares a
+label in the `traefik.` namespace.
 
-#### Scenario: Fixed container name is refused, not removed
-- **WHEN** a Compose-referenced workload sets `container_name`
+`container_name` SHALL be refused only when it cannot coexist with the workload's
+rollout: that is, when `replicas` exceeds one or the strategy is `rolling`. A
+single-replica workload using the recreate strategy MAY keep a fixed container
+name, because the container runtime permits it and refusing it would make an
+existing worker inexpressible. Onebox SHALL NOT silently remove the key in
+either case.
+
+A referenced service declaring `network_mode` SHALL be refused, because the
+container runtime rejects a service carrying both `network_mode` and `networks`,
+and the overlay must attach a network.
+
+#### Scenario: Fixed container name conflicts with a rolling rollout
+- **WHEN** a Compose-referenced workload sets `container_name` and uses the rolling strategy or more than one replica
 - **THEN** generation fails naming the key and the file, and the key is not removed
+
+#### Scenario: Fixed container name on a single recreate workload
+- **WHEN** a Compose-referenced workload sets `container_name`, declares one replica, and uses the recreate strategy
+- **THEN** generation succeeds and the name is preserved
+
+#### Scenario: Referenced service sets network_mode
+- **WHEN** a referenced Compose service declares `network_mode`
+- **THEN** generation fails naming the key, because a network cannot also be attached
+
+#### Scenario: Proxy disabled
+- **WHEN** the environment disables the proxy and a workload declares a route
+- **THEN** validation fails naming the conflict, and no routing label or network is added
 
 #### Scenario: Existing routing labels conflict
 - **WHEN** a Compose-referenced workload declares a route and the referenced service already sets a `traefik.` label
@@ -82,7 +105,7 @@ combination, not to discard the declaration.
 
 #### Scenario: Existing networks are preserved
 - **WHEN** a Compose-referenced workload already attaches its own networks
-- **THEN** the generated runtime retains them in order with `ob-ingress` appended
+- **THEN** the generated runtime retains them in order with the configured ingress network appended
 
 #### Scenario: Keys outside the overlay are untouched
 - **WHEN** a runtime is generated from a Compose-referenced workload
@@ -161,12 +184,25 @@ runtime in project and volume names, so underscore SHALL join every derived name
 | Service Compose project | `ob_<app>_<service>` | `ob_ledger_postgres` |
 | Service volume | `ob_<app>_<service>_<volume>` | `ob_ledger_postgres_data` |
 | Workload volume | `ob_<app>_<workload>_<volume>` | `ob_ledger_web_uploads` |
-| Shared ingress network | `ob-ingress` | `ob-ingress` |
+| Container | `<app>_<workload>` or `<app>_<workload>_<n>` | `ledger_web_1` |
+| Router | `<app>_<workload>_<index>` | `ledger_web_0` |
+| Proxy service | `<app>_<workload>` | `ledger_web` |
+| Shared ingress network | the environment's `proxy.network` | `ob-ingress` |
 | Proxy Compose project | `ob-proxy` | `ob-proxy` |
 | Application directory | `<base>/<app>` | `/var/lib/ob/ledger` |
 | Release directory | `<base>/<app>/releases/<release-id>` | `/var/lib/ob/ledger/releases/20260802-183045-a1b2c3d` |
 | Host-scoped state | `<base>/_host` | `/var/lib/ob/_host` |
-| Rolling container slot | `<workload>-<n>` | `web-1` |
+
+Container names SHALL carry the application component. Container names are
+host-global in the container runtime, so a workload-only pattern makes two
+applications sharing a host collide on the same name — `server-1` is what all
+four existing projects would derive. Router and proxy service names SHALL
+likewise be application-scoped, and SHALL appear in this table rather than being
+invented by the implementation, because they become a permanent generator
+contract the first time a release ships.
+
+A service's volume identifiers come from its declared `volumes`; a service that
+declares none reserves no volume name.
 
 The application Compose project is the application identifier alone. It cannot
 collide with any derived name because identifiers may not contain underscore and
@@ -175,8 +211,14 @@ two pre-existing hyphenated host-scoped names.
 
 Names SHALL be stable across releases so a rollback cannot orphan a resource. A
 derived name exceeding the container runtime's sixty-three-character limit SHALL
-be truncated to fifty-five characters and suffixed with `_` and the first seven
-hexadecimal characters of the SHA-256 of the untruncated name.
+be **refused at validation**, naming the offending identifiers and the limit.
+
+Truncation with a hash suffix was specified and withdrawn: a review produced two
+valid workload identifiers whose derived volume names collided under a
+seven-character suffix, which falsifies injectivity for exactly the names that
+can never be changed afterwards. Lengthening the suffix narrows the window
+without closing it. Refusing is total, costs only unusually long identifier
+combinations, and relaxing it later is additive.
 
 Volume names SHALL be permanent: once a volume exists, a later release SHALL NOT
 derive a different name for the same declared resource.
@@ -191,7 +233,11 @@ derive a different name for the same declared resource.
 
 #### Scenario: Derived name exceeds the runtime's limit
 - **WHEN** a derived name would exceed sixty-three characters
-- **THEN** it is truncated to fifty-five characters with the specified suffix, and remains stable for the same inputs
+- **THEN** validation fails naming the identifiers and the limit, and no name is truncated
+
+#### Scenario: Two applications on one host declare the same workload name
+- **WHEN** two applications on one host each declare a workload named `server`
+- **THEN** their container, router, and proxy service names differ
 
 #### Scenario: A later release would rename an existing volume
 - **WHEN** a change to the naming patterns would derive a different volume name for a resource that already exists
@@ -233,7 +279,15 @@ plaintext secret values.
 ### Requirement: Ejection transfers ownership permanently and atomically
 
 Onebox SHALL write the generated runtime into the repository on request and
-repoint the affected workloads at it as Compose references. The destination
+repoint the affected workloads at it as Compose references. The written file
+SHALL NOT contain the overlay: the ingress network, the `ob.` labels, and the
+routing labels SHALL be stripped before writing, so that the ejected file is
+ordinary user-authored Compose and the overlay is re-applied on the next
+generation like any other Compose reference.
+
+Without stripping, ejection produces a file that its own conflict rules reject —
+the ejected service would already carry every key the overlay refuses — and the
+project would be unable to generate again. The destination
 SHALL default to a Compose file beside the project file and MAY be given
 explicitly. Ejection SHALL refuse an existing destination unless overwriting is
 explicitly requested.
@@ -260,6 +314,10 @@ After ejection Onebox SHALL NOT regenerate or reconcile the ejected services.
 #### Scenario: Ejected services are not regenerated
 - **WHEN** a runtime is generated for a project whose services were previously ejected
 - **THEN** the ejected services are used as authored and are not regenerated
+
+#### Scenario: Ejected output is accepted by generation
+- **WHEN** a project is ejected and a runtime is generated immediately afterwards
+- **THEN** generation succeeds, because the written file carries none of the keys the overlay refuses
 
 ### Requirement: Generation binds what execution will run
 

@@ -78,12 +78,16 @@ local tag the recipe just created and leaves local `main` unchanged. A
 concurrent branch or tag publisher therefore causes a safe failure; the next
 run refetches and chooses from current state.
 
-A no-op `main` refspec is insufficient because Git may omit an already-up-to-
-date ref from the remote transaction. The real metadata-only fast-forward makes
-the branch compare-and-swap and tag creation one server-side atomic operation.
-The workflow does not rewrite history, force-update an unexpected branch, or
-delete or replace remote tags. Artifact publication can later subscribe to the
-tag namespace without changing this contract.
+A no-op `main` refspec rejects a remote advance visible in the server's ref
+advertisement, but it does not cover an advance after that advertisement: Git
+has already omitted the apparently up-to-date branch from the transaction. The
+real metadata-only fast-forward keeps the branch compare-and-swap in the
+server-side atomic tag transaction through that final window. The workflow does
+not rewrite history, force-update an unexpected branch, or delete or replace
+remote tags. It requires the release identity to have permission to
+fast-forward `main`; branch-policy rejection fails the entire transaction
+without leaving a tag. Artifact publication can later subscribe to the tag
+namespace without changing this contract.
 
 ## Risks / Trade-offs
 
@@ -93,6 +97,10 @@ tag namespace without changing this contract.
 - [Two maintainers can calculate the same next sequence] -> The exact branch
   lease and tag creation share one atomic transaction; the loser removes its
   local tag and retries without advancing `main`.
+- [Branch policy rejects the release commit] -> Publication fails atomically
+  and removes the local tag. Grant the release identity deliberate permission
+  for the metadata-only fast-forward or adopt a separately reviewed mechanism;
+  never disable protection ad hoc.
 - [A manually supplied `OB_VERSION` can be misleading in display-only use] ->
   Production-oriented minimum policy validates it, and VCS revision plus dirty
   state remain independently visible.

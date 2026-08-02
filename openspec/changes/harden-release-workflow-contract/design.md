@@ -3,15 +3,20 @@
 See `proposal.md` for motivation and
 `specs/release-versioning/spec.md` for the observable delta. The guarded
 workflow must close state races both while checks run and immediately before
-publication. Git omits an already-up-to-date branch from the actual ref
-transaction, so the exact branch lease cannot close the final race unless the
-transaction contains a real branch update. The release clock and executable
-race evidence must also be deterministic across maintainer hosts.
+publication. A no-op branch refspec rejects a remote advance that is visible in
+the server's initial ref advertisement, because the branch is then no longer up
+to date and its exact lease is evaluated. It does not cover an advance after
+that advertisement: Git has already omitted the apparently up-to-date branch
+from the transaction, so the tag can still publish. The release clock and
+executable race evidence must also be deterministic across maintainer hosts.
 
 Git defines `--atomic` as an all-or-nothing update of every named ref and
 `--force-with-lease=<ref>:<expect>` as permission to update that ref only while
 its remote value is exactly the expected object. The design relies on those
-documented semantics: <https://git-scm.com/docs/git-push>.
+documented semantics: <https://git-scm.com/docs/git-push>. Git invokes the
+`pre-push` hook after it has obtained the remote refs and before it sends the
+update, which gives the harness a deterministic injection point for the final
+race: <https://git-scm.com/docs/githooks#_pre_push>.
 
 ## Goals / Non-Goals
 
@@ -65,10 +70,12 @@ branch was never moved. After success it advances local `main` to the published
 commit with an exact local ref compare-and-swap; a failure to perform that
 local convenience update is warned but cannot undo or misreport publication.
 
-A no-op branch refspec was rejected because executable testing shows that Git
-classifies it as already up to date and omits it from the remote ref
-transaction. A tag-only push and a final fetch without a push lease were also
-rejected because each leaves a race window after validation. Rewriting or
+A no-op branch refspec was rejected because it closes only changes visible in
+the remote advertisement. A characterization test advances `main` from the
+`pre-push` hook, after advertisement and before the update is sent; the no-op
+variant publishes the stale tag, while the real release-commit update remains
+in the transaction and its exact lease rejects the atomic push. A tag-only push
+and a final fetch without a push lease leave the same final window. Rewriting or
 force-advancing existing branch history is not permitted; the release commit
 is an ordinary one-parent fast-forward.
 
@@ -92,13 +99,15 @@ validation and publication remain real.
 
 The harness covers first-of-month selection, `.9` to `.10`, prior-month reset,
 an `origin/main` advance during checks, an advance triggered immediately before
-push, and a competing publisher claiming the tag. Successful cases prove that
-the release commit has the checked commit as its parent, preserves its tree,
-and is the object named by both remote `main` and the tag. Failure cases assert
-that the attempted local tag is removed, no partial branch/tag transaction is
-published, and competing remote state survives. The current UTC month is
-injected only through the process clock; expected tags are calculated with UTC
-so the test exercises the production clock choice.
+push, a competing publisher claiming the tag, and a server policy refusing the
+branch update. A separate characterization case proves that the no-op refspec
+does not cover the post-advertisement race. Successful cases prove that the
+release commit has the checked commit as its parent, preserves its tree, and is
+the object named by both remote `main` and the tag. Failure cases assert that
+the attempted local tag is removed, no partial branch/tag transaction is
+published, and competing or policy-protected remote state survives. The
+current UTC month is injected only through the process clock; expected tags are
+calculated with UTC so the test exercises the production clock choice.
 
 Mocking `git` itself was rejected because it would only test shell branching,
 not atomic ref updates or lease enforcement. The harness never names the real
@@ -125,6 +134,11 @@ and security design requiring its own proposal.
   tree are mechanically constrained, it records the released identity, and it
   is the minimal portable way to make generic Git servers enforce the branch
   compare-and-swap in the tag transaction.
+- [Branch protection or a repository ruleset rejects direct updates to `main`]
+  -> The atomic push fails closed and local-tag cleanup runs. The repository
+  must deliberately grant the release identity permission to perform this
+  metadata-only fast-forward, or replace this mechanism through a reviewed
+  release-design change; maintainers must not disable protections ad hoc.
 - [Integration tests depend on Git hook behavior] -> Use only documented local
   Git repositories and assertions on final refs; skip with a clear reason when
   Git is unavailable.
@@ -139,8 +153,9 @@ and security design requiring its own proposal.
    exact atomic branch lease.
 3. Add the disposable-repository integration harness and run it with the full
    Go, race, static, docs, and OpenSpec checks.
-4. Correct the archived design and evidence record, then archive this change so
-   its delta updates the canonical specification.
+4. Correct the archived design and evidence record, obtain external
+   specification approval, then archive this change so its delta updates the
+   canonical specification.
 
 Rollback restores the inline recipe and the prior canonical wording. No tag,
 branch, runtime, provider, or application-state migration is involved.

@@ -11,9 +11,13 @@ specification only after approval.
 - The minimum-runner contract is scoped to lifecycle planning and execution;
   `ob exec` remains a separately controlled break-glass adapter.
 - Publication performs a real branch compare-and-swap. Executable testing
-  proves that a no-op branch refspec is omitted by Git; the selected design
-  atomically publishes a metadata-only fast-forward release commit and its tag
-  under an exact lease.
+  establishes the narrower boundary: a no-op branch refspec rejects changes
+  visible in the remote advertisement but misses a change injected after that
+  advertisement. The selected design keeps a real metadata-only fast-forward
+  in the atomic transaction so the exact lease covers that final window.
+- Branch policy is an explicit dependency. The release identity must be allowed
+  to fast-forward `main`; otherwise atomic publication fails closed and removes
+  its attempted local tag.
 - The managed-service proposal tool is now target-read-only but locally
   stateful, with `readOnlyHint: false` and explicit non-destructive semantics.
 - Managed-service crash recovery is normative across process death, journal
@@ -27,7 +31,10 @@ specification only after approval.
 
 - The disposable bare-repository harness passes first-of-month, `.9` to `.10`,
   prior-month reset, check-time branch race, publication-time branch race, and
-  competing-tag race scenarios.
+  competing-tag race scenarios, plus branch-policy refusal.
+- A characterization test injects a branch advance after remote ref
+  advertisement and proves that a no-op branch refspec can publish the stale
+  tag at that boundary.
 - Successful harness cases prove that the release commit has the checked commit
   as its sole parent, preserves the checked tree, and is named by remote `main`
   and the release tag.
@@ -36,6 +43,8 @@ specification only after approval.
   state.
 - Full Go tests, race-enabled tests, and Go static analysis pass.
 - The release script passes Bash syntax validation.
+- Sequence arithmetic is explicitly base ten. Leading-zero `.08` and `.09`
+  tags remain non-canonical and are filtered before arithmetic.
 - Every canonical and active OpenSpec artifact passes strict validation, and
   the OpenSpec relationship doctor reports a healthy repository.
 - Git diff whitespace validation passes.

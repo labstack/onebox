@@ -66,6 +66,9 @@ or tag, and SHALL leave local `main` at the checked commit. After successful
 remote publication, it SHALL advance local `main` to the release commit when
 the local ref still equals the checked commit; otherwise it SHALL report that
 publication succeeded and require the maintainer to synchronize the checkout.
+The release identity SHALL have permission to fast-forward `main`; when branch
+protection, a repository ruleset, or a server hook refuses that update, the
+atomic transaction SHALL fail without publishing the release commit or tag.
 
 #### Scenario: Branch is not releasable
 - **WHEN** the current branch is not `main`, tracked changes exist, checks fail, or local `main` differs from `origin/main`
@@ -90,3 +93,7 @@ publication succeeded and require the maintainer to synchronize the checkout.
 #### Scenario: Local branch changes after remote publication starts
 - **WHEN** remote publication succeeds but local `main` no longer equals the checked commit before the local ref update
 - **THEN** the workflow preserves the published release, does not overwrite the changed local branch, and reports that the maintainer must synchronize the checkout
+
+#### Scenario: Branch policy rejects direct main updates
+- **WHEN** branch protection, a repository ruleset, or a server hook rejects the metadata-only fast-forward of `main`
+- **THEN** atomic publication fails, remote `main` remains unchanged, and the workflow removes its attempted local tag without creating a remote tag

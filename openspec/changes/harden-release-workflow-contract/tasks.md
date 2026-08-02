@@ -11,8 +11,8 @@
 ## 3. Executable Evidence
 
 - [x] 3.1 Add a disposable bare-repository harness for first-of-month, `.9` to `.10`, and prior-month reset behavior.
-- [x] 3.2 Add check-time, pre-publication `origin/main`, and competing-tag race cases that assert atomic failure, local cleanup, and preservation of winning remote state.
-- [x] 3.3 Run the focused harness, full Go tests, race tests, static analysis, formatting, and release-script syntax checks.
+- [x] 3.2 Add check-time, post-advertisement `origin/main`, competing-tag, no-op characterization, and branch-policy refusal cases that assert the exact transaction boundary, atomic failure, local cleanup, and preservation of remote state.
+- [x] 3.3 Run the focused harness, full Go tests, race tests, static analysis, formatting, and release-script syntax checks after review corrections.
 
 ## 4. Documentation Lifecycle
 

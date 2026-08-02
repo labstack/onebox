@@ -28,7 +28,11 @@ specification without creating or publishing a tag.
 - A disposable bare-repository integration harness proves UTC month selection,
   numeric `.9` to `.10` sequencing, month reset, successful metadata-only
   release commits, check-time branch advancement, publication-time branch
-  advancement, competing-tag races, atomic remote behavior, and local cleanup.
+  advancement, competing-tag races, branch-policy refusal, atomic remote
+  behavior, and local cleanup. A characterization case distinguishes the
+  post-advertisement race from changes visible in the initial ref advertisement.
+- Release sequence arithmetic explicitly uses base ten; non-canonical
+  leading-zero tags such as `.08` and `.09` are filtered before arithmetic.
 - Dependency analysis reports no reachable symbol or imported-package
   vulnerabilities.
 - All OpenSpec changes pass strict validation and the OpenSpec relationship

@@ -81,7 +81,7 @@ A managed driver SHALL declare logical secret slots, and project configuration S
 - **THEN** execution rejects the stale plan without comparing or exposing plaintext secret material
 
 ### Requirement: Managed runtime identities are stable and isolated
-The system SHALL derive application-scoped Compose project, network, service alias, configuration directory, and volume identities deterministically from validated names. Managed configuration SHALL live outside application release directories, and persistent volumes SHALL remain independent of application release retention and rollback.
+The system SHALL derive application-scoped Compose project, network, service alias, configuration directory, and volume identities deterministically from validated canonical names and SHALL ensure that two accepted identities in the same scope never map to the same runtime identity. When a platform length limit requires truncation, the derived identity SHALL retain a collision-resistant suffix from the complete canonical identity. The system SHALL detect and refuse any remaining generated collision before connecting to a target. Managed configuration SHALL live outside application release directories, and persistent volumes SHALL remain independent of application release retention and rollback.
 
 #### Scenario: Application release is rolled back
 - **WHEN** an application rollback activates an older application release
@@ -90,6 +90,14 @@ The system SHALL derive application-scoped Compose project, network, service ali
 #### Scenario: Application connects to managed service
 - **WHEN** an application role and a managed service are healthy
 - **THEN** the application reaches the service through a deterministic alias on the application-scoped managed-services network without publishing the service port on the host by default
+
+#### Scenario: Long names share a truncated prefix
+- **WHEN** two valid application or component names exceed a runtime identity limit and share every retained human-readable prefix character
+- **THEN** their generated identities remain distinct through suffixes derived from their complete canonical identities
+
+#### Scenario: Generated identities still collide
+- **WHEN** two declarations would resolve to the same generated project, network, service alias, configuration directory, or volume identity after canonicalization and truncation
+- **THEN** validation refuses both owners before target connection and identifies the colliding identity
 
 #### Scenario: Service definition is removed
 - **WHEN** configuration removes or disables a managed component that still has applied state or persistent resources on the target

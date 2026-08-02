@@ -15,7 +15,7 @@
 
 ## 3. Stable runtime identity and deterministic rendering
 
-- [ ] 3.1 Add deterministic helpers for service project names, the shared services network, revision directories, applied-state paths, and labeled volume names, including length and character validation.
+- [ ] 3.1 Add deterministic helpers for service project names, the shared services network, revision directories, applied-state paths, and labeled volume names, including length validation, collision-resistant truncation suffixes, and pre-target collision refusal.
 - [ ] 3.2 Render managed services into an independent Compose project and stable network so application release rollback cannot recreate or remove managed-service containers or volumes.
 - [ ] 3.3 Render immutable revision payloads from canonical inputs, validate them before publication, and make identical inputs produce the same payload digest.
 - [ ] 3.4 Add golden and property tests for naming, rendering, collision detection, revision determinism, network attachment, and the invariant that lifecycle commands never include volume deletion.
@@ -38,10 +38,10 @@
 ## 6. Durable operation and approval boundary
 
 - [ ] 6.1 Introduce durable operation identifiers, explicit proposal and execution states, idempotency keys, ordered evidence references, and legal state-transition validation.
-- [ ] 6.2 Implement a local operation repository using private permissions, atomic file replacement, advisory locking, corruption detection, and restart-safe reconstruction.
+- [ ] 6.2 Implement a local operation repository using private permissions, atomic file replacement, advisory locking, corruption detection, and reconstruction that reconciles local records with remote journal evidence.
 - [ ] 6.3 Add an approval-provider interface that binds an out-of-band approval capability to the exact sealed plan, actor, expiry, and single execution attempt.
 - [ ] 6.4 Ensure model-authored text and ordinary tool arguments can never mint approval or supply plaintext secrets, and return a typed handoff when trusted interaction is required.
-- [ ] 6.5 Add repository and approval tests for concurrent retries, duplicate idempotency keys, crash recovery, tampering, expiry, replay, actor mismatch, and redaction.
+- [ ] 6.5 Add repository and approval tests for concurrent retries, duplicate idempotency keys, local and remote recovery-evidence disagreement, corruption, expiry, replay, actor mismatch, and redaction.
 
 ## 7. Crash-consistent convergence engine
 
@@ -49,7 +49,7 @@
 - [ ] 7.2 Implement atomic remote revision staging, validation, activation, and applied-state publication using the existing journal as the authority for completed external effects.
 - [ ] 7.3 Execute only the driver-classified minimal action, then require bounded health and driver verification evidence before committing the applied marker.
 - [ ] 7.4 Preserve prior revisions and data volumes on every failure path, permit automatic rollback only when the driver proves it safe, and otherwise stop with explicit recovery guidance.
-- [ ] 7.5 Add fault-injection tests at every state transition, including upload interruption, lock loss, runner crash, cancellation, verification failure, partial recreation, retry, and stale-worker fencing.
+- [ ] 7.5 Add fault-injection tests at every state transition, including process death after a remote effect but before local recording, upload interruption, lock loss, cancellation, verification failure, partial recreation, safe resumption, and stale-worker fencing.
 
 ## 8. Secret projection and logging hygiene
 
@@ -62,7 +62,7 @@
 
 - [ ] 9.1 Add a paginated `onebox_service_catalog` read tool that returns compact driver, profile, setting, default-origin, constraint, and apply-effect metadata with opaque resource links for detail.
 - [ ] 9.2 Extend `onebox_observe` with compact managed-service summaries and opt-in bounded detail while preserving its strictly read-only behavior.
-- [ ] 9.3 Add `onebox_propose_service_change` with a closed structured-intent schema, request idempotency, dry-run semantics, sealed-plan creation, and no arbitrary YAML, shell, approval, or secret fields.
+- [ ] 9.3 Add `onebox_propose_service_change` with a closed structured-intent schema, request idempotency, target-read-only observation, atomic local proposal persistence, `readOnlyHint: false`, sealed-plan creation, and no arbitrary YAML, shell, approval, or secret fields.
 - [ ] 9.4 Add `onebox_apply_project_change` to atomically apply only an exact revision-bound semantic patch to the configured project file, preserve unrelated YAML, validate the result, avoid target access, and return an idempotent new revision.
 - [ ] 9.5 Add `onebox_get_operation`, `onebox_execute_approved_operation`, and `onebox_cancel_operation` over durable operation IDs so disconnects and missed notifications do not lose work.
 - [ ] 9.6 Publish accurate MCP input and output schemas, annotations, OAuth audience checks for remote use, typed bounded errors, pagination, and URL-based trusted handoffs for approval or secret entry.

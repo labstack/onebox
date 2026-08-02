@@ -14,8 +14,8 @@ specification without creating or publishing a tag.
 - Explicit build-version injection accepts only canonical CalVer and is
   expanded as shell data rather than interpolated into executable shell text.
 - Release publication requires clean, checked, up-to-date `main`, filters out
-  malformed tags, and removes its newly created local tag if publication loses
-  a race or otherwise fails.
+  malformed tags, and removes its newly created local tag if atomic branch and
+  tag publication loses a race or otherwise fails.
 - Public build and schema guides use only the CalVer contract.
 
 ## Verification evidence
@@ -24,7 +24,11 @@ specification without creating or publishing a tag.
 - The full race-enabled Go test suite passes.
 - Go static analysis passes.
 - Default, explicit-release, and invalid-version builds behave as specified.
-- The rendered build and release recipes pass shell syntax validation.
+- The build and release recipes pass shell syntax validation.
+- A disposable bare-repository integration harness proves UTC month selection,
+  numeric `.9` to `.10` sequencing, month reset, successful metadata-only
+  release commits, check-time branch advancement, publication-time branch
+  advancement, competing-tag races, atomic remote behavior, and local cleanup.
 - Dependency analysis reports no reachable symbol or imported-package
   vulnerabilities.
 - All OpenSpec changes pass strict validation and the OpenSpec relationship

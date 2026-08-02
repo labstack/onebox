@@ -48,6 +48,22 @@ requires its own reviewed OpenSpec change and qualification evidence.
 - Do not describe a provider as production-ready until its own backup, restore,
   upgrade, failure-mode, and data-integrity gates pass.
 
+## External review follow-up
+
+- Proposal creation is now specified and annotated as target-read-only but
+  locally stateful because it durably persists redaction-safe proposal and
+  operation identity.
+- Crash consistency now has an explicit normative reconstruction contract for
+  process death, local and remote evidence reconciliation, safe step skipping,
+  incomplete evidence, and stale-runner fencing.
+- Runtime identity derivation now requires collision-resistant truncation and
+  pre-target refusal of any remaining generated collision.
+- The proposal now accurately states that it adds managed-service capabilities
+  without modifying the existing release-versioning capability.
+- Release workflow findings are handled by the separate
+  `harden-release-workflow-contract` change so this provider-neutral foundation
+  remains focused.
+
 ## Residual risks
 
 - The foundation is broad. Implement it in vertical slices and validate the

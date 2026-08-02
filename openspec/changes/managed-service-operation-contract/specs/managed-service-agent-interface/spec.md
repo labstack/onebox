@@ -20,7 +20,7 @@ The MCP server SHALL expose a read-only, schema-validated service catalog contai
 - **THEN** the tool returns a bounded page and opaque continuation cursor without truncating a setting definition mid-object
 
 ### Requirement: Agents propose changes as structured intent
-The MCP server SHALL expose a read-only proposal tool that accepts a typed component target, desired driver/profile/image, structured settings patch, secret-slot references, and an idempotency key. It SHALL validate the intent, observe the target, and return a sealed redaction-safe proposal or structured blockers. It SHALL NOT accept arbitrary shell commands, raw Compose, plaintext credentials, or an unconstrained YAML document as managed-service intent.
+The MCP server SHALL expose a target-read-only proposal tool that accepts a typed component target, desired driver/profile/image, structured settings patch, secret-slot references, and an idempotency key. It SHALL validate the intent, observe the target without mutating it, atomically persist redaction-safe proposal and operation identity in the local operation repository, and return a sealed proposal or structured blockers. Because it mutates local durable state, its MCP annotation SHALL set `readOnlyHint` to `false` and describe it as non-destructive and target-read-only. It SHALL NOT accept arbitrary shell commands, raw Compose, plaintext credentials, or an unconstrained YAML document as managed-service intent.
 
 #### Scenario: Agent proposes a valid setting change
 - **WHEN** an agent submits a valid typed settings patch for one managed component
@@ -29,6 +29,10 @@ The MCP server SHALL expose a read-only proposal tool that accepts a typed compo
 #### Scenario: Agent retries the same proposal request
 - **WHEN** the same authorized caller repeats an identical request with the same idempotency key
 - **THEN** the server returns the same proposal identity or an explicit superseded-state result rather than creating ambiguous duplicates
+
+#### Scenario: Client inspects proposal annotations
+- **WHEN** a client inspects the proposal tool definition
+- **THEN** `readOnlyHint` is false and the description distinguishes durable local state mutation from target observation without mutation
 
 #### Scenario: Intent contains an invalid field
 - **WHEN** a settings patch contains an unknown, mistyped, protected, or type-invalid field
@@ -101,6 +105,10 @@ Every managed-service MCP tool SHALL declare strict input and output schemas and
 #### Scenario: Execution tool is listed
 - **WHEN** a client inspects the approved execution tool definition
 - **THEN** it is annotated as mutating with idempotency semantics that match server behavior and does not claim to be read-only
+
+#### Scenario: Proposal tool is listed
+- **WHEN** a client inspects the proposal tool definition
+- **THEN** it is annotated as locally mutating, non-destructive, and target-read-only with idempotency semantics that match durable proposal persistence
 
 #### Scenario: Server output violates its schema
 - **WHEN** an internal defect produces a response that does not conform to the declared output schema

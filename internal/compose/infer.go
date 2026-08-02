@@ -45,7 +45,7 @@ func Infer(cfg *config.Config, p *types.Project) {
 		claimed[r.Service] = true
 	}
 	// The stable v1 schema requires explicit components. Auto-classification is
-	// retained only for in-memory legacy fixtures used by the engine package.
+	// retained only for synthesized in-memory fixtures used by the engine package.
 	if !componentAuthored {
 		var svcNames []string
 		for name := range p.Services {

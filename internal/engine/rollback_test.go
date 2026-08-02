@@ -13,7 +13,7 @@ import (
 // recreate) — rollback must replay THAT, not the current ob.yml.
 const oldSnapshot = `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: docker-compose.yaml
 environments: { production: { target: deploy@h } }
 components:

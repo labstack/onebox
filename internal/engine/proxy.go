@@ -104,7 +104,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	}
 	if remoteHash != "" && remoteHash != hash {
 		// config content is never diffed or printed — .env may hold secrets;
-		// only hashes travel (design §07)
+		// only hashes travel
 		e.logf("proxy: config changed (%.8s → %.8s)", remoteHash, hash)
 	}
 

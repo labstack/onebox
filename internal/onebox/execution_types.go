@@ -326,7 +326,7 @@ func validateRunnerProvenance(runner buildinfo.Runner, planSchema string) error 
 func unsupportedDeployPlanSchemaError(schema string) error {
 	if strings.TrimSpace(schema) == "" {
 		return fmt.Errorf(
-			"legacy executable deploy plan has no schema_version; this ob %s runner only executes %q — upgrade `ob` if needed, then regenerate the plan with the current `ob plan`",
+			"executable deploy plan has no schema_version; this ob %s runner only executes %q — upgrade `ob` if needed, then regenerate the plan with the current `ob plan`",
 			buildinfo.Read().Version,
 			ExecutableDeployPlanSchemaVersion,
 		)

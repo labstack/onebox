@@ -1,4 +1,4 @@
-// Package e2e proves the M0 exit criterion mechanically: a live deploy under
+// Package e2e proves the core live-deploy contract mechanically under
 // load with zero failed requests. Gated: OB_E2E=1 + local docker.
 package e2e
 
@@ -93,7 +93,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		return e.Deploy(ctx, id, staging)
 	}
 
-	// accessory traefik must be running before preflight (bootstrap is M1+)
+	// The accessory proxy must be running before preflight.
 	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("start traefik: %v\n%s", err, out)

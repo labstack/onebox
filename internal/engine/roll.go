@@ -29,7 +29,7 @@ func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]stri
 }
 
 // RollRole rolls a role to its desired replica count of the new release with
-// zero downtime (design §03 + the rev 5 traffic-shift protocol: join →
+// zero downtime using the traffic-shift protocol: join →
 // converged → drain → converged → bleed → SIGTERM → remove). It surges ONE new
 // replica at a time, waits it healthy, retires one old, and hands the newcomer
 // a clean slot name — never compose's <project>-<svc>-<n> default. Repeats until

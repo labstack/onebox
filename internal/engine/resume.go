@@ -65,7 +65,7 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 }
 
 // Abort reverts an interrupted deploy to the previous release. The migration
-// gate governs abort exactly like auto-rollback (design §06 rev 4): aborting
+// gate governs abort exactly like auto-rollback: aborting
 // after a schema change is the same hazard.
 func (e *Engine) Abort(ctx context.Context, force bool) error {
 	_, err := e.AbortWithJournalID(ctx, force)

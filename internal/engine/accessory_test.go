@@ -63,7 +63,7 @@ func TestAccessoryApplyConvergesUnderRegime(t *testing.T) {
 
 func TestAccessoryApplyRefusesDestructiveMounts(t *testing.T) {
 	// running postgres uses a named volume the new config no longer declares
-	f := accFake("volume=pgdata bind=/var/lib/ob/monk/releases/R0/conf")
+	f := accFake("volume=pgdata bind=/var/lib/ob/sample/releases/R0/conf")
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.AccessoryApply(context.Background(), "R9-acc", accessoryStaging(t), false)
 	if err == nil || !strings.Contains(err.Error(), "pgdata") {

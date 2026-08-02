@@ -58,13 +58,13 @@ The initial MCP surface is deliberately small:
 |---|---:|---|
 | `onebox_service_catalog` | No | Discover drivers, profiles, settings, defaults, effects, and compatibility |
 | `onebox_observe` | No | Observe application and managed-service state |
-| `onebox_propose_service_change` | No | Convert typed intent into an immutable state-bound proposal |
+| `onebox_propose_service_change` | Local state only | Convert typed intent into an immutable state-bound proposal and persist its redaction-safe identity |
 | `onebox_apply_project_change` | Local only | Apply an exact revision-bound managed-service patch to the configured project file and validate it |
 | `onebox_get_operation` | No | Poll accepted execution and retrieve bounded evidence |
 | `onebox_execute_approved_operation` | Yes | Accept an exact approved proposal idempotently |
 | `onebox_cancel_operation` | Yes | Request cooperative cancellation where allowed |
 
-The model never needs to author YAML, interpret raw Compose, carry a plan file, or construct a shell command. When structured intent differs from the project, `onebox_propose_service_change` returns a closed semantic project change bound to the current file revision and reports that runtime planning is not yet ready. `onebox_apply_project_change` applies only that exact change to the configured project path, preserves unrelated YAML content, atomically replaces the file, runs CUE and Go validation, and returns the new revision without connecting to the target. A stale base revision or unexpected edit is refused. The agent then proposes again from durable desired state; an executable runtime plan is never based only on transient conversation.
+The model never needs to author YAML, interpret raw Compose, carry a plan file, or construct a shell command. When structured intent differs from the project, `onebox_propose_service_change` returns a closed semantic project change bound to the current file revision and reports that runtime planning is not yet ready. Proposal creation may observe the target without changing it, but it atomically persists redaction-safe proposal and operation identity in the local operation repository; it is therefore annotated `readOnlyHint: false`, non-destructive, and target-read-only. `onebox_apply_project_change` applies only that exact change to the configured project path, preserves unrelated YAML content, atomically replaces the file, runs CUE and Go validation, and returns the new revision without connecting to the target. A stale base revision or unexpected edit is refused. The agent then proposes again from durable desired state; an executable runtime plan is never based only on transient conversation.
 
 The local project-change tool requires the MCP process's existing workspace write authority, accepts no arbitrary path or document, and is accurately annotated as a local mutation. Its idempotency key and change digest make retries return the same result. Git remains the review and collaboration record; Onebox does not commit or push changes.
 
@@ -164,7 +164,7 @@ Alternative considered: download templates or scripts from a registry. Rejected 
 
 ### 6. Generated services have independent projects and immutable revisions
 
-Each managed component receives deterministic identities derived from validated app and component names, with a hash suffix if Docker length limits require it:
+Each managed component receives deterministic identities derived from validated app and component names. The derivation must be collision-free across accepted identities in the application scope. When Docker length limits require truncation, the visible prefix is followed by a collision-resistant digest of the complete canonical identity; any generated collision is detected and refused before target access:
 
 ```text
 Compose project: ob-<app>-svc-<component>
@@ -246,6 +246,15 @@ Every mutating host command is fence-guarded. Applied state is never inferred fr
 On failure, the desired applied digest is not written. The previous immutable revision and all volumes remain. The journal records which state could be positively observed. A driver may request automatic configuration rollback only when the sealed plan classified it safe and can verify the old state afterward; otherwise execution halts and preserves evidence. Ordinary apply never reinitializes, detaches, or deletes a volume.
 
 Cancellation stops cooperatively, records a terminal cancelled operation, and performs bounded cleanup with a fresh short-lived context. Because a remote command may complete after cancellation, final status is determined by re-observation; task status remains cancelled as required by asynchronous-operation semantics.
+
+After process termination, a replacement runner loads the accepted local
+operation record and reconciles it with the remote append-only journal. It
+acquires the application lock, establishes a new fence epoch, and revalidates
+the sealed plan and actual state before resuming. Journal-proven external
+effects are re-observed and skipped rather than repeated; only a safe,
+idempotent next step may run. Missing, corrupt, or contradictory local and
+remote evidence produces `incomplete` and no success claim or further mutation
+until fresh observation establishes a safe continuation.
 
 ### 10. Secrets use per-slot files and non-plaintext bindings
 

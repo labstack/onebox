@@ -69,22 +69,38 @@ updated in the same change.
 
 The release recipe fetches `origin/main` and all tags, requires clean tracked
 state on `main`, requires `HEAD == origin/main`, runs the normal repository
-checks, filters the current month's tags to canonical numeric sequences, and
-selects the greatest sequence plus one. A failed push deletes only the tag the
-recipe just created. A concurrent publisher therefore causes a safe failure;
-the next run refetches and chooses the next sequence.
+checks, revalidates remote state, filters the UTC month's tags to canonical
+numeric sequences, and selects the greatest sequence plus one. It creates a
+metadata-only release commit whose parent and tree are the checked commit, then
+atomically fast-forwards `main` to that commit and creates the tag at it under
+an exact lease on the checked remote `main`. A failed push deletes only the
+local tag the recipe just created and leaves local `main` unchanged. A
+concurrent branch or tag publisher therefore causes a safe failure; the next
+run refetches and chooses from current state.
 
-The workflow does not rewrite, force-push, or delete remote tags. Artifact
-publication can later subscribe to the tag namespace without changing this
-contract.
+A no-op `main` refspec rejects a remote advance visible in the server's ref
+advertisement, but it does not cover an advance after that advertisement: Git
+has already omitted the apparently up-to-date branch from the transaction. The
+real metadata-only fast-forward keeps the branch compare-and-swap in the
+server-side atomic tag transaction through that final window. The workflow does
+not rewrite history, force-update an unexpected branch, or delete or replace
+remote tags. It requires the release identity to have permission to
+fast-forward `main`; branch-policy rejection fails the entire transaction
+without leaving a tag. Artifact publication can later subscribe to the tag
+namespace without changing this contract.
 
 ## Risks / Trade-offs
 
 - [Git-describe can select a non-release tag] -> Minimum-runner validation
   accepts only canonical release syntax, and releases use a dedicated valid-tag
   filter when calculating the sequence.
-- [Two maintainers can calculate the same next sequence] -> Remote tag creation
-  is the serialization point; the loser removes its local tag and retries.
+- [Two maintainers can calculate the same next sequence] -> The exact branch
+  lease and tag creation share one atomic transaction; the loser removes its
+  local tag and retries without advancing `main`.
+- [Branch policy rejects the release commit] -> Publication fails atomically
+  and removes the local tag. Grant the release identity deliberate permission
+  for the metadata-only fast-forward or adopt a separately reviewed mechanism;
+  never disable protection ad hoc.
 - [A manually supplied `OB_VERSION` can be misleading in display-only use] ->
   Production-oriented minimum policy validates it, and VCS revision plus dirty
   state remain independently visible.

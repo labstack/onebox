@@ -1,11 +1,4 @@
-# release-versioning Specification
-
-## Purpose
-
-Defines sortable Onebox release identities and fail-closed runner compatibility
-so automation can distinguish an approved release from a development build.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Releases use monthly CalVer identities
 
@@ -26,25 +19,6 @@ compare year, month, and sequence as integers.
 #### Scenario: UTC calendar month changes
 - **WHEN** the most recent release is from an earlier UTC month and no valid tag exists for the current UTC month
 - **THEN** the next release uses the current zero-padded UTC month and sequence `1`
-
-### Requirement: Build provenance distinguishes releases from development
-
-A build from an exact release tag SHALL report that tag as its version. A build
-that is not at an exact release tag SHALL report Git-derived provenance that is
-not accepted as an Onebox release identity. Dirty checkout provenance SHALL be
-visibly marked dirty.
-
-#### Scenario: Exact tagged build
-- **WHEN** the binary is built from a commit checked out at an exact valid release tag
-- **THEN** version output reports that release tag
-
-#### Scenario: Commit after a tag
-- **WHEN** the binary is built from a commit that is not exactly at a release tag
-- **THEN** version output includes Git-derived development provenance and does not report a new release identity
-
-#### Scenario: Dirty checkout
-- **WHEN** tracked source differs from the checked-out commit at build time
-- **THEN** version output marks the build dirty
 
 ### Requirement: Minimum runner policy uses CalVer ordering
 

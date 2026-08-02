@@ -85,3 +85,22 @@ Managed-service execution SHALL append intent, authority, staging, convergence, 
 #### Scenario: Driver command returns sensitive stderr
 - **WHEN** a driver subprocess or container command fails with arbitrary output
 - **THEN** trusted local diagnostics may retain bounded detail while model-facing events and observations emit a stable error code and safe guidance without the raw output
+
+### Requirement: Accepted operations survive runner process termination
+An accepted managed-service operation SHALL be reconstructible from its durable local operation record and remote append-only journal after the runner process terminates. A replacement runner SHALL acquire the application lock, establish a new fence epoch, reconcile both evidence sources, and revalidate the sealed plan and actual target state before resuming. It SHALL skip journal-proven external effects after verifying them and execute only a safe idempotent next step. Missing, corrupt, incomplete, or contradictory evidence SHALL produce an `incomplete` result without claiming success or continuing mutation.
+
+#### Scenario: Process dies after an external effect
+- **WHEN** the runner process terminates after a journaled remote effect succeeds but before local operation state records that step
+- **THEN** a replacement runner reacquires authority, verifies the journaled effect against actual state, and does not repeat it before continuing with a safe next step
+
+#### Scenario: Process dies before an external effect
+- **WHEN** the runner process terminates after accepting an operation but before the next remote effect begins
+- **THEN** a replacement runner reacquires authority, revalidates every binding, and may execute that pending step only when it remains safe and idempotent
+
+#### Scenario: Recovery evidence disagrees
+- **WHEN** local operation state and remote journal or observed target state are missing, corrupt, incomplete, or contradictory
+- **THEN** reconstruction reports `incomplete`, preserves all evidence and persistent resources, and performs no further mutation until fresh observation establishes a safe continuation
+
+#### Scenario: Terminated runner returns
+- **WHEN** the prior runner remains alive after a replacement runner establishes a newer fence epoch
+- **THEN** the prior runner's next mutating command is rejected host-side and cannot duplicate the replacement runner's effects

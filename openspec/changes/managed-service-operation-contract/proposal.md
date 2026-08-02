@@ -32,7 +32,8 @@ Onebox can classify PostgreSQL, MySQL, Redis, and generic Compose services, but 
 
 ### Modified Capabilities
 
-None. There are no existing OpenSpec source-of-truth capabilities in this repository.
+None. This change introduces managed-service capabilities and does not modify
+the existing `release-versioning` capability.
 
 ## Impact
 

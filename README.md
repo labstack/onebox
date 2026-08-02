@@ -70,10 +70,13 @@ just build
 the available build, test, formatting, and check targets.
 
 Onebox releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`. The
-sequence increases for each release in a calendar month. Checkout builds use
-Git-derived provenance and remain visibly distinct from a release. Maintainers
-create the next tag with `just release`, which requires a clean, checked,
-up-to-date `main` branch and publishes the tag to `origin`.
+sequence increases for each release in a UTC calendar month. Checkout builds
+use Git-derived provenance and remain visibly distinct from a release.
+Maintainers create the next release with `just release`, which requires a
+clean, checked, up-to-date `main` branch and atomically publishes a
+metadata-only fast-forward release commit plus its tag to `origin`. The release
+identity therefore needs permission to fast-forward `main`; a branch policy
+that refuses the update aborts the atomic publication without leaving a tag.
 
 Confirm which runner will execute plans and check the local safety setup:
 

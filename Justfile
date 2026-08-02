@@ -45,30 +45,50 @@ docs-check:
 # Create and publish the next vYEAR.MONTH.SEQUENCE tag from releasable main.
 release:
     #!/bin/bash
-    set -eo pipefail
-    BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    if [ "$BRANCH" != "main" ]; then
-      echo "release must run from main." >&2; exit 1
-    fi
-    if ! git diff --quiet || ! git diff --cached --quiet; then
-      echo "release requires a clean tracked worktree." >&2; exit 1
-    fi
+    set -euo pipefail
+    validate_release_checkout() {
+      local release_branch
+      release_branch=$(git rev-parse --abbrev-ref HEAD)
+      if [ "$release_branch" != "main" ]; then
+        echo "release must run from main." >&2; return 1
+      fi
+      if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "release requires a clean tracked worktree." >&2; return 1
+      fi
+    }
+    validate_release_checkout
+    release_head=$(git rev-parse HEAD)
     git fetch origin --tags main
-    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+    if [ "$release_head" != "$(git rev-parse origin/main)" ]; then
       echo "release must run from an up-to-date main (HEAD must equal origin/main)." >&2; exit 1
     fi
     just check
     just docs-check
-    MONTH=$(date +%Y.%m)
-    ALL=$(git tag --list "v${MONTH}.*" --sort=-v:refname) || exit 1
-    MONTH_PATTERN=${MONTH//./\\.}
-    LAST=$(printf '%s\n' "$ALL" | { grep -E "^v${MONTH_PATTERN}\.[1-9][0-9]*$" || true; } | head -1)
-    if [ -z "$LAST" ]; then NUM=1; else NUM=$(( ${LAST##*.} + 1 )); fi
-    TAG="v${MONTH}.${NUM}"
-    echo "tagging $TAG"
-    git tag "$TAG"
-    git push origin "$TAG" || { git tag -d "$TAG" >/dev/null; exit 1; }
-    echo "published $TAG"
+    validate_release_checkout
+    if [ "$(git rev-parse HEAD)" != "$release_head" ]; then
+      echo "release HEAD changed while checks were running." >&2; exit 1
+    fi
+    # Refresh both branch and tag state after checks. The push below also leases
+    # main to this exact commit, closing the race between this fetch and publish.
+    git fetch origin --tags main
+    if [ "$release_head" != "$(git rev-parse origin/main)" ]; then
+      echo "origin/main advanced while release checks were running; retry from updated main." >&2; exit 1
+    fi
+    release_month=$(date +%Y.%m)
+    release_tags=$(git tag --list "v${release_month}.*" --sort=-v:refname) || exit 1
+    release_month_pattern=${release_month//./\\.}
+    release_last=$(printf '%s\n' "$release_tags" | { grep -E "^v${release_month_pattern}\.[1-9][0-9]*$" || true; } | head -1)
+    if [ -z "$release_last" ]; then release_number=1; else release_number=$(( ${release_last##*.} + 1 )); fi
+    release_tag="v${release_month}.${release_number}"
+    echo "tagging $release_tag"
+    git tag "$release_tag" "$release_head"
+    git push --atomic \
+      --force-with-lease="refs/heads/main:${release_head}" \
+      origin \
+      "${release_head}:refs/heads/main" \
+      "refs/tags/${release_tag}:refs/tags/${release_tag}" \
+      || { git tag -d "$release_tag" >/dev/null; exit 1; }
+    echo "published $release_tag"
 
 # Remove the installed binary.
 clean:

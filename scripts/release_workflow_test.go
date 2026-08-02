@@ -40,7 +40,7 @@ func TestReleaseSequence(t *testing.T) {
 	t.Run("sequence compares integers across nine to ten", func(t *testing.T) {
 		repo := newTestRepository(t)
 		month := utcMonth()
-		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9", "v" + month + ".010", "v" + month + ".invalid"} {
+		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9", "v" + month + ".08", "v" + month + ".09", "v" + month + ".010", "v" + month + ".invalid"} {
 			runGit(t, repo.work, "tag", tag, repo.head)
 		}
 		runGit(t, repo.work, "push", "origin", "--tags")
@@ -122,6 +122,38 @@ git -C "$RACER_REPO" push origin main
 	}
 }
 
+func TestNoOpBranchRefMissesMainAdvanceAfterAdvertisement(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	month := utcMonth()
+	tag := "v" + month + ".1"
+	hook := `#!/bin/sh
+set -eu
+git -C "$RACER_REPO" fetch origin main
+git -C "$RACER_REPO" reset --hard origin/main
+git -C "$RACER_REPO" commit --allow-empty -m after-advertisement
+git -C "$RACER_REPO" push origin main
+`
+	writeExecutable(t, filepath.Join(repo.work, ".git", "hooks", "pre-push"), hook)
+	runGit(t, repo.work, "tag", "--no-sign", tag, repo.head)
+
+	cmd := gitCommand(repo.work,
+		"push", "--atomic",
+		"--force-with-lease=refs/heads/main:"+repo.head,
+		"origin",
+		repo.head+":refs/heads/main",
+		"refs/tags/"+tag+":refs/tags/"+tag,
+	)
+	cmd.Env = append(cmd.Env, "RACER_REPO="+repo.racer)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("no-op branch characterization push failed: %v\n%s", err, output)
+	}
+
+	assertRemoteMain(t, repo, gitOutput(t, repo.racer, "rev-parse", "HEAD"))
+	assertRemoteTag(t, repo, tag, repo.head)
+}
+
 func TestReleaseLosesCompetingTagRaceWithoutReplacingWinner(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
@@ -142,6 +174,35 @@ git -C "$RACER_REPO" push origin "refs/tags/$RELEASE_TEST_TAG:refs/tags/$RELEASE
 	assertLocalTag(t, repo, tag, false)
 	assertRemoteTag(t, repo, tag, gitOutput(t, repo.racer, "rev-parse", "HEAD"))
 	assertRemoteMain(t, repo, repo.head)
+}
+
+func TestReleaseFailsClosedWhenBranchPolicyRejectsMainUpdate(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	month := utcMonth()
+	tag := "v" + month + ".1"
+	hook := `#!/bin/sh
+set -eu
+while read -r old_object new_object ref_name; do
+  if [ "$ref_name" = "refs/heads/main" ]; then
+    echo "direct main updates are disabled" >&2
+    exit 1
+  fi
+done
+`
+	writeExecutable(t, filepath.Join(repo.origin, "hooks", "pre-receive"), hook)
+
+	output, err := runRelease(t, repo, normalJustShim, nil)
+	skipIfUTCMonthChanged(t, month)
+	if err == nil {
+		t.Fatalf("release unexpectedly bypassed branch policy:\n%s", output)
+	}
+	assertLocalTag(t, repo, tag, false)
+	assertRemoteTag(t, repo, tag, "")
+	assertRemoteMain(t, repo, repo.head)
+	if got := gitOutput(t, repo.work, "rev-parse", "HEAD"); got != repo.head {
+		t.Fatalf("local main = %s after branch-policy refusal, want %s", got, repo.head)
+	}
 }
 
 const normalJustShim = `#!/bin/sh

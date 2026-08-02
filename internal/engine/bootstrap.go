@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/release"
 )
 
-// Bootstrap is first contact (design §03): base dirs → the user's bootstrap
+// Bootstrap performs first contact: base directories → the user's bootstrap
 // hook (host-specific provisioning — docker install, tailscale, data dirs —
 // stays the operator's, config management is a non-goal) → registry login →
 // push a release dir → start accessories from it. Never activates; after
@@ -25,7 +25,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	}
 
 	// the runtime is ob's own precondition — the one universal piece of
-	// host provisioning (design §03: bootstrap provisions the runtime).
+	// host provisioning; bootstrap provisions the runtime.
 	// Everything vendor-flavored (VPNs, NFS, kernel tuning) stays in the
 	// user's bootstrap hook.
 	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil {
@@ -47,7 +47,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		return fmt.Errorf("mkdir %s: %v %s", p.Releases, err, res.Stderr)
 	}
 
-	// one regime for every mutation (design §05): bootstrap locks, fences,
+	// one regime for every mutation: bootstrap locks, fences,
 	// and journals like a deploy
 	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
 	if err != nil {

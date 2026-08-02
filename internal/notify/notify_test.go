@@ -25,18 +25,18 @@ func TestSendPostsPayload(t *testing.T) {
 
 	n := &config.Notify{Webhook: srv.URL, On: []string{"failure", "success"}}
 	err := Send(n, Payload{
-		App: "monk", Env: "production", Verb: "deploy", DeployID: "R1",
+		App: "sample", Env: "production", Verb: "deploy", DeployID: "R1",
 		Status: "fail", Error: "verify: gate closed — HALT-AND-PAGE ...",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got["app"] != "monk" || got["verb"] != "deploy" || got["status"] != "fail" {
+	if got["app"] != "sample" || got["verb"] != "deploy" || got["status"] != "fail" {
 		t.Fatalf("payload: %v", got)
 	}
 	// the human-readable line for Slack/Discord/ntfy compatibility
 	text, _ := got["text"].(string)
-	if !strings.Contains(text, "monk") || !strings.Contains(text, "deploy") || !strings.Contains(text, "FAILED") {
+	if !strings.Contains(text, "sample") || !strings.Contains(text, "deploy") || !strings.Contains(text, "FAILED") {
 		t.Fatalf("text summary: %q", text)
 	}
 	if !strings.Contains(text, "HALT-AND-PAGE") {
@@ -50,13 +50,13 @@ func TestSendFiltersByOn(t *testing.T) {
 	defer srv.Close()
 
 	n := &config.Notify{Webhook: srv.URL, On: []string{"failure"}}
-	if err := Send(n, Payload{App: "monk", Verb: "deploy", Status: "ok"}); err != nil {
+	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "ok"}); err != nil {
 		t.Fatal(err) // filtered out is not an error
 	}
 	if hits != 0 {
 		t.Fatal("success must be filtered when on: [failure]")
 	}
-	if err := Send(n, Payload{App: "monk", Verb: "deploy", Status: "fail", Error: "x"}); err != nil {
+	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err != nil {
 		t.Fatal(err)
 	}
 	if hits != 1 {
@@ -73,7 +73,7 @@ func TestSendFailOpen(t *testing.T) {
 	// never hangs past the timeout
 	n := &config.Notify{Webhook: "http://127.0.0.1:1", On: []string{"failure"}}
 	start := time.Now()
-	if err := Send(n, Payload{App: "monk", Verb: "deploy", Status: "fail", Error: "x"}); err == nil {
+	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err == nil {
 		t.Fatal("dead webhook must surface an error for the warn log")
 	}
 	if time.Since(start) > 6*time.Second {
@@ -101,7 +101,7 @@ func TestSendFormatText(t *testing.T) {
 	defer srv.Close()
 
 	n := &config.Notify{Webhook: srv.URL, On: []string{"failure"}, Format: "text"}
-	if err := Send(n, Payload{App: "monk", Host: "root@h", Verb: "deploy", Status: "fail", Error: "boom"}); err != nil {
+	if err := Send(n, Payload{App: "sample", Host: "root@h", Verb: "deploy", Status: "fail", Error: "boom"}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(body, "{") || !strings.Contains(body, "FAILED") || !strings.Contains(body, "boom") {
@@ -110,7 +110,7 @@ func TestSendFormatText(t *testing.T) {
 	if !strings.HasPrefix(ct, "text/plain") {
 		t.Fatalf("content-type: %s", ct)
 	}
-	if title != "monk deploy" {
+	if title != "sample deploy" {
 		t.Fatalf("X-Title: %q", title)
 	}
 }

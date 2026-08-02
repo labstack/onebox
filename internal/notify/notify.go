@@ -6,7 +6,7 @@
 // Fail-open is the contract: a dead webhook returns an error for the caller
 // to WARN on, and must never block, fail, or slow an operation beyond the
 // send timeout. Error strings are the same redaction-safe strings printed to
-// the terminal — secrets content never travels, only hashes (design §07).
+// the terminal — secret content never travels, only hashes.
 package notify
 
 import (

@@ -1,5 +1,10 @@
 # Onebox project schema v1
 
+> Status: implemented authoring contract for the current binary
+>
+> Fields described only by an active OpenSpec change are not accepted yet. See
+> the [documentation authority map](README.md).
+
 `onebox.run/v1` is the stable authoring contract for a single-host Onebox
 project. Put it in `ob.yml` beside the Compose file it describes. Onebox also
 accepts the same shape as `ob.cue`.
@@ -33,7 +38,7 @@ environments:
     policy:
       require_approval: true
       allow_agent_proposals: true
-      minimum_onebox_version: 0.0.1-m0
+      minimum_onebox_version: v2026.08.1
       minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
       require_migration_backup: true
       migration_backup_max_age: 24h
@@ -155,9 +160,10 @@ config, root Compose file, host state, image pins, rendered Compose, and staged
 payload, so a changed input must be planned again.
 
 The current executable artifact schema is
-`onebox.run/executable-deploy-plan/v1alpha2`. Missing, legacy, or other schema
-versions are rejected before Onebox connects to the target; regenerate them
-with the PATH-selected current binary rather than editing an artifact.
+`onebox.run/executable-deploy-plan/v1alpha2`. Missing, schema-less, or other
+unsupported schema versions are rejected before Onebox connects to the target;
+regenerate them with the PATH-selected current binary rather than editing an
+artifact.
 
 ## Compatibility promise
 
@@ -174,20 +180,6 @@ with the PATH-selected current binary rather than editing an artifact.
 An older Onebox binary can still reject a field introduced by a newer binary.
 The promise is that upgrading Onebox will not force you to rewrite an existing
 v1 project file.
-
-The earlier unversioned/alpha shape is intentionally not accepted. Migrating
-it is a one-time change:
-
-| Earlier field | `onebox.run/v1` |
-|---|---|
-| `environments.<name>.hosts: [host]` | `environments.<name>.target: host` |
-| `roles`, `accessories`, `jobs` | typed entries under `components` |
-| role `mode` and `ready` | `deployment.strategy` and `readiness` |
-| top-level `order`, `retain`, `migrations` | `deployment` |
-| top-level `env_files`, `preflight` | `runtime` |
-| `verify` and check `role` | `verification` and check `component` |
-| `notify` | `notifications` |
-| a job command under `hooks.<job>` | `components.<job>.command` |
 
 ## Top-level fields
 
@@ -227,7 +219,7 @@ environments:
     policy:
       require_approval: true
       allow_agent_proposals: true
-      minimum_onebox_version: 0.0.1-m0
+      minimum_onebox_version: v2026.08.1
       minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
       require_migration_backup: true
       migration_backup_max_age: 24h
@@ -242,9 +234,13 @@ The two agent/approval switches default to `true` when omitted:
 - `allow_agent_proposals` controls whether the MCP may prepare deployment
   proposals for that environment. Set it to `false` for environments an agent
   may observe but not plan against.
-- `minimum_onebox_version` and `minimum_plan_schema` reject an older runner or
-  executable-plan contract during planning and execution. Use `ob version` and
-  `ob doctor` to inspect the runner selected by `PATH`.
+- `minimum_onebox_version` uses the exact CalVer release form
+  `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`. Year, month, and the
+  per-month sequence are compared numerically. A commit-derived or dirty
+  development build is deliberately rejected when a minimum is configured.
+- `minimum_plan_schema` rejects an older executable-plan contract during
+  planning and execution. Use `ob version` and `ob doctor` to inspect the
+  runner selected by `PATH`.
 - `require_migration_backup` is opt-in. When true,
   `migration_backup_max_age` is required, restore-test evidence defaults to
   required, and `migration_backup_key_material` names any protected keys that
@@ -278,6 +274,28 @@ The map key is the stable logical component name shown to users and agents.
 | `mysql` | `persistence` | MySQL data service |
 | `redis` | `persistence` | Redis cache or durable data service |
 | `service` | none | Generic long-running supporting service |
+
+### Supporting-service ownership today
+
+`postgres`, `mysql`, `redis`, and `service` are operational classifications of
+services authored in the Compose project. They let Onebox validate persistence,
+keep supporting services out of application release choreography, check them as
+deployment prerequisites, and converge them through the explicit accessory
+maintenance path. They do not select an image, install a service, expose
+provider settings, create backups, perform upgrades, or transfer lifecycle
+ownership to Onebox.
+
+Choose the image version and all native configuration in Compose today. A
+current component does not accept a `managed` field; the closed schema rejects
+it as unknown.
+
+The active
+[`managed-service-operation-contract`](../openspec/changes/managed-service-operation-contract/)
+proposes an additive, explicitly owned managed-service envelope with a
+versioned driver, immutable profile, explicit image, typed settings, bounded
+native parameters, resource controls, and per-slot secrets. That example is
+non-executable until the change ships. Compose-owned services remain the full
+control escape hatch after managed services are introduced.
 
 ### Workload deployment
 

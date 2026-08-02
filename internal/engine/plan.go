@@ -16,7 +16,7 @@ import (
 	"github.com/labstack/onebox/internal/release"
 )
 
-// HostState is the drift set the plan binds to (design §02): live release id
+// HostState is the drift set the plan binds to: live release id
 // + running image ids per service. Not all of docker inspect — that would
 // false-positive on every restart.
 type HostState struct {
@@ -173,7 +173,7 @@ func withDigest(ref, digest string) string {
 	return name + "@" + digest
 }
 
-// FidelityContract is printed at the top of every plan (design §01/§11: the
+// FidelityContract is printed at the top of every plan: the
 // wedge survives honesty; it doesn't survive an overclaim).
 const FidelityContract = `Plan fidelity (highest to lowest):
   config       exact — apply re-renders these same bytes and refuses on any drift.

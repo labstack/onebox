@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/onebox/internal/release"
 )
 
-// AccessoryApply converges stateful services explicitly (design §03): a
+// AccessoryApply converges stateful services explicitly as a
 // planned maintenance event — never mid-deploy. Shows the diff against the
 // live release, refuses destructive mount changes without force, then
 // `up -d --no-deps <accessories>` under the full lock/fence/journal regime.

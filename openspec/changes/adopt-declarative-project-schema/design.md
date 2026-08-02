@@ -98,17 +98,34 @@ expressible.
 
 ### Shapes that will grow are open from the first commit
 
-Additive evolution only works if a field can gain structure without changing
-shape. A scalar that must later become an object is a breaking change; a scalar
-that was always *also* an object is not.
+Adding an object form to an existing scalar is additive, not breaking: files
+using the scalar stay valid, provided the scalar is accepted forever. An earlier
+draft called it breaking, which was simply wrong, and a false justification is
+worse than none.
+
+The real cost of deferring is subtler. Adding an object form later changes the
+canonical form and therefore the generated runtime of projects that did not
+change, which surfaces as a diff in everyone's next plan. That is disruption
+rather than breakage, and it is reason enough to design the shape up front.
 
 Every field whose growth is already foreseeable therefore accepts both forms from
-the start — the environment's server, a workload's build source, its health
-check, a service declaration, and the secret configuration. Routing goes further
-and accepts multiple domains and non-HTTP entrypoints immediately, because that
-is not a future need: a project in this organization already serves four
-hostnames including OTLP over gRPC, and a scalar domain with a scalar port cannot
-express it today.
+the start — the environment's server, a workload's build source, its image
+source, its health check, its volumes, a service declaration, and the secret
+configuration. Registries, notifications, and secrets become named maps rather
+than singletons, because a second registry or a second notification target is an
+obvious near-term ask and a singleton cannot become a map additively.
+
+Routing is not future-proofing but a present gap: a project here already serves
+four hostnames including OTLP over gRPC, which a scalar domain and port cannot
+express. Routes are therefore a first-class list of objects carrying domain,
+path, port, protocol, and TLS mode, with the scalar pair kept as shorthand for a
+single HTTP route.
+
+The environment's server is deliberately **not** a list. The product supports one
+active host per environment, and a list with no stated semantics — deploy to all,
+pick one, fail over? — is worse than no list at all. It accepts a scalar or an
+object, so it can gain fields; a `servers` key can be added additively if
+multi-host ever becomes real.
 
 `x-` keys are reserved and ignored everywhere a mapping is accepted. In a closed
 schema that costs nothing and gives both users and Onebox a place to put things
@@ -135,11 +152,13 @@ Expansion happens before overrides, overrides before defaults, and all three
 before cross-field checks, so those checks see one shape and every value carries
 an unambiguous origin.
 
-**Default precedence**, highest first: an explicit value in the project file; an
-environment override; a value expanded from shorthand; a value derived from
-another declared field; a documented contract default. There is no host-derived
-tuning in this change — that arrives with drivers — so the chain takes no
-environmental input and normalization stays a pure function.
+**Default precedence**, highest first: an environment override; an explicit value
+in the project file; a value expanded from shorthand; a value derived from
+another declared field; a documented contract default. An earlier draft of this
+document put the explicit project value above the override, which would have made
+a base `replicas: 3` defeat an environment's override to `1` — the opposite of
+what "override" means. There is no host-derived tuning in this change, so the
+chain takes no environmental input and normalization stays a pure function.
 
 ### CUE stays; a JSON Schema is exported from it
 
@@ -206,14 +225,33 @@ contract requires that the needed privileges be stated and checked before
 mutation, with an actionable error — so the constraint is visible instead of
 appearing as a permission failure halfway through a deploy.
 
-### Names are derived, stable, and — for volumes — permanent
+### Names are injective, stable, and — for volumes — permanent
 
-Compose project, network, and volume names derive from declared identifiers by a
-documented pattern, are stable across releases so a rollback cannot orphan a
-resource, are validated against the container runtime's limits, and are truncated
-with a collision-resistant suffix when too long. Before generation completes,
-Onebox refuses a collision with a resource it does not own, determined by its own
-labels; adoption of pre-existing resources is a separate contract.
+The obvious pattern is wrong. Joining identifiers with a hyphen —
+`ob-<app>-<service>` — is not injective when identifiers may themselves contain
+hyphens: application `a-b` with service `c` and application `a` with service
+`b-c` both derive `ob-a-b-c`. Two different projects would fight over one
+Compose project and one set of volumes. Worse, `ob-proxy` was a perfectly legal
+application identifier that derives exactly the host proxy's project name.
+
+Underscore is excluded from the identifier grammar and accepted by Docker in
+project and volume names, so it joins every derived name: `ob_<app>_<service>`.
+Application identifiers may not begin `ob-`, which reserves the two pre-existing
+hyphenated host-scoped names. Together these make derivation injective, which is
+not a nicety — a collision here means two applications sharing a database volume.
+
+Names are stable across releases so a rollback cannot orphan a resource, and are
+truncated deterministically with a hash suffix when they exceed Docker's limit.
+
+Volume names get a stronger rule: they are permanent. A later change to the
+pattern that would derive a different volume name for an existing resource is a
+breaking change requiring an explicit data migration, because the alternative is
+an empty database and a healthy-looking deploy. A golden test pins every derived
+name for a reference project so that change cannot happen by accident.
+
+This is also why the application identifier is permanent: it names the layout,
+the projects, and the volumes, so renaming it silently produces a second, empty
+installation.
 
 Volume names get a stronger rule: they are permanent. A later change to the
 pattern that would derive a different volume name for an existing resource is a
@@ -225,12 +263,27 @@ the projects, and the volumes, so renaming it silently produces a second, empty
 installation. Onebox refuses when the declared identifier disagrees with the one
 recorded on the target.
 
-### Services are generated into their own project
+### Services are inert here, but their names are reserved
 
-A supporting service is generated into a project separate from the application's,
-with its own volumes, so an application release, rollback, or teardown cannot
-recreate or remove it. This generalizes the pattern managed Traefik already
-proves, and it is what makes the later driver work safe to build on top of.
+An earlier draft said both that a service declaration emits nothing and that
+services are generated into their own project with their own volumes. Those
+cannot both be true, and the tasks derived from them were mutually impossible.
+
+The resolution: in this change a service declaration is genuinely inert — it
+validates, normalizes, and is reported as declared and not managed. Nothing runs.
+Driver work is a separate change and it owns generation, convergence, backups,
+and tiers.
+
+But the *names* a service would derive are reserved now, and preflight refuses a
+foreign resource holding one. Volume names are permanent, so the driver work must
+inherit names that nothing else has taken; reserving them costs nothing today and
+is impossible to retrofit once someone's Postgres volume exists under a different
+name. Reserving a name does not create the resource.
+
+When drivers do land, services will be generated into a project separate from the
+application's, so an application release or rollback cannot remove them — the
+pattern managed Traefik already proves. That requirement belongs to that change,
+not this one.
 
 ### The generated runtime is bound into the plan by digest
 
@@ -256,6 +309,33 @@ re-adopt.
 The alternative — a reversible eject that keeps generating alongside the ejected
 file — was rejected because it produces two sources of truth for one service and
 no clear answer to which wins after a Onebox upgrade changes the generator.
+
+### Generation is local; the target is checked in a separate preflight
+
+An earlier draft required both that Onebox refuse a name collision with a foreign
+resource on the target and that every generation failure occur before any target
+connection. Detecting the first requires the connection the second forbids.
+
+The two are separate phases. Generation is local and pure: it opens no connection
+at all, succeeds or fails on the project alone, and produces a digest. Target
+preflight then connects, checks collisions, ownership labels, and account
+privileges, changes nothing, and fails before the first mutating command. The two
+report failures distinguishably, so a caller can tell "your project is wrong"
+from "your server is not ready" — which matters most to an agent deciding whether
+to edit a file or ask a human.
+
+### Paths resolve against the project file
+
+Existing projects carry relative paths for Compose files, environment files,
+preflight files, proxy configuration, and secrets, and today's wrapper scripts
+all `cd` to the repository root first so those paths resolve. That is an implicit
+contract nobody wrote down.
+
+Every path now resolves relative to the directory containing the project file,
+regardless of the working directory, and a path escaping the repository root —
+including through a symlink — is refused. Without this, generation and ejection
+can disagree about what a path means depending on where they were invoked, which
+is exactly the class of bug that makes generated configuration untrustworthy.
 
 ## Risks / Trade-offs
 
@@ -308,7 +388,17 @@ simultaneous.
 
 ## Open Questions
 
-- Whether the ejection destination defaults to a conventional path or always
-  requires an explicit one. Both satisfy the specification.
-- Whether the exported JSON Schema is published to a stable URL per release or
-  only shipped in the binary. This affects distribution, not the contract.
+Both questions this design previously deferred are now resolved in the
+specification, because leaving them open let the task list omit the work
+entirely.
+
+The ejection destination defaults to a Compose file beside the project file and
+may be given explicitly; ejection writes and renames the runtime atomically
+before rewriting the project, so an interruption never leaves the project
+pointing at a file that does not exist.
+
+The exported JSON Schema is embedded in the binary and can be written to a
+repository path on request. Scaffolding emits a `yaml-language-server` comment on
+the project's first line. Publishing to a stable URL is out of scope: it requires
+hosting the repository does not have, and the embedded copy is what guarantees
+the schema and the enforced contract cannot diverge within a release.

@@ -1,9 +1,10 @@
-# The enumerated overlay onto a Compose-referenced workload.
+# The exact overlay onto a Compose-referenced workload.
 #
-# The whole point is that the overlay set is closed: four keys go in, every
-# other field passes through untouched, and a collision on any of the four
-# stops generation rather than winning silently. Drawn with the decision after
-# both inputs so the failure edge reads as the default, not the exception.
+# The whole point is that the set is closed and additive: three things go in,
+# every other field passes through untouched, and a collision stops generation
+# rather than winning silently. container_name is deliberately NOT in the
+# overlay — an earlier draft had Onebox silently remove it, which discards a
+# declaration the user wrote. It is a refusal condition instead.
 #
 # dagre rather than elk: elk placed the two decision edges on the same side and
 # the labels overprinted.
@@ -12,14 +13,13 @@ direction: down
 
 src: "User-authored Compose service\nreferenced as file#service"
 
-overlay: "Onebox overlays exactly four things" {
-  a: "Ingress network attachment"
-  b: "Release identity labels"
-  c: "Proxy routing from declared domain"
-  d: "Rolling container naming"
+overlay: "Onebox adds exactly three things" {
+  a: "ob-ingress appended to networks\n(existing entries kept, in order)"
+  b: "ob.app · ob.release · ob.workload"
+  c: "traefik.* derived per declared route\n(only when a route is declared)"
 }
 
-check: "Does the referenced service\nalready set an overlaid key?" {
+check: "Does the service already set\ncontainer_name, ob-ingress,\nan ob.* label, or — with a route —\na traefik.* label?" {
   shape: diamond
 }
 
@@ -31,7 +31,7 @@ out: "Generated workload service\nevery other field passes through untouched"
 
 src -> check
 overlay -> check
-check -> fail: "yes — never overwritten" {
+check -> fail: "yes — never overwritten,\nnever silently removed" {
   style.stroke: "#c0392b"
   style.font-color: "#c0392b"
 }

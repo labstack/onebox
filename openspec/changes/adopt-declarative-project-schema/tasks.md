@@ -1,86 +1,113 @@
 ## 1. Coverage audit before any code
 
-- [ ] 1.1 Enumerate every operational fact the withdrawn classifier contract could express, from `internal/config/schema.cue` and the existing projects, and record it as the coverage checklist this change is measured against.
-- [ ] 1.2 Draft each of the four adopting projects under the new contract on paper and record every fact with no home; treat each as a contract defect to resolve before implementation starts.
-- [ ] 1.3 Draft the project that declined the previous contract, including its multiple hostnames and its non-HTTP entrypoint, and resolve any gap the same way.
+- [ ] 1.1 Verify the coverage table in `specs/project-schema/spec.md` against `main:internal/config/schema.cue` field by field, and record any fact with no home as a contract defect to resolve before implementation.
+- [ ] 1.2 Draft each of the four adopting projects under the field model on paper, including monk's `local` hooks, its `contains` and `advisory` verification, and its ordered env files; resolve every gap in the contract, not in the draft.
+- [ ] 1.3 Draft the project that declined the previous contract, including its four hostnames and its non-HTTP entrypoint, and resolve any gap the same way.
 
 ## 2. Normalized model foundation
 
-- [ ] 2.1 Define the normalized project model — workloads with exactly one source, service declarations, routing, environment policy, and a per-field origin record — as the single shape the loader produces.
-- [ ] 2.2 Add origin tracking (`explicit`, `override`, `shorthand`, `derived`, `default`) to every normalized field, and assert in tests that no field reaches the model without an origin.
-- [ ] 2.3 Reject a project declaring the withdrawn `components` block with an error naming the block and the authoring guide, not a generic unknown-field error.
+- [ ] 2.1 Define the normalized model from the field model — workloads with a role and exactly one source, routes, services, environments with policy and overrides, and a per-field origin record.
+- [ ] 2.2 Add origin tracking (`override`, `explicit`, `shorthand`, `derived`, `default`) to every field, asserting in tests that none reaches the model without one.
+- [ ] 2.3 Reject a project declaring the withdrawn `components` block with an error naming the block and the authoring guide.
 - [ ] 2.4 Reject absent, malformed, and unsupported schema identities before validation, target contact, or generation.
 
 ## 3. CUE contract and validation
 
-- [ ] 3.1 Write the schema as a closed definition covering the full coverage checklist from 1.1, with the workload source disjunction, the service scalar-or-object disjunction, and the health path-or-exec disjunction.
-- [ ] 3.2 Make every field identified as growable accept both a scalar and an object form, and assert in tests that the two produce identical canonical output.
-- [ ] 3.3 Accept and ignore `x-` keys wherever a mapping is accepted, carrying them through normalization unchanged, and assert the generated runtime is unaffected by their presence.
-- [ ] 3.4 Extend the error rewording layer to report every violation with its source location, never leaking the validation language, and to emit a correction hint for a near-miss field name.
-- [ ] 3.5 Reject the internal validation language as an authoring input and remove that load path.
-- [ ] 3.6 Export a JSON Schema from the same CUE source at build time, with a test that round-trips the valid and invalid fixture corpus through both and fails when they disagree.
-- [ ] 3.7 Fixture corpus: minimum project, every shorthand form, every growable field in both forms, unknown field, near-miss name, unknown enum value, multiple simultaneous violations, both workload-source conflicts, and an `x-` annotation.
+- [ ] 3.1 Write the CUE schema from the normative field model — every key, type, enum, and default — and assert the fixture corpus round-trips to the documented canonical form.
+- [ ] 3.2 Implement the workload source disjunction, the role enum with job-only `run` and required `data_effect`, and refusal of job-only fields on other roles.
+- [ ] 3.3 Implement scalar-or-object forms for server, build, image, health, volumes, service, and secrets, asserting both forms produce identical canonical output.
+- [ ] 3.4 Implement registries, notifications, and secrets as named maps rather than singletons.
+- [ ] 3.5 Accept and ignore `x-` keys wherever a mapping is accepted, asserting the generated runtime is unaffected by their presence.
+- [ ] 3.6 Extend the error rewording layer to report every violation with its source location, never leaking the validation language, with a correction hint for a near-miss name.
+- [ ] 3.7 Reject the internal validation language as an authoring input and remove that load path.
+- [ ] 3.8 Fixture corpus: minimum project, every shorthand, every growable field in both forms, each identifier rule, unknown field, near-miss name, unknown enum, multiple violations, both source conflicts, a job missing `data_effect`, and an `x-` annotation.
 
-## 4. Shorthand, overrides, and defaults
+## 4. Identifiers and paths
 
-- [ ] 4.1 Implement scalar-to-object and top-level-to-workload expansion, rejecting a project that declares top-level workload fields alongside a workload block and naming both locations.
-- [ ] 4.2 Implement environment overrides over the enumerated field set, rejecting an unlisted field with a message listing what is overridable and rejecting an override naming an undeclared workload or service.
-- [ ] 4.3 Implement the documented precedence chain — explicit, override, shorthand, derived, default — recording origin at each step and taking no environmental input.
-- [ ] 4.4 Determinism test asserting repeated normalization of the same text yields byte-identical canonical output, including map ordering.
-- [ ] 4.5 Make the canonical form printable with per-field origins, and add golden tests over the fixture corpus.
+- [ ] 4.1 Implement the identifier grammar, the `ob-` prefix reservation, the reserved words, and refusal of underscore.
+- [ ] 4.2 Implement refusal when the declared application identifier disagrees with the one recorded on the target.
+- [ ] 4.3 Resolve every declared path relative to the project file's directory regardless of working directory, and refuse a path escaping the repository root including through a symlink.
+- [ ] 4.4 Test that loading the same project from two working directories produces identical canonical forms.
 
-## 5. Identifiers, layout, and naming
+## 5. Shorthand, overrides, defaults, and env files
 
-- [ ] 5.1 Specify and implement the identifier rules: character set, length, reserved names including the host namespace, and refusal when the declared application identifier disagrees with the one recorded on the target.
-- [ ] 5.2 Implement the documented remote layout with its default base path, and promote the base path to a project setting reported in observation and bound into plans.
-- [ ] 5.3 Implement deterministic name derivation for generated projects, networks, and volumes, with length validation and collision-resistant truncation.
-- [ ] 5.4 Add a golden test pinning every derived name for a reference project, so a later change that would rename an existing volume fails loudly rather than silently.
-- [ ] 5.5 Implement the privilege precheck for the configured account — base-path creation and container-runtime access — failing before mutation with the missing privilege and the remedy.
-- [ ] 5.6 Implement pre-generation collision detection against target resources Onebox does not own by label, failing rather than adopting or overwriting.
+- [ ] 5.1 Implement scalar-to-object and top-level-to-workload expansion, rejecting a project declaring both and naming both locations.
+- [ ] 5.2 Implement environment overrides over the closed set, with scalar and list replacement, key-by-key mapping merge, null-removes-key, and refusal of unlisted fields and undeclared targets.
+- [ ] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
+- [ ] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
+- [ ] 5.5 Implement preflight key checks for required-and-non-empty and present.
+- [ ] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.
+- [ ] 5.7 Make the canonical form printable with per-field origins, with golden tests over the corpus.
 
-## 6. Runtime generation
+## 6. Routes
 
-- [ ] 6.1 Generate workload services for image-sourced, build-sourced, and Compose-sourced workloads, failing closed for a build-sourced workload with no resolved image and naming the interim resolution mechanism.
-- [ ] 6.2 Implement the enumerated overlay as a closed set, failing with a named conflict when the referenced service already sets an overlaid key, and assert no key outside the set is touched.
-- [ ] 6.3 Generate networks, volumes, and routing from declared domains, ports, and protocols, including multiple domains per workload and a non-HTTP entrypoint.
-- [ ] 6.4 Generate supporting services into a project separate from the application's, and assert an application rollback and a teardown leave their containers and volumes intact.
-- [ ] 6.5 Assert a service declaration emits no container, volume, or network, and that a workload depending on one reports it as not managed by Onebox.
-- [ ] 6.6 Determinism and purity tests: identical inputs produce identical bytes and digests, under a harness that fails on any undeclared clock, entropy, or environment input.
-- [ ] 6.7 Fail-closed tests: every generation failure path leaves no local or staged artifact and attempts no connection.
+- [ ] 6.1 Implement the route object with domain, path, port, protocol, and TLS mode, and the scalar domain-and-port shorthand expanding to one HTTP route at `/`.
+- [ ] 6.2 Reject two workloads in one environment claiming the same domain and path, naming both.
+- [ ] 6.3 Test a multi-route workload and a non-HTTP route end to end through canonical form and generated routing labels.
 
-## 7. Rendering and ejection
+## 7. Local generation
 
-- [ ] 7.1 Render the complete generated runtime without contacting a target or mutating state, with secret values represented by reference only.
-- [ ] 7.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
-- [ ] 7.3 Implement ejection: write the runtime, repoint affected workloads at it, refuse to overwrite without an explicit request, and leave inputs unchanged on failure.
-- [ ] 7.4 Assert ejected services are used as authored on subsequent generation and are never regenerated or re-adopted.
-- [ ] 7.5 Redaction tests over rendered and ejected output covering environment files, secret references, and interpolated values.
+- [ ] 7.1 Generate workload services for image-sourced, build-sourced, and Compose-sourced workloads, failing for a build-sourced workload with no resolved image and naming the interim mechanism.
+- [ ] 7.2 Implement the exact overlay — `ob-ingress` appended to existing networks, the three `ob.` labels, and the `traefik.` keys derived per route — asserting no other key is added, removed, or modified.
+- [ ] 7.3 Fail on an overlay conflict naming the key and the file, including `container_name`, which is refused rather than removed.
+- [ ] 7.4 Generate networks, volumes, and routing from the normalized model.
+- [ ] 7.5 Assert generation opens no target connection on any path, success or failure.
+- [ ] 7.6 Determinism and purity tests under a harness that fails on any undeclared clock, entropy, or environment input.
+- [ ] 7.7 Assert a non-runtime-affecting change — an `x-` key, an inert service declaration — leaves the runtime and digest unchanged.
+- [ ] 7.8 Assert a service declaration emits no container, volume, or network.
 
-## 8. Plan binding
+## 8. Naming and layout
 
-- [ ] 8.1 Add the generated runtime digest and the configured base path to the executable plan binding.
-- [ ] 8.2 Regenerate the runtime from a plan's own inputs at execution and refuse a digest mismatch before any target mutation, directing the operator to re-plan.
-- [ ] 8.3 Fault tests: edited plan, edited referenced Compose file, changed resolved image, relocated base path, and generator behavior change — each refused before mutation with a typed error.
+- [ ] 8.1 Implement underscore-joined derivation for every generated name, with the documented truncation rule.
+- [ ] 8.2 Property test asserting injectivity: no two distinct identifier tuples, including hyphenated ones, derive the same name.
+- [ ] 8.3 Golden test pinning every derived name for a reference project, so a change that would rename an existing volume fails loudly.
+- [ ] 8.4 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback, reported in observation and bound into the plan.
+- [ ] 8.5 Reserve the names a declared service would derive without creating any resource.
 
-## 9. Agent-operable CLI surface
+## 9. Target preflight
 
-- [ ] 9.1 Add versioned structured output to validation, configuration printing, rendering, and ejection.
-- [ ] 9.2 Define the typed error-code set and attach a resolving command to every failure, asserting coverage over the fixture corpus so no failure path emits an untyped error.
-- [ ] 9.3 Assert diagnostics never reach the structured stream and structured output carries no plaintext secret values.
-- [ ] 9.4 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.
+- [ ] 9.1 Implement preflight as a phase distinct from generation: connect, check, change nothing, fail before the first mutating command.
+- [ ] 9.2 Detect collisions against foreign resources by ownership label, including reserved service names, refusing rather than adopting.
+- [ ] 9.3 Implement the privilege check for base-path creation and container-runtime access, with the missing privilege and its remedy.
+- [ ] 9.4 Make generation and preflight failures distinguishable in both human and structured output.
 
-## 10. Conversion and cutover
+## 10. Rendering and ejection
 
-- [ ] 10.1 Convert the four adopting projects by hand and verify every fact from the 1.1 checklist survived.
-- [ ] 10.2 Compare each converted project's generated runtime against what it runs today and resolve every difference before it deploys.
-- [ ] 10.3 Express the project that declined the previous contract; if it cannot be expressed, stop and revise the contract.
-- [ ] 10.4 Redeploy the four projects one at a time, most tolerant first, confirming health and rollback at each step.
+- [ ] 10.1 Render the complete runtime without contacting a target or mutating state, with secrets by reference only.
+- [ ] 10.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
+- [ ] 10.3 Implement ejection to the default destination beside the project file or an explicit one, refusing an existing path without an explicit overwrite.
+- [ ] 10.4 Make ejection crash-safe: write and atomically rename the runtime before rewriting the project, and make re-running after an interruption either complete or refuse with the reason.
+- [ ] 10.5 Assert ejected services are used as authored and never regenerated or re-adopted.
+- [ ] 10.6 Redaction tests over rendered and ejected output covering env files, secret references, and interpolated values.
 
-## 11. Documentation and archive
+## 11. Plan binding
 
-- [ ] 11.1 Rewrite the schema guide for the declarative contract, describing implemented behavior only, including the ownership boundary, shorthand, growable forms, overrides, extension keys, the overlay set, the layout, and ejection.
-- [ ] 11.2 Document the evolution rules that keep the contract additive, so the next contributor knows what may and may not change under this identity.
-- [ ] 11.3 Update `README.md` and `docs/README.md` with the breaking change and the conversion requirement.
-- [ ] 11.4 Update `docs/product.md` to state the ownership boundary as product direction, without claiming unimplemented capability.
-- [ ] 11.5 Re-base the active `managed-service-operation-contract` change onto this contract, replacing its MCP-facing agent interface with the CLI surface and its provider-disabled framing with the service tiers.
-- [ ] 11.6 Run the full test suite, the race detector, the Docker-gated end-to-end suite, `just diagrams-check`, and `openspec validate --all --strict`, then archive.
+- [ ] 11.1 Add the generated runtime digest and the resolved base path to the executable plan binding.
+- [ ] 11.2 Regenerate from the plan's own inputs at execution and refuse a digest mismatch before any mutation, directing the operator to re-plan.
+- [ ] 11.3 Fault tests: edited plan, edited referenced Compose file, changed resolved image, relocated base path, and generator behavior change — each refused before mutation with a typed error.
+
+## 12. Schema publication and agent surface
+
+- [ ] 12.1 Export the JSON Schema from the CUE source at build time and embed it in the binary, with a test that both accept and reject the same corpus.
+- [ ] 12.2 Add the command that writes the embedded schema to a repository path.
+- [ ] 12.3 Make scaffolding emit the `yaml-language-server` reference comment on the project's first line, and test that an editor resolves it.
+- [ ] 12.4 Define the typed error-code enumeration and the structured envelope identity, attaching a resolving command to every failure.
+- [ ] 12.5 Assert over the fixture corpus that no failure path emits an error code outside the enumeration.
+- [ ] 12.6 Add versioned structured output to validation, configuration printing, rendering, and ejection, asserting diagnostics never reach the structured stream and no plaintext secret appears in it.
+- [ ] 12.7 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.
+
+## 13. Conversion and cutover
+
+- [ ] 13.1 Convert the four adopting projects by hand and verify every fact from the 1.1 coverage table survived.
+- [ ] 13.2 Compare each converted project's generated runtime against what it runs today and resolve every difference.
+- [ ] 13.3 Express the project that declined the previous contract; if it cannot be expressed, stop and revise the contract.
+- [ ] 13.4 Redeploy the four projects one at a time, most tolerant first, confirming health and rollback at each step.
+
+## 14. Documentation and archive
+
+- [ ] 14.1 Rewrite the schema guide for the declarative contract, describing implemented behavior only, including the field model, roles, routes, overrides, extension keys, the overlay, the layout, path resolution, and ejection.
+- [ ] 14.2 Document the evolution rules, including that a scalar form once accepted is accepted permanently.
+- [ ] 14.3 Update `README.md` and `docs/README.md` with the breaking change and the conversion requirement.
+- [ ] 14.4 Update `docs/product.md` to state the ownership boundary as product direction, without claiming unimplemented capability.
+- [ ] 14.5 Re-base the active `managed-service-operation-contract` change onto this contract, replacing its MCP-facing agent interface with the CLI surface and its provider-disabled framing with the service tiers, and carrying the reserved service names forward.
+- [ ] 14.6 Run the full test suite, the race detector, the Docker-gated end-to-end suite, `just diagrams-check`, and `openspec validate --all --strict`, then archive.

@@ -44,10 +44,20 @@ without silently altering any other field the user authored.
 
 ### Requirement: The overlay onto a Compose-referenced workload is closed
 
-Onebox SHALL overlay only an enumerated set of keys onto a Compose-referenced
-workload, and that set SHALL be stated in this contract rather than left to
-implementation. If the referenced service already sets an overlaid key,
-generation SHALL fail and name the key and the file rather than overwriting it.
+Onebox SHALL overlay only the following keys onto a Compose-referenced workload,
+and SHALL modify nothing else the user authored:
+
+| Key | What Onebox writes | Why |
+|---|---|---|
+| `networks` | attachment to the shared ingress network | routing cannot reach the workload otherwise |
+| `labels` matching `ob.*` | release and application identity | status, audit, and ownership detection depend on them |
+| `labels` matching `traefik.*` | routing derived from declared domains and ports | the declaration is the source of truth for routing |
+| `container_name` | removed if present | a rolling deploy runs two containers at once, which a fixed name forbids |
+
+If the referenced service already sets `container_name`, already attaches the
+ingress network, or already declares a label matching `ob.*` or — when the
+workload declares a domain — `traefik.*`, generation SHALL fail and name both the
+key and the file rather than overwriting it.
 
 #### Scenario: Conflict on an overlaid key
 - **WHEN** a referenced Compose service already sets a key Onebox overlays
@@ -59,18 +69,22 @@ generation SHALL fail and name the key and the file rather than overwriting it.
 
 ### Requirement: The remote layout is contract, not implementation detail
 
-Onebox SHALL own a documented directory layout on the target: a base path, a
-per-application directory beneath it, versioned release directories, and a
-pointer to the active release. The default base path SHALL follow the platform
-convention for variable state owned by a program. The base path SHALL be
-configurable in the project so that an operator can place state on a mounted
-volume, and the configured value SHALL be reported in observation and bound into
-plans. A documented namespace SHALL be reserved for state shared by every
-application on the host, and SHALL be refused as an application identifier.
+Onebox SHALL own a directory layout on the target, laid out by the patterns in
+the naming requirement below: a base path, a per-application directory beneath
+it, versioned release directories, and a pointer to the active release.
+
+The default base path SHALL be `/var/lib/ob`, which is what the Filesystem
+Hierarchy Standard prescribes for variable state owned by a program that installs
+nothing of its own. The base path SHALL be configurable in the project so that an
+operator can place state on a mounted volume, and the configured value SHALL be
+reported in observation and bound into plans.
+
+The `_host` namespace beneath the base path SHALL be reserved for state shared by
+every application on the host, and SHALL be refused as an application identifier.
 
 #### Scenario: Default layout
 - **WHEN** no base path is configured
-- **THEN** the documented default is used and reported as a default in observation
+- **THEN** `/var/lib/ob` is used and is reported as a default in observation
 
 #### Scenario: Base path relocated to a mounted volume
 - **WHEN** a project configures a base path
@@ -98,13 +112,29 @@ permission error from an underlying command.
 
 ### Requirement: Generated resource names are derived, stable, and permanent
 
-Generated Compose project, network, and volume names SHALL derive from declared
-identifiers by a documented pattern, SHALL be stable across releases so a
-rollback cannot orphan a resource, SHALL be validated against the container
-runtime's length and character limits, and SHALL be truncated with a
-collision-resistant suffix when a derived name would exceed them. Volume names
-SHALL be treated as permanent: once a volume exists, a later release SHALL NOT
-derive a different name for the same declared resource.
+Generated names SHALL derive from declared identifiers by exactly these patterns,
+where `<base>` is the configured base path:
+
+| Resource | Pattern | Example |
+|---|---|---|
+| Application Compose project | `<app>` | `ledger` |
+| Service Compose project | `ob-<app>-<service>` | `ob-ledger-postgres` |
+| Service volume | `ob-<app>-<service>-<volume>` | `ob-ledger-postgres-data` |
+| Shared ingress network | `ob-ingress` | `ob-ingress` |
+| Proxy Compose project | `ob-proxy` | `ob-proxy` |
+| Application directory | `<base>/<app>` | `/var/lib/ob/ledger` |
+| Release directory | `<base>/<app>/releases/<release-id>` | `/var/lib/ob/ledger/releases/20260802-183045-a1b2c3d` |
+| Host-scoped state | `<base>/_host` | `/var/lib/ob/_host` |
+| Rolling container slot | `<service>-<n>` | `web-1` |
+
+Names SHALL be stable across releases so a rollback cannot orphan a resource. A
+derived name exceeding the container runtime's sixty-three-character limit SHALL
+be truncated to fifty-five characters and suffixed with a hyphen and the first
+seven hexadecimal characters of the SHA-256 of the untruncated name, so
+truncation stays deterministic and collision-resistant.
+
+Volume names SHALL be treated as permanent: once a volume exists, a later release
+SHALL NOT derive a different name for the same declared resource.
 
 #### Scenario: Names are stable across releases
 - **WHEN** two different releases of the same project generate a runtime

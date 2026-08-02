@@ -156,11 +156,24 @@ as scalars.
 
 ### Requirement: Environments override a closed set of fields
 
-An environment MAY override a closed, specified set of workload and service
-fields, so that a non-production environment can differ in scale and sizing
-without duplicating the project. Overridable fields SHALL be enumerated in this
-contract. An override of any other field SHALL be rejected, and an override
-naming an undeclared workload or service SHALL be rejected.
+An environment MAY override a closed set of workload and service fields, so that
+a non-production environment can differ in scale and sizing without duplicating
+the project. The governing principle is that an override MAY change how much of
+something runs, and SHALL NOT change what it is, where it comes from, or what it
+does to data.
+
+The overridable set SHALL be exactly:
+
+| Target | Overridable |
+|---|---|
+| Workload | `replicas`, `resources`, `domains`, `strategy`, `env` |
+| Service | `resources`, `settings`, `backup` |
+
+Every other field SHALL be refused, including in particular a workload's
+`build`, `image`, `compose`, `command`, `run`, and `data_effect`, and a service's
+`driver`, `version`, and `persistence`. An override naming an undeclared workload
+or service SHALL be rejected. Adding a workload or service that the project does
+not declare SHALL be rejected.
 
 #### Scenario: Environment reduces scale
 - **WHEN** an environment overrides a workload's replica count
@@ -169,6 +182,14 @@ naming an undeclared workload or service SHALL be rejected.
 #### Scenario: Override outside the closed set
 - **WHEN** an environment overrides a field that is not overridable
 - **THEN** validation fails and the error names the field and lists what may be overridden
+
+#### Scenario: Override changes a workload's source
+- **WHEN** an environment overrides a workload's image reference or build context
+- **THEN** validation fails, because an override may change scale but never identity or source
+
+#### Scenario: Override introduces a new workload
+- **WHEN** an environment override declares a workload the project does not declare
+- **THEN** validation fails and the error names the undeclared workload
 
 #### Scenario: Override names an unknown workload
 - **WHEN** an environment override names a workload the project does not declare
@@ -190,9 +211,21 @@ to an `x-` key.
 The application identifier SHALL name the remote layout, generated projects, and
 persistent volumes, and SHALL therefore be treated as permanent: changing it
 SHALL be refused against existing state rather than silently producing a second,
-empty installation. Application, workload, and service identifiers SHALL be
-constrained to a documented character set and length, and a documented set of
-reserved names SHALL be refused.
+empty installation.
+
+Application, workload, and service identifiers SHALL match
+`^[a-z][a-z0-9-]{0,38}[a-z0-9]$` — lowercase letters, digits, and hyphens;
+starting with a letter; ending with a letter or digit; two to forty characters.
+The bound is chosen so that the longest name this contract derives from two
+identifiers stays inside the container runtime's sixty-three-character limit
+without truncation in the common case.
+
+The identifiers `_host`, `ob`, and `proxy` SHALL be reserved and refused, because
+each already names host-scoped state or a generated project.
+
+#### Scenario: Identifier is at the length bound
+- **WHEN** an application identifier is forty characters
+- **THEN** validation succeeds and every derived name remains within the container runtime's limit
 
 #### Scenario: Application identifier changes against existing state
 - **WHEN** a project's application identifier differs from the one recorded in the target's existing state

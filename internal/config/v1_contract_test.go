@@ -338,10 +338,10 @@ func TestStableV1RejectsScaffoldTargetPlaceholder(t *testing.T) {
 
 func TestStableV1ProtectionSchedulesAreStructured(t *testing.T) {
 	loadAndValidateV1(t, stableV1AllOptions)
-	legacyScalar := strings.Replace(stableV1AllOptions,
+	unsupportedScalar := strings.Replace(stableV1AllOptions,
 		`schedule: { cron: "0 2 * * *", timezone: UTC }`,
 		`schedule: "0 2 * * *"`, 1)
-	requireV1Rejected(t, legacyScalar)
+	requireV1Rejected(t, unsupportedScalar)
 	invalidCron := strings.Replace(stableV1AllOptions,
 		`cron: "0 2 * * *"`, `cron: "60 2 * * *"`, 1)
 	requireV1Rejected(t, invalidCron)

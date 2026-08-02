@@ -1,4 +1,4 @@
-// M2 exit scenarios (design §12), run for real against local docker:
+// Operational recovery scenarios, run for real against local Docker:
 //
 //	A: kill the runner mid-release → `resume` recovers, zero downtime held
 //	B: break a worker → the release halts, old keeps serving

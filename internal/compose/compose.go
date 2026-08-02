@@ -1,6 +1,6 @@
 // Package compose loads the user's compose file through compose-go — the same
 // loader docker compose v2 uses — so the supported dialect is exactly what
-// compose accepts (design rev 5: never re-implement the spec).
+// Compose accepts; Onebox does not reimplement the Compose specification.
 package compose
 
 import (
@@ -20,7 +20,7 @@ import (
 )
 
 // DrainFile: the generated/wrapped healthcheck fails while this file exists,
-// which is how the proxy is told to stop routing to a container (rev 5
+// which is how the proxy is told to stop routing to a container (the
 // traffic-shift protocol, "poison its health state").
 const DrainFile = "/tmp/ob-drain"
 
@@ -57,7 +57,7 @@ func load(ctx context.Context, composePath, projectName string, lenient bool, en
 		// Do NOT fold `env_file:` into each service's `environment:` map. That
 		// folding would inline the entire secret env file into the rendered
 		// compose (and thus the plan diff/artifact), violating "secrets content
-		// never logged" (design §07). Interpolation of ${VAR} in the compose
+		// never logged". Interpolation of ${VAR} in the Compose
 		// file itself is unaffected; env_file references survive and are shipped
 		// as a mode-600 payload file that `docker compose` reads at runtime.
 		cli.WithoutEnvironmentResolution,
@@ -113,7 +113,7 @@ func load(ctx context.Context, composePath, projectName string, lenient bool, en
 	return p, nil
 }
 
-// Classify verifies every compose service has exactly one class (design §03)
+// Classify verifies every Compose service has exactly one class
 // and that all names are shell-safe identifiers (command-injection rule).
 func Classify(p *types.Project, cfg *config.Config) error {
 	for name := range p.Services {
@@ -183,7 +183,7 @@ func Classify(p *types.Project, cfg *config.Config) error {
 	return nil
 }
 
-// CheckRollable enforces design §03 preconditions on services that run more
+// CheckRollable enforces overlap preconditions on services that run more
 // than one container — every rolling role (which briefly runs two) and any role
 // with replicas > 1 (which runs N). Such a service can't carry a fixed
 // container_name or a published host port, and a rolling one must gate on a
@@ -216,7 +216,7 @@ func CheckRollable(p *types.Project, cfg *config.Config) []error {
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
 			errs = append(errs, fmt.Errorf("components.%s (%q): deploy.replicas conflicts with Onebox-managed scaling — use components.%s.deployment.replicas", roleName, r.Service, roleName))
 		}
-		// readiness rule (design §03): rolling gates on a healthcheck — from
+		// readiness rule: rolling gates on a healthcheck — from
 		// ready.http/exec, or ADOPTED from the compose file's own
 		if r.Mode == "rolling" {
 			hasReadyKind := r.Ready != nil && (r.Ready.HTTP != "" || r.Ready.Exec != "")

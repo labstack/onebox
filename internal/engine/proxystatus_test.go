@@ -72,13 +72,13 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
 		case strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'"):
-			return transport.Result{Stdout: "monk\n"}, true
+			return transport.Result{Stdout: "sample\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='monk'"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='sample'"):
 			return transport.Result{Stdout: "S1|server|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
 			return transport.Result{Stdout: ""}, true
 		}
 		return transport.Result{}, false
@@ -93,7 +93,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 
 func TestStatusManagedProxyInSync(t *testing.T) {
 	applied := ""
-	acme := acmeFixture(t, "monk.trade", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)) // 73d out
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)) // 73d out
 	e, f, out, _ := statusProxyEngine(t, &applied, acme, "healthy")
 	if err := e.Status(context.Background()); err != nil {
 		t.Fatalf("status: %v\n%s\n%s", err, out.String(), strings.Join(f.Commands, "\n"))
@@ -102,10 +102,10 @@ func TestStatusManagedProxyInSync(t *testing.T) {
 	if !strings.Contains(s, "proxy") || !strings.Contains(s, "healthy") {
 		t.Fatalf("proxy line missing:\n%s", s)
 	}
-	if !strings.Contains(s, "apps: monk") {
+	if !strings.Contains(s, "apps: sample") {
 		t.Fatalf("registered apps missing:\n%s", s)
 	}
-	if !strings.Contains(s, "monk.trade") || !strings.Contains(s, "2026-09-15") || !strings.Contains(s, "73d") {
+	if !strings.Contains(s, "app.example.com") || !strings.Contains(s, "2026-09-15") || !strings.Contains(s, "73d") {
 		t.Fatalf("cert expiry missing:\n%s", s)
 	}
 	if !strings.Contains(s, "all in sync") {
@@ -115,7 +115,7 @@ func TestStatusManagedProxyInSync(t *testing.T) {
 
 func TestStatusManagedProxyConfigDrift(t *testing.T) {
 	applied := "deadbeefdeadbeef"
-	acme := acmeFixture(t, "monk.trade", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
 	e, _, out, _ := statusProxyEngine(t, &applied, acme, "healthy")
 	err := e.Status(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "divergence") {
@@ -128,7 +128,7 @@ func TestStatusManagedProxyConfigDrift(t *testing.T) {
 
 func TestStatusManagedProxyCertRenewalOverdue(t *testing.T) {
 	applied := ""
-	acme := acmeFixture(t, "monk.trade", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)) // 10d out — lego renews at 30
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)) // 10d out — lego renews at 30
 	e, _, out, _ := statusProxyEngine(t, &applied, acme, "healthy")
 	err := e.Status(context.Background())
 	if err == nil {
@@ -143,7 +143,7 @@ func TestStatusManagedProxyCertRenewalOverdue(t *testing.T) {
 // divergence — all other proxy tests only ever pass "healthy".
 func TestStatusManagedProxyUnhealthy(t *testing.T) {
 	applied := ""
-	acme := acmeFixture(t, "monk.trade", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
 	e, _, out, _ := statusProxyEngine(t, &applied, acme, "unhealthy")
 	if err := e.Status(context.Background()); err == nil {
 		t.Fatalf("an unhealthy proxy must be a divergence:\n%s", out.String())
@@ -195,7 +195,7 @@ func TestStatusUnmanagedProxyUnchanged(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='monk'"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='sample'"):
 			return transport.Result{Stdout: "S1|server|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
 		}

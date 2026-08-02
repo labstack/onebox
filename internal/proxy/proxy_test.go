@@ -157,11 +157,11 @@ func acmeJSON(t *testing.T, domain string, notAfter time.Time) string {
 
 func TestCertExpiries(t *testing.T) {
 	exp := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
-	certs, err := CertExpiries([]byte(acmeJSON(t, "monk.trade", exp)))
+	certs, err := CertExpiries([]byte(acmeJSON(t, "app.example.com", exp)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(certs) != 1 || certs[0].Domain != "monk.trade" || !certs[0].NotAfter.Equal(exp) {
+	if len(certs) != 1 || certs[0].Domain != "app.example.com" || !certs[0].NotAfter.Equal(exp) {
 		t.Fatalf("got %+v", certs)
 	}
 

@@ -10,10 +10,10 @@ import (
 const cueConfig = `
 package ob
 
-let HOST = "root@monk.labstack.net"
+let HOST = "root@app.example.com"
 
 api_version: "onebox.run/v1"
-app:     "monk"
+app:     "sample"
 compose: "docker-compose.yaml"
 
 environments: production: target: HOST
@@ -44,14 +44,14 @@ func TestLoadCUEConfig(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.App != "monk" || cfg.Roles["web"].Ready.Port != 7500 {
+	if cfg.App != "sample" || cfg.Roles["web"].Ready.Port != 7500 {
 		t.Fatalf("cue config decoded wrong: %+v", cfg)
 	}
 	// let-binding interpolation resolved
-	if cfg.Environments["production"].Hosts[0] != "root@monk.labstack.net" {
+	if cfg.Environments["production"].Hosts[0] != "root@app.example.com" {
 		t.Fatalf("hosts: %+v", cfg.Environments["production"])
 	}
-	if !strings.Contains(cfg.Hooks["post_deploy"].Run, "root@monk.labstack.net:/data/web/") {
+	if !strings.Contains(cfg.Hooks["post_deploy"].Run, "root@app.example.com:/data/web/") {
 		t.Fatalf("interpolation not resolved: %+v", cfg.Hooks["post_deploy"])
 	}
 }

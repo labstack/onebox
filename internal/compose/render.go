@@ -82,7 +82,7 @@ func InjectProxyNetwork(p *types.Project, cfg *config.Config, network string) {
 	}
 }
 
-// Render produces the per-release deployable (design §02): the user's compose
+// Render produces the per-release deployable: the user's Compose
 // project plus a CLOSED injection set — ob.* labels, a drain-guarded
 // healthcheck, and (when declared) the secrets env file — applied to ROLE
 // services only.
@@ -155,7 +155,7 @@ func Render(p *types.Project, cfg *config.Config, releaseID string) ([]byte, err
 }
 
 // adoptedProbe extracts a shell-runnable probe from a user-authored
-// healthcheck so the drain guard can wrap it (adopt-and-wrap, design §03).
+// healthcheck so the drain guard can wrap it using adopt-and-wrap semantics.
 func adoptedProbe(svc types.ServiceConfig) string {
 	if svc.HealthCheck == nil || len(svc.HealthCheck.Test) == 0 {
 		return ""

@@ -68,7 +68,7 @@ func happyFake() *transport.Fake {
 		case strings.Contains(cmd, "{{.Name}}") && (strings.Contains(cmd, "OLD1") || strings.Contains(cmd, "NEW1")):
 			n := name[lastField(cmd)]
 			if n == "" {
-				n = "monk-server-x"
+				n = "sample-server-x"
 			}
 			return transport.Result{Stdout: "/" + n + "\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "NEW1") && strings.Contains(cmd, "Health"):
@@ -134,7 +134,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		}
 	}
 	// lock released at the end
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/monk/lock'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/sample/lock'") {
 		t.Fatal("lock never released")
 	}
 }
@@ -190,7 +190,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 		}
 		last = i
 	}
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/monk/releases/R1") {
+	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/sample/releases/R1") {
 		t.Fatalf("transfer missing: %v", f.Uploads)
 	}
 }

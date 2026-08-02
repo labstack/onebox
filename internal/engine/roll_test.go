@@ -79,7 +79,7 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 			id := lastField(cmd)
 			n := name[id]
 			if n == "" {
-				n = "monk-server-x" // compose default before any rename
+				n = "sample-server-x" // compose default before any rename
 			}
 			return transport.Result{Stdout: "/" + n + "\n"}, true
 		case strings.Contains(cmd, "State.Health"):
@@ -106,11 +106,11 @@ func noSleep(time.Duration) {}
 
 // A single-replica roll ends with the survivor named plainly `server`, renamed
 // only AFTER the old is gone (so the name is free), and never carries the
-// monk- prefix (renamed to a transient server-new the instant it's created).
+// sample- prefix (renamed to a transient server-new the instant it's created).
 func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	early, rm, final := -1, -1, -1
@@ -125,7 +125,7 @@ func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 		}
 	}
 	if early < 0 {
-		t.Fatalf("newcomer must be renamed off the monk- prefix immediately:\n%s", strings.Join(f.Commands, "\n"))
+		t.Fatalf("newcomer must be renamed off the sample- prefix immediately:\n%s", strings.Join(f.Commands, "\n"))
 	}
 	if final < 0 {
 		t.Fatalf("survivor must take the plain service name:\n%s", strings.Join(f.Commands, "\n"))
@@ -138,7 +138,7 @@ func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 	f := replicaFake(1, []string{"OLD1"}, map[string]string{"OLD1": "server"}, true)
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("resume roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -153,12 +153,12 @@ func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 func TestRollRoleCommandSequence(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
-		"docker compose -p monk -f '/var/lib/ob/monk/releases/R1/compose.yaml' pull --quiet server",
+		"docker compose -p sample -f '/var/lib/ob/sample/releases/R1/compose.yaml' pull --quiet server",
 		"up -d --no-deps --no-recreate --scale server=2 server",
 		"docker rename NEW1 server-new",
 		"docker exec OLD1 touch /tmp/ob-drain",
@@ -176,7 +176,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 		}
 		last = i
 	}
-	// drain MUST precede stop: SIGTERM never races the proxy (rev 5)
+	// Drain MUST precede stop so SIGTERM never races the proxy.
 	if strings.Index(seq, "ob-drain") > strings.Index(seq, "docker stop") {
 		t.Fatal("drain must happen before stop")
 	}
@@ -208,7 +208,7 @@ func TestRollRoleAbortsOnUnhealthyNew(t *testing.T) {
 }
 
 // A 2-replica roll surges each new one in turn and ends with both named
-// server-1 and server-2 — no monk- prefix, both olds retired.
+// server-1 and server-2 — no sample- prefix, both olds retired.
 func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	f := replicaFake(2, []string{"OLD1", "OLD2"}, map[string]string{"OLD1": "server-1", "OLD2": "server-2"}, false)
 	cfg := testConfig()
@@ -216,7 +216,7 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	r.Replicas = 2
 	cfg.Roles["web"] = r
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("2-replica roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -228,8 +228,8 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 			t.Fatalf("2-replica roll missing %q:\n%s", want, seq)
 		}
 	}
-	if strings.Contains(seq, "monk-server") {
-		t.Fatalf("no monk- prefixed name should be committed:\n%s", seq)
+	if strings.Contains(seq, "sample-server") {
+		t.Fatalf("no sample- prefixed name should be committed:\n%s", seq)
 	}
 }
 
@@ -242,7 +242,7 @@ func TestRollRoleDrainGraceConfigurable(t *testing.T) {
 	r.Drain = &config.Drain{Grace: config.Duration(8 * time.Second)}
 	cfg.Roles["web"] = r
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/monk/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")

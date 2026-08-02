@@ -238,7 +238,7 @@ func scalarNumberString(value any) (string, bool) {
 }
 
 // Verify runs host-side checks against the container network — never through
-// the edge (design §04: an edge blip must not fail a healthy release). URL
+// the edge, because an edge blip must not fail a healthy release. URL
 // checks go through the edge from the runner and are advisory territory.
 func (e *Engine) Verify(ctx context.Context) error {
 	for _, chk := range e.Cfg.Verify {

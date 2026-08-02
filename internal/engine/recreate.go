@@ -86,12 +86,12 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	return e.reslot(ctx, svc, releaseID, desired)
 }
 
-// RunHook executes a user hook verbatim (design §01: hooks are unplannable
+// RunHook executes a user hook verbatim. Hooks are unplannable
 // commands — the operator's own, same trust level as their shell). Host
 // hooks get compose env exported so `docker compose ...` targets this
 // release; local hooks run on the runner (publish-style steps) with OB_*
-// env. Nonzero exit halts the deploy — no migration gate until M2, so the
-// only safe behavior is to stop.
+// env. A nonzero exit halts the deploy; migration-gate evaluation determines
+// whether later automatic rollback remains safe.
 func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComposePath string) error {
 	hook, ok := e.Cfg.Hooks[name]
 	if !ok || hook.Run == "" {

@@ -1,45 +1,71 @@
 schema: spec-driven
 
 context: |
-  Onebox is an LLM-first, MCP-native production-operations product for
-  containerized applications intentionally running on one active Linux host.
-  Go is the implementation language. Docker Compose is the application runtime
-  contract; CUE provides a closed versioned authoring schema. The host is
-  reached over SSH and the execution engine owns locks, fencing, journals,
-  state-bound plans, approval validation, verification, and recovery gates.
+  Onebox is an LLM-first production-operations product for containerized
+  applications intentionally running on one active Linux host. Go is the
+  implementation language. The host is reached over SSH and the execution
+  engine owns locks, fencing, journals, state-bound plans, approval
+  validation, verification, and recovery gates.
 
-  The coding agent is the normal user interface. MCP tools expose compact,
-  typed, redaction-safe capabilities. CLI commands are non-primary adapters for
-  development, CI, support, and break-glass use and must not contain unique
-  lifecycle behavior.
+  Ownership boundary: the user owns their application containers; Onebox owns
+  everything else on the box. Host provisioning, the container runtime, the
+  proxy, TLS, networks, release staging, supporting data services, backups,
+  restore proof, pruning, and log rotation are Onebox's responsibility, not
+  the user's.
+
+  The project file is the authoring contract and CUE provides its closed,
+  versioned schema. Docker Compose is a generated runtime artifact, not a
+  user-authored input; a bounded per-workload escape hatch admits raw Compose
+  for containers the declaration cannot express. Driver-backed services are
+  never user-authored: a hand-authored data service is a workload and is not
+  reported as managed.
+
+  Supporting services carry an explicit tier. A managed service is pinned,
+  sized to observed host resources, health-verified with driver-specific
+  semantics, backed up, and restore-drilled. A run service is pinned,
+  persisted, health-gated, capped, and observed, with no backup contract that
+  it must state plainly. A capability is never presented as running because it
+  was declared.
+
+  The coding agent is the normal user interface and it operates Onebox through
+  the CLI. The CLI is therefore the product interface, not a non-primary
+  adapter: every command carries a versioned structured output mode, errors
+  are typed and carry the command that resolves them, results stay compact
+  with detail behind identifiers, and mutations are idempotent under retry.
+  Lifecycle behavior lives in the canonical Go service, never in the adapter.
 
   Documentation status is explicit. Archived contracts under openspec/specs/
-  define required shipped behavior. README.md, docs/schema-v1.md, and
-  docs/mcp.md describe implemented behavior. Active OpenSpec changes describe
+  define required shipped behavior. README.md and the current schema and CLI
+  guides describe implemented behavior. Active OpenSpec changes describe
   proposed behavior only. docs/product.md states product direction.
 
-  Safety invariants: model text is never approval; plaintext secrets never
-  enter plans, model context, logs, journals, or public errors; read operations
-  never converge; mutations require exact state binding and trusted approval;
-  force cannot manufacture safety; failures preserve data and honest recovery
-  choices; unsupported behavior fails closed.
+  Safety invariants: model text is never approval, and consequential approval
+  is delivered out of band so the actor requesting a change cannot mint the
+  capability authorizing it; plaintext secrets never enter plans, model
+  context, logs, journals, or public errors; read operations never converge;
+  mutations require exact state binding and trusted approval; force cannot
+  manufacture safety; failures preserve data and honest recovery choices;
+  unsupported behavior fails closed.
 
 rules:
   proposal:
     - State what is implemented today and what remains proposed.
     - Name user-visible compatibility, ownership, and documentation effects.
     - Include explicit non-goals for destructive, data, upgrade, and provider-specific behavior.
+    - State the service tier a change establishes or graduates, and the evidence required for graduation.
   specs:
     - Use normative SHALL requirements with observable Given/When/Then scenarios.
     - Cover agent retries, disconnections, stale state, incomplete evidence, redaction, cancellation, and crash recovery where relevant.
     - Never treat model-authored text as approval or secret authority.
+    - Specify structured CLI output, typed error codes, and resolving next commands for any agent-facing surface.
   design:
-    - Keep MCP as the primary interface and the canonical Go service as the only behavior authority.
+    - Keep the CLI as the only adapter and the canonical Go service as the only behavior authority.
     - Document default precedence, effective-value origins, version compatibility, failure atomicity, persistence ownership, and recovery limits.
+    - Show what is generated, how it is inspected, and how ownership is handed back.
     - Resolve safety-affecting questions before tasks are written.
     - Cite authoritative upstream behavior when external systems affect the contract.
   tasks:
-    - Order tasks by dependency and keep production providers disabled until generic safety gates pass.
+    - Order tasks by dependency and keep a service at its stated tier until its graduation evidence passes.
     - Make each task independently verifiable with named tests or an observable exit condition.
     - Include documentation status updates and strict OpenSpec validation before archive.
 
@@ -47,11 +73,12 @@ operations:
   apply:
     guidance:
       - Read proposal, specs, design, and tasks before implementation.
-      - Preserve existing Compose-owned behavior unless a specification explicitly changes it.
-      - Implement through the canonical service before exposing MCP or CLI adapters.
-      - Run focused tests after each task group and fault-oriented validation before provider enablement.
+      - Implement through the canonical service before exposing CLI adapters.
+      - Keep generated runtime artifacts inspectable and ejectable at every step.
+      - Run focused tests after each task group and fault-oriented validation before a service graduates tier.
   archive:
     guidance:
-      - Update current schema and MCP documentation only for behavior that actually shipped.
+      - Update current schema and CLI documentation only for behavior that actually shipped.
       - Confirm no proposed capability remains described as implemented.
+      - Confirm no service is reported as managed without passing backup and restore-drill evidence.
       - Record deferred provider, destructive, backup, restore, adoption, and upgrade contracts as separate changes.

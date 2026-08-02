@@ -41,7 +41,7 @@ func TestSecretsPushBouncesOnChange(t *testing.T) {
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/.secrets-") {
 		t.Fatalf("secrets not uploaded to an epoch-private staging dir: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "cp '/var/lib/ob/monk/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/monk/releases/R7/.ob-secrets.env'") {
+	if !strings.Contains(seq, "cp '/var/lib/ob/sample/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/sample/releases/R7/.ob-secrets.env'") {
 		t.Fatalf("secrets were not installed behind the app fence:\n%s", seq)
 	}
 	if strings.Contains(seq, "KEY=new") {
@@ -84,7 +84,7 @@ func TestDestroySequence(t *testing.T) {
 	if strings.Contains(seq, "down --remove-orphans -v") {
 		t.Fatal("volumes must be kept without --volumes")
 	}
-	if !strings.Contains(seq, "rm -rf '/var/lib/ob/monk'") {
+	if !strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
 		t.Fatalf("state dir not removed:\n%s", seq)
 	}
 }
@@ -146,7 +146,7 @@ func TestDestroyDeregistersFromProxy(t *testing.T) {
 		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/proxy/apps/monk'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/proxy/apps/sample'") {
 		t.Fatalf("destroy must deregister the app from the shared proxy:\n%s", seq)
 	}
 	if strings.Contains(seq, "docker compose -p ob-proxy") && strings.Contains(seq, "down") && strings.Contains(seq, "ob-proxy") == strings.Contains(seq, "-p ob-proxy' down") {
@@ -162,7 +162,7 @@ func TestDestroyProxyTeardownWhenLastApp(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "monk\n"}, true // we are the last app
+			return transport.Result{Stdout: "sample\n"}, true // we are the last app
 		}
 		return base(cmd)
 	}
@@ -184,7 +184,7 @@ func TestDestroyProxyRefusedWhenShared(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "monk\nunlock\n"}, true
+			return transport.Result{Stdout: "sample\nunlock\n"}, true
 		}
 		return base(cmd)
 	}
@@ -220,7 +220,7 @@ func TestDestroyVolumesOnSweepPath(t *testing.T) {
 			return transport.Result{Stdout: "C1\n"}, true
 		}
 		if strings.Contains(cmd, "docker volume ls") {
-			return transport.Result{Stdout: "monk_pgdata\nmonk_cache\n"}, true
+			return transport.Result{Stdout: "sample_pgdata\nsample_cache\n"}, true
 		}
 		return base(cmd)
 	}
@@ -229,7 +229,7 @@ func TestDestroyVolumesOnSweepPath(t *testing.T) {
 		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker volume rm monk_pgdata monk_cache") {
+	if !strings.Contains(seq, "docker volume rm sample_pgdata sample_cache") {
 		t.Fatalf("--volumes on the sweep path must remove labeled volumes:\n%s", seq)
 	}
 

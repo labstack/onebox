@@ -12,10 +12,10 @@ import (
 
 const sample = `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: docker-compose.yaml
 environments:
-  production: { target: deploy@monk.labstack.net }
+  production: { target: deploy@app.example.com }
 components:
   web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 7500 } }
   worker: { type: worker, service: worker, deployment: { strategy: recreate }, drain: { signal: TERM, wait: 30s } }
@@ -56,7 +56,7 @@ func TestLoadValid(t *testing.T) {
 		t.Fatalf("drain wait: %v", cfg.Roles["worker"].Drain.Wait)
 	}
 	env, err := cfg.Environment("production")
-	if err != nil || env.Hosts[0] != "deploy@monk.labstack.net" {
+	if err != nil || env.Hosts[0] != "deploy@app.example.com" {
 		t.Fatalf("env: %+v err=%v", env, err)
 	}
 	if cfg.Retain != 5 { // default
@@ -89,28 +89,28 @@ func TestStableV1NormalizesComponents(t *testing.T) {
 	if got, want := strings.Join(cfg.Jobs, ","), "migrate"; got != want {
 		t.Fatalf("jobs = %q, want %q", got, want)
 	}
-	if got := cfg.Environments["production"].Hosts; len(got) != 1 || got[0] != "deploy@monk.labstack.net" {
+	if got := cfg.Environments["production"].Hosts; len(got) != 1 || got[0] != "deploy@app.example.com" {
 		t.Fatalf("normalized target: %v", got)
 	}
 }
 
-func TestLegacyAuthoringSchemaRejected(t *testing.T) {
-	legacy := `
-app: monk
+func TestUnversionedAuthoringSchemaRejected(t *testing.T) {
+	unversioned := `
+app: sample
 compose: c.yaml
 environments: { production: { hosts: [h] } }
 roles: { web: { service: server, mode: recreate } }
 order: [web]
 `
-	if _, err := Load(write(t, legacy)); err == nil {
-		t.Fatal("legacy roles/hosts authoring must be rejected")
+	if _, err := Load(write(t, unversioned)); err == nil {
+		t.Fatal("unversioned roles/hosts authoring must be rejected")
 	}
 }
 
 func TestValidateRejects(t *testing.T) {
 	badMode := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: sideways } } }
@@ -126,7 +126,7 @@ deployment: { order: [web] }
 	// enforces the cross-file rule
 	noReady := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: rolling } } }
@@ -142,7 +142,7 @@ deployment: { order: [web] }
 
 	orderGap := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components:
@@ -160,7 +160,7 @@ deployment: { order: [web] }
 
 	badSignal := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate }, drain: { signal: "TERM; rm -rf /", wait: 1s } } }
@@ -172,7 +172,7 @@ deployment: { order: [web] }
 
 	badRole := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { "web$(x)": { type: application, service: server, deployment: { strategy: recreate } } }
@@ -277,7 +277,7 @@ func TestHealthRetries(t *testing.T) {
 func TestProxyManaged(t *testing.T) {
 	managed := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -297,7 +297,7 @@ proxy: { managed: true, config: traefik }
 
 	noConfig := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -314,7 +314,7 @@ proxy: { managed: true }
 
 	kindNone := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -332,7 +332,7 @@ proxy: { kind: none, managed: true, config: traefik }
 	// external stays legal and unconstrained
 	external := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -349,7 +349,7 @@ proxy: { kind: traefik-docker, managed: false }
 
 	badKind := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -390,7 +390,7 @@ func TestReservedAppNameTracksProxyProject(t *testing.T) {
 func TestNotifyParseAndValidate(t *testing.T) {
 	ok := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -411,7 +411,7 @@ notifications: { webhook: "https://ntfy.example/ob", on: [failure, success] }
 	// on: defaults to [failure] when omitted
 	defaulted := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -429,7 +429,7 @@ notifications: { webhook: "https://ntfy.example/ob" }
 	// bad event name is a CUE error
 	badOn := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }
@@ -443,7 +443,7 @@ notifications: { webhook: "https://x", on: [sometimes] }
 	// webhook must be http(s)
 	badURL := `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: c.yaml
 environments: { production: { target: h } }
 components: { web: { type: application, service: server, deployment: { strategy: recreate } } }

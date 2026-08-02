@@ -13,7 +13,7 @@ import (
 const rollbackUnavailableConsequence = "automatic rollback is unavailable after this step; if a later step fails, halt, fix-forward, then run `ob resume`"
 
 // gateSteps is the ordered set of jobs run at the pre-release gate: every
-// `jobs` service, plus a legacy `migrate` hook that isn't itself a job (older
+// `jobs` service, plus an untyped `migrate` hook that isn't itself a job (some
 // configs ran the migrate hook whether or not migrate was classified a job).
 func (e *Engine) gateSteps() []string {
 	steps := append([]string{}, e.Cfg.Jobs...)
@@ -29,7 +29,7 @@ func (e *Engine) gateSteps() []string {
 }
 
 // runJobs runs every gate step once, before the roll, each under the
-// $OB_RESULT_FILE protocol (design §06). A step with a same-named hook runs
+// $OB_RESULT_FILE protocol. A step with a same-named hook runs
 // that hook's command (a custom migrate invocation); otherwise ob auto-runs
 // `docker compose run --rm --no-deps <job>` — so `jobs: [migrate]` needs no
 // hook at all. The rollback gate opens only if EVERY step declared
@@ -41,7 +41,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 	steps := e.gateSteps()
 	if len(steps) == 0 {
 		// Fresh deploys persist the safe baseline before transfer. Resumes keep
-		// the reconstructed aggregate unchanged, including fail-closed legacy
+		// the reconstructed aggregate unchanged, including fail-closed sparse
 		// journals that have no baseline record.
 		return nil
 	}

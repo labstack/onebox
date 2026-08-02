@@ -1,6 +1,6 @@
 # onebox
 
-**MCP-first production operations for applications intentionally running on one
+**LLM-first, MCP-native production operations for applications intentionally running on one
 server.**
 
 Onebox keeps the economic and cognitive simplicity of a single box while
@@ -14,9 +14,10 @@ The product contract is:
 > approval. Get typed production observation, constrained change proposals,
 > and a proven deployment safety engine.
 
-See the [product specification](docs/product.md), the stable
-[`onebox.run/v1` project schema](docs/schema-v1.md), and the
-[MCP quick start](docs/mcp.md).
+Start with the [documentation map](docs/README.md). It distinguishes current
+behavior from active OpenSpec proposals. See the [product
+direction](docs/product.md), stable [`onebox.run/v1` project
+schema](docs/schema-v1.md), and current [MCP quick start](docs/mcp.md).
 
 ## What exists today
 
@@ -38,12 +39,23 @@ See the [product specification](docs/product.md), the stable
 - The `ob` CLI as the current execution path and as a lasting adapter for local
   development, CI, support, and break-glass recovery.
 
+PostgreSQL, MySQL, Redis, and generic service component types currently classify
+Compose-owned accessories; selecting a type does not make Onebox install,
+configure, upgrade, back up, or own that service. Traefik is the only specialized
+managed runtime today.
+
 The schema can already declare desired backup, restore-drill, log, metric, and
 alert capabilities. The local engine does **not** manage those continuous
 services yet, and reports them as declared rather than managed. The planned
 dashboard/control plane will add authenticated team approvals, continuous
 evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
+
+The production-disabled managed-service framework, including version selection,
+typed settings, visible defaults, durable operations, and the proposed MCP
+surface, is specified in the active
+[`managed-service-operation-contract`](openspec/changes/managed-service-operation-contract/).
+That OpenSpec change is proposed behavior, not a shipped capability.
 
 ## Start using it
 
@@ -56,6 +68,12 @@ just build
 `just install` is an alias for the same target. Ensure `~/.local/bin` is on
 `PATH`; set `OB_BIN_DIR` to use another destination. Run `just --list` to see
 the available build, test, formatting, and check targets.
+
+Onebox releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`. The
+sequence increases for each release in a calendar month. Checkout builds use
+Git-derived provenance and remain visibly distinct from a release. Maintainers
+create the next tag with `just release`, which requires a clean, checked,
+up-to-date `main` branch and publishes the tag to `origin`.
 
 Confirm which runner will execute plans and check the local safety setup:
 
@@ -96,16 +114,18 @@ payload change requires a new plan.
 `ob init` is a starting point, not permission to deploy. Review component
 types, persistence semantics, readiness, job data effects, and the environment
 target before running a plan. The [schema guide](docs/schema-v1.md) contains a
-complete example and the one-time mapping from the earlier alpha shape.
+complete example.
 
 ## Execution contracts
 
 Executable plans use
 `onebox.run/executable-deploy-plan/v1alpha2` and include the planner's version,
 source revision, build time, dirty state, and supported schemas. Schema-less
-legacy plans and unsupported schemas are rejected. Environment policy can set
-`minimum_onebox_version` and `minimum_plan_schema`; `ob doctor` reports whether
-the runner selected by `PATH` is compatible.
+and unsupported plans are rejected. Environment policy can set
+`minimum_onebox_version` using the exact CalVer release form and can set
+`minimum_plan_schema`; `ob doctor` reports whether the runner selected by
+`PATH` is compatible. When a minimum version is configured, commit-derived and
+dirty checkout builds fail closed because they are not released runners.
 
 `ob approve` writes a mode-`0600`, digest-bound grant covering the plan,
 target, inputs, risk, operator, and expiry. A changed or expired plan needs a
@@ -169,16 +189,19 @@ verification:
       applied_revisions: ["202607130001"]
 ```
 
-## MCP-first, not MCP-only
+## LLM-first, MCP-native
 
-An MCP-capable agent should be the normal conversational interface. MCP earns
-that role by returning typed, secret-safe state and immutable proposals rather
-than asking a model to interpret arbitrary shell output.
+An MCP-capable agent is the intended user interface. MCP earns that role by
+returning typed, secret-safe state and immutable proposals rather than asking a
+model to interpret arbitrary shell output. Trusted approval or secret-entry
+interactions may be elicited when needed, but there is no separate manual
+operations workflow to learn.
 
 The CLI remains useful because it is deterministic, composable in CI, easy to
-test, and available if an MCP client is down. It now calls the same canonical
-operations service used by MCP-facing reads and proposals; mutation remains
-local-only until approval-bound MCP execution is implemented.
+test, and available if an MCP client is down. It calls the same canonical
+operations service used by MCP-facing reads and proposals. CLI mutation is the
+current transitional execution path until approval-bound MCP execution ships;
+it is not the target product experience.
 
 Connect Claude, Codex, or another MCP client using [docs/mcp.md](docs/mcp.md).
 
@@ -207,6 +230,3 @@ The opt-in Docker end-to-end suite is run with:
 ```sh
 OB_E2E=1 go test ./e2e/
 ```
-
-The deeper engine design and prior review history remain in
-[docs/design.html](docs/design.html).

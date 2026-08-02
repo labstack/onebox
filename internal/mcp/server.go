@@ -1,5 +1,5 @@
 // Package mcp adapts the typed Onebox product service to MCP. It contains
-// no deployment logic and exposes only read-only tools in this milestone.
+// no deployment logic and currently exposes only read-only tools.
 package mcp
 
 import (

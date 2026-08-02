@@ -197,7 +197,7 @@ func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer
 	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), out)
 }
 
-// resolveService maps a logical component (or legacy role) name to its Compose
+// resolveService maps a logical component or normalized role name to its Compose
 // service; a raw service name passes through; empty means "all" (logs only).
 func (e *Engine) resolveService(name string) (string, error) {
 	if name == "" {

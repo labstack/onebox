@@ -15,7 +15,7 @@ import (
 
 func testConfig() *config.Config {
 	return &config.Config{
-		App: "monk", Compose: "docker-compose.yaml", Retain: 5,
+		App: "sample", Compose: "docker-compose.yaml", Retain: 5,
 		Environments: map[string]config.Environment{"production": {Hosts: []string{"deploy@h"}}},
 		Roles: map[string]config.Role{
 			"web": {Service: "server", Mode: "rolling", Ready: &config.Ready{
@@ -57,7 +57,7 @@ func testProject(t *testing.T) *ctypes.Project {
 	if err := os.WriteFile(p, []byte(engineCompose), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	proj, err := compose.Load(context.Background(), p, "monk")
+	proj, err := compose.Load(context.Background(), p, "sample")
 	if err != nil {
 		t.Fatal(err)
 	}

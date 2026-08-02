@@ -79,7 +79,7 @@ func TestEnsureProxyFreshHost(t *testing.T) {
 	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d") {
 		t.Fatalf("fresh host must up the proxy project:\n%s", seq)
 	}
-	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/monk'") {
+	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/sample'") {
 		t.Fatalf("app must register with its config hash:\n%s", seq)
 	}
 	if !strings.Contains(seq, "test -f '/var/lib/ob/_host/proxy/acme/acme.json' ||") {
@@ -114,7 +114,7 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	if len(f.Uploads) != 0 {
 		t.Fatalf("unchanged proxy must not re-upload: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/monk'") {
+	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/sample'") {
 		t.Fatalf("registration must still happen:\n%s", seq)
 	}
 }
@@ -196,7 +196,7 @@ func TestEnsureProxyConflictNamesApps(t *testing.T) {
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "monk\nunlock\n"}, true
+			return transport.Result{Stdout: "sample\nunlock\n"}, true
 		}
 		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
 			return transport.Result{Stdout: "0123456789abcdef\n"}, true

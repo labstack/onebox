@@ -17,7 +17,7 @@ import (
 // load) into the staging dir under its project-relative path, and returns the
 // abs→"./rel" rewrites to apply to the rendered YAML. Sources outside the
 // project dir (/var/run/docker.sock, /data/...) are host paths — untouched.
-// This is what makes the release dir self-contained (design §04 transfer).
+// This makes the transferred release directory self-contained.
 func StagePayload(p *types.Project, stagingDir string) (map[string]string, error) {
 	return StagePayloadContext(context.Background(), p, stagingDir)
 }

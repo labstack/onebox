@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/onebox/internal/ui"
 )
 
-// Deploy runs the lifecycle under the full trust regime (design §05):
+// Deploy runs the lifecycle under the full trust regime:
 // lock → fence → journal every phase → finish. Every mutating command is
 // fence-guarded; a zombie runner dies host-side with ErrFenced.
 func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) error {
@@ -321,7 +321,7 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 }
 
 // pruneRetention removes releases beyond retain and journals beyond twice
-// that window (a journal outlives its release, design §05).
+// that window because a journal outlives its release.
 func (e *Engine) pruneRetention(ctx context.Context) error {
 	victims, err := release.PruneCandidates(ctx, e.T, e.Cfg.App, e.Cfg.Retain)
 	if err != nil {
@@ -348,7 +348,7 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 }
 
 // Rollback re-releases the previous release dir: its compose.yaml pins the
-// old image locally (design §06 "rollback never pulls"), and its own ob.yml
+// old image locally because rollback never pulls, and its own ob.yml
 // snapshot drives the choreography — old release, old config, old modes.
 func (e *Engine) Rollback(ctx context.Context) error {
 	_, err := e.RollbackWithJournalID(ctx)
@@ -389,7 +389,7 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 			replay = &cp
 		}
 	} else {
-		e.warnf("no snapshot in %s (pre-M1 release?) — replaying with CURRENT ob.yml choreography", prev)
+		e.warnf("no snapshot in %s — replaying with CURRENT ob.yml choreography", prev)
 	}
 
 	epoch, err := e.AcquireLock(ctx, prev, e.Opts.ForceLock)

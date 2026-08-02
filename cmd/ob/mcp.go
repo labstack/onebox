@@ -12,7 +12,7 @@ func addMCPCommand(root *cobra.Command, g *globalFlags) {
 		Use:   "mcp",
 		Short: "serve read-only Onebox tools over MCP stdio",
 		Long: "Start the local Onebox MCP server over stdin/stdout. An MCP-capable agent client launches this command automatically; stdout is reserved for protocol messages.\n\n" +
-			"This first milestone exposes observation and deployment proposals only. It cannot mutate production.",
+			"The current MCP interface exposes observation and deployment proposals only. It cannot mutate production.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			service := onebox.New(onebox.Options{ConfigPath: g.ConfigPath, Environment: g.Env})

@@ -11,7 +11,7 @@ import (
 // a content hash (`redacted:sha256:<12hex>`), leaving keys and all other
 // structure intact. Environment is the conventional home of application
 // secrets, and ob's contract is that their content is never displayed or
-// persisted — only a hash travels (design §07). Because the placeholder is
+// persisted — only a hash travels. Because the placeholder is
 // derived from the value, a rotated secret still shows as a changed hash, so
 // the plan diff and the apply-time drift check both stay meaningful without
 // ever exposing the value.

@@ -28,8 +28,8 @@ func TestNewSSHContextHonorsPreCancellation(t *testing.T) {
 
 func TestParseAddr(t *testing.T) {
 	cases := []struct{ in, user, host, port string }{
-		{"deploy@monk.labstack.net", "deploy", "monk.labstack.net", "22"},
-		{"monk.labstack.net:2222", "", "monk.labstack.net", "2222"},
+		{"deploy@app.example.com", "deploy", "app.example.com", "22"},
+		{"app.example.com:2222", "", "app.example.com", "2222"},
 		{"root@10.0.0.5:22", "root", "10.0.0.5", "22"},
 	}
 	for _, c := range cases {

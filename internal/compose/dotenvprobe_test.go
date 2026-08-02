@@ -28,7 +28,7 @@ services:
 }
 
 // env_file contents must NOT be folded into the rendered compose — that would
-// inline the whole secret file into the plan diff/artifact (design §07). The
+// inline the whole secret file into the plan diff or artifact. The
 // reference is kept so `docker compose` reads it at runtime on the host.
 func TestEnvFileNotFoldedIntoRender(t *testing.T) {
 	dir := t.TempDir()

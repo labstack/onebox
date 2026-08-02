@@ -13,7 +13,7 @@ import (
 const minDiskKiB = 1 << 20 // 1 GiB
 
 // Preflight asserts the host is deployable. Nothing mutates except mkdir -p
-// of ob's own base dir (design §04: "nothing mutates").
+// of Onebox's own base directory; preflight never mutates the target.
 func (e *Engine) Preflight(ctx context.Context) error {
 	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("docker daemon unreachable on %s: %v %s", e.T.Host(), err, res.Stderr)
@@ -52,7 +52,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 			return err
 		}
 		if id == "" {
-			return fmt.Errorf("accessory %q not running — start it first (bootstrap/accessory apply are M1+)", acc)
+			return fmt.Errorf("accessory %q not running — start it with `ob bootstrap` or `ob accessory apply`", acc)
 		}
 		health, err := e.healthOf(ctx, id)
 		if err != nil {

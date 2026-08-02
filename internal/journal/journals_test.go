@@ -39,14 +39,14 @@ func TestJournalsOneRoundTrip(t *testing.T) {
 		return transport.Result{}, false
 	}}
 
-	ids, byID, err := Journals(context.Background(), f, "monk")
+	ids, byID, err := Journals(context.Background(), f, "sample")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Commands) != 1 {
 		t.Fatalf("want exactly 1 round trip, got %d: %v", len(f.Commands), f.Commands)
 	}
-	if !strings.Contains(got, "'/var/lib/ob/monk/journal'") {
+	if !strings.Contains(got, "'/var/lib/ob/sample/journal'") {
 		t.Fatalf("command must target the app's journal dir: %s", got)
 	}
 	if len(ids) != 2 || ids[0] != "R1" || ids[1] != "R2" {
@@ -81,7 +81,7 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 		}
 		return transport.Result{}, false
 	}}
-	ids, byID, err := Journals(context.Background(), f, "monk")
+	ids, byID, err := Journals(context.Background(), f, "sample")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 // output, and Journals returns nothing rather than erroring.
 func TestJournalsNoJournalDir(t *testing.T) {
 	f := &transport.Fake{} // default: empty stdout, exit 0
-	ids, byID, err := Journals(context.Background(), f, "monk")
+	ids, byID, err := Journals(context.Background(), f, "sample")
 	if err != nil {
 		t.Fatal(err)
 	}

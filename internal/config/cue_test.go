@@ -7,10 +7,10 @@ import (
 
 const cueSample = `
 api_version: onebox.run/v1
-app: monk
+app: sample
 compose: docker-compose.yaml
 environments:
-  production: { target: deploy@monk.labstack.net }
+  production: { target: deploy@app.example.com }
 components:
   web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 7500 } }
   postgres: { type: postgres, persistence: { mode: durable } }
@@ -23,7 +23,7 @@ hooks:
   post_deploy: { run: "rsync -az web/dist/ host:/data/web/", local: true }
 verification:
   - { http: /healthz, component: web }
-  - { url: "https://monk.trade/", contains: 'id="root"', advisory: true }
+  - { url: "https://app.example.com/", contains: 'id="root"', advisory: true }
 registry: { server: ghcr.io, username: vishr, password_env: GHCR_TOKEN }
 `
 

@@ -143,7 +143,7 @@ func TestRenderInjectsDrainGuard(t *testing.T) {
 }
 
 // render must never print interpolated secret values — a secret referenced
-// inline in environment is redacted to a content hash (design §07).
+// inline in environment is redacted to a content hash.
 func TestRenderRedactsEnvSecrets(t *testing.T) {
 	dir := writeProject(t)
 	composeYAML := `
@@ -287,7 +287,7 @@ func TestNotifyOutcome(t *testing.T) {
 	defer srv.Close()
 
 	cfg := &config.Config{
-		App:          "monk",
+		App:          "sample",
 		Environments: map[string]config.Environment{"production": {Hosts: []string{"root@h"}}},
 		Notify:       &config.Notify{Webhook: srv.URL, On: []string{"failure"}},
 	}

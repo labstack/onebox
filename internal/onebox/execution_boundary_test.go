@@ -167,7 +167,7 @@ func TestLoadDeployPlanRejectsOversizedArtifact(t *testing.T) {
 	}
 }
 
-func TestLegacyDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
+func TestSchemaLessDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
 	base := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
 	valid := sealedTestDeployPlan(t, base, base.Add(15*time.Minute))
 
@@ -180,7 +180,7 @@ func TestLegacyDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
 		{
 			name:       "missing schema",
 			omitSchema: true,
-			wantReason: "legacy executable deploy plan has no schema_version",
+			wantReason: "executable deploy plan has no schema_version",
 		},
 		{
 			name:          "older schema",
@@ -208,13 +208,13 @@ func TestLegacyDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(t.TempDir(), "legacy-plan.json")
+			path := filepath.Join(t.TempDir(), "schema-less-plan.json")
 			if err := os.WriteFile(path, document, 0o600); err != nil {
 				t.Fatal(err)
 			}
 
 			_, err = LoadDeployPlan(path)
-			assertLegacyPlanGuidance(t, err, tt.wantReason)
+			assertSchemaLessPlanGuidance(t, err, tt.wantReason)
 
 			plan := valid
 			plan.SchemaVersion = tt.schemaVersion
@@ -229,24 +229,24 @@ func TestLegacyDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
 				},
 			})
 			result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
-			assertLegacyPlanGuidance(t, err, tt.wantReason)
+			assertSchemaLessPlanGuidance(t, err, tt.wantReason)
 			if connected {
-				t.Fatal("legacy plan connected to the target")
+				t.Fatal("schema-less plan connected to the target")
 			}
 			if len(fake.Commands) != 0 || len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
-				t.Fatalf("legacy plan reached a mutation path: commands=%v uploads=%v inputs=%v", fake.Commands, fake.Uploads, fake.Inputs)
+				t.Fatalf("schema-less plan reached a mutation path: commands=%v uploads=%v inputs=%v", fake.Commands, fake.Uploads, fake.Inputs)
 			}
 			if result.Status != "failed" {
-				t.Fatalf("legacy plan result status = %q, want failed", result.Status)
+				t.Fatalf("schema-less plan result status = %q, want failed", result.Status)
 			}
 		})
 	}
 }
 
-func assertLegacyPlanGuidance(t *testing.T, err error, wantReason string) {
+func assertSchemaLessPlanGuidance(t *testing.T, err error, wantReason string) {
 	t.Helper()
 	if err == nil {
-		t.Fatal("legacy plan was accepted")
+		t.Fatal("schema-less plan was accepted")
 	}
 	for _, fragment := range []string{
 		wantReason,
@@ -255,7 +255,7 @@ func assertLegacyPlanGuidance(t *testing.T, err error, wantReason string) {
 		"`ob plan`",
 	} {
 		if !strings.Contains(err.Error(), fragment) {
-			t.Fatalf("legacy-plan error %q does not contain actionable guidance %q", err, fragment)
+			t.Fatalf("schema-less-plan error %q does not contain actionable guidance %q", err, fragment)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-// Package journal is the deploy journal (design §05): append-only JSONL at
+// Package journal implements the append-only deploy journal at
 // /var/lib/ob/<app>/journal/<deploy-id>.jsonl, one sync per record. It is
 // the mechanism behind resume, abort, fencing forensics, and audit — a spec,
 // not a noun.
@@ -216,7 +216,7 @@ func Journals(ctx context.Context, t transport.Transport, app string) ([]string,
 	// unreadable directories/files fail so status cannot report false completeness.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
-	// that record's line would swallow the following file's marker (design §05:
+	// that record's line would swallow the following file's marker; each
 	// a torn write must not corrupt recovery).
 	cmd := "if [ -d " + q(dir(app)) + " ]; then cd " + q(dir(app)) + " || exit; " +
 		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
@@ -254,7 +254,7 @@ func Journals(ctx context.Context, t transport.Transport, app string) ([]string,
 }
 
 // PruneCandidates returns journal ids beyond the keep window, oldest first.
-// A journal outlives its release (design §05): keep is typically 2× the
+// A journal outlives its release: keep is typically 2× the
 // release retention.
 func PruneCandidates(ctx context.Context, t transport.Transport, app string, keep int) ([]string, error) {
 	ids, err := List(ctx, t, app)
@@ -361,7 +361,7 @@ func Summarize(recs []Record) Summary {
 			case "result":
 				idx, ok := active[key]
 				if !ok {
-					// Legacy journals sometimes contain only the completed result.
+					// Sparse journals sometimes contain only the completed result.
 					attempts = append(attempts, effectAttempt{})
 					idx = len(attempts) - 1
 				}
@@ -398,7 +398,7 @@ func Summarize(recs []Record) Summary {
 				s.Done["transfer"] = true
 			case r.SubStep == MigrationBackupSubStep:
 				s.Done[MigrationBackupSubStep] = true
-			case r.SubStep == "migrate": // legacy journals (pre auto-run jobs)
+			case r.SubStep == "migrate": // sparse journals without job-level records
 				s.Done["migrate"] = true
 			case strings.HasPrefix(r.SubStep, "job:"):
 				s.Done[r.SubStep] = true

@@ -17,8 +17,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/target"
-	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
 )
 
@@ -370,7 +370,7 @@ func (r Role) Count() int {
 }
 
 // StopGraceSeconds is the integer timeout used by `docker stop -t` and Compose
-// recreate: drain.grace if set, else 30s (design §03's conservative default).
+// recreate: drain.grace if set, else the conservative 30s default.
 // A positive sub-second grace rounds UP to 1s — `docker stop -t` is integer
 // seconds, and truncating (e.g. 500ms → 0) would mean an immediate SIGKILL, the
 // opposite of a graceful stop.
@@ -563,7 +563,7 @@ type Notify struct {
 }
 
 // Secrets: a SOPS-encrypted flat YAML map, decrypted runner-side and shipped
-// as a mode-600 env file inside each release dir (design §07).
+// as a mode-600 env file inside each release dir.
 type Secrets struct {
 	Sops string `yaml:"sops"`
 }
@@ -704,12 +704,8 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("environments.%s.target: required", name)
 		}
 		if minimum := strings.TrimSpace(e.Policy.MinimumOneboxVersion); minimum != "" {
-			normalized := minimum
-			if !strings.HasPrefix(normalized, "v") {
-				normalized = "v" + normalized
-			}
-			if !semver.IsValid(normalized) {
-				return fmt.Errorf("environments.%s.policy.minimum_onebox_version: %q is not a semantic version", name, minimum)
+			if _, err := buildinfo.ParseReleaseVersion(minimum); err != nil {
+				return fmt.Errorf("environments.%s.policy.minimum_onebox_version: %w", name, err)
 			}
 		}
 		if minimum := strings.TrimSpace(e.Policy.MinimumPlanSchema); minimum != "" && !executablePlanSchema.MatchString(minimum) {
@@ -814,7 +810,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("roles.%s: mode must be rolling|recreate, got %q", name, r.Mode)
 		}
 		// rolling needs a readiness contract, but it may be ADOPTED from the
-		// compose file's own healthcheck (design §03) — that cross-file check
+		// compose file's own healthcheck — that cross-file check
 		// lives in compose.CheckRollable, which can see both files.
 		if r.Ready != nil {
 			hasHTTP, hasExec := r.Ready.HTTP != "", r.Ready.Exec != ""

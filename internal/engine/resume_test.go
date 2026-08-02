@@ -37,13 +37,13 @@ func interruptedFakeWithPolicy(gateDetail string, policySafe bool) *transport.Fa
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
 			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R0\n"}, true
-		case strings.Contains(cmd, "ls -1 '/var/lib/ob/monk/releases'"):
+		case strings.Contains(cmd, "ls -1 '/var/lib/ob/sample/releases'"):
 			return transport.Result{Stdout: "R0\nR1\n"}, true
 		}
 		return base(cmd)
@@ -97,7 +97,7 @@ func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
 			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
@@ -116,7 +116,7 @@ func TestResumeRestoresOnlyExplicitUnknownMigrationAuthority(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "plan bound authority", allowed: true},
-		{name: "legacy strong approval is not enough", allowed: false, wantErr: true},
+		{name: "schema-less strong approval is not enough", allowed: false, wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := interruptedBeforeMigrationFake(tt.allowed)
@@ -147,7 +147,7 @@ func TestResumeWithNothingIncomplete(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/monk/journal") {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
 			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + journalLines(
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "start"},
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "finish", Status: "ok"},

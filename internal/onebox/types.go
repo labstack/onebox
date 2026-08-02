@@ -67,9 +67,9 @@ type Observation struct {
 // launch-time environment and never performs a production mutation.
 type ProposeDeployRequest struct{}
 
-// ProposeRequest is the adapter-neutral proposal request. M0 supports deploy
-// proposals; later milestones add approved execution without changing this
-// service boundary.
+// ProposeRequest is the adapter-neutral proposal request. The current kind is
+// deploy; approved execution can be added without changing this service
+// boundary.
 type ProposeRequest struct {
 	Kind OperationKind `json:"kind" jsonschema:"Operation kind to propose; currently deploy"`
 }

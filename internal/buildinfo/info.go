@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const developmentVersion = "0.0.1-m0"
+const developmentVersion = "dev"
 
 // release and buildTime are set by the build recipe with -ldflags. Keeping
 // them private makes Read the single source of truth for CLI provenance.
@@ -46,8 +46,8 @@ func CurrentRunner(schemas ...string) Runner {
 }
 
 // Read returns provenance for the running executable. Go's embedded module
-// version is used when no release was supplied by the linker; checkout builds
-// retain the development version used by the existing CLI.
+// version is used when no version was supplied by the linker; checkout builds
+// retain an explicitly non-release fallback.
 func Read() Info {
 	info, ok := debug.ReadBuildInfo()
 	return read(info, ok, release, buildTime)

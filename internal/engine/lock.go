@@ -15,7 +15,7 @@ import (
 )
 
 // ErrFenced: a mutating command was refused host-side because a newer deploy
-// owns this host (design §05 — the zombie runner is rejected locally).
+// owns this host, so a stale runner is rejected locally.
 var ErrFenced = errors.New("fenced: a newer deploy owns this host — this runner is stale")
 
 type lockMeta struct {

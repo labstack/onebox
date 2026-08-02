@@ -17,7 +17,7 @@ import (
 )
 
 // SecretsPush ships freshly rendered secrets into the CURRENT release and
-// bounces the roles — a journaled maintenance event (design §07: diff the
+// bounces the roles — a journaled maintenance event that diffs the
 // rendered output, bounce only when it changed; content never logged, only
 // hashes travel).
 func (e *Engine) SecretsPush(ctx context.Context, envBytes []byte) error {

@@ -1,0 +1,57 @@
+schema: spec-driven
+
+context: |
+  Onebox is an LLM-first, MCP-native production-operations product for
+  containerized applications intentionally running on one active Linux host.
+  Go is the implementation language. Docker Compose is the application runtime
+  contract; CUE provides a closed versioned authoring schema. The host is
+  reached over SSH and the execution engine owns locks, fencing, journals,
+  state-bound plans, approval validation, verification, and recovery gates.
+
+  The coding agent is the normal user interface. MCP tools expose compact,
+  typed, redaction-safe capabilities. CLI commands are non-primary adapters for
+  development, CI, support, and break-glass use and must not contain unique
+  lifecycle behavior.
+
+  Documentation status is explicit. Archived contracts under openspec/specs/
+  define required shipped behavior. README.md, docs/schema-v1.md, and
+  docs/mcp.md describe implemented behavior. Active OpenSpec changes describe
+  proposed behavior only. docs/product.md states product direction.
+
+  Safety invariants: model text is never approval; plaintext secrets never
+  enter plans, model context, logs, journals, or public errors; read operations
+  never converge; mutations require exact state binding and trusted approval;
+  force cannot manufacture safety; failures preserve data and honest recovery
+  choices; unsupported behavior fails closed.
+
+rules:
+  proposal:
+    - State what is implemented today and what remains proposed.
+    - Name user-visible compatibility, ownership, and documentation effects.
+    - Include explicit non-goals for destructive, data, upgrade, and provider-specific behavior.
+  specs:
+    - Use normative SHALL requirements with observable Given/When/Then scenarios.
+    - Cover agent retries, disconnections, stale state, incomplete evidence, redaction, cancellation, and crash recovery where relevant.
+    - Never treat model-authored text as approval or secret authority.
+  design:
+    - Keep MCP as the primary interface and the canonical Go service as the only behavior authority.
+    - Document default precedence, effective-value origins, version compatibility, failure atomicity, persistence ownership, and recovery limits.
+    - Resolve safety-affecting questions before tasks are written.
+    - Cite authoritative upstream behavior when external systems affect the contract.
+  tasks:
+    - Order tasks by dependency and keep production providers disabled until generic safety gates pass.
+    - Make each task independently verifiable with named tests or an observable exit condition.
+    - Include documentation status updates and strict OpenSpec validation before archive.
+
+operations:
+  apply:
+    guidance:
+      - Read proposal, specs, design, and tasks before implementation.
+      - Preserve existing Compose-owned behavior unless a specification explicitly changes it.
+      - Implement through the canonical service before exposing MCP or CLI adapters.
+      - Run focused tests after each task group and fault-oriented validation before provider enablement.
+  archive:
+    guidance:
+      - Update current schema and MCP documentation only for behavior that actually shipped.
+      - Confirm no proposed capability remains described as implemented.
+      - Record deferred provider, destructive, backup, restore, adoption, and upgrade contracts as separate changes.

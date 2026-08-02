@@ -22,7 +22,7 @@ type proxyRaw struct {
 	health    string // proxy container health, parsed from docker ps .Status
 	applied   string // config hash the host applied
 	apps      string // raw `ls` of the registered-apps dir
-	acme      string // raw acme.json (parsed at render; keys never leave, design §07)
+	acme      string // raw acme.json; parsed at render, and keys never leave
 	localHash string // hash of the locally staged config (computed offline)
 }
 

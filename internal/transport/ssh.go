@@ -21,7 +21,7 @@ import (
 )
 
 // SSH is the production transport: agentless, key-auth only, host keys
-// verified against ~/.ssh/known_hosts — never skipped (design §11).
+// verified against ~/.ssh/known_hosts and never skipped.
 type SSH struct {
 	client *ssh.Client
 	user   string
@@ -131,7 +131,7 @@ func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
 // otherwise report as a bare "handshake failed" into an actionable message.
 //
 // ob deliberately does not prompt for or keychain-decrypt on-disk keys: an
-// encrypted key is usable only via the agent (design §11). The empty-agent
+// encrypted key is usable only via the agent. The empty-agent
 // guard matters because a reachable-but-empty agent's Signers callback offers
 // nothing yet would still make len(auths) non-zero, masking that diagnostic.
 func sshAuths(home, authSock string) (auths []ssh.AuthMethod, diag []string) {

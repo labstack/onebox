@@ -1,0 +1,214 @@
+package project
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const base = "api_version: onebox.run/v1\napp: ledger\nenvironments: {production: {server: root@1.2.3.4}}\n"
+const min = base + "build: .\ndomain: ledger.example.com\nport: 8080\n"
+
+func wl(body string) string { return base + "workloads: {" + body + "}\n" }
+
+// TestConformance is the corpus recorded in the change's conformance.md. A
+// divergence here is a defect in the implementation, not in the corpus.
+func TestConformance(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		ok   bool
+	}{
+		{"minimum project", min, true},
+		{"explicit workloads block", wl("web: {image: nginx}"), true},
+		{"one-char identifier", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
+		{"app starting ob-", "api_version: onebox.run/v1\napp: ob-proxy\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"underscore identifier", "api_version: onebox.run/v1\napp: my_app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"unknown top-level field", min + "bogus: 1\n", false},
+		{"x- extension accepted", min + "x-note: anything\n", true},
+		{"port out of range", base + "image: nginx\ndomain: d\nport: 70000\n", false},
+		{"zero replicas", wl("w: {image: nginx, replicas: 0}"), false},
+		{"job requires data_effect", wl("j: {image: nginx, role: job}"), false},
+		{"job with data_effect", wl("j: {image: nginx, role: job, data_effect: none}"), true},
+		{"job data_effect unknown", wl("j: {image: nginx, role: job, data_effect: unknown}"), true},
+		{"application with data_effect", wl("w: {image: nginx, data_effect: none}"), false},
+		{"application with run", wl("w: {image: nginx, run: manual}"), false},
+		{"worker with schedule", wl("w: {image: nginx, role: worker, schedule: {cron: \"0 3 * * *\"}}"), false},
+		{"scheduled job", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\"}}"), true},
+		{"daemon role", wl("db: {image: postgres:16, role: daemon}"), true},
+		{"routes list", wl("w: {image: nginx, routes: [{domain: x, port: 4317, protocol: tcp, scheme: h2c}]}"), true},
+		{"bad protocol", wl("w: {image: nginx, routes: [{domain: x, port: 1, protocol: udp}]}"), false},
+		{"absolute compose ref", wl("w: {compose: \"/etc/compose.yml#web\"}"), false},
+		{"relative compose ref", wl("w: {compose: \"compose.yaml#web\"}"), true},
+		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
+		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
+		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
+		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 14d}}}\n", true},
+		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: 0.0.1-m0}}}\n", false},
+		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
+		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
+		{"protection on a workload", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}, retention_days: 14}}}"), true},
+		{"secret as scalar path", min + "secrets: {production: secrets.yaml}\n", true},
+		{"verification workload without probe", min + "verification: [{workload: ledger}]\n", false},
+		{"verification url with exec", min + "verification: [{url: \"https://x/\", exec: \"echo\"}]\n", false},
+		{"verification url contains advisory", min + "verification: [{url: \"https://x/\", contains: \"<div\", advisory: true}]\n", true},
+		{"status code 600", min + "verification: [{url: \"https://x/\", status_codes: [600]}]\n", false},
+		{"proxy kind none", min + "proxy: {kind: none, managed: false}\n", true},
+		{"migration_policy expand-only", min + "deployment: {migration_policy: expand-only}\n", true},
+		{"persistence external", wl("w: {image: nginx, persistence: {mode: external}}"), true},
+		{"volume scalar", wl("w: {image: nginx, volumes: [data]}"), true},
+		{"bind mount volume", wl("w: {image: nginx, volumes: [{source: ./data, target: /data}]}"), true},
+		{"published udp port", wl("w: {image: nginx, ports: [{host: 8555, container: 8555, protocol: udp}]}"), true},
+		{"service scalar", min + "services: {postgres: 18}\n", true},
+
+		// Loader-enforced: the schema alone accepts these.
+		{"no environments", "api_version: onebox.run/v1\napp: a\nenvironments: {}\nimage: nginx\n", false},
+		{"no workload source at all", base, false},
+		{"shorthand and workloads together", min + "workloads: {w: {image: nginx}}\n", false},
+		{"two sources on a workload", wl("w: {image: nginx, build: .}"), false},
+		{"domain without port", wl("w: {image: nginx, domain: x.com}"), false},
+		{"domain and routes together", wl("w: {image: nginx, domain: x.com, port: 1, routes: [{domain: y, port: 2}]}"), false},
+		{"workload and service share a name", wl("db: {image: nginx}") + "services: {db: 18}\n", false},
+		{"unknown prerequisite", wl("w: {image: nginx, needs: [ghost]}"), false},
+		{"withdrawn components block", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
+		{"missing api_version", "app: a\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := LoadBytes([]byte(c.yaml), "ob.yml")
+			if c.ok && err != nil {
+				t.Fatalf("expected accept, got %v", err)
+			}
+			if !c.ok && err == nil {
+				t.Fatal("expected reject, got accept")
+			}
+			if err != nil {
+				var e *Error
+				if !asError(err, &e) {
+					t.Fatalf("error is not typed: %T", err)
+				}
+				if e.Code == "" {
+					t.Fatal("typed error has no code")
+				}
+			}
+		})
+	}
+}
+
+// TestDefaultsMaterialise guards the CUE rule that cost a review round: a
+// default on an optional field never appears in output.
+func TestDefaultsMaterialise(t *testing.T) {
+	p, err := LoadBytes([]byte(min), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BasePath != "/var/lib/ob" {
+		t.Errorf("base_path = %q, want /var/lib/ob", p.BasePath)
+	}
+	if p.Proxy.Network != "ob-ingress" {
+		t.Errorf("proxy.network = %q, want ob-ingress", p.Proxy.Network)
+	}
+	if p.Deployment.RetainReleases != 5 {
+		t.Errorf("retain_releases = %d, want 5", p.Deployment.RetainReleases)
+	}
+	if !p.Environments["production"].Policy.RequireApproval {
+		t.Error("policy.require_approval should default to true")
+	}
+	w, ok := p.Workloads["ledger"]
+	if !ok {
+		t.Fatalf("shorthand did not expand into a workload named for the app: %v", keysOf(p.Workloads))
+	}
+	if w.Role != "application" {
+		t.Errorf("role = %q, want application", w.Role)
+	}
+	if w.Replicas != 1 {
+		t.Errorf("replicas = %d, want 1", w.Replicas)
+	}
+	if w.Strategy != "rolling" {
+		t.Errorf("strategy = %q, want rolling", w.Strategy)
+	}
+}
+
+// TestNeedsDefaultToHealthy: ten real projects gate on healthy, not on started.
+func TestNeedsDefaultToHealthy(t *testing.T) {
+	p, err := LoadBytes([]byte(wl("w: {image: nginx, needs: [db]}, db: {image: \"postgres:16\", role: daemon}")), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	needs := p.Workloads["w"].Needs
+	if len(needs) != 1 || needs[0].Name != "db" || needs[0].Condition != "healthy" {
+		t.Fatalf("needs = %+v, want one healthy-gated db", needs)
+	}
+}
+
+// TestPublishedPortBindsLoopback: exposure on every interface must be deliberate.
+func TestPublishedPortBindsLoopback(t *testing.T) {
+	p, err := LoadBytes([]byte(wl("w: {image: nginx, ports: [{host: 8000, container: 8000}]}")), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Workloads["w"].Ports[0]
+	if got.Bind != "127.0.0.1" || got.Protocol != "tcp" {
+		t.Fatalf("port = %+v, want loopback tcp", got)
+	}
+}
+
+// TestOverLongNameRefused: names are refused, never truncated, because a
+// truncating scheme is not injective and volume names are permanent.
+func TestOverLongNameRefused(t *testing.T) {
+	long := strings.Repeat("a", 40)
+	y := "api_version: onebox.run/v1\napp: " + long + "\nenvironments: {p: {server: h}}\n" +
+		"workloads: {" + strings.Repeat("w", 30) + ": {image: nginx}}\n"
+	_, err := LoadBytes([]byte(y), "ob.yml")
+	if err == nil {
+		t.Fatal("expected an over-long derived name to be refused")
+	}
+	var e *Error
+	if !asError(err, &e) || e.Code != "derived_name_too_long" {
+		t.Fatalf("got %v, want derived_name_too_long", err)
+	}
+}
+
+// TestConversionDrafts loads every draft recorded for tasks 1.1-1.3. These are
+// real projects: five here and eight open-source.
+func TestConversionDrafts(t *testing.T) {
+	dir := filepath.Join("..", "..", "openspec", "changes",
+		"adopt-declarative-project-schema", "conversions")
+	files, err := filepath.Glob(filepath.Join(dir, "*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Skipf("no conversion drafts found in %s", dir)
+	}
+	for _, f := range files {
+		t.Run(strings.TrimSuffix(filepath.Base(f), ".yml"), func(t *testing.T) {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := LoadBytes(b, f)
+			if err != nil {
+				t.Fatalf("draft should load: %v", err)
+			}
+			if p.App == "" || len(p.Workloads) == 0 {
+				t.Fatalf("draft normalised to an empty project")
+			}
+		})
+	}
+}
+
+func asError(err error, target **Error) bool {
+	e, ok := err.(*Error)
+	if ok {
+		*target = e
+	}
+	return ok
+}
+
+func keysOf[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}

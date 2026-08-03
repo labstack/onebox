@@ -9,7 +9,7 @@ treat a roadmap statement as an executable capability.
 | Status | Authority | Purpose |
 |---|---|---|
 | Normative | Archived capability contracts under [`openspec/specs/`](../openspec/specs/) | Durable requirements for completed OpenSpec changes |
-| Implemented | [`README.md`](../README.md), [`schema-v1.md`](schema-v1.md), and [`mcp.md`](mcp.md), checked against code and tests | What the current binary accepts and does |
+| Implemented | [`README.md`](../README.md) and [`schema-v1.md`](schema-v1.md), checked against code and tests | What the current binary accepts and does |
 | Proposed | Active changes under [`openspec/changes/`](../openspec/changes/) | Normative requirements, design, and implementation tasks for work not yet shipped |
 | Product | [`product.md`](product.md) | Stable product direction and boundaries; never an implementation claim by itself |
 
@@ -31,9 +31,6 @@ When documents conflict:
 - [`schema-v1.md`](schema-v1.md): accepted `onebox.run/v1` authoring contract as
   the binary parses it today. The active `adopt-declarative-project-schema`
   change redefines that identity; until it archives, this file is what ships.
-- [`mcp.md`](mcp.md): current MCP tools and their safety boundary. These ship
-  today; product direction has since withdrawn MCP as the product interface, and
-  this guide will be archived when that change lands.
 - [`product.md`](product.md): product direction — the ownership boundary, the
   one-application-per-host scope, and the CLI as the interface.
 - [`archive/`](archive/): superseded documents, kept unedited so a decision can

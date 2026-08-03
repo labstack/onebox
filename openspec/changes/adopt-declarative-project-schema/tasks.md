@@ -71,10 +71,10 @@
 
 ## 9. Target preflight
 
-- [ ] 9.1 Implement preflight as a phase distinct from generation: connect, check, change nothing, fail before the first mutating command.
-- [ ] 9.2 Detect collisions against foreign resources by ownership label, including reserved service names, refusing rather than adopting.
-- [ ] 9.3 Implement the privilege check for base-path creation and container-runtime access, with the missing privilege and its remedy.
-- [ ] 9.4 Make generation and preflight failures distinguishable in both human and structured output.
+- [x] 9.1 Implement preflight as a phase distinct from generation: connect, check, change nothing, fail before the first mutating command.
+- [x] 9.2 Detect collisions against foreign resources by ownership label, including reserved service names, refusing rather than adopting.
+- [x] 9.3 Implement the privilege check for base-path creation and container-runtime access, with the missing privilege and its remedy.
+- [x] 9.4 Make generation and preflight failures distinguishable in both human and structured output.
 
 ## 10. Rendering and ejection
 

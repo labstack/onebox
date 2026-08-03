@@ -354,6 +354,14 @@ never leave the project referencing a file that does not exist.
 
 After ejection Onebox SHALL NOT regenerate or reconcile the ejected services.
 
+Ejection SHALL move only workloads Onebox generates; one that already references
+Compose is the user's file already, and moving it would duplicate a service that
+lives elsewhere. Ejection SHALL remove from the project the declaration fields
+the Compose file now owns, because leaving them lets someone edit a health check
+or a volume, see no effect, and get no error. It SHALL preserve the project
+file's comments and ordering, and SHALL carry any comment on a replaced source
+key onto its replacement rather than deleting it with the line it sat on.
+
 #### Scenario: Ejection writes the runtime and repoints the project
 - **WHEN** ejection is requested and no file exists at the destination
 - **THEN** the runtime is written, the affected workloads reference it, and they are recorded as user-authored
@@ -365,6 +373,18 @@ After ejection Onebox SHALL NOT regenerate or reconcile the ejected services.
 #### Scenario: Interrupted between writing and repointing
 - **WHEN** ejection is interrupted after the runtime file is written and before the project is rewritten
 - **THEN** the project still references the generator, and re-running ejection completes the transfer or refuses with the reason
+
+#### Scenario: Nothing left to eject
+- **WHEN** every workload already references a Compose file
+- **THEN** ejection reports that there is nothing to hand over rather than rewriting anything
+
+#### Scenario: The project file survives the rewrite
+- **WHEN** a project carrying comments is ejected
+- **THEN** its comments and ordering are preserved, and a comment on the replaced source key appears on its replacement
+
+#### Scenario: Inert declaration is removed
+- **WHEN** a workload with a health check and volumes is ejected
+- **THEN** those fields are removed from the project, because the Compose file now owns them
 
 #### Scenario: Ejected services are not regenerated
 - **WHEN** a runtime is generated for a project whose services were previously ejected

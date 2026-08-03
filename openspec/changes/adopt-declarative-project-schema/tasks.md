@@ -80,7 +80,7 @@
 
 - [x] 10.1 Render the complete runtime without contacting a target or mutating state, with secrets by reference only.
 - [ ] 10.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
-- [ ] 10.3 Implement ejection to the default destination beside the project file or an explicit one, refusing an existing path without an explicit overwrite, and stripping the overlay from the written file.
+- [x] 10.3 Implement ejection to the default destination beside the project file or an explicit one, refusing an existing path without an explicit overwrite, and stripping the overlay from the written file.
 - [ ] 10.4 Assert generation succeeds immediately after ejection, proving the written file carries none of the keys the overlay refuses.
 - [ ] 10.5 Make ejection crash-safe: write and atomically rename the runtime before rewriting the project, and make re-running after an interruption either complete or refuse with the reason.
 - [ ] 10.6 Assert ejected services are used as authored and never regenerated or re-adopted.

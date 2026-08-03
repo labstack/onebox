@@ -33,8 +33,8 @@
 ## 5. Shorthand, overrides, defaults, and env files
 
 - [x] 5.1 Implement scalar-to-object and top-level-to-workload expansion, rejecting a project declaring both and naming both locations.
-- [ ] 5.2 Implement environment overrides over the closed set, with scalar and list replacement, key-by-key mapping merge, null-removes-key, and refusal of unlisted fields and undeclared targets.
-- [ ] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
+- [x] 5.2 Implement environment overrides over the closed set, with scalar and list replacement, key-by-key mapping merge, null-removes-key, and refusal of unlisted fields and undeclared targets.
+- [x] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
 - [x] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
 - [ ] 5.5 Implement preflight key checks for required-and-non-empty and present.
 - [ ] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.

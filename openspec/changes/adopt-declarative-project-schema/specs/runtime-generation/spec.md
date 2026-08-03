@@ -72,6 +72,12 @@ service already attaches the ingress network, already declares a label in the
 `ob.` namespace, or — when the workload declares a route — already declares a
 label in the `traefik.` namespace.
 
+A referenced file SHALL be read as plain YAML rather than through a Compose
+loader. Loading would interpolate variables, follow `extends` and `include`, and
+validate the whole file, so referencing one service would fail on an unrelated
+service's missing variable. Referencing one service SHALL depend only on that
+service.
+
 `container_name` SHALL be refused unconditionally, and SHALL NOT be silently
 removed. Onebox owns container naming, because container names are host-global
 and an authored name reintroduces exactly the cross-application collision the

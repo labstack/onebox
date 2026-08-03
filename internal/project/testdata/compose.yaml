@@ -1,0 +1,49 @@
+# Fixture modelled on the data services people actually author: a tuned
+# Postgres and a Redis whose healthcheck does a real write.
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ledger
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    volumes:
+      - /data/redis:/data
+    healthcheck:
+      # A write, not a PING: a failed snapshot leaves the server answering PONG
+      # while rejecting every write.
+      test: ["CMD-SHELL", "redis-cli set __probe 1 EX 30 | grep -q OK"]
+      interval: 10s
+
+  named:
+    image: nginx
+    container_name: fixed
+
+  hostnet:
+    image: nginx
+    network_mode: host
+
+  labelled:
+    image: nginx
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.other.rule=Host(`x.example.com`)
+
+  owned:
+    image: nginx
+    labels:
+      ob.app: someone-else
+
+  attached:
+    image: nginx
+    networks: [default, ob-ingress]

@@ -26,9 +26,9 @@
 ## 4. Identifiers and paths
 
 - [x] 4.1 Implement the identifier grammar, the `ob-` prefix reservation, the reserved words, and refusal of underscore.
-- [ ] 4.2 Implement refusal when the declared application identifier disagrees with the one recorded on the target.
-- [ ] 4.3 Implement the three path kinds: repository paths resolved against the project file and contained within the repository, absolute target paths, and request paths.
-- [ ] 4.4 Test that loading the same project from two working directories produces identical canonical forms.
+- [x] 4.2 Implement refusal when the declared application identifier disagrees with the one recorded on the target.
+- [x] 4.3 Implement the three path kinds: repository paths resolved against the project file and contained within the repository, absolute target paths, and request paths.
+- [x] 4.4 Test that loading the same project from two working directories produces identical canonical forms.
 
 ## 5. Shorthand, overrides, defaults, and env files
 
@@ -49,8 +49,8 @@
 ## 7. Local generation
 
 - [x] 7.1 Generate workload services for image-sourced, build-sourced, and Compose-sourced workloads, failing for a build-sourced workload with no resolved image and naming the interim mechanism.
-- [ ] 7.2 Implement the exact overlay — `ob-ingress` appended to existing networks, the three `ob.` labels, and the `traefik.` keys derived per route — asserting no other key is added, removed, or modified.
-- [ ] 7.3 Fail on an overlay conflict naming the key and the file: ingress network already attached, an `ob.` label, a `traefik.` label with a route, `network_mode`, or `container_name` when the rollout is rolling or replicas exceed one.
+- [x] 7.2 Implement the exact overlay — `ob-ingress` appended to existing networks, the three `ob.` labels, and the `traefik.` keys derived per route — asserting no other key is added, removed, or modified.
+- [x] 7.3 Fail on an overlay conflict naming the key and the file: ingress network already attached, an `ob.` label, a `traefik.` label with a route, `network_mode`, or `container_name` when the rollout is rolling or replicas exceed one.
 - [ ] 7.4 Preserve `container_name` on a single-replica recreate workload, and cover monk's worker as the fixture.
 - [ ] 7.5 Attach the environment's configured `proxy.network` rather than a fixed name, and add neither routing labels nor a network when the proxy is disabled; reject a route declared under a disabled proxy.
 - [ ] 7.6 Generate networks, volumes, and routing from the normalized model.

@@ -246,10 +246,10 @@ func validateSchema(ctx *cue.Context, raw map[string]any, filename string) error
 	}
 	u := def.Unify(ctx.Encode(raw))
 	if err := u.Validate(); err != nil {
-		return errf("project_invalid", filename, "", "%v", rewordFirst(err))
+		return errf("project_invalid", where(err, filename), "", "%v", rewordFirst(err))
 	}
 	if _, err := u.MarshalJSON(); err != nil {
-		return errf("project_invalid", filename, "", "%v", reword(err))
+		return errf("project_invalid", incompletePath(err, filename), "", "%v", reword(err))
 	}
 	return nil
 }
@@ -371,13 +371,49 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
+// where reports the field a validation error is about. Pointing at the file is
+// useless in a project of any size; the validator knows the path, so use it.
+func where(err error, fallback string) string {
+	list := cueerrors.Errors(err)
+	if len(list) == 0 {
+		return fallback
+	}
+	if e := mostSpecific(list); e != nil {
+		if path := e.Path(); len(path) > 0 {
+			return strings.TrimPrefix(strings.Join(path, "."), "#Config.")
+		}
+	}
+	if pos := list[0].Position(); pos.Filename() != "" && pos.Line() > 0 {
+		return fmt.Sprintf("%s:%d", pos.Filename(), pos.Line())
+	}
+	return fallback
+}
+
+// incompletePath pulls the field out of a marshal failure, so the error points
+// at the declaration rather than at the file.
+func incompletePath(err error, fallback string) string {
+	s := strings.ReplaceAll(err.Error(), "#Config.", "")
+	s = strings.ReplaceAll(s, "cue: marshal error: ", "")
+	if i := strings.Index(s, ": cannot convert incomplete value"); i > 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return fallback
+}
+
 // reword keeps the validation language out of user-facing errors.
 func reword(err error) string {
 	s := err.Error()
 	s = strings.ReplaceAll(s, "#Config.", "")
+	s = strings.ReplaceAll(s, "#Workload", "workload")
+	s = strings.ReplaceAll(s, "#Config", "project")
 	s = strings.ReplaceAll(s, "cue: marshal error: ", "")
+	// An incomplete value at a known path is almost always a required field
+	// nobody filled in. Say that, rather than reporting how the validator felt.
 	if i := strings.Index(s, "cannot convert incomplete value"); i >= 0 {
-		return strings.TrimSpace(s[:i]) + "is incomplete or ambiguous"
+		if path := strings.TrimSuffix(strings.TrimSpace(s[:i]), ":"); path != "" {
+			return fmt.Sprintf("%s is required, or its value does not match any accepted form", path)
+		}
+		return "a required value is missing"
 	}
 	return firstLine(s)
 }
@@ -387,7 +423,30 @@ func rewordFirst(err error) string {
 	if len(list) == 0 {
 		return firstLine(err.Error())
 	}
+	if e := mostSpecific(list); e != nil {
+		return reword(e)
+	}
 	return reword(list[0])
+}
+
+// mostSpecific picks the error a person can act on.
+//
+// A failed disjunction reports a summary — "6 errors in empty disjunction" —
+// followed by the real reasons. The summary is the validator explaining itself,
+// not the project explaining what is wrong, so prefer the deepest concrete
+// error underneath it.
+func mostSpecific(list []cueerrors.Error) cueerrors.Error {
+	var best cueerrors.Error
+	bestDepth := -1
+	for _, e := range list {
+		if strings.Contains(e.Error(), "disjunction") {
+			continue
+		}
+		if d := len(e.Path()); d > bestDepth {
+			best, bestDepth = e, d
+		}
+	}
+	return best
 }
 
 func firstLine(s string) string {

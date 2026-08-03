@@ -481,6 +481,12 @@ NOT attempt to model the whole container runtime. This contract SHALL name the
 concerns it deliberately leaves to a Compose reference, so an author learns the
 boundary from the documentation rather than from a rejected project.
 
+This boundary is measured, not asserted. A survey of 276 Compose files from
+popular repositories, covering 1,367 services, is recorded in `survey.md`: the
+declaration expresses 66% of services and every service of 54% of projects
+without a reference. The nine fields that most stood in the way were added
+because each was a scalar, a bool or a flat list carrying no new concept.
+
 Deliberately not modelled, and expressible only through a Compose reference:
 device mappings, privileged execution, `shm_size`, `tmpfs` mounts, `ulimits`,
 `cap_add` and `cap_drop`, `sysctls`, `security_opt`, `network_mode`, `user`, and

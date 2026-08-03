@@ -222,6 +222,20 @@ package obschema
 	needs?: [...#Need]
 	ports?: [...#PublishedPort]
 
+	// Passthrough fields. Each is a scalar, a bool or a flat list carrying no
+	// new concept, and together they are what a survey of 276 real projects
+	// showed standing between two thirds of services and the declaration.
+	// Labels reserve the two namespaces Onebox generates into.
+	entrypoint?:  string | [...string]
+	user?:        string & !=""
+	hostname?:    string & !=""
+	working_dir?: #AbsPath
+	init?:        bool
+	tty?:         bool
+	stdin_open?:  bool
+	extra_hosts?: [...string & !=""]
+	labels?: {[!~"^(ob\\.|traefik\\.)"]: #Scalar}
+
 	// Files projected into this workload, applied in order, later winning.
 	// Per-workload because a real stack has several: paperless gives one file to
 	// its web server only, immich shares one between two of four services, and

@@ -160,7 +160,7 @@ func expand(raw map[string]any, app string) (map[string]Origin, error) {
 		if _, ok := m["role"]; !ok {
 			// Injected so the schema can discriminate. Recorded as a default so
 			// `ob canonical` does not claim the author chose it.
-			m["role"] = "application"
+			m["role"] = RoleApplication
 			derived["workloads."+name+".role"] = OriginDefault
 		}
 		expandWorkloadUnions(m)

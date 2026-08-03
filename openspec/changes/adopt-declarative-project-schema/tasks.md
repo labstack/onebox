@@ -1,20 +1,20 @@
 ## 1. Coverage audit before any code
 
-- [ ] 1.1 Verify the coverage table in `specs/project-schema/spec.md` against `main:internal/config/schema.cue` field by field, and record any fact with no home as a contract defect to resolve before implementation.
-- [ ] 1.2 Draft each of the four adopting projects under the field model on paper, including monk's `local` hooks, its `contains` and `advisory` verification, and its ordered env files; resolve every gap in the contract, not in the draft.
-- [ ] 1.3 Draft the project that declined the previous contract, including its four hostnames and its non-HTTP entrypoint, and resolve any gap the same way.
+- [x] 1.1 Verify the coverage table in `specs/project-schema/spec.md` against `main:internal/config/schema.cue` field by field, and record any fact with no home as a contract defect to resolve before implementation.
+- [x] 1.2 Draft each of the four adopting projects under the field model on paper, including monk's `local` hooks, its `contains` and `advisory` verification, and its ordered env files; resolve every gap in the contract, not in the draft.
+- [x] 1.3 Draft the project that declined the previous contract, including its four hostnames and its non-HTTP entrypoint, and resolve any gap the same way.
 
 ## 2. Normalized model foundation
 
-- [ ] 2.1 Define the normalized model from the field model — workloads with a role and exactly one source, routes, services, environments with policy and overrides, and a per-field origin record.
+- [x] 2.1 Define the normalized model from the field model — workloads with a role and exactly one source, routes, services, environments with policy and overrides, and a per-field origin record.
 - [ ] 2.2 Add origin tracking (`override`, `explicit`, `shorthand`, `derived`, `default`) to every field, asserting in tests that none reaches the model without one.
-- [ ] 2.3 Reject a project declaring the withdrawn `components` block with an error naming the block and the authoring guide.
-- [ ] 2.4 Reject absent, malformed, and unsupported schema identities before validation, target contact, or generation.
+- [x] 2.3 Reject a project declaring the withdrawn `components` block with an error naming the block and the authoring guide.
+- [x] 2.4 Reject absent, malformed, and unsupported schema identities before validation, target contact, or generation.
 
 ## 3. CUE contract and validation
 
-- [ ] 3.1 Port `schema.cue` from this change directory into `internal/config`, unchanged in meaning, and wire it to the loader.
-- [ ] 3.2 Implement the conformance corpus in `conformance.md` as table-driven tests, and treat any divergence from the recorded expectation as a defect in the implementation, not the corpus.
+- [x] 3.1 Port `schema.cue` from this change directory into `internal/config`, unchanged in meaning, and wire it to the loader.
+- [x] 3.2 Implement the conformance corpus in `conformance.md` as table-driven tests, and treat any divergence from the recorded expectation as a defect in the implementation, not the corpus.
 - [ ] 3.3 Implement the workload source disjunction, the role enum with job-only `run` and required `data_effect`, and refusal of job-only fields on other roles.
 - [ ] 3.4 Assert every scalar-or-object form produces canonical output identical to its object equivalent.
 - [ ] 3.5 Implement registries, notifications, and secrets as named maps rather than singletons.
@@ -25,14 +25,14 @@
 
 ## 4. Identifiers and paths
 
-- [ ] 4.1 Implement the identifier grammar, the `ob-` prefix reservation, the reserved words, and refusal of underscore.
+- [x] 4.1 Implement the identifier grammar, the `ob-` prefix reservation, the reserved words, and refusal of underscore.
 - [ ] 4.2 Implement refusal when the declared application identifier disagrees with the one recorded on the target.
 - [ ] 4.3 Implement the three path kinds: repository paths resolved against the project file and contained within the repository, absolute target paths, and request paths.
 - [ ] 4.4 Test that loading the same project from two working directories produces identical canonical forms.
 
 ## 5. Shorthand, overrides, defaults, and env files
 
-- [ ] 5.1 Implement scalar-to-object and top-level-to-workload expansion, rejecting a project declaring both and naming both locations.
+- [x] 5.1 Implement scalar-to-object and top-level-to-workload expansion, rejecting a project declaring both and naming both locations.
 - [ ] 5.2 Implement environment overrides over the closed set, with scalar and list replacement, key-by-key mapping merge, null-removes-key, and refusal of unlisted fields and undeclared targets.
 - [ ] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
 - [ ] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.

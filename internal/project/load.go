@@ -77,7 +77,8 @@ func LoadBytes(b []byte, filename string) (*Project, error) {
 		return nil, err
 	}
 	app, _ := raw["app"].(string)
-	if err := expand(raw, app); err != nil {
+	derived, err := expand(raw, app)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateSchema(ctx, raw, filename); err != nil {
@@ -89,6 +90,7 @@ func LoadBytes(b []byte, filename string) (*Project, error) {
 		return nil, err
 	}
 	p.Dir = filepath.Dir(filename)
+	p.captureRaw(raw, derived)
 	if err := crossFieldRules(p); err != nil {
 		return nil, err
 	}
@@ -118,7 +120,7 @@ var shorthandKeys = []string{"build", "image", "compose", "port", "health", "dom
 // expand rewrites shorthand into the normalised form the schema validates. It
 // runs before validation because the schema requires discriminators — a role
 // left absent would keep every branch of the workload disjunction alive.
-func expand(raw map[string]any, app string) error {
+func expand(raw map[string]any, app string) (map[string]Origin, error) {
 	var present []string
 	for _, k := range shorthandKeys {
 		if _, ok := raw[k]; ok {
@@ -127,19 +129,23 @@ func expand(raw map[string]any, app string) error {
 	}
 	wl, hasBlock := raw["workloads"]
 
+	// Paths whose value the author did not write where it now appears.
+	derived := map[string]Origin{}
+
 	if len(present) > 0 && hasBlock {
-		return errf("shorthand_and_workloads", "workloads", "",
+		return nil, errf("shorthand_and_workloads", "workloads", "",
 			"top-level %s cannot be combined with a workloads block; move them into it",
 			strings.Join(present, ", "))
 	}
 	if len(present) > 0 {
 		if app == "" {
-			return errf("app_required", "app", "", "app is required")
+			return nil, errf("app_required", "app", "", "app is required")
 		}
 		single := map[string]any{}
 		for _, k := range present {
 			single[k] = raw[k]
 			delete(raw, k)
+			derived["workloads."+app+"."+k] = OriginShorthand
 		}
 		raw["workloads"] = map[string]any{app: single}
 		wl = raw["workloads"]
@@ -149,15 +155,18 @@ func expand(raw map[string]any, app string) error {
 	for name, w := range workloads {
 		m, ok := w.(map[string]any)
 		if !ok {
-			return errf("workload_malformed", "workloads."+name, "", "workload must be a mapping")
+			return nil, errf("workload_malformed", "workloads."+name, "", "workload must be a mapping")
 		}
 		if _, ok := m["role"]; !ok {
+			// Injected so the schema can discriminate. Recorded as a default so
+			// `ob canonical` does not claim the author chose it.
 			m["role"] = "application"
+			derived["workloads."+name+".role"] = OriginDefault
 		}
 		expandWorkloadUnions(m)
 	}
 	expandTopLevelUnions(raw)
-	return nil
+	return derived, nil
 }
 
 // expandWorkloadUnions turns every scalar shorthand inside a workload into its

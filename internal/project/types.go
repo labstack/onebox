@@ -37,6 +37,15 @@ type Project struct {
 	Proxy         Proxy                   `json:"proxy"`
 	Secrets       map[string]Secret       `json:"secrets,omitempty"`
 	Observability *Observability          `json:"observability,omitempty"`
+
+	// rawExpanded is the authored input after shorthand expansion, kept so a
+	// value's origin can be reported without threading a marker through every
+	// field of the model.
+	rawExpanded map[string]any
+
+	// derivedPaths marks canonical paths the author did not write where they
+	// now appear: moved by shorthand expansion, or injected by normalisation.
+	derivedPaths map[string]Origin
 }
 
 type Environment struct {

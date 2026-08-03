@@ -173,6 +173,10 @@ func (p *Project) deepCopy() (*Project, error) {
 		return nil, errf("internal_copy_failed", "", "", "cannot copy project: %v", err)
 	}
 	out.Dir = p.Dir
+	// Without these a resolved project has no memory of what was authored, and
+	// would report every value as a default.
+	out.rawExpanded = p.rawExpanded
+	out.derivedPaths = p.derivedPaths
 	return &out, nil
 }
 

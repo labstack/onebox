@@ -17,7 +17,7 @@ The product contract is:
 Start with the [documentation map](docs/README.md). It distinguishes current
 behavior from active OpenSpec proposals. See the [product
 direction](docs/product.md), stable [`onebox.run/v1` project
-schema](docs/schema-v1.md), and current [MCP quick start](docs/mcp.md).
+schema](docs/schema-v1.md).
 
 ## What exists today
 
@@ -33,9 +33,6 @@ schema](docs/schema-v1.md), and current [MCP quick start](docs/mcp.md).
   observation, proposals, execution, structured events, and operational
   memory. The CLI is an adapter over that service; engine locks, fencing,
   journals, drift checks, and rollback gates remain the execution authority.
-- `ob mcp` with redaction-safe observation, deployment-proposal, memory-read,
-  and memory-change-proposal tools. All are read-only; there is no MCP
-  production-mutation tool yet.
 - The `ob` CLI as the current execution path and as a lasting adapter for local
   development, CI, support, and break-glass recovery.
 
@@ -52,8 +49,7 @@ evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
 
 The production-disabled managed-service framework, including version selection,
-typed settings, visible defaults, durable operations, and the proposed MCP
-surface, is specified in the active
+typed settings, visible defaults, and durable operations, is specified in the active
 [`managed-service-operation-contract`](openspec/changes/managed-service-operation-contract/).
 That OpenSpec change is proposed behavior, not a shipped capability.
 
@@ -198,16 +194,11 @@ The CLI is the interface, for people and for agents alike. It is deterministic,
 composable in CI, easy to test, and it calls one canonical operations service
 that owns every lifecycle decision.
 
-`ob mcp` still ships and is described in [docs/mcp.md](docs/mcp.md), but MCP is
-no longer the intended product interface: the surface is read-only, so every
-mutation already goes through the CLI, and an agent able to run `ob deploy` in a
-shell was never constrained by a read-only tool list. Its withdrawal is
-[product direction](docs/product.md), not yet a shipped change.
-
-The historical framing below described MCP as the primary surface;
-it is not the target product experience.
-
-Connect Claude, Codex, or another MCP client using [docs/mcp.md](docs/mcp.md).
+Onebox served an MCP surface once and no longer does. It was read-only, so
+every mutation already went through the CLI, and an agent able to run `ob
+deploy` in a shell was never constrained by a read-only tool list. A second
+protocol earned no safety and cost a second contract to keep honest. Point an
+agent at the `ob` binary the way you would point it at `gh`.
 
 ## Scope
 

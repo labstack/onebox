@@ -21,7 +21,7 @@ import (
 // single connection, so their latencies overlap instead of summing — behind a
 // spinner, since nothing streams until the whole table renders at the end.
 func (e *Engine) Status(ctx context.Context) error {
-	managed := e.Cfg.Proxy.Managed
+	managed := e.App.Proxy.Managed
 	var (
 		recorded  string
 		byService map[string][]svcContainer
@@ -31,7 +31,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	)
 
 	reads := []func() error{
-		func() (err error) { recorded, err = release.Current(ctx, e.T, e.Cfg.App); return },
+		func() (err error) { recorded, err = release.Current(ctx, e.T, e.App.App); return },
 		func() (err error) { byService, err = e.projectContainers(ctx); return },
 		func() error {
 			s, err := e.FindIncomplete(ctx)
@@ -59,7 +59,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	if recorded == "" {
 		recorded = "(none — never deployed)"
 	}
-	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.Cfg.App, e.T.Host())
+	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.App.App, e.T.Host())
 	fmt.Fprintf(e.Opts.Out, "recorded: %s\n", recorded)
 	revision := e.Opts.Runner.VCSRevision
 	if revision == "" {
@@ -75,12 +75,12 @@ func (e *Engine) Status(ctx context.Context) error {
 	e.ui.Println(e.ui.Bold(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
 
 	diverged := false
-	for _, roleName := range e.Cfg.Order {
-		role := e.Cfg.Roles[roleName]
-		cs := byService[role.Service]
+	for _, roleName := range e.App.ReleaseOrder() {
+		role := e.App.Workloads[roleName]
+		cs := byService[roleName]
 		if len(cs) == 0 {
 			diverged = true
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
+			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
 			continue
 		}
 		for _, c := range cs {
@@ -97,7 +97,7 @@ func (e *Engine) Status(ctx context.Context) error {
 				state += e.ui.Warn(" (" + c.health + ")")
 				diverged = true
 			}
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, actual, c.health, state))
+			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), actual, c.health, state))
 		}
 	}
 
@@ -107,7 +107,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	// problems — a fully-exited accessory already diverged, so a crash-looping
 	// one must too.
 	fmt.Fprintln(e.Opts.Out)
-	for _, acc := range e.Cfg.Accessories {
+	for _, acc := range e.App.ServiceNames() {
 		cs := byService[acc]
 		if len(cs) == 0 {
 			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("NOT RUNNING ⚠")))

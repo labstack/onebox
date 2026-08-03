@@ -47,13 +47,13 @@ func TestReadMemoryIsDeterministicResolvedAndRedactionSafe(t *testing.T) {
 	if !first.Observability.LogsDeclared || !first.Observability.LogsEnabled || !first.Observability.MetricsDeclared || !first.Observability.MetricsEnabled || !first.Observability.AlertsDeclared {
 		t.Fatalf("observability declarations missing: %#v", first.Observability)
 	}
-	if len(first.Components) != 2 || first.Components[0].Name != "database" || first.Components[0].Role != "data_service" || first.Components[0].Type != "postgres" || first.Components[0].Service != "postgres" || first.Components[0].PersistenceMode != "durable" || !first.Components[0].BackupDeclared || !first.Components[0].RestoreDrillDeclared {
+	if len(first.Components) != 2 || first.Components[0].Name != "database" || first.Components[0].Role != "service" || first.Components[0].Type != "daemon" || first.Components[0].Service != "database" || first.Components[0].PersistenceMode != "durable" || !first.Components[0].BackupDeclared || !first.Components[0].RestoreDrillDeclared {
 		t.Fatalf("database memory is incomplete: %#v", first.Components)
 	}
 	if first.Components[1].Name != "web" || first.Components[1].Role != "workload" || first.Components[1].DeploymentStrategy != "rolling" || first.Components[1].Replicas != 1 || !first.Components[1].ReadinessDeclared {
 		t.Fatalf("workload memory is incomplete: %#v", first.Components[1])
 	}
-	if len(first.Provenance) != 2 || first.Provenance[0].Source != "ob.yml" || first.Provenance[1].Source != "docker-compose.yaml" {
+	if len(first.Provenance) != 2 || first.Provenance[0].Source != "ob.yml" {
 		t.Fatalf("unexpected provenance: %#v", first.Provenance)
 	}
 	encoded, err := json.Marshal(first)

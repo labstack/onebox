@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 )
@@ -64,7 +64,7 @@ func TestGateOpenAutoRollsBack(t *testing.T) {
 // no `migrate` hook needed in ob.yml.
 func TestJobAutoRunsWithoutHook(t *testing.T) {
 	cfg := testConfig()
-	cfg.Hooks = map[string]config.Hook{} // drop the migrate hook; migrate stays a job
+	cfg.Hooks = map[string]app.Command{} // drop the migrate hook; migrate stays a job
 	f := happyFake()
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
@@ -82,9 +82,7 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 
 func TestDeployPersistsSafeEffectBaseline(t *testing.T) {
 	cfg := testConfig()
-	cfg.Jobs = nil
-	cfg.Components = map[string]config.Component{}
-	cfg.Hooks = map[string]config.Hook{}
+	cfg.Hooks = map[string]app.Command{}
 	f := happyFake()
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
@@ -105,7 +103,7 @@ func TestJobDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 		return nil
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	jw := &journal.Writer{T: f, App: e.Cfg.App, DeployID: "R1", Epoch: 1}
+	jw := &journal.Writer{T: f, App: e.App.App, DeployID: "R1", Epoch: 1}
 	err := e.runJobs(context.Background(), jw, nil, "/remote", "/remote/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the job: %v", err)
@@ -124,9 +122,9 @@ func TestLifecycleHookDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 		return nil
 	}
 	cfg := testConfig()
-	cfg.Hooks["pre_release"] = config.Hook{Run: "echo SHOULD_NOT_RUN"}
+	cfg.Hooks["pre_release"] = app.Command{Run: "echo SHOULD_NOT_RUN"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	jw := &journal.Writer{T: f, App: e.Cfg.App, DeployID: "R1", Epoch: 1}
+	jw := &journal.Writer{T: f, App: e.App.App, DeployID: "R1", Epoch: 1}
 	err := e.runRollbackEffectHook(context.Background(), jw, nil, "pre_release", "/remote", "/remote/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the hook: %v", err)
@@ -182,7 +180,7 @@ func TestUnknownJobMessagesExplainRollbackConsequence(t *testing.T) {
 
 	t.Run("local hook", func(t *testing.T) {
 		cfg := testConfig()
-		cfg.Hooks["migrate"] = config.Hook{Run: "true", Local: true}
+		cfg.Hooks["migrate"] = app.Command{Run: "true", Local: true}
 		e := New(cfg, testProject(t), happyFake(), Options{
 			Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir(),
 		})
@@ -240,10 +238,8 @@ func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
 func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 	f := gateFake("") // silent migrate
 	cfg := testConfig()
-	cfg.Migrations = "expand-only"
-	cfg.Components = map[string]config.Component{
-		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
-	}
+	cfg.Deployment.MigrationPolicy = "expand-only"
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, Run: "pre_release", DataEffect: "migration"}
 	e := New(cfg, testProject(t), f, Options{
 		Out: &bytes.Buffer{}, Sleep: noSleep,
 		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
@@ -257,9 +253,7 @@ func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 func TestDataEffectNoneOpensGateWithoutResultFile(t *testing.T) {
 	f := gateFake("")
 	cfg := testConfig()
-	cfg.Components = map[string]config.Component{
-		"migrate": {Type: "job", Service: "migrate", DataEffect: "none"},
-	}
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, Run: "pre_release", DataEffect: "none"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Deploy(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
@@ -270,10 +264,8 @@ func TestDataEffectNoneOpensGateWithoutResultFile(t *testing.T) {
 func TestExpandOnlyDoesNotCoverUnknownJob(t *testing.T) {
 	f := gateFake("")
 	cfg := testConfig()
-	cfg.Migrations = "expand-only"
-	cfg.Components = map[string]config.Component{
-		"migrate": {Type: "job", Service: "migrate", DataEffect: "unknown"},
-	}
+	cfg.Deployment.MigrationPolicy = "expand-only"
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, Run: "pre_release", DataEffect: "unknown"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Deploy(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
@@ -284,11 +276,9 @@ func TestExpandOnlyDoesNotCoverUnknownJob(t *testing.T) {
 func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 	f := gateFake("")
 	cfg := testConfig()
-	cfg.Migrations = "expand-only"
-	cfg.Components = map[string]config.Component{
-		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
-	}
-	cfg.Hooks["pre_release"] = config.Hook{Run: "true"}
+	cfg.Deployment.MigrationPolicy = "expand-only"
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, Run: "pre_release", DataEffect: "migration"}
+	cfg.Hooks["pre_release"] = app.Command{Run: "true"}
 	e := New(cfg, testProject(t), f, Options{
 		Out: &bytes.Buffer{}, Sleep: noSleep,
 		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
@@ -331,7 +321,7 @@ func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 		mount := strings.Index(c, "-v '"+resultFile+":/run/onebox/job-result:rw'")
 		sealedFile := strings.Index(c, "chmod 600 '"+resultFile+"'")
 		if strings.Contains(c, "rm -rf '"+resultDir+"'") &&
-			strings.Contains(c, "run -e OB_RESULT_FILE=/run/onebox/job-result") &&
+			strings.Contains(c, "run --rm --no-deps -e OB_RESULT_FILE=/run/onebox/job-result") &&
 			privateDir >= 0 && privateDir < writableFile && writableFile < mount && mount < sealedFile {
 			found = true
 		}

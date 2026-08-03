@@ -26,7 +26,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 	hp := proxy.HostPaths()
 	token := fmt.Sprintf("%x", time.Now().UnixNano())
 	meta := lockMeta{
-		Owner: journal.DefaultOperator(), DeployID: e.Cfg.App,
+		Owner: journal.DefaultOperator(), DeployID: e.App.App,
 		TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339), Token: token,
 	}
 	b, _ := json.Marshal(meta)

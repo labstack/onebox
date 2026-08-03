@@ -7,19 +7,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
-	return "docker compose -p " + e.Cfg.App + " -f " + q(remoteComposePath)
+	return "docker compose -p " + e.App.App + " -f " + q(remoteComposePath)
 }
 
 // newcomerIDs finds containers of a specific release — the ob.release label
 // render injects is what makes resume possible.
 func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+		"docker ps -q --filter label=com.docker.compose.project="+q(e.App.App)+
 			" --filter label=com.docker.compose.service="+q(svc)+
 			" --filter label=ob.release="+q(releaseID))
 	if err != nil {
@@ -36,12 +36,12 @@ func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]stri
 // every replica is the new release. Resume-aware: already-running newcomers of
 // this release are adopted, not duplicated.
 func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath string) error {
-	role := e.Cfg.Roles[roleName]
-	svc := role.Service
+	role := e.App.Workloads[roleName]
+	svc := roleName
 	cc := e.composeCmd(remoteComposePath)
 	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
 	desired := role.Count()
-	within, pollEvery := readyTiming(role)
+	within, pollEvery := role.ReadyTiming()
 
 	pulled := false
 	// Each pass converges by one step: add a missing new replica, or retire a
@@ -134,7 +134,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 // retireContainer drains one container out of rotation (poison its health so the
 // proxy drops it BEFORE any signal), waits the drain, optionally bleeds long
 // connections, then stops and removes it.
-func (e *Engine) retireContainer(ctx context.Context, role config.Role, id string, pollEvery time.Duration) error {
+func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id string, pollEvery time.Duration) error {
 	e.sleepBusy("converge (proxy observes the newcomer)", e.Opts.ConvergeBuffer)
 
 	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
@@ -151,11 +151,11 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	}
 	e.sleepBusy("converge (proxy drops the drained container)", e.Opts.ConvergeBuffer)
 
-	if role.Drain != nil && role.Drain.Wait > 0 {
-		if role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
-			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
+	if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
+		if sig := role.DrainSignal(); sig != "TERM" {
+			_, _ = e.mutate(ctx, "docker kill --signal="+sig+" "+id)
 		}
-		e.sleepBusy("drain wait ("+time.Duration(role.Drain.Wait).String()+")", time.Duration(role.Drain.Wait))
+		e.sleepBusy("drain wait ("+wait.String()+")", wait)
 	}
 
 	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", role.StopGraceSeconds(), id)); err != nil {
@@ -255,25 +255,6 @@ func idSet(ids []string) map[string]bool {
 		m[id] = true
 	}
 	return m
-}
-
-// readyTiming: gate budget and poll interval, with defaults for roles whose
-// readiness is ADOPTED from the compose healthcheck (ready absent or
-// timing-only).
-func readyTiming(role config.Role) (within, interval time.Duration) {
-	// 2s poll matches the generated healthcheck's default interval so ob detects
-	// the join (newcomer healthy) and the drain flip (old unhealthy) promptly,
-	// instead of leaving up to 5s of slack on each wait. within bounds the join.
-	within, interval = 120*time.Second, 2*time.Second
-	if role.Ready != nil {
-		if role.Ready.Within > 0 {
-			within = time.Duration(role.Ready.Within)
-		}
-		if role.Ready.Interval > 0 {
-			interval = time.Duration(role.Ready.Interval)
-		}
-	}
-	return within, interval
 }
 
 func subtract(all, remove []string) []string {

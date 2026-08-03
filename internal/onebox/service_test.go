@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -23,33 +23,30 @@ func writeServiceProject(t *testing.T) string {
 		"app.env": "RUNTIME_SECRET=initial-value\n",
 		"docker-compose.yaml": `
 services:
-  server:
-    image: ghcr.io/example/app:` + testSecret + `
-    environment:
-      SECRET_TOKEN: ` + testSecret + `
-  postgres:
-    image: postgres:17
+  database:
+    image: ghcr.io/example/postgres:` + testSecret + `
 `,
 		"ob.yml": `
 api_version: onebox.run/v1
 app: demo
-compose: docker-compose.yaml
 environments:
   production:
-    target: deploy@example.invalid
+    server: deploy@example.invalid
     policy:
       require_approval: true
       allow_agent_proposals: true
-components:
+workloads:
   web:
-    type: application
-    service: server
-    deployment: { strategy: rolling }
-    readiness: { http: /healthz, port: 8080 }
+    role: application
+    image: ghcr.io/example/app:v1
+    strategy: rolling
+    health: { http: /healthz, port: 8080 }
+    env: { SECRET_TOKEN: "` + testSecret + `" }
   database:
-    type: postgres
-    service: postgres
+    role: daemon
+    compose: "docker-compose.yaml#database"
     persistence: { mode: durable }
+    volumes: [{ name: data, path: /var/lib/postgresql/data }]
     protection:
       backup:
         schedule: { cron: "0 2 * * *", timezone: UTC }
@@ -66,7 +63,7 @@ hooks:
   post_deploy: "echo ` + testSecret + `"
 verification:
   - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
-  - { component: web, http: "/private/` + testSecret + `" }
+  - { workload: web, http: "/private/` + testSecret + `" }
 observability:
   logs: { enabled: true, retention_days: 14 }
   metrics: { enabled: true }
@@ -91,21 +88,24 @@ func serviceFake() *transport.Fake {
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/R0\n"}, true
 			case strings.Contains(cmd, "docker ps") && strings.Contains(cmd, "--format"):
-				return transport.Result{Stdout: "S1|server|R0|Up (healthy)\nPG1|postgres|R0|Up (healthy)\n"}, true
+				return transport.Result{Stdout: "S1|web|R0|Up (healthy)\nPG1|database|R0|Up (healthy)\n"}, true
 			case strings.Contains(cmd, "for f in"):
 				return transport.Result{}, true
-			case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "server"):
+			case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "'web'"):
 				return transport.Result{Stdout: "S1\n"}, true
-			case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "postgres"):
+			case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "'database'"):
 				return transport.Result{Stdout: "PG1\n"}, true
+			// Health first: an inspect that asks for health must not fall
+			// through to the image matcher and report a digest as a health
+			// state.
+			case strings.Contains(cmd, "docker inspect") && strings.Contains(cmd, "Health"):
+				return transport.Result{Stdout: "healthy\n"}, true
 			case strings.Contains(cmd, "docker inspect") && strings.Contains(cmd, "{{.Image}}"):
 				return transport.Result{Stdout: "sha256:" + strings.Repeat("ef", 32) + "\n"}, true
-			case strings.Contains(cmd, "docker inspect") && strings.Contains(cmd, "PG1"):
-				return transport.Result{Stdout: "healthy\n"}, true
 			case strings.Contains(cmd, "docker buildx imagetools inspect"):
 				return transport.Result{Stdout: digest + "\n"}, true
 			case strings.Contains(cmd, "cat ") && strings.Contains(cmd, "compose.yaml"):
-				return transport.Result{Stdout: "services:\n  server:\n    image: ghcr.io/example/app:v0\n    environment:\n      SECRET_TOKEN: live-secret\n"}, true
+				return transport.Result{Stdout: "services:\n  web:\n    image: ghcr.io/example/app:v0\n    environment:\n      SECRET_TOKEN: live-secret\n"}, true
 			case strings.Contains(cmd, "find . -type f"):
 				return transport.Result{Stdout: strings.Repeat("cd", 32) + "\n"}, true
 			}
@@ -153,9 +153,9 @@ func TestObserveReturnsStableStructuredState(t *testing.T) {
 		t.Fatalf("unexpected status: %#v", first.Status)
 	}
 	if len(first.Services) != 2 ||
-		first.Services[0].Name != "database" || first.Services[0].Service != "postgres" || first.Services[0].Type != "postgres" ||
+		first.Services[0].Name != "database" || first.Services[0].Service != "database" || first.Services[0].Type != "daemon" ||
 		first.Services[0].PersistenceMode != "durable" || !first.Services[0].ProtectionDeclared || first.Services[0].ProtectionManaged ||
-		first.Services[1].Name != "web" || first.Services[1].Service != "server" || first.Services[1].Type != "application" ||
+		first.Services[1].Name != "web" || first.Services[1].Service != "web" || first.Services[1].Type != "application" ||
 		first.Services[1].Strategy != "rolling" || first.Services[1].Replicas != 1 {
 		t.Fatalf("services are not deterministic/classified: %#v", first.Services)
 	}
@@ -174,7 +174,7 @@ func TestObserveReturnsStableStructuredState(t *testing.T) {
 	if !strings.HasPrefix(first.ConfigHash, "sha256:") || !strings.HasPrefix(first.ComposeHash, "sha256:") {
 		t.Fatalf("missing source identities: config=%q compose=%q", first.ConfigHash, first.ComposeHash)
 	}
-	if len(first.Provenance) != 3 || first.Provenance[0].Source != "ob.yml" || first.Provenance[1].Source != "docker-compose.yaml" || filepath.IsAbs(first.Provenance[0].Source) {
+	if len(first.Provenance) != 3 || first.Provenance[0].Source != "ob.yml" || filepath.IsAbs(first.Provenance[0].Source) {
 		t.Fatalf("provenance must identify sources without leaking local absolute paths: %#v", first.Provenance)
 	}
 	encoded, err := json.Marshal(first)
@@ -263,7 +263,7 @@ func TestProposeDeployIsReadOnlyStableAndRedacted(t *testing.T) {
 	if first.PayloadCommitment == second.PayloadCommitment || first.RenderedComposeCommitment == second.RenderedComposeCommitment {
 		t.Fatal("proposal-local commitments must not be linkable across proposals")
 	}
-	if first.HostState.CurrentRelease != "R0" || len(first.Images) != 1 || !first.Images[0].Pinned {
+	if first.HostState.CurrentRelease != "R0" || len(first.Images) != 2 || !first.Images[0].Pinned {
 		t.Fatalf("proposal did not capture host/image state: %#v", first)
 	}
 	if !first.Policy.RequireApproval || !first.Policy.AllowAgentProposals {
@@ -405,7 +405,7 @@ func TestProposeDeployHidesUnpinnedImageReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(proposal.Images) != 1 || proposal.Images[0].Pinned || proposal.Images[0].Digest != "" {
+	if len(proposal.Images) != 2 || proposal.Images[0].Pinned || proposal.Images[0].Digest != "" {
 		t.Fatalf("unresolved image must be reported without its mutable reference: %#v", proposal.Images)
 	}
 	encoded, err := json.Marshal(proposal)
@@ -491,12 +491,12 @@ func TestProposalDoesNotDecryptSOPSIntoStaging(t *testing.T) {
 
 func TestSafeCommandSummaryOnlyHidesOperatorAuthoredJobs(t *testing.T) {
 	generated := "job migrate (gated — changed=false keeps rollback open): docker compose run --rm migrate"
-	out, hidden := safeCommandSummary([]string{generated}, &config.Config{Jobs: []string{"migrate"}})
+	out, hidden := safeCommandSummary([]string{generated}, jobOnlyProject(t, nil))
 	if hidden || len(out) != 1 || out[0] != generated {
 		t.Fatalf("generated job was misclassified: hidden=%v out=%v", hidden, out)
 	}
 
-	cfg := &config.Config{Jobs: []string{"migrate"}, Hooks: map[string]config.Hook{"migrate": {Run: "echo " + testSecret}}}
+	cfg := jobOnlyProject(t, map[string]app.Command{"migrate": {Run: "echo " + testSecret}})
 	out, hidden = safeCommandSummary([]string{"job migrate (gated — changed=false keeps rollback open): echo " + testSecret}, cfg)
 	if !hidden || strings.Contains(out[0], testSecret) {
 		t.Fatalf("operator job body was exposed: hidden=%v out=%v", hidden, out)
@@ -526,4 +526,28 @@ func proposeWithFixedInputs(t *testing.T, configPath string, f *transport.Fake) 
 		t.Fatal(err)
 	}
 	return proposal
+}
+
+// jobOnlyProject is the smallest project with a job named `migrate`, used to
+// separate a command Onebox generated from one an operator wrote. Only the
+// second can carry a secret, and only the second is hidden.
+func jobOnlyProject(t *testing.T, hooks map[string]app.Command) *app.Resolved {
+	t.Helper()
+	spec, err := app.LoadBytes([]byte(`
+api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web:     {role: application, image: x:1}
+  migrate: {role: job, image: x:1, data_effect: migration}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved.Hooks = hooks
+	return resolved
 }

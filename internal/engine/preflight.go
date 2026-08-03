@@ -21,7 +21,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 	if res, err := e.T.Run(ctx, "docker compose version --short"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("docker compose plugin missing on %s", e.T.Host())
 	}
-	base := release.PathsFor(e.Cfg.App).Base
+	base := release.PathsFor(e.App.App).Base
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(base)+" && test -w "+q(base)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("%s not writable by deploy user", base)
 	}
@@ -32,7 +32,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 	if kib, _ := strconv.Atoi(strings.TrimSpace(res.Stdout)); kib > 0 && kib < minDiskKiB {
 		return fmt.Errorf("disk headroom %d KiB < 1 GiB on %s", kib, e.T.Host())
 	}
-	if e.Cfg.Proxy.Managed {
+	if e.App.Proxy.Managed {
 		ids, err := e.proxyContainerIDs(ctx)
 		if err != nil {
 			return err
@@ -46,7 +46,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 			return fmt.Errorf("managed proxy is %s, refusing to deploy (ob proxy apply to converge it)", h)
 		}
 	}
-	for _, acc := range e.Cfg.Accessories {
+	for _, acc := range e.App.ServiceNames() {
 		id, err := e.containerID(ctx, acc)
 		if err != nil {
 			return err
@@ -84,7 +84,7 @@ func (e *Engine) containerID(ctx context.Context, svc string) (string, error) {
 
 func (e *Engine) containerIDs(ctx context.Context, svc string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+		"docker ps -q --filter label=com.docker.compose.project="+q(e.App.App)+
 			" --filter label=com.docker.compose.service="+q(svc))
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ type svcContainer struct {
 // puts us back to one round trip per container.)
 func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContainer, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+		"docker ps --filter label=com.docker.compose.project="+q(e.App.App)+
 			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Status}}'")
 	if err != nil {
 		return nil, err

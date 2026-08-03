@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 )
@@ -62,7 +62,7 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 		t.Fatal("resume must restore the completed job's changed=false gate result")
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "--scale server=2") {
+	if strings.Contains(seq, "--scale web=2") {
 		t.Fatalf("web already rolled — resume must skip it:\n%s", seq)
 	}
 	if strings.Contains(seq, "OB_RESULT_FILE") {
@@ -121,9 +121,7 @@ func TestResumeRestoresOnlyExplicitUnknownMigrationAuthority(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := interruptedBeforeMigrationFake(tt.allowed)
 			cfg := testConfig()
-			cfg.Components = map[string]config.Component{
-				"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
-			}
+			cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, Run: "pre_release", DataEffect: "migration"}
 			var out bytes.Buffer
 			e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 			err := e.Resume(context.Background())
@@ -173,11 +171,11 @@ func TestAbortRefusesClosedGate(t *testing.T) {
 func TestAbortUsesInterruptedEffectPolicyAfterConfigEdit(t *testing.T) {
 	f := interruptedFake("changed=unknown (no result declared — gate closed, fail-safe)")
 	cfg := testConfig()
-	cfg.Migrations = "expand-only"
-	cfg.Components = map[string]config.Component{
+	cfg.Deployment.MigrationPolicy = "expand-only"
+	cfg.Workloads = map[string]app.Workload{
 		// The current config now claims this is a covered migration. Abort must
 		// still honor the interrupted journal, which recorded it as uncovered.
-		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+		"migrate": {Role: app.RoleJob, Run: "pre_release", DataEffect: "migration"},
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Abort(context.Background(), false)
@@ -189,11 +187,11 @@ func TestAbortUsesInterruptedEffectPolicyAfterConfigEdit(t *testing.T) {
 func TestAbortExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 	f := interruptedFake("changed=unknown (no result declared — gate closed, fail-safe)")
 	cfg := testConfig()
-	cfg.Migrations = "expand-only"
-	cfg.Components = map[string]config.Component{
-		"migrate": {Type: "job", Service: "migrate", DataEffect: "migration"},
+	cfg.Deployment.MigrationPolicy = "expand-only"
+	cfg.Workloads = map[string]app.Workload{
+		"migrate": {Role: app.RoleJob, Run: "pre_release", DataEffect: "migration"},
 	}
-	cfg.Hooks["pre_release"] = config.Hook{Run: "true"}
+	cfg.Hooks["pre_release"] = app.Command{Run: "true"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Abort(context.Background(), false)
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
@@ -210,7 +208,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 	base := f.Dynamic
 	r0Scaled := func() bool {
 		for _, c := range f.Commands {
-			if strings.Contains(c, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale server=2") {
+			if strings.Contains(c, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale web=2") {
 				return true
 			}
 		}
@@ -225,7 +223,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		return false
 	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ob.release='R0'") && strings.Contains(cmd, "service='server'") {
+		if strings.Contains(cmd, "ob.release='R0'") && strings.Contains(cmd, "service='web'") {
 			if r0Scaled() {
 				return transport.Result{Stdout: "PREV1\n"}, true
 			}
@@ -233,7 +231,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		}
 		// live server set: OLD1 (the R1 container being replaced) until removed,
 		// plus the R0 newcomer PREV1 once the R0 scale ran.
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'") && !strings.Contains(cmd, "ob.release=") {
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'") && !strings.Contains(cmd, "ob.release=") {
 			var ids []string
 			if !oldGone() {
 				ids = append(ids, "OLD1")
@@ -260,7 +258,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		t.Fatalf("abort: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale server=2") {
+	if !strings.Contains(seq, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale web=2") {
 		t.Fatalf("abort must roll web back to R0:\n%s", seq)
 	}
 	if !strings.Contains(seq, `"event":"abort","status":"ok"`) {

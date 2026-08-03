@@ -13,8 +13,8 @@ import (
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -102,11 +102,11 @@ func (s *Service) engine(ctx context.Context, lp *loadedProject, environment str
 }
 
 func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment string, configure func(*engine.Options)) (*engine.Engine, func(), string, error) {
-	env, err := lp.config.Environment(environment)
+	env, err := lp.resolved.Environment(environment)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	target := env.Hosts[0]
+	target := env.Target()
 	t, err := s.connect(ctx, target)
 	if err != nil {
 		return nil, nil, "", err
@@ -124,11 +124,9 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	if configure != nil {
 		configure(&engineOpts)
 	}
-	e := engine.New(lp.config, lp.project, t, engineOpts)
+	e := engine.New(lp.resolved, lp.compose, t, engineOpts)
 	return e, func() { _ = t.Close() }, target, nil
 }
-
-func resolvedReplicas(role config.Role) int { return role.Count() }
 
 func serviceImage(p *ctypes.Project, name string) string {
 	svc, ok := p.Services[name]
@@ -138,7 +136,7 @@ func serviceImage(p *ctypes.Project, name string) string {
 	return svc.Image
 }
 
-func ensureEnvironment(cfg *config.Config, name string) error {
+func ensureEnvironment(cfg *app.Resolved, name string) error {
 	if _, err := cfg.Environment(name); err != nil {
 		return fmt.Errorf("environment: %w", err)
 	}

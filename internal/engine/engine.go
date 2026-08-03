@@ -6,12 +6,13 @@ import (
 	"context"
 	"io"
 	"os"
+	"sort"
 	"time"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 	"github.com/labstack/onebox/internal/ui"
@@ -73,8 +74,11 @@ type Options struct {
 }
 
 type Engine struct {
-	Cfg     *config.Config
-	Project *ctypes.Project
+	// App is what the author declared; Compose is what Compose parsed from
+	// the rendered runtime. Keeping both named for their source is why this
+	// package no longer says "project" for two different things.
+	App     *app.Resolved
+	Compose *ctypes.Project
 	T       transport.Transport
 	Opts    Options
 	ui      *ui.UI
@@ -93,7 +97,7 @@ type Engine struct {
 	jobResults      map[string]journal.JobResultEvidence
 }
 
-func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options) *Engine {
+func New(a *app.Resolved, c *ctypes.Project, t transport.Transport, o Options) *Engine {
 	if o.Out == nil {
 		o.Out = os.Stdout
 	}
@@ -115,7 +119,7 @@ func New(cfg *config.Config, p *ctypes.Project, t transport.Transport, o Options
 	if o.Runner.Version == "" {
 		o.Runner = buildinfo.CurrentRunner()
 	}
-	return &Engine{Cfg: cfg, Project: p, T: t, Opts: o, ui: o.UI}
+	return &Engine{App: a, Compose: c, T: t, Opts: o, ui: o.UI}
 }
 
 func (e *Engine) logf(format string, a ...any) {
@@ -141,4 +145,17 @@ func (e *Engine) sleepBusy(label string, d time.Duration) {
 	_, stop := e.ui.Busy(label)
 	e.Opts.Sleep(d)
 	stop()
+}
+
+// sortedNames orders a map's keys so every loop over declared registries,
+// services or workloads visits them in the same sequence on every run. A
+// deploy that changes shape because Go randomised a map iteration is not
+// reproducible.
+func sortedNames[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

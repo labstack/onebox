@@ -17,12 +17,10 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
-	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
-	"github.com/labstack/onebox/internal/secrets"
 )
 
 const ProposalSchemaVersion = "onebox.run/deployment-proposal/v1alpha1"
@@ -41,15 +39,15 @@ func (s *Service) Propose(ctx context.Context, request ProposeRequest) (Deployme
 
 func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (DeploymentProposal, error) {
 	now := s.now().UTC()
-	lp, err := loadProject(ctx, s.configPath, false)
+	lp, err := s.loadProject(ctx, false)
 	if err != nil {
 		return DeploymentProposal{}, fmt.Errorf("load project: %w", err)
 	}
 	environment := s.environment
-	if err := ensureEnvironment(lp.config, environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, environment); err != nil {
 		return DeploymentProposal{}, err
 	}
-	environmentConfig, err := lp.config.Environment(environment)
+	environmentConfig, err := lp.resolved.Environment(environment)
 	if err != nil {
 		return DeploymentProposal{}, err
 	}
@@ -60,11 +58,8 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, ExecutableDeployPlanSchemaVersion); err != nil {
 		return DeploymentProposal{}, err
 	}
-	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
+	if err := lp.resolved.Spec.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return DeploymentProposal{}, err
-	}
-	if errs := compose.CheckRollable(lp.project, lp.config); len(errs) > 0 {
-		return DeploymentProposal{}, fmt.Errorf("not rollable: %v", errs)
 	}
 	e, cleanup, target, err := s.engine(ctx, lp, environment)
 	if err != nil {
@@ -102,7 +97,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	maskKey := entropy[16:]
 	secretSourceCommitment := ""
 	payloadMaterialized := true
-	if lp.config.Secrets != nil {
+	if lp.resolved.Secrets != nil {
 		secretSource, sourceErr := encryptedSecretSource(lp)
 		err = sourceErr
 		if err != nil {
@@ -112,7 +107,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		payloadMaterialized = false
 		blockProposal(&preconditions, "SOPS values are not decrypted by the read-only proposal tool")
 	}
-	staging, cleanupStaging, err := stageProposal(ctx, lp, releaseID)
+	staging, cleanupStaging, err := stageProposal(ctx, lp, environment, releaseID, pins)
 	if err != nil {
 		return DeploymentProposal{}, err
 	}
@@ -141,7 +136,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	liveKnown := hs.CurrentRelease == ""
 	warnings := []string{}
 	if hs.CurrentRelease != "" {
-		remoteCompose := release.PathsFor(lp.config.App).Releases + "/" + hs.CurrentRelease + "/compose.yaml"
+		remoteCompose := release.PathsFor(lp.resolved.App).Releases + "/" + hs.CurrentRelease + "/compose.yaml"
 		res, runErr := e.T.Run(ctx, "cat "+quote(remoteCompose)+" 2>/dev/null")
 		if runErr != nil {
 			return DeploymentProposal{}, fmt.Errorf("read live compose: %w", runErr)
@@ -221,24 +216,24 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 			blockProposal(&preconditions, fmt.Sprintf("image %s is not pinned to an immutable digest", image.Service))
 		}
 	}
-	if hasOperatorLifecycleHooks(lp.config) {
+	if hasOperatorLifecycleHooks(lp.resolved) {
 		blockProposal(&preconditions, "operator-authored deploy hooks require local review")
 	}
-	_, migrationJobs, unknownJobs := jobDataEffects(lp.config)
+	_, migrationJobs, unknownJobs := jobDataEffects(lp.resolved)
 	if len(unknownJobs) > 0 {
 		blockProposal(&preconditions, "jobs with unknown data effects require local review: "+strings.Join(unknownJobs, ", "))
 	}
 	if len(migrationJobs) > 0 {
-		if lp.config.Deployment.MigrationPolicy != "expand-only" {
+		if lp.resolved.Deployment.MigrationPolicy != "expand-only" {
 			blockProposal(&preconditions, "migration jobs require manual review: "+strings.Join(migrationJobs, ", "))
 		} else {
 			warnings = append(warnings, "expand-only migration safety is an operator declaration, not a verified guarantee")
 		}
 	}
 
-	remoteCompose := release.PathsFor(lp.config.App).Releases + "/" + releaseID + "/compose.yaml"
+	remoteCompose := release.PathsFor(lp.resolved.App).Releases + "/" + releaseID + "/compose.yaml"
 	fullCommands := e.Describe(remoteCompose)
-	commands, redactedHooks := safeCommandSummary(fullCommands, lp.config)
+	commands, redactedHooks := safeCommandSummary(fullCommands, lp.resolved)
 	hostImageIDs := make(map[string]string, len(hs.ImageIDs))
 	for service, imageID := range hs.ImageIDs {
 		if safeImageID.MatchString(imageID) {
@@ -262,7 +257,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		return DeploymentProposal{}, fmt.Errorf("encode state digest: %w", err)
 	}
 	stateDigest := engine.HashBytes(stateBytes)
-	operationGraph, err := DeploymentGraph(lp.config, releaseID)
+	operationGraph, err := DeploymentGraph(lp.resolved, releaseID)
 	if err != nil {
 		return DeploymentProposal{}, fmt.Errorf("build operation graph: %w", err)
 	}
@@ -297,7 +292,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	}{
 		ID:                        proposalID,
 		ReleaseID:                 releaseID,
-		Application:               lp.config.App,
+		Application:               lp.resolved.App,
 		Environment:               environment,
 		Policy:                    policy,
 		Target:                    target,
@@ -330,7 +325,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		SchemaVersion:             ProposalSchemaVersion,
 		ID:                        proposalID,
 		ReleaseID:                 releaseID,
-		Application:               lp.config.App,
+		Application:               lp.resolved.App,
 		Environment:               environment,
 		Policy:                    policy,
 		Target:                    target,
@@ -358,53 +353,42 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		CommandSummary:            commands,
 		HookBodiesRedacted:        redactedHooks,
 		FidelityContract:          MCPFidelityContract,
-		Risk:                      riskSummary(lp.config, hs.CurrentRelease),
-		Verification:              verificationSummary(lp.config),
+		Risk:                      riskSummary(lp.resolved, hs.CurrentRelease),
+		Verification:              verificationSummary(lp.resolved),
 		Warnings:                  warnings,
 	}, nil
 }
 
-func stageProposal(ctx context.Context, lp *loadedProject, id string) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "ob-"+lp.config.App)
+// stageProposal builds the payload a proposal describes without performing it.
+// It differs from execution staging in exactly one way: a read-only proposal
+// never decrypts SOPS into a temporary directory. It binds the encrypted
+// source's hash and reports the missing secrets as a readiness blocker, so
+// proposing a deploy cannot be a way to get the secrets out.
+func stageProposal(ctx context.Context, lp *loadedProject, environment, id string, images app.Images) (string, func(), error) {
+	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.App)
 	if err != nil {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(staging) }
 	fail := func(err error) (string, func(), error) { cleanup(); return "", nil, err }
-	compose.InjectEnvFiles(lp.project, lp.config)
-	if lp.config.Proxy.Managed {
-		network := lp.config.Proxy.Network
-		if network == "" {
-			network = proxy.DefaultNetwork
-		}
-		compose.InjectProxyNetwork(lp.project, lp.config, network)
-	}
-	if lp.config.Secrets != nil {
-		// Read-only proposals never decrypt SOPS into /tmp. They bind the encrypted
-		// source hash and expose an explicit readiness blocker instead.
-		compose.InjectSecretsEnv(lp.project, lp.config, "./"+secrets.EnvFileName)
-	}
-	rendered, err := compose.Render(lp.project, lp.config, id)
+
+	rendered, err := lp.resolved.Render(environment, id, images)
 	if err != nil {
 		return fail(err)
 	}
-	snapshot, err := lp.config.YAML()
+	rewrites, err := compose.StagePayloadContext(ctx, lp.compose, staging)
 	if err != nil {
 		return fail(err)
 	}
-	rewrites, err := compose.StagePayloadContext(ctx, lp.project, staging)
-	if err != nil {
-		return fail(err)
-	}
-	rendered = compose.RewriteSources(rendered, rewrites)
-	if err := release.Stage(staging, rendered, snapshot); err != nil {
+	body := compose.RewriteSources(rendered.Bytes, rewrites)
+	if err := release.Stage(staging, body, lp.configBytes); err != nil {
 		return fail(err)
 	}
 	return staging, cleanup, nil
 }
 
 func encryptedSecretSource(lp *loadedProject) ([]byte, error) {
-	path := lp.config.Secrets.Sops
+	path := sopsSource(lp.resolved)
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(filepath.Dir(lp.configPath), path)
 	}
@@ -442,9 +426,9 @@ func gitShortSHA(ctx context.Context, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func safeCommandSummary(commands []string, cfg *config.Config) ([]string, bool) {
+func safeCommandSummary(commands []string, cfg *app.Resolved) ([]string, bool) {
 	sensitivePrefixes := map[string]string{}
-	for _, job := range cfg.Jobs {
+	for _, job := range cfg.JobOrder() {
 		if hook, ok := cfg.Hooks[job]; ok && hook.Run != "" {
 			sensitivePrefixes["job "+job+" ("] = "job " + job + " (operator-authored command hidden)"
 		}
@@ -485,7 +469,7 @@ func blockProposal(preconditions *ProposalPreconditions, blocker string) {
 	preconditions.Ready = false
 }
 
-func hasOperatorLifecycleHooks(cfg *config.Config) bool {
+func hasOperatorLifecycleHooks(cfg *app.Resolved) bool {
 	for _, name := range []string{"pre_release", "post_release", "post_deploy"} {
 		if hook, ok := cfg.Hooks[name]; ok && hook.Run != "" {
 			return true
@@ -494,14 +478,14 @@ func hasOperatorLifecycleHooks(cfg *config.Config) bool {
 	return false
 }
 
-func jobDataEffects(cfg *config.Config) (none, migrations, unknown []string) {
-	if len(cfg.Components) == 0 {
-		unknown = append(unknown, cfg.Jobs...)
+func jobDataEffects(cfg *app.Resolved) (none, migrations, unknown []string) {
+	if len(cfg.Workloads) == 0 {
+		unknown = append(unknown, cfg.JobOrder()...)
 		sort.Strings(unknown)
 		return none, migrations, unknown
 	}
-	for name, component := range cfg.Components {
-		if component.Type != "job" {
+	for name, component := range cfg.Workloads {
+		if component.Role != "job" {
 			continue
 		}
 		switch component.DataEffect {
@@ -519,10 +503,10 @@ func jobDataEffects(cfg *config.Config) (none, migrations, unknown []string) {
 	return none, migrations, unknown
 }
 
-func riskSummary(cfg *config.Config, currentRelease string) RiskSummary {
+func riskSummary(cfg *app.Resolved, currentRelease string) RiskSummary {
 	var recreate []string
-	for name, role := range cfg.Roles {
-		if role.Mode == "recreate" {
+	for name, role := range cfg.Workloads {
+		if role.Mode() == "recreate" {
 			recreate = append(recreate, name)
 		}
 	}
@@ -565,9 +549,9 @@ func riskSummary(cfg *config.Config, currentRelease string) RiskSummary {
 	return RiskSummary{ExpectedInterruption: interruption, ApplicationRollback: rollback, DataEffects: dataEffects}
 }
 
-func verificationSummary(cfg *config.Config) []string {
-	out := make([]string, 0, len(cfg.Verify))
-	for _, check := range cfg.Verify {
+func verificationSummary(cfg *app.Resolved) []string {
+	out := make([]string, 0, len(cfg.Verification))
+	for _, check := range cfg.Verification {
 		switch {
 		case check.URL != "":
 			mode := "required"
@@ -576,9 +560,9 @@ func verificationSummary(cfg *config.Config) []string {
 			}
 			out = append(out, fmt.Sprintf("%s URL check: %s", mode, safeVerificationOrigin(check.URL)))
 		case check.HTTP != "":
-			out = append(out, fmt.Sprintf("component %s HTTP check (endpoint hidden)", check.Role))
+			out = append(out, fmt.Sprintf("component %s HTTP check (endpoint hidden)", check.Workload))
 		case check.Exec != "":
-			out = append(out, fmt.Sprintf("component %s exec check (command hidden)", check.Role))
+			out = append(out, fmt.Sprintf("component %s exec check (command hidden)", check.Workload))
 		}
 	}
 	return out

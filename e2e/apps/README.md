@@ -26,11 +26,24 @@ ob preview -c e2e/apps/umami.yml            # what would run
 ob preflight -c e2e/apps/umami.yml          # whether the host is ready
 ```
 
-## Deployed for real
+## Deployed for real — one application, one host
 
-All six were deployed to a throwaway Hetzner VM (Ubuntu 24.04, cpx22) from a
-bare image, by `ob up --bootstrap`: fifteen containers on one host, every one
-serving. The host was destroyed afterwards.
+`one-app-one-host.sh` provisions a throwaway Hetzner VM, deploys one
+application to it from a bare Ubuntu image with `ob up --bootstrap`, verifies it
+serves, and destroys the host. One application per host, which is the product's
+scope; an earlier run put all six on one box and was not testing what this
+contract describes.
+
+| App | Bare image to serving | HTTP | Containers | Volumes |
+|---|---|---|---|---|
+| vaultwarden | 39s | 200 | 1 | 1 |
+| gitea | 48s | 200 | 2 | 2 |
+| uptime-kuma | 53s | 302 | 1 | 0 |
+| umami | 58s | 200 | 2 | 1 |
+| n8n | 63s | 200 | 4 | 4 |
+| paperless | 78s | 302 | 5 | 4 |
+
+Every host was destroyed at the end of its run, including on failure.
 
 Three defects were found by doing it, none of which local testing had caught:
 

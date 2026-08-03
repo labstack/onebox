@@ -185,3 +185,34 @@ workloads:
 		}
 	}
 }
+
+// TestEjectDefaultAvoidsAReferencedFile. Several real projects reference
+// compose.yaml already; defaulting on top of it turned an ordinary ejection
+// into a refusal the author had done nothing to deserve.
+func TestEjectDefaultAvoidsAReferencedFile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  db: {image: postgres}\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v1
+app: ledger
+environments: {production: {server: root@1.2.3.4}}
+workloads:
+  web: {role: application, image: nginx, domain: d.example.com, port: 80}
+  db:  {role: daemon, compose: "compose.yaml#db"}
+`), 0o600)
+
+	p, err := Load(filepath.Join(dir, "ob.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := p.Resolve("production")
+	res, err := r.Eject("", "r1", nil, false)
+	if err != nil {
+		t.Fatalf("ejection should pick a free name, not refuse: %v", err)
+	}
+	if res.Runtime == "compose.yaml" {
+		t.Fatal("ejection chose a file the project already references")
+	}
+	if _, err := Load(filepath.Join(dir, "ob.yml")); err != nil {
+		t.Fatalf("the project should still load: %v", err)
+	}
+}

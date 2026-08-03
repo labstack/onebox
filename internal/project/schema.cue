@@ -154,8 +154,13 @@ package obschema
 // every one of them used a health-gated dependency, so the condition defaults to
 // `healthy` rather than to mere start order.
 #Need: #Ident | {
-	name:      #Ident
-	condition: "started" | "healthy" | "completed" | *"healthy"
+	name: #Ident
+	// Deliberately undefaulted here. The loader resolves it: healthy when the
+	// dependency declares a health check, started when it does not. Defaulting
+	// to healthy in the schema produced a runtime the container engine refuses
+	// to start, because a dependency without a health check can never become
+	// healthy.
+	condition?: "started" | "healthy" | "completed"
 	#X
 }
 

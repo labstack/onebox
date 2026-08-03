@@ -62,7 +62,17 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 		}
 		services[name] = svc
 		for _, v := range used {
-			volumes[v] = map[string]any{}
+			// Pin the name. Compose otherwise prefixes the project onto it, so
+			// the volume Docker creates is not the volume the naming contract
+			// promises — and preflight, which looks for the contract name,
+			// would never see a collision that exists.
+			volumes[v] = map[string]any{
+				"name": v,
+				// Ownership must be on the volume itself. Preflight reads
+				// labels to tell a previous release from a stranger's resource,
+				// and an unlabelled volume we created looks like a collision.
+				"labels": map[string]any{"ob.app": p.App},
+			}
 		}
 		// Definitions a referenced service depends on: a segmented network, an
 		// NFS-backed volume. Dropping them would change the runtime silently.

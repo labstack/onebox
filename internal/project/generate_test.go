@@ -367,3 +367,14 @@ func TestReplicaCountIsBound(t *testing.T) {
 		t.Fatal("changing the replica count must change the runtime digest")
 	}
 }
+
+// TestVolumeNamesArePinned: Compose prefixes the project name onto a volume
+// unless the name is pinned, so the volume Docker creates would not be the one
+// the naming contract promises — and preflight, which looks for the contract
+// name, would never see a collision that exists. Found by deploying.
+func TestVolumeNamesArePinned(t *testing.T) {
+	out := string(render(t, appFixture))
+	if !strings.Contains(out, "name: ob_ledger_web_uploads") {
+		t.Errorf("the derived volume name must be pinned\n%s", out)
+	}
+}

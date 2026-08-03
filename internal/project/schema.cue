@@ -488,6 +488,10 @@ package obschema
 		image?:  #ImageRef
 		config?: #RepoPath
 		network: string & !="" | *"ob-ingress"
+		// Terminating TLS without naming a resolver yields a router that never
+		// obtains a certificate. It belongs on the proxy: one ACME account
+		// serves every route.
+		cert_resolver?: string & !=""
 		#X
 	}
 

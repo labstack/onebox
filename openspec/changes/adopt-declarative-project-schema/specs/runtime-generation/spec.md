@@ -261,6 +261,37 @@ derive a different name for the same declared resource.
 - **WHEN** a change to the naming patterns would derive a different volume name for a resource that already exists
 - **THEN** it is a breaking change to this contract and cannot ship without an explicit data-migration path
 
+### Requirement: A job neither restarts nor starts with the application
+
+A workload with the `job` role SHALL be rendered so that the container runtime
+does not restart it and does not start it as part of bringing the application
+up. A job runs to completion at a release phase or on a schedule, under Onebox's
+control; a restart policy would loop it forever, and starting it with the
+application would run a migration nobody asked for.
+
+#### Scenario: Job is not restarted
+- **WHEN** a job workload is rendered
+- **THEN** its restart policy is off
+
+#### Scenario: Job does not start with the application
+- **WHEN** the generated runtime is brought up
+- **THEN** no job workload is started
+
+### Requirement: Terminating TLS names a certificate resolver
+
+When the proxy terminates TLS, the generated routing SHALL name the certificate
+resolver configured on the proxy. Terminating without one yields a router that
+never obtains a certificate. The resolver is configured once on the proxy rather
+than per route, because one account serves every route.
+
+#### Scenario: Resolver declared
+- **WHEN** the proxy declares a certificate resolver and a route terminates TLS
+- **THEN** the generated routing names that resolver
+
+#### Scenario: No resolver declared
+- **WHEN** no certificate resolver is configured
+- **THEN** none is emitted, and the proxy's own default applies
+
 ### Requirement: Onebox generates the surrounding runtime
 
 Generation SHALL produce the networks, volumes, and routing the declared

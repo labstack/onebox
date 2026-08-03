@@ -259,11 +259,12 @@ type Registry struct {
 }
 
 type Proxy struct {
-	Managed bool   `json:"managed"`
-	Kind    string `json:"kind"`
-	Image   string `json:"image,omitempty"`
-	Config  string `json:"config,omitempty"`
-	Network string `json:"network"`
+	Managed      bool   `json:"managed"`
+	Kind         string `json:"kind"`
+	Image        string `json:"image,omitempty"`
+	Config       string `json:"config,omitempty"`
+	Network      string `json:"network"`
+	CertResolver string `json:"cert_resolver,omitempty"`
 }
 
 type Secret struct {

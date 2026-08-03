@@ -35,20 +35,20 @@
 - [x] 5.1 Implement scalar-to-object and top-level-to-workload expansion, rejecting a project declaring both and naming both locations.
 - [ ] 5.2 Implement environment overrides over the closed set, with scalar and list replacement, key-by-key mapping merge, null-removes-key, and refusal of unlisted fields and undeclared targets.
 - [ ] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
-- [ ] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
+- [x] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
 - [ ] 5.5 Implement preflight key checks for required-and-non-empty and present.
 - [ ] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.
 - [ ] 5.7 Make the canonical form printable with per-field origins, with golden tests over the corpus.
 
 ## 6. Routes
 
-- [ ] 6.1 Implement the route object with domain, path, port, protocol, and TLS mode, and the scalar domain-and-port shorthand expanding to one HTTP route at `/`.
+- [x] 6.1 Implement the route object with domain, path, port, protocol, and TLS mode, and the scalar domain-and-port shorthand expanding to one HTTP route at `/`.
 - [ ] 6.2 Reject two workloads in one environment claiming the same domain and path, naming both.
 - [ ] 6.3 Test a multi-route workload and a non-HTTP route end to end through canonical form and generated routing labels.
 
 ## 7. Local generation
 
-- [ ] 7.1 Generate workload services for image-sourced, build-sourced, and Compose-sourced workloads, failing for a build-sourced workload with no resolved image and naming the interim mechanism.
+- [x] 7.1 Generate workload services for image-sourced, build-sourced, and Compose-sourced workloads, failing for a build-sourced workload with no resolved image and naming the interim mechanism.
 - [ ] 7.2 Implement the exact overlay — `ob-ingress` appended to existing networks, the three `ob.` labels, and the `traefik.` keys derived per route — asserting no other key is added, removed, or modified.
 - [ ] 7.3 Fail on an overlay conflict naming the key and the file: ingress network already attached, an `ob.` label, a `traefik.` label with a route, `network_mode`, or `container_name` when the rollout is rolling or replicas exceed one.
 - [ ] 7.4 Preserve `container_name` on a single-replica recreate workload, and cover monk's worker as the fixture.

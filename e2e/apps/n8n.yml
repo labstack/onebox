@@ -1,0 +1,45 @@
+api_version: onebox.run/v1
+app: n8n
+environments:
+  production: {server: root@TARGET}
+workloads:
+  n8n:
+    role: application
+    image: docker.n8n.io/n8nio/n8n:1.73.1
+    domain: n8n.example.com
+    port: 5678
+    needs: [postgres, redis]
+    env:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: n8n
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      N8N_ENCRYPTION_KEY: replace-me
+    volumes: [{name: storage, path: /home/node/.n8n}]
+  worker:
+    role: worker
+    image: docker.n8n.io/n8nio/n8n:1.73.1
+    command: [worker]
+    needs: [postgres, redis]
+    env:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: n8n
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      N8N_ENCRYPTION_KEY: replace-me
+    volumes: [{name: storage, path: /home/node/.n8n}]
+  postgres:
+    role: daemon
+    image: postgres:16-alpine
+    env: {POSTGRES_USER: n8n, POSTGRES_PASSWORD: n8n, POSTGRES_DB: n8n}
+    volumes: [{name: data, path: /var/lib/postgresql/data}]
+    health: {exec: "pg_isready -U n8n", interval: 5s, retries: 10}
+  redis:
+    role: daemon
+    image: redis:7-alpine
+    volumes: [{name: data, path: /data}]
+    health: {exec: "redis-cli ping", interval: 5s, retries: 10}

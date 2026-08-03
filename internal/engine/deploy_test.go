@@ -18,9 +18,9 @@ func happyFake() *transport.Fake {
 		// server roll state, derived from history so the loop converges: NEW1
 		// appears after a scale, OLD1 disappears once removed, names track renames.
 		scaled, oldGone, drained := false, false, false
-		name := map[string]string{"OLD1": "server"}
+		name := map[string]string{"OLD1": "web"}
 		for _, c := range f.Commands {
-			if strings.Contains(c, "--scale server=") {
+			if strings.Contains(c, "--scale web=") {
 				scaled = true
 			}
 			if strings.Contains(c, "docker rm OLD1") {
@@ -51,12 +51,12 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "PG1\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release="):
 			if scaled {
 				return transport.Result{Stdout: "NEW1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='server'"):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'"):
 			var ids []string
 			if !oldGone {
 				ids = append(ids, "OLD1")
@@ -68,7 +68,7 @@ func happyFake() *transport.Fake {
 		case strings.Contains(cmd, "{{.Name}}") && (strings.Contains(cmd, "OLD1") || strings.Contains(cmd, "NEW1")):
 			n := name[lastField(cmd)]
 			if n == "" {
-				n = "sample-server-x"
+				n = "sample-web-x"
 			}
 			return transport.Result{Stdout: "/" + n + "\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "NEW1") && strings.Contains(cmd, "Health"):
@@ -126,7 +126,7 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		last = i
 	}
 	// every mutation is fence-guarded
-	for _, mut := range []string{"--scale server=2", "touch /tmp/ob-drain", "docker stop -t 30 OLD1", "--force-recreate --timeout 30 worker", "ln -sfn"} {
+	for _, mut := range []string{"--scale web=2", "touch /tmp/ob-drain", "docker stop -t 30 OLD1", "--force-recreate --timeout 30 worker", "ln -sfn"} {
 		for _, c := range f.Commands {
 			if strings.Contains(c, mut) && !strings.Contains(c, "ob-fenced") {
 				t.Fatalf("mutation not fence-guarded: %s", c)
@@ -173,8 +173,8 @@ func TestDeployPhaseOrder(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	phases := []string{
 		"docker version",                                // preflight
-		"--rm --no-deps migrate",                        // pre-release hook (after upload)
-		"--scale server=2 server",                       // release: web rolls first (order)
+		"run --rm --no-deps",                            // pre-release: the migrate job
+		"--scale web=2 web",                             // release: web rolls first (order)
 		"--force-recreate --timeout 30 worker",          // then worker recreates
 		"curl -fsS -m 5 http://172.20.0.5:7500/healthz", // verify
 		"ln -sfn 'releases/R1'",                         // finalize: activate

@@ -90,6 +90,7 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 		return nil, err
 	}
 	p.Dir = filepath.Dir(filename)
+	defaultProxyManagement(p, raw, derived)
 	p.captureRaw(raw, derived)
 	if err := crossFieldRules(p); err != nil {
 		return nil, err
@@ -275,6 +276,25 @@ func decode(ctx *cue.Context, raw map[string]any) (*Spec, error) {
 		return nil, errf("internal_decode_failed", "", "", "cannot decode normalised project: %v", err)
 	}
 	return &p, nil
+}
+
+// defaultProxyManagement decides whether Onebox runs a proxy when the author
+// did not say.
+//
+// The schema cannot express this: it depends on whether anything is routed,
+// which is a different part of the document. Defaulting to managed
+// unconditionally would demand a running Traefik before a project that
+// publishes nothing over HTTP — a worker and a database, say — could deploy at
+// all, and the operator would be bootstrapping a proxy to route zero requests.
+// An explicit `proxy.managed` always wins in either direction.
+func defaultProxyManagement(p *Spec, raw map[string]any, derived map[string]Origin) {
+	if proxy, ok := raw["proxy"].(map[string]any); ok {
+		if _, stated := proxy["managed"]; stated {
+			return
+		}
+	}
+	p.Proxy.Managed = p.routesAnywhere()
+	derived["proxy.managed"] = OriginDefault
 }
 
 // crossFieldRules applies what the schema cannot express: cardinality, source

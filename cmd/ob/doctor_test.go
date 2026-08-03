@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/onebox"
 )
 
@@ -30,24 +30,23 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 	}
 	oldBinary := filepath.Join(oldDir, "ob")
 	currentBinary := filepath.Join(currentDir, "ob")
-	requireApproval := true
-	cfg := &config.Config{
+	cfg := &app.Spec{
 		APIVersion: "onebox.run/v1",
 		App:        "demo",
-		Environments: map[string]config.Environment{
+		Environments: map[string]app.Environment{
 			"production": {
-				Policy: config.EnvironmentPolicy{
-					RequireApproval:      &requireApproval,
+				Policy: app.Policy{
+					RequireApproval:      true,
 					MinimumOneboxVersion: "v2026.07.1",
 					MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 				},
 			},
 		},
-		Components: map[string]config.Component{
+		Workloads: map[string]app.Workload{
 			"database": {
-				Protection: &config.Protection{
-					Backup:       &config.BackupPolicy{},
-					RestoreDrill: &config.RestoreDrillPolicy{},
+				Protection: &app.Protection{
+					Backup:       &app.Backup{},
+					RestoreDrill: &app.RestoreDrill{},
 				},
 			},
 		},
@@ -81,7 +80,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 			return buildinfo.Info{}, errors.New("unexpected candidate")
 		},
 		querySSHAgent: func(context.Context, string) (int, error) { return 2, nil },
-		loadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		loadConfig:    func(string) (*app.Spec, error) { return cfg, nil },
 	}
 }
 
@@ -182,7 +181,7 @@ func TestDoctorHumanOutputNamesEveryDiagnosticArea(t *testing.T) {
 
 func TestDoctorReportsMissingProjectWithoutAborting(t *testing.T) {
 	deps := doctorTestDependencies(t)
-	deps.loadConfig = func(string) (*config.Config, error) { return nil, os.ErrNotExist }
+	deps.loadConfig = func(string) (*app.Spec, error) { return nil, os.ErrNotExist }
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "missing.yml", Env: "production"}, deps)
 	if report.Project.Status != doctorWarning || report.Project.Found {
 		t.Fatalf("project report = %+v", report.Project)
@@ -194,13 +193,13 @@ func TestDoctorReportsMissingProjectWithoutAborting(t *testing.T) {
 
 func TestDoctorReportsIncompatibleProjectPolicy(t *testing.T) {
 	deps := doctorTestDependencies(t)
-	deps.loadConfig = func(string) (*config.Config, error) {
-		return &config.Config{
+	deps.loadConfig = func(string) (*app.Spec, error) {
+		return &app.Spec{
 			APIVersion: "onebox.run/v1",
-			Environments: map[string]config.Environment{
-				"production": {Policy: config.EnvironmentPolicy{MinimumOneboxVersion: "v2027.01.1"}},
+			Environments: map[string]app.Environment{
+				"production": {Policy: app.Policy{MinimumOneboxVersion: "v2027.01.1"}},
 			},
-			Components: map[string]config.Component{},
+			Workloads: map[string]app.Workload{},
 		}, nil
 	}
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "/project/ob.yml", Env: "production"}, deps)

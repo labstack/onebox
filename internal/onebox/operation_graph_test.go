@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 )
 
 func TestDeploymentGraphIsDeterministicAndOrdered(t *testing.T) {
@@ -74,44 +74,26 @@ func TestDeploymentGraphNeverContainsHookBodies(t *testing.T) {
 	}
 }
 
-func TestDeploymentGraphPreservesLogicalAndComposeServiceAliases(t *testing.T) {
-	t.Parallel()
-	cfg := operationGraphConfig()
-	job := cfg.Components["migrate"]
-	job.Service = "db_migrate"
-	cfg.Components["migrate"] = job
-	web := cfg.Components["web"]
-	web.Service = "http"
-	cfg.Components["web"] = web
-
-	graph, err := deploymentGraph(cfg, "20260712-120000-abcd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := graph[3]; got.ID != "job:db_migrate" || got.Component != "migrate" || got.Service != "db_migrate" {
-		t.Fatalf("job alias was not preserved: %#v", got)
-	}
-	if got := graph[6]; got.ID != "release:web" || got.Component != "web" || got.Service != "http" {
-		t.Fatalf("workload alias was not preserved: %#v", got)
-	}
-}
-
 func TestDeploymentGraphOmitsAbsentHooksAndJobs(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{
-		Components: map[string]config.Component{
-			"web": {
-				Type: "application",
-				Deployment: &config.ComponentDeployment{
-					Strategy: "rolling",
-				},
-			},
-		},
-		Deployment: config.Deployment{Order: []string{"web"}},
-	}
-	graph, err := deploymentGraph(cfg, "20260712-120000-abcd")
+	spec, err := app.LoadBytes([]byte(`
+api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, strategy: rolling}
+deployment: {order: [web]}
+`), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
+	}
+	cfg, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, gerr := deploymentGraph(cfg, "20260712-120000-abcd")
+	if gerr != nil {
+		t.Fatal(gerr)
 	}
 	want := []string{"preflight", "transfer", "release:web", "verify", "activate"}
 	if got := stepIDs(graph); !reflect.DeepEqual(got, want) {
@@ -129,34 +111,31 @@ func TestDeploymentClassificationDoesNotOverstateFirstDeployRollback(t *testing.
 	}
 }
 
-func operationGraphConfig() *config.Config {
-	return &config.Config{
-		Components: map[string]config.Component{
-			"web": {
-				Type: "application",
-				Deployment: &config.ComponentDeployment{
-					Strategy: "rolling",
-				},
-			},
-			"worker": {
-				Type: "worker",
-				Deployment: &config.ComponentDeployment{
-					Strategy: "recreate",
-				},
-			},
-			"migrate": {
-				Type: "job", DataEffect: "migration",
-				Command: &config.Hook{Run: "echo JOB_SECRET"},
-			},
-			"assets": {Type: "job", DataEffect: "none"},
-		},
-		Deployment: config.Deployment{Order: []string{"worker", "web"}},
-		LifecycleHooks: map[string]config.Hook{
-			"pre_release":  {Run: "echo PRE_RELEASE_SECRET"},
-			"post_release": {Run: "echo POST_RELEASE_SECRET"},
-			"post_deploy":  {Run: "echo POST_DEPLOY_SECRET"},
-		},
+func operationGraphConfig() *app.Resolved {
+	spec, err := app.LoadBytes([]byte(`
+api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web:    {role: application, image: x:1, strategy: rolling}
+  worker: {role: worker, image: x:1, strategy: recreate}
+  migrate: {role: job, image: x:1, command: "echo JOB_SECRET", data_effect: migration}
+  assets:  {role: job, image: x:1, data_effect: none}
+deployment:
+  order: [worker, web]
+hooks:
+  pre_release:  {run: "echo PRE_RELEASE_SECRET"}
+  post_release: {run: "echo POST_RELEASE_SECRET"}
+  post_deploy:  {run: "echo POST_DEPLOY_SECRET"}
+`), "ob.yml")
+	if err != nil {
+		panic("operation graph fixture does not load: " + err.Error())
 	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		panic("operation graph fixture does not resolve: " + err.Error())
+	}
+	return resolved
 }
 
 func stepIDs(steps []OperationStep) []string {

@@ -5,9 +5,8 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -45,7 +44,9 @@ func TestRecreateRoleHonorsDrainGrace(t *testing.T) {
 		return transport.Result{}, false
 	}}
 	cfg := testConfig()
-	cfg.Roles["worker"].Drain.Grace = config.Duration(45 * time.Second)
+	worker := cfg.Workloads["worker"]
+	worker.Drain = &app.Drain{Signal: "TERM", Wait: "1s", Grace: "45s"}
+	cfg.Workloads["worker"] = worker
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
 		SSHUserName: "root", SSHPortName: "2222",
 	}
 	cfg := testConfig()
-	cfg.Hooks["pre_release"] = config.Hook{
+	cfg.Hooks["pre_release"] = app.Command{
 		Run:   `test "$OB_TARGET" = "root@2001:db8::1" && test "$OB_SSH_USER" = "root" && test "$OB_HOST" = "2001:db8::1" && test "$OB_SSH_PORT" = "2222" || { echo "got target=[$OB_TARGET] user=[$OB_SSH_USER] host=[$OB_HOST] port=[$OB_SSH_PORT]" >&2; exit 1; }`,
 		Local: true,
 	}
@@ -109,7 +110,9 @@ func TestRunHookSetsComposeEnvAndFailsHard(t *testing.T) {
 		}
 		return transport.Result{}, false
 	}}
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	cfg := testConfig()
+	cfg.Hooks["migrate"] = app.Command{Run: "docker compose run --rm --no-deps migrate"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.RunHook(context.Background(), "migrate", "/var/lib/ob/sample/releases/R1", "/var/lib/ob/sample/releases/R1/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "alembic exploded") {
 		t.Fatalf("hook failure must halt deploy with stderr, got %v", err)

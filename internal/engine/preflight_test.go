@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -48,7 +48,7 @@ func TestContainerIDsRejectsSuspiciousOutput(t *testing.T) {
 		{Match: regexp.MustCompile(`docker ps -q`), Result: transport.Result{Stdout: "abc123; rm -rf /\n"}},
 	}}
 	e := fakeEngine(t, f)
-	if _, err := e.containerIDs(context.Background(), "server"); err == nil {
+	if _, err := e.containerIDs(context.Background(), "web"); err == nil {
 		t.Fatal("suspicious container id must be rejected")
 	}
 }
@@ -77,7 +77,7 @@ func TestPreflightManagedProxyMustRun(t *testing.T) {
 		}}
 	}
 	cfg := testConfig()
-	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
 
 	f := mk(false)
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}})

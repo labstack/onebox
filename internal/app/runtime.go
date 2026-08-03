@@ -239,3 +239,27 @@ func ParseDuration(s string) (time.Duration, bool) {
 	}
 	return d, true
 }
+
+// Environment looks up one environment by name, naming the alternatives when
+// it is missing. A typo in `--env` is the single most common way to aim a
+// deploy at nothing, and an error that lists what exists ends that in one
+// round trip.
+func (p *Spec) Environment(name string) (Environment, error) {
+	e, ok := p.Environments[name]
+	if !ok {
+		return Environment{}, errf("unknown_environment", "environments."+name, "",
+			"environment %q is not declared; the project declares: %s",
+			name, strings.Join(sortedKeys(p.Environments), ", "))
+	}
+	return e, nil
+}
+
+// Target is the SSH destination for this environment, in the form the
+// transport accepts.
+func (e Environment) Target() string {
+	addr := e.Server.Host
+	if e.Server.User != "" {
+		addr = e.Server.User + "@" + addr
+	}
+	return addr
+}

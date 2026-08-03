@@ -39,24 +39,24 @@ func (s *Service) loadMemory(ctx context.Context) (*loadedProject, OperationalMe
 	if err := ctx.Err(); err != nil {
 		return nil, OperationalMemory{}, err
 	}
-	lp, err := loadProject(ctx, s.configPath, true)
+	lp, err := s.loadProject(ctx, true)
 	if err != nil {
 		return nil, OperationalMemory{}, fmt.Errorf("load project: %w", err)
 	}
-	if err := ensureEnvironment(lp.config, s.environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return nil, OperationalMemory{}, err
 	}
-	environment, _ := lp.config.Environment(s.environment)
+	environment, _ := lp.resolved.Environment(s.environment)
 
-	components := make([]MemoryComponent, 0, len(lp.config.Components))
-	for name, component := range lp.config.Components {
+	components := make([]MemoryComponent, 0, len(lp.resolved.Workloads))
+	for name, component := range lp.resolved.Workloads {
 		item := MemoryComponent{
-			Name: name, Role: memoryRole(component.Type), Type: component.Type, Service: component.Service,
-			DataEffect: component.DataEffect, ReadinessDeclared: component.Readiness != nil,
+			Name: name, Role: memoryRole(component.Role), Type: component.Role, Service: name,
+			DataEffect: component.DataEffect, ReadinessDeclared: component.Health != nil,
 		}
-		if component.Deployment != nil {
-			item.DeploymentStrategy = component.Deployment.Strategy
-			item.Replicas = component.Deployment.Replicas
+		if true {
+			item.DeploymentStrategy = component.Mode()
+			item.Replicas = component.Count()
 			if item.Replicas < 1 {
 				item.Replicas = 1
 			}
@@ -73,23 +73,23 @@ func (s *Service) loadMemory(ctx context.Context) (*loadedProject, OperationalMe
 	sort.Slice(components, func(i, j int) bool { return components[i].Name < components[j].Name })
 
 	observability := MemoryObservability{
-		LogsDeclared:    lp.config.Observability.Logs != nil,
-		MetricsDeclared: lp.config.Observability.Metrics != nil,
-		AlertsDeclared:  lp.config.Observability.Alerts != nil,
+		LogsDeclared:    lp.resolved.Observability.Logs != nil,
+		MetricsDeclared: lp.resolved.Observability.Metrics != nil,
+		AlertsDeclared:  lp.resolved.Observability.Alerts != nil,
 	}
-	if lp.config.Observability.Logs != nil {
-		observability.LogsEnabled = lp.config.Observability.Logs.Enabled
+	if lp.resolved.Observability.Logs != nil {
+		observability.LogsEnabled = lp.resolved.Observability.Logs.Enabled
 	}
-	if lp.config.Observability.Metrics != nil {
-		observability.MetricsEnabled = lp.config.Observability.Metrics.Enabled
+	if lp.resolved.Observability.Metrics != nil {
+		observability.MetricsEnabled = lp.resolved.Observability.Metrics.Enabled
 	}
 	provenance := []Provenance{
 		{Kind: "config", Source: filepath.Base(lp.configPath)},
-		{Kind: "compose", Source: filepath.Base(lp.composePath)},
+		{Kind: "compose", Source: filepath.Base(lp.configPath)},
 	}
 	memory := OperationalMemory{
-		SchemaVersion: MemorySchemaVersion, Application: lp.config.App, Environment: s.environment,
-		MigrationPolicy: lp.config.Deployment.MigrationPolicy,
+		SchemaVersion: MemorySchemaVersion, Application: lp.resolved.App, Environment: s.environment,
+		MigrationPolicy: lp.resolved.Deployment.MigrationPolicy,
 		Policy:          describePolicy(environment.Policy), Observability: observability,
 		Components: components, Provenance: provenance,
 	}
@@ -284,7 +284,7 @@ func validateAndCopyComponentPatch(lp *loadedProject, current MemoryComponent, i
 		if containsSecretLikeValue(*input.Service) {
 			return out, 0, fmt.Errorf("service appears to contain a secret value")
 		}
-		if _, ok := lp.project.Services[*input.Service]; !ok {
+		if _, ok := lp.compose.Services[*input.Service]; !ok {
 			return out, 0, fmt.Errorf("service %q is not declared by Compose", *input.Service)
 		}
 		out.Service = copyPointer(input.Service)

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -31,12 +31,10 @@ func TestV1ConfigFixturesLoad(t *testing.T) {
 		"testdata/worker/ob-broken.yml",
 	} {
 		t.Run(path, func(t *testing.T) {
-			cfg, err := config.Load(path)
-			if err != nil {
-				t.Fatalf("load stable v1 config: %v", err)
-			}
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("validate stable v1 config: %v", err)
+			// Loading validates: there is no separate step that can be
+			// skipped, so no path reaches execution unvalidated.
+			if _, err := app.Load(path); err != nil {
+				t.Fatalf("load project: %v", err)
 			}
 		})
 	}
@@ -64,32 +62,30 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 
 	deploy := func(version string) error {
 		t.Setenv("APP_VERSION", version)
-		cfg, err := config.Load(filepath.Join(dir, "ob.yml"))
+		spec, err := app.Load(filepath.Join(dir, "ob.yml"))
 		if err != nil {
 			return err
 		}
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		p, err := compose.Load(ctx, filepath.Join(dir, "docker-compose.yaml"), cfg.App)
+		resolved, err := spec.Resolve("production")
 		if err != nil {
-			return err
-		}
-		if err := compose.Classify(p, cfg); err != nil {
 			return err
 		}
 		id := release.NewID(time.Now(), "")
 		// ids need uniqueness at sub-second granularity across the two deploys
 		id = id + "-" + version
-		rendered, err := compose.Render(p, cfg, id)
+		rendered, err := resolved.Render("production", id, nil)
+		if err != nil {
+			return err
+		}
+		p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.App, dir)
 		if err != nil {
 			return err
 		}
 		staging := t.TempDir()
-		if err := release.Stage(staging, rendered, []byte("snapshot")); err != nil {
+		if err := release.Stage(staging, rendered.Bytes, []byte("snapshot")); err != nil {
 			return err
 		}
-		e := engine.New(cfg, p, tr, engine.Options{Out: os.Stderr})
+		e := engine.New(resolved, p, tr, engine.Options{Out: os.Stderr, Environment: "production"})
 		return e.Deploy(ctx, id, staging)
 	}
 

@@ -6,11 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/onebox"
 )
 
@@ -57,7 +58,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if cfg.Secrets == nil {
 				return fmt.Errorf("no secrets: {sops: ...} declared in %s", g.ConfigPath)
 			}
-			c := exec.CommandContext(cmd.Context(), "sops", filepath.Join(filepath.Dir(g.ConfigPath), cfg.Secrets.Sops))
+			c := exec.CommandContext(cmd.Context(), "sops", filepath.Join(filepath.Dir(g.ConfigPath), specSopsSource(cfg)))
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return c.Run()
 		},
@@ -161,6 +162,24 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 // loadConfigOnly skips compose loading and inference (secrets edit needs no
 // host or compose — only cfg.Secrets). CUE validation already ran in Load;
 // component/order checks in Validate can't run without the compose project.
-func loadConfigOnly(g *globalFlags) (*config.Config, error) {
-	return config.Load(g.ConfigPath)
+func loadConfigOnly(g *globalFlags) (*app.Spec, error) {
+	return app.Load(g.ConfigPath)
+}
+
+// specSopsSource is the declared SOPS-encrypted file, if one exists. The
+// contract allows several secret providers and only SOPS has an
+// implementation; a project declaring another gets nothing here rather than a
+// silent fallback to a file it never named.
+func specSopsSource(spec *app.Spec) string {
+	names := make([]string, 0, len(spec.Secrets))
+	for name := range spec.Secrets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if s := spec.Secrets[name]; s.Provider == "sops" {
+			return s.File
+		}
+	}
+	return ""
 }

@@ -94,14 +94,14 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	}
 
 	lenient := request.Kind == KindProxyApply || request.Kind == KindDestroy
-	lp, err := loadProject(ctx, s.configPath, lenient)
+	lp, err := s.loadProject(ctx, lenient)
 	if err != nil {
 		return finish(fmt.Errorf("load project: %w", err))
 	}
-	if err := ensureEnvironment(lp.config, s.environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return finish(err)
 	}
-	environmentConfig, err := lp.config.Environment(s.environment)
+	environmentConfig, err := lp.resolved.Environment(s.environment)
 	if err != nil {
 		return finish(err)
 	}
@@ -110,11 +110,6 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	}
 	if err := s.verifyExecutionBinding(lp, request.ExpectedBinding); err != nil {
 		return finish(err)
-	}
-	if request.Kind == KindRollback {
-		if errs := compose.CheckRollable(lp.project, lp.config); len(errs) > 0 {
-			return finish(fmt.Errorf("not rollable: %v", errs))
-		}
 	}
 	operationID := result.ID
 	emit("operation", "started", "")
@@ -140,7 +135,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindBootstrap:
 		var staging string
 		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, operationID)
+		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, nil)
 		if err == nil {
 			defer cleanupStaging()
 			result.ReleaseID = operationID
@@ -150,7 +145,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindServiceApply:
 		var staging string
 		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, operationID)
+		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, nil)
 		if err == nil {
 			defer cleanupStaging()
 			result.ReleaseID = operationID
@@ -161,12 +156,12 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID, request.Force)
 	case KindSecretsPush:
-		if lp.config.Secrets == nil {
+		if lp.resolved.Secrets == nil {
 			err = errors.New("no secrets.sops source declared")
 			break
 		}
 		var envBytes []byte
-		envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), lp.config.Secrets.Sops)
+		envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), sopsSource(lp.resolved))
 		if err == nil {
 			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, envBytes)
 		}
@@ -205,34 +200,31 @@ func (s *Service) executeDeploy(
 		return false, errors.New("deployment plan was created in the future — check the runner clock and re-plan")
 	}
 	emit("binding", "started", "")
-	lp, err := loadProject(ctx, s.configPath, false)
+	lp, err := s.loadProject(ctx, false)
 	if err != nil {
 		return false, fmt.Errorf("load project: %w", err)
 	}
-	if err := ensureEnvironment(lp.config, s.environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return false, err
 	}
-	environmentConfig, err := lp.config.Environment(s.environment)
+	environmentConfig, err := lp.resolved.Environment(s.environment)
 	if err != nil {
 		return false, err
 	}
 	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, plan.SchemaVersion); err != nil {
 		return false, err
 	}
-	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
+	if err := lp.resolved.Spec.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return false, err
 	}
-	if errs := compose.CheckRollable(lp.project, lp.config); len(errs) > 0 {
-		return false, fmt.Errorf("not rollable: %v", errs)
-	}
-	expectedGraph, err := DeploymentGraph(lp.config, plan.Operation.ReleaseID)
+	expectedGraph, err := DeploymentGraph(lp.resolved, plan.Operation.ReleaseID)
 	if err != nil {
 		return false, fmt.Errorf("build expected operation graph: %w", err)
 	}
 	if !reflect.DeepEqual(plan.Operation.Steps, expectedGraph) {
 		return false, errors.New("operation graph differs from the resolved configuration — re-plan")
 	}
-	expectedMigrationBackup, err := migrationBackupRequirement(lp.config, environmentConfig.Policy, expectedGraph)
+	expectedMigrationBackup, err := migrationBackupRequirement(lp.resolved, environmentConfig.Policy, expectedGraph)
 	if err != nil {
 		return false, fmt.Errorf("build expected migration backup requirement: %w", err)
 	}
@@ -242,7 +234,7 @@ func (s *Service) executeDeploy(
 	expectedRisk, expectedReversibility, expectedApproval := classifyDeploymentForPolicy(
 		expectedGraph,
 		plan.Artifact.HostState.CurrentRelease,
-		environmentConfig.Policy.ApprovalRequired(),
+		environmentConfig.Policy.RequireApproval,
 	)
 	if plan.Operation.Risk != expectedRisk ||
 		plan.Operation.Reversibility != expectedReversibility ||
@@ -250,8 +242,8 @@ func (s *Service) executeDeploy(
 		return false, errors.New("operation risk classification differs from the resolved configuration — re-plan")
 	}
 	binding := plan.Operation.Binding
-	if lp.config.App != binding.Application {
-		return false, fmt.Errorf("plan application is %q, local application is %q — re-plan", binding.Application, lp.config.App)
+	if lp.resolved.App != binding.Application {
+		return false, fmt.Errorf("plan application is %q, local application is %q — re-plan", binding.Application, lp.resolved.App)
 	}
 	if s.environment != binding.Environment {
 		return false, fmt.Errorf("plan environment is %q, executing %q — re-plan", binding.Environment, s.environment)
@@ -262,7 +254,7 @@ func (s *Service) executeDeploy(
 	if engine.HashBytes(lp.composeBytes) != binding.ComposeDigest {
 		return false, errors.New("Compose file changed since plan — re-plan")
 	}
-	approvalRequired := environmentConfig.Policy.ApprovalRequired() && (!plan.NoOp || request.Redeploy)
+	approvalRequired := environmentConfig.Policy.RequireApproval && (!plan.NoOp || request.Redeploy)
 	if approvalRequired {
 		emit("approval", "started", "")
 		if request.Approval == nil {
@@ -296,7 +288,7 @@ func (s *Service) executeDeploy(
 	if migrationBackupAudit != nil {
 		emit("migration_backup", "succeeded", "")
 	}
-	applyPinnedImages(lp.project, plan.Artifact.PinnedImages)
+	applyPinnedImages(lp.compose, plan.Artifact.PinnedImages)
 	e, cleanup, target, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
 		options.ForceLock = request.Force
 		options.NoRollback = request.NoRollback
@@ -315,7 +307,7 @@ func (s *Service) executeDeploy(
 			if expiresAt.Before(s.now().UTC()) {
 				return errors.New("deployment plan expired before mutation — re-plan")
 			}
-			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.config.App)
+			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.resolved.App)
 		}
 	})
 	if err != nil {
@@ -325,13 +317,13 @@ func (s *Service) executeDeploy(
 	if target != binding.Target {
 		return false, fmt.Errorf("target changed from %q to %q — re-plan", binding.Target, target)
 	}
-	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.config.App); err != nil {
+	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.resolved.App); err != nil {
 		return false, err
 	}
 	emit("binding", "succeeded", "")
 
 	emit("stage", "started", "")
-	staging, cleanupStaging, err := stageExecution(ctx, lp, plan.Operation.ReleaseID)
+	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, plan.Operation.ReleaseID, plan.Artifact.PinnedImages)
 	if err != nil {
 		return false, err
 	}

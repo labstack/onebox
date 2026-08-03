@@ -17,7 +17,23 @@ import (
 type Rendered struct {
 	Bytes  []byte
 	Digest string
+
+	// Unresolved names the build-sourced workloads that had no image. It is
+	// empty on every runtime produced for execution — Render refuses those
+	// outright — and populated only by RenderForInspection, whose output
+	// describes a release rather than being one.
+	Unresolved []string
 }
+
+// Runnable reports whether this runtime can be deployed. A rendering with an
+// unresolved image describes what a release would look like once the image
+// exists; running it would start a placeholder.
+func (r *Rendered) Runnable() bool { return len(r.Unresolved) == 0 }
+
+// UnresolvedImage is what an unresolved build stands in as. It is not a real
+// reference and no registry serves it, so a runtime carrying it fails at the
+// pull rather than starting something unintended.
+const UnresolvedImage = "ob-unresolved-image:no-release"
 
 // Images resolves a build-sourced workload to the image reference a release will
 // run. Resolving a version from a tag is the release-pipeline change; until it
@@ -139,12 +155,21 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 
 	switch {
 	case w.Image != nil:
+		// A resolved pin wins over the declared reference. Pinning turns a
+		// mutable tag into a digest; refusing to apply it here would leave the
+		// release on the tag while the plan reported the digest.
 		svc["image"] = w.Image.Reference
+		if ref := images[name]; ref != "" {
+			svc["image"] = ref
+		}
 	case w.Build != nil:
 		ref, ok := images[name]
 		if !ok || ref == "" {
-			return nil, nil, definitions{}, errf("image_unresolved", "workloads."+name, "ob release",
-				"workload %q is built from source and has no resolved image for this release", name)
+			if images[inspectionKey] == "" {
+				return nil, nil, definitions{}, errf("image_unresolved", "workloads."+name, "ob release",
+					"workload %q is built from source and has no resolved image for this release", name)
+			}
+			ref = UnresolvedImage
 		}
 		svc["image"] = ref
 	case w.Compose != "":
@@ -155,7 +180,12 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		carried = deps
 		// A referenced service is copied verbatim with the overlay already
 		// applied. Nothing below may add to it: the declaration describes a
-		// workload Onebox generates, and this one the user authored.
+		// workload Onebox generates, and this one the user authored — except a
+		// resolved pin, which replaces the tag the file names for the same
+		// reason it replaces a declared one.
+		if ref := images[name]; ref != "" && ref != UnresolvedImage {
+			merged["image"] = ref
+		}
 		return merged, nil, carried, nil
 	}
 
@@ -502,4 +532,36 @@ func SortedRouteKeys(m map[string]any) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// inspectionKey marks a render as being for reading rather than running. It is
+// a key no workload can have — identifiers may not contain a space — so an
+// author cannot reach this mode by naming something unfortunately.
+const inspectionKey = "ob inspection"
+
+// RenderForInspection renders a runtime for describing a release rather than
+// performing one. A build-sourced workload with no resolved image renders with
+// a placeholder and is named in Unresolved, instead of failing the whole
+// rendering.
+//
+// Reading and running are separated because they fail differently. `ob up`
+// must refuse a project whose image nobody has built; `ob status` must still
+// be able to say what that project consists of. Collapsing the two either
+// makes status useless before the first release or lets a placeholder reach a
+// host.
+func (r *Resolved) RenderForInspection(env string, images Images) (*Rendered, error) {
+	probe := Images{inspectionKey: "yes"}
+	for k, v := range images {
+		probe[k] = v
+	}
+	out, err := r.render(env, "", probe)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range sortedKeys(r.Workloads) {
+		if w := r.Workloads[name]; w.Build != nil && images[name] == "" {
+			out.Unresolved = append(out.Unresolved, name)
+		}
+	}
+	return out, nil
 }

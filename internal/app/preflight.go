@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"context"
@@ -67,7 +67,7 @@ func (r *Report) Failures() []Check {
 // answers is a Check, so a caller sees every problem at once rather than the
 // first one.
 func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
-	p := r.Project
+	p := r.Spec
 	n := p.NamesFor(r.Env)
 	report := &Report{Env: r.Env}
 

@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"math"
@@ -122,7 +122,7 @@ const (
 // released after everything it declares a prerequisite on. That is the same
 // graph the runtime already uses to sequence startup, so an author who declared
 // their dependencies once does not have to restate them as a deploy order.
-func (p *Project) ReleaseOrder() []string {
+func (p *Spec) ReleaseOrder() []string {
 	var runnable []string
 	for _, name := range sortedKeys(p.Workloads) {
 		if !p.Workloads[name].IsJob() {
@@ -138,7 +138,7 @@ func (p *Project) ReleaseOrder() []string {
 // JobOrder is the sequence jobs run in, before any long-running workload is
 // touched. Migrations that depend on each other are ordered by `needs` like
 // everything else.
-func (p *Project) JobOrder() []string {
+func (p *Spec) JobOrder() []string {
 	var jobs []string
 	for _, name := range sortedKeys(p.Workloads) {
 		if p.Workloads[name].IsJob() {
@@ -155,13 +155,13 @@ func (p *Project) JobOrder() []string {
 
 // ServiceNames are the supporting services, sorted. They live in their own
 // Compose projects and outlive any release.
-func (p *Project) ServiceNames() []string { return sortedKeys(p.Services) }
+func (p *Spec) ServiceNames() []string { return sortedKeys(p.Services) }
 
 // topological orders the given workloads so every prerequisite precedes what
 // needs it, breaking ties alphabetically so the result is stable. A cycle
 // cannot reach here — the loader rejects one — but if it ever did, the
 // remaining workloads are appended in name order rather than dropped.
-func (p *Project) topological(names []string) []string {
+func (p *Spec) topological(names []string) []string {
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true

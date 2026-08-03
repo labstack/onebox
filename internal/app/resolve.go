@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"encoding/json"
@@ -37,7 +37,7 @@ const (
 
 // Resolved is a project with one environment's overrides applied.
 type Resolved struct {
-	*Project
+	*Spec
 
 	// Env is the environment this was resolved for.
 	Env string
@@ -50,7 +50,7 @@ type Resolved struct {
 // Resolve applies the named environment's overrides and returns a copy. The
 // receiver is not modified: resolving twice for two environments must not let
 // one leak into the other.
-func (p *Project) Resolve(env string) (*Resolved, error) {
+func (p *Spec) Resolve(env string) (*Resolved, error) {
 	e, ok := p.Environments[env]
 	if !ok {
 		return nil, errf("unknown_environment", "environments."+env, "",
@@ -61,7 +61,7 @@ func (p *Project) Resolve(env string) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &Resolved{Project: clone, Env: env, Origins: map[string]Origin{}}
+	out := &Resolved{Spec: clone, Env: env, Origins: map[string]Origin{}}
 	if e.Overrides == nil {
 		return out, nil
 	}
@@ -163,12 +163,12 @@ func isMapping(v any) bool {
 	return ok
 }
 
-func (p *Project) deepCopy() (*Project, error) {
+func (p *Spec) deepCopy() (*Spec, error) {
 	b, err := json.Marshal(p)
 	if err != nil {
 		return nil, errf("internal_copy_failed", "", "", "cannot copy project: %v", err)
 	}
-	var out Project
+	var out Spec
 	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, errf("internal_copy_failed", "", "", "cannot copy project: %v", err)
 	}

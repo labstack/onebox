@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"strings"
@@ -148,7 +148,7 @@ func TestUnknownOverrideTargetRefused(t *testing.T) {
 // TestOverrideOutsideClosedSetRefused: an override may change how much runs,
 // never what runs.
 func TestOverrideOutsideClosedSetRefused(t *testing.T) {
-	p := &Project{
+	p := &Spec{
 		App:          "ledger",
 		Environments: map[string]Environment{"staging": {Overrides: &Overrides{Workloads: map[string]map[string]any{"web": {"image": "other"}}}}},
 		Workloads:    map[string]Workload{"web": {Role: "application"}},

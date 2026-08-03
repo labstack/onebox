@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/onebox/internal/project"
+	"github.com/labstack/onebox/internal/app"
 )
 
 // `ob eject` is the exit. Generated configuration you cannot leave is the thing
@@ -28,7 +28,7 @@ func addEjectCommand(root *cobra.Command, g *globalFlags) {
 			"Onebox adds, so it is a file you own rather than one it half-owns, and your\n" +
 			"project file keeps its comments and ordering.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := project.Load(g.ConfigPath)
+			p, err := app.Load(g.ConfigPath)
 			if err != nil {
 				return explain(err)
 			}
@@ -36,7 +36,7 @@ func addEjectCommand(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return explain(err)
 			}
-			images := project.Images{}
+			images := app.Images{}
 			for _, pair := range imageFlags {
 				name, ref, ok := strings.Cut(pair, "=")
 				if !ok {

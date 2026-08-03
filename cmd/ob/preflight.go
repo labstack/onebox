@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/onebox/internal/project"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -24,7 +24,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 			"Every problem is reported at once rather than the first one, and nothing is\n" +
 			"created, renamed or removed.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := project.Load(g.ConfigPath)
+			p, err := app.Load(g.ConfigPath)
 			if err != nil {
 				return explain(err)
 			}
@@ -75,7 +75,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(cmd)
 }
 
-func writeReport(cmd *cobra.Command, r *project.Report) {
+func writeReport(cmd *cobra.Command, r *app.Report) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "%s  environment %s\n\n", r.Target, r.Env)
 	for _, c := range r.Checks {

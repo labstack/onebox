@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"strings"

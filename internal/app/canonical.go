@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ import (
 // staging is running one replica because an override says so.
 
 // originOf reports where each leaf value came from, keyed by dotted path.
-func (p *Project) originOf() map[string]Origin {
+func (p *Spec) originOf() map[string]Origin {
 	out := map[string]Origin{}
 	canonical, err := toGeneric(p)
 	if err != nil {
@@ -73,11 +73,11 @@ const OriginShorthand Origin = "shorthand"
 // Canonical renders the normalised project as YAML, annotating every value that
 // the author did not write where it appears.
 func (r *Resolved) Canonical() ([]byte, error) {
-	generic, err := toGeneric(r.Project)
+	generic, err := toGeneric(r.Spec)
 	if err != nil {
 		return nil, err
 	}
-	origins := r.Project.originOf()
+	origins := r.Spec.originOf()
 	for path, o := range r.Origins {
 		// An override is more specific than anything derived from the file, and
 		// it applies to the whole subtree it patched.
@@ -149,7 +149,7 @@ func annotated(prefix string, v any, origins map[string]Origin) (*yaml.Node, err
 // Origins returns every leaf path and its origin, sorted, for a caller that
 // wants the data rather than the annotated document.
 func (r *Resolved) OriginTable() [][2]string {
-	origins := r.Project.originOf()
+	origins := r.Spec.originOf()
 	for path, o := range r.Origins {
 		origins[path] = o
 	}
@@ -167,7 +167,7 @@ func (r *Resolved) OriginTable() [][2]string {
 
 // captureRaw records the authored input after expansion, so origins can be
 // computed later without threading a marker through every field of the model.
-func (p *Project) captureRaw(raw map[string]any, derived map[string]Origin) {
+func (p *Spec) captureRaw(raw map[string]any, derived map[string]Origin) {
 	b, err := json.Marshal(raw)
 	if err != nil {
 		return

@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"context"
@@ -28,13 +28,13 @@ type Target interface {
 
 // DeployResult reports what happened.
 type DeployResult struct {
-	Release    string   `json:"release"`
-	Project    string   `json:"project"`
-	ReleaseDir string   `json:"release_dir"`
-	Digest     string   `json:"digest"`
-	Healthy    []string `json:"healthy,omitempty"`
-	Unhealthy  []string `json:"unhealthy,omitempty"`
-	Skipped    []string `json:"safety_not_yet_implemented"`
+	Release        string   `json:"release"`
+	ComposeProject string   `json:"compose_project"`
+	ReleaseDir     string   `json:"release_dir"`
+	Digest         string   `json:"digest"`
+	Healthy        []string `json:"healthy,omitempty"`
+	Unhealthy      []string `json:"unhealthy,omitempty"`
+	Skipped        []string `json:"safety_not_yet_implemented"`
 }
 
 // OK reports whether every workload that declares health reached it.
@@ -49,7 +49,7 @@ type DeployOptions struct {
 
 // Deploy brings a release up on the target.
 func (r *Resolved) Deploy(ctx context.Context, t Target, releaseID string, opts DeployOptions) (*DeployResult, error) {
-	p := r.Project
+	p := r.Spec
 	n := p.NamesFor(r.Env)
 
 	rendered, err := r.Render(r.Env, releaseID, opts.Images)
@@ -96,10 +96,10 @@ func (r *Resolved) Deploy(ctx context.Context, t Target, releaseID string, opts 
 	}
 
 	result := &DeployResult{
-		Release:    releaseID,
-		Project:    n.ComposeProject(),
-		ReleaseDir: releaseDir,
-		Digest:     rendered.Digest,
+		Release:        releaseID,
+		ComposeProject: n.ComposeProject(),
+		ReleaseDir:     releaseDir,
+		Digest:         rendered.Digest,
 		Skipped: []string{
 			"deploy lock", "runner fencing", "journal", "connection drain",
 			"automatic rollback", "release verification",

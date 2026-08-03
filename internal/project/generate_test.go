@@ -220,7 +220,7 @@ func TestJobsDoNotRestartOrAutoStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := p.NamesFor("production")
-	svc, _, err := p.renderWorkload(n, "migrate", p.Workloads["migrate"], "r1", nil)
+	svc, _, _, err := p.renderWorkload(n, "migrate", p.Workloads["migrate"], "r1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestJobsDoNotRestartOrAutoStart(t *testing.T) {
 	if svc["profiles"] == nil {
 		t.Error("a job must sit behind a profile so compose up does not start it")
 	}
-	web, _, _ := p.renderWorkload(n, "web", p.Workloads["web"], "r1", nil)
+	web, _, _, _ := p.renderWorkload(n, "web", p.Workloads["web"], "r1", nil)
 	if web["restart"] != "unless-stopped" {
 		t.Errorf("application restart = %v, want unless-stopped", web["restart"])
 	}

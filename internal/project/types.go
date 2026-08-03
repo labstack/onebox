@@ -102,6 +102,7 @@ type Workload struct {
 	StdinOpen  *bool          `json:"stdin_open,omitempty"`
 	ExtraHosts []string       `json:"extra_hosts,omitempty"`
 	Labels     map[string]any `json:"labels,omitempty"`
+	Logging    *Logging       `json:"logging,omitempty"`
 
 	// Job only.
 	Run        string    `json:"run,omitempty"`
@@ -149,6 +150,11 @@ type Drain struct {
 	Signal string `json:"signal"`
 	Wait   string `json:"wait,omitempty"`
 	Grace  string `json:"grace,omitempty"`
+}
+
+type Logging struct {
+	Driver  string         `json:"driver,omitempty"`
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type Resources struct {

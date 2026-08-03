@@ -52,16 +52,28 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 
 	services := map[string]any{}
 	volumes := map[string]any{}
+	var extraNetworks map[string]any
 
 	for _, name := range sortedKeys(p.Workloads) {
 		w := p.Workloads[name]
-		svc, used, err := p.renderWorkload(n, name, w, releaseID, images)
+		svc, used, carried, err := p.renderWorkload(n, name, w, releaseID, images)
 		if err != nil {
 			return nil, err
 		}
 		services[name] = svc
 		for _, v := range used {
 			volumes[v] = map[string]any{}
+		}
+		// Definitions a referenced service depends on: a segmented network, an
+		// NFS-backed volume. Dropping them would change the runtime silently.
+		for k, v := range carried.Volumes {
+			volumes[k] = v
+		}
+		for k, v := range carried.Networks {
+			if extraNetworks == nil {
+				extraNetworks = map[string]any{}
+			}
+			extraNetworks[k] = v
 		}
 	}
 
@@ -72,10 +84,15 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	if len(volumes) > 0 {
 		doc["volumes"] = volumes
 	}
+	nets := map[string]any{}
+	for k, v := range extraNetworks {
+		nets[k] = v
+	}
 	if p.routesAnywhere() && p.Proxy.Managed && p.Proxy.Kind != "none" {
-		doc["networks"] = map[string]any{
-			p.Proxy.Network: map[string]any{"external": true},
-		}
+		nets[p.Proxy.Network] = map[string]any{"external": true}
+	}
+	if len(nets) > 0 {
+		doc["networks"] = nets
 	}
 
 	b, err := marshalDeterministic(doc)
@@ -105,9 +122,10 @@ func (p *Project) overlayFor(n Names, name string, w Workload, releaseID string)
 	return ov
 }
 
-func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID string, images Images) (map[string]any, []string, error) {
+func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID string, images Images) (map[string]any, []string, definitions, error) {
 	svc := map[string]any{}
 	var namedVolumes []string
+	var carried definitions
 
 	switch {
 	case w.Image != nil:
@@ -115,19 +133,20 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 	case w.Build != nil:
 		ref, ok := images[name]
 		if !ok || ref == "" {
-			return nil, nil, errf("image_unresolved", "workloads."+name, "ob release",
+			return nil, nil, definitions{}, errf("image_unresolved", "workloads."+name, "ob release",
 				"workload %q is built from source and has no resolved image for this release", name)
 		}
 		svc["image"] = ref
 	case w.Compose != "":
-		merged, err := mergeComposeRef(p.Dir, w.Compose, p.overlayFor(n, name, w, releaseID))
+		merged, deps, err := mergeComposeRef(p.Dir, w.Compose, p.overlayFor(n, name, w, releaseID))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, definitions{}, err
 		}
+		carried = deps
 		// A referenced service is copied verbatim with the overlay already
 		// applied. Nothing below may add to it: the declaration describes a
 		// workload Onebox generates, and this one the user authored.
-		return merged, nil, nil
+		return merged, nil, carried, nil
 	}
 
 	if w.Command != nil {
@@ -219,6 +238,18 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 	if len(w.ExtraHosts) > 0 {
 		svc["extra_hosts"] = w.ExtraHosts
 	}
+	if w.Logging != nil {
+		lg := map[string]any{}
+		if w.Logging.Driver != "" {
+			lg["driver"] = w.Logging.Driver
+		}
+		if len(w.Logging.Options) > 0 {
+			lg["options"] = w.Logging.Options
+		}
+		if len(lg) > 0 {
+			svc["logging"] = lg
+		}
+	}
 	if w.Drain != nil && w.Drain.Grace != "" {
 		svc["stop_grace_period"] = w.Drain.Grace
 	}
@@ -243,7 +274,7 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 		svc["restart"] = "unless-stopped"
 	}
 
-	return svc, namedVolumes, nil
+	return svc, namedVolumes, carried, nil
 }
 
 // envFilesFor applies the workload's own list, falling back to the project-wide

@@ -47,3 +47,25 @@ services:
   attached:
     image: nginx
     networks: [default, ob-ingress]
+
+  segmented:
+    image: nginx
+    networks: [backend]
+    volumes:
+      - nfsdata:/srv
+
+  inherited:
+    extends:
+      service: postgres
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  nfsdata:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=10.0.0.1,rw
+      device: ":/exports/data"

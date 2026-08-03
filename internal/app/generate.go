@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"crypto/sha256"
@@ -29,7 +29,7 @@ type Images map[string]string
 // It is a pure function of its inputs and opens no target connection: anything
 // requiring the target — name collisions, account privileges — belongs to
 // preflight, which runs after this and before any mutation.
-func (p *Project) Render(env, releaseID string, images Images) (*Rendered, error) {
+func (p *Spec) Render(env, releaseID string, images Images) (*Rendered, error) {
 	// Resolve first, always. Rendering an unresolved project would silently
 	// ignore every environment override, which is the kind of bug that only
 	// shows up as staging quietly running production's replica count.
@@ -47,7 +47,7 @@ func (r *Resolved) Render(env, releaseID string, images Images) (*Rendered, erro
 }
 
 func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, error) {
-	p := r.Project
+	p := r.Spec
 	n := p.NamesFor(env)
 
 	services := map[string]any{}
@@ -114,7 +114,7 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 }
 
 // overlayFor is the enumerated set applied to a Compose-referenced workload.
-func (p *Project) overlayFor(n Names, name string, w Workload, releaseID string) overlay {
+func (p *Spec) overlayFor(n Names, name string, w Workload, releaseID string) overlay {
 	ov := overlay{
 		Labels: map[string]any{
 			"ob.app":      p.App,
@@ -132,7 +132,7 @@ func (p *Project) overlayFor(n Names, name string, w Workload, releaseID string)
 	return ov
 }
 
-func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID string, images Images) (map[string]any, []string, definitions, error) {
+func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string, images Images) (map[string]any, []string, definitions, error) {
 	svc := map[string]any{}
 	var namedVolumes []string
 	var carried definitions
@@ -296,7 +296,7 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 // list for applications and workers only. A daemon never receives project-wide
 // files: it is a database or a cron runner, not the application, and projecting
 // the application's secrets into it was the failure this rule exists to prevent.
-func (p *Project) envFilesFor(w Workload) []string {
+func (p *Spec) envFilesFor(w Workload) []string {
 	if len(w.EnvFiles) > 0 {
 		return w.EnvFiles
 	}
@@ -310,7 +310,7 @@ func (p *Project) envFilesFor(w Workload) []string {
 }
 
 // routeLabels emits the exact routing keys the overlay contract enumerates.
-func (p *Project) routeLabels(n Names, name string, w Workload) map[string]any {
+func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 	routes := w.NormalisedRoutes()
 	if len(routes) == 0 || !p.Proxy.Managed || p.Proxy.Kind == "none" {
 		return nil
@@ -350,7 +350,7 @@ func (p *Project) routeLabels(n Names, name string, w Workload) map[string]any {
 	return out
 }
 
-func (p *Project) routesAnywhere() bool {
+func (p *Spec) routesAnywhere() bool {
 	for _, w := range p.Workloads {
 		if len(w.NormalisedRoutes()) > 0 {
 			return true

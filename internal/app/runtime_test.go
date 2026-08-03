@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 // them as a deploy order. Release order comes from `needs` when the author
 // left deployment.order out.
 func TestReleaseOrderFollowsNeeds(t *testing.T) {
-	p := &Project{Workloads: map[string]Workload{
+	p := &Spec{Workloads: map[string]Workload{
 		"web":    {Role: RoleApplication, Needs: []Need{{Name: "api"}}},
 		"api":    {Role: RoleApplication, Needs: []Need{{Name: "cache"}}},
 		"cache":  {Role: RoleDaemon},
@@ -34,7 +34,7 @@ func TestReleaseOrderFollowsNeeds(t *testing.T) {
 // released — silently dropping it would take a workload out of production
 // because of a typo in an ordering hint.
 func TestReleaseOrderHonoursExplicitAndKeepsOmissions(t *testing.T) {
-	p := &Project{
+	p := &Spec{
 		Deployment: Deployment{Order: []string{"web", "api"}},
 		Workloads: map[string]Workload{
 			"web": {Role: RoleApplication}, "api": {Role: RoleApplication},

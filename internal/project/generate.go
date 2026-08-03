@@ -30,10 +30,24 @@ type Images map[string]string
 // requiring the target — name collisions, account privileges — belongs to
 // preflight, which runs after this and before any mutation.
 func (p *Project) Render(env, releaseID string, images Images) (*Rendered, error) {
-	if _, ok := p.Environments[env]; !ok {
-		return nil, errf("unknown_environment", "environments."+env, "",
-			"environment %q is not declared", env)
+	// Resolve first, always. Rendering an unresolved project would silently
+	// ignore every environment override, which is the kind of bug that only
+	// shows up as staging quietly running production's replica count.
+	r, err := p.Resolve(env)
+	if err != nil {
+		return nil, err
 	}
+	return r.render(env, releaseID, images)
+}
+
+// Render on an already-resolved project renders it as-is rather than resolving
+// a second time.
+func (r *Resolved) Render(env, releaseID string, images Images) (*Rendered, error) {
+	return r.render(env, releaseID, images)
+}
+
+func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, error) {
+	p := r.Project
 	n := p.NamesFor(env)
 
 	services := map[string]any{}

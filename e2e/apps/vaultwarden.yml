@@ -1,0 +1,12 @@
+api_version: onebox.run/v1
+app: vaultwarden
+environments:
+  production: {server: root@TARGET}
+workloads:
+  server:
+    role: application
+    image: vaultwarden/server:1.32.7
+    domain: vault.example.com
+    port: 80
+    env: {WEBSOCKET_ENABLED: "true", SIGNUPS_ALLOWED: "false"}
+    volumes: [{name: data, path: /data}]

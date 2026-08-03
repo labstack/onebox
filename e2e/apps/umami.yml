@@ -1,0 +1,22 @@
+api_version: onebox.run/v1
+app: umami
+environments:
+  production: {server: root@TARGET}
+workloads:
+  umami:
+    role: application
+    image: ghcr.io/umami-software/umami:postgresql-v2.13.2
+    domain: analytics.example.com
+    port: 3000
+    needs: [db]
+    env:
+      DATABASE_URL: postgresql://umami:umami@db:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: replace-me
+    health: {exec: "curl -f http://localhost:3000/api/heartbeat || exit 1", interval: 10s, start_period: 40s, retries: 5}
+  db:
+    role: daemon
+    image: postgres:15-alpine
+    env: {POSTGRES_DB: umami, POSTGRES_USER: umami, POSTGRES_PASSWORD: umami}
+    volumes: [{name: data, path: /var/lib/postgresql/data}]
+    health: {exec: "pg_isready -U umami -d umami", interval: 5s, retries: 10}

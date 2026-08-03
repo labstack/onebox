@@ -1,0 +1,40 @@
+api_version: onebox.run/v1
+app: paperless
+environments:
+  production: {server: root@TARGET}
+workloads:
+  webserver:
+    role: application
+    image: ghcr.io/paperless-ngx/paperless-ngx:2.14.7
+    domain: paperless.example.com
+    port: 8000
+    needs: [db, broker, gotenberg, tika]
+    env:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_TIKA_ENABLED: "1"
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_SECRET_KEY: replace-me
+      PAPERLESS_URL: https://paperless.example.com
+    volumes:
+      - {name: data, path: /usr/src/paperless/data}
+      - {name: media, path: /usr/src/paperless/media}
+  broker:
+    role: daemon
+    image: docker.io/valkey/valkey:8-alpine
+    volumes: [{name: data, path: /data}]
+    health: {exec: "valkey-cli ping", interval: 5s, retries: 10}
+  db:
+    role: daemon
+    image: docker.io/library/postgres:16-alpine
+    env: {POSTGRES_DB: paperless, POSTGRES_USER: paperless, POSTGRES_PASSWORD: paperless}
+    volumes: [{name: data, path: /var/lib/postgresql/data}]
+    health: {exec: "pg_isready -U paperless", interval: 5s, retries: 10}
+  gotenberg:
+    role: daemon
+    image: docker.io/gotenberg/gotenberg:8.7
+    command: ["gotenberg", "--chromium-disable-javascript=true", "--chromium-allow-list=file:///tmp/.*"]
+  tika:
+    role: daemon
+    image: docker.io/apache/tika:latest

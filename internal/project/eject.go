@@ -36,7 +36,7 @@ type EjectResult struct {
 // workloads at it. dest is a repository path relative to the project file.
 func (r *Resolved) Eject(dest, releaseID string, images Images, overwrite bool) (*EjectResult, error) {
 	if dest == "" {
-		dest = "compose.yaml"
+		dest = r.defaultEjectDest()
 	}
 	target, err := resolveRepoPath(r.Dir, dest)
 	if err != nil {
@@ -86,6 +86,25 @@ func (r *Resolved) Eject(dest, releaseID string, images Images, overwrite bool) 
 		return nil, err
 	}
 	return &EjectResult{Runtime: dest, Workloads: names}, nil
+}
+
+// defaultEjectDest avoids a file the project already references. Several real
+// projects reference `compose.yaml`, and defaulting on top of it turned an
+// ordinary ejection into a refusal the author had done nothing to deserve.
+func (r *Resolved) defaultEjectDest() string {
+	taken := map[string]bool{}
+	for _, name := range sortedKeys(r.Workloads) {
+		if ref := r.Workloads[name].Compose; ref != "" {
+			file, _, _ := strings.Cut(ref, "#")
+			taken[file] = true
+		}
+	}
+	for _, candidate := range []string{"compose.yaml", "compose.ob.yaml", "onebox-compose.yaml"} {
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+	return "onebox-compose.yaml"
 }
 
 func (r *Resolved) projectFile() string {

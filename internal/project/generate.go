@@ -167,6 +167,11 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 	labels["ob.app"] = p.App
 	labels["ob.workload"] = name
 	labels["ob.release"] = releaseID
+	// Onebox runs the replicas itself under derived slot names, so the count is
+	// not a Compose concern — but it must still be part of the bound content.
+	// Without it a scale change renders an identical runtime and the plan digest
+	// never notices.
+	labels["ob.replicas"] = fmt.Sprint(w.Replicas)
 	for k, v := range p.routeLabels(n, name, w) {
 		labels[k] = v
 	}

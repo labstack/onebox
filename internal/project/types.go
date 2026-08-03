@@ -93,6 +93,16 @@ type Workload struct {
 	Protection  *Protection     `json:"protection,omitempty"`
 	Needs       []Need          `json:"needs,omitempty"`
 
+	Entrypoint any            `json:"entrypoint,omitempty"`
+	User       string         `json:"user,omitempty"`
+	Hostname   string         `json:"hostname,omitempty"`
+	WorkingDir string         `json:"working_dir,omitempty"`
+	Init       *bool          `json:"init,omitempty"`
+	TTY        *bool          `json:"tty,omitempty"`
+	StdinOpen  *bool          `json:"stdin_open,omitempty"`
+	ExtraHosts []string       `json:"extra_hosts,omitempty"`
+	Labels     map[string]any `json:"labels,omitempty"`
+
 	// Job only.
 	Run        string    `json:"run,omitempty"`
 	DataEffect string    `json:"data_effect,omitempty"`

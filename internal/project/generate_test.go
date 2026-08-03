@@ -299,3 +299,60 @@ func TestEveryDraftRenders(t *testing.T) {
 		})
 	}
 }
+
+// TestPassthroughFields covers the nine fields a survey of 276 real projects
+// showed standing between two thirds of services and the declaration. Each
+// carries no Onebox semantics: it is declared, and it appears.
+func TestPassthroughFields(t *testing.T) {
+	y := `api_version: onebox.run/v1
+app: ledger
+environments:
+  production: {server: root@1.2.3.4}
+workloads:
+  web:
+    role: application
+    image: nginx
+    entrypoint: [/bin/sh, -c, "exec app"]
+    user: "1000:1000"
+    hostname: web-1
+    working_dir: /srv
+    init: true
+    tty: false
+    stdin_open: true
+    extra_hosts: ["db:10.0.0.5"]
+    labels: {com.example.team: platform, ofelia.enabled: "true"}
+`
+	out := string(render(t, y))
+	for _, want := range []string{
+		"entrypoint:", "user: 1000:1000", "hostname: web-1", "working_dir: /srv",
+		"init: true", "stdin_open: true", "db:10.0.0.5",
+		"com.example.team: platform", "ofelia.enabled:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q\n%s", want, out)
+		}
+	}
+	// tty: false is declared and must survive as false rather than be dropped.
+	if !strings.Contains(out, "tty: false") {
+		t.Errorf("an explicit false must not be dropped\n%s", out)
+	}
+	// Onebox's own labels still land alongside the user's.
+	if !strings.Contains(out, "ob.app: ledger") {
+		t.Error("identity labels must survive user labels")
+	}
+}
+
+// TestUserLabelsCannotClaimOneboxNamespaces: the two namespaces Onebox
+// generates into are reserved, so a user label can never silently win.
+func TestUserLabelsCannotClaimOneboxNamespaces(t *testing.T) {
+	for _, bad := range []string{"ob.app", "traefik.enable"} {
+		y := `api_version: onebox.run/v1
+app: ledger
+environments: {production: {server: h}}
+workloads: {web: {role: application, image: nginx, labels: {"` + bad + `": x}}}
+`
+		if _, err := LoadBytes([]byte(y), "ob.yml"); err == nil {
+			t.Errorf("label %q should be refused", bad)
+		}
+	}
+}

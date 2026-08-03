@@ -186,7 +186,7 @@ runtime in project and volume names, so underscore SHALL join every derived name
 | Service Compose project | `ob_<app>_<service>` | `ob_ledger_postgres` |
 | Service volume | `ob_<app>_<service>_<volume>` | `ob_ledger_postgres_data` |
 | Workload volume | `ob_<app>_<workload>_<volume>` | `ob_ledger_web_uploads` |
-| Router | `<app>_<workload>_<index>` | `ledger_web_0` |
+| Router | `<app>_<workload>_r<index>` | `ledger_web_r0` |
 | Proxy service | `<app>_<workload>` | `ledger_web` |
 | Shared ingress network | the environment's `proxy.network` | `ob-ingress` |
 | Proxy Compose project | `ob-proxy` | `ob-proxy` |
@@ -214,8 +214,15 @@ may not begin `ob-`, which reserves both the underscore-joined namespace and the
 two pre-existing hyphenated host-scoped names.
 
 Every derived name, including the transient name a rollout uses before assigning
-a stable slot, SHALL be application-scoped and SHALL be included in the preflight
-collision check.
+a stable slot, SHALL be application-scoped. The preflight collision check SHALL
+cover every container-runtime object — projects, containers including the
+transient one, and volumes — and SHALL NOT cover routers or proxy services,
+which are labels rather than runtime objects and cannot collide with a container.
+
+A router's index SHALL carry an `r` prefix. Without it, router 2 of a workload
+derives the same string as that workload's second replica container; the two
+occupy different namespaces so nothing breaks, but a reader comparing one list
+against the other is misled.
 
 Names SHALL be stable across releases so a rollback cannot orphan a resource. A
 derived name exceeding sixty-three characters SHALL

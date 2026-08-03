@@ -28,9 +28,16 @@ When documents conflict:
 
 - [`README.md`](../README.md): installation, current capabilities, and the
   supported single-host envelope.
-- [`schema-v1.md`](schema-v1.md): accepted `onebox.run/v1` authoring contract.
-- [`mcp.md`](mcp.md): current MCP tools and their safety boundary.
-- [`product.md`](product.md): concise LLM-first product direction.
+- [`schema-v1.md`](schema-v1.md): accepted `onebox.run/v1` authoring contract as
+  the binary parses it today. The active `adopt-declarative-project-schema`
+  change redefines that identity; until it archives, this file is what ships.
+- [`mcp.md`](mcp.md): current MCP tools and their safety boundary. These ship
+  today; product direction has since withdrawn MCP as the product interface, and
+  this guide will be archived when that change lands.
+- [`product.md`](product.md): product direction — the ownership boundary, the
+  one-application-per-host scope, and the CLI as the interface.
+- [`archive/`](archive/): superseded documents, kept unedited so a decision can
+  be read back to the reasoning that produced it. Never authoritative.
 
 ## Active OpenSpec changes
 

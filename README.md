@@ -1,6 +1,6 @@
 # onebox
 
-**LLM-first, MCP-native production operations for applications intentionally running on one
+**LLM-first production operations for an application intentionally running on one
 server.**
 
 Onebox keeps the economic and cognitive simplicity of a single box while
@@ -192,18 +192,19 @@ verification:
       applied_revisions: ["202607130001"]
 ```
 
-## LLM-first, MCP-native
+## LLM-first
 
-An MCP-capable agent is the intended user interface. MCP earns that role by
-returning typed, secret-safe state and immutable proposals rather than asking a
-model to interpret arbitrary shell output. Trusted approval or secret-entry
-interactions may be elicited when needed, but there is no separate manual
-operations workflow to learn.
+The CLI is the interface, for people and for agents alike. It is deterministic,
+composable in CI, easy to test, and it calls one canonical operations service
+that owns every lifecycle decision.
 
-The CLI remains useful because it is deterministic, composable in CI, easy to
-test, and available if an MCP client is down. It calls the same canonical
-operations service used by MCP-facing reads and proposals. CLI mutation is the
-current transitional execution path until approval-bound MCP execution ships;
+`ob mcp` still ships and is described in [docs/mcp.md](docs/mcp.md), but MCP is
+no longer the intended product interface: the surface is read-only, so every
+mutation already goes through the CLI, and an agent able to run `ob deploy` in a
+shell was never constrained by a read-only tool list. Its withdrawal is
+[product direction](docs/product.md), not yet a shipped change.
+
+The historical framing below described MCP as the primary surface;
 it is not the target product experience.
 
 Connect Claude, Codex, or another MCP client using [docs/mcp.md](docs/mcp.md).

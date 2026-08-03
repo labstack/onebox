@@ -61,9 +61,9 @@
 
 ## 8. Naming and layout
 
-- [ ] 8.1 Implement underscore-joined derivation for every generated name, including application-scoped container, router, and proxy service names.
-- [ ] 8.2 Property test asserting injectivity: no two distinct identifier tuples, including hyphenated ones, derive the same name.
-- [ ] 8.3 Golden test pinning every derived name for a reference project, so a change that would rename an existing volume fails loudly.
+- [x] 8.1 Implement underscore-joined derivation for every generated name, including application-scoped container, router, and proxy service names.
+- [x] 8.2 Property test asserting injectivity: no two distinct identifier tuples, including hyphenated ones, derive the same name.
+- [x] 8.3 Golden test pinning every derived name for a reference project, so a change that would rename an existing volume fails loudly.
 - [ ] 8.4 Refuse at validation any derived name exceeding the container runtime's limit, naming the identifiers and the limit; assert no name is ever truncated.
 - [ ] 8.5 Assert every derived name is application-scoped, including the transient rollout name, and that all of them are covered by the preflight collision check.
 - [ ] 8.6 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback, reported in observation and bound into the plan.

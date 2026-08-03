@@ -139,11 +139,15 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 	// Onebox owns container naming, so container_name is never emitted: a fixed
 	// name forbids the two containers a rolling handover needs, and the rollout
 	// assigns the derived name itself.
-	labels := map[string]any{
-		"ob.app":      p.App,
-		"ob.workload": name,
-		"ob.release":  releaseID,
+	labels := map[string]any{}
+	// The user's labels go on first; Onebox's own follow and the schema reserves
+	// its two namespaces, so nothing the user wrote can be overwritten here.
+	for k, v := range w.Labels {
+		labels[k] = v
 	}
+	labels["ob.app"] = p.App
+	labels["ob.workload"] = name
+	labels["ob.release"] = releaseID
 	for k, v := range p.routeLabels(n, name, w) {
 		labels[k] = v
 	}
@@ -192,6 +196,28 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 
 	if hc := healthcheck(w.Health); hc != nil {
 		svc["healthcheck"] = hc
+	}
+
+	// Passthrough: declared verbatim, carrying no Onebox semantics.
+	if w.Entrypoint != nil {
+		svc["entrypoint"] = w.Entrypoint
+	}
+	for key, val := range map[string]string{
+		"user": w.User, "hostname": w.Hostname, "working_dir": w.WorkingDir,
+	} {
+		if val != "" {
+			svc[key] = val
+		}
+	}
+	for key, val := range map[string]*bool{
+		"init": w.Init, "tty": w.TTY, "stdin_open": w.StdinOpen,
+	} {
+		if val != nil {
+			svc[key] = *val
+		}
+	}
+	if len(w.ExtraHosts) > 0 {
+		svc["extra_hosts"] = w.ExtraHosts
 	}
 	if w.Drain != nil && w.Drain.Grace != "" {
 		svc["stop_grace_period"] = w.Drain.Grace

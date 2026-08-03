@@ -8,11 +8,9 @@ workloads:
     image: ghcr.io/paperless-ngx/paperless-ngx:2.14.7
     domain: paperless.example.com
     port: 8000
-    needs:
-      - {name: db, condition: healthy}
-      - {name: broker, condition: healthy}
-      - gotenberg
-      - tika
+    # Bare names: the loader waits for health where the dependency declares a
+    # check and for start where it does not. gotenberg and tika declare none.
+    needs: [db, broker, gotenberg, tika]
     env_files: [docker-compose.env]
     ports: [{host: 8000, container: 8000}]
     volumes:

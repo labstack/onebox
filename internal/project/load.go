@@ -304,15 +304,40 @@ func crossFieldRules(p *Project) error {
 				"workload %q must declare domain and port together", name)
 		}
 
-		for _, n := range w.Needs {
-			if _, ok := p.Workloads[n.Name]; ok {
-				continue
+		for i, n := range w.Needs {
+			dep, isWorkload := p.Workloads[n.Name]
+			if !isWorkload {
+				if _, isService := p.Services[n.Name]; !isService {
+					return errf("unknown_prerequisite", path+".needs", "",
+						"workload %q needs %q, which is neither a workload nor a service", name, n.Name)
+				}
 			}
-			if _, ok := p.Services[n.Name]; ok {
-				continue
+
+			// Resolve the condition against what the dependency can actually
+			// offer. Asking to wait for health from something with no health
+			// check is not a stricter guarantee, it is an unstartable runtime.
+			hasHealth := isWorkload && dep.Health != nil
+			// A Compose-referenced dependency may declare a health check in the
+			// file it references, which the declaration cannot see. Trusting the
+			// author there is the only honest option; refusing would reject
+			// correct projects on missing information.
+			opaque := !isWorkload || dep.Compose != ""
+
+			switch n.Condition {
+			case "":
+				if hasHealth || opaque {
+					w.Needs[i].Condition = "healthy"
+				} else {
+					w.Needs[i].Condition = "started"
+				}
+			case "healthy":
+				if !hasHealth && !opaque {
+					return errf("prerequisite_has_no_health", path+".needs", "",
+						"workload %q waits for %q to become healthy, but %q declares no health check; "+
+							"declare one, or wait for it to have started instead",
+						name, n.Name, n.Name)
+				}
 			}
-			return errf("unknown_prerequisite", path+".needs", "",
-				"workload %q needs %q, which is neither a workload nor a service", name, n.Name)
 		}
 	}
 

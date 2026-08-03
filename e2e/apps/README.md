@@ -25,3 +25,24 @@ To try one:
 ob preview -c e2e/apps/umami.yml            # what would run
 ob preflight -c e2e/apps/umami.yml          # whether the host is ready
 ```
+
+## Deployed for real
+
+All six were deployed to a throwaway Hetzner VM (Ubuntu 24.04, cpx22) from a
+bare image, by `ob up --bootstrap`: fifteen containers on one host, every one
+serving. The host was destroyed afterwards.
+
+Three defects were found by doing it, none of which local testing had caught:
+
+1. **Compose renamed our volumes.** It prefixes the project name unless the name
+   is pinned, so the volume Docker created was not the one the naming contract
+   promises — and preflight, which looks for the contract name, would never have
+   seen a collision that existed.
+2. **Volumes carried no ownership.** Preflight tells a previous release from a
+   stranger's resource by label, and an unlabelled volume that Onebox itself
+   created looked like a foreign collision.
+3. **`needs` defaulted to an impossible condition.** Waiting for a dependency to
+   become healthy is unsatisfiable when that dependency declares no health
+   check, and the container engine refuses to start the runtime at all:
+   *"dependency failed to start: container has no healthcheck configured."* The
+   condition is now resolved against what the dependency can actually offer.

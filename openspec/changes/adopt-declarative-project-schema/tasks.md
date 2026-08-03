@@ -88,7 +88,7 @@
 
 ## 11. Plan binding
 
-- [ ] 11.1 Add the generated runtime digest and the resolved base path to the executable plan binding.
+- [x] 11.1 Add the generated runtime digest and the resolved base path to the executable plan binding.
 - [ ] 11.2 Regenerate from the plan's own inputs at execution and refuse a digest mismatch before any mutation, directing the operator to re-plan.
 - [ ] 11.3 Fault tests: edited plan, edited referenced Compose file, changed resolved image, relocated base path, and generator behavior change — each refused before mutation with a typed error.
 

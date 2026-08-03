@@ -131,9 +131,10 @@ func TestDefaultsMaterialise(t *testing.T) {
 	}
 }
 
-// TestNeedsDefaultToHealthy: ten real projects gate on healthy, not on started.
-func TestNeedsDefaultToHealthy(t *testing.T) {
-	p, err := LoadBytes([]byte(wl("w: {image: nginx, needs: [db]}, db: {image: \"postgres:16\", role: daemon}")), "ob.yml")
+// TestNeedsGateOnHealthWhenThereIsHealthToGateOn. Ten real projects gate on
+// healthy — but only where the dependency has a health check to reach.
+func TestNeedsGateOnHealthWhenThereIsHealthToGateOn(t *testing.T) {
+	p, err := LoadBytes([]byte(wl(`w: {image: nginx, needs: [db]}, db: {image: "postgres:16", role: daemon, health: {exec: "pg_isready"}}`)), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,4 +212,53 @@ func keysOf[V any](m map[string]V) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestNeedConditionResolvesAgainstTheDependency.
+//
+// Found by deploying: `needs` defaulted to `healthy`, and Compose refuses to
+// start a runtime that waits on a dependency with no health check —
+// "dependency failed to start: container has no healthcheck configured". A
+// default must not describe something the container engine cannot do.
+func TestNeedConditionResolvesAgainstTheDependency(t *testing.T) {
+	y := `api_version: onebox.run/v1
+app: app
+environments: {production: {server: h}}
+workloads:
+  web: {role: application, image: nginx, needs: [db, sidecar]}
+  db: {role: daemon, image: postgres, health: {exec: "pg_isready"}}
+  sidecar: {role: daemon, image: busybox}
+`
+	p, err := LoadBytes([]byte(y), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, n := range p.Workloads["web"].Needs {
+		got[n.Name] = n.Condition
+	}
+	if got["db"] != "healthy" {
+		t.Errorf("a dependency with a health check should be waited on for health, got %q", got["db"])
+	}
+	if got["sidecar"] != "started" {
+		t.Errorf("a dependency without one cannot become healthy, got %q", got["sidecar"])
+	}
+}
+
+// TestExplicitHealthyOnAHealthlessDependencyIsRefused: a default may be
+// softened, but an explicit request must be honoured or refused — never
+// quietly turned into something weaker.
+func TestExplicitHealthyOnAHealthlessDependencyIsRefused(t *testing.T) {
+	y := `api_version: onebox.run/v1
+app: app
+environments: {production: {server: h}}
+workloads:
+  web: {role: application, image: nginx, needs: [{name: sidecar, condition: healthy}]}
+  sidecar: {role: daemon, image: busybox}
+`
+	_, err := LoadBytes([]byte(y), "ob.yml")
+	var e *Error
+	if !asError(err, &e) || e.Code != "prerequisite_has_no_health" {
+		t.Fatalf("got %v, want prerequisite_has_no_health", err)
+	}
 }

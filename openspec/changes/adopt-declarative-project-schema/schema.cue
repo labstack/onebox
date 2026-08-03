@@ -236,6 +236,15 @@ package obschema
 	extra_hosts?: [...string & !=""]
 	labels?: {[!~"^(ob\\.|traefik\\.)"]: #Scalar}
 
+	// Onebox owns log rotation, but which driver a workload logs through is a
+	// real choice people make — it blocked more services than anything else in
+	// the survey — so the driver is declared and rotation stays Onebox's.
+	logging?: {
+		driver?: string & !=""
+		options?: {[string]: #Scalar}
+		#X
+	}
+
 	// Files projected into this workload, applied in order, later winning.
 	// Per-workload because a real stack has several: paperless gives one file to
 	// its web server only, immich shares one between two of four services, and

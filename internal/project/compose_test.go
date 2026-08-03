@@ -7,7 +7,17 @@ import (
 
 func mergeFixture(t *testing.T, service string, ov overlay) (map[string]any, error) {
 	t.Helper()
-	return mergeComposeRef("testdata", "compose.yaml#"+service, ov)
+	svc, _, err := mergeComposeRef("testdata", "compose.yaml#"+service, ov)
+	return svc, err
+}
+
+func mergeFixtureDeps(t *testing.T, service string, ov overlay) definitions {
+	t.Helper()
+	_, deps, err := mergeComposeRef("testdata", "compose.yaml#"+service, ov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deps
 }
 
 // TestMergePreservesWhatTheUserWrote is the promise of the escape hatch: a
@@ -107,7 +117,7 @@ func TestMissingServiceNamesWhatExists(t *testing.T) {
 // the check is not lexical because `a/../../etc` is legal to write.
 func TestPathEscapeRefused(t *testing.T) {
 	for _, ref := range []string{"../outside.yaml#x", "/etc/compose.yaml#x"} {
-		_, err := mergeComposeRef("testdata", ref, overlay{})
+		_, _, err := mergeComposeRef("testdata", ref, overlay{})
 		var e *Error
 		if !asError(err, &e) {
 			t.Fatalf("%s: got %v", ref, err)
@@ -150,5 +160,50 @@ workloads:
 	}
 	if strings.Contains(out, "x-ob-compose-ref") {
 		t.Error("the reference marker should be replaced by the merged service")
+	}
+}
+
+// TestCarriesNetworkAndVolumeDefinitions is a correctness fix, not a coverage
+// one. A survey of real projects found 85 declaring non-default network
+// topology and 35 with volume driver options. Dropping them would put a
+// segmented service on the default network and turn an NFS mount into a local
+// directory — silently, and only visible once data went to the wrong place.
+func TestCarriesNetworkAndVolumeDefinitions(t *testing.T) {
+	deps := mergeFixtureDeps(t, "segmented", overlay{})
+
+	net, ok := deps.Networks["backend"]
+	if !ok {
+		t.Fatal("the segmented network definition was dropped")
+	}
+	if m, _ := net.(map[string]any); m["internal"] != true {
+		t.Errorf("network settings were dropped: %v", net)
+	}
+
+	vol, ok := deps.Volumes["nfsdata"]
+	if !ok {
+		t.Fatal("the volume definition was dropped")
+	}
+	m, _ := vol.(map[string]any)
+	if m["driver_opts"] == nil {
+		t.Errorf("volume driver options were dropped: %v", vol)
+	}
+}
+
+// TestExtendsRefused: the referenced file is read as plain YAML, so extends is
+// not followed. Rendering a service without what it inherits would be worse
+// than refusing.
+func TestExtendsRefused(t *testing.T) {
+	_, err := mergeFixture(t, "inherited", overlay{})
+	var e *Error
+	if !asError(err, &e) || e.Code != "compose_extends" {
+		t.Fatalf("got %v, want compose_extends", err)
+	}
+}
+
+// TestBindMountsNeedNoDefinition keeps the common case free of noise.
+func TestBindMountsNeedNoDefinition(t *testing.T) {
+	deps := mergeFixtureDeps(t, "postgres", overlay{})
+	if len(deps.Volumes) != 0 {
+		t.Errorf("a bind mount needs no top-level definition, got %v", deps.Volumes)
 	}
 }

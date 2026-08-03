@@ -125,3 +125,29 @@ func dirEntries(t *testing.T, dir string) int {
 	}
 	return len(entries)
 }
+
+// TestEjectPicksAFreeName. A flag default of "compose.yaml" would refuse an
+// ordinary ejection in any project that already references that file — which
+// several real ones do.
+func TestEjectPicksAFreeName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "compose.yaml", "services:\n  db: {image: postgres}\n")
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+app: ledger
+environments: {production: {server: root@1.2.3.4}}
+workloads:
+  web: {role: application, image: nginx, domain: d.example.com, port: 80}
+  db:  {role: daemon, compose: "compose.yaml#db"}
+`)
+	out, err := run(t, dir, "eject")
+	if err != nil {
+		t.Fatalf("eject should choose a free name: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "compose.ob.yaml")); err != nil {
+		t.Fatalf("expected a non-colliding file to be written: %v", err)
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if !strings.Contains(string(body), "postgres") {
+		t.Error("the referenced file must be left alone")
+	}
+}

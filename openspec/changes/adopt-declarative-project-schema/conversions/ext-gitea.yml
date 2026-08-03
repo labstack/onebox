@@ -1,0 +1,22 @@
+api_version: onebox.run/v1
+app: gitea
+environments:
+  production: {server: root@example.com}
+workloads:
+  server:
+    role: application
+    image: docker.gitea.com/gitea:1.27.1
+    domain: git.example.com
+    port: 3000
+    needs: [db]
+    env: {USER_UID: 1000, USER_GID: 1000, "GITEA__database__DB_TYPE": postgres, "GITEA__database__HOST": "db:5432"}
+    ports: [{host: 222, container: 22, bind: "0.0.0.0"}]
+    volumes:
+      - {source: ./gitea, target: /data}
+      - {source: /etc/timezone, target: /etc/timezone, mode: ro}
+      - {source: /etc/localtime, target: /etc/localtime, mode: ro}
+  db:
+    role: daemon
+    image: docker.io/library/postgres:14
+    env: {POSTGRES_USER: gitea, POSTGRES_DB: gitea}
+    volumes: [{source: ./postgres, target: /var/lib/postgresql/data}]

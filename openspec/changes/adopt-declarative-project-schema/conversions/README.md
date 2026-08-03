@@ -17,6 +17,9 @@ nobody here wrote.
 | `ext-n8n` | n8n-io/n8n-hosting | queue-mode worker split from one image, sidecar runners, staged init script |
 | `ext-plausible` | plausible/community-edition | two unlike datastores, four mounted XML config files, ulimits |
 | `ext-immich` | immich-app/immich | ML sidecar, `shm_size`, one env file shared by two of four workloads |
+| `ext-authentik` | goauthentik/authentik | server and worker from one image, four bind mounts including the Docker socket, two published ports |
+| `ext-gitea` | go-gitea/gitea | SSH published on a non-HTTP port, host bind mounts for timezone and data |
+| `ext-frigate` | blakeblackshear/frigate | devices, privileged, `shm_size`, `tmpfs`, and a port published over both TCP and UDP |
 
 ## What the exercise changed
 
@@ -40,6 +43,23 @@ to be worked around, and five gaps were confirmed by more than one project each:
 5. **Mounted configuration was never staged.** plausible mounts four ClickHouse
    XML files, n8n an init script, fanout its proxy config. The Compose reference
    was staged but the files it mounts were not. A `files:` list now stages them.
+
+A second round against authentik, gitea, and frigate confirmed two more:
+
+6. **Volumes could only be named.** Authentik bind-mounts four paths including the
+   Docker socket, gitea binds its data directory and timezone, frigate binds its
+   config and storage — and `goal` and `monk` already bind `/data/postgres`. A
+   named-volume-only model would have forced every one of them through a Compose
+   reference. Volumes are now named or bound.
+7. **Published ports had no protocol.** Frigate publishes 8555 over both TCP and
+   UDP. Ports now carry a protocol, defaulting to TCP.
+
+Frigate also settled the shape of the boundary. Its devices, privileged flag,
+shared-memory size, and tmpfs mount are deliberately *not* modelled — they are
+real but rare, runtime-specific, and would grow the contract far more than they
+would help. The contract now names them explicitly and directs authors to the
+Compose reference, so the limit is documented rather than discovered. Such a
+workload is still released, health-gated, routed, and rolled back normally.
 
 `fanout` additionally needed a backend scheme: its OTLP listener is gRPC, which
 `protocol` and TLS mode alone cannot express. Routes now carry `scheme`.

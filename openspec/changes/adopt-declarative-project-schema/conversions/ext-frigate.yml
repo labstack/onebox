@@ -1,0 +1,18 @@
+api_version: onebox.run/v1
+app: frigate
+environments:
+  production: {server: root@example.com}
+workloads:
+  frigate:
+    role: application
+    # devices, privileged, shm_size and the tmpfs mount are not expressible in
+    # the declaration and are carried by the Compose reference instead.
+    compose: docker-compose.yml#frigate
+    domain: frigate.example.com
+    port: 8971
+    drain: {grace: 30s}
+    ports:
+      - {host: 8971, container: 8971}
+      - {host: 8554, container: 8554}
+      - {host: 8555, container: 8555, protocol: tcp}
+      - {host: 8555, container: 8555, protocol: udp}

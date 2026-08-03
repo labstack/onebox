@@ -122,10 +122,24 @@ package obschema
 
 // ---------- storage ----------
 
+// Either an Onebox-managed named volume, or a bind mount. Bind mounts are not
+// exotic: four of the external projects converted against this contract use one
+// for their database directory or their configuration, and so do two here.
+// The branches are mutually negated because a branch missing a required field
+// is incomplete rather than invalid and would never drop out.
 #Volume: #Ident | {
-	name:  #Ident
-	path?: #AbsPath
-	mode:  "rw" | "ro" | *"rw"
+	name:    #Ident
+	path?:   #AbsPath
+	mode:    "rw" | "ro" | *"rw"
+	source?: _|_
+	target?: _|_
+	#X
+} | {
+	source: #RepoPath | #AbsPath
+	target: #AbsPath
+	mode:   "rw" | "ro" | *"rw"
+	name?:  _|_
+	path?:  _|_
 	#X
 }
 
@@ -152,6 +166,7 @@ package obschema
 	host:      #Port
 	container: #Port
 	bind:      string & !="" | *"127.0.0.1"
+	protocol:  "tcp" | "udp" | *"tcp"
 	#X
 }
 

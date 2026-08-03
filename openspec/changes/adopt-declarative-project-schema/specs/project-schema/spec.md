@@ -345,14 +345,19 @@ wrong default.
 ### Requirement: Workloads may publish host ports
 
 A workload MAY publish a host port, for a service reached without going through
-the proxy. A published port SHALL declare the host port, the container port, and
-a bind address defaulting to `127.0.0.1`. Publishing on every interface SHALL
+the proxy. A published port SHALL declare the host port, the container port, a bind address
+defaulting to `127.0.0.1`, and a protocol of `tcp` or `udp` defaulting to `tcp`.
+A workload MAY publish the same port under both protocols. Publishing on every interface SHALL
 require declaring the bind address explicitly, so exposure is deliberate rather
 than accidental.
 
 #### Scenario: Default bind is loopback
 - **WHEN** a workload publishes a port without a bind address
 - **THEN** the canonical form binds it to `127.0.0.1`
+
+#### Scenario: UDP port
+- **WHEN** a workload publishes the same port over TCP and UDP
+- **THEN** both are declared and both appear in the generated runtime
 
 #### Scenario: Public exposure is explicit
 - **WHEN** a workload publishes a port on every interface
@@ -468,6 +473,51 @@ accepted name in the same position SHALL produce a hint naming the alternative.
 #### Scenario: Multiple violations
 - **WHEN** a project contains more than one violation
 - **THEN** every violation is reported rather than stopping at the first
+
+### Requirement: The declaration's boundary is stated, not discovered
+
+The declaration SHALL cover what is common across real applications and SHALL
+NOT attempt to model the whole container runtime. This contract SHALL name the
+concerns it deliberately leaves to a Compose reference, so an author learns the
+boundary from the documentation rather than from a rejected project.
+
+Deliberately not modelled, and expressible only through a Compose reference:
+device mappings, privileged execution, `shm_size`, `tmpfs` mounts, `ulimits`,
+`cap_add` and `cap_drop`, `sysctls`, `security_opt`, `network_mode`, `user`, and
+`init`. Each appears in real stacks — a video recorder needs devices and shared
+memory, an analytics database needs file-descriptor limits — but each is rare,
+runtime-specific, and would grow the contract far more than it would help.
+
+A workload needing any of them SHALL remain fully operable: Onebox releases it,
+health-gates it, routes to it, and rolls it back exactly as any other workload.
+
+#### Scenario: Hardware access through a reference
+- **WHEN** a workload requires device mappings and a shared-memory size
+- **THEN** it is declared by Compose reference, and Onebox releases, health-gates, routes, and rolls it back like any other workload
+
+#### Scenario: The boundary is documented
+- **WHEN** an author looks for a concern this contract does not model
+- **THEN** the authoring guide names it and directs them to the Compose reference
+
+### Requirement: Volumes are named or bound
+
+A workload volume SHALL be either an Onebox-managed named volume or a bind
+mount declaring a source and a target. A bind-mount source SHALL be a repository
+path or an absolute path on the target. Bind mounts are not an edge case: they
+carry the database directory or the configuration in the majority of real
+projects examined against this contract.
+
+#### Scenario: Named volume
+- **WHEN** a workload declares a volume by name
+- **THEN** Onebox derives its name from the naming contract and owns its lifecycle
+
+#### Scenario: Bind mount from the repository
+- **WHEN** a workload binds a repository path to a container path
+- **THEN** the source is staged with the release and mounted at the target
+
+#### Scenario: Bind mount from the target
+- **WHEN** a workload binds an absolute path on the target
+- **THEN** it is mounted as declared and Onebox does not manage its contents
 
 ### Requirement: Raw Compose is bounded to workloads
 

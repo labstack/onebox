@@ -282,7 +282,7 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 	// A job runs to completion. Restarting it forever is wrong, and `compose up`
 	// must not start it at all: it runs at a release phase or on a schedule,
 	// under Onebox's control. A profile keeps it out of the default set.
-	if w.Role == "job" {
+	if w.Role == RoleJob {
 		svc["restart"] = "no"
 		svc["profiles"] = []string{"job"}
 	} else {
@@ -300,7 +300,7 @@ func (p *Project) envFilesFor(w Workload) []string {
 	if len(w.EnvFiles) > 0 {
 		return w.EnvFiles
 	}
-	if w.Role != "application" && w.Role != "worker" {
+	if w.Role != RoleApplication && w.Role != RoleWorker {
 		return nil
 	}
 	if p.Runtime == nil {

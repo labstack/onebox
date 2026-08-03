@@ -180,7 +180,7 @@ func (r *Resolved) stage(rendered *Rendered) (string, error) {
 func (r *Resolved) awaitHealth(ctx context.Context, t Target, compose string, wait time.Duration) ([]string, []string, error) {
 	var expect []string
 	for _, name := range sortedKeys(r.Workloads) {
-		if r.Workloads[name].Health != nil && r.Workloads[name].Role != "job" {
+		if r.Workloads[name].Health != nil && r.Workloads[name].Role != RoleJob {
 			expect = append(expect, name)
 		}
 	}

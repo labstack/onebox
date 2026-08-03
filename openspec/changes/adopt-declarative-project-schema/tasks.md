@@ -7,7 +7,7 @@
 ## 2. Normalized model foundation
 
 - [x] 2.1 Define the normalized model from the field model — workloads with a role and exactly one source, routes, services, environments with policy and overrides, and a per-field origin record.
-- [ ] 2.2 Add origin tracking (`override`, `explicit`, `shorthand`, `derived`, `default`) to every field, asserting in tests that none reaches the model without one.
+- [x] 2.2 Add origin tracking (`override`, `explicit`, `shorthand`, `derived`, `default`) to every field, asserting in tests that none reaches the model without one.
 - [x] 2.3 Reject a project declaring the withdrawn `components` block with an error naming the block and the authoring guide.
 - [x] 2.4 Reject absent, malformed, and unsupported schema identities before validation, target contact, or generation.
 
@@ -38,7 +38,7 @@
 - [x] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
 - [ ] 5.5 Implement preflight key checks for required-and-non-empty and present.
 - [ ] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.
-- [ ] 5.7 Make the canonical form printable with per-field origins, with golden tests over the corpus.
+- [x] 5.7 Make the canonical form printable with per-field origins, with golden tests over the corpus.
 
 ## 6. Routes
 

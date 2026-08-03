@@ -58,6 +58,7 @@ func newRootCmd() *cobra.Command {
 	addPreflightCommand(root, g)
 	addUpCommand(root, g)
 	addEjectCommand(root, g)
+	addConfigCommand(root, g)
 	return root
 }
 

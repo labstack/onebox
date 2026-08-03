@@ -356,3 +356,14 @@ workloads: {web: {role: application, image: nginx, labels: {"` + bad + `": x}}}
 		}
 	}
 }
+
+// TestReplicaCountIsBound: Onebox runs replicas itself under derived slot
+// names, so the count is not a Compose concern — but a plan binds the runtime
+// digest, and a scale change that renders identically would slip past it.
+func TestReplicaCountIsBound(t *testing.T) {
+	one := digestOf(t, appFixture)
+	three := digestOf(t, strings.Replace(appFixture, "    replicas: 2\n", "    replicas: 5\n", 1))
+	if one == three {
+		t.Fatal("changing the replica count must change the runtime digest")
+	}
+}

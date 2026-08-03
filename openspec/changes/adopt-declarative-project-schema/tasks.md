@@ -78,7 +78,7 @@
 
 ## 10. Rendering and ejection
 
-- [ ] 10.1 Render the complete runtime without contacting a target or mutating state, with secrets by reference only.
+- [x] 10.1 Render the complete runtime without contacting a target or mutating state, with secrets by reference only.
 - [ ] 10.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
 - [ ] 10.3 Implement ejection to the default destination beside the project file or an explicit one, refusing an existing path without an explicit overwrite, and stripping the overlay from the written file.
 - [ ] 10.4 Assert generation succeeds immediately after ejection, proving the written file carries none of the keys the overlay refuses.
@@ -97,7 +97,7 @@
 - [ ] 12.1 Export the JSON Schema from the CUE source at build time and embed it in the binary, with a test that both accept and reject the same corpus.
 - [ ] 12.2 Add the command that writes the embedded schema to a repository path.
 - [ ] 12.3 Make scaffolding emit the `yaml-language-server` reference comment on the project's first line, and test that an editor resolves it.
-- [ ] 12.4 Define the typed error-code enumeration and the structured envelope identity in the schema guide before any of it is emitted, attaching a resolving command to every failure.
+- [x] 12.4 Define the typed error-code enumeration and the structured envelope identity in the schema guide before any of it is emitted, attaching a resolving command to every failure.
 - [ ] 12.5 Assert over the fixture corpus that no failure path emits an error code outside the enumeration.
 - [ ] 12.6 Add versioned structured output to validation, configuration printing, rendering, and ejection, asserting diagnostics never reach the structured stream and no plaintext secret appears in it.
 - [ ] 12.7 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.

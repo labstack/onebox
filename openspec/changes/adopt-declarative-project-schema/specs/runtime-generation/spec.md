@@ -195,12 +195,13 @@ runtime in project and volume names, so underscore SHALL join every derived name
 | Host-scoped state | `<base>/_host` | `/var/lib/ob/_host` |
 
 Container names SHALL carry the application component. Container names are
-host-global in the container runtime, so a workload-only pattern makes two
-applications sharing a host collide on the same name — `server-1` is what all
-four existing projects would derive. Router and proxy service names SHALL
-likewise be application-scoped, and SHALL appear in this table rather than being
-invented by the implementation, because they become a permanent generator
-contract the first time a release ships.
+host-global in the container runtime, so a workload-only name such as `server-1`
+can collide with a container Onebox does not own that happens to share the name.
+Scoping every derived name to the application keeps everything Onebox creates in
+one namespace and makes ownership legible from the name alone. Router and proxy
+service names SHALL likewise be application-scoped, and SHALL appear in this
+table rather than being invented by the implementation, because they become a
+permanent generator contract the first time a release ships.
 
 A service's volume identifiers come from its declared `volumes`; a service that
 declares none reserves no volume name.
@@ -245,9 +246,9 @@ derive a different name for the same declared resource.
 - **WHEN** a derived name would exceed sixty-three characters
 - **THEN** validation fails naming the identifiers and the limit, and no name is truncated
 
-#### Scenario: Two applications on one host declare the same workload name
-- **WHEN** two applications on one host each declare a workload named `server`
-- **THEN** their container, router, and proxy service names differ
+#### Scenario: Foreign container holds a derived name
+- **WHEN** a container Onebox does not own already holds a name a release would derive
+- **THEN** preflight fails naming the holder, and nothing is renamed, stopped, or removed
 
 #### Scenario: A later release would rename an existing volume
 - **WHEN** a change to the naming patterns would derive a different volume name for a resource that already exists

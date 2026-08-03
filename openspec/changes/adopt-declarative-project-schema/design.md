@@ -262,13 +262,14 @@ Underscore is excluded from the identifier grammar and accepted by Docker in
 project and volume names, so it joins every derived name: `ob_<app>_<service>`.
 Application identifiers may not begin `ob-`, which reserves the two pre-existing
 hyphenated host-scoped names. Together these make derivation injective, which is
-not a nicety — a collision here means two applications sharing a database volume.
+not a nicety — a collision here means one declared resource silently mounting
+another's data.
 
 Names are stable across releases so a rollback cannot orphan a resource. A name
 that would exceed the length limit is refused at validation rather than
 truncated: a review constructed two identifiers whose truncated volume names
-collided under a hash suffix, and a collision here means two applications
-sharing a database volume.
+collided under a hash suffix, and a collision here means one declared resource
+silently mounting another's data.
 
 Volume names get a stronger rule: they are permanent. A later change to the
 pattern that would derive a different volume name for an existing resource is a

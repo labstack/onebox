@@ -11,7 +11,7 @@ nobody here wrote.
 | `monk` | this organization | exec health check, worker, ofelia cron, local pre-release and post-deploy hooks, advisory verification with `contains` |
 | `pursue` | this organization | migration job, pinned proxy image, registry credentials |
 | `recast` | this organization | migration job, ClamAV daemon, runner and plan-schema policy |
-| `fanout` | this organization, **declined the previous schema** | three sites on one host, four hostnames, OTLP gRPC listener, three per-service env files, proxy config staging |
+| `fanout` | this organization, **declined the previous schema** | one application, three workloads serving four hostnames; OTLP gRPC listener, three per-service env files, proxy config staging |
 | `ext-umami` | umami-software/umami | smallest real stack: app plus one database, health-gated |
 | `ext-paperless` | paperless-ngx/paperless-ngx | five services, published host port, single-workload env file |
 | `ext-n8n` | n8n-io/n8n-hosting | queue-mode worker split from one image, sidecar runners, staged init script |

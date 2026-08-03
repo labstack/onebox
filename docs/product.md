@@ -98,14 +98,16 @@ high availability, or protection from an adversarial infrastructure provider.
 
 ## One-box scope
 
-Onebox supports one active production host per environment. Several
-applications, workers, jobs, databases, caches, volumes, and a proxy may share
-that host when resource and ownership boundaries are explicit.
+Onebox operates one application per environment, on one active production host.
+That application may have as many workloads as it needs — a server, workers,
+jobs, databases, caches, volumes, and a proxy — but the unit Onebox owns is the
+application, and a host runs one of them.
 
 Onebox is not:
 
 - A cluster manager, Kubernetes replacement, PaaS, or hosting provider.
 - A multi-host or multi-region orchestrator.
+- A way to run several independent applications side by side on one host.
 - A generic Docker dashboard, terminal, or remote shell.
 - A universal infrastructure-as-code language.
 - A guarantee of availability after losing the only host.

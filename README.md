@@ -210,10 +210,11 @@ Connect Claude, Codex, or another MCP client using [docs/mcp.md](docs/mcp.md).
 
 ## Scope
 
-Onebox supports several applications, workers, jobs, databases, caches,
-volumes, and a proxy on one active production host per environment. It is not a
-cluster manager, Kubernetes replacement, hosting provider, or high-availability
-system. Rolling deployment can avoid application interruption while the box is
+Onebox operates one application per environment, on one active production host.
+That application may have as many workloads as it needs — a server, workers,
+jobs, databases, caches, and a proxy — but a host runs one Onebox application,
+not several. It is not a cluster manager, Kubernetes replacement, hosting
+provider, or high-availability system. Rolling deployment can avoid application interruption while the box is
 healthy; it cannot make a failed physical host available.
 
 Compose is the runtime contract. Onebox can operate any containerized

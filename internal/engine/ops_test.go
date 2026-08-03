@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -35,7 +35,7 @@ func TestSecretsPushBouncesOnChange(t *testing.T) {
 	if !strings.Contains(seq, `"phase":"secrets-push"`) {
 		t.Fatalf("not journaled:\n%s", seq)
 	}
-	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") || !strings.Contains(seq, "--scale server=2") {
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") || !strings.Contains(seq, "--scale web=2") {
 		t.Fatalf("roles not bounced:\n%s", seq)
 	}
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/.secrets-") {
@@ -93,23 +93,21 @@ func TestLogsAndExecShapes(t *testing.T) {
 	f := opsFake("x")
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Components = map[string]config.Component{
-		"database": {Type: "postgres", Service: "postgres"},
-	}
+	cfg.Workloads["postgres"] = app.Workload{Role: app.RoleDaemon, Image: &app.Image{Reference: "postgres:17"}}
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Logs(context.Background(), "web", true, 50, &out); err != nil {
 		t.Fatal(err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "logs --tail 50 --follow server") {
+	if !strings.Contains(seq, "logs --tail 50 --follow web") {
 		t.Fatalf("logs shape wrong:\n%s", seq)
 	}
-	if err := e.Logs(context.Background(), "database", false, 20, &out); err != nil {
+	if err := e.Logs(context.Background(), "postgres", false, 20, &out); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "logs --tail 20 postgres") {
-		t.Fatalf("component logs shape wrong:\n%s", seq)
+		t.Fatalf("workload logs shape wrong:\n%s", seq)
 	}
 	if err := e.ExecIn(context.Background(), "web", "alembic current", &out); err != nil {
 		t.Fatal(err)
@@ -118,12 +116,12 @@ func TestLogsAndExecShapes(t *testing.T) {
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
 	}
-	if err := e.ExecIn(context.Background(), "database", "psql --version", &out); err != nil {
+	if err := e.ExecIn(context.Background(), "postgres", "psql --version", &out); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker exec PG1 sh -c 'psql --version'") {
-		t.Fatalf("component exec shape wrong:\n%s", seq)
+		t.Fatalf("workload exec shape wrong:\n%s", seq)
 	}
 	if svc, err := e.resolveService("postgres"); err != nil || svc != "postgres" {
 		t.Fatalf("raw compose service resolution = %q, %v", svc, err)
@@ -133,9 +131,9 @@ func TestLogsAndExecShapes(t *testing.T) {
 	}
 }
 
-func proxyManagedCfg() *config.Config {
+func proxyManagedCfg() *app.Resolved {
 	cfg := testConfig()
-	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
 	return cfg
 }
 

@@ -15,80 +15,55 @@ import (
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/spf13/cobra"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/notify"
 	"github.com/labstack/onebox/internal/onebox"
-	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/transport"
 	"github.com/labstack/onebox/internal/ui"
 )
 
-func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
-	return loadAllWith(ctx, g, compose.Load)
+// loadAll reads the project, resolves it for the selected environment, and
+// parses the runtime it generates. There is no user-authored Compose file to
+// find any more: the declaration is the source, and what used to be inference
+// is now something the author states.
+func loadAll(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
+	return loadAllWith(ctx, g, false)
 }
 
-// loadAllLenient is for READ-ONLY verbs (status, logs, exec, audit) and proxy
-// apply — none consume interpolated compose values, so a missing ${VAR:?}
-// (e.g. an image version normally resolved by the deploy wrapper) must not
-// block a query.
-func loadAllLenient(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
-	return loadAllWith(ctx, g, compose.LoadLenient)
+// loadAllLenient is for read-only verbs — status, logs, exec, audit, proxy
+// apply. None of them run anything, so a workload whose image nobody has built
+// yet must not block the query; it renders with a placeholder and the caller
+// can say so.
+func loadAllLenient(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
+	return loadAllWith(ctx, g, true)
 }
 
-func loadAllWith(ctx context.Context, g *globalFlags, load func(context.Context, string, string, ...string) (*ctypes.Project, error)) (*config.Config, *ctypes.Project, error) {
-	cfg, err := config.Load(g.ConfigPath)
+func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolved, *ctypes.Project, error) {
+	spec, err := app.Load(g.ConfigPath)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Defaults ob can derive without the project: app from the directory,
-	// compose from the conventional file. Inference (which needs the project)
-	// runs after the load; Validate then checks the fully-resolved config.
-	dir := filepath.Dir(g.ConfigPath)
-	if cfg.App == "" {
-		cfg.App = config.DefaultApp(g.ConfigPath)
-	}
-	if cfg.Compose == "" {
-		cfg.Compose = config.FindCompose(dir)
-	}
-	composePath := cfg.Compose
-	if !filepath.IsAbs(composePath) {
-		composePath = filepath.Join(dir, composePath)
-	}
-	// env_files feed ${VAR} interpolation; resolve them against the compose
-	// working dir — the same base InjectEnvFiles/StagePayload use, so the file
-	// that feeds interpolation is exactly the one that ships as container env.
-	composeDir := filepath.Dir(composePath)
-	var envFiles []string
-	for _, ef := range cfg.EnvFiles {
-		abs := ef
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(composeDir, ef)
-		}
-		// An env file must live under the project dir so it ships with the
-		// release (StagePayload only stages sources inside it). One outside
-		// would leave a local-machine path in the compose shipped to the host —
-		// a silent runtime failure. Reject it here, mirroring PayloadRewrites'
-		// staging predicate, so `ob validate` catches it.
-		if rel, err := filepath.Rel(composeDir, abs); err != nil || strings.HasPrefix(rel, "..") {
-			return nil, nil, fmt.Errorf("env_files: %q resolves outside the project (%s) — it must live with the compose file so it ships with the release", ef, composeDir)
-		}
-		envFiles = append(envFiles, abs)
-	}
-	p, err := load(ctx, composePath, cfg.App, envFiles...)
+	resolved, err := spec.Resolve(g.Env)
 	if err != nil {
 		return nil, nil, err
 	}
-	compose.Infer(cfg, p)
-	if err := cfg.Validate(); err != nil {
+	var rendered *app.Rendered
+	if lenient {
+		rendered, err = resolved.RenderForInspection(g.Env, nil)
+	} else {
+		rendered, err = resolved.Render(g.Env, "", nil)
+	}
+	if err != nil {
 		return nil, nil, err
 	}
-	if err := compose.Classify(p, cfg); err != nil {
-		return nil, nil, err
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(g.Env).ComposeProject(), spec.Dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
 	}
-	return cfg, p, nil
+	return resolved, p, nil
 }
 
 func addCommands(root *cobra.Command, g *globalFlags) {
@@ -96,70 +71,15 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "validate",
 		Short: "validate schema, components, and rollability — no side effects",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, _, err := loadAll(cmd.Context(), g)
 			if err != nil {
-				return err
+				return explain(err)
 			}
-			if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
-				for _, e := range errs {
-					fmt.Fprintln(cmd.OutOrStdout(), "error:", e)
-				}
-				return fmt.Errorf("%d rollability error(s)", len(errs))
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s, %s)\n",
-				countLabel(len(cfg.Components), "component"), countLabel(len(cfg.Roles), "workload"),
-				countLabel(len(cfg.Jobs), "job"), countLabel(len(cfg.Accessories), "supporting/data service"))
+			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s)\n",
+				countLabel(len(cfg.ReleaseOrder()), "workload"),
+				countLabel(len(cfg.JobOrder()), "job"),
+				countLabel(len(cfg.ServiceNames()), "supporting service"))
 			return nil
-		},
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "config",
-		Short: "print the fully-resolved config (defaults + inference applied)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			// lenient: inference reads structure (ports/healthchecks/names),
-			// never interpolated values — a pure diagnostic like status
-			cfg, _, err := loadAllLenient(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			b, err := cfg.YAML()
-			if err != nil {
-				return err
-			}
-			_, err = cmd.OutOrStdout().Write(b)
-			return err
-		},
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "render",
-		Short: "print the rendered per-release compose (shows the injected delta; env values redacted)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			compose.InjectEnvFiles(p, cfg)
-			if cfg.Proxy.Managed {
-				network := cfg.Proxy.Network
-				if network == "" {
-					network = proxy.DefaultNetwork
-				}
-				compose.InjectProxyNetwork(p, cfg, network)
-			}
-			out, err := compose.Render(p, cfg, "render-preview")
-			if err != nil {
-				return err
-			}
-			// Redact environment values — even a preview must never print
-			// secrets to the terminal.
-			out, err = compose.RedactEnvYAML(out)
-			if err != nil {
-				return err
-			}
-			_, err = cmd.OutOrStdout().Write(out)
-			return err
 		},
 	})
 
@@ -280,7 +200,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 // owns host observation, image pinning, staging, binding, and execution; the
 // adapter only renders the result and asks for confirmation.
 type preparedPlan struct {
-	cfg  *config.Config
+	cfg  *app.Resolved
 	svc  *onebox.Service
 	plan onebox.DeployPlan
 	ui   *ui.UI
@@ -288,13 +208,13 @@ type preparedPlan struct {
 
 // notifyOutcome pushes a mutating verb's outcome to the configured webhook.
 // Fail-open: a webhook problem is a stderr warning, never the verb's result.
-func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, err error) {
-	if cfg == nil || cfg.Notify == nil {
+func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err error) {
+	if cfg == nil || len(cfg.Notifications) == 0 {
 		return
 	}
 	host := ""
-	if env, eerr := cfg.Environment(g.Env); eerr == nil && len(env.Hosts) == 1 {
-		host = env.Hosts[0]
+	if env, eerr := cfg.Environment(g.Env); eerr == nil {
+		host = env.Target()
 	}
 	p := notify.Payload{
 		App: cfg.App, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
@@ -306,15 +226,17 @@ func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, er
 		// stable, redaction-safe outcome.
 		p.Status, p.Error = "fail", "operation failed; inspect trusted local diagnostics and journal evidence"
 	}
-	if nerr := notify.Send(cfg.Notify, p); nerr != nil {
-		fmt.Fprintf(os.Stderr, "warn: notify webhook: %v\n", nerr)
+	for _, name := range sortedNames(cfg.Notifications) {
+		if nerr := notify.Send(cfg.Notifications[name], p); nerr != nil {
+			fmt.Fprintf(os.Stderr, "warn: notify webhook %s: %v\n", name, nerr)
+		}
 	}
 }
 
 // notifyOperationOutcome maps the canonical result to the stable webhook fields.
 // A no-op is deliberately silent: reporting the planned release ID as deployed
 // would claim an activation that never happened.
-func notifyOperationOutcome(cfg *config.Config, g *globalFlags, verb string, result onebox.OperationResult, err error) {
+func notifyOperationOutcome(cfg *app.Resolved, g *globalFlags, verb string, result onebox.OperationResult, err error) {
 	if err == nil && result.NoOp {
 		return
 	}
@@ -489,15 +411,25 @@ func operationsServiceWithUI(cmd *cobra.Command, g *globalFlags, u *ui.UI) *oneb
 	})
 }
 
-func notificationConfig(g *globalFlags) (*config.Config, error) {
-	cfg, err := config.Load(g.ConfigPath)
+// notificationConfig loads only enough to know where to report an outcome. It
+// deliberately does not render: a verb whose failure was the rendering must
+// still be able to say so.
+func notificationConfig(g *globalFlags) (*app.Resolved, error) {
+	spec, err := app.Load(g.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.App == "" {
-		cfg.App = config.DefaultApp(g.ConfigPath)
+	return spec.Resolve(g.Env)
+}
+
+// sortedNames orders map keys so repeated runs report in the same sequence.
+func sortedNames[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	return cfg, nil
+	sort.Strings(out)
+	return out
 }
 
 func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteRequest, verb string) error {
@@ -573,12 +505,12 @@ func writeStatusFailure(cmd *cobra.Command, g *globalFlags, statusErr error) err
 	return statusErr
 }
 
-func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
+func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
 	env, err := cfg.Environment(g.Env)
 	if err != nil {
 		return nil, nil, err
 	}
-	t, err := cliConnector(cmd.Context(), env.Hosts[0])
+	t, err := cliConnector(cmd.Context(), env.Target())
 	if err != nil {
 		return nil, nil, err
 	}

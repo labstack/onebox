@@ -38,7 +38,7 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if len(snapshot.Roles) != 2 || snapshot.Roles[0].Name != "web" || snapshot.Roles[1].Name != "worker" {
 		t.Fatalf("roles must follow configured order: %#v", snapshot.Roles)
 	}
-	if got := snapshot.Roles[0]; got.Service != "server" || got.Mode != "rolling" || got.DesiredReplicas != 1 || len(got.Containers) != 1 || got.Containers[0].ID != "S1" {
+	if got := snapshot.Roles[0]; got.Service != "web" || got.Mode != "rolling" || got.DesiredReplicas != 1 || len(got.Containers) != 1 || got.Containers[0].ID != "S1" {
 		t.Fatalf("unexpected web status: %#v", got)
 	}
 	if len(snapshot.Accessories) != 1 || snapshot.Accessories[0].Name != "postgres" || snapshot.Accessories[0].Containers[0].ID != "PG1" {
@@ -77,8 +77,8 @@ func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T
 			return transport.Result{Stdout: "releases/R2\n"}, true
 		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
 			// Deliberately reverse the web ids: the public result must be stable.
-			return transport.Result{Stdout: "S2|server|R1|Up (healthy)\n" +
-				"S1|server|R2|Up (unhealthy)\n" +
+			return transport.Result{Stdout: "S2|web|R1|Up (healthy)\n" +
+				"S1|web|R2|Up (unhealthy)\n" +
 				"PG1|postgres|R2|Restarting (1) 2 seconds ago\n"}, true
 		case strings.Contains(cmd, "for f in"):
 			return transport.Result{Stdout: journalOut}, true
@@ -86,9 +86,9 @@ func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T
 		return transport.Result{}, false
 	}}
 	cfg := testConfig()
-	web := cfg.Roles["web"]
+	web := cfg.Workloads["web"]
 	web.Replicas = 2
-	cfg.Roles["web"] = web
+	cfg.Workloads["web"] = web
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 
 	snapshot, err := e.StatusSnapshot(context.Background())

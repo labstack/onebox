@@ -451,14 +451,21 @@ func TestExecuteRejectsComposeDriftBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A Compose edit that leaves the parsed service set (and thus the graph)
-	// intact — only the Compose digest binds it.
+	// An edit to a referenced Compose file that leaves the service set — and
+	// thus the operation graph — intact, but changes what would actually run.
+	// Only the runtime digest binds it.
+	//
+	// The digest covers the generated runtime, not the file that fed it, so a
+	// comment-only edit is deliberately not drift: nothing about the release
+	// would differ, and forcing a re-plan for it would teach operators that
+	// re-planning is noise.
 	composePath := filepath.Join(filepath.Dir(svc.configPath), "docker-compose.yaml")
 	source, err := os.ReadFile(composePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(composePath, append(source, []byte("\n# drift introduced after planning\n")...), 0o600); err != nil {
+	drifted := strings.Replace(string(source), "ghcr.io/example/postgres:", "ghcr.io/example/other:", 1)
+	if err := os.WriteFile(composePath, []byte(drifted), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fake.Uploads, fake.Inputs = nil, nil
@@ -529,14 +536,14 @@ func TestExecuteRejectsLiveBaselineDrift(t *testing.T) {
 	}
 	baseDynamic := fake.Dynamic
 	fake.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "postgres") {
+		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "'database'") {
 			return transport.Result{Stdout: "PG1\n"}, true
 		}
-		if strings.Contains(command, "docker inspect") && strings.Contains(command, "PG1") {
+		if strings.Contains(command, "docker inspect") && strings.Contains(command, "Health") {
 			return transport.Result{Stdout: "healthy\n"}, true
 		}
 		if strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml") {
-			return transport.Result{Stdout: "services:\n  server:\n    image: changed-after-plan\n"}, true
+			return transport.Result{Stdout: "services:\n  web:\n    image: changed-after-plan\n"}, true
 		}
 		return baseDynamic(command)
 	}
@@ -561,10 +568,10 @@ func TestExecuteRechecksBindingAfterTakingFence(t *testing.T) {
 	baseDynamic := fake.Dynamic
 	liveReads := 0
 	fake.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "postgres") {
+		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "'database'") {
 			return transport.Result{Stdout: "PG1\n"}, true
 		}
-		if strings.Contains(command, "docker inspect") && strings.Contains(command, "PG1") {
+		if strings.Contains(command, "docker inspect") && strings.Contains(command, "Health") {
 			return transport.Result{Stdout: "healthy\n"}, true
 		}
 		if strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml") {
@@ -755,7 +762,7 @@ func TestExecuteRejectsChangedConfirmedBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := strings.Replace(string(source), "target: deploy@example.invalid", "target: deploy@other.invalid", 1)
+	changed := strings.Replace(string(source), "server: deploy@example.invalid", "server: deploy@other.invalid", 1)
 	if err := os.WriteFile(svc.configPath, []byte(changed), 0o600); err != nil {
 		t.Fatal(err)
 	}

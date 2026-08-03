@@ -1,104 +1,126 @@
 package onebox
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"sort"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 )
 
-type composeLoader func(context.Context, string, string, ...string) (*ctypes.Project, error)
+// Loading changed shape with the declarative contract. There is no longer a
+// user-authored Compose file to read and classify: the project declares its
+// workloads, and the runtime is generated from that declaration. What used to
+// be inference — guess which service is the app, which is a database, what
+// order they start in — is now something the author states and the loader
+// checks.
+//
+// The generated runtime is still parsed back into a Compose project, because
+// the execution engine works in terms of services and images and that is the
+// form it needs. Parsing our own output is cheap and keeps one source of truth
+// for what a service is.
 
 type loadedProject struct {
-	config       *config.Config
-	project      *ctypes.Project
+	spec     *app.Spec
+	resolved *app.Resolved
+	// compose is the parsed generated runtime. On an inspection load it may
+	// carry placeholder images for workloads nobody has built yet; unresolved
+	// names them so a caller reports "not released" rather than a fake digest.
+	compose      *ctypes.Project
+	unresolved   []string
 	configPath   string
-	composePath  string
 	configBytes  []byte
 	composeBytes []byte
 }
 
-func loadProject(ctx context.Context, configPath string, lenient bool) (*loadedProject, error) {
+// loadProject reads the project, resolves it for the environment, and renders
+// the runtime it implies.
+//
+// lenient asks for a runtime that can be described but not deployed: a project
+// whose images are not built yet still has a shape worth reporting. Every
+// execution path passes false and fails closed on an unresolved image.
+func (s *Service) loadProject(ctx context.Context, lenient bool) (*loadedProject, error) {
+	return loadProjectAt(ctx, s.configPath, s.environment, lenient, nil)
+}
+
+func loadProjectAt(ctx context.Context, configPath, environment string, lenient bool, images app.Images) (*loadedProject, error) {
 	absConfig, err := filepath.Abs(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path: %w", err)
 	}
-	loader := composeLoader(compose.Load)
-	if lenient {
-		loader = compose.LoadLenient
-	}
-
 	cfgBytes, err := os.ReadFile(absConfig)
 	if err != nil {
 		return nil, err
 	}
-	var cfg *config.Config
-	if strings.HasSuffix(absConfig, ".cue") {
-		cfg, err = config.LoadCUEBytes(cfgBytes, absConfig)
+	spec, err := app.LoadBytes(cfgBytes, absConfig)
+	if err != nil {
+		return nil, err
+	}
+	spec.Dir = filepath.Dir(absConfig)
+
+	resolved, err := spec.Resolve(environment)
+	if err != nil {
+		return nil, err
+	}
+
+	var rendered *app.Rendered
+	if lenient {
+		rendered, err = resolved.RenderForInspection(environment, images)
 	} else {
-		cfg, err = config.LoadBytes(cfgBytes, absConfig)
+		rendered, err = resolved.Render(environment, "", images)
 	}
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Dir(absConfig)
-	if cfg.App == "" {
-		cfg.App = config.DefaultApp(absConfig)
-	}
-	if cfg.Compose == "" {
-		cfg.Compose = config.FindCompose(dir)
-	}
-	composePath := cfg.Compose
-	if !filepath.IsAbs(composePath) {
-		composePath = filepath.Join(dir, composePath)
-	}
-	composePath, err = filepath.Abs(composePath)
+
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(environment).ComposeProject(), spec.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve compose path: %w", err)
+		return nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
 	}
-	composeDir := filepath.Dir(composePath)
-	var envFiles []string
-	for _, ef := range cfg.EnvFiles {
-		abs := ef
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(composeDir, ef)
-		}
-		if rel, relErr := filepath.Rel(composeDir, abs); relErr != nil || strings.HasPrefix(rel, "..") {
-			return nil, fmt.Errorf("env_files: %q resolves outside the project (%s) — it must live with the compose file so it ships with the release", ef, composeDir)
-		}
-		envFiles = append(envFiles, abs)
-	}
-	composeBytes, err := os.ReadFile(composePath)
-	if err != nil {
-		return nil, err
-	}
-	p, err := loader(ctx, composePath, cfg.App, envFiles...)
-	if err != nil {
-		return nil, err
-	}
-	compose.Infer(cfg, p)
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	if err := compose.Classify(p, cfg); err != nil {
-		return nil, err
-	}
-	composeAfter, err := os.ReadFile(composePath)
-	if err != nil {
-		return nil, err
-	}
-	if !bytes.Equal(composeBytes, composeAfter) {
-		return nil, fmt.Errorf("compose changed while it was being loaded; retry the operation")
-	}
+
 	return &loadedProject{
-		config: cfg, project: p, configPath: absConfig, composePath: composePath,
-		configBytes: cfgBytes, composeBytes: composeBytes,
+		spec: spec, resolved: resolved, compose: p, unresolved: rendered.Unresolved,
+		configPath: absConfig, configBytes: cfgBytes, composeBytes: rendered.Bytes,
 	}, nil
+}
+
+// durableVolumeNames is the set of managed volumes a workload keeps across
+// releases. Bind mounts are excluded: the host owns those, and naming one as a
+// backup resource would promise Onebox can restore something it never created.
+func durableVolumeNames(w app.Workload) []string {
+	var out []string
+	for _, v := range w.Volumes {
+		if !v.IsBind() {
+			out = append(out, v.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sopsSource is the declared SOPS-encrypted secrets file, if there is one. The
+// contract allows several providers; only SOPS has an implementation, and a
+// project declaring another gets nothing rather than a silent fallback to a
+// file it did not name.
+func sopsSource(r *app.Resolved) string {
+	for _, name := range sortedNames(r.Secrets) {
+		if s := r.Secrets[name]; s.Provider == "sops" {
+			return s.File
+		}
+	}
+	return ""
+}
+
+func sortedNames[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

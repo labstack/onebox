@@ -93,17 +93,14 @@ func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState
 // Refresh gathers the drift set from the host. Nothing mutates.
 func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
 	hs := HostState{Host: e.T.Host(), ImageIDs: map[string]string{}}
-	cur, err := release.Current(ctx, e.T, e.Cfg.App)
+	cur, err := release.Current(ctx, e.T, e.App.App)
 	if err != nil {
 		return hs, err
 	}
 	hs.CurrentRelease = cur
 	svcs := map[string]bool{}
-	for _, r := range e.Cfg.Roles {
-		svcs[r.Service] = true
-	}
-	for _, j := range e.Cfg.Jobs {
-		svcs[j] = true
+	for name := range e.App.Workloads {
+		svcs[name] = true
 	}
 	for svc := range svcs {
 		id, err := e.containerID(ctx, svc)
@@ -133,14 +130,11 @@ var digestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 	pins := map[string]string{}
 	svcs := map[string]bool{}
-	for _, r := range e.Cfg.Roles {
-		svcs[r.Service] = true
-	}
-	for _, j := range e.Cfg.Jobs {
-		svcs[j] = true
+	for name := range e.App.Workloads {
+		svcs[name] = true
 	}
 	for svc := range svcs {
-		s, ok := e.Project.Services[svc]
+		s, ok := e.Compose.Services[svc]
 		if !ok || s.Image == "" {
 			continue
 		}
@@ -156,7 +150,7 @@ func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 		}
 		pinned := withDigest(s.Image, digest)
 		s.Image = pinned
-		e.Project.Services[svc] = s
+		e.Compose.Services[svc] = s
 		pins[svc] = pinned
 	}
 	return pins, nil
@@ -239,7 +233,7 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 // RemotePayloadDigest computes the same digest over a release dir on the
 // host: per-file sha256 lines, bytewise-sorted, hashed together.
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
-	dir := release.PathsFor(e.Cfg.App).Releases + "/" + releaseID
+	dir := release.PathsFor(e.App.App).Releases + "/" + releaseID
 	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -name '.job-*-result' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
@@ -269,7 +263,7 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	for _, job := range steps {
 		isStep[job] = true
 		cmdStr := cc + " run --rm --no-deps " + job
-		if h, ok := e.Cfg.Hooks[job]; ok && h.Run != "" {
+		if h, ok := e.App.Hooks[job]; ok && h.Run != "" {
 			cmdStr = h.Run
 		}
 		out = append(out, fmt.Sprintf("job %s (gated — changed=false keeps rollback open): %s", job, cmdStr))
@@ -278,8 +272,8 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	// Only the hooks a deploy actually runs belong in a deploy plan; bootstrap
 	// is a separate lifecycle (ob bootstrap), so listing it here would claim a
 	// step that never runs — a fidelity violation.
-	hooks := make([]string, 0, len(e.Cfg.Hooks))
-	for name := range e.Cfg.Hooks {
+	hooks := make([]string, 0, len(e.App.Hooks))
+	for name := range e.App.Hooks {
 		if isStep[name] || !deploySeam[name] {
 			continue // shown as a job above, or not a deploy-lifecycle hook
 		}
@@ -287,23 +281,23 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	}
 	sort.Strings(hooks)
 	for _, name := range hooks {
-		h := e.Cfg.Hooks[name]
+		h := e.App.Hooks[name]
 		where := "host"
 		if h.Local {
 			where = "local"
 		}
 		out = append(out, fmt.Sprintf("hook %s (%s, unplannable): %s", name, where, h.Run))
 	}
-	for _, roleName := range e.Cfg.Order {
-		role := e.Cfg.Roles[roleName]
-		svc := role.Service
-		head := fmt.Sprintf("release %s (%s", roleName, role.Mode)
+	for _, roleName := range e.App.ReleaseOrder() {
+		role := e.App.Workloads[roleName]
+		svc := roleName
+		head := fmt.Sprintf("release %s (%s", roleName, role.Mode())
 		if n := role.Count(); n > 1 {
 			head += fmt.Sprintf(", %d replicas → %s-1..%s-%d", n, svc, svc, n)
 		}
 		out = append(out, head+"):")
 		out = append(out, "  "+cc+" pull --quiet "+svc)
-		if role.Mode == "rolling" {
+		if role.Mode() == "rolling" {
 			step := "  per replica: "
 			out = append(out,
 				step+fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=<+1> %s", cc, svc, svc),
@@ -317,9 +311,9 @@ func (e *Engine) Describe(remoteCompose string) []string {
 			if n := role.Count(); n > 1 {
 				scale = fmt.Sprintf(" --scale %s=%d", svc, n)
 			}
-			if role.Drain != nil && role.Drain.Signal != "" && role.Drain.Wait > 0 {
+			if wait := role.DrainWait(); role.Drain != nil && role.DrainSignal() != "TERM" && wait > 0 {
 				out = append(out,
-					fmt.Sprintf("  docker kill --signal=%s <current %s>; wait %s", role.Drain.Signal, svc, time.Duration(role.Drain.Wait)),
+					fmt.Sprintf("  docker kill --signal=%s <current %s>; wait %s", role.DrainSignal(), svc, wait),
 				)
 			}
 			out = append(out,

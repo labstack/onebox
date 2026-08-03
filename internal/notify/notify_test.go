@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 )
 
 func TestSendPostsPayload(t *testing.T) {
@@ -23,7 +23,7 @@ func TestSendPostsPayload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := &config.Notify{Webhook: srv.URL, On: []string{"failure", "success"}}
+	n := app.Notification{Webhook: srv.URL, On: []string{"failure", "success"}}
 	err := Send(n, Payload{
 		App: "sample", Env: "production", Verb: "deploy", DeployID: "R1",
 		Status: "fail", Error: "verify: gate closed — HALT-AND-PAGE ...",
@@ -49,7 +49,7 @@ func TestSendFiltersByOn(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
 	defer srv.Close()
 
-	n := &config.Notify{Webhook: srv.URL, On: []string{"failure"}}
+	n := app.Notification{Webhook: srv.URL, On: []string{"failure"}}
 	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "ok"}); err != nil {
 		t.Fatal(err) // filtered out is not an error
 	}
@@ -63,7 +63,7 @@ func TestSendFiltersByOn(t *testing.T) {
 		t.Fatal("failure must fire")
 	}
 	// nil config: no-op
-	if err := Send(nil, Payload{Status: "fail"}); err != nil {
+	if err := Send(app.Notification{}, Payload{Status: "fail"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -71,7 +71,7 @@ func TestSendFiltersByOn(t *testing.T) {
 func TestSendFailOpen(t *testing.T) {
 	// dead endpoint: returns an error for the caller to WARN on — never panics,
 	// never hangs past the timeout
-	n := &config.Notify{Webhook: "http://127.0.0.1:1", On: []string{"failure"}}
+	n := app.Notification{Webhook: "http://127.0.0.1:1", On: []string{"failure"}}
 	start := time.Now()
 	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err == nil {
 		t.Fatal("dead webhook must surface an error for the warn log")
@@ -85,7 +85,7 @@ func TestSendFailOpen(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer srv.Close()
-	n = &config.Notify{Webhook: srv.URL, On: []string{"failure"}}
+	n = app.Notification{Webhook: srv.URL, On: []string{"failure"}}
 	if err := Send(n, Payload{Status: "fail"}); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("non-2xx must be reported: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSendFormatText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := &config.Notify{Webhook: srv.URL, On: []string{"failure"}, Format: "text"}
+	n := app.Notification{Webhook: srv.URL, On: []string{"failure"}, Format: "text"}
 	if err := Send(n, Payload{App: "sample", Host: "root@h", Verb: "deploy", Status: "fail", Error: "boom"}); err != nil {
 		t.Fatal(err)
 	}

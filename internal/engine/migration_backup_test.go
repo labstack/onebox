@@ -7,25 +7,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 )
 
-func migrationBackupEngineConfig() *config.Config {
+func migrationBackupEngineConfig() *app.Resolved {
 	cfg := testConfig()
-	cfg.Components = map[string]config.Component{
-		"migrate": {
-			Type: "job", Service: "migrate", DataEffect: "migration",
-		},
-		"database": {
-			Type: "postgres", Service: "postgres", Persistence: &config.Persistence{Mode: "durable"},
-		},
-	}
-	required := true
+	migrate := cfg.Workloads["migrate"]
+	migrate.DataEffect = "migration"
+	cfg.Workloads["migrate"] = migrate
+	// The backup requirement needs at least one durable resource to name.
+	worker := cfg.Workloads["worker"]
+	worker.Persistence = &app.Persistence{Mode: "durable"}
+	worker.Volumes = []app.Volume{{Name: "data", Path: "/data", Mode: "rw"}}
+	cfg.Workloads["worker"] = worker
 	environment := cfg.Environments["production"]
-	environment.Policy.RequireMigrationBackup = &required
-	environment.Policy.MigrationBackupMaxAge = config.Duration(24 * time.Hour)
+	environment.Policy.RequireMigrationBackup = true
+	environment.Policy.MigrationBackupMaxAge = "24h"
 	cfg.Environments["production"] = environment
 	return cfg
 }

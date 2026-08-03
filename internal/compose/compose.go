@@ -1,6 +1,14 @@
-// Package compose loads the user's compose file through compose-go — the same
-// loader docker compose v2 uses — so the supported dialect is exactly what
-// Compose accepts; Onebox does not reimplement the Compose specification.
+// Package compose parses Compose through compose-go — the same loader docker
+// compose v2 uses — so the supported dialect is exactly what Compose accepts;
+// Onebox does not reimplement the Compose specification.
+//
+// What it parses is now Onebox's own generated runtime rather than a file the
+// user wrote. The engine works in services and images, and parsing our own
+// output is the cheapest way to keep one definition of what a service is. The
+// inference that used to live here — guess which service is the application,
+// which is a database, what order they start in — is gone: the project states
+// all of it, and a guess that disagrees with the author is worse than a
+// question.
 package compose
 
 import (
@@ -9,14 +17,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"sort"
 
 	"github.com/compose-spec/compose-go/v2/cli"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/template"
 	"github.com/compose-spec/compose-go/v2/types"
-
-	"github.com/labstack/onebox/internal/config"
 )
 
 // DrainFile: the generated/wrapped healthcheck fails while this file exists,
@@ -113,118 +118,23 @@ func load(ctx context.Context, composePath, projectName string, lenient bool, en
 	return p, nil
 }
 
-// Classify verifies every Compose service has exactly one class
-// and that all names are shell-safe identifiers (command-injection rule).
-func Classify(p *types.Project, cfg *config.Config) error {
-	for name := range p.Services {
-		if !ident.MatchString(name) {
-			return fmt.Errorf("service name %q is not identifier-safe (%s)", name, ident)
-		}
+// LoadBytes parses a Compose document already in memory. Onebox generates its
+// runtime rather than reading one, so there is no file to point the loader at
+// — and writing a temporary one into the user's repository to read it straight
+// back would be a worse answer than passing the bytes.
+//
+// dir anchors relative paths (build contexts, env files) exactly as the
+// project file's directory does elsewhere.
+func LoadBytes(ctx context.Context, content []byte, projectName, dir string) (*types.Project, error) {
+	p, err := loader.LoadWithContext(ctx, types.ConfigDetails{
+		WorkingDir:  dir,
+		ConfigFiles: []types.ConfigFile{{Filename: "compose.yaml", Content: content}},
+	}, func(o *loader.Options) {
+		o.SetProjectName(projectName, true)
+		o.SkipResolveEnvironment = true
+	})
+	if err != nil {
+		return nil, fmt.Errorf("compose parse: %w", err)
 	}
-	class := map[string]string{}
-	claim := func(svc, cls string) error {
-		if prev, ok := class[svc]; ok {
-			return fmt.Errorf("service %q claimed as both %s and %s", svc, prev, cls)
-		}
-		class[svc] = cls
-		return nil
-	}
-	for name, r := range cfg.Roles {
-		if _, ok := p.Services[r.Service]; !ok {
-			return fmt.Errorf("components.%s: Compose has no service %q", name, r.Service)
-		}
-		if err := claim(r.Service, "workload"); err != nil {
-			return err
-		}
-	}
-	for _, a := range cfg.Accessories {
-		if _, ok := p.Services[a]; !ok {
-			return fmt.Errorf("supporting/data component: Compose has no service %q", a)
-		}
-		if err := claim(a, "supporting/data service"); err != nil {
-			return err
-		}
-	}
-	for _, j := range cfg.Jobs {
-		if _, ok := p.Services[j]; !ok {
-			return fmt.Errorf("job component: Compose has no service %q", j)
-		}
-		if err := claim(j, "job"); err != nil {
-			return err
-		}
-	}
-	var orphans []string
-	for name := range p.Services {
-		if _, ok := class[name]; !ok {
-			orphans = append(orphans, name)
-		}
-	}
-	sort.Strings(orphans)
-	if len(orphans) > 0 {
-		return fmt.Errorf("every Compose service needs exactly one component classification; unclassified: %v", orphans)
-	}
-	for name, component := range cfg.Components {
-		if component.Persistence == nil || len(component.Persistence.Volumes) == 0 {
-			continue
-		}
-		service := p.Services[component.Service]
-		mounted := map[string]bool{}
-		for _, volume := range service.Volumes {
-			if volume.Type == types.VolumeTypeVolume && volume.Source != "" {
-				mounted[volume.Source] = true
-			}
-		}
-		for _, volume := range component.Persistence.Volumes {
-			if !mounted[volume] {
-				return fmt.Errorf("components.%s.persistence.volumes: named volume %q is not mounted by Compose service %q", name, volume, component.Service)
-			}
-		}
-	}
-	return nil
-}
-
-// CheckRollable enforces overlap preconditions on services that run more
-// than one container — every rolling role (which briefly runs two) and any role
-// with replicas > 1 (which runs N). Such a service can't carry a fixed
-// container_name or a published host port, and a rolling one must gate on a
-// healthcheck.
-func CheckRollable(p *types.Project, cfg *config.Config) []error {
-	var errs []error
-	for roleName, r := range cfg.Roles {
-		svc, ok := p.Services[r.Service]
-		if !ok {
-			continue // Classify reports this
-		}
-		// managed proxy reaches workloads via the injected ingress network;
-		// network_mode (host/container:) excludes `networks:` entirely, so
-		// the proxy could never route to this workload — refuse at validate
-		if cfg.Proxy.Managed && svc.NetworkMode != "" {
-			errs = append(errs, fmt.Errorf("components.%s (%q): network_mode %q conflicts with the managed proxy — workloads must join the shared ingress network", roleName, r.Service, svc.NetworkMode))
-		}
-		multi := r.Mode == "rolling" || r.Count() > 1
-		if !multi {
-			continue
-		}
-		if svc.ContainerName != "" {
-			errs = append(errs, fmt.Errorf("components.%s (%q): container_name forbids running multiple copies — remove it", roleName, r.Service))
-		}
-		for _, port := range svc.Ports {
-			if port.Published != "" {
-				errs = append(errs, fmt.Errorf("components.%s (%q): host port %s:%d — copies cannot share a host port; route via the proxy instead", roleName, r.Service, port.Published, port.Target))
-			}
-		}
-		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
-			errs = append(errs, fmt.Errorf("components.%s (%q): deploy.replicas conflicts with Onebox-managed scaling — use components.%s.deployment.replicas", roleName, r.Service, roleName))
-		}
-		// readiness rule: rolling gates on a healthcheck — from
-		// ready.http/exec, or ADOPTED from the compose file's own
-		if r.Mode == "rolling" {
-			hasReadyKind := r.Ready != nil && (r.Ready.HTTP != "" || r.Ready.Exec != "")
-			hasComposeHC := adoptedProbe(svc) != ""
-			if !hasReadyKind && !hasComposeHC {
-				errs = append(errs, fmt.Errorf("components.%s (%q): rolling requires readiness.http/exec, or an executable healthcheck in the Compose file to adopt", roleName, r.Service))
-			}
-		}
-	}
-	return errs
+	return p, nil
 }

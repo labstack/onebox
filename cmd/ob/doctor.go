@@ -17,8 +17,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/onebox"
 )
 
@@ -127,7 +127,7 @@ type doctorDependencies struct {
 	stat          func(string) (os.FileInfo, error)
 	inspectBinary func(string) (buildinfo.Info, error)
 	querySSHAgent func(context.Context, string) (int, error)
-	loadConfig    func(string) (*config.Config, error)
+	loadConfig    func(string) (*app.Spec, error)
 }
 
 var newDoctorDependencies = defaultDoctorDependencies
@@ -142,7 +142,7 @@ func defaultDoctorDependencies() doctorDependencies {
 		stat:          os.Stat,
 		inspectBinary: buildinfo.ReadFile,
 		querySSHAgent: queryLocalSSHAgent,
-		loadConfig:    config.Load,
+		loadConfig:    app.Load,
 	}
 }
 
@@ -411,7 +411,7 @@ func queryLocalSSHAgent(ctx context.Context, socket string) (int, error) {
 	return len(identities), nil
 }
 
-func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjectReport, *config.Config, *config.Environment) {
+func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjectReport, *app.Spec, *app.Environment) {
 	path := absolutePath(g.ConfigPath)
 	report := doctorProjectReport{
 		Status: doctorWarning, Path: path, Environment: g.Env,
@@ -450,7 +450,7 @@ func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjec
 	return report, cfg, &environment
 }
 
-func inspectDoctorApproval(environment *config.Environment) doctorApprovalReport {
+func inspectDoctorApproval(environment *app.Environment) doctorApprovalReport {
 	report := doctorApprovalReport{
 		Status:             doctorPass,
 		Available:          true,
@@ -462,7 +462,7 @@ func inspectDoctorApproval(environment *config.Environment) doctorApprovalReport
 		return report
 	}
 	report.PolicyKnown = true
-	report.Required = environment.Policy.ApprovalRequired()
+	report.Required = environment.Policy.RequireApproval
 	if report.Required {
 		report.Message = "project requires approval and this runner can create plan-bound local grants"
 	} else {
@@ -471,7 +471,7 @@ func inspectDoctorApproval(environment *config.Environment) doctorApprovalReport
 	return report
 }
 
-func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctorDependencies) doctorProtectionsReport {
+func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDependencies) doctorProtectionsReport {
 	report := doctorProtectionsReport{Status: doctorPass, Checks: []doctorProtectionCheck{}}
 	if cfg == nil {
 		report.Status = doctorWarning
@@ -479,13 +479,13 @@ func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctor
 		return report
 	}
 
-	componentNames := make([]string, 0, len(cfg.Components))
-	for name := range cfg.Components {
+	componentNames := make([]string, 0, len(cfg.Workloads))
+	for name := range cfg.Workloads {
 		componentNames = append(componentNames, name)
 	}
 	sort.Strings(componentNames)
 	for _, name := range componentNames {
-		protection := cfg.Components[name].Protection
+		protection := cfg.Workloads[name].Protection
 		if protection == nil {
 			continue
 		}
@@ -503,8 +503,7 @@ func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctor
 		}
 	}
 
-	if cfg.Secrets != nil {
-		source := cfg.Secrets.Sops
+	if source := specSopsSource(cfg); source != "" {
 		if !filepath.IsAbs(source) {
 			source = filepath.Join(filepath.Dir(configPath), source)
 		}
@@ -526,7 +525,7 @@ func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctor
 		report.Checks = append(report.Checks, check)
 	}
 
-	if len(cfg.Preflight) > 0 {
+	if cfg.Runtime != nil && len(cfg.Runtime.Preflight) > 0 {
 		check := doctorProtectionCheck{Mechanism: "runtime_preflight"}
 		if err := cfg.RunPreflight(filepath.Dir(configPath)); err != nil {
 			check.Status = doctorFail

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 )
 
 const timeout = 5 * time.Second
@@ -55,11 +55,11 @@ func (p Payload) text() string {
 	return fmt.Sprintf("🚨 %s: %s FAILED on %s — %s", p.App, p.Verb, p.Host, p.Error)
 }
 
-// Send fires the webhook if the payload's outcome is selected by cfg.On.
-// nil cfg and filtered outcomes are silent no-ops. Callers treat a returned
-// error as a warning — never as the operation's result.
-func Send(cfg *config.Notify, p Payload) error {
-	if cfg == nil || cfg.Webhook == "" {
+// Send fires the webhook if the payload's outcome is selected by cfg.On. An
+// unset webhook and a filtered outcome are silent no-ops. Callers treat a
+// returned error as a warning — never as the operation's result.
+func Send(cfg app.Notification, p Payload) error {
+	if cfg.Webhook == "" {
 		return nil
 	}
 	selected := false

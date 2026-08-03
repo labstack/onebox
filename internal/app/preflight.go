@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -202,4 +204,70 @@ func networkCheck(ctx context.Context, run Runner, network string) Check {
 		}
 	}
 	return Check{Name: "ingress network", OK: true, Detail: network}
+}
+
+// RunPreflight checks every declared env-file assertion against the working
+// tree. It runs before anything is transferred, because "the deploy succeeded
+// and the app crash-looped on a missing key" is a worse way to learn the same
+// fact.
+//
+// It reports every failure rather than the first. An operator fixing a missing
+// key one round trip at a time is the reason people stop declaring them.
+func (p *Spec) RunPreflight(dir string) error {
+	if p.Runtime == nil {
+		return nil
+	}
+	var missing []string
+	for _, check := range p.Runtime.Preflight {
+		path := check.File
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			missing = append(missing, fmt.Sprintf("%s: cannot be read (%v)", check.File, err))
+			continue
+		}
+		present, nonEmpty := envKeys(data)
+		for _, k := range check.Require {
+			switch {
+			case !present[k]:
+				missing = append(missing, fmt.Sprintf("%s: %s is not declared", check.File, k))
+			case !nonEmpty[k]:
+				missing = append(missing, fmt.Sprintf("%s: %s is empty", check.File, k))
+			}
+		}
+		// A `present` key may legitimately be empty — an optional feature
+		// toggle declared and left off. Only its absence is a failure.
+		for _, k := range check.Present {
+			if !present[k] {
+				missing = append(missing, fmt.Sprintf("%s: %s is not declared", check.File, k))
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return errf("preflight_env_incomplete", "runtime.preflight", "",
+		"the environment is not ready:\n  %s", strings.Join(missing, "\n  "))
+}
+
+// envKeys scans dotenv-style bytes into the set of declared keys and the subset
+// with a non-empty value. A line is `KEY=value`, tolerating leading whitespace
+// and an `export ` prefix; anything else is ignored.
+func envKeys(data []byte) (present, nonEmpty map[string]bool) {
+	present, nonEmpty = map[string]bool{}, map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		present[strings.TrimSpace(line[:eq])] = true
+		if strings.TrimSpace(line[eq+1:]) != "" {
+			nonEmpty[strings.TrimSpace(line[:eq])] = true
+		}
+	}
+	return present, nonEmpty
 }

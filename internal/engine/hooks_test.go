@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -19,7 +19,7 @@ func TestLocalHookRunsOnRunnerNotHost(t *testing.T) {
 	f := &transport.Fake{}
 	dir := t.TempDir()
 	cfg := testConfig()
-	cfg.Hooks["publish"] = config.Hook{Run: "echo $OB_RELEASE_ID > out.txt", Local: true}
+	cfg.Hooks["publish"] = app.Command{Run: "echo $OB_RELEASE_ID > out.txt", Local: true}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
 	if err := e.RunHook(context.Background(), "publish", "/var/lib/ob/sample/releases/R9", "x"); err != nil {
 		t.Fatal(err)
@@ -37,9 +37,9 @@ func TestDeploySeamOrdering(t *testing.T) {
 	f := happyFake()
 	dir := t.TempDir()
 	cfg := testConfig()
-	cfg.Hooks["pre_release"] = config.Hook{Run: "touch pre", Local: true}
-	cfg.Hooks["post_release"] = config.Hook{Run: "touch post", Local: true}
-	cfg.Hooks["post_deploy"] = config.Hook{Run: "touch done", Local: true}
+	cfg.Hooks["pre_release"] = app.Command{Run: "touch pre", Local: true}
+	cfg.Hooks["post_release"] = app.Command{Run: "touch post", Local: true}
+	cfg.Hooks["post_deploy"] = app.Command{Run: "touch done", Local: true}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
 	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v", err)
@@ -59,7 +59,7 @@ func TestAdvisoryURLCheckWarnsButPasses(t *testing.T) {
 	f := happyFake()
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Verify = append(cfg.Verify, config.VerifyCheck{URL: srv.URL, Advisory: true})
+	cfg.Verification = append(cfg.Verification, app.Verification{URL: srv.URL, Advisory: true})
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Verify(context.Background()); err != nil {
 		t.Fatalf("advisory failure must not fail verify: %v", err)
@@ -76,7 +76,7 @@ func TestAuthoritativeURLCheckFails(t *testing.T) {
 	defer srv.Close()
 	f := happyFake()
 	cfg := testConfig()
-	cfg.Verify = append(cfg.Verify, config.VerifyCheck{URL: srv.URL, Contains: `id="root"`})
+	cfg.Verification = append(cfg.Verification, app.Verification{URL: srv.URL, Contains: `id="root"`})
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, HTTPTimeout: 2 * time.Second})
 	if err := e.Verify(context.Background()); err == nil {
 		t.Fatal("non-advisory url check with missing substring must fail")

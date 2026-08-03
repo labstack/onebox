@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
@@ -137,12 +137,12 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	}
 
 	snapshot := StatusSnapshot{
-		App:         e.Cfg.App,
+		App:         e.App.App,
 		Host:        e.T.Host(),
 		CapturedAt:  e.Opts.Now().UTC(),
 		Runner:      e.Opts.Runner,
-		Roles:       make([]StatusRole, 0, len(e.Cfg.Order)),
-		Accessories: make([]StatusAccessory, 0, len(e.Cfg.Accessories)),
+		Roles:       make([]StatusRole, 0, len(e.App.ReleaseOrder())),
+		Accessories: make([]StatusAccessory, 0, len(e.App.ServiceNames())),
 		Complete:    true,
 	}
 
@@ -158,7 +158,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		{
 			component: "current_release",
 			run: func() (err error) {
-				recorded, err = release.Current(ctx, e.T, e.Cfg.App)
+				recorded, err = release.Current(ctx, e.T, e.App.App)
 				return err
 			},
 		},
@@ -186,7 +186,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	}
 
 	proxyReadStart := len(reads)
-	if e.Cfg.Proxy.Managed {
+	if e.App.Proxy.Managed {
 		proxyReads := e.proxyReads(ctx, &px)
 		for i, run := range proxyReads {
 			component := fmt.Sprintf("proxy.read_%d", i)
@@ -227,13 +227,13 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	releaseComplete := reads[0].err == nil
 	containersComplete := reads[1].err == nil
 	snapshot.RecordedRelease = recorded
-	for _, roleName := range e.Cfg.Order {
-		role := e.Cfg.Roles[roleName]
-		status := makeStatusRole(roleName, role, byService[role.Service], recorded, releaseComplete, containersComplete)
+	for _, roleName := range e.App.ReleaseOrder() {
+		role := e.App.Workloads[roleName]
+		status := makeStatusRole(roleName, role, byService[roleName], recorded, releaseComplete, containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Roles = append(snapshot.Roles, status)
 	}
-	for _, accessoryName := range e.Cfg.Accessories {
+	for _, accessoryName := range e.App.ServiceNames() {
 		status := makeStatusAccessory(accessoryName, byService[accessoryName], containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Accessories = append(snapshot.Accessories, status)
@@ -244,7 +244,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		snapshot.Diverged = true
 	}
 
-	if e.Cfg.Proxy.Managed {
+	if e.App.Proxy.Managed {
 		proxyComplete := make([]bool, len(reads)-proxyReadStart)
 		for i := proxyReadStart; i < len(reads); i++ {
 			proxyComplete[i-proxyReadStart] = reads[i].err == nil
@@ -273,11 +273,11 @@ func statusSnapshotContextError(ctx context.Context, reads []statusSnapshotRead)
 	return nil
 }
 
-func makeStatusRole(name string, role config.Role, raw []svcContainer, recorded string, releaseComplete, containersComplete bool) StatusRole {
+func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded string, releaseComplete, containersComplete bool) StatusRole {
 	status := StatusRole{
 		Name:            name,
-		Service:         role.Service,
-		Mode:            role.Mode,
+		Service:         name,
+		Mode:            role.Mode(),
 		DesiredReplicas: role.Count(),
 		Containers:      makeStatusContainers(raw),
 	}

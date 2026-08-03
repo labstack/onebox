@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -16,8 +16,8 @@ func TestBootstrapSequence(t *testing.T) {
 	f := happyFake()
 	dir := t.TempDir()
 	cfg := testConfig()
-	cfg.Hooks["bootstrap"] = config.Hook{Run: "apt-get install -y something-host-specific"}
-	cfg.Registry = &config.Registry{Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}
+	cfg.Hooks["bootstrap"] = app.Command{Run: "apt-get install -y something-host-specific"}
+	cfg.Registries = map[string]app.Registry{"default": {Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}}
 	t.Setenv("TEST_GHCR_TOKEN", "s3cret")
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
 	if err := e.Bootstrap(context.Background(), "R1-bootstrap", t.TempDir()); err != nil {
@@ -100,7 +100,7 @@ func TestBootstrapSkipsInstallWhenRuntimePresent(t *testing.T) {
 func TestBootstrapFailsEarlyWithoutPassword(t *testing.T) {
 	f := &transport.Fake{}
 	cfg := testConfig()
-	cfg.Registry = &config.Registry{Server: "ghcr.io", Username: "v", PasswordEnv: "NOPE_UNSET_VAR"}
+	cfg.Registries = map[string]app.Registry{"default": {Server: "ghcr.io", Username: "v", PasswordEnv: "NOPE_UNSET_VAR"}}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Bootstrap(context.Background(), "R1", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "NOPE_UNSET_VAR") {
@@ -129,8 +129,8 @@ func TestBootstrapEnsuresManagedProxyBeforeAccessories(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := testConfig()
-	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
-	cfg.Registry = &config.Registry{Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	cfg.Registries = map[string]app.Registry{"default": {Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}}
 	t.Setenv("TEST_GHCR_TOKEN", "s3cret")
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
 	if err := e.Bootstrap(context.Background(), "R1-bootstrap", t.TempDir()); err != nil {

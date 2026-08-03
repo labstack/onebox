@@ -17,7 +17,7 @@ import (
 // managed proxy is refcounted: destroy deregisters this app; the proxy itself
 // goes only with removeProxy AND an empty registry (it may serve other apps).
 func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) error {
-	if removeProxy && !e.Cfg.Proxy.Managed {
+	if removeProxy && !e.App.Proxy.Managed {
 		return fmt.Errorf("--proxy: this app's proxy is not managed — nothing shared to remove")
 	}
 	hp := proxy.HostPaths()
@@ -39,12 +39,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if err := e.WriteFence(ctx, "destroy", epoch); err != nil {
 		return err
 	}
-	cur, err := release.Current(ctx, e.T, e.Cfg.App)
+	cur, err := release.Current(ctx, e.T, e.App.App)
 	if err != nil {
 		return err
 	}
 	if cur != "" {
-		down := e.composeCmd(release.PathsFor(e.Cfg.App).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
+		down := e.composeCmd(release.PathsFor(e.App.App).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
 		if removeVolumes {
 			down += " -v"
 		}
@@ -55,7 +55,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 	} else {
 		// no release ever activated: sweep by project label
-		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.Cfg.App))
+		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.App.App))
 		if err != nil {
 			return err
 		}
@@ -75,7 +75,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// `docker rm -f` never removes named volumes — honor --volumes here
 		// too (compose labels volumes with the project, same as containers)
 		if removeVolumes {
-			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.Cfg.App))
+			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.App.App))
 			if err != nil {
 				return err
 			}
@@ -94,12 +94,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	}
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
-	if res, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.Cfg.App).Base)); err != nil {
+	if res, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.App.App).Base)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
 	}
-	if e.Cfg.Proxy.Managed {
+	if e.App.Proxy.Managed {
 		// host scope, after the app fence is gone: plain Run, under host lock
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 			return err
@@ -108,7 +108,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// The app state (and its fence) is intentionally gone; subsequent
 		// mutations are protected solely by the host-scoped lock token.
 		e.fenceVal = ""
-		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.Cfg.App)); err != nil || res.ExitCode != 0 {
+		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.App.App)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("deregister from proxy: %v %s", err, res.Stderr)
 		}
 		others, err := e.proxyRegistryOthers(ctx)
@@ -133,7 +133,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			e.logf("shared proxy kept with no registered apps — `ob destroy --proxy` removes it, or clean %s manually", hp.Dir)
 		}
 	}
-	e.logf("destroyed %s (volumes %s)", e.Cfg.App, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
+	e.logf("destroyed %s (volumes %s)", e.App.App, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil
 }
 
@@ -146,7 +146,7 @@ func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
 	}
 	var others []string
 	for _, name := range strings.Fields(res.Stdout) {
-		if name != e.Cfg.App && appNameRe.MatchString(name) {
+		if name != e.App.App && appNameRe.MatchString(name) {
 			others = append(others, name)
 		}
 	}
@@ -156,7 +156,7 @@ func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
 // Logs streams compose logs for one role/service (or all) from the current
 // release.
 func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, out io.Writer) error {
-	cur, err := release.Current(ctx, e.T, e.Cfg.App)
+	cur, err := release.Current(ctx, e.T, e.App.App)
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, o
 	if err != nil {
 		return err
 	}
-	cmd := e.composeCmd(release.PathsFor(e.Cfg.App).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
+	cmd := e.composeCmd(release.PathsFor(e.App.App).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
 	if follow {
 		cmd += " --follow"
 	}
@@ -197,22 +197,21 @@ func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer
 	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), out)
 }
 
-// resolveService maps a logical component or normalized role name to its Compose
-// service; a raw service name passes through; empty means "all" (logs only).
+// resolveService maps a name the operator typed to a Compose service. A
+// workload's name IS its service name now, so the old indirection is gone; what
+// remains is the check that the name means something, and a pass-through for a
+// service that only the rendered runtime knows about.
 func (e *Engine) resolveService(name string) (string, error) {
 	if name == "" {
 		return "", nil
 	}
-	if component, ok := e.Cfg.Components[name]; ok {
-		return component.Service, nil
-	}
-	if r, ok := e.Cfg.Roles[name]; ok {
-		return r.Service, nil
-	}
-	if _, ok := e.Project.Services[name]; ok {
+	if _, ok := e.App.Workloads[name]; ok {
 		return name, nil
 	}
-	return "", fmt.Errorf("%q is neither a component nor a compose service", name)
+	if _, ok := e.Compose.Services[name]; ok {
+		return name, nil
+	}
+	return "", fmt.Errorf("%q is neither a workload nor a compose service", name)
 }
 
 // volName: docker volume names — never interpolated back into a shell

@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -41,22 +41,20 @@ func buildDeploy(t *testing.T, dir, cfgFile, version string) (*engine.Engine, st
 	t.Helper()
 	t.Setenv("APP_VERSION", version)
 	ctx := context.Background()
-	cfg, err := config.Load(filepath.Join(dir, cfgFile))
+	spec, err := app.Load(filepath.Join(dir, cfgFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	p, err := compose.Load(ctx, filepath.Join(dir, "docker-compose.yaml"), cfg.App)
+	resolved, err := spec.Resolve("production")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := compose.Classify(p, cfg); err != nil {
 		t.Fatal(err)
 	}
 	id := release.NewID(time.Now(), "") + "-" + version
-	rendered, err := compose.Render(p, cfg, id)
+	rendered, err := resolved.Render("production", id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.App, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +62,10 @@ func buildDeploy(t *testing.T, dir, cfgFile, version string) (*engine.Engine, st
 	if _, err := compose.StagePayload(p, staging); err != nil {
 		t.Fatal(err)
 	}
-	if err := release.Stage(staging, rendered, []byte("snapshot")); err != nil {
+	if err := release.Stage(staging, rendered.Bytes, []byte("snapshot")); err != nil {
 		t.Fatal(err)
 	}
-	e := engine.New(cfg, p, transport.NewLocal(), engine.Options{Out: os.Stderr})
+	e := engine.New(resolved, p, transport.NewLocal(), engine.Options{Out: os.Stderr, Environment: "production"})
 	return e, id, staging
 }
 

@@ -7,21 +7,21 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
 )
 
 func (s *Service) Observe(ctx context.Context, _ ObserveRequest) (Observation, error) {
 	capturedAt := s.now().UTC()
-	lp, err := loadProject(ctx, s.configPath, true)
+	lp, err := s.loadProject(ctx, true)
 	if err != nil {
 		return Observation{}, fmt.Errorf("load project: %w", err)
 	}
 	environment := s.environment
-	if err := ensureEnvironment(lp.config, environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, environment); err != nil {
 		return Observation{}, err
 	}
-	environmentConfig, _ := lp.config.Environment(environment)
+	environmentConfig, _ := lp.resolved.Environment(environment)
 	e, cleanup, target, err := s.engine(ctx, lp, environment)
 	if err != nil {
 		return Observation{}, fmt.Errorf("connect target: %w", err)
@@ -51,10 +51,10 @@ func (s *Service) Observe(ctx context.Context, _ ObserveRequest) (Observation, e
 	}
 	return Observation{
 		SchemaVersion: SchemaVersion,
-		Application:   lp.config.App,
+		Application:   lp.resolved.App,
 		Environment:   environment,
 		Policy:        describePolicy(environmentConfig.Policy),
-		Observability: describeObservability(lp.config),
+		Observability: describeObservability(lp.resolved),
 		Target:        target,
 		CapturedAt:    capturedAt.Format(timeFormat),
 		ConfigHash:    engine.HashBytes(lp.configBytes),
@@ -63,7 +63,7 @@ func (s *Service) Observe(ctx context.Context, _ ObserveRequest) (Observation, e
 		Complete:      status.Complete,
 		Provenance: []Provenance{
 			{Kind: "config", Source: filepath.Base(lp.configPath)},
-			{Kind: "compose", Source: filepath.Base(lp.composePath)},
+			{Kind: "compose", Source: filepath.Base(lp.configPath)},
 			{Kind: "host", Source: target},
 		},
 		Services: services,
@@ -75,22 +75,22 @@ func (s *Service) Observe(ctx context.Context, _ ObserveRequest) (Observation, e
 const timeFormat = "2006-01-02T15:04:05.000Z07:00"
 
 func describeServices(lp *loadedProject) []ServiceDescription {
-	if len(lp.config.Components) > 0 {
-		names := make([]string, 0, len(lp.config.Components))
-		for name := range lp.config.Components {
+	if len(lp.resolved.Workloads) > 0 {
+		names := make([]string, 0, len(lp.resolved.Workloads))
+		for name := range lp.resolved.Workloads {
 			names = append(names, name)
 		}
 		sort.Strings(names)
 		out := make([]ServiceDescription, 0, len(names))
 		for _, name := range names {
-			component := lp.config.Components[name]
+			component := lp.resolved.Workloads[name]
 			description := ServiceDescription{
-				Name: name, Service: component.Service, Type: component.Type,
-				DataEffect: component.DataEffect, ImageDeclared: serviceImage(lp.project, component.Service) != "",
+				Name: name, Service: name, Type: component.Role,
+				DataEffect: component.DataEffect, ImageDeclared: serviceImage(lp.compose, name) != "",
 			}
-			if component.Deployment != nil {
-				description.Strategy = component.Deployment.Strategy
-				description.Replicas = component.Deployment.Replicas
+			if true {
+				description.Strategy = component.Mode()
+				description.Replicas = component.Count()
 				if description.Replicas < 1 {
 					description.Replicas = 1
 				}
@@ -108,21 +108,22 @@ func describeServices(lp *loadedProject) []ServiceDescription {
 	}
 
 	kinds := map[string]ServiceDescription{}
-	for roleName, role := range lp.config.Roles {
-		kinds[role.Service] = ServiceDescription{
-			Name: roleName, Service: role.Service, Type: "application", Strategy: role.Mode,
-			Replicas: resolvedReplicas(role), ImageDeclared: serviceImage(lp.project, role.Service) != "",
+	for _, name := range lp.resolved.ReleaseOrder() {
+		role := lp.resolved.Workloads[name]
+		kinds[name] = ServiceDescription{
+			Name: name, Service: name, Type: role.Role, Strategy: role.Mode(),
+			Replicas: role.Count(), ImageDeclared: serviceImage(lp.compose, name) != "",
 		}
 	}
-	for _, name := range lp.config.Accessories {
-		kinds[name] = ServiceDescription{Name: name, Service: name, Type: "service", ImageDeclared: serviceImage(lp.project, name) != ""}
+	for _, name := range lp.resolved.ServiceNames() {
+		kinds[name] = ServiceDescription{Name: name, Service: name, Type: "service", ImageDeclared: serviceImage(lp.compose, name) != ""}
 	}
-	for _, name := range lp.config.Jobs {
-		kinds[name] = ServiceDescription{Name: name, Service: name, Type: "job", DataEffect: "unknown", ImageDeclared: serviceImage(lp.project, name) != ""}
+	for _, name := range lp.resolved.JobOrder() {
+		kinds[name] = ServiceDescription{Name: name, Service: name, Type: "job", DataEffect: "unknown", ImageDeclared: serviceImage(lp.compose, name) != ""}
 	}
-	for name := range lp.project.Services {
+	for name := range lp.compose.Services {
 		if _, ok := kinds[name]; !ok {
-			kinds[name] = ServiceDescription{Name: name, Service: name, Type: "service", ImageDeclared: serviceImage(lp.project, name) != ""}
+			kinds[name] = ServiceDescription{Name: name, Service: name, Type: "service", ImageDeclared: serviceImage(lp.compose, name) != ""}
 		}
 	}
 	out := make([]ServiceDescription, 0, len(kinds))
@@ -133,13 +134,13 @@ func describeServices(lp *loadedProject) []ServiceDescription {
 	return out
 }
 
-func describePolicy(policy config.EnvironmentPolicy) EnvironmentPolicyDescription {
+func describePolicy(policy app.Policy) EnvironmentPolicyDescription {
 	return EnvironmentPolicyDescription{
-		RequireApproval: policy.ApprovalRequired(), AllowAgentProposals: policy.AgentProposalsAllowed(),
+		RequireApproval: policy.RequireApproval, AllowAgentProposals: policy.AllowAgentProposals,
 	}
 }
 
-func describeObservability(cfg *config.Config) ObservabilityDescription {
+func describeObservability(cfg *app.Resolved) ObservabilityDescription {
 	return ObservabilityDescription{
 		LogsDeclared: cfg.Observability.Logs != nil, MetricsDeclared: cfg.Observability.Metrics != nil,
 		AlertsDeclared: cfg.Observability.Alerts != nil, Managed: false,

@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/journal"
 )
@@ -51,19 +51,19 @@ type MigrationBackupResource struct {
 	Volumes     []string `json:"volumes,omitempty"`
 }
 
-func migrationBackupRequirement(cfg *config.Config, policy config.EnvironmentPolicy, steps []OperationStep) (*MigrationBackupRequirement, error) {
-	if !policy.MigrationBackupRequired() || !hasMigrationStep(steps) {
+func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []OperationStep) (*MigrationBackupRequirement, error) {
+	if !policy.RequireMigrationBackup || !hasMigrationStep(steps) {
 		return nil, nil
 	}
-	resources := make([]MigrationBackupResource, 0, len(cfg.Components))
-	for name, component := range cfg.Components {
+	resources := make([]MigrationBackupResource, 0, len(cfg.Workloads))
+	for name, component := range cfg.Workloads {
 		if component.Persistence == nil || component.Persistence.Mode == "ephemeral" {
 			continue
 		}
-		volumes := append([]string(nil), component.Persistence.Volumes...)
+		volumes := durableVolumeNames(component)
 		sort.Strings(volumes)
 		resources = append(resources, MigrationBackupResource{
-			Component: name, Service: componentService(name, component), Type: component.Type,
+			Component: name, Service: name, Type: component.Role,
 			Persistence: component.Persistence.Mode, Volumes: volumes,
 		})
 	}
@@ -74,8 +74,8 @@ func migrationBackupRequirement(cfg *config.Config, policy config.EnvironmentPol
 	keyMaterial := append([]string(nil), policy.MigrationBackupKeyMaterial...)
 	sort.Strings(keyMaterial)
 	requirement := &MigrationBackupRequirement{
-		MaxAge:              time.Duration(policy.MigrationBackupMaxAge).String(),
-		RequireRestoreTest:  policy.MigrationRestoreTestRequired(),
+		MaxAge:              policy.MigrationBackupMaxAge,
+		RequireRestoreTest:  policy.RequireMigrationRestoreTest,
 		Resources:           resources,
 		RequiredKeyMaterial: keyMaterial,
 	}

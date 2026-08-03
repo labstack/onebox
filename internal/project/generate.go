@@ -72,6 +72,25 @@ func (p *Project) Render(env, releaseID string, images Images) (*Rendered, error
 	return &Rendered{Bytes: b, Digest: hex.EncodeToString(sum[:])}, nil
 }
 
+// overlayFor is the enumerated set applied to a Compose-referenced workload.
+func (p *Project) overlayFor(n Names, name string, w Workload, releaseID string) overlay {
+	ov := overlay{
+		Labels: map[string]any{
+			"ob.app":      p.App,
+			"ob.workload": name,
+			"ob.release":  releaseID,
+		},
+		HasRoute: len(w.NormalisedRoutes()) > 0,
+	}
+	for k, v := range p.routeLabels(n, name, w) {
+		ov.Labels[k] = v
+	}
+	if p.Proxy.Managed && p.Proxy.Kind != "none" && ov.HasRoute {
+		ov.Network = p.Proxy.Network
+	}
+	return ov
+}
+
 func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID string, images Images) (map[string]any, []string, error) {
 	svc := map[string]any{}
 	var namedVolumes []string
@@ -87,10 +106,14 @@ func (p *Project) renderWorkload(n Names, name string, w Workload, releaseID str
 		}
 		svc["image"] = ref
 	case w.Compose != "":
-		// The referenced service is merged by the caller that reads the Compose
-		// file; generation records the reference so the merge is explicit rather
-		// than implied.
-		svc["x-ob-compose-ref"] = w.Compose
+		merged, err := mergeComposeRef(p.Dir, w.Compose, p.overlayFor(n, name, w, releaseID))
+		if err != nil {
+			return nil, nil, err
+		}
+		// A referenced service is copied verbatim with the overlay already
+		// applied. Nothing below may add to it: the declaration describes a
+		// workload Onebox generates, and this one the user authored.
+		return merged, nil, nil
 	}
 
 	if w.Command != nil {

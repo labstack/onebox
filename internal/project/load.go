@@ -88,6 +88,7 @@ func LoadBytes(b []byte, filename string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.Dir = filepath.Dir(filename)
 	if err := crossFieldRules(p); err != nil {
 		return nil, err
 	}
@@ -395,6 +396,3 @@ func firstLine(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
-
-// Dir returns the directory a repository path resolves against.
-func Dir(projectFile string) string { return filepath.Dir(projectFile) }

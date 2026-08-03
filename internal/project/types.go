@@ -15,6 +15,11 @@ package project
 // defaults have been applied by the schema and shorthand has been expanded, so
 // consumers never have to ask whether a value was stated or derived.
 type Project struct {
+	// Dir is the directory holding the project file. Every repository path
+	// resolves against it, so loading the same project from two working
+	// directories yields the same runtime.
+	Dir string `json:"-"`
+
 	APIVersion   string                 `json:"api_version"`
 	App          string                 `json:"app"`
 	BasePath     string                 `json:"base_path"`

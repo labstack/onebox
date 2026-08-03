@@ -1,0 +1,48 @@
+api_version: onebox.run/v1
+app: fanout
+environments:
+  production:
+    server: root@fanout.labstack.net
+    policy: {require_approval: true}
+workloads:
+  site:
+    role: application
+    image: ghcr.io/labstack/fanout-site:2026.8.1
+    replicas: 1
+    routes:
+      - {domain: fanout.run, port: 80}
+      - {domain: www.fanout.run, port: 80}
+  app:
+    role: application
+    image: ghcr.io/labstack/fanout:2026.8.1
+    replicas: 1
+    routes:
+      - {domain: fanout.labstack.com, port: 7520}
+      - {domain: ingress.fanout.labstack.com, port: 4317, entrypoint: otlp, scheme: h2c}
+    health: {exec: "wget -qO/dev/null http://127.0.0.1:7520/healthz", interval: 30s, within: 2m, retries: 3}
+    env:
+      DATA_DIR: /var/lib/fanout
+      HTTP_ADDR: ":7520"
+      OTLP_GRPC_ADDR: ":4317"
+      PUBLIC_URL: "https://fanout.labstack.com"
+      DUCKDB_MEMORY: 16GB
+      DUCKDB_THREADS: "4"
+    volumes: [{name: data, path: /var/lib/fanout, mode: rw}]
+    env_files: [fanout/.env]
+  demo:
+    role: application
+    compose: demo/docker-compose.yaml#demo
+    replicas: 1
+    env_files: [demo/.env]
+    routes:
+      - {domain: demo.fanout.run, port: 7520}
+deployment: {order: [site, app, demo], retain_releases: 5}
+proxy: {managed: true, config: traefik}
+files: [traefik/static.yml, traefik/dynamic.yml]
+runtime:
+  preflight:
+    - {file: fanout/.env, require: [FANOUT_SECRET]}
+    - {file: traefik/.env, require: [CF_DNS_API_TOKEN]}
+verification:
+  - {url: "https://fanout.run/"}
+  - {url: "https://fanout.labstack.com/healthz"}

@@ -304,7 +304,7 @@ form SHALL carry its origin.
 ### Requirement: Routes are first-class
 
 Routing SHALL be declared as a list of route objects carrying domain, path, port,
-protocol, and TLS mode, so that path routing, non-HTTP protocols, and TLS
+entrypoint, protocol, backend scheme, and TLS mode, so that path routing, non-HTTP protocols, and TLS
 behavior are expressible without a later shape change. A scalar `domain` with a
 scalar `port` SHALL remain accepted as shorthand for a single HTTP route at path
 `/` with TLS terminated.
@@ -312,6 +312,10 @@ scalar `port` SHALL remain accepted as shorthand for a single HTTP route at path
 #### Scenario: Scalar shorthand expands to one route
 - **WHEN** a workload declares a scalar domain and port
 - **THEN** the canonical form contains one route with path `/`, protocol http, and TLS terminated
+
+#### Scenario: gRPC backend
+- **WHEN** a route declares the `h2c` backend scheme
+- **THEN** the project validates and the generated routing directs the proxy to speak HTTP/2 cleartext to the workload
 
 #### Scenario: Non-HTTP route
 - **WHEN** a workload declares a route with the tcp protocol
@@ -321,7 +325,66 @@ scalar `port` SHALL remain accepted as shorthand for a single HTTP route at path
 - **WHEN** two workloads in one environment declare the same domain and path
 - **THEN** validation fails and the error names both workloads
 
-### Requirement: Environment file semantics are defined
+### Requirement: Prerequisites carry a condition
+
+A workload MAY declare prerequisites. A prerequisite SHALL be a name or a name
+with a condition of `started`, `healthy`, or `completed`, defaulting to
+`healthy`. Converting ten real projects — five in this organization and five
+unrelated open-source stacks — found that every one of them gated startup on a
+dependency being healthy rather than merely started, so mere ordering is the
+wrong default.
+
+#### Scenario: Bare name defaults to healthy
+- **WHEN** a workload declares a prerequisite as a bare name
+- **THEN** the canonical form records the condition as `healthy`
+
+#### Scenario: Explicit condition
+- **WHEN** a workload declares a prerequisite with the `completed` condition
+- **THEN** the canonical form records that condition
+
+### Requirement: Workloads may publish host ports
+
+A workload MAY publish a host port, for a service reached without going through
+the proxy. A published port SHALL declare the host port, the container port, and
+a bind address defaulting to `127.0.0.1`. Publishing on every interface SHALL
+require declaring the bind address explicitly, so exposure is deliberate rather
+than accidental.
+
+#### Scenario: Default bind is loopback
+- **WHEN** a workload publishes a port without a bind address
+- **THEN** the canonical form binds it to `127.0.0.1`
+
+#### Scenario: Public exposure is explicit
+- **WHEN** a workload publishes a port on every interface
+- **THEN** the bind address is stated in the project file
+
+### Requirement: Configuration files are staged with the release
+
+A project MAY declare repository files to stage onto the target alongside the
+release. Onebox SHALL stage each declared file with the release, preserving its
+path relative to the project file, so that configuration a referenced Compose
+service mounts is present when the workload starts. Each declared file SHALL be
+a repository path. Without this, a Compose reference is staged but the file it
+mounts is not, and the workload starts against a missing path.
+
+#### Scenario: Mounted configuration reaches the target
+- **WHEN** a project declares configuration files and a referenced service mounts one
+- **THEN** the file is staged at the same relative path and the mount resolves
+
+#### Scenario: Staged file is a repository path
+- **WHEN** a declared file is absolute or escapes the repository
+- **THEN** validation fails and names the path
+
+### Requirement: Environment files are per workload, with a project-wide default
+
+A workload MAY declare its own environment files. A project-wide list SHALL
+apply to every `application` and `worker` workload that declares none, and SHALL
+NOT apply to a `daemon` or to a workload with its own list.
+
+A project-wide-only model was tried and rejected against real stacks: one project
+gives a file to its web server alone, another shares one between two of four
+services, and a third has three files for three services. Projecting every file
+into every container would put each service's secrets in all of them.
 
 Environment files SHALL be applied in declared order, with a later file
 overriding an earlier one. Their values SHALL be available for interpolation in
@@ -329,6 +392,14 @@ referenced Compose sources and SHALL be projected into application and worker
 workloads. A missing environment file SHALL fail validation. Preflight checks
 SHALL assert that required keys are present and non-empty, and that named keys
 exist.
+
+#### Scenario: Workload list overrides the project list
+- **WHEN** a workload declares its own environment files and the project also declares some
+- **THEN** only the workload's files are projected into it
+
+#### Scenario: Daemons receive no project-wide files
+- **WHEN** a project declares environment files and a daemon declares none
+- **THEN** no environment file is projected into the daemon
 
 #### Scenario: Later file wins
 - **WHEN** two environment files declare the same key

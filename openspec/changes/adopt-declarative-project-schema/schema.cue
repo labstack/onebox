@@ -89,9 +89,9 @@ package obschema
 
 // ---------- health ----------
 
-#HealthHTTP: {http: #UrlPath, port?: #Port, #HealthTiming, #X}
-#HealthExec: {exec: string & !="", #HealthTiming, #X}
-#HealthTCP:  {tcp: true, port: #Port, #HealthTiming, #X}
+#HealthHTTP: {http: #UrlPath, port?: #Port, exec?: _|_, tcp?: _|_, #HealthTiming, #X}
+#HealthExec: {exec: string & !="", http?: _|_, tcp?: _|_, port?: _|_, #HealthTiming, #X}
+#HealthTCP:  {tcp: true, port: #Port, http?: _|_, exec?: _|_, #HealthTiming, #X}
 
 #HealthTiming: {
 	...
@@ -113,7 +113,10 @@ package obschema
 	port:       #Port
 	entrypoint: string & !="" | *"websecure"
 	protocol:   "http" | "tcp" | *"http"
-	tls:        "terminate" | "passthrough" | "none" | *"terminate"
+	// How the proxy speaks to the workload behind it. gRPC backends need h2c,
+	// which is not expressible by protocol and TLS mode alone.
+	scheme: "http" | "https" | "h2c" | *"http"
+	tls:    "terminate" | "passthrough" | "none" | *"terminate"
 	#X
 }
 
@@ -132,6 +135,25 @@ package obschema
 }
 
 #Resources: {memory?: #Size, cpus?: #Cpus, #X}
+
+// A prerequisite. Ten real projects were converted to check this contract and
+// every one of them used a health-gated dependency, so the condition defaults to
+// `healthy` rather than to mere start order.
+#Need: #Ident | {
+	name:      #Ident
+	condition: "started" | "healthy" | "completed" | *"healthy"
+	#X
+}
+
+// A published host port, for a workload that is reached without the proxy.
+// The bind address defaults to loopback: publishing to every interface is a
+// deliberate act, not a typo.
+#PublishedPort: {
+	host:      #Port
+	container: #Port
+	bind:      string & !="" | *"127.0.0.1"
+	#X
+}
 
 // ---------- protection ----------
 
@@ -182,7 +204,15 @@ package obschema
 	volumes?: [...#Volume]
 	persistence?: #Persistence
 	protection?:  #Protection
-	needs?: [...#Ident]
+	needs?: [...#Need]
+	ports?: [...#PublishedPort]
+
+	// Files projected into this workload, applied in order, later winning.
+	// Per-workload because a real stack has several: paperless gives one file to
+	// its web server only, immich shares one between two of four services, and
+	// fanout has three for three services. A project-wide list would leak every
+	// secret into every container.
+	env_files?: [...#RepoPath]
 	#X
 }
 
@@ -394,7 +424,15 @@ package obschema
 		#X
 	}
 
+	// Repository files staged onto the target alongside the release, for
+	// configuration a referenced Compose service mounts: ClickHouse XML, an
+	// init script, a proxy's dynamic config. Without this the reference is
+	// staged but the file it mounts is not.
+	files?: [...#RepoPath]
+
 	runtime?: {
+		// Applied to every application and worker workload that does not declare
+		// its own. Daemons never receive them.
 		env_files?: [...#RepoPath]
 		preflight?: [...{
 			file: #RepoPath

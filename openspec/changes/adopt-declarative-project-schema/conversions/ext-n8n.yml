@@ -1,0 +1,32 @@
+api_version: onebox.run/v1
+app: n8n
+environments:
+  production: {server: root@example.com}
+files: [init-data.sh]
+workloads:
+  n8n:
+    role: application
+    image: docker.n8n.io/n8nio/n8n:1.70.0
+    domain: n8n.example.com
+    port: 5678
+    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
+    volumes: [{name: storage, path: /home/node/.n8n}]
+  n8n-worker:
+    role: worker
+    image: docker.n8n.io/n8nio/n8n:1.70.0
+    command: [worker]
+    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
+    volumes: [{name: storage, path: /home/node/.n8n}]
+  n8n-runner:
+    role: daemon
+    image: n8nio/runners:1.70.0
+    needs: [n8n]
+  postgres:
+    role: daemon
+    compose: docker-compose.yml#postgres
+    persistence: {mode: durable}
+  redis:
+    role: daemon
+    image: redis:7-alpine
+    health: {exec: "redis-cli ping", interval: 5s, retries: 10}
+    volumes: [{name: redis-storage, path: /data}]

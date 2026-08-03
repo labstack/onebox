@@ -1,20 +1,25 @@
-// Package project loads the onebox.run/v1 declarative authoring contract.
+// Package app loads the onebox.run/v1 declarative authoring contract: one
+// application, its workloads, the services it needs, and how a release rolls
+// out.
+//
+// It is not called `project` because Compose already owns that word. A reader
+// of the execution path holds `App *app.Resolved` next to `Compose
+// *ctypes.Project` and never has to ask which project is meant. In prose the
+// file is still the project file — there is no second meaning for a user to
+// trip over there.
 //
 // The pipeline is fixed and its order is load-bearing: parse, expand shorthand,
 // validate against the embedded CUE schema, then apply cross-field rules the
 // schema cannot express. Expansion runs before validation because the schema
-// describes the normalised project — a discriminator left to a default keeps
-// every branch of a CUE disjunction alive, so `role` must be present before the
+// describes the normalised form — a discriminator left to a default keeps every
+// branch of a CUE disjunction alive, so `role` must be present before the
 // schema sees it.
-//
-// This package is additive. Nothing depends on it yet; internal/config still
-// serves the shipped classifier contract until the cutover.
-package project
+package app
 
-// Project is the normalised form of a project file. Every field is concrete:
+// Spec is the normalised form of a project file. Every field is concrete:
 // defaults have been applied by the schema and shorthand has been expanded, so
 // consumers never have to ask whether a value was stated or derived.
-type Project struct {
+type Spec struct {
 	// Dir is the directory holding the project file. Every repository path
 	// resolves against it, so loading the same project from two working
 	// directories yields the same runtime.

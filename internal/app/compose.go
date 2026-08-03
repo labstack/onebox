@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"os"
@@ -274,7 +274,7 @@ func resolveRepoPath(dir, rel string) (string, error) {
 }
 
 // ComposeRefsOf lists every referenced file, so callers can stage them.
-func (p *Project) ComposeRefsOf() []string {
+func (p *Spec) ComposeRefsOf() []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, name := range sortedKeys(p.Workloads) {

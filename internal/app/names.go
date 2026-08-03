@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	"fmt"
@@ -37,7 +37,7 @@ type Names struct {
 
 // NamesFor resolves the base path for an environment, falling back to the
 // project value and then to the documented default.
-func (p *Project) NamesFor(env string) Names {
+func (p *Spec) NamesFor(env string) Names {
 	base := p.BasePath
 	if e, ok := p.Environments[env]; ok && e.BasePath != "" {
 		base = e.BasePath
@@ -118,7 +118,7 @@ func (n Names) HostDir() string     { return path.Join(n.BasePath, HostNamespace
 // Routers and proxy services are deliberately absent: they are labels, not
 // runtime objects, so they cannot collide with a container and including them
 // would make preflight report conflicts that do not exist.
-func (p *Project) All(env string) []string {
+func (p *Spec) All(env string) []string {
 	n := p.NamesFor(env)
 	out := []string{n.ComposeProject()}
 	for _, w := range sortedKeys(p.Workloads) {

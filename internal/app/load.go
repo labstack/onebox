@@ -1,4 +1,4 @@
-package project
+package app
 
 import (
 	_ "embed"
@@ -48,7 +48,7 @@ func errf(code, path, next, format string, args ...any) *Error {
 }
 
 // Load reads and normalises a project file.
-func Load(path string) (*Project, error) {
+func Load(path string) (*Spec, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errf("project_unreadable", path, "ob init", "cannot read project file: %v", err)
@@ -58,7 +58,7 @@ func Load(path string) (*Project, error) {
 
 // LoadBytes runs the fixed pipeline: parse, expand, validate, then apply the
 // cross-field rules the schema cannot express.
-func LoadBytes(b []byte, filename string) (*Project, error) {
+func LoadBytes(b []byte, filename string) (*Spec, error) {
 	var raw map[string]any
 	f, err := cueyaml.Extract(filename, b)
 	if err != nil {
@@ -263,14 +263,14 @@ func validateSchema(ctx *cue.Context, raw map[string]any, filename string) error
 	return nil
 }
 
-func decode(ctx *cue.Context, raw map[string]any) (*Project, error) {
+func decode(ctx *cue.Context, raw map[string]any) (*Spec, error) {
 	schema := ctx.CompileString(schemaSrc, cue.Filename("onebox-schema.cue"))
 	def := schema.LookupPath(cue.ParsePath("#Config"))
 	b, err := def.Unify(ctx.Encode(raw)).MarshalJSON()
 	if err != nil {
 		return nil, errf("project_invalid", "", "", "%v", reword(err))
 	}
-	var p Project
+	var p Spec
 	if err := json.Unmarshal(b, &p); err != nil {
 		return nil, errf("internal_decode_failed", "", "", "cannot decode normalised project: %v", err)
 	}
@@ -279,7 +279,7 @@ func decode(ctx *cue.Context, raw map[string]any) (*Project, error) {
 
 // crossFieldRules applies what the schema cannot express: cardinality, source
 // and routing exclusivity, identifier uniqueness, and derived-name length.
-func crossFieldRules(p *Project) error {
+func crossFieldRules(p *Spec) error {
 	if len(p.Environments) == 0 {
 		return errf("no_environment", "environments", "", "at least one environment is required")
 	}
@@ -361,7 +361,7 @@ func crossFieldRules(p *Project) error {
 }
 
 // checkDerivedNames refuses an over-long generated name rather than truncating.
-func checkDerivedNames(p *Project) error {
+func checkDerivedNames(p *Spec) error {
 	check := func(kind, name string) error {
 		if len(name) <= maxDerivedName {
 			return nil

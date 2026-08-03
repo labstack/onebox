@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/onebox/internal/project"
+	"github.com/labstack/onebox/internal/app"
 )
 
 // `ob config` answers "what did you make of this". A project file shows what
@@ -26,7 +26,7 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 			"between a value someone chose and one that appeared by default is what a\n" +
 			"person checking a production configuration needs to see.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := project.Load(g.ConfigPath)
+			p, err := app.Load(g.ConfigPath)
 			if err != nil {
 				return explain(err)
 			}

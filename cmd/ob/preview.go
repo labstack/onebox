@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/labstack/onebox/internal/project"
+	"github.com/labstack/onebox/internal/app"
 )
 
 // `ob preview` renders the declarative contract. It is deliberately separate
@@ -31,12 +31,12 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 			"Nothing is contacted and nothing is written. Environment values are redacted:\n" +
 			"a preview must never put a secret on a terminal.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := project.Load(g.ConfigPath)
+			p, err := app.Load(g.ConfigPath)
 			if err != nil {
 				return explain(err)
 			}
 
-			images := project.Images{}
+			images := app.Images{}
 			for _, pair := range imageFlags {
 				name, ref, ok := strings.Cut(pair, "=")
 				if !ok {
@@ -87,7 +87,7 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 // wrong, where, and what to run next — the same three things the structured
 // mode carries, so an agent and a person read the same information.
 func explain(err error) error {
-	e, ok := err.(*project.Error)
+	e, ok := err.(*app.Error)
 	if !ok {
 		return err
 	}

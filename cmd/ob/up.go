@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/onebox/internal/project"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -37,7 +37,7 @@ func addUpCommand(root *cobra.Command, g *globalFlags) {
 			"than implying otherwise. Use it to prove a target works, not to run\n" +
 			"something you cannot afford to break.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := project.Load(g.ConfigPath)
+			p, err := app.Load(g.ConfigPath)
 			if err != nil {
 				return explain(err)
 			}
@@ -68,7 +68,7 @@ func addUpCommand(root *cobra.Command, g *globalFlags) {
 				}
 			}
 
-			images := project.Images{}
+			images := app.Images{}
 			for _, pair := range imageFlags {
 				name, ref, ok := strings.Cut(pair, "=")
 				if !ok {
@@ -81,7 +81,7 @@ func addUpCommand(root *cobra.Command, g *globalFlags) {
 			}
 
 			result, err := resolved.Deploy(cmd.Context(), t, releaseID,
-				project.DeployOptions{Images: images, Wait: wait, SkipHealth: skipHealth})
+				app.DeployOptions{Images: images, Wait: wait, SkipHealth: skipHealth})
 			if err != nil {
 				return explain(err)
 			}
@@ -124,7 +124,7 @@ func addUpCommand(root *cobra.Command, g *globalFlags) {
 // bootstrapTarget prepares a host that has never run Onebox. It is the smallest
 // thing that makes `up` work on a fresh server, not the host-provisioning
 // capability — that is its own change, with its own guarantees.
-func bootstrapTarget(cmd *cobra.Command, t *transport.SSH, r *project.Resolved) error {
+func bootstrapTarget(cmd *cobra.Command, t *transport.SSH, r *app.Resolved) error {
 	out := cmd.OutOrStdout()
 	ctx := cmd.Context()
 

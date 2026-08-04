@@ -60,6 +60,11 @@ type driver struct {
 	// application name, so two projects on one host cannot end up sharing a
 	// database by accident.
 	user string
+	// majorUpgradeInPlace is whether the driver can read a data directory
+	// written by a previous major version. A database that cannot needs a dump
+	// and restore, which Onebox does not perform — so it refuses the change
+	// rather than replacing the container and leaving it crash-looping.
+	majorUpgradeInPlace bool
 	// database is whether the driver has a named database at all. Redis and a
 	// message broker do not, and reporting one would hand an application a
 	// value that means nothing.
@@ -113,14 +118,16 @@ var drivers = map[string]driver{
 		urlUser:   "onebox", scheme: "mysql", user: "onebox", settings: settingsUnsupported,
 	},
 	"redis": {
-		image: "redis", port: 6379, dataPath: "/data",
+		majorUpgradeInPlace: true,
+		image:               "redis", port: 6379, dataPath: "/data",
 		health:    []string{"CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"},
 		command:   []string{"sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"},
 		secretEnv: []string{"REDIS_PASSWORD"},
 		urlUser:   "default", scheme: "redis", settings: settingsRedisFlag,
 	},
 	"valkey": {
-		image: "valkey/valkey", port: 6379, dataPath: "/data",
+		majorUpgradeInPlace: true,
+		image:               "valkey/valkey", port: 6379, dataPath: "/data",
 		health:    []string{"CMD-SHELL", "valkey-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"},
 		command:   []string{"sh", "-c", "exec valkey-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"},
 		secretEnv: []string{"REDIS_PASSWORD"},
@@ -134,20 +141,23 @@ var drivers = map[string]driver{
 		urlUser:   "onebox", scheme: "mongodb", user: "onebox", settings: settingsUnsupported,
 	},
 	"rabbitmq": {
-		image: "rabbitmq", port: 5672, dataPath: "/var/lib/rabbitmq",
+		majorUpgradeInPlace: true,
+		image:               "rabbitmq", port: 5672, dataPath: "/var/lib/rabbitmq",
 		health:    []string{"CMD-SHELL", "rabbitmq-diagnostics -q ping"},
 		secretEnv: []string{"RABBITMQ_DEFAULT_PASS"},
 		urlUser:   "onebox", scheme: "amqp", user: "onebox", settings: settingsEnv,
 	},
 	"minio": {
-		image: "minio/minio", port: 9000, dataPath: "/data",
+		majorUpgradeInPlace: true,
+		image:               "minio/minio", port: 9000, dataPath: "/data",
 		health:    []string{"CMD-SHELL", "mc ready local"},
 		command:   []string{"server", "/data", "--console-address", ":9001"},
 		secretEnv: []string{"MINIO_ROOT_PASSWORD"},
 		urlUser:   "onebox", scheme: "s3", user: "onebox", settings: settingsEnv,
 	},
 	"meilisearch": {
-		image: "getmeili/meilisearch", port: 7700, dataPath: "/meili_data",
+		majorUpgradeInPlace: true,
+		image:               "getmeili/meilisearch", port: 7700, dataPath: "/meili_data",
 		health:    []string{"CMD-SHELL", "curl -fsS http://localhost:7700/health"},
 		env:       map[string]string{"MEILI_ENV": "production"},
 		secretEnv: []string{"MEILI_MASTER_KEY"},
@@ -161,13 +171,41 @@ var drivers = map[string]driver{
 		urlUser:   "onebox", scheme: "http", user: "onebox", settings: settingsEnv,
 	},
 	"nats": {
-		image: "nats", port: 4222, dataPath: "/data",
+		majorUpgradeInPlace: true,
+		image:               "nats", port: 4222, dataPath: "/data",
 		// The nats image carries no shell utilities, so there is nothing to run
 		// as a health check. `needs` on it resolves to "started" rather than
 		// waiting forever on a condition the container can never report.
 		command: []string{"--jetstream", "--store_dir", "/data"},
 		scheme:  "nats", settings: settingsUnsupported,
 	},
+}
+
+// UpgradeInPlace reports whether a service's driver can start on a data
+// directory written by a previous major version.
+func (p *Spec) UpgradeInPlace(name string) bool {
+	s, ok := p.Services[name]
+	if !ok {
+		return true
+	}
+	_, d, known := driverOf(name, s)
+	return !known || d.dataPath == "" || d.majorUpgradeInPlace
+}
+
+// DeclaredVersion is the version a service declares, as written.
+func (p *Spec) DeclaredVersion(name string) string {
+	s, ok := p.Services[name]
+	if !ok {
+		return ""
+	}
+	return versionString(s.Version)
+}
+
+// MajorOf is the leading component of a version, which is the part that decides
+// whether a data directory can still be read.
+func MajorOf(version string) string {
+	major, _, _ := strings.Cut(version, ".")
+	return major
 }
 
 // DriverNames lists the catalogue, for an error message that tells the author

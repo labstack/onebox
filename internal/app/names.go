@@ -92,6 +92,14 @@ func (n Names) ServiceSecretFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".secret.env")
 }
 
+// ServiceVersionFile records the version that last ran successfully. The
+// running container's image is not the same fact: after a refused or failed
+// upgrade the image may be a version that never opened the data directory, and
+// treating it as authoritative traps the operator on the way back.
+func (n Names) ServiceVersionFile(service string) string {
+	return path.Join(n.ServiceDir(), service+".version")
+}
+
 // ServiceClientFile holds the connection details workloads read, under the
 // names Onebox chose. It is derived from the credential file on the target,
 // for the same reason.

@@ -142,3 +142,56 @@ func TestAJobGetsItsConnectionFile(t *testing.T) {
 		t.Fatalf("the job's own variable name never reached the target:\n%s", seq)
 	}
 }
+
+// A major version change to a service that cannot read the previous version's
+// data directory is refused before anything is replaced. The diff shows one
+// line — postgres:16 becoming postgres:17 — which reads as routine and is not.
+func TestAnUnsafeMajorUpgradeIsRefusedBeforeConverging(t *testing.T) {
+	f := accFake("")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "postgres.version") {
+			return transport.Result{Stdout: "16\n"}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	svc := cfg.Services["postgres"]
+	svc.Version = "17"
+	cfg.Services["postgres"] = svc
+
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	err := e.ServiceApply(context.Background(), "R9", false)
+	if err == nil {
+		t.Fatal("a major version change across an unreadable data directory must be refused")
+	}
+	if !strings.Contains(err.Error(), "cannot be opened") {
+		t.Fatalf("the refusal must say what would happen: %v", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "ob_sample_postgres' -f") {
+		t.Fatal("it must refuse before replacing the container")
+	}
+}
+
+// The version Onebox judges from is the one that last ran successfully, not
+// the image that happens to be on the container. After a failed upgrade those
+// differ, and judging from the image traps the operator on the way back.
+func TestRecoveryIsNotBlockedWhenNoVersionWasRecorded(t *testing.T) {
+	f := accFake("")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "postgres.version") {
+			return transport.Result{Stdout: "\n"}, true // never recorded
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	svc := cfg.Services["postgres"]
+	svc.Version = "17"
+	cfg.Services["postgres"] = svc
+
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	if err := e.ServiceApply(context.Background(), "R9", false); err != nil {
+		t.Fatalf("with no recorded version Onebox cannot know what the data is, and must not guess: %v", err)
+	}
+}

@@ -240,9 +240,14 @@
     "code": "project_invalid"
   },
   {
-    "case": "conformance/volume scalar",
+    "case": "conformance/volume scalar with a path",
     "loads": true,
-    "digest": "017b330f1bf3d6142b799dfa72200a6e364d550b097cde7560844ddb505b3d0d"
+    "digest": "a42e5587db73041bb0ef4c563ae6ea4f8eaaf390afbfe79daefcc4cb06a2b135"
+  },
+  {
+    "case": "conformance/volume scalar without a path",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/withdrawn components block",

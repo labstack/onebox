@@ -23,7 +23,7 @@ workloads:
     health: {http: /healthz, port: 8080, interval: 10s, retries: 3}
     drain: {grace: 30s}
     needs: [db]
-    volumes: [uploads]
+    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
     resources: {memory: 1GB}
   worker:
     role: worker
@@ -220,8 +220,8 @@ func TestNoProxyAddsNothing(t *testing.T) {
 
 // TestUDPPortRendered covers the protocol a real project needed.
 func TestUDPPortRendered(t *testing.T) {
-	y := strings.Replace(appFixture, "    volumes: [uploads]\n",
-		"    volumes: [uploads]\n    ports: [{host: 8555, container: 8555, protocol: udp}]\n", 1)
+	y := strings.Replace(appFixture, "    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n",
+		"    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n    ports: [{host: 8555, container: 8555, protocol: udp}]\n", 1)
 	out := string(render(t, y))
 	if !strings.Contains(out, "127.0.0.1:8555:8555/udp") {
 		t.Errorf("expected a loopback-bound UDP publish\n%s", out)

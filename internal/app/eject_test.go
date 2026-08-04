@@ -168,7 +168,7 @@ workloads:
     domain: ledger.example.com
     port: 8080
     health: {http: /healthz, port: 8080}
-    volumes: [uploads]
+    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
     env: {LOG_LEVEL: info}
 `)
 	body, _ := os.ReadFile(filepath.Join(dir, "ob.yml"))

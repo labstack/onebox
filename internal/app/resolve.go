@@ -22,7 +22,7 @@ var (
 		"replicas": true, "resources": true, "env": true, "strategy": true, "routes": true,
 	}
 	overridableService = map[string]bool{
-		"resources": true, "settings": true, "backup": true,
+		"resources": true, "settings": true,
 	}
 )
 

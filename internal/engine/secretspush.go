@@ -29,7 +29,7 @@ func (e *Engine) SecretsPush(ctx context.Context, envBytes []byte) error {
 // the journal identity used for any maintenance evidence. The current release
 // is returned even when no mutation is needed or a later step fails.
 func (e *Engine) SecretsPushWithJournalID(ctx context.Context, envBytes []byte) (string, error) {
-	cur, err := release.Current(ctx, e.T, e.App.App)
+	cur, err := release.Current(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -40,7 +40,7 @@ func (e *Engine) SecretsPushWithJournalID(ctx context.Context, envBytes []byte) 
 }
 
 func (e *Engine) secretsPush(ctx context.Context, cur string, envBytes []byte) error {
-	curDir := release.PathsFor(e.App.App).Releases + "/" + cur
+	curDir := release.PathsFor(e.Spec.Name).Releases + "/" + cur
 	sum := sha256.Sum256(envBytes)
 	localHash := hex.EncodeToString(sum[:])
 	res, err := e.T.Run(ctx, "sha256sum "+q(curDir+"/"+secrets.EnvFileName)+" 2>/dev/null | awk '{print $1}'")
@@ -60,7 +60,7 @@ func (e *Engine) secretsPush(ctx context.Context, cur string, envBytes []byte) e
 	if err := e.WriteFence(ctx, cur, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.App.App, DeployID: cur, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, App: e.Spec.Name, DeployID: cur, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
 	_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "start", Detail: "hash=sha256:" + localHash})
 
 	staging, err := os.MkdirTemp("", "ob-secrets")

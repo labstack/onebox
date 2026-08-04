@@ -93,13 +93,13 @@ func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState
 // Refresh gathers the drift set from the host. Nothing mutates.
 func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
 	hs := HostState{Host: e.T.Host(), ImageIDs: map[string]string{}}
-	cur, err := release.Current(ctx, e.T, e.App.App)
+	cur, err := release.Current(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return hs, err
 	}
 	hs.CurrentRelease = cur
 	svcs := map[string]bool{}
-	for name := range e.App.Workloads {
+	for name := range e.Spec.Workloads {
 		svcs[name] = true
 	}
 	for svc := range svcs {
@@ -130,7 +130,7 @@ var digestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 	pins := map[string]string{}
 	svcs := map[string]bool{}
-	for name := range e.App.Workloads {
+	for name := range e.Spec.Workloads {
 		svcs[name] = true
 	}
 	for svc := range svcs {
@@ -233,7 +233,7 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 // RemotePayloadDigest computes the same digest over a release dir on the
 // host: per-file sha256 lines, bytewise-sorted, hashed together.
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
-	dir := release.PathsFor(e.App.App).Releases + "/" + releaseID
+	dir := release.PathsFor(e.Spec.Name).Releases + "/" + releaseID
 	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -name '.job-*-result' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
@@ -263,7 +263,7 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	for _, job := range steps {
 		isStep[job] = true
 		cmdStr := cc + " run --rm --no-deps " + job
-		if h, ok := e.App.Hooks[job]; ok && h.Run != "" {
+		if h, ok := e.Spec.Hooks[job]; ok && h.Run != "" {
 			cmdStr = h.Run
 		}
 		out = append(out, fmt.Sprintf("job %s (gated — changed=false keeps rollback open): %s", job, cmdStr))
@@ -272,8 +272,8 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	// Only the hooks a deploy actually runs belong in a deploy plan; bootstrap
 	// is a separate lifecycle (ob bootstrap), so listing it here would claim a
 	// step that never runs — a fidelity violation.
-	hooks := make([]string, 0, len(e.App.Hooks))
-	for name := range e.App.Hooks {
+	hooks := make([]string, 0, len(e.Spec.Hooks))
+	for name := range e.Spec.Hooks {
 		if isStep[name] || !deploySeam[name] {
 			continue // shown as a job above, or not a deploy-lifecycle hook
 		}
@@ -281,15 +281,15 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	}
 	sort.Strings(hooks)
 	for _, name := range hooks {
-		h := e.App.Hooks[name]
+		h := e.Spec.Hooks[name]
 		where := "host"
 		if h.Local {
 			where = "local"
 		}
 		out = append(out, fmt.Sprintf("hook %s (%s, unplannable): %s", name, where, h.Run))
 	}
-	for _, roleName := range e.App.ReleaseOrder() {
-		role := e.App.Workloads[roleName]
+	for _, roleName := range e.Spec.ReleaseOrder() {
+		role := e.Spec.Workloads[roleName]
 		svc := roleName
 		head := fmt.Sprintf("release %s (%s", roleName, role.Mode())
 		if n := role.Count(); n > 1 {

@@ -32,7 +32,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 	currentBinary := filepath.Join(currentDir, "ob")
 	cfg := &app.Spec{
 		APIVersion: "onebox.run/v1",
-		App:        "demo",
+		Name:       "demo",
 		Environments: map[string]app.Environment{
 			"production": {
 				Policy: app.Policy{

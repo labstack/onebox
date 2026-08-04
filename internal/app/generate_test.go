@@ -95,9 +95,23 @@ func TestDigestChangesWithRuntimeAffectingInput(t *testing.T) {
 
 func TestDigestIgnoresNonRuntimeInput(t *testing.T) {
 	before := digestOf(t, appFixture)
-	after := digestOf(t, appFixture+"x-note: irrelevant\nservices: {cache: 7}\n")
+	after := digestOf(t, appFixture+"x-note: irrelevant\n")
 	if before != after {
-		t.Fatalf("an extension key and an inert service must not change the runtime")
+		t.Fatalf("an extension key must not change the runtime")
+	}
+}
+
+// A supporting service is part of the runtime, so its version binds into the
+// digest. A plan that did not notice a major Postgres upgrade because the
+// application was untouched would be a plan that lied.
+func TestDigestChangesWithServiceVersion(t *testing.T) {
+	before := digestOf(t, appFixture+"services: {postgres: 16}\n")
+	after := digestOf(t, appFixture+"services: {postgres: 17}\n")
+	if before == after {
+		t.Fatal("changing a service version must change the digest")
+	}
+	if plain := digestOf(t, appFixture); plain == before {
+		t.Fatal("declaring a service must change the digest")
 	}
 }
 

@@ -3,57 +3,56 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
 
 	"github.com/labstack/onebox/internal/journal"
-	"github.com/labstack/onebox/internal/release"
 )
 
-// AccessoryApply converges stateful services explicitly as a
-// planned maintenance event — never mid-deploy. Shows the diff against the
-// live release, refuses destructive mount changes without force, then
-// `up -d --no-deps <accessories>` under the full lock/fence/journal regime.
-func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir string, force bool) error {
-	if len(e.App.ServiceNames()) == 0 {
-		return fmt.Errorf("no accessories declared")
+// ServiceApply converges the supporting services explicitly, as a planned
+// maintenance event — never mid-deploy. It shows the diff against what is
+// running, refuses destructive mount changes without force, then converges
+// each service's own Compose project under the full lock/fence/journal regime.
+//
+// The diff is against each service's live document rather than against a
+// release, because a service is not part of one. Comparing to the release
+// would report every service as changed on the first apply after a deploy,
+// and report nothing when a Postgres version changed under an untouched app.
+func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool) error {
+	if len(e.Spec.ServiceNames()) == 0 {
+		return fmt.Errorf("no services declared")
 	}
-	newB, err := os.ReadFile(filepath.Join(localStagingDir, "compose.yaml"))
+	n := e.Spec.NamesFor(e.Opts.Environment)
+	rendered, err := e.Spec.RenderServices(e.Opts.Environment)
 	if err != nil {
 		return err
 	}
 
-	// the diff: rendered vs the live release's compose
-	cur, err := release.Current(ctx, e.T, e.App.App)
-	if err != nil {
-		return err
-	}
-	live := ""
-	if cur != "" {
-		res, err := e.T.Run(ctx, "cat "+q(release.PathsFor(e.App.App).Releases+"/"+cur+"/compose.yaml")+" 2>/dev/null || true")
+	changed := false
+	for _, name := range e.Spec.ServiceNames() {
+		res, err := e.T.Run(ctx, "cat "+q(n.ServiceFile(name))+" 2>/dev/null || true")
 		if err != nil {
 			return err
 		}
-		live = res.Stdout
+		diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+			A: difflib.SplitLines(res.Stdout), B: difflib.SplitLines(string(rendered[name])),
+			FromFile: "live (" + name + ")", ToFile: "planned (" + name + ")", Context: 2,
+		})
+		if diff != "" {
+			changed = true
+			e.ui.Diff(diff)
+		}
 	}
-	diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-		A: difflib.SplitLines(live), B: difflib.SplitLines(string(newB)),
-		FromFile: "live (" + cur + ")", ToFile: "planned (" + releaseID + ")", Context: 2,
-	})
-	if diff == "" {
-		e.logf("accessory apply: no rendered change vs live release")
-	} else {
-		e.ui.Diff(diff)
+	if !changed {
+		e.logf("service apply: no change vs what is running")
 	}
 
 	// destructive-mount check: a named volume or absolute bind the running
 	// container uses that the new config drops means data would detach
 	var destructive []string
-	for _, acc := range e.App.ServiceNames() {
-		id, err := e.containerID(ctx, acc)
+	for _, acc := range e.Spec.ServiceNames() {
+		id, err := e.serviceContainerID(ctx, acc)
 		if err != nil {
 			return err
 		}
@@ -65,11 +64,12 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 		if err != nil {
 			return err
 		}
+		// What the planned document mounts. A service's durable volume is
+		// derived, so this is the contract name and a mount that no longer
+		// appears in it is data about to detach.
 		newSet := map[string]bool{}
-		if svc, ok := e.Compose.Services[acc]; ok {
-			for _, v := range svc.Volumes {
-				newSet[string(v.Type)+"="+v.Source] = true
-			}
+		for _, v := range e.Spec.Services[acc].Volumes {
+			newSet["volume="+n.ServiceVolume(acc, v)] = true
 		}
 		for _, m := range strings.Fields(res.Stdout) {
 			src := strings.SplitN(m, "=", 2)
@@ -103,27 +103,18 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.App.App, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
-	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.App.ServiceNames(), ",")})
+	jw := &journal.Writer{T: e.T, App: e.Spec.Name, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")})
 
-	pushed, err := release.Push(ctx, e.T, localStagingDir, e.App.App, releaseID)
-	if err != nil {
+	if err := e.ApplyServices(ctx); err != nil {
+		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail", Detail: err.Error()})
 		return err
 	}
-	cc := e.composeCmd(pushed + "/compose.yaml")
-	args := strings.Join(e.App.ServiceNames(), " ")
-	if res, err := e.mutate(ctx, cc+" up -d --no-deps "+args); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail"})
-		return err
-	} else if res.ExitCode != 0 {
-		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail", Detail: res.Stderr})
-		return fmt.Errorf("accessory apply: %s", strings.TrimSpace(res.Stderr))
-	}
-	for _, acc := range e.App.ServiceNames() {
-		id, _ := e.containerID(ctx, acc)
+	for _, acc := range e.Spec.ServiceNames() {
+		id, _ := e.serviceContainerID(ctx, acc)
 		if id != "" {
 			h, _ := e.healthOf(ctx, id)
-			e.logf("accessory %s: %s", acc, h)
+			e.logf("service %s: %s", acc, h)
 		}
 	}
 	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "ok"})

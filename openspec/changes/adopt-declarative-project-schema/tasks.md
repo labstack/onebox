@@ -56,8 +56,8 @@
 - [ ] 7.6 Generate networks, volumes, and routing from the normalized model.
 - [ ] 7.7 Assert generation opens no target connection on any path, success or failure.
 - [ ] 7.8 Determinism and purity tests under a harness that fails on any undeclared clock, entropy, or environment input.
-- [ ] 7.9 Assert a non-runtime-affecting change — an `x-` key, an inert service declaration — leaves the runtime and digest unchanged.
-- [ ] 7.10 Assert a service declaration emits no container, volume, or network.
+- [x] 7.9 Assert a non-runtime-affecting change — an `x-` key, a comment — leaves the runtime and digest unchanged, and that a service version does change it.
+- [x] 7.10 Assert a service declaration emits its own Compose project, durable volume, health check and shared network, and that no credential reaches the runtime.
 
 ## 8. Naming and layout
 
@@ -67,7 +67,7 @@
 - [ ] 8.4 Refuse at validation any derived name exceeding the container runtime's limit, naming the identifiers and the limit; assert no name is ever truncated.
 - [ ] 8.5 Assert every derived name is application-scoped, including the transient rollout name, and that all of them are covered by the preflight collision check.
 - [ ] 8.6 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback, reported in observation and bound into the plan.
-- [ ] 8.7 Reserve the names a declared service would derive without creating any resource.
+- [x] 8.7 Reserve the names a declared service derives, including its container, and check them in preflight.
 
 ## 9. Target preflight
 

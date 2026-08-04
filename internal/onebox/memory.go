@@ -88,7 +88,7 @@ func (s *Service) loadMemory(ctx context.Context) (*loadedProject, OperationalMe
 		{Kind: "compose", Source: filepath.Base(lp.configPath)},
 	}
 	memory := OperationalMemory{
-		SchemaVersion: MemorySchemaVersion, Application: lp.resolved.App, Environment: s.environment,
+		SchemaVersion: MemorySchemaVersion, Application: lp.resolved.Name, Environment: s.environment,
 		MigrationPolicy: lp.resolved.Deployment.MigrationPolicy,
 		Policy:          describePolicy(environment.Policy), Observability: observability,
 		Components: components, Provenance: provenance,

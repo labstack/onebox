@@ -540,16 +540,66 @@ and SHALL NOT be reported as managed.
 - **WHEN** a service declaration carries a Compose reference
 - **THEN** validation fails, stating that a user-authored data service must be a workload
 
-### Requirement: Service declarations are inert in this contract
+### Requirement: A declared service is run by Onebox
 
-A service declaration SHALL validate and normalize, and SHALL NOT cause Onebox to
-create, converge, tune, back up, or upgrade that service. Observation SHALL
-report it as declared and not managed until a driver capability establishes
-otherwise.
+A service declaration SHALL cause Onebox to run that service: its image, its
+durable volume, its health check, its credential, and the connection details
+the application reads. Declaring `postgres: 17` SHALL be sufficient; the author
+SHALL NOT have to supply a password, a port, or a data path.
 
-#### Scenario: Declared service is honestly reported
-- **WHEN** observation reports a declared service
-- **THEN** it is reported as declared and not managed, and no backup or restore guarantee is implied
+The set of drivers Onebox can run SHALL be closed. A declaration naming a
+driver outside it SHALL be rejected, naming the available drivers and directing
+the author to a daemon workload — guessing an image from an identifier would
+produce a container that starts and stores nothing durable, which is discovered
+at the worst possible time.
+
+A setting SHALL be applied through the mechanism its driver actually reads.
+Where a driver has no mechanism Onebox can apply safely, the setting SHALL be
+rejected rather than accepted and ignored.
+
+Backup and restore remain declarations only: a `backup` block SHALL NOT imply
+that Onebox performs or verifies one.
+
+#### Scenario: A scalar service declaration is sufficient
+- **WHEN** a project declares `services: {postgres: 17}`
+- **THEN** the generated runtime runs Postgres 17 with a durable volume, a health check, and a generated credential, and the project contains no password
+
+#### Scenario: An unknown driver is refused with alternatives
+- **WHEN** a service names a driver Onebox cannot run
+- **THEN** validation fails, listing the drivers it can run and directing the author to declare a daemon workload instead
+
+#### Scenario: An inapplicable setting is refused
+- **WHEN** a service declares a setting its driver has no mechanism to read
+- **THEN** validation fails rather than silently ignoring it
+
+### Requirement: A service outlives every release
+
+A service SHALL be applied outside the application's release, in its own
+container-runtime project. Removing, replacing, or rolling back a release SHALL
+NOT stop a service or remove its durable volume.
+
+#### Scenario: A release teardown leaves the data
+- **WHEN** the application's project is removed together with its volumes
+- **THEN** every declared service is still running and its durable volume still exists
+
+### Requirement: A service credential is generated on the target and never travels
+
+The credential for a managed service SHALL be generated on the target, exactly
+once, and SHALL NOT appear in the project, the generated runtime, or its digest.
+Onebox SHALL write the connection details a workload needs — a URL and its
+parts — to a target-side file that only workloads declaring a prerequisite on
+that service read.
+
+An established credential SHALL NOT be regenerated: rotating it silently would
+leave the application holding a credential its service has forgotten.
+
+#### Scenario: No credential is present in anything that travels
+- **WHEN** a runtime is generated for a project declaring a managed service
+- **THEN** the runtime contains no credential, and the digest does not change when the credential on a target does
+
+#### Scenario: A re-apply preserves the credential
+- **WHEN** services are applied again on a target that already has them
+- **THEN** the existing credential is left unchanged
 
 ### Requirement: A machine-readable schema is published for editors
 

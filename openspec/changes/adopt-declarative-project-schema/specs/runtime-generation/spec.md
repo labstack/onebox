@@ -16,8 +16,17 @@ identical digest. Generation SHALL NOT depend on wall-clock time, map iteration
 order, undeclared environment variables, or the host on which it runs.
 
 A change to an input that does not affect the runtime — an extension key, a
-service declaration while services remain inert, a comment — SHALL leave the
-generated runtime and its digest unchanged.
+comment — SHALL leave the generated runtime and its digest unchanged. A service
+declaration is runtime-affecting: its version binds into the digest, so a
+database upgrade under an untouched application cannot pass unnoticed.
+
+Every `$` in a value Onebox generates SHALL be escaped for the container
+runtime's own interpolation. The runtime file is read by Compose, which
+substitutes `$VAR` from the host environment; an unescaped generated `$` would
+silently become the empty string, which is how a cache ends up running with an
+empty password while the application holds a real one. Content copied verbatim
+from a Compose file the author referenced SHALL NOT be escaped — interpolation
+is that file's own contract.
 
 #### Scenario: Repeated generation is identical
 - **WHEN** a runtime is generated twice from identical inputs

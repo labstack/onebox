@@ -43,6 +43,7 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger",
 		"ledger_migrate",
 		"ledger_migrate_new",
+		"ledger_postgres",
 		"ledger_web",
 		"ledger_web_2",
 		"ledger_web_3",

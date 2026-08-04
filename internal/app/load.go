@@ -375,6 +375,22 @@ func crossFieldRules(p *Spec) error {
 			return errf("identifier_collision", "services."+name, "",
 				"%q names both a workload and a service; their derived volume names would collide", name)
 		}
+		svc := p.Services[name]
+		key, d, known := driverOf(name, svc)
+		if !known {
+			return errf("unknown_service_driver", "services."+name, "",
+				"no managed driver named %q; Onebox runs these: %s.\n"+
+					"To run something else, declare it as a daemon workload — you own the image and the settings then.",
+				key, strings.Join(DriverNames(), ", "))
+		}
+		// Materialise the durable volume in the project rather than only in the
+		// generated runtime, so the canonical form, the preflight collision
+		// check and the renderer all name the same volume.
+		if d.dataPath != "" && len(svc.Volumes) == 0 {
+			svc.Volumes = []string{"data"}
+			p.Services[name] = svc
+			p.derivedPaths["services."+name+".volumes"] = OriginDefault
+		}
 	}
 
 	return checkDerivedNames(p)
@@ -391,24 +407,24 @@ func checkDerivedNames(p *Spec) error {
 			kind, name, len(name), maxDerivedName)
 	}
 	for _, w := range sortedKeys(p.Workloads) {
-		if err := check("container", p.App+"_"+w); err != nil {
+		if err := check("container", p.Name+"_"+w); err != nil {
 			return err
 		}
 		for _, v := range p.Workloads[w].Volumes {
 			if v.IsBind() {
 				continue
 			}
-			if err := check("volume", "ob_"+p.App+"_"+w+"_"+v.Name); err != nil {
+			if err := check("volume", "ob_"+p.Name+"_"+w+"_"+v.Name); err != nil {
 				return err
 			}
 		}
 	}
 	for _, s := range sortedKeys(p.Services) {
-		if err := check("service project", "ob_"+p.App+"_"+s); err != nil {
+		if err := check("service project", "ob_"+p.Name+"_"+s); err != nil {
 			return err
 		}
 		for _, v := range p.Services[s].Volumes {
-			if err := check("volume", "ob_"+p.App+"_"+s+"_"+v); err != nil {
+			if err := check("volume", "ob_"+p.Name+"_"+s+"_"+v); err != nil {
 				return err
 			}
 		}

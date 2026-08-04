@@ -51,7 +51,7 @@ func (s *Service) Observe(ctx context.Context, _ ObserveRequest) (Observation, e
 	}
 	return Observation{
 		SchemaVersion: SchemaVersion,
-		Application:   lp.resolved.App,
+		Application:   lp.resolved.Name,
 		Environment:   environment,
 		Policy:        describePolicy(environmentConfig.Policy),
 		Observability: describeObservability(lp.resolved),

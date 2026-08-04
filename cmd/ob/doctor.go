@@ -430,7 +430,7 @@ func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjec
 	report.Found = true
 	report.Valid = true
 	report.APIVersion = cfg.APIVersion
-	report.Application = cfg.App
+	report.Application = cfg.Name
 	environment, err := cfg.Environment(g.Env)
 	if err != nil {
 		report.Status = doctorFail

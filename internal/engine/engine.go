@@ -74,10 +74,10 @@ type Options struct {
 }
 
 type Engine struct {
-	// App is what the author declared; Compose is what Compose parsed from
+	// Spec is what the author declared; Compose is what Compose parsed from
 	// the rendered runtime. Keeping both named for their source is why this
 	// package no longer says "project" for two different things.
-	App     *app.Resolved
+	Spec    *app.Resolved
 	Compose *ctypes.Project
 	T       transport.Transport
 	Opts    Options
@@ -119,7 +119,7 @@ func New(a *app.Resolved, c *ctypes.Project, t transport.Transport, o Options) *
 	if o.Runner.Version == "" {
 		o.Runner = buildinfo.CurrentRunner()
 	}
-	return &Engine{App: a, Compose: c, T: t, Opts: o, ui: o.UI}
+	return &Engine{Spec: a, Compose: c, T: t, Opts: o, ui: o.UI}
 }
 
 func (e *Engine) logf(format string, a ...any) {

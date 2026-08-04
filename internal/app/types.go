@@ -3,7 +3,7 @@
 // out.
 //
 // It is not called `project` because Compose already owns that word. A reader
-// of the execution path holds `App *app.Resolved` next to `Compose
+// of the execution path holds `Spec *app.Resolved` next to `Compose
 // *ctypes.Project` and never has to ask which project is meant. In prose the
 // file is still the project file — there is no second meaning for a user to
 // trip over there.
@@ -25,8 +25,11 @@ type Spec struct {
 	// directories yields the same runtime.
 	Dir string `json:"-"`
 
-	APIVersion   string                 `json:"api_version"`
-	App          string                 `json:"app"`
+	APIVersion string `json:"api_version"`
+	// Name is the application's name. Spelled Name rather than App because
+	// inside a package called app, `spec.App` is a stutter and every caller
+	// then writes `.App.App`. The authored key is still `app:`.
+	Name         string                 `json:"app"`
 	BasePath     string                 `json:"base_path"`
 	Environments map[string]Environment `json:"environments"`
 	Workloads    map[string]Workload    `json:"workloads,omitempty"`

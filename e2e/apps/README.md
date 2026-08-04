@@ -29,7 +29,7 @@ ob preflight -c e2e/apps/umami.yml          # whether the host is ready
 ## Deployed for real — one application, one host
 
 `one-app-one-host.sh` provisions a throwaway Hetzner VM, deploys one
-application to it from a bare Ubuntu image with `ob up --bootstrap`, verifies it
+application to it from a bare Ubuntu image with `ob bootstrap` then `ob deploy`, verifies it
 serves, and destroys the host. One application per host, which is the product's
 scope; an earlier run put all six on one box and was not testing what this
 contract describes.

@@ -263,7 +263,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	// the digest — and an application gets its database URL without anyone
 	// copying a password into a repository.
 	files := p.envFilesFor(w)
-	files = append(files, p.serviceClientFiles(n, w)...)
+	files = append(files, p.serviceClientFiles(n, name, w)...)
 	if len(files) > 0 {
 		svc["env_file"] = files
 	}
@@ -712,11 +712,18 @@ func (p *Spec) serviceNeedsOf(w Workload) []string {
 }
 
 // serviceClientFiles are the target-side connection files for the services a
-// workload needs.
-func (p *Spec) serviceClientFiles(n Names, w Workload) []string {
+// workload needs: the canonical names always, and its own names where it asked
+// for them. Its own come second so they win a collision, which is the only
+// reading of "I want this variable to be the host" that is not a surprise.
+func (p *Spec) serviceClientFiles(n Names, name string, w Workload) []string {
 	var out []string
-	for _, name := range p.serviceNeedsOf(w) {
-		out = append(out, n.ServiceClientFile(name))
+	for _, service := range p.serviceNeedsOf(w) {
+		out = append(out, n.ServiceClientFile(service))
+	}
+	for _, need := range w.Needs {
+		if _, ok := p.Services[need.Name]; ok && len(need.Env) > 0 {
+			out = append(out, n.ServiceAliasFile(need.Name, name))
+		}
 	}
 	return out
 }

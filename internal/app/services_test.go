@@ -130,7 +130,7 @@ func TestRedisURLNamesTheDefaultUser(t *testing.T) {
 	if !ok {
 		t.Fatal("redis has no client contract")
 	}
-	script := client.ClientEnvScript("/s.env", "/c.env")
+	script := client.ClientEnvScript("/s.env", "/c.env", nil)
 	if !strings.Contains(script, "redis://default:$pw@store:6379") {
 		t.Fatalf("redis URL must name the default user:\n%s", script)
 	}
@@ -142,16 +142,17 @@ func TestRedisURLNamesTheDefaultUser(t *testing.T) {
 func TestConnectionFileCarriesPartsAsWellAsURL(t *testing.T) {
 	spec := serviceSpec(t, "services: {store: {driver: postgres, version: 17}}\n")
 	client, _ := spec.ClientEnvFor("store")
-	script := client.ClientEnvScript("/s.env", "/c.env")
+	script := client.ClientEnvScript("/s.env", "/c.env", nil)
 	for _, want := range []string{"STORE_URL", "STORE_HOST", "STORE_PORT", "STORE_USER", "STORE_DATABASE", "STORE_PASSWORD"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("connection file is missing %s:\n%s", want, script)
 		}
 	}
-	// Establishing it twice would leave the application holding a credential
-	// the database has forgotten.
-	if !strings.Contains(script, "if [ -s '/s.env' ] && [ -s '/c.env' ]; then exit 0; fi") {
-		t.Errorf("the credential is not established exactly once:\n%s", script)
+	// The password is read back when it exists, never regenerated: an
+	// application holding a credential its database has forgotten is a worse
+	// outage than any this would prevent.
+	if !strings.Contains(script, "if [ -s '/s.env' ]; then") || !strings.Contains(script, "sed -n 's/^POSTGRES_PASSWORD=//p'") {
+		t.Errorf("an established credential is not reused:\n%s", script)
 	}
 }
 
@@ -173,5 +174,67 @@ func TestGeneratedDollarsSurviveComposeInterpolation(t *testing.T) {
 	}
 	if strings.Contains(string(out.Bytes), "$SOMETHING") {
 		t.Fatal("an unescaped $ reached the application runtime")
+	}
+}
+
+// Every application names its own variables. Without a mapping a managed
+// service is only usable by one that happens to read the names Onebox chose,
+// which almost none do.
+func TestAWorkloadCanNameTheConnectionItself(t *testing.T) {
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: n8n
+environments: {production: {server: root@h}}
+workloads:
+  n8n:
+    role: application
+    image: n8n:1
+    needs:
+      - name: store
+        env:
+          DB_POSTGRESDB_HOST: host
+          DB_POSTGRESDB_USER: user
+          DB_POSTGRESDB_PASSWORD: password
+services: {store: {driver: postgres, version: 16}}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, _ := spec.ClientEnvFor("store")
+	n := spec.NamesFor("production")
+	script := client.ClientEnvScript(n.ServiceSecretFile("store"), n.ServiceClientFile("store"),
+		[]AliasFile{{Path: n.ServiceAliasFile("store", "n8n"), Vars: spec.Workloads["n8n"].Needs[0].Env}})
+
+	for _, want := range []string{"DB_POSTGRESDB_HOST", "DB_POSTGRESDB_USER", "DB_POSTGRESDB_PASSWORD"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the workload's own name %s never reaches the target:\n%s", want, script)
+		}
+	}
+	// The password is still only ever a variable on the target.
+	if strings.Contains(script, "DB_POSTGRESDB_PASSWORD=\"postgres") {
+		t.Error("a credential was materialised outside the target")
+	}
+
+	r, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out.Bytes), "store.n8n.env") {
+		t.Fatalf("the workload does not read the file it asked for:\n%s", out.Bytes)
+	}
+}
+
+// A part the driver does not have must not be written as an empty variable: an
+// application cannot tell that from a value.
+func TestAMappingToAMissingPartIsSkipped(t *testing.T) {
+	spec := serviceSpec(t, "services: {store: {driver: redis, version: \"7.4\"}}\n")
+	client, _ := spec.ClientEnvFor("store")
+	script := client.ClientEnvScript("/s.env", "/c.env",
+		[]AliasFile{{Path: "/a.env", Vars: map[string]string{"CACHE_DB": "database"}}})
+	if strings.Contains(script, "CACHE_DB") {
+		t.Errorf("redis has no database; the variable must be omitted, not empty:\n%s", script)
 	}
 }

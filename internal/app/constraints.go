@@ -91,6 +91,10 @@ var (
 	gComposeService = grammar{"compose service name", regexp.MustCompile(`^[a-zA-Z0-9._-]+$`),
 		"a Compose service name"}
 
+	// file#service, where the file part is repository-relative.
+	gComposeRef = grammar{"compose reference", regexp.MustCompile("^[^/#][^#]*#[a-zA-Z0-9._-]+$"),
+		"a reference of the form path/to/compose.yaml#service"}
+
 	gPlanSchema = grammar{"plan schema", regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v[1-9][0-9]*((alpha|beta)[1-9][0-9]*)?$`),
 		"a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2"}
 )

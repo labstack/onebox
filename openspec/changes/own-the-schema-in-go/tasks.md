@@ -35,10 +35,10 @@
 
 ## 6. Publish the schema
 
-- [ ] 6.1 Generate a JSON Schema from the struct declarations and the validation table, and embed it in the binary.
-- [ ] 6.2 Add the command that writes the embedded schema to a repository path.
-- [ ] 6.3 Gate the published schema against the conformance corpus, requiring it to accept and reject exactly what the loader does, and fail the build on divergence.
-- [ ] 6.4 Make scaffolding emit the `yaml-language-server` reference on the project's first line, and verify an editor resolves it.
+- [x] 6.1 Generate a JSON Schema from the struct declarations and the validation table, and embed it in the binary.
+- [x] 6.2 Add the command that writes the embedded schema to a repository path.
+- [x] 6.3 Gate the published schema against the conformance corpus, requiring it to accept and reject exactly what the loader does, and fail the build on divergence.
+- [x] 6.4 Make scaffolding emit the `yaml-language-server` reference on the project's first line, and verify an editor resolves it.
 
 ## 7. Documentation and archive
 

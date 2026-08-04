@@ -48,10 +48,12 @@ dashboard/control plane will add authenticated team approvals, continuous
 evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
 
-The production-disabled managed-service framework, including version selection,
-typed settings, visible defaults, and durable operations, is specified in the active
-[`managed-service-operation-contract`](openspec/changes/managed-service-operation-contract/).
-That OpenSpec change is proposed behavior, not a shipped capability.
+Managed supporting services — declare `services: {postgres: 17}` and Onebox
+owns the image, the durable volume, the health check, the credential, and the
+connection details the application reads — are specified in the active
+[`adopt-declarative-project-schema`](openspec/changes/adopt-declarative-project-schema/).
+Versioned driver contracts, drift observation, and backup evidence are not part
+of it and are not shipped.
 
 ## Start using it
 

@@ -290,12 +290,11 @@ current component does not accept a `managed` field; the closed schema rejects
 it as unknown.
 
 The active
-[`managed-service-operation-contract`](../openspec/changes/managed-service-operation-contract/)
-proposes an additive, explicitly owned managed-service envelope with a
-versioned driver, immutable profile, explicit image, typed settings, bounded
-native parameters, resource controls, and per-slot secrets. That example is
-non-executable until the change ships. Compose-owned services remain the full
-control escape hatch after managed services are introduced.
+[`adopt-declarative-project-schema`](../openspec/changes/adopt-declarative-project-schema/)
+replaces this contract, and its `services:` block runs a managed service from a
+driver and a version. This document describes what the binary accepted before
+that change; it is superseded, not extended. Compose-owned services remain the
+full-control escape hatch.
 
 ### Workload deployment
 

@@ -345,12 +345,20 @@ func crossFieldRules(p *Spec) error {
 			// Resolve the condition against what the dependency can actually
 			// offer. Asking to wait for health from something with no health
 			// check is not a stricter guarantee, it is an unstartable runtime.
+			//
+			// A managed service is not opaque: Onebox wrote its health check
+			// and knows whether the driver has one, so a wait on a driver that
+			// cannot report health — nats carries no shell to run one — is
+			// refused here rather than hanging on the target.
 			hasHealth := isWorkload && dep.Health != nil
+			if !isWorkload {
+				hasHealth = p.serviceHasHealth(n.Name)
+			}
 			// A Compose-referenced dependency may declare a health check in the
 			// file it references, which the declaration cannot see. Trusting the
 			// author there is the only honest option; refusing would reject
 			// correct projects on missing information.
-			opaque := !isWorkload || dep.Compose != ""
+			opaque := isWorkload && dep.Compose != ""
 
 			switch n.Condition {
 			case "":
@@ -368,6 +376,10 @@ func crossFieldRules(p *Spec) error {
 				}
 			}
 		}
+	}
+
+	if err := checkRouteCollisions(p); err != nil {
+		return err
 	}
 
 	for _, name := range sortedKeys(p.Services) {
@@ -394,6 +406,35 @@ func crossFieldRules(p *Spec) error {
 	}
 
 	return checkDerivedNames(p)
+}
+
+// checkRouteCollisions refuses two workloads claiming the same address.
+//
+// The proxy would accept both and route to one of them, chosen by a rule the
+// author never wrote. That failure is invisible: every container is healthy,
+// every check passes, and half the traffic goes somewhere unintended. Naming
+// both workloads at load time costs one error message and saves an outage
+// nobody can explain.
+//
+// The address is entrypoint, protocol, domain and path together, because two
+// routes differing in any of them are genuinely distinct — the same host on
+// two listeners is how a project serves HTTP and gRPC side by side.
+func checkRouteCollisions(p *Spec) error {
+	type claim struct{ workload string }
+	seen := map[string]claim{}
+	for _, name := range sortedKeys(p.Workloads) {
+		for _, r := range p.Workloads[name].NormalisedRoutes() {
+			key := r.Entrypoint + " " + r.Protocol + " " + r.Domain + r.Path
+			if prev, taken := seen[key]; taken {
+				return errf("route_collision", "workloads."+name+".routes", "",
+					"workloads %q and %q both claim %s on the %q entrypoint; "+
+						"the proxy would route to one of them and nothing would say which",
+					prev.workload, name, r.Domain+r.Path, r.Entrypoint)
+			}
+			seen[key] = claim{workload: name}
+		}
+	}
+	return nil
 }
 
 // checkDerivedNames refuses an over-long generated name rather than truncating.

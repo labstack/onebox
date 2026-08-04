@@ -47,7 +47,7 @@ func TestReadMemoryIsDeterministicResolvedAndRedactionSafe(t *testing.T) {
 	if !first.Observability.LogsDeclared || !first.Observability.LogsEnabled || !first.Observability.MetricsDeclared || !first.Observability.MetricsEnabled || !first.Observability.AlertsDeclared {
 		t.Fatalf("observability declarations missing: %#v", first.Observability)
 	}
-	if len(first.Components) != 2 || first.Components[0].Name != "database" || first.Components[0].Role != "service" || first.Components[0].Type != "daemon" || first.Components[0].Service != "database" || first.Components[0].PersistenceMode != "durable" || !first.Components[0].BackupDeclared || !first.Components[0].RestoreDrillDeclared {
+	if len(first.Components) != 2 || first.Components[0].Name != "database" || first.Components[0].Role != "service" || first.Components[0].Type != "daemon" || first.Components[0].Service != "database" || first.Components[0].PersistenceMode != "durable" {
 		t.Fatalf("database memory is incomplete: %#v", first.Components)
 	}
 	if first.Components[1].Name != "web" || first.Components[1].Role != "workload" || first.Components[1].DeploymentStrategy != "rolling" || first.Components[1].Replicas != 1 || !first.Components[1].ReadinessDeclared {

@@ -557,8 +557,23 @@ A setting SHALL be applied through the mechanism its driver actually reads.
 Where a driver has no mechanism Onebox can apply safely, the setting SHALL be
 rejected rather than accepted and ignored.
 
-Backup and restore remain declarations only: a `backup` block SHALL NOT imply
-that Onebox performs or verifies one.
+The contract SHALL NOT accept a backup or restore-drill declaration. Onebox
+performs neither, and a project that says `backup: {schedule: ...}` while
+nothing takes a backup is the most dangerous thing this contract could contain:
+it reads as protection, survives every review, and is found to be absent at the
+only moment it mattered. They return when something performs them and verifies
+a restore.
+
+Where a workload or a service holds durable data and nothing copies it off the
+host, diagnostics SHALL say so. Silence would read as approval.
+
+#### Scenario: A backup declaration is refused
+- **WHEN** a project declares a backup schedule
+- **THEN** validation fails, because nothing would perform it
+
+#### Scenario: Unprotected durable data is reported
+- **WHEN** diagnostics run against a project with durable data
+- **THEN** each durable workload and service is reported as unbacked, as a warning rather than a failure
 
 #### Scenario: A scalar service declaration is sufficient
 - **WHEN** a project declares `services: {postgres: 17}`
@@ -600,6 +615,38 @@ leave the application holding a credential its service has forgotten.
 #### Scenario: A re-apply preserves the credential
 - **WHEN** services are applied again on a target that already has them
 - **THEN** the existing credential is left unchanged
+
+### Requirement: A scheduled job runs on the host's own scheduler
+
+A job declaring a schedule SHALL be installed as a timer on the target, so it
+runs without any Onebox process being alive and survives a reboot. The
+translation from the declared cron expression to the host's calendar
+expression SHALL be exact: a form whose meaning cannot be preserved SHALL be
+refused at load, naming the reason, rather than approximated into a schedule
+nobody asked for.
+
+A cron expression setting both a day of month and a day of week SHALL be
+refused, because cron runs the job when either matches and a calendar
+expression cannot express that.
+
+A timer SHALL invoke the job through the current release, so a scheduled job
+runs the code that is live and a rollback moves it back with everything else. A
+job that is no longer scheduled SHALL have its timer removed; one left behind
+would keep running with nothing in the project to explain it.
+
+The host SHALL validate the derived expression before any timer is installed.
+
+#### Scenario: A declared schedule runs
+- **WHEN** a job declares a cron schedule and the project is deployed
+- **THEN** a timer exists on the target that invokes that job through the current release
+
+#### Scenario: An untranslatable schedule is refused
+- **WHEN** a job declares a cron expression whose meaning cannot be preserved exactly
+- **THEN** validation fails, naming the expression and the reason
+
+#### Scenario: An undeclared schedule is removed
+- **WHEN** a job that previously had a schedule no longer declares one
+- **THEN** its timer is removed from the target
 
 ### Requirement: A machine-readable schema is published for editors
 

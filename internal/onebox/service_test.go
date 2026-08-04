@@ -154,7 +154,7 @@ func TestObserveReturnsStableStructuredState(t *testing.T) {
 	}
 	if len(first.Services) != 2 ||
 		first.Services[0].Name != "database" || first.Services[0].Service != "database" || first.Services[0].Type != "daemon" ||
-		first.Services[0].PersistenceMode != "durable" || !first.Services[0].ProtectionDeclared || first.Services[0].ProtectionManaged ||
+		first.Services[0].PersistenceMode != "durable" ||
 		first.Services[1].Name != "web" || first.Services[1].Service != "web" || first.Services[1].Type != "application" ||
 		first.Services[1].Strategy != "rolling" || first.Services[1].Replicas != 1 {
 		t.Fatalf("services are not deterministic/classified: %#v", first.Services)

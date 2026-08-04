@@ -1,23 +1,16 @@
 package app
 
 import (
-	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"cuelang.org/go/cue"
-	"cuelang.org/go/cue/cuecontext"
-	cueerrors "cuelang.org/go/cue/errors"
-	cueyaml "cuelang.org/go/encoding/yaml"
 	"gopkg.in/yaml.v3"
 )
-
-//go:embed schema.cue
-var schemaSrc string
 
 // APIVersion is the only authoring contract this package accepts.
 const APIVersion = "onebox.run/v1"
@@ -61,16 +54,10 @@ func Load(path string) (*Spec, error) {
 // cross-field rules the schema cannot express.
 func LoadBytes(b []byte, filename string) (*Spec, error) {
 	var raw map[string]any
-	f, err := cueyaml.Extract(filename, b)
-	if err != nil {
-		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", rewordFirst(err))
+	if err := yaml.Unmarshal(b, &raw); err != nil {
+		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", firstLine(err.Error()))
 	}
-	ctx := cuecontext.New()
-	v := ctx.BuildFile(f)
-	if v.Err() != nil {
-		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", rewordFirst(v.Err()))
-	}
-	if err := v.Decode(&raw); err != nil {
+	if raw == nil {
 		return nil, errf("project_unparsable", filename, "", "project is not a mapping")
 	}
 
@@ -93,12 +80,13 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	if err := checkShape(raw, lines); err != nil {
 		return nil, err
 	}
-	if err := validateSchema(ctx, raw, filename); err != nil {
+
+	p, err := decodeSpec(raw)
+	if err != nil {
 		return nil, err
 	}
-
-	p, err := decode(ctx, raw)
-	if err != nil {
+	applyDefaults(p, raw, derived)
+	if err := validateSpec(p); err != nil {
 		return nil, err
 	}
 	p.Dir = filepath.Dir(filename)
@@ -257,46 +245,45 @@ func expandTopLevelUnions(raw map[string]any) {
 	}
 }
 
-func validateSchema(ctx *cue.Context, raw map[string]any, filename string) error {
-	schema := ctx.CompileString(schemaSrc, cue.Filename("onebox-schema.cue"))
-	if schema.Err() != nil {
-		return errf("internal_schema_broken", "", "", "embedded schema is broken: %v", schema.Err())
-	}
-	// Each workload against the one shape its role names, before the document
-	// as a whole. A workload is a disjunction over four roles, and when a value
-	// fails every branch the validator reports whichever branch it tried first
-	// — so a typo in a worker came back as "role: conflicting values
-	// \"application\" and \"worker\"", which sends the author to fix the one
-	// field that was right.
-	if err := validateWorkloadShapes(ctx, schema, raw, filename); err != nil {
-		return err
-	}
-	def := schema.LookupPath(cue.ParsePath("#Config"))
-	if def.Err() != nil {
-		return errf("internal_schema_broken", "", "", "#Config missing from embedded schema")
-	}
-	u := def.Unify(ctx.Encode(raw))
-	if err := u.Validate(); err != nil {
-		return errf("project_invalid", where(err, filename), "", "%v", rewordFirst(err))
-	}
-	if _, err := u.MarshalJSON(); err != nil {
-		return errf("project_invalid", incompletePath(err, filename), "", "%v", reword(err))
-	}
-	return nil
-}
-
-func decode(ctx *cue.Context, raw map[string]any) (*Spec, error) {
-	schema := ctx.CompileString(schemaSrc, cue.Filename("onebox-schema.cue"))
-	def := schema.LookupPath(cue.ParsePath("#Config"))
-	b, err := def.Unify(ctx.Encode(raw)).MarshalJSON()
+// decodeSpec turns the expanded document into the model. The shape walk has
+// already refused anything the model does not define, so a failure here is a
+// type mismatch — a string where a number belongs — and is reported as one.
+func decodeSpec(raw map[string]any) (*Spec, error) {
+	b, err := json.Marshal(raw)
 	if err != nil {
-		return nil, errf("project_invalid", "", "", "%v", reword(err))
+		return nil, errf("internal_decode_failed", "", "", "cannot encode project: %v", err)
 	}
 	var p Spec
 	if err := json.Unmarshal(b, &p); err != nil {
-		return nil, errf("internal_decode_failed", "", "", "cannot decode normalised project: %v", err)
+		return nil, errf("project_invalid", "", "", "%s", typeMismatch(err))
 	}
 	return &p, nil
+}
+
+// typeMismatch turns the decoder's own vocabulary into the field and the two
+// kinds involved, which is all the author needs.
+func typeMismatch(err error) string {
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ute) && ute.Field != "" {
+		return fmt.Sprintf("%s expects %s, got %s", ute.Field, friendlyKind(ute.Type.String()), ute.Value)
+	}
+	return firstLine(err.Error())
+}
+
+func friendlyKind(goType string) string {
+	switch {
+	case strings.HasPrefix(goType, "[]"):
+		return "a list"
+	case strings.HasPrefix(goType, "map["):
+		return "a mapping"
+	case goType == "string":
+		return "a string"
+	case strings.HasPrefix(goType, "int"), strings.HasPrefix(goType, "float"):
+		return "a number"
+	case goType == "bool":
+		return "true or false"
+	}
+	return goType
 }
 
 // defaultProxyManagement decides whether Onebox runs a proxy when the author
@@ -323,52 +310,6 @@ func defaultProxyManagement(p *Spec, raw map[string]any, derived map[string]Orig
 	}
 	p.Proxy.Managed = p.routesAnywhere()
 	derived["proxy.managed"] = OriginDefault
-}
-
-// validateWorkloadShapes checks each workload against the definition its
-// declared role selects, so the failure names the field that is wrong.
-func validateWorkloadShapes(ctx *cue.Context, schema cue.Value, raw map[string]any, filename string) error {
-	workloads, ok := raw["workloads"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	byRole := map[string]string{
-		RoleApplication: "#WorkloadApplication",
-		RoleWorker:      "#WorkloadWorker",
-		RoleDaemon:      "#WorkloadDaemon",
-		RoleJob:         "#WorkloadJob",
-	}
-	for _, name := range sortedKeys(workloads) {
-		body, ok := workloads[name].(map[string]any)
-		if !ok {
-			continue
-		}
-		role, _ := body["role"].(string)
-		defName, known := byRole[role]
-		if !known {
-			// An unknown role is the document-level validator's to report; it
-			// names the roles that exist.
-			continue
-		}
-		def := schema.LookupPath(cue.ParsePath(defName))
-		if def.Err() != nil {
-			return errf("internal_schema_broken", "", "", "%s missing from embedded schema", defName)
-		}
-		u := def.Unify(ctx.Encode(body))
-		if err := u.Validate(); err != nil {
-			msg := rewordFirst(err)
-			// The validator names the definition it was checking against;
-			// nobody writing a project knows what a workloadWorker is.
-			for _, leak := range []string{"workloadApplication.", "workloadWorker.", "workloadDaemon.", "workloadJob."} {
-				msg = strings.ReplaceAll(msg, leak, "workloads."+name+".")
-			}
-			if hint := nearMiss(msg, def); hint != "" {
-				msg += "; did you mean " + hint + "?"
-			}
-			return errf("project_invalid", "workloads."+name, "", "%s", msg)
-		}
-	}
-	return nil
 }
 
 // crossFieldRules applies what the schema cannot express: cardinality, source
@@ -565,66 +506,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// where reports the field a validation error is about. Pointing at the file is
-// useless in a project of any size; the validator knows the path, so use it.
-func where(err error, fallback string) string {
-	list := cueerrors.Errors(err)
-	if len(list) == 0 {
-		return fallback
-	}
-	if e := mostSpecific(list); e != nil {
-		if path := e.Path(); len(path) > 0 {
-			return strings.TrimPrefix(strings.Join(path, "."), "#Config.")
-		}
-	}
-	if pos := list[0].Position(); pos.Filename() != "" && pos.Line() > 0 {
-		return fmt.Sprintf("%s:%d", pos.Filename(), pos.Line())
-	}
-	return fallback
-}
-
-// incompletePath pulls the field out of a marshal failure, so the error points
-// at the declaration rather than at the file.
-func incompletePath(err error, fallback string) string {
-	s := strings.ReplaceAll(err.Error(), "#Config.", "")
-	s = strings.ReplaceAll(s, "cue: marshal error: ", "")
-	if i := strings.Index(s, ": cannot convert incomplete value"); i > 0 {
-		return strings.TrimSpace(s[:i])
-	}
-	return fallback
-}
-
-// reword keeps the validation language out of user-facing errors.
-// nearMiss suggests the field an author probably meant. A rejected name is
-// most often a typo or a plural away from a real one, and the difference
-// between "field not allowed" and "did you mean replicas?" is one round trip
-// against a schema nobody has memorised.
-func nearMiss(msg string, def cue.Value) string {
-	const marker = ": field not allowed"
-	i := strings.Index(msg, marker)
-	if i < 0 {
-		return ""
-	}
-	path := msg[:i]
-	typo := path[strings.LastIndex(path, ".")+1:]
-	typo = strings.Trim(typo, `"`)
-	if typo == "" {
-		return ""
-	}
-	best, bestDist := "", 3 // farther than this is a different word, not a typo
-	iter, err := def.Fields(cue.Optional(true), cue.Definitions(false))
-	if err != nil {
-		return ""
-	}
-	for iter.Next() {
-		candidate := iter.Selector().Unquoted()
-		if d := editDistance(typo, candidate); d < bestDist {
-			best, bestDist = candidate, d
-		}
-	}
-	return best
-}
-
 // editDistance is Levenshtein, bounded by the caller's threshold rather than
 // here: the field sets are small enough that the simple form is the honest one.
 func editDistance(a, b string) int {
@@ -652,54 +533,6 @@ func editDistance(a, b string) int {
 		prev, cur = cur, prev
 	}
 	return prev[len(b)]
-}
-
-func reword(err error) string {
-	s := err.Error()
-	s = strings.ReplaceAll(s, "#Config.", "")
-	s = strings.ReplaceAll(s, "#Workload", "workload")
-	s = strings.ReplaceAll(s, "#Config", "project")
-	s = strings.ReplaceAll(s, "cue: marshal error: ", "")
-	// An incomplete value at a known path is almost always a required field
-	// nobody filled in. Say that, rather than reporting how the validator felt.
-	if i := strings.Index(s, "cannot convert incomplete value"); i >= 0 {
-		if path := strings.TrimSuffix(strings.TrimSpace(s[:i]), ":"); path != "" {
-			return fmt.Sprintf("%s is required, or its value does not match any accepted form", path)
-		}
-		return "a required value is missing"
-	}
-	return firstLine(s)
-}
-
-func rewordFirst(err error) string {
-	list := cueerrors.Errors(err)
-	if len(list) == 0 {
-		return firstLine(err.Error())
-	}
-	if e := mostSpecific(list); e != nil {
-		return reword(e)
-	}
-	return reword(list[0])
-}
-
-// mostSpecific picks the error a person can act on.
-//
-// A failed disjunction reports a summary — "6 errors in empty disjunction" —
-// followed by the real reasons. The summary is the validator explaining itself,
-// not the project explaining what is wrong, so prefer the deepest concrete
-// error underneath it.
-func mostSpecific(list []cueerrors.Error) cueerrors.Error {
-	var best cueerrors.Error
-	bestDepth := -1
-	for _, e := range list {
-		if strings.Contains(e.Error(), "disjunction") {
-			continue
-		}
-		if d := len(e.Path()); d > bestDepth {
-			best, bestDepth = e, d
-		}
-	}
-	return best
 }
 
 func firstLine(s string) string {

@@ -203,16 +203,18 @@ func TestBuildWithoutResolvedImageFailsClosed(t *testing.T) {
 	}
 }
 
-// TestProxyDisabledAddsNothing: with no managed proxy there is no ingress
-// network and no routing label to add.
-func TestProxyDisabledAddsNothing(t *testing.T) {
-	y := appFixture + "proxy: {managed: false, kind: none}\n"
-	out := string(render(t, y))
+// With nothing routing, there is no label and no network to add. The fixture
+// drops its route first, because declaring one under `kind: none` is refused
+// at load — a route nobody would serve is not a runtime question.
+func TestNoProxyAddsNothing(t *testing.T) {
+	y := strings.Replace(appFixture, "    domain: ledger.example.com\n", "", 1)
+	y = strings.Replace(y, "    port: 8080\n", "", 1)
+	out := string(render(t, y+"proxy: {kind: none}\n"))
 	if strings.Contains(out, "traefik") {
-		t.Error("a disabled proxy must not add routing labels")
+		t.Error("no proxy must not add routing labels")
 	}
 	if strings.Contains(out, "ob-ingress") {
-		t.Error("a disabled proxy must not attach an ingress network")
+		t.Error("no proxy must not attach an ingress network")
 	}
 }
 

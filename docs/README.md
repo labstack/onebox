@@ -38,15 +38,17 @@ When documents conflict:
 
 ## Active OpenSpec changes
 
-- [`managed-service-operation-contract`](../openspec/changes/managed-service-operation-contract/):
-  proposed generic contract for managed supporting services. It defines typed
-  settings, visible defaults, explicit image selection, sealed plans, durable
-  operations, approval, convergence, observation, and the LLM-facing MCP
-  interface. It is not implemented yet.
+- [`adopt-declarative-project-schema`](../openspec/changes/adopt-declarative-project-schema/):
+  the `onebox.run/v1` authoring contract, the runtime it generates, and the
+  managed supporting services it runs. In progress.
 
-Provider-specific PostgreSQL and Redis enablement, adoption, detach/destroy,
-backup/restore, and major-version upgrades require separate future OpenSpec
-changes. The generic contract does not silently authorize them.
+`managed-service-operation-contract` was withdrawn rather than completed; it is
+kept under [`../openspec/changes/archive/`](../openspec/changes/archive/) with a
+note recording what it proposed that now ships and what remains unbuilt.
+
+Adoption of an already-running database, detach and destroy, backup and
+restore, and major-version upgrades are not covered by any active change.
+Declaring `backup:` records intent; nothing performs or verifies one.
 
 ## Canonical capability specifications
 

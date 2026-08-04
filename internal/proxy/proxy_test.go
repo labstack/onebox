@@ -178,3 +178,43 @@ func TestCertExpiries(t *testing.T) {
 		t.Fatal("garbage must error (caller reports, never crashes)")
 	}
 }
+
+// A project that declares a domain and nothing else must be able to bootstrap.
+// Onebox owns the proxy; requiring the author to write Traefik's static
+// configuration first contradicts that, and the file they would write is the
+// same one every time.
+func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
+	staging := t.TempDir()
+	hash, err := Stage("", staging, "traefik:v3.7", "ob-ingress")
+	if err != nil {
+		t.Fatalf("a project without proxy.config must still bootstrap: %v", err)
+	}
+	if hash == "" {
+		t.Fatal("the written configuration must have an identity to compare against")
+	}
+	body, err := os.ReadFile(filepath.Join(staging, "config", "traefik.yml"))
+	if err != nil {
+		t.Fatalf("no static configuration was written: %v", err)
+	}
+	for _, want := range []string{"ping: {}", "/letsencrypt/acme.json", "exposedByDefault: false"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the default configuration is missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// A declared directory still owns the configuration entirely, and one missing
+// the file it must contain says what to do about it.
+func TestDeclaredConfigStillOwnsItAndSaysWhatIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "other.yml"), []byte("x: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress")
+	if err == nil {
+		t.Fatal("a declared config directory without traefik.yml must be refused")
+	}
+	if !strings.Contains(err.Error(), "Remove proxy.config") {
+		t.Errorf("the refusal must say how to resolve it: %v", err)
+	}
+}

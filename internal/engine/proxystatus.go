@@ -68,8 +68,10 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return statusReadResult("proxy certificate store", res, err)
 		},
 		func() error {
+			// Empty stays empty: joining it with the project directory would
+			// point at the repository root and ask it to be Traefik's config.
 			localCfg := e.Spec.Proxy.Config
-			if !filepath.IsAbs(localCfg) {
+			if localCfg != "" && !filepath.IsAbs(localCfg) {
 				localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 			}
 			staging, err := os.MkdirTemp("", "ob-proxy-status")

@@ -539,7 +539,11 @@ func (c ClientEnv) parts() map[string]string {
 		url += c.User + ":$pw@"
 	}
 	url += fmt.Sprintf("%s:%d", c.Host, c.Port)
-	if c.Database != "" && (c.Scheme == "postgres" || c.Scheme == "mysql") {
+	// Every driver that has a database puts it in the URL. Keying this off the
+	// scheme dropped it for ClickHouse, whose scheme is http, and handed
+	// applications a connection string pointing at the server with no database
+	// selected — which fails only once something queries.
+	if c.Database != "" {
 		url += "/" + c.Database
 	}
 	return map[string]string{

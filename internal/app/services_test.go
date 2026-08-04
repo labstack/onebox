@@ -238,3 +238,36 @@ func TestAMappingToAMissingPartIsSkipped(t *testing.T) {
 		t.Errorf("redis has no database; the variable must be omitted, not empty:\n%s", script)
 	}
 }
+
+// A driver that has a database puts it in the URL, whatever its scheme.
+// ClickHouse speaks HTTP, and keying the database off the scheme handed
+// applications a connection string with no database selected — which fails
+// only once something queries it.
+func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
+	for _, tt := range []struct{ driver, want string }{
+		{"postgres", "/shop"},
+		{"mysql", "/shop"},
+		{"mariadb", "/shop"},
+		{"mongodb", "/shop"},
+		{"clickhouse", "/shop"},
+	} {
+		spec := serviceSpec(t, "services: {store: {driver: "+tt.driver+", version: \"1\"}}\n")
+		client, ok := spec.ClientEnvFor("store")
+		if !ok {
+			t.Errorf("%s: no client contract", tt.driver)
+			continue
+		}
+		script := client.ClientEnvScript("/s.env", "/c.env", nil)
+		if !strings.Contains(script, tt.want+"\"") {
+			t.Errorf("%s: the URL selects no database:\n%s", tt.driver, script)
+		}
+	}
+	// And a driver with none does not invent one.
+	for _, driver := range []string{"redis", "valkey", "rabbitmq", "meilisearch", "nats"} {
+		spec := serviceSpec(t, "services: {store: {driver: "+driver+", version: \"1\"}}\n")
+		client, _ := spec.ClientEnvFor("store")
+		if strings.Contains(client.ClientEnvScript("/s.env", "/c.env", nil), "/shop\"") {
+			t.Errorf("%s has no database and must not name one", driver)
+		}
+	}
+}

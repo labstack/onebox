@@ -2,10 +2,6 @@ api_version: onebox.run/v1
 app: plausible
 environments:
   production: {server: root@example.com}
-files:
-  - clickhouse/logs.xml
-  - clickhouse/ipv4-only.xml
-  - clickhouse/low-resources.xml
 workloads:
   plausible:
     role: application

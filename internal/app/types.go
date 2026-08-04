@@ -34,7 +34,6 @@ type Spec struct {
 	Environments map[string]Environment `json:"environments"`
 	Workloads    map[string]Workload    `json:"workloads,omitempty"`
 	Services     map[string]Service     `json:"services,omitempty"`
-	Files        []string               `json:"files,omitempty"`
 
 	Deployment    Deployment              `json:"deployment"`
 	Runtime       *Runtime                `json:"runtime,omitempty"`

@@ -2,7 +2,6 @@ api_version: onebox.run/v1
 app: n8n
 environments:
   production: {server: root@example.com}
-files: [init-data.sh]
 workloads:
   n8n:
     role: application

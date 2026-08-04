@@ -462,11 +462,11 @@ package obschema
 		#X
 	}
 
-	// Repository files staged onto the target alongside the release, for
-	// configuration a referenced Compose service mounts: ClickHouse XML, an
-	// init script, a proxy's dynamic config. Without this the reference is
-	// staged but the file it mounts is not.
-	files?: [...#RepoPath]
+	// There is deliberately no `files:` list. Everything a release needs is
+	// already staged from what the runtime references — a bind mount inside
+	// the project directory, an env file — so a second list would be a way to
+	// declare something that is copied anyway, and a way to believe a file
+	// ships because it was named rather than because it is used.
 
 	runtime?: {
 		// Applied to every application and worker workload that does not declare

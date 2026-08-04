@@ -38,7 +38,6 @@ workloads:
       - {domain: demo.fanout.run, port: 7520}
 deployment: {order: [site, app, demo], retain_releases: 5}
 proxy: {managed: true, config: traefik}
-files: [traefik/static.yml, traefik/dynamic.yml]
 runtime:
   preflight:
     - {file: fanout/.env, require: [FANOUT_SECRET]}

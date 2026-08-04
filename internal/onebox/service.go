@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -142,3 +144,23 @@ func ensureEnvironment(cfg *app.Resolved, name string) error {
 	}
 	return nil
 }
+
+// gitShortSHA is the working tree's revision, recorded on every operation so a
+// journal entry can be traced to the code that produced it. An unavailable or
+// dirty revision is simply absent rather than guessed at.
+func gitShortSHA(ctx context.Context, dir string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--short=7", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func noneIfEmpty(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}
+
+func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

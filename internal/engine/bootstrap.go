@@ -80,7 +80,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 			continue
 		}
 		e.logf("bootstrap: registry login %s", r.Server)
-		res, err := e.T.RunInput(ctx, "docker login "+r.Server+" -u "+r.Username+" --password-stdin", password+"\n")
+		res, err := e.T.RunInput(ctx, "docker login "+q(r.Server)+" -u "+q(r.Username)+" --password-stdin", password+"\n")
 		if err != nil {
 			return err
 		}

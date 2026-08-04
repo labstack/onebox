@@ -597,6 +597,31 @@ NOT stop a service or remove its durable volume.
 - **WHEN** the application's project is removed together with its volumes
 - **THEN** every declared service is still running and its durable volume still exists
 
+### Requirement: Values that reach a generated file are bounded
+
+Every field whose value is written into a generated file, a unit on the target,
+or a command argument SHALL be constrained to a grammar admitting only what it
+legitimately means. A timezone SHALL be an IANA zone name, an image SHALL be a
+registry reference, a registry server SHALL be a host with an optional port and
+path, and a path SHALL contain no control character, quote, backslash, or shell
+metacharacter.
+
+The project file is not a trust boundary — whoever can edit it can already
+deploy — but it is reviewed. A value that reads as a timezone while appending a
+root-run command to a scheduling unit defeats the review, which is the point of
+having one.
+
+A command argument SHALL be quoted at the point of use as well as bounded at
+the grammar. Either alone is one mistake away from a command.
+
+#### Scenario: A hostile value is refused at load
+- **WHEN** a timezone, image, registry server, or path contains a control character or shell metacharacter
+- **THEN** validation fails, before anything is generated
+
+#### Scenario: Ordinary values still load
+- **WHEN** a project uses an IANA zone, a digest-pinned image, a registry with a port, or a nested env-file path
+- **THEN** it loads unchanged
+
 ### Requirement: A workload names the connection itself
 
 A workload declaring a prerequisite on a managed service SHALL be able to say

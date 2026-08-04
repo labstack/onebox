@@ -41,8 +41,12 @@ package obschema
 // Compound Go durations plus the whole-day form the previous contract accepted.
 #Dur: =~"^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$"
 
-#Cron:   =~"^[-0-9*/,A-Za-z ]+$"
-#TZ:     string & !=""
+#Cron: =~"^[-0-9*/,A-Za-z ]+$"
+
+// An IANA zone name. Bounded because it is written verbatim into a scheduling
+// unit on the target: an unconstrained string containing a newline appends
+// whatever the author wants to that unit, and it runs as root on every fire.
+#TZ:     =~"^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$"
 #Signal: =~"^[A-Z][A-Z0-9]*$"
 #Size:   =~"^[0-9]+(\\.[0-9]+)?(B|KB|MB|GB|TB)$"
 #Cpus:   =~"^[0-9]+(\\.[0-9]+)?$"
@@ -50,12 +54,19 @@ package obschema
 // Repository-relative. Absolute is refused lexically; escaping the repository
 // is a semantic check the loader performs after resolution, because `a/../b`
 // is legal and resolves inside.
-#RepoPath: string & !="" & !~"^/"
+#RepoPath: =~"^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$"
 
-#AbsPath: =~"^/"
-#UrlPath: =~"^/"
+// Bounded to what a path can be rather than to "starts with a slash". Both
+// reach generated files and, for the base path, generated shell; a value
+// containing a quote or a newline has no legitimate meaning and every hostile
+// one starts there.
+#AbsPath: =~"^/[^\\x00-\\x1f'\"$`\\\\]*$"
+#UrlPath: =~"^/[^\\x00-\\x1f'\"$`\\\\ ]*$"
 
-#ImageRef: string & !=""
+// A registry reference: repository, optional tag or digest. Bounded for the
+// same reason — it is passed to the container runtime, and a reference is not
+// a place anyone needs a shell metacharacter.
+#ImageRef: =~"^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?(@sha256:[a-f0-9]{64})?$"
 #EnvName:  =~"^[A-Za-z_][A-Za-z0-9_]*$"
 #Scalar:   string | int | float | bool
 
@@ -520,8 +531,10 @@ package obschema
 	}}
 
 	registries?: {[#Ident]: {
-		server:        string & !=""
-		username?:     string & !=""
+		// Host, optional port, optional path. Bounded because it reaches the
+		// container runtime as a command argument.
+		server:        =~"^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[A-Za-z0-9._/-]*)?$"
+		username?:     =~"^[A-Za-z0-9][A-Za-z0-9._@+-]*$"
 		password_env?: #EnvName
 		#X
 	}}

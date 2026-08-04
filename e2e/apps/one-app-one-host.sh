@@ -24,8 +24,12 @@ done
 
 sed "s/root@TARGET/root@$IP/" "$REPO/e2e/apps/$APP.yml" > "$S/$APP.host.yml"
 
+# Bootstrap then deploy, which is the only path: it holds the deploy lock,
+# fences the runner, journals every phase, drains on handover, and can roll
+# back. There is deliberately no second way to put an application on a host.
 start=$(date +%s)
-out=$(cd "$REPO" && timeout 900 go run ./cmd/ob up -c "$S/$APP.host.yml" --bootstrap --wait 8m 2>&1)
+out=$(cd "$REPO" && timeout 900 go run ./cmd/ob bootstrap -c "$S/$APP.host.yml" 2>&1 \
+  && timeout 900 go run ./cmd/ob deploy -c "$S/$APP.host.yml" -y 2>&1)
 rc=$?
 elapsed=$(( $(date +%s) - start ))
 

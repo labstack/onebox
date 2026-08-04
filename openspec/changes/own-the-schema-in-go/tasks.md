@@ -20,12 +20,12 @@
 ## 4. Apply defaults explicitly
 
 - [x] 4.1 Apply every declared default by explicit assignment, in one pass, after decoding.
-- [ ] 4.2 Assert each default appears in the canonical form marked as derived, including the ones CUE previously dropped on optional fields.
+- [x] 4.2 Assert each default appears in the canonical form marked as derived, including the ones CUE previously dropped on optional fields.
 - [x] 4.3 Assert defaulting does not depend on whether a field was declared.
 
 ## 4b. Deliberate improvements, after equivalence is proven
 
-- [ ] 4b.1 Introduce a distinct `unknown_field` error code, updating the code enumeration and the conformance corpus. Held back from the swap on purpose: introducing it there would change agent-facing surface under cover of an implementation change, and "nothing moved" would stop being checkable.
+- [x] 4b.1 Introduce a distinct `unknown_field` error code, updating the code enumeration and the conformance corpus. Held back from the swap on purpose: introducing it there would change agent-facing surface under cover of an implementation change, and "nothing moved" would stop being checkable.
 
 ## 5. Remove CUE
 

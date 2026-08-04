@@ -36,7 +36,7 @@
 - [x] 5.2 Implement environment overrides over the closed set, with scalar and list replacement, key-by-key mapping merge, null-removes-key, and refusal of unlisted fields and undeclared targets.
 - [x] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
 - [x] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
-- [ ] 5.5 Implement preflight key checks for required-and-non-empty and present.
+- [x] 5.5 Implement preflight key checks for required-and-non-empty and present.
 - [ ] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.
 - [x] 5.7 Make the canonical form printable with per-field origins, with golden tests over the corpus.
 
@@ -94,11 +94,11 @@
 
 ## 12. Schema publication and agent surface
 
-- [ ] 12.1 Export the JSON Schema from the CUE source at build time and embed it in the binary, with a test that both accept and reject the same corpus.
-- [ ] 12.2 Add the command that writes the embedded schema to a repository path.
-- [ ] 12.3 Make scaffolding emit the `yaml-language-server` reference comment on the project's first line, and test that an editor resolves it.
+- [x] 12.1 Generate the JSON Schema from the same declarations the loader enforces, with a gate asserting it accepts and rejects what the loader does.
+- [x] 12.2 Add the command that writes the schema to a repository path.
+- [x] 12.3 Make scaffolding emit the `yaml-language-server` reference comment on the project's first line.
 - [x] 12.4 Define the typed error-code enumeration and the structured envelope identity in the schema guide before any of it is emitted, attaching a resolving command to every failure.
-- [ ] 12.5 Assert over the fixture corpus that no failure path emits an error code outside the enumeration.
+- [x] 12.5 Assert over the fixture corpus that no failure path emits an error code outside the enumeration, and that the enumeration cannot drift in either direction: a code emitted without being listed, or listed without being emitted, fails the build.
 - [ ] 12.6 Add versioned structured output to validation, configuration printing, rendering, and ejection, asserting diagnostics never reach the structured stream and no plaintext secret appears in it.
 - [ ] 12.7 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.
 

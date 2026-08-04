@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -53,11 +54,45 @@ func walkOrigins(prefix string, canonical, raw any, derived map[string]Origin, o
 		switch child := cm[key].(type) {
 		case map[string]any:
 			walkOrigins(path, child, rv, derived, out)
+		case []any:
+			// A list's items carry their own origins. Treating the list as one
+			// leaf hid every default inside a route, a volume or a published
+			// port — the values that decide where traffic goes, whether a
+			// mount is writable, and which interface a port is bound to.
+			walkListOrigins(path, child, rv, derived, out)
 		default:
 			switch {
 			case derived[path] != "":
 				out[path] = derived[path]
 			case present:
+				out[path] = OriginExplicit
+			default:
+				out[path] = OriginDefault
+			}
+		}
+	}
+}
+
+// walkListOrigins descends into a list, pairing each item with the item the
+// author wrote at the same index when there is one.
+func walkListOrigins(prefix string, items []any, raw any, derived map[string]Origin, out map[string]Origin) {
+	rawItems, _ := raw.([]any)
+	for i, item := range items {
+		path := fmt.Sprintf("%s[%d]", prefix, i)
+		var rv any
+		if i < len(rawItems) {
+			rv = rawItems[i]
+		}
+		switch child := item.(type) {
+		case map[string]any:
+			walkOrigins(path, child, rv, derived, out)
+		case []any:
+			walkListOrigins(path, child, rv, derived, out)
+		default:
+			switch {
+			case derived[path] != "":
+				out[path] = derived[path]
+			case rv != nil:
 				out[path] = OriginExplicit
 			default:
 				out[path] = OriginDefault
@@ -129,10 +164,17 @@ func annotated(prefix string, v any, origins map[string]Origin) (*yaml.Node, err
 		return n, nil
 	case []any:
 		n := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, item := range t {
-			c, err := annotated(prefix, item, origins)
+		for i, item := range t {
+			// Indexed, so an item's own values find their origins. Passing the
+			// list's path down marked every item with the list's origin and
+			// left the defaults inside it unannotated.
+			path := fmt.Sprintf("%s[%d]", prefix, i)
+			c, err := annotated(path, item, origins)
 			if err != nil {
 				return nil, err
+			}
+			if o, ok := origins[path]; ok && o != OriginExplicit {
+				c.LineComment = string(o)
 			}
 			n.Content = append(n.Content, c)
 		}

@@ -17,7 +17,6 @@ var errorCodes = map[string]string{
 	"project_unparsable":          "the project file is not valid YAML, or is not a mapping",
 	"schema_identity_missing":     "the project declares no api_version",
 	"schema_identity_unsupported": "the project declares an api_version this binary does not speak",
-	"withdrawn_components_block":  "the project uses a block that was withdrawn from the contract",
 
 	// The document is not what the contract defines.
 	"unknown_field":   "a field the contract does not define",

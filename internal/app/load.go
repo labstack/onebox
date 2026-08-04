@@ -108,10 +108,6 @@ func checkAPIVersion(raw map[string]any) error {
 		return errf("schema_identity_unsupported", "api_version", "",
 			"unsupported api_version %q; this binary accepts %q", got, APIVersion)
 	}
-	if _, ok := raw["components"]; ok {
-		return errf("withdrawn_components_block", "components", "",
-			"the components block was withdrawn; declare workloads and services instead")
-	}
 	return nil
 }
 

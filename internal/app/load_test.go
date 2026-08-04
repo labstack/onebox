@@ -82,7 +82,7 @@ func conformanceCases() []conformanceCase {
 		{"domain and routes together", wl("w: {image: nginx, domain: x.com, port: 1, routes: [{domain: y, port: 2}]}"), false},
 		{"workload and service share a name", wl("db: {image: nginx}") + "services: {db: 18}\n", false},
 		{"unknown prerequisite", wl("w: {image: nginx, needs: [ghost]}"), false},
-		{"withdrawn components block", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
+		{"components is not a field", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
 		{"missing api_version", "app: a\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 	}
 }

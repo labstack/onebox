@@ -204,3 +204,33 @@ func TestRenderResolvesAutomatically(t *testing.T) {
 		t.Errorf("production should keep its own value\n%s", prod.Bytes)
 	}
 }
+
+// A field withdrawn from the contract cannot be overridden. Leaving it in the
+// permitted set would accept an override naming something no service has, and
+// accepting it silently is how an operator comes to believe a setting applied.
+func TestOverridingAWithdrawnFieldIsRefused(t *testing.T) {
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@h}
+  staging:
+    server: root@h2
+    overrides:
+      services:
+        postgres: {backup: {schedule: {cron: "0 2 * * *"}}}
+workloads: {web: {role: application, image: x:1}}
+services: {postgres: 17}
+`), "ob.yml")
+	if err != nil {
+		// Refused at load is equally correct: the override block is closed too.
+		if !strings.Contains(err.Error(), "backup") {
+			t.Fatalf("the refusal must name the withdrawn field: %v", err)
+		}
+		return
+	}
+	if _, err := spec.Resolve("staging"); err == nil {
+		t.Fatal("an override of a withdrawn field must be refused")
+	} else if !strings.Contains(err.Error(), "backup") {
+		t.Fatalf("the refusal must name the field: %v", err)
+	}
+}

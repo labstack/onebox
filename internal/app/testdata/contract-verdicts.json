@@ -2,7 +2,7 @@
   {
     "case": "conformance/a near-miss field name",
     "loads": false,
-    "code": "project_invalid"
+    "code": "unknown_field"
   },
   {
     "case": "conformance/absolute compose ref",
@@ -142,7 +142,7 @@
   {
     "case": "conformance/protection is no longer a field",
     "loads": false,
-    "code": "project_invalid"
+    "code": "unknown_field"
   },
   {
     "case": "conformance/proxy kind none with a route",
@@ -217,7 +217,7 @@
   {
     "case": "conformance/unknown top-level field",
     "loads": false,
-    "code": "project_invalid"
+    "code": "unknown_field"
   },
   {
     "case": "conformance/unmanaged proxy keeps its routes",

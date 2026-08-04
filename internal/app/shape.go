@@ -101,12 +101,11 @@ func unknownField(path, key string, allowed map[string]reflect.StructField, line
 	if near := nearestField(key, allowed); near != "" {
 		msg += fmt.Sprintf("; did you mean %q?", near)
 	}
-	// The code stays `project_invalid` for now. A more specific
-	// `unknown_field` is better and is worth having, but introducing it here
-	// would mean the migration changed agent-facing surface under cover of an
-	// implementation swap — and then "nothing moved" would no longer be a
-	// claim anyone could check.
-	return errf("project_invalid", full, "", "%s", msg)
+	// An undefined field is the one failure an agent can resolve without
+	// reading prose: it is a typo or a field from a version this binary does
+	// not speak, and both are answered by the name in the message. Its own
+	// code lets that be handled without parsing the sentence.
+	return errf("unknown_field", full, "", "%s", msg)
 }
 
 // nearestField suggests the field the author probably meant. A rejected name is

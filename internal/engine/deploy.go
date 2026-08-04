@@ -187,6 +187,13 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		_ = jw.Append(ctx, journal.Record{Phase: "transfer", Event: "result", Status: "ok"})
 	}
 
+	// Before any job runs: a job can need a database as readily as an
+	// application can, and both read a file that only exists once it is
+	// written.
+	if err := e.EnsureServiceConnections(ctx); err != nil {
+		return fmt.Errorf("service connections: %w", err)
+	}
+
 	if err := e.enforceMigrationBackup(ctx, jw, done); err != nil {
 		return fmt.Errorf("pre-release: %w", err)
 	}

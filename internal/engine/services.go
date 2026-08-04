@@ -27,17 +27,20 @@ import (
 // already running with the same definition is left alone, and a credential
 // that already exists is never regenerated — rotating a password silently
 // would lock the application out of its own database.
-func (e *Engine) ApplyServices(ctx context.Context) error {
+// EnsureServiceConnections makes the target carry what the application needs to
+// reach its services: the shared network, the credential, and the connection
+// files each workload reads — without touching a running service.
+//
+// A release runs this because a release can introduce a workload that needs a
+// database. The connection file is derived per workload, so a workload added
+// today has no file until something writes one, and the deploy failed with the
+// path of a file nobody had told the operator to create. Converging the
+// services instead would mean a deploy could restart a database, which is the
+// one thing their separation exists to prevent.
+func (e *Engine) EnsureServiceConnections(ctx context.Context) error {
 	names := e.Spec.ServiceNames()
 	if len(names) == 0 {
 		return nil
-	}
-	// Rendered here rather than handed in. A caller that forgot would produce
-	// a host missing a database, and the engine already holds everything the
-	// documents are derived from.
-	rendered, err := e.Spec.RenderServices(e.Opts.Environment)
-	if err != nil {
-		return err
 	}
 	n := e.Spec.NamesFor(e.Opts.Environment)
 
@@ -51,20 +54,41 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("service network: %s", strings.TrimSpace(res.Stderr))
 	}
-
 	if res, err := e.mutate(ctx, "install -d -m 700 "+q(n.ServiceDir())); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("service directory: %s", strings.TrimSpace(res.Stderr))
 	}
+	for _, name := range names {
+		if err := e.ensureServiceSecret(ctx, n, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ApplyServices converges every declared service and the connections to it.
+func (e *Engine) ApplyServices(ctx context.Context) error {
+	names := e.Spec.ServiceNames()
+	if len(names) == 0 {
+		return nil
+	}
+	// Rendered here rather than handed in. A caller that forgot would produce
+	// a host missing a database, and the engine already holds everything the
+	// documents are derived from.
+	rendered, err := e.Spec.RenderServices(e.Opts.Environment)
+	if err != nil {
+		return err
+	}
+	if err := e.EnsureServiceConnections(ctx); err != nil {
+		return err
+	}
+	n := e.Spec.NamesFor(e.Opts.Environment)
 
 	for _, name := range names {
 		doc, ok := rendered[name]
 		if !ok {
 			return fmt.Errorf("service %s was declared but not rendered — this is an Onebox bug", name)
-		}
-		if err := e.ensureServiceSecret(ctx, n, name); err != nil {
-			return err
 		}
 		if err := e.writeServiceFile(ctx, n.ServiceFile(name), doc); err != nil {
 			return fmt.Errorf("service %s: cannot place its runtime: %w", name, err)
@@ -101,8 +125,11 @@ func (e *Engine) ensureServiceSecret(ctx context.Context, n app.Names, name stri
 	// One alias file per workload that asked for its own names. They are
 	// derived from the same password in the same script, so they cannot
 	// disagree with the canonical file or with each other.
+	// Every workload, not just the ones in the release order — that excludes
+	// jobs, and a migration job needs a database more surely than anything
+	// else in the project.
 	var aliases []app.AliasFile
-	for _, workload := range e.Spec.ReleaseOrder() {
+	for _, workload := range sortedNames(e.Spec.Workloads) {
 		for _, need := range e.Spec.Workloads[workload].Needs {
 			if need.Name == name && len(need.Env) > 0 {
 				aliases = append(aliases, app.AliasFile{

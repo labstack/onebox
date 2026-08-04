@@ -287,7 +287,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "c45b0f28908db2ef833e216a61bdaa0587f38b7f473f3add0ab2aa13e6ea3e79"
+    "digest": "74157aa5de3f453d1269ffa1492d31125cf6e378a5c918cb8efafb57f3544067 postgres=7741691b0fff52df"
   },
   {
     "case": "corpus/ext-immich.yml",
@@ -307,12 +307,12 @@
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "render:compose_file_unreadable"
+    "digest": "ee273d260cde7767ba200a282f12bc525b3ebba108752a4573053f5f0b449d97 events=d774846359094320 postgres=a26f01ba5dae3af8"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
-    "digest": "22557ec50bdee694678ae69bf1e1de2cbe5b6dee72011bea8f0f05933815522d"
+    "digest": "55ee1fe5978a5d2f34fb4ca9d45d1206e28db6e5f1f47729ba79cf088ed49e72 postgres=7e5623fa44a83d78"
   },
   {
     "case": "corpus/fanout.yml",

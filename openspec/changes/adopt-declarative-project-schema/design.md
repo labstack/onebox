@@ -7,7 +7,7 @@ project file as an annotation over it: `compose.Load` reads the user's Compose
 project, `compose.Classify` attaches a component type to each service, and
 `internal/engine` renders a per-release Compose file by injecting a bounded
 delta — release identity, network attachment, and rollout naming — into what the
-user wrote. Validation is layered: `internal/config/schema.cue` owns shape,
+user wrote. Validation is layered: the typed model owns shape,
 enums, and scalar patterns; `config.Validate` owns cross-field rules;
 `compose.Classify` owns Compose-semantic rules.
 
@@ -162,7 +162,7 @@ chain takes no environmental input and normalization stays a pure function.
 
 ### CUE stays; a JSON Schema is exported from it
 
-`schema.cue` does shape, enums, and patterns in 251 lines against 1,172 lines of
+The schema does shape, enums, and patterns in far less than the 1,172 lines of
 Go, and `cue.go` rewords its errors so the validation language never reaches a
 user. This contract leans harder on what CUE is good at, because the scalar-or-
 object rule above turns nearly every field into a disjunction.
@@ -211,7 +211,7 @@ implementations to accept the same projects. Bare key lists left `build`,
 `health`, `backup`, and `verification` untyped; ports and replica counts were
 unbounded where the contract they replace bounded them.
 
-The normative shape is therefore `schema.cue` in this change directory, with a
+The normative shape is therefore the capability spec in this change directory, with a
 conformance corpus beside it. It compiles, and the corpus was run against it
 before this was proposed. Prose keeps the behavioural requirements and defers to
 the schema on shape.

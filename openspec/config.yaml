@@ -13,9 +13,11 @@ context: |
   restore proof, pruning, and log rotation are Onebox's responsibility, not
   the user's.
 
-  The project file is the authoring contract and CUE provides its closed,
-  versioned schema. Docker Compose is a generated runtime artifact, not a
-  user-authored input; a bounded per-workload escape hatch admits raw Compose
+  The project file is the authoring contract. Its closed, versioned schema is
+  the typed model the loader decodes into, with grammars and enums declared in
+  one table beside the message each violation produces, and a JSON Schema
+  published from the same declarations for editors. Docker Compose is a
+  generated runtime artifact, not a user-authored input; a bounded per-workload escape hatch admits raw Compose
   for containers the declaration cannot express. Driver-backed services are
   never user-authored: a hand-authored data service is a workload and is not
   reported as managed.

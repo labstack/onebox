@@ -1,8 +1,8 @@
 # Conformance corpus
 
-These cases are the acceptance test for `schema.cue`. They exist because a
+These cases are the acceptance test for the contract's validation. They exist because a
 review found that two implementations could satisfy the prose and still accept
-different projects. Every case was verified against `schema.cue` before this
+different projects. Every case was verified against the loader before this
 change was proposed, and each becomes a fixture in task 3.2.
 
 `accept` means the normalised project validates. `reject` means it fails.

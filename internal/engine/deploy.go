@@ -272,6 +272,12 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("prune: %w", err)
 	}
 	e.progress("cleanup", "succeeded", "")
+	// After activation, because a timer invokes the job through `current` and
+	// that pointer has only just moved. Before the post-deploy hook, so a hook
+	// that inspects the schedule sees the one this release declares.
+	if err := e.SyncSchedules(ctx); err != nil {
+		return fmt.Errorf("schedules: %w", err)
+	}
 	if err := e.RunHook(ctx, "post_deploy", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("post-deploy: %w", err)
 	}

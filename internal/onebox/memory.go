@@ -64,10 +64,6 @@ func (s *Service) loadMemory(ctx context.Context) (*loadedProject, OperationalMe
 		if component.Persistence != nil {
 			item.PersistenceMode = component.Persistence.Mode
 		}
-		if component.Protection != nil {
-			item.BackupDeclared = component.Protection.Backup != nil
-			item.RestoreDrillDeclared = component.Protection.RestoreDrill != nil
-		}
 		components = append(components, item)
 	}
 	sort.Slice(components, func(i, j int) bool { return components[i].Name < components[j].Name })

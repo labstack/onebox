@@ -107,7 +107,6 @@ type Workload struct {
 	Volumes     []Volume        `json:"volumes,omitempty"`
 	Ports       []PublishedPort `json:"ports,omitempty"`
 	Persistence *Persistence    `json:"persistence,omitempty"`
-	Protection  *Protection     `json:"protection,omitempty"`
 	Needs       []Need          `json:"needs,omitempty"`
 
 	Entrypoint any            `json:"entrypoint,omitempty"`
@@ -156,7 +155,7 @@ type Health struct {
 	HTTP string `json:"http,omitempty"`
 	// Exec is a shell string or an argument list. The list runs without a
 	// shell, which is the only form a scratch or distroless image can answer.
-	Exec any `json:"exec,omitempty"`
+	Exec        any    `json:"exec,omitempty"`
 	TCP         bool   `json:"tcp,omitempty"`
 	Port        int    `json:"port,omitempty"`
 	Interval    string `json:"interval,omitempty"`
@@ -213,22 +212,6 @@ type Schedule struct {
 	Timezone string `json:"timezone"`
 }
 
-type Protection struct {
-	Backup       *Backup       `json:"backup,omitempty"`
-	RestoreDrill *RestoreDrill `json:"restore_drill,omitempty"`
-}
-
-type Backup struct {
-	Schedule      *Schedule     `json:"schedule,omitempty"`
-	RetentionDays int           `json:"retention_days,omitempty"`
-	RestoreDrill  *RestoreDrill `json:"restore_drill,omitempty"`
-	Destination   string        `json:"destination,omitempty"`
-}
-
-type RestoreDrill struct {
-	Schedule Schedule `json:"schedule"`
-}
-
 type Service struct {
 	Driver      string         `json:"driver,omitempty"`
 	Version     any            `json:"version"`
@@ -236,7 +219,6 @@ type Service struct {
 	Persistence *Persistence   `json:"persistence,omitempty"`
 	Resources   *Resources     `json:"resources,omitempty"`
 	Settings    map[string]any `json:"settings,omitempty"`
-	Backup      *Backup        `json:"backup,omitempty"`
 }
 
 type Deployment struct {

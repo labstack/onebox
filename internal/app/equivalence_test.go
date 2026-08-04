@@ -108,6 +108,17 @@ func codeOf(err error) string {
 	return "untyped"
 }
 
+// readFixture is a corpus project with its placeholder target resolved, as the
+// harness and the schema gate both need it.
+func readFixture(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(string(body), "root@TARGET", "root@1.2.3.4")
+}
+
 func corpusProjects(t *testing.T) []string {
 	t.Helper()
 	var out []string

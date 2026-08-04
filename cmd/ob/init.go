@@ -13,6 +13,8 @@ import (
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/spf13/cobra"
 
+	"github.com/labstack/onebox/internal/app"
+
 	"github.com/labstack/onebox/internal/compose"
 )
 
@@ -55,8 +57,8 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	if composePath == "" {
 		return fmt.Errorf("no compose file found in %s", dir)
 	}
-	app := sanitizeApp(filepath.Base(mustAbs(dir)))
-	p, err := compose.Load(ctx, filepath.Join(dir, composePath), app)
+	application := sanitizeApp(filepath.Base(mustAbs(dir)))
+	p, err := compose.Load(ctx, filepath.Join(dir, composePath), application)
 	if err != nil {
 		return err
 	}
@@ -91,8 +93,12 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	sort.Strings(componentNames)
 
 	var b strings.Builder
+	// The schema reference first, so an editor offers completion and inline
+	// errors from the moment the file exists rather than after someone finds
+	// out it could.
+	fmt.Fprintf(&b, "# yaml-language-server: $schema=%s\n", app.SchemaID)
 	b.WriteString("api_version: onebox.run/v1\n")
-	fmt.Fprintf(&b, "app: %s\n", app)
+	fmt.Fprintf(&b, "app: %s\n", application)
 	b.WriteString("environments:\n  production:\n    server: deploy@CHANGE-ME\n")
 	b.WriteString("workloads:\n")
 	for _, name := range componentNames {

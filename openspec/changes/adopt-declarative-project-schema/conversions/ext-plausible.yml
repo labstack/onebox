@@ -1,3 +1,4 @@
+# Deployed and verified against managed services on a throwaway host.
 api_version: onebox.run/v1
 app: plausible
 environments:
@@ -5,17 +6,43 @@ environments:
 workloads:
   plausible:
     role: application
-    image: ghcr.io/plausible/community-edition:v3.2.1
+    image: ghcr.io/plausible/community-edition:v3.0.1
     domain: stats.example.com
     port: 8000
-    needs: [{name: plausible-db, condition: healthy}, {name: events-db, condition: healthy}]
+    health: {exec: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1:8000/api/health || exit 1"], interval: 5s, start_period: 40s, within: 300s}
     volumes: [{name: data, path: /var/lib/plausible}]
-  plausible-db:
-    role: daemon
-    image: postgres:16-alpine
-    health: {exec: "pg_isready -U postgres", start_period: 1m}
-    volumes: [{name: db-data, path: /var/lib/postgresql/data}]
-  events-db:
-    role: daemon
-    compose: compose.yml#plausible_events_db
-    persistence: {mode: durable}
+    env:
+      BASE_URL: "http://stats.example.com"
+      SECRET_KEY_BASE: "0123456789012345678901234567890123456789012345678901234567890123"
+      TOTP_VAULT_KEY: "CHANGE-ME-openssl-rand-base64-32"
+    needs:
+      - name: postgres
+        env: {DATABASE_URL: url}
+      - name: events
+        env: {CLICKHOUSE_DATABASE_URL: url}
+  migrate:
+    role: job
+    image: ghcr.io/plausible/community-edition:v3.0.1
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        /entrypoint.sh db createdb
+        /entrypoint.sh db migrate
+        printf '{"schema_version":"onebox.run/job-result/v1alpha1","changed":true}' > "$OB_RESULT_FILE"
+    data_effect: migration
+    run: pre_release
+    env:
+      BASE_URL: "http://stats.example.com"
+      SECRET_KEY_BASE: "0123456789012345678901234567890123456789012345678901234567890123"
+      TOTP_VAULT_KEY: "CHANGE-ME-openssl-rand-base64-32"
+    needs:
+      - name: postgres
+        env: {DATABASE_URL: url}
+      - name: events
+        env: {CLICKHOUSE_DATABASE_URL: url}
+deployment: {migration_policy: expand-only}
+services:
+  postgres: 16
+  events: {driver: clickhouse, version: "24.12"}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -114,5 +115,30 @@ func TestServiceApplyRefusesDestructiveMounts(t *testing.T) {
 	e2 := New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
 	if err := e2.ServiceApply(context.Background(), "R9-acc", true); err != nil {
 		t.Fatalf("force apply: %v", err)
+	}
+}
+
+// A job needs a database more surely than anything else in the project, and the
+// alias collection once walked only the release order — which excludes jobs, so
+// a migration job's connection file was never written and the deploy failed on
+// a path nobody had been told to create.
+func TestAJobGetsItsConnectionFile(t *testing.T) {
+	cfg := testConfig()
+	migrate := cfg.Workloads["migrate"]
+	migrate.Needs = []app.Need{{Name: "postgres", Condition: "started",
+		Env: map[string]string{"DB_URL": "url"}}}
+	cfg.Workloads["migrate"] = migrate
+
+	f := accFake("")
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	if err := e.EnsureServiceConnections(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "postgres.migrate.env") {
+		t.Fatalf("the job's connection file was never written:\n%s", seq)
+	}
+	if !strings.Contains(seq, "DB_URL") {
+		t.Fatalf("the job's own variable name never reached the target:\n%s", seq)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 )
@@ -106,8 +107,46 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 			return fmt.Errorf("service %s: %s", name, strings.TrimSpace(res.Stderr))
 		}
 		st(nil)
+
+		// Recorded only after the service reports healthy, because the fact
+		// worth keeping is which version successfully opened the data
+		// directory — not which image was last started.
+		if healthy, err := e.serviceIsHealthy(ctx, name); err != nil {
+			return err
+		} else if healthy {
+			if err := e.writeServiceFile(ctx, n.ServiceVersionFile(name),
+				[]byte(e.Spec.DeclaredVersion(name)+"\n")); err != nil {
+				return fmt.Errorf("service %s: cannot record its version: %w", name, err)
+			}
+		}
 	}
 	return nil
+}
+
+// serviceIsHealthy waits briefly for a just-started service to report health.
+// A driver with no health check reports "none", which is as strong a statement
+// as it can make and is treated as running.
+func (e *Engine) serviceIsHealthy(ctx context.Context, name string) (bool, error) {
+	deadline := e.Opts.Now().Add(90 * time.Second)
+	for {
+		id, err := e.serviceContainerID(ctx, name)
+		if err != nil {
+			return false, err
+		}
+		if id != "" {
+			h, err := e.healthOf(ctx, id)
+			if err != nil {
+				return false, err
+			}
+			if h == "healthy" || h == "none" {
+				return true, nil
+			}
+		}
+		if e.Opts.Now().After(deadline) {
+			return false, nil
+		}
+		e.Opts.Sleep(2 * time.Second)
+	}
 }
 
 // ensureServiceSecret generates the credential and the connection file the

@@ -334,6 +334,21 @@ func crossFieldRules(p *Spec) error {
 				"workload %q must declare exactly one of build, image, or compose (found %d)", name, sources)
 		}
 
+		// A managed volume's name carries no replica index, so every replica
+		// mounts the same directory. For durable state that is two database
+		// processes on one data directory, which corrupts it — and nothing
+		// about the runtime would say so until the damage was done.
+		//
+		// Replicating a stateful service needs a volume per instance and a
+		// protocol between them. This contract derives neither, so it refuses
+		// the declaration rather than generating something that starts.
+		if w.Replicas > 1 && w.Persistence != nil && w.Persistence.Mode == "durable" {
+			return errf("stateful_replicas", path+".replicas", "",
+				"workload %q keeps durable state and asks for %d replicas; they would all mount the same volume. "+
+					"Run one instance, or declare the workload without durable persistence if its data is not state",
+				name, w.Replicas)
+		}
+
 		hasScalar := w.Domain != "" || w.Port != 0
 		if hasScalar && len(w.Routes) > 0 {
 			return errf("routing_exclusive", path, "",

@@ -7,6 +7,7 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 )
 
@@ -26,6 +27,15 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 	n := e.Spec.NamesFor(e.Opts.Environment)
 	rendered, err := e.Spec.RenderServices(e.Opts.Environment)
 	if err != nil {
+		return err
+	}
+
+	// A major version change to a service that cannot read the previous
+	// version's data directory is refused before anything is replaced. The
+	// diff shows one line — `postgres:16` becoming `postgres:17` — which reads
+	// as routine and is not: the new container starts, finds a data directory
+	// it cannot open, and crash-loops with the database intact and unreachable.
+	if err := e.refuseUnsafeMajorUpgrade(ctx, n, force); err != nil {
 		return err
 	}
 
@@ -118,5 +128,49 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 		}
 	}
 	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "ok"})
+	return nil
+}
+
+// refuseUnsafeMajorUpgrade compares the version a service is running against
+// the one the project now declares.
+//
+// Onebox owns these services, which means it owns the consequences of changing
+// one. It cannot perform a dump-and-restore upgrade yet, so the honest answer
+// is to refuse the change and say what it would take, rather than to converge
+// and leave the operator with a database that will not start.
+func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names, force bool) error {
+	for _, name := range e.Spec.ServiceNames() {
+		if e.Spec.UpgradeInPlace(name) {
+			continue
+		}
+		// The version that last ran successfully, which is the one that wrote
+		// the data directory. Absent means Onebox has never recorded a healthy
+		// run, and it cannot then claim to know what the data is — refusing on
+		// a guess would trap an operator recovering from exactly that state.
+		res, err := e.T.Run(ctx, "cat "+q(n.ServiceVersionFile(name))+" 2>/dev/null || true")
+		if err != nil {
+			return err
+		}
+		applied := strings.TrimSpace(res.Stdout)
+		if applied == "" {
+			continue
+		}
+		declared := e.Spec.DeclaredVersion(name)
+		if app.MajorOf(applied) == app.MajorOf(declared) {
+			continue
+		}
+		runningVersion := applied
+		if force {
+			e.warnf("service %s: %s → %s across a major version (--force); its data directory may not open",
+				name, runningVersion, declared)
+			continue
+		}
+		return fmt.Errorf(
+			"service %s runs %s and the project declares %s. A %s data directory written by %s "+
+				"cannot be opened by %s, so replacing the container would leave it crash-looping with the "+
+				"data intact and unreachable. Onebox does not perform this upgrade yet: dump the data, "+
+				"remove the service and its volume, then apply the new version and restore",
+			name, runningVersion, declared, name, app.MajorOf(runningVersion), app.MajorOf(declared))
+	}
 	return nil
 }

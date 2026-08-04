@@ -463,3 +463,58 @@ func TestOrdinaryValuesStillLoad(t *testing.T) {
 		}
 	}
 }
+
+// A managed volume's name carries no replica index, so every replica mounts the
+// same directory. For durable state that is two database processes on one data
+// directory — corruption, with nothing in the runtime saying so until the damage
+// is done.
+func TestDurableStateCannotBeReplicated(t *testing.T) {
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  db:
+    role: daemon
+    image: postgres:17
+    replicas: 3
+    persistence: {mode: durable}
+    volumes: [{name: data, path: /var/lib/postgresql/data}]
+`), "ob.yml")
+	if err == nil {
+		t.Fatal("durable state with several replicas must be refused")
+	}
+	if !strings.Contains(err.Error(), "same volume") {
+		t.Fatalf("the refusal must say why: %v", err)
+	}
+}
+
+// Replicas over a shared volume that is not state — an uploads directory, a
+// cache — stay legal. Refusing those would reject correct projects.
+func TestReplicasOverNonDurableStorageAreAllowed(t *testing.T) {
+	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web:
+    role: application
+    image: x:1
+    replicas: 3
+    volumes: [{name: uploads, path: /uploads}]
+`), "ob.yml"); err != nil {
+		t.Fatalf("a shared non-durable volume must stay legal: %v", err)
+	}
+}
+
+// A managed service has no replica count at all: one instance is the only shape
+// the contract can run.
+func TestAManagedServiceHasNoReplicaCount(t *testing.T) {
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads: {web: {role: application, image: x:1}}
+services: {postgres: {version: 17, replicas: 3}}
+`), "ob.yml")
+	if err == nil {
+		t.Fatal("a service must not accept a replica count")
+	}
+}

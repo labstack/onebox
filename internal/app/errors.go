@@ -28,6 +28,7 @@ var errorCodes = map[string]string{
 	"no_workload":                  "a project must declare at least one workload",
 	"workload_malformed":           "a workload is not a mapping",
 	"workload_source":              "a workload declares other than exactly one of build, image or compose",
+	"stateful_replicas":            "a workload keeping durable state asks for more than one replica",
 	"shorthand_and_workloads":      "top-level shorthand cannot be combined with a workloads block",
 	"routing_exclusive":            "the domain shorthand and the routes list say the same thing twice",
 	"routing_incomplete":           "domain and port are declared together or not at all",

@@ -20,8 +20,8 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	// carries credentials, and a named-but-empty password variable is an error
 	// rather than a silent anonymous pull that fails later on a private image.
 	passwords := map[string]string{}
-	for _, name := range sortedNames(e.App.Registries) {
-		r := e.App.Registries[name]
+	for _, name := range sortedNames(e.Spec.Registries) {
+		r := e.Spec.Registries[name]
 		if r.PasswordEnv == "" {
 			continue
 		}
@@ -50,7 +50,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	}
 
 	e.logf("bootstrap: base dirs")
-	p := release.PathsFor(e.App.App)
+	p := release.PathsFor(e.Spec.Name)
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("mkdir %s: %v %s", p.Releases, err, res.Stderr)
 	}
@@ -65,7 +65,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.App.App, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, App: e.Spec.Name, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	_ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "start"})
 	defer func() { _ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "finish", Status: "ok"}) }()
 
@@ -74,8 +74,8 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		return fmt.Errorf("bootstrap hook: %w", err)
 	}
 
-	for _, name := range sortedNames(e.App.Registries) {
-		r, password := e.App.Registries[name], passwords[name]
+	for _, name := range sortedNames(e.Spec.Registries) {
+		r, password := e.Spec.Registries[name], passwords[name]
 		if password == "" {
 			continue
 		}
@@ -92,26 +92,21 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	// managed proxy before accessories: role containers join its network, and
 	// preflight asserts it healthy from the first deploy on. EnsureProxy takes
 	// the HOST lock internally (own-app lock is already held — safe order).
-	if e.App.Proxy.Managed {
+	if e.Spec.Proxy.Managed {
 		if err := e.EnsureProxy(ctx, releaseID, e.Opts.ForceLock); err != nil {
 			return fmt.Errorf("managed proxy: %w", err)
 		}
 	}
 
 	e.logf("bootstrap: pushing release payload %s", releaseID)
-	pushed, err := release.Push(ctx, e.T, localStagingDir, e.App.App, releaseID)
-	if err != nil {
+	if _, err := release.Push(ctx, e.T, localStagingDir, e.Spec.Name, releaseID); err != nil {
 		return err
 	}
 
-	if len(e.App.ServiceNames()) > 0 {
-		e.logf("bootstrap: starting accessories %v", e.App.ServiceNames())
-		cc := e.composeCmd(pushed + "/compose.yaml")
-		args := strings.Join(e.App.ServiceNames(), " ")
-		if res, err := e.mutate(ctx, cc+" up -d --no-deps --no-recreate "+args); err != nil {
-			return err
-		} else if res.ExitCode != 0 {
-			return fmt.Errorf("accessories up: %s", res.Stderr)
+	if len(e.Spec.ServiceNames()) > 0 {
+		e.logf("bootstrap: starting services %v", e.Spec.ServiceNames())
+		if err := e.ApplyServices(ctx); err != nil {
+			return fmt.Errorf("services: %w", err)
 		}
 	}
 	e.logf("bootstrap complete — run `ob deploy` for the first release")

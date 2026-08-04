@@ -68,7 +68,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return statusReadResult("proxy certificate store", res, err)
 		},
 		func() error {
-			localCfg := e.App.Proxy.Config
+			localCfg := e.Spec.Proxy.Config
 			if !filepath.IsAbs(localCfg) {
 				localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 			}
@@ -77,7 +77,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				return err
 			}
 			defer os.RemoveAll(staging)
-			px.localHash, err = proxy.Stage(localCfg, staging, e.App.Proxy.Image, e.App.Proxy.Network)
+			px.localHash, err = proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network)
 			return err
 		},
 	}

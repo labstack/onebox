@@ -17,7 +17,7 @@ import (
 // managed proxy is refcounted: destroy deregisters this app; the proxy itself
 // goes only with removeProxy AND an empty registry (it may serve other apps).
 func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) error {
-	if removeProxy && !e.App.Proxy.Managed {
+	if removeProxy && !e.Spec.Proxy.Managed {
 		return fmt.Errorf("--proxy: this app's proxy is not managed — nothing shared to remove")
 	}
 	hp := proxy.HostPaths()
@@ -39,12 +39,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if err := e.WriteFence(ctx, "destroy", epoch); err != nil {
 		return err
 	}
-	cur, err := release.Current(ctx, e.T, e.App.App)
+	cur, err := release.Current(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return err
 	}
 	if cur != "" {
-		down := e.composeCmd(release.PathsFor(e.App.App).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
+		down := e.composeCmd(release.PathsFor(e.Spec.Name).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
 		if removeVolumes {
 			down += " -v"
 		}
@@ -55,7 +55,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 	} else {
 		// no release ever activated: sweep by project label
-		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.App.App))
+		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.Spec.Name))
 		if err != nil {
 			return err
 		}
@@ -75,7 +75,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// `docker rm -f` never removes named volumes — honor --volumes here
 		// too (compose labels volumes with the project, same as containers)
 		if removeVolumes {
-			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.App.App))
+			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.Spec.Name))
 			if err != nil {
 				return err
 			}
@@ -94,12 +94,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	}
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
-	if res, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.App.App).Base)); err != nil {
+	if res, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.Spec.Name).Base)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
 	}
-	if e.App.Proxy.Managed {
+	if e.Spec.Proxy.Managed {
 		// host scope, after the app fence is gone: plain Run, under host lock
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 			return err
@@ -108,7 +108,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// The app state (and its fence) is intentionally gone; subsequent
 		// mutations are protected solely by the host-scoped lock token.
 		e.fenceVal = ""
-		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.App.App)); err != nil || res.ExitCode != 0 {
+		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.Spec.Name)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("deregister from proxy: %v %s", err, res.Stderr)
 		}
 		others, err := e.proxyRegistryOthers(ctx)
@@ -133,7 +133,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			e.logf("shared proxy kept with no registered apps — `ob destroy --proxy` removes it, or clean %s manually", hp.Dir)
 		}
 	}
-	e.logf("destroyed %s (volumes %s)", e.App.App, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
+	e.logf("destroyed %s (volumes %s)", e.Spec.Name, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil
 }
 
@@ -146,7 +146,7 @@ func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
 	}
 	var others []string
 	for _, name := range strings.Fields(res.Stdout) {
-		if name != e.App.App && appNameRe.MatchString(name) {
+		if name != e.Spec.Name && appNameRe.MatchString(name) {
 			others = append(others, name)
 		}
 	}
@@ -156,7 +156,7 @@ func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
 // Logs streams compose logs for one role/service (or all) from the current
 // release.
 func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, out io.Writer) error {
-	cur, err := release.Current(ctx, e.T, e.App.App)
+	cur, err := release.Current(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, o
 	if err != nil {
 		return err
 	}
-	cmd := e.composeCmd(release.PathsFor(e.App.App).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
+	cmd := e.composeCmd(release.PathsFor(e.Spec.Name).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
 	if follow {
 		cmd += " --follow"
 	}
@@ -205,7 +205,7 @@ func (e *Engine) resolveService(name string) (string, error) {
 	if name == "" {
 		return "", nil
 	}
-	if _, ok := e.App.Workloads[name]; ok {
+	if _, ok := e.Spec.Workloads[name]; ok {
 		return name, nil
 	}
 	if _, ok := e.Compose.Services[name]; ok {

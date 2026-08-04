@@ -10,7 +10,7 @@ import (
 // Audit prints who deployed what, when, from which SHA — including runs
 // whose terminal scrolled away.
 func (e *Engine) Audit(ctx context.Context, n int) error {
-	ids, err := journal.List(ctx, e.T, e.App.App)
+	ids, err := journal.List(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return err
 	}
@@ -23,7 +23,7 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 	}
 	fmt.Fprintf(e.Opts.Out, "%-32s %-20s %-9s %-11s %s\n", "DEPLOY", "OPERATOR", "GIT", "OUTCOME", "STARTED")
 	for i := len(ids) - 1; i >= 0; i-- {
-		recs, err := journal.Read(ctx, e.T, e.App.App, ids[i])
+		recs, err := journal.Read(ctx, e.T, e.Spec.Name, ids[i])
 		if err != nil {
 			return err
 		}

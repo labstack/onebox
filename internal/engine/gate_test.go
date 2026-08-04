@@ -103,7 +103,7 @@ func TestJobDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 		return nil
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	jw := &journal.Writer{T: f, App: e.App.App, DeployID: "R1", Epoch: 1}
+	jw := &journal.Writer{T: f, App: e.Spec.Name, DeployID: "R1", Epoch: 1}
 	err := e.runJobs(context.Background(), jw, nil, "/remote", "/remote/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the job: %v", err)
@@ -124,7 +124,7 @@ func TestLifecycleHookDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = app.Command{Run: "echo SHOULD_NOT_RUN"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	jw := &journal.Writer{T: f, App: e.App.App, DeployID: "R1", Epoch: 1}
+	jw := &journal.Writer{T: f, App: e.Spec.Name, DeployID: "R1", Epoch: 1}
 	err := e.runRollbackEffectHook(context.Background(), jw, nil, "pre_release", "/remote", "/remote/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the hook: %v", err)

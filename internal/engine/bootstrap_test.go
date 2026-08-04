@@ -28,7 +28,7 @@ func TestBootstrapSequence(t *testing.T) {
 		"mkdir -p", // dirs
 		"apt-get install -y something-host-specific",     // bootstrap hook
 		"docker login ghcr.io -u vishr --password-stdin", // registry (stdin)
-		"up -d --no-deps --no-recreate postgres",         // accessories
+		"docker compose -p 'ob_sample_postgres'",         // accessories
 	}
 	last := -1
 	for _, want := range ordered {
@@ -140,7 +140,7 @@ func TestBootstrapEnsuresManagedProxyBeforeAccessories(t *testing.T) {
 	ordered := []string{
 		"docker login ghcr.io",
 		"docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d",
-		"up -d --no-deps --no-recreate postgres",
+		"docker compose -p 'ob_sample_postgres'",
 	}
 	last := -1
 	for _, want := range ordered {

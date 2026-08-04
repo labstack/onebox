@@ -325,6 +325,11 @@ package obschema
 
 // ---------- services ----------
 
+// A service's name is its driver unless `driver` says otherwise, which is what
+// makes `services: {postgres: 17}` sufficient. A second instance of the same
+// driver names it explicitly: `events: {driver: postgres, version: 17}`. The
+// closed set of drivers is enforced by the loader — CUE cannot hold it without
+// duplicating the catalogue in two places that would drift.
 #Service: string | int | {
 	driver?:  #Ident
 	version:  string | int

@@ -149,7 +149,7 @@ func TestUnknownOverrideTargetRefused(t *testing.T) {
 // never what runs.
 func TestOverrideOutsideClosedSetRefused(t *testing.T) {
 	p := &Spec{
-		App:          "ledger",
+		Name:         "ledger",
 		Environments: map[string]Environment{"staging": {Overrides: &Overrides{Workloads: map[string]map[string]any{"web": {"image": "other"}}}}},
 		Workloads:    map[string]Workload{"web": {Role: "application"}},
 	}

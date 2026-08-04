@@ -100,7 +100,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 3. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
 	// round trips.
-	owned, err := ownedNames(ctx, run, p.App)
+	owned, err := ownedNames(ctx, run, p.Name)
 	if err != nil {
 		return nil, err
 	}

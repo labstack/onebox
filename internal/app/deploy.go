@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,6 +83,13 @@ func (r *Resolved) Deploy(ctx context.Context, t Target, releaseID string, opts 
 	if err := run(ctx, t, fmt.Sprintf("mkdir -p %q", releaseDir)); err != nil {
 		return nil, errf("release_dir_failed", releaseDir, "",
 			"cannot create the release directory: %v", err)
+	}
+
+	// Services come up before the release that needs them, and outside it. An
+	// application released against a database that has not started yet fails
+	// for a reason that has nothing to do with the application.
+	if err := r.applyServices(ctx, t, rendered.Services); err != nil {
+		return nil, err
 	}
 	if err := t.Upload(ctx, staging, releaseDir); err != nil {
 		return nil, errf("stage_failed", releaseDir, "",
@@ -242,4 +250,77 @@ func run(ctx context.Context, t Runner, cmd string) error {
 		return fmt.Errorf("%s", strings.TrimSpace(firstLine(res.Stderr)))
 	}
 	return nil
+}
+
+// applyServices converges the supporting services on the target.
+//
+// They live outside the release: their own Compose project, their own document
+// under the application's state directory, and a credential generated here and
+// never anywhere else. A release can be removed without touching them, which
+// is the whole reason a database is not a workload.
+func (r *Resolved) applyServices(ctx context.Context, t Target, docs map[string][]byte) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	n := r.NamesFor(r.Env)
+
+	// External, so Compose does not create it with a release and remove it
+	// with one — taking the application's route to its data along with it.
+	if err := run(ctx, t, fmt.Sprintf(
+		"docker network inspect %q >/dev/null 2>&1 || docker network create %q",
+		n.ServiceNetwork(), n.ServiceNetwork())); err != nil {
+		return errf("service_network_failed", n.ServiceNetwork(), "",
+			"cannot create the service network: %v", err)
+	}
+	if err := run(ctx, t, fmt.Sprintf("install -d -m 700 %q", n.ServiceDir())); err != nil {
+		return errf("service_dir_failed", n.ServiceDir(), "",
+			"cannot create the service directory: %v", err)
+	}
+
+	for _, name := range sortedKeys(docs) {
+		if err := r.ensureServiceCredential(ctx, t, n, name); err != nil {
+			return err
+		}
+		if err := writeRemoteFile(ctx, t, n.ServiceFile(name), docs[name]); err != nil {
+			return errf("service_write_failed", name, "",
+				"cannot place the runtime for service %q: %v", name, err)
+		}
+		if err := run(ctx, t, fmt.Sprintf("docker compose -p %q -f %q up -d --remove-orphans",
+			n.ServiceProject(name), n.ServiceFile(name))); err != nil {
+			return errf("service_up_failed", name, "",
+				"service %q did not come up: %v", name, err)
+		}
+	}
+	return nil
+}
+
+// ensureServiceCredential generates the password and the connection file once,
+// on the target, and leaves both alone afterwards. Regenerating either would
+// leave the application holding a credential its database no longer accepts.
+func (r *Resolved) ensureServiceCredential(ctx context.Context, t Target, n Names, name string) error {
+	client, ok := r.Spec.ClientEnvFor(name)
+	if !ok {
+		return errf("unknown_service_driver", "services."+name, "",
+			"service %q has no known driver", name)
+	}
+	script := client.ClientEnvScript(n.ServiceSecretFile(name), n.ServiceClientFile(name))
+	if err := run(ctx, t, script); err != nil {
+		return errf("service_credential_failed", name, "",
+			"cannot establish the credential for service %q: %v", name, err)
+	}
+	return nil
+}
+
+// writeRemoteFile places generated content on the target without letting any of
+// it be read as shell. The document is base64 on the wire for exactly that
+// reason: a Compose file contains quotes, dollars and backticks, and building
+// a command around them is how a generator becomes an injection.
+//
+// It writes beside the target and renames, so an interrupted run cannot leave a
+// half-written Compose file for the next apply to use.
+func writeRemoteFile(ctx context.Context, t Target, path string, body []byte) error {
+	encoded := base64.StdEncoding.EncodeToString(body)
+	return run(ctx, t, fmt.Sprintf(
+		"umask 077 && printf %%s %q | base64 -d > %q && mv -f %q %q",
+		encoded, path+".ob-tmp", path+".ob-tmp", path))
 }

@@ -12,14 +12,14 @@ import (
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
-	return "docker compose -p " + e.App.App + " -f " + q(remoteComposePath)
+	return "docker compose -p " + e.Spec.Name + " -f " + q(remoteComposePath)
 }
 
 // newcomerIDs finds containers of a specific release — the ob.release label
 // render injects is what makes resume possible.
 func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+q(e.App.App)+
+		"docker ps -q --filter label=com.docker.compose.project="+q(e.Spec.Name)+
 			" --filter label=com.docker.compose.service="+q(svc)+
 			" --filter label=ob.release="+q(releaseID))
 	if err != nil {
@@ -36,7 +36,7 @@ func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]stri
 // every replica is the new release. Resume-aware: already-running newcomers of
 // this release are adopted, not duplicated.
 func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath string) error {
-	role := e.App.Workloads[roleName]
+	role := e.Spec.Workloads[roleName]
 	svc := roleName
 	cc := e.composeCmd(remoteComposePath)
 	releaseID := filepath.Base(filepath.Dir(remoteComposePath))

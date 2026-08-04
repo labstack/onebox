@@ -29,7 +29,7 @@ type lockMeta struct {
 	Token      string `json:"token,omitempty"`
 }
 
-func (e *Engine) base() string      { return release.PathsFor(e.App.App).Base }
+func (e *Engine) base() string      { return release.PathsFor(e.Spec.Name).Base }
 func (e *Engine) lockPath() string  { return e.base() + "/lock" }
 func (e *Engine) epochPath() string { return e.base() + "/epoch" }
 func (e *Engine) fencePath() string { return e.base() + "/fence" }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,9 +11,12 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-// `ob preview` renders the declarative contract. It is deliberately separate
-// from `ob render`, which still serves the classifier contract the engine
-// executes today; at the cutover this becomes `render` and the other goes.
+// `ob preview` renders what a release would put on the host: the application's
+// runtime and every supporting service's own document.
+//
+// The services are printed too, because they are the part most worth reading —
+// Onebox wrote all of it, and a preview that showed only what the author typed
+// would hide exactly the decisions they did not make.
 //
 // It touches nothing: no target connection, no local state, no mutation.
 func addPreviewCommand(root *cobra.Command, g *globalFlags) {
@@ -70,8 +74,24 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 			if !showRaw {
 				fmt.Fprintln(out, "# environment values redacted; --raw shows them")
 			}
-			_, err = out.Write(body)
-			return err
+			if _, err := out.Write(body); err != nil {
+				return err
+			}
+
+			for _, name := range sortedServiceNames(rendered.Services) {
+				doc := rendered.Services[name]
+				if !showRaw {
+					if doc, err = redactEnvValuesExcept(doc, p.ServicePublicEnv(name)); err != nil {
+						return err
+					}
+				}
+				fmt.Fprintf(out, "\n--- service %s: applied outside any release, in its own Compose\n", name)
+				fmt.Fprintf(out, "--- project, so no deploy and no rollback can reach it.\n")
+				if _, err := out.Write(doc); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 
@@ -107,11 +127,22 @@ func explain(err error) error {
 // declared value is as likely to be a token as a log level, and a preview that
 // leaks one is worse than a preview nobody runs.
 func redactEnvValues(in []byte) ([]byte, error) {
+	return redactEnvValuesExcept(in, nil)
+}
+
+// redactEnvValuesExcept keeps the named variables legible. It is used for the
+// service documents, whose environment Onebox wrote itself; keep is never
+// derived from anything the author typed.
+func redactEnvValuesExcept(in []byte, keep []string) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(in, &doc); err != nil {
 		return nil, fmt.Errorf("cannot redact preview: %w", err)
 	}
-	redactNode(&doc, false)
+	visible := map[string]bool{}
+	for _, k := range keep {
+		visible[k] = true
+	}
+	redactNode(&doc, false, visible)
 	var sb strings.Builder
 	enc := yaml.NewEncoder(&sb)
 	enc.SetIndent(2)
@@ -124,7 +155,7 @@ func redactEnvValues(in []byte) ([]byte, error) {
 	return []byte(sb.String()), nil
 }
 
-func redactNode(n *yaml.Node, inEnv bool) {
+func redactNode(n *yaml.Node, inEnv bool, visible map[string]bool) {
 	if n == nil {
 		return
 	}
@@ -132,16 +163,29 @@ func redactNode(n *yaml.Node, inEnv bool) {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			key, val := n.Content[i], n.Content[i+1]
 			if inEnv && val.Kind == yaml.ScalarNode {
+				if visible[key.Value] {
+					continue
+				}
 				val.Value = "«redacted»"
 				val.Tag = "!!str"
 				val.Style = 0
 				continue
 			}
-			redactNode(val, key.Value == "environment")
+			redactNode(val, key.Value == "environment", visible)
 		}
 		return
 	}
 	for _, c := range n.Content {
-		redactNode(c, inEnv)
+		redactNode(c, inEnv, visible)
 	}
+}
+
+// sortedServiceNames keeps the printed order stable across runs.
+func sortedServiceNames(m map[string][]byte) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

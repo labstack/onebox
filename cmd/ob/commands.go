@@ -217,7 +217,7 @@ func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err
 		host = env.Target()
 	}
 	p := notify.Payload{
-		App: cfg.App, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
+		App: cfg.Name, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
 		Status: "ok", Operator: journal.DefaultOperator(),
 	}
 	if err != nil {

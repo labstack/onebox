@@ -13,6 +13,7 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	cueerrors "cuelang.org/go/cue/errors"
 	cueyaml "cuelang.org/go/encoding/yaml"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed schema.cue
@@ -73,12 +74,23 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 		return nil, errf("project_unparsable", filename, "", "project is not a mapping")
 	}
 
+	// Line numbers come from the document as authored: the only form whose
+	// lines mean anything to the person reading the error.
+	var doc yaml.Node
+	lines := map[string]int{}
+	if yaml.Unmarshal(b, &doc) == nil {
+		lines = lineIndex(&doc)
+	}
+
 	if err := checkAPIVersion(raw); err != nil {
 		return nil, err
 	}
 	app, _ := raw["app"].(string)
 	derived, err := expand(raw, app)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkShape(raw, lines); err != nil {
 		return nil, err
 	}
 	if err := validateSchema(ctx, raw, filename); err != nil {

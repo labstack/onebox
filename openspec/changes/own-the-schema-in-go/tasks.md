@@ -1,13 +1,13 @@
 ## 1. Establish the equivalence harness
 
-- [ ] 1.1 Freeze the current verdict for all 65 conformance cases and the 19 corpus projects into a golden artifact, recording accept or reject, the typed error code, and the generated runtime digest.
-- [ ] 1.2 Add a test that fails when any verdict, error code, or digest differs from the frozen artifact, and run it against the unchanged tree to prove it passes today.
+- [x] 1.1 Freeze the current verdict for all 65 conformance cases and the 19 corpus projects into a golden artifact, recording accept or reject, the typed error code, and the generated runtime digest.
+- [x] 1.2 Add a test that fails when any verdict, error code, or digest differs from the frozen artifact, and run it against the unchanged tree to prove it passes today.
 
 ## 2. Decode into typed structs
 
 - [ ] 2.1 Declare the workload structs per role, the service, environment, proxy, registry, notification, secret, verification, and runtime shapes, mirroring the existing model.
 - [ ] 2.2 Decode the expanded document with `KnownFields(true)`, selecting a workload's struct by its declared role.
-- [ ] 2.3 Assert an undefined field is rejected on every role, naming the field and its line, and that the failure never names the role.
+- [x] 2.3 Assert an undefined field is rejected on every role, naming the field and its line, and that the failure never names the role.
 - [ ] 2.4 Keep `expand()` unchanged and assert every shorthand form still normalises identically.
 
 ## 3. Move constraints into the validation table
@@ -22,6 +22,10 @@
 - [ ] 4.1 Apply every declared default by explicit assignment, in one pass, after decoding.
 - [ ] 4.2 Assert each default appears in the canonical form marked as derived, including the ones CUE previously dropped on optional fields.
 - [ ] 4.3 Assert defaulting does not depend on whether a field was declared.
+
+## 4b. Deliberate improvements, after equivalence is proven
+
+- [ ] 4b.1 Introduce a distinct `unknown_field` error code, updating the code enumeration and the conformance corpus. Held back from the swap on purpose: introducing it there would change agent-facing surface under cover of an implementation change, and "nothing moved" would stop being checkable.
 
 ## 5. Remove CUE
 

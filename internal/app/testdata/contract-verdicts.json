@@ -1,0 +1,367 @@
+[
+  {
+    "case": "conformance/a near-miss field name",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/absolute compose ref",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/absolute env_file",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/app starting ob-",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/application with data_effect",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/application with run",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/bad protocol",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/base_path absolute",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/bind mount volume",
+    "loads": true,
+    "digest": "a64857a79c535d2e8c3e7ecb0c3b7a88d591f49fa764d4ab0e67fe898347fb51"
+  },
+  {
+    "case": "conformance/daemon role",
+    "loads": true,
+    "digest": "215a0ae8accd2f64f6ec5cd12b6a93ba5a63a6edeb2d2333bf5a79d7f1250680"
+  },
+  {
+    "case": "conformance/domain and routes together",
+    "loads": false,
+    "code": "routing_exclusive"
+  },
+  {
+    "case": "conformance/domain without port",
+    "loads": false,
+    "code": "routing_incomplete"
+  },
+  {
+    "case": "conformance/duration in days",
+    "loads": true,
+    "digest": "5ac4d1f97c5a8fc93a3ebab678f6196fd68051d6f5eae0df66aaaa49d19687c6"
+  },
+  {
+    "case": "conformance/explicit workloads block",
+    "loads": true,
+    "digest": "9a25e5e99e9f1eb1cc71d17a0c8a13089938ddfadd052499097277b5dd7fcfe3"
+  },
+  {
+    "case": "conformance/hook with local",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/incomplete plan schema",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/job data_effect unknown",
+    "loads": true,
+    "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
+  },
+  {
+    "case": "conformance/job requires data_effect",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/job with data_effect",
+    "loads": true,
+    "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
+  },
+  {
+    "case": "conformance/migration_policy expand-only",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/minimum project",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/missing api_version",
+    "loads": false,
+    "code": "schema_identity_missing"
+  },
+  {
+    "case": "conformance/no environments",
+    "loads": false,
+    "code": "no_environment"
+  },
+  {
+    "case": "conformance/no workload source at all",
+    "loads": false,
+    "code": "no_workload"
+  },
+  {
+    "case": "conformance/non-calver minimum version",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/one-char identifier",
+    "loads": true,
+    "digest": "5ac4d1f97c5a8fc93a3ebab678f6196fd68051d6f5eae0df66aaaa49d19687c6"
+  },
+  {
+    "case": "conformance/persistence external",
+    "loads": true,
+    "digest": "b9d10fff3e5a558e178a95969ef02e7bb9a88e667344d3771f2fd0dbcdec9029"
+  },
+  {
+    "case": "conformance/port out of range",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/protection is no longer a field",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/proxy kind none with a route",
+    "loads": false,
+    "code": "route_without_proxy"
+  },
+  {
+    "case": "conformance/proxy kind none without a route",
+    "loads": true,
+    "digest": "9a25e5e99e9f1eb1cc71d17a0c8a13089938ddfadd052499097277b5dd7fcfe3"
+  },
+  {
+    "case": "conformance/published udp port",
+    "loads": true,
+    "digest": "b4bdfafcbb5b413b0a26a2347869340ad3a6fee5988c586620ed911e688bf0b3"
+  },
+  {
+    "case": "conformance/relative compose ref",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "conformance/relative env_file",
+    "loads": true,
+    "digest": "2ee25c50f3bc9be086c8bf23d83bf9728c013e090583ee296eac5f2843a4a5d7"
+  },
+  {
+    "case": "conformance/routes list",
+    "loads": true,
+    "digest": "f7e485d1a966914c962bb2dcf4bafb495be0a806d1376bdcba8344ce144e47c8"
+  },
+  {
+    "case": "conformance/scheduled job",
+    "loads": true,
+    "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
+  },
+  {
+    "case": "conformance/secret as scalar path",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/service scalar",
+    "loads": true,
+    "digest": "2895a8157e195eb00a5c64cf813ca027eb2fb30658967c4c256e5be023a06fbc postgres=b81a1e3ee9c0bed9"
+  },
+  {
+    "case": "conformance/shorthand and workloads together",
+    "loads": false,
+    "code": "shorthand_and_workloads"
+  },
+  {
+    "case": "conformance/status code 600",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/two sources on a workload",
+    "loads": false,
+    "code": "workload_source"
+  },
+  {
+    "case": "conformance/underscore identifier",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown prerequisite",
+    "loads": false,
+    "code": "unknown_prerequisite"
+  },
+  {
+    "case": "conformance/unknown top-level field",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unmanaged proxy keeps its routes",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/verification url contains advisory",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/verification url with exec",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/verification workload without probe",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/volume scalar",
+    "loads": true,
+    "digest": "017b330f1bf3d6142b799dfa72200a6e364d550b097cde7560844ddb505b3d0d"
+  },
+  {
+    "case": "conformance/withdrawn components block",
+    "loads": false,
+    "code": "withdrawn_components_block"
+  },
+  {
+    "case": "conformance/worker with schedule",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/workload and service share a name",
+    "loads": false,
+    "code": "identifier_collision"
+  },
+  {
+    "case": "conformance/x- extension accepted",
+    "loads": true,
+    "digest": "35d8487767e900e7a19165ee3dd63520db9816b1ea9555fb14c6d2eac04bc150"
+  },
+  {
+    "case": "conformance/zero replicas",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "corpus/ext-authentik.yml",
+    "loads": true,
+    "digest": "40ba574efa94d89e2cb65b723d0e46914e90d98a542e20b3a0a65928c7b08bee"
+  },
+  {
+    "case": "corpus/ext-frigate.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/ext-gitea.yml",
+    "loads": true,
+    "digest": "c45b0f28908db2ef833e216a61bdaa0587f38b7f473f3add0ab2aa13e6ea3e79"
+  },
+  {
+    "case": "corpus/ext-immich.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/ext-n8n.yml",
+    "loads": true,
+    "digest": "e91c5f66873241058db9ef607f072f66577954af4693f96a0e65ede9e7eec96f postgres=e281dbd09cf7eb8b redis=4429cd369ffef2b9"
+  },
+  {
+    "case": "corpus/ext-paperless.yml",
+    "loads": true,
+    "digest": "c082a9ab4771f4a93a99c5971be9730bfa969171c809ab9aa5e38f8675ef6d43"
+  },
+  {
+    "case": "corpus/ext-plausible.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/ext-umami.yml",
+    "loads": true,
+    "digest": "22557ec50bdee694678ae69bf1e1de2cbe5b6dee72011bea8f0f05933815522d"
+  },
+  {
+    "case": "corpus/fanout.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/gitea.yml",
+    "loads": true,
+    "digest": "68a7f9d2ad0fab6a5232887c77088edf4ee320f466067ae1a2c3ce016ae70047"
+  },
+  {
+    "case": "corpus/goal.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/monk.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/n8n.yml",
+    "loads": true,
+    "digest": "e0598d91705f5a0d390c12f31591a55a13b6e616af0fbf2ead4840bac5022221"
+  },
+  {
+    "case": "corpus/paperless.yml",
+    "loads": true,
+    "digest": "60a86822c8f8939697b02b9c13be0ff8c2ec99b26152582dfcf67cb33a579a1e"
+  },
+  {
+    "case": "corpus/pursue.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/recast.yml",
+    "loads": true,
+    "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/umami.yml",
+    "loads": true,
+    "digest": "c3bf57d0061aa98728542783bac05714795397aa687d8456e9722e2fc1a1379f"
+  },
+  {
+    "case": "corpus/uptime-kuma.yml",
+    "loads": true,
+    "digest": "bcb9082fb142f188e7923636e4d6c4bc81e476c43f9a44eb812db2605a87586f"
+  },
+  {
+    "case": "corpus/vaultwarden.yml",
+    "loads": true,
+    "digest": "f6ca9a08c4520c4c802803911f2d5c44771dae639d02f5f09a01d558f3331b15"
+  }
+]

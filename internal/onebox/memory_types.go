@@ -24,17 +24,15 @@ type OperationalMemory struct {
 // component. Role is Onebox's runtime role; Type is the author's v1 type; and
 // Service is the backing Compose service.
 type MemoryComponent struct {
-	Name                 string `json:"name"`
-	Role                 string `json:"role"`
-	Type                 string `json:"type"`
-	Service              string `json:"service"`
-	PersistenceMode      string `json:"persistence_mode,omitempty"`
-	DataEffect           string `json:"data_effect,omitempty"`
-	DeploymentStrategy   string `json:"deployment_strategy,omitempty"`
-	Replicas             int    `json:"replicas,omitempty"`
-	ReadinessDeclared    bool   `json:"readiness_declared"`
-	BackupDeclared       bool   `json:"backup_declared"`
-	RestoreDrillDeclared bool   `json:"restore_drill_declared"`
+	Name               string `json:"name"`
+	Role               string `json:"role"`
+	Type               string `json:"type"`
+	Service            string `json:"service"`
+	PersistenceMode    string `json:"persistence_mode,omitempty"`
+	DataEffect         string `json:"data_effect,omitempty"`
+	DeploymentStrategy string `json:"deployment_strategy,omitempty"`
+	Replicas           int    `json:"replicas,omitempty"`
+	ReadinessDeclared  bool   `json:"readiness_declared"`
 }
 
 type MemoryObservability struct {
@@ -51,16 +49,14 @@ type ReadMemoryRequest struct{}
 // component. Pointer fields distinguish "not suggested" from a zero value.
 // Proposals never apply these fields to the source configuration.
 type ComponentMemoryPatch struct {
-	Component            string  `json:"component"`
-	Type                 *string `json:"type,omitempty"`
-	Service              *string `json:"service,omitempty"`
-	PersistenceMode      *string `json:"persistence_mode,omitempty"`
-	DataEffect           *string `json:"data_effect,omitempty"`
-	DeploymentStrategy   *string `json:"deployment_strategy,omitempty"`
-	Replicas             *int    `json:"replicas,omitempty"`
-	ReadinessDeclared    *bool   `json:"readiness_declared,omitempty"`
-	BackupDeclared       *bool   `json:"backup_declared,omitempty"`
-	RestoreDrillDeclared *bool   `json:"restore_drill_declared,omitempty"`
+	Component          string  `json:"component"`
+	Type               *string `json:"type,omitempty"`
+	Service            *string `json:"service,omitempty"`
+	PersistenceMode    *string `json:"persistence_mode,omitempty"`
+	DataEffect         *string `json:"data_effect,omitempty"`
+	DeploymentStrategy *string `json:"deployment_strategy,omitempty"`
+	Replicas           *int    `json:"replicas,omitempty"`
+	ReadinessDeclared  *bool   `json:"readiness_declared,omitempty"`
 }
 
 // MemoryPolicyPatch contains project- and environment-level policy

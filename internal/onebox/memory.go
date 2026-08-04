@@ -318,14 +318,6 @@ func validateAndCopyComponentPatch(lp *loadedProject, current MemoryComponent, i
 		out.ReadinessDeclared = copyPointer(input.ReadinessDeclared)
 		changed += boolInt(*input.ReadinessDeclared != current.ReadinessDeclared)
 	}
-	if input.BackupDeclared != nil {
-		out.BackupDeclared = copyPointer(input.BackupDeclared)
-		changed += boolInt(*input.BackupDeclared != current.BackupDeclared)
-	}
-	if input.RestoreDrillDeclared != nil {
-		out.RestoreDrillDeclared = copyPointer(input.RestoreDrillDeclared)
-		changed += boolInt(*input.RestoreDrillDeclared != current.RestoreDrillDeclared)
-	}
 	return out, changed, nil
 }
 

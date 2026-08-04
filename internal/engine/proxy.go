@@ -31,8 +31,10 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return nil
 	}
 	hp := proxy.HostPaths()
+	// Empty stays empty: joining it with the project directory would point at
+	// the repository root and ask it to be Traefik's config.
 	localCfg := e.Spec.Proxy.Config
-	if !filepath.IsAbs(localCfg) {
+	if localCfg != "" && !filepath.IsAbs(localCfg) {
 		localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 	}
 	staging, err := os.MkdirTemp("", "ob-proxy")

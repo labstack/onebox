@@ -26,9 +26,9 @@ func TestBootstrapSequence(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
 		"mkdir -p", // dirs
-		"apt-get install -y something-host-specific",     // bootstrap hook
+		"apt-get install -y something-host-specific",         // bootstrap hook
 		"docker login 'ghcr.io' -u 'vishr' --password-stdin", // registry (stdin, quoted)
-		"docker compose -p 'ob_sample_postgres'",         // accessories
+		"docker compose -p 'ob_sample_postgres'",             // accessories
 	}
 	last := -1
 	for _, want := range ordered {

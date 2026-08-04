@@ -99,6 +99,16 @@ func (e *Engine) Status(ctx context.Context) error {
 			}
 			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), actual, c.health, state))
 		}
+		// Running fewer replicas than the project declares is the shortfall a
+		// human reads this to find. Counting only the containers that exist
+		// meant a stopped replica vanished from the table and the report said
+		// everything was in sync, while the structured output of the same
+		// command called it divergence.
+		if want := role.Count(); len(cs) != want {
+			diverged = true
+			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), "-", "-",
+				e.ui.Warn(fmt.Sprintf("REPLICAS %d/%d ⚠", len(cs), want))))
+		}
 	}
 
 	// accessories: running/health only — they converge separately, so an

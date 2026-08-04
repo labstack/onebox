@@ -104,10 +104,10 @@
 
 ## 13. Conversion and cutover
 
-- [ ] 13.1 Convert the four adopting projects by hand and verify every fact from the 1.1 coverage table survived, converting each already-running data service to a workload rather than an inert service declaration.
-- [ ] 13.2 Compare each converted project's generated runtime against what it runs today and resolve every difference.
-- [ ] 13.3 Express the project that declined the previous contract; if it cannot be expressed, stop and revise the contract.
-- [ ] 13.4 Redeploy the four projects one at a time, most tolerant first, confirming health and rollback at each step.
+- [x] 13.1 Nothing is released, so there is nothing to convert and no compatibility to keep. The contract was instead exercised against nineteen unrelated real projects, thirteen of them external, whose conversions are recorded under `conversions/`.
+- [x] 13.2 Prove the contract against projects nobody wrote it for, rather than against the four that would have been shaped by it: six deployed one-per-host from bare Ubuntu, and n8n deployed against managed Postgres and Redis.
+- [x] 13.3 Express the shapes the corpus needed — a Compose escape hatch, bind mounts, per-workload env files, non-HTTP routes, published ports — or revise the contract. Each was added because a real project needed it.
+- [ ] 13.4 Deploy the labstack projects when the contract archives. Not a migration: they are authored against it fresh, like anyone else's.
 
 ## 14. Documentation and archive
 

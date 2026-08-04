@@ -45,6 +45,11 @@
     "digest": "a64857a79c535d2e8c3e7ecb0c3b7a88d591f49fa764d4ab0e67fe898347fb51"
   },
   {
+    "case": "conformance/components is not a field",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
     "case": "conformance/daemon role",
     "loads": true,
     "digest": "215a0ae8accd2f64f6ec5cd12b6a93ba5a63a6edeb2d2333bf5a79d7f1250680"
@@ -248,11 +253,6 @@
     "case": "conformance/volume scalar without a path",
     "loads": false,
     "code": "project_invalid"
-  },
-  {
-    "case": "conformance/withdrawn components block",
-    "loads": false,
-    "code": "withdrawn_components_block"
   },
   {
     "case": "conformance/worker with schedule",

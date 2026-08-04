@@ -470,7 +470,7 @@ func TestExecuteRejectsComposeDriftBeforeMutation(t *testing.T) {
 	}
 	fake.Uploads, fake.Inputs = nil, nil
 	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
-	if err == nil || !strings.Contains(err.Error(), "Compose file changed since plan") {
+	if err == nil || !strings.Contains(err.Error(), "not the one the plan bound") {
 		t.Fatalf("compose drift was not rejected: result=%#v err=%v", result, err)
 	}
 	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
@@ -799,5 +799,119 @@ func TestExecuteEarlyFailureHasCorrelationIdentity(t *testing.T) {
 	}
 	if strings.Contains(events[0].Message, "missing.yml") {
 		t.Fatalf("structured event leaked local diagnostics: %#v", events[0])
+	}
+}
+
+// A plan binds the runtime it would produce. Anything that feeds generation is
+// therefore bound too, and each of these is a way the runtime could differ from
+// what was reviewed while every other fact about the plan stayed identical.
+
+// The base path decides the entire remote layout: where the release lands, where
+// the journal is, where a service's credential lives.
+func TestExecuteRejectsRelocatedBasePathBeforeMutation(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(svc.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := strings.Replace(string(source), "app: demo\n", "app: demo\nbase_path: /srv/onebox\n", 1)
+	if err := os.WriteFile(svc.configPath, []byte(moved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	// Refused by the configuration digest: the base path is part of the
+	// project, and the runtime digest would catch it too.
+	if err == nil || !strings.Contains(err.Error(), "configuration changed since plan") {
+		t.Fatalf("a relocated base path must be refused: the plan bound a different layout: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("a relocated base path reached a write: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+// A plan pins a digest, and execution deploys that digest. A tag that moves
+// between planning and applying therefore changes nothing — which is stronger
+// than refusing, and is the entire reason for pinning.
+//
+// This was originally written as a drift test and passed for the wrong reason:
+// without an approval it stopped at the approval gate and proved nothing about
+// images at all.
+func TestAMovedTagCannotChangeWhatIsDeployed(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := map[string]string{}
+	for k, v := range plan.Artifact.PinnedImages {
+		planned[k] = v
+	}
+	if len(planned) == 0 {
+		t.Fatal("the plan pinned nothing; this proves nothing")
+	}
+
+	// The registry now answers with a different digest for the same tag.
+	base := fake.Dynamic
+	fake.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker buildx imagetools inspect") {
+			return transport.Result{Stdout: "sha256:" + strings.Repeat("cd", 32) + "\n"}, true
+		}
+		return base(cmd)
+	}
+
+	approval := approvalForTestPlan(t, &plan)
+	fake.Commands = nil
+	_, _ = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
+
+	// Execution must not ask the registry again: the answer it would get is
+	// not the one that was reviewed.
+	for _, c := range fake.Commands {
+		if strings.Contains(c, "imagetools inspect") {
+			t.Fatalf("execution re-resolved an image the plan had already pinned: %s", c)
+		}
+	}
+	for name, digest := range plan.Artifact.PinnedImages {
+		if digest != planned[name] {
+			t.Errorf("%s: the plan's pin changed during execution: %q became %q", name, planned[name], digest)
+		}
+		if strings.Contains(digest, strings.Repeat("cd", 32)) {
+			t.Errorf("%s: execution adopted the registry's new digest instead of the pinned one", name)
+		}
+	}
+}
+
+// A runner whose generation changed must not deploy a runtime nobody reviewed.
+// The plan carries the digest of what it would produce; a binary that renders
+// differently produces a different one.
+func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Standing in for a generator change: the same project, rendering to
+	// something else. Nothing else about the plan differs.
+	plan.Operation.Binding.ComposeDigest = "sha256:" + strings.Repeat("ef", 32)
+	if err := plan.Operation.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "not the one the plan bound") {
+		t.Fatalf("a generation change must be refused, naming what to do: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("a generation change reached a write: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
 	}
 }

@@ -20,7 +20,7 @@
 - [x] 3.5 Implement registries, notifications, and secrets as named maps rather than singletons.
 - [x] 3.6 Accept and ignore `x-` keys wherever a mapping is accepted, asserting the generated runtime is unaffected by their presence.
 - [x] 3.7 Extend the error rewording layer to report every violation with its source location, never leaking the validation language, with a correction hint for a near-miss name.
-- [ ] 3.8 Reject the internal validation language as an authoring input and remove that load path.
+- [x] 3.8 Reject the internal validation language as an authoring input and remove that load path. There is no such language any more: the loader reads YAML and nothing else.
 - [ ] 3.9 Fixture corpus: minimum project, every shorthand, every growable field in both forms, each identifier rule, unknown field, near-miss name, unknown enum, multiple violations, both source conflicts, a job missing `data_effect`, and an `x-` annotation.
 
 ## 4. Identifiers and paths
@@ -89,8 +89,8 @@
 ## 11. Plan binding
 
 - [x] 11.1 Add the generated runtime digest and the resolved base path to the executable plan binding.
-- [ ] 11.2 Regenerate from the plan's own inputs at execution and refuse a digest mismatch before any mutation, directing the operator to re-plan.
-- [ ] 11.3 Fault tests: edited plan, edited referenced Compose file, changed resolved image, relocated base path, and generator behavior change — each refused before mutation with a typed error.
+- [x] 11.2 Regenerate from the plan's own inputs at execution and refuse a digest mismatch before any mutation, naming what could have changed and directing the operator to re-plan.
+- [x] 11.3 Fault tests: edited plan, edited referenced Compose file, relocated base path, and generation change — each refused before mutation, and each verified to fail when its guard is removed. A moved tag is not drift: the plan's pinned digest is what deploys, which is asserted instead.
 
 ## 12. Schema publication and agent surface
 

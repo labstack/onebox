@@ -247,8 +247,15 @@ func (s *Service) executeDeploy(
 	if engine.HashBytes(lp.configBytes) != binding.ConfigDigest {
 		return false, errors.New("configuration changed since plan — re-plan")
 	}
+	// The runtime is generated, so this catches every input that feeds
+	// generation — a referenced Compose file, a resolved image, the base path,
+	// and a change in how this binary renders. Naming only the Compose file
+	// would send the operator to look at one of five things.
 	if engine.HashBytes(lp.composeBytes) != binding.ComposeDigest {
-		return false, errors.New("Compose file changed since plan — re-plan")
+		return false, errors.New(
+			"the runtime this project generates is not the one the plan bound — " +
+				"a referenced Compose file, a resolved image, the base path, or this binary's " +
+				"generation changed since planning — re-plan")
 	}
 	approvalRequired := environmentConfig.Policy.RequireApproval && (!plan.NoOp || request.Redeploy)
 	if approvalRequired {

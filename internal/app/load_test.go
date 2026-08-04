@@ -12,14 +12,17 @@ const min = base + "build: .\ndomain: ledger.example.com\nport: 8080\n"
 
 func wl(body string) string { return base + "workloads: {" + body + "}\n" }
 
-// TestConformance is the corpus recorded in the change's conformance.md. A
-// divergence here is a defect in the implementation, not in the corpus.
-func TestConformance(t *testing.T) {
-	cases := []struct {
-		name string
-		yaml string
-		ok   bool
-	}{
+type conformanceCase struct {
+	name string
+	yaml string
+	ok   bool
+}
+
+// conformanceCases is the corpus recorded in the change's conformance.md. It is
+// a function so the equivalence harness can freeze a verdict for every case
+// without keeping a second copy of the list.
+func conformanceCases() []conformanceCase {
+	return []conformanceCase{
 		{"minimum project", min, true},
 		{"explicit workloads block", wl("web: {image: nginx}"), true},
 		{"one-char identifier", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
@@ -81,8 +84,12 @@ func TestConformance(t *testing.T) {
 		{"withdrawn components block", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
 		{"missing api_version", "app: a\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 	}
+}
 
-	for _, c := range cases {
+// TestConformance is that corpus. A divergence here is a defect in the
+// implementation, not in the corpus.
+func TestConformance(t *testing.T) {
+	for _, c := range conformanceCases() {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := LoadBytes([]byte(c.yaml), "ob.yml")
 			if c.ok && err != nil {
@@ -397,7 +404,7 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 		if strings.Contains(msg, "conflicting values") {
 			t.Errorf("%s: the failure must not blame the role: %v", role, err)
 		}
-		if !strings.Contains(msg, "did you mean replicas?") {
+		if !strings.Contains(msg, `did you mean "replicas"?`) {
 			t.Errorf("%s: a near miss should be suggested: %v", role, err)
 		}
 		// Nobody writing a project knows what a workloadWorker is.

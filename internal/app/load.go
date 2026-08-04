@@ -250,6 +250,15 @@ func validateSchema(ctx *cue.Context, raw map[string]any, filename string) error
 	if schema.Err() != nil {
 		return errf("internal_schema_broken", "", "", "embedded schema is broken: %v", schema.Err())
 	}
+	// Each workload against the one shape its role names, before the document
+	// as a whole. A workload is a disjunction over four roles, and when a value
+	// fails every branch the validator reports whichever branch it tried first
+	// — so a typo in a worker came back as "role: conflicting values
+	// \"application\" and \"worker\"", which sends the author to fix the one
+	// field that was right.
+	if err := validateWorkloadShapes(ctx, schema, raw, filename); err != nil {
+		return err
+	}
 	def := schema.LookupPath(cue.ParsePath("#Config"))
 	if def.Err() != nil {
 		return errf("internal_schema_broken", "", "", "#Config missing from embedded schema")
@@ -281,6 +290,13 @@ func decode(ctx *cue.Context, raw map[string]any) (*Spec, error) {
 // defaultProxyManagement decides whether Onebox runs a proxy when the author
 // did not say.
 //
+// `kind` and `managed` answer different questions. `kind` is what routes —
+// which decides whether routing labels and a proxy network are generated at
+// all. `managed` is who runs it: Onebox, or an operator with their own Traefik
+// already reading Docker labels. Conflating them meant `managed: false` threw
+// the routes away, and a project that declared a domain deployed something
+// nothing could reach, silently.
+//
 // The schema cannot express this: it depends on whether anything is routed,
 // which is a different part of the document. Defaulting to managed
 // unconditionally would demand a running Traefik before a project that
@@ -295,6 +311,52 @@ func defaultProxyManagement(p *Spec, raw map[string]any, derived map[string]Orig
 	}
 	p.Proxy.Managed = p.routesAnywhere()
 	derived["proxy.managed"] = OriginDefault
+}
+
+// validateWorkloadShapes checks each workload against the definition its
+// declared role selects, so the failure names the field that is wrong.
+func validateWorkloadShapes(ctx *cue.Context, schema cue.Value, raw map[string]any, filename string) error {
+	workloads, ok := raw["workloads"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	byRole := map[string]string{
+		RoleApplication: "#WorkloadApplication",
+		RoleWorker:      "#WorkloadWorker",
+		RoleDaemon:      "#WorkloadDaemon",
+		RoleJob:         "#WorkloadJob",
+	}
+	for _, name := range sortedKeys(workloads) {
+		body, ok := workloads[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := body["role"].(string)
+		defName, known := byRole[role]
+		if !known {
+			// An unknown role is the document-level validator's to report; it
+			// names the roles that exist.
+			continue
+		}
+		def := schema.LookupPath(cue.ParsePath(defName))
+		if def.Err() != nil {
+			return errf("internal_schema_broken", "", "", "%s missing from embedded schema", defName)
+		}
+		u := def.Unify(ctx.Encode(body))
+		if err := u.Validate(); err != nil {
+			msg := rewordFirst(err)
+			// The validator names the definition it was checking against;
+			// nobody writing a project knows what a workloadWorker is.
+			for _, leak := range []string{"workloadApplication.", "workloadWorker.", "workloadDaemon.", "workloadJob."} {
+				msg = strings.ReplaceAll(msg, leak, "workloads."+name+".")
+			}
+			if hint := nearMiss(msg, def); hint != "" {
+				msg += "; did you mean " + hint + "?"
+			}
+			return errf("project_invalid", "workloads."+name, "", "%s", msg)
+		}
+	}
+	return nil
 }
 
 // crossFieldRules applies what the schema cannot express: cardinality, source
@@ -380,6 +442,15 @@ func crossFieldRules(p *Spec) error {
 
 	if err := checkRouteCollisions(p); err != nil {
 		return err
+	}
+	if p.Proxy.Kind == "none" {
+		for _, name := range sortedKeys(p.Workloads) {
+			if len(p.Workloads[name].NormalisedRoutes()) > 0 {
+				return errf("route_without_proxy", "workloads."+name+".routes", "",
+					"workload %q declares a route but proxy.kind is \"none\", so nothing would route it; "+
+						"remove the route, or name the proxy that serves it", name)
+			}
+		}
 	}
 
 	for _, name := range sortedKeys(p.Services) {
@@ -512,6 +583,65 @@ func incompletePath(err error, fallback string) string {
 }
 
 // reword keeps the validation language out of user-facing errors.
+// nearMiss suggests the field an author probably meant. A rejected name is
+// most often a typo or a plural away from a real one, and the difference
+// between "field not allowed" and "did you mean replicas?" is one round trip
+// against a schema nobody has memorised.
+func nearMiss(msg string, def cue.Value) string {
+	const marker = ": field not allowed"
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return ""
+	}
+	path := msg[:i]
+	typo := path[strings.LastIndex(path, ".")+1:]
+	typo = strings.Trim(typo, `"`)
+	if typo == "" {
+		return ""
+	}
+	best, bestDist := "", 3 // farther than this is a different word, not a typo
+	iter, err := def.Fields(cue.Optional(true), cue.Definitions(false))
+	if err != nil {
+		return ""
+	}
+	for iter.Next() {
+		candidate := iter.Selector().Unquoted()
+		if d := editDistance(typo, candidate); d < bestDist {
+			best, bestDist = candidate, d
+		}
+	}
+	return best
+}
+
+// editDistance is Levenshtein, bounded by the caller's threshold rather than
+// here: the field sets are small enough that the simple form is the honest one.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			best := cur[j-1] + 1
+			if prev[j]+1 < best {
+				best = prev[j] + 1
+			}
+			if prev[j-1]+cost < best {
+				best = prev[j-1] + cost
+			}
+			cur[j] = best
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(b)]
+}
+
 func reword(err error) string {
 	s := err.Error()
 	s = strings.ReplaceAll(s, "#Config.", "")

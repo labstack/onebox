@@ -97,7 +97,6 @@ package obschema
 #HealthTCP:  {tcp: true, port: #Port, http?: _|_, exec?: _|_, #HealthTiming, #X}
 
 #HealthTiming: {
-	...
 	interval?:     #Dur
 	start_period?: #Dur
 	within?:       #Dur
@@ -208,12 +207,21 @@ package obschema
 // Exclusivity is written as explicit negation on open structs. A closed struct
 // cannot be embedded into another closed struct without collapsing the
 // disjunction, and an open struct alone would let a second source slip in.
-#Source: {build: #Build, image?: _|_, compose?: _|_, ...} |
-	{image: #Image, build?: _|_, compose?: _|_, ...} |
-	{compose: #ComposeRef, build?: _|_, image?: _|_, ...}
+// The three sources are declared plainly and exactly-one is enforced by the
+// loader, which already counts them and names the count it found.
+//
+// They were a disjunction of open branches once. Every branch had to stay open
+// to unify with the rest of a workload, and that openness propagated: a
+// workload accepted any field at all, so `replicaz: 3` validated, deployed, and
+// silently did nothing. A closed schema that is not closed is worse than an
+// open one, because the error message people rely on never comes.
+#Source: {
+	build?:   #Build
+	image?:   #Image
+	compose?: #ComposeRef
+}
 
 #WorkloadCommon: {
-	...
 	command?:  #Command
 	replicas:  #PosInt | *1
 	health?:   #Health
@@ -263,7 +271,6 @@ package obschema
 // unresolvable, because a branch missing a required field is incomplete rather
 // than invalid and never drops out.
 #Routing: {
-	...
 	domain?: string & !=""
 	port?:   #Port
 	routes?: [...#Route]
@@ -423,7 +430,6 @@ package obschema
 }
 
 #VerifyCommon: {
-	...
 	advisory: bool | *false
 	#X
 }

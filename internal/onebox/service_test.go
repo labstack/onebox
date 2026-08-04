@@ -47,12 +47,6 @@ workloads:
     compose: "docker-compose.yaml#database"
     persistence: { mode: durable }
     volumes: [{ name: data, path: /var/lib/postgresql/data }]
-    protection:
-      backup:
-        schedule: { cron: "0 2 * * *", timezone: UTC }
-        retention_days: 14
-      restore_drill:
-        schedule: { cron: "0 4 * * 0", timezone: UTC }
 deployment:
   order: [web]
   retain_releases: 5

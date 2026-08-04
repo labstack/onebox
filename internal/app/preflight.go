@@ -107,7 +107,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	report.Checks = append(report.Checks, collisionChecks(p.All(r.Env), owned)...)
 
 	// 4. The ingress network, which the proxy owns and this project only joins.
-	if p.Proxy.Managed && p.Proxy.Kind != "none" && p.routesAnywhere() {
+	if p.Proxy.Kind != "none" && p.routesAnywhere() {
 		report.Checks = append(report.Checks, networkCheck(ctx, run, p.Proxy.Network))
 	}
 

@@ -50,8 +50,8 @@
 
 - [x] 7.1 Generate workload services for image-sourced, build-sourced, and Compose-sourced workloads, failing for a build-sourced workload with no resolved image and naming the interim mechanism.
 - [x] 7.2 Implement the exact overlay — `ob-ingress` appended to existing networks, the three `ob.` labels, and the `traefik.` keys derived per route — asserting no other key is added, removed, or modified.
-- [x] 7.3 Fail on an overlay conflict naming the key and the file: ingress network already attached, an `ob.` label, a `traefik.` label with a route, `network_mode`, or `container_name` when the rollout is rolling or replicas exceed one.
-- [ ] 7.4 Preserve `container_name` on a single-replica recreate workload, and cover monk's worker as the fixture.
+- [x] 7.3 Fail on an overlay conflict naming the key and the file: ingress network already attached, an `ob.` label, a `traefik.` label with a route, `network_mode` when a network would attach, or `container_name` at all.
+- [x] 7.4 Withdrawn, as the design already recorded. A preserved name is host-global and escapes the derived-name collision check; the condition that would make it safe — single replica, recreate — lives in fields another environment may override; and the derived name is already stable and scriptable, so it buys nothing. An author removes the line and gets `<app>_<workload>`.
 - [x] 7.5 Attach the configured `proxy.network`, add neither routing labels nor a network when `proxy.kind` is none, and reject a route declared under it. `managed` is who runs the proxy, not whether anything routes — conflating them threw the routes away silently.
 - [x] 7.6 Generate networks, volumes, and routing from the normalized model.
 - [ ] 7.7 Assert generation opens no target connection on any path, success or failure.

@@ -202,7 +202,7 @@ An environment MAY override only these fields:
 | Target | Overridable |
 |---|---|
 | Workload | `replicas`, `resources`, `env`, `strategy`, `routes` |
-| Service | `resources`, `settings`, `backup` |
+| Service | `resources`, `settings` |
 
 A field is overridable only if changing it cannot change which artifact runs or
 what it does to data. `build`, `image`, `compose`, `command`, `run`,

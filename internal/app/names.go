@@ -92,10 +92,19 @@ func (n Names) ServiceSecretFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".secret.env")
 }
 
-// ServiceClientFile holds the connection details workloads read. It is derived
-// from the credential file on the target, for the same reason.
+// ServiceClientFile holds the connection details workloads read, under the
+// names Onebox chose. It is derived from the credential file on the target,
+// for the same reason.
 func (n Names) ServiceClientFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".client.env")
+}
+
+// ServiceAliasFile holds the same connection under the names one workload
+// asked for. It is per workload because two workloads may want different
+// names for the same database, and per service because a workload may need
+// several.
+func (n Names) ServiceAliasFile(service, workload string) string {
+	return path.Join(n.ServiceDir(), service+"."+workload+".env")
 }
 
 // WorkloadVolume and ServiceVolume share a pattern. That is safe only because

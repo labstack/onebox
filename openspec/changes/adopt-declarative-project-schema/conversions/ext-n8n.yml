@@ -1,31 +1,34 @@
+# Deployed and verified: n8n ran its migrations against the managed Postgres
+# and served /healthz, reading the connection under its own variable names.
 api_version: onebox.run/v1
 app: n8n
 environments:
-  production: {server: root@example.com}
+  production:
+    server: root@example.com
 workloads:
   n8n:
     role: application
-    image: docker.n8n.io/n8nio/n8n:1.70.0
     domain: n8n.example.com
     port: 5678
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    volumes: [{name: storage, path: /home/node/.n8n}]
-  n8n-worker:
-    role: worker
     image: docker.n8n.io/n8nio/n8n:1.70.0
-    command: [worker]
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
+    health: {http: /healthz, port: 5678, interval: 3s, start_period: 10s, within: 180s}
     volumes: [{name: storage, path: /home/node/.n8n}]
-  n8n-runner:
-    role: daemon
-    image: n8nio/runners:1.70.0
-    needs: [n8n]
-  postgres:
-    role: daemon
-    compose: docker-compose.yml#postgres
-    persistence: {mode: durable}
-  redis:
-    role: daemon
-    image: redis:7-alpine
-    health: {exec: "redis-cli ping", interval: 5s, retries: 10}
-    volumes: [{name: redis-storage, path: /data}]
+    env:
+      DB_TYPE: postgresdb
+      EXECUTIONS_MODE: queue
+    needs:
+      - name: postgres
+        env:
+          DB_POSTGRESDB_HOST: host
+          DB_POSTGRESDB_PORT: port
+          DB_POSTGRESDB_DATABASE: database
+          DB_POSTGRESDB_USER: user
+          DB_POSTGRESDB_PASSWORD: password
+      - name: redis
+        env:
+          QUEUE_BULL_REDIS_HOST: host
+          QUEUE_BULL_REDIS_PORT: port
+          QUEUE_BULL_REDIS_PASSWORD: password
+services:
+  postgres: 16
+  redis: "7.4"

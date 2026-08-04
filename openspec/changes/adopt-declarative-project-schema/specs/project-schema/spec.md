@@ -597,6 +597,29 @@ NOT stop a service or remove its durable volume.
 - **WHEN** the application's project is removed together with its volumes
 - **THEN** every declared service is still running and its durable volume still exists
 
+### Requirement: A workload names the connection itself
+
+A workload declaring a prerequisite on a managed service SHALL be able to say
+which of its own variables receive which part of the connection. Every
+application names its own — n8n reads `DB_POSTGRESDB_HOST`, Django reads
+`POSTGRES_DB` — and without this a managed service is usable only by an
+application that happens to read the names Onebox chose, which almost none do.
+
+The value SHALL come from a closed set of connection parts. A name outside it
+SHALL be refused, because it would otherwise produce a variable that is
+present, empty, and blamed on the application.
+
+A part the driver does not have — a database on a cache — SHALL be omitted
+rather than written empty, for the same reason.
+
+#### Scenario: An application reads its own variable names
+- **WHEN** a workload maps its variables onto a service's connection parts
+- **THEN** those variables reach the container carrying the connection, and the canonical names are still available
+
+#### Scenario: A part the driver lacks is omitted
+- **WHEN** a mapping names a part the driver does not have
+- **THEN** the variable is not written at all
+
 ### Requirement: A service credential is generated on the target and never travels
 
 The credential for a managed service SHALL be generated on the target, exactly
@@ -606,7 +629,9 @@ parts — to a target-side file that only workloads declaring a prerequisite on
 that service read.
 
 An established credential SHALL NOT be regenerated: rotating it silently would
-leave the application holding a credential its service has forgotten.
+leave the application holding a credential its service has forgotten. Every
+file derived from it SHALL be rewritten on each apply, so adding a workload or
+renaming a variable takes effect without the credential moving.
 
 #### Scenario: No credential is present in anything that travels
 - **WHEN** a runtime is generated for a project declaring a managed service

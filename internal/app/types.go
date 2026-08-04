@@ -204,6 +204,9 @@ type Persistence struct {
 type Need struct {
 	Name      string `json:"name"`
 	Condition string `json:"condition"`
+	// Env maps a variable the workload reads to the part of the connection
+	// that belongs in it.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 type Schedule struct {

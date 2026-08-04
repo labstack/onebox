@@ -60,6 +60,10 @@ type driver struct {
 	// application name, so two projects on one host cannot end up sharing a
 	// database by accident.
 	user string
+	// database is whether the driver has a named database at all. Redis and a
+	// message broker do not, and reporting one would hand an application a
+	// value that means nothing.
+	database bool
 	// urlUser is the user the connection URL embeds, which is not always the
 	// user the service was created with: Redis authenticates the built-in
 	// `default` user, and a URL with an empty username fails AUTH outright.
@@ -87,20 +91,23 @@ const (
 // drivers is the catalogue. A name that is not here is refused by the loader.
 var drivers = map[string]driver{
 	"postgres": {
-		image: "postgres", port: 5432, dataPath: "/var/lib/postgresql/data",
+		database: true,
+		image:    "postgres", port: 5432, dataPath: "/var/lib/postgresql/data",
 		health:    []string{"CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""},
 		env:       map[string]string{"PGDATA": "/var/lib/postgresql/data/pgdata"},
 		secretEnv: []string{"POSTGRES_PASSWORD"},
 		urlUser:   "onebox", scheme: "postgres", user: "onebox", settings: settingsPostgres,
 	},
 	"mysql": {
-		image: "mysql", port: 3306, dataPath: "/var/lib/mysql",
+		database: true,
+		image:    "mysql", port: 3306, dataPath: "/var/lib/mysql",
 		health:    []string{"CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"},
 		secretEnv: []string{"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"},
 		urlUser:   "onebox", scheme: "mysql", user: "onebox", settings: settingsUnsupported,
 	},
 	"mariadb": {
-		image: "mariadb", port: 3306, dataPath: "/var/lib/mysql",
+		database: true,
+		image:    "mariadb", port: 3306, dataPath: "/var/lib/mysql",
 		health:    []string{"CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"},
 		secretEnv: []string{"MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD"},
 		urlUser:   "onebox", scheme: "mysql", user: "onebox", settings: settingsUnsupported,
@@ -120,7 +127,8 @@ var drivers = map[string]driver{
 		urlUser:   "default", scheme: "redis", settings: settingsRedisFlag,
 	},
 	"mongodb": {
-		image: "mongo", port: 27017, dataPath: "/data/db",
+		database: true,
+		image:    "mongo", port: 27017, dataPath: "/data/db",
 		health:    []string{"CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"},
 		secretEnv: []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		urlUser:   "onebox", scheme: "mongodb", user: "onebox", settings: settingsUnsupported,
@@ -146,7 +154,8 @@ var drivers = map[string]driver{
 		scheme:    "http", settings: settingsEnv,
 	},
 	"clickhouse": {
-		image: "clickhouse/clickhouse-server", port: 8123, dataPath: "/var/lib/clickhouse",
+		database: true,
+		image:    "clickhouse/clickhouse-server", port: 8123, dataPath: "/var/lib/clickhouse",
 		health:    []string{"CMD-SHELL", "clickhouse-client --query 'SELECT 1'"},
 		secretEnv: []string{"CLICKHOUSE_PASSWORD"},
 		urlUser:   "onebox", scheme: "http", user: "onebox", settings: settingsEnv,
@@ -388,7 +397,7 @@ func (p *Spec) ClientEnvFor(name string) (ClientEnv, bool) {
 	}
 	return ClientEnv{
 		Service: name, Driver: key, Prefix: envPrefix(name),
-		Scheme: d.scheme, User: d.urlUser, Database: p.Name,
+		Scheme: d.scheme, User: d.urlUser, Database: databaseOf(d, p.Name),
 		Host: name, Port: d.port, SecretVars: d.secretEnv,
 	}, true
 }
@@ -402,6 +411,14 @@ func (c ClientEnv) URLVar() string { return c.Prefix + "_URL" }
 // credentialled URL for those would hand applications something that cannot
 // work.
 func (c ClientEnv) HasCredentialInURL() bool { return c.User != "" }
+
+// databaseOf is the application's own database on drivers that have one.
+func databaseOf(d driver, app string) string {
+	if !d.database {
+		return ""
+	}
+	return app
+}
 
 func envPrefix(name string) string {
 	return strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
@@ -460,32 +477,63 @@ func (p *Spec) ServicePublicEnv(name string) []string {
 	return out
 }
 
-// ClientEnvScript is the shell that writes a service's credential and its
-// connection file on the target, once. It is shared by both execution paths so
-// the two can never establish different files for the same service.
+// AliasFile is one workload's names for a service's connection.
+type AliasFile struct {
+	Path string
+	// Vars maps the variable the workload reads to the connection part that
+	// belongs in it.
+	Vars map[string]string
+}
+
+// ClientEnvScript is the shell that establishes a service's credential on the
+// target and writes every file derived from it.
 //
 // The password is generated here because here is the only place it may exist:
-// not in the project, not in the rendered runtime, not in the digest. The
-// connection file carries a URL and the same details in parts, because most
-// database images want a host and a password separately and telling an
-// application to split a string in a shell is not managing anything.
+// not in the project, not in the rendered runtime, not in the digest.
 //
-// Nothing is regenerated once both files exist. Rotating a password silently
-// would leave the application holding a credential its database has forgotten.
-func (c ClientEnv) ClientEnvScript(secretFile, clientFile string) string {
+// It is generated once and then reused, never rotated — an application holding
+// a credential its database has forgotten is a worse outage than any it would
+// prevent. Everything derived from it is rewritten on every apply, so adding a
+// workload, renaming a variable, or changing the connection shape takes effect
+// without the password moving.
+func (c ClientEnv) ClientEnvScript(secretFile, clientFile string, aliases []AliasFile) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "if [ -s %s ] && [ -s %s ]; then exit 0; fi\n", shellQuote(secretFile), shellQuote(clientFile))
-	b.WriteString("pw=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \\n')\n")
+
+	// Reuse the established password when there is one. Reading it back is
+	// what lets the derived files be rewritten without rotating it.
+	primary := c.Prefix + "_PASSWORD"
+	if len(c.SecretVars) > 0 {
+		primary = c.SecretVars[0]
+	}
+	fmt.Fprintf(&b, "if [ -s %s ]; then\n", shellQuote(secretFile))
+	fmt.Fprintf(&b, "  pw=$(sed -n 's/^%s=//p' %s | head -n1)\n", primary, shellQuote(secretFile))
+	b.WriteString("else\n")
+	b.WriteString("  pw=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \\n')\n")
+	b.WriteString("fi\n")
 	b.WriteString("[ -n \"$pw\" ] || { echo 'no source of randomness on this host' >&2; exit 1; }\n")
 	b.WriteString("umask 077\n")
-	fmt.Fprintf(&b, "rm -f %s %s\n", shellQuote(secretFile), shellQuote(clientFile))
 
-	// The service reads these; they are the credential itself.
+	fmt.Fprintf(&b, "rm -f %s\n", shellQuote(secretFile))
 	for _, v := range c.SecretVars {
 		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"$pw\" >> %s\n", shellQuote(v), shellQuote(secretFile))
 	}
+	fmt.Fprintf(&b, "chmod 600 %s\n", shellQuote(secretFile))
 
-	// The application reads these.
+	parts := c.parts()
+	b.WriteString(writeEnvFile(clientFile, c.canonicalNames(), parts))
+	for _, alias := range aliases {
+		names := map[string]string{}
+		for variable, part := range alias.Vars {
+			names[variable] = part
+		}
+		b.WriteString(writeEnvFile(alias.Path, names, parts))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// parts is the connection by part name. Values are shell fragments, so the
+// password is a variable reference rather than a value.
+func (c ClientEnv) parts() map[string]string {
 	url := c.Scheme + "://"
 	if c.HasCredentialInURL() {
 		url += c.User + ":$pw@"
@@ -494,22 +542,50 @@ func (c ClientEnv) ClientEnvScript(secretFile, clientFile string) string {
 	if c.Database != "" && (c.Scheme == "postgres" || c.Scheme == "mysql") {
 		url += "/" + c.Database
 	}
-	parts := [][2]string{
-		{c.URLVar(), url},
-		{c.Prefix + "_HOST", c.Host},
-		{c.Prefix + "_PORT", fmt.Sprint(c.Port)},
+	return map[string]string{
+		"url": url, "host": c.Host, "port": fmt.Sprint(c.Port),
+		"user": c.User, "password": "$pw", "database": c.Database,
+	}
+}
+
+// canonicalNames is the connection under the names Onebox chose, which every
+// workload that needs the service receives whether or not it asked for them.
+func (c ClientEnv) canonicalNames() map[string]string {
+	out := map[string]string{
+		c.URLVar():             "url",
+		c.Prefix + "_HOST":     "host",
+		c.Prefix + "_PORT":     "port",
+		c.Prefix + "_PASSWORD": "password",
 	}
 	if c.User != "" {
-		parts = append(parts, [2]string{c.Prefix + "_USER", c.User})
+		out[c.Prefix+"_USER"] = "user"
 	}
 	if c.Database != "" {
-		parts = append(parts, [2]string{c.Prefix + "_DATABASE", c.Database})
+		out[c.Prefix+"_DATABASE"] = "database"
 	}
-	parts = append(parts, [2]string{c.Prefix + "_PASSWORD", "$pw"})
-	for _, kv := range parts {
-		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"%s\" >> %s\n", shellQuote(kv[0]), kv[1], shellQuote(clientFile))
+	return out
+}
+
+// writeEnvFile emits the shell that writes one env file, sorted so a re-apply
+// produces the same bytes.
+func writeEnvFile(path string, names map[string]string, parts map[string]string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "rm -f %s\n", shellQuote(path))
+	vars := make([]string, 0, len(names))
+	for v := range names {
+		vars = append(vars, v)
 	}
-	fmt.Fprintf(&b, "chmod 600 %s %s", shellQuote(secretFile), shellQuote(clientFile))
+	sort.Strings(vars)
+	for _, v := range vars {
+		value, ok := parts[names[v]]
+		if !ok || value == "" {
+			// A part this driver does not have — a user for Redis, a database
+			// for a cache. Writing it empty would look like a value.
+			continue
+		}
+		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"%s\" >> %s\n", shellQuote(v), value, shellQuote(path))
+	}
+	fmt.Fprintf(&b, "chmod 600 %s\n", shellQuote(path))
 	return b.String()
 }
 

@@ -18,7 +18,7 @@ workloads:
     routes:
       - {domain: ledger.example.com, port: 8080}
       - {domain: api.ledger.example.com, port: 8080}
-    volumes: [uploads, {source: ./seed, target: /seed}]
+    volumes: [{name: uploads, path: /var/lib/ledger/uploads}, {source: ./seed, target: /seed}]
   worker:
     role: worker
     image: nginx

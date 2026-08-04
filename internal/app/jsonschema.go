@@ -132,7 +132,6 @@ var authoredForms = []struct {
 	{[]string{"workloads", "*", "health"}, stringForm(), "an HTTP health path"},
 	{[]string{"workloads", "*", "command"}, commandForms(), "a command line or argument list"},
 	{[]string{"workloads", "*", "entrypoint"}, commandForms(), "an entrypoint or argument list"},
-	{[]string{"workloads", "*", "volumes", "items"}, stringForm(), "a managed volume name"},
 	{[]string{"workloads", "*", "needs", "items"}, stringForm(), "the name of a prerequisite"},
 	{[]string{"environments", "*", "server"}, stringForm(), "user@host"},
 	{[]string{"secrets", "*"}, stringForm(), "a path to the encrypted file"},
@@ -304,6 +303,14 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "volumes", "items", "path"}, pattern(gAbsPath)},
 	{[]string{"workloads", "*", "volumes", "items", "target"}, pattern(gAbsPath)},
 	{[]string{"workloads", "*", "volumes", "items", "mode"}, enum(eMountMode)},
+	// A named volume says where it mounts, or it is a bind pair. Either way
+	// something has to say where it lands in the container.
+	{[]string{"workloads", "*", "volumes", "items"}, map[string]any{
+		"anyOf": []any{
+			map[string]any{"required": []any{"name", "path"}},
+			map[string]any{"required": []any{"source", "target"}},
+		},
+	}},
 	{[]string{"workloads", "*", "ports", "items", "host"}, portBounds()},
 	{[]string{"workloads", "*", "ports", "items", "container"}, portBounds()},
 	{[]string{"workloads", "*", "ports", "items", "protocol"}, enum(ePortProtocol)},

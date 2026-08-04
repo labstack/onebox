@@ -56,7 +56,7 @@ workloads:
     image: nginx
     domain: ledger.example.com
     port: 8080
-    volumes: [uploads]
+    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
 `
 
 func preflight(t *testing.T, run Runner, yaml string) *Report {

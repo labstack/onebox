@@ -243,10 +243,15 @@ func validateWorkload(w Workload, path string) error {
 			if err := gIdent.check(vp+".name", v.Name); err != nil {
 				return err
 			}
-			// A named volume without a path is a volume the project reserves
-			// and something else mounts — a service's data directory, an
-			// ejected file. Requiring a path here would refuse it.
-			if err := gAbsPath.checkOptional(vp+".path", v.Path); err != nil {
+			// A workload's named volume must say where it mounts. Without a
+			// path there is nothing to mount it at, and generation emitted
+			// `name:` with an empty target — a runtime the container engine
+			// refuses to parse, discovered at deploy rather than at load.
+			if v.Path == "" {
+				return errf("project_invalid", vp+".path", "",
+					"volume %q does not say where it mounts; give it a path", v.Name)
+			}
+			if err := gAbsPath.check(vp+".path", v.Path); err != nil {
 				return err
 			}
 		}

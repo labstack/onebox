@@ -111,8 +111,8 @@
 
 ## 14. Documentation and archive
 
-- [ ] 14.1 Rewrite the schema guide for the declarative contract, describing implemented behavior only, including the field model, roles, routes, overrides, extension keys, the overlay, the layout, path resolution, and ejection.
-- [ ] 14.2 Document the evolution rules, including that a scalar form once accepted is accepted permanently.
+- [x] 14.1 Rewrite the schema guide for the declarative contract, describing implemented behavior only, including the field model, roles, routes, overrides, extension keys, the overlay, the layout, path resolution, and ejection.
+- [x] 14.2 Document the evolution rules, including that a scalar form once accepted is accepted permanently.
 - [ ] 14.3 Update `README.md` and `docs/README.md` with the breaking change and the conversion requirement.
 - [ ] 14.4 Update `docs/product.md` to state the ownership boundary as product direction, without claiming unimplemented capability.
 - [x] 14.5 Withdraw `managed-service-operation-contract` rather than re-basing it: its premise (a managed layer over the classifier) and its MCP-primary framing are both gone. Archived unedited with a note recording what now ships and what is still unbuilt.

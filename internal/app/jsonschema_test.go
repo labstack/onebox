@@ -120,7 +120,7 @@ func TestPublishedSchemaAcceptsAuthoredShorthand(t *testing.T) {
 	for _, y := range []string{
 		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nimage: nginx\n",
 		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nservices: {postgres: 17}\n",
-		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, volumes: [data], needs: [db], command: run}}\n",
+		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, volumes: [{name: data, path: /data}], needs: [db], command: run}}\n",
 		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nhooks: {post_deploy: \"echo done\"}\n",
 		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nx-note: anything\n",
 	} {

@@ -98,7 +98,20 @@ func (e *Engine) ensureServiceSecret(ctx context.Context, n app.Names, name stri
 	if !ok {
 		return fmt.Errorf("service %s has no known driver — this is an Onebox bug", name)
 	}
-	script := client.ClientEnvScript(n.ServiceSecretFile(name), n.ServiceClientFile(name))
+	// One alias file per workload that asked for its own names. They are
+	// derived from the same password in the same script, so they cannot
+	// disagree with the canonical file or with each other.
+	var aliases []app.AliasFile
+	for _, workload := range e.Spec.ReleaseOrder() {
+		for _, need := range e.Spec.Workloads[workload].Needs {
+			if need.Name == name && len(need.Env) > 0 {
+				aliases = append(aliases, app.AliasFile{
+					Path: n.ServiceAliasFile(name, workload), Vars: need.Env,
+				})
+			}
+		}
+	}
+	script := client.ClientEnvScript(n.ServiceSecretFile(name), n.ServiceClientFile(name), aliases)
 	res, err := e.mutate(ctx, script)
 	if err != nil {
 		return err

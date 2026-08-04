@@ -152,6 +152,11 @@ package obschema
 
 #Resources: {memory?: #Size, cpus?: #Cpus, #X}
 
+// The parts of a connection to a managed service. `url` is the whole string;
+// the rest are for applications that want them separately, which most database
+// clients do.
+#ConnectionPart: "url" | "host" | "port" | "user" | "password" | "database"
+
 // A prerequisite. Ten real projects were converted to check this contract and
 // every one of them used a health-gated dependency, so the condition defaults to
 // `healthy` rather than to mere start order.
@@ -163,6 +168,16 @@ package obschema
 	// to start, because a dependency without a health check can never become
 	// healthy.
 	condition?: "started" | "healthy" | "completed"
+
+	// How this workload wants the connection named. Every application names
+	// its own variables — n8n wants DB_POSTGRESDB_HOST, Django wants
+	// POSTGRES_DB — and without this a managed service is only usable by an
+	// application that happens to read the names Onebox chose.
+	//
+	// The value is which part of the connection to put there, from a closed
+	// set: a typo would otherwise produce a variable that is present, empty,
+	// and blamed on the application.
+	env?: {[#EnvName]: #ConnectionPart}
 	#X
 }
 

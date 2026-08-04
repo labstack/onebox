@@ -262,3 +262,59 @@ workloads:
 		t.Fatalf("got %v, want prerequisite_has_no_health", err)
 	}
 }
+
+// Two workloads on one address is an outage nobody can explain: the proxy
+// accepts both and routes to one, chosen by a rule the author never wrote.
+func TestRouteCollisionIsRefusedNamingBoth(t *testing.T) {
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web:    {role: application, image: x:1, domain: shop.example.com, port: 80}
+  legacy: {role: application, image: y:1, domain: shop.example.com, port: 90}
+`), "ob.yml")
+	if err == nil {
+		t.Fatal("two workloads claiming one address must be refused")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "legacy") || !strings.Contains(msg, "web") {
+		t.Fatalf("the refusal must name both workloads: %v", err)
+	}
+}
+
+// The same host on two listeners is how a project serves HTTP and gRPC side by
+// side. Refusing that would reject correct projects.
+func TestSameHostOnDistinctEntrypointsIsAllowed(t *testing.T) {
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web:
+    role: application
+    image: x:1
+    routes:
+      - {domain: shop.example.com, path: /, port: 80, entrypoint: websecure}
+  grpc:
+    role: application
+    image: y:1
+    routes:
+      - {domain: shop.example.com, path: /, port: 90, entrypoint: grpc, scheme: h2c}
+`), "ob.yml")
+	if err != nil {
+		t.Fatalf("distinct entrypoints are distinct addresses: %v", err)
+	}
+}
+
+// Different paths on one host are distinct addresses too.
+func TestSameHostDifferentPathsIsAllowed(t *testing.T) {
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, routes: [{domain: shop.example.com, path: /, port: 80}]}
+  api: {role: application, image: y:1, routes: [{domain: shop.example.com, path: /api, port: 90}]}
+`), "ob.yml")
+	if err != nil {
+		t.Fatalf("distinct paths are distinct addresses: %v", err)
+	}
+}

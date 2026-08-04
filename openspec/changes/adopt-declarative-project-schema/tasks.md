@@ -115,5 +115,5 @@
 - [ ] 14.2 Document the evolution rules, including that a scalar form once accepted is accepted permanently.
 - [ ] 14.3 Update `README.md` and `docs/README.md` with the breaking change and the conversion requirement.
 - [ ] 14.4 Update `docs/product.md` to state the ownership boundary as product direction, without claiming unimplemented capability.
-- [ ] 14.5 Re-base the active `managed-service-operation-contract` change onto this contract, replacing its MCP-facing agent interface with the CLI surface and its provider-disabled framing with the service tiers, and carrying the reserved service names forward.
+- [x] 14.5 Withdraw `managed-service-operation-contract` rather than re-basing it: its premise (a managed layer over the classifier) and its MCP-primary framing are both gone. Archived unedited with a note recording what now ships and what is still unbuilt.
 - [ ] 14.6 Run the full test suite, the race detector, the Docker-gated end-to-end suite, `just diagrams-check`, and `openspec validate --all --strict`, then archive.

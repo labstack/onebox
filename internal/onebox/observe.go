@@ -98,10 +98,6 @@ func describeServices(lp *loadedProject) []ServiceDescription {
 			if component.Persistence != nil {
 				description.PersistenceMode = component.Persistence.Mode
 			}
-			description.ProtectionDeclared = component.Protection != nil && (component.Protection.Backup != nil || component.Protection.RestoreDrill != nil)
-			// The schema is stable ahead of the paid protection loop; declarations
-			// are visible but never misreported as active management.
-			description.ProtectionManaged = false
 			out = append(out, description)
 		}
 		return out

@@ -186,19 +186,15 @@ package obschema
 	#X
 }
 
-#Backup: {
-	schedule?:       #Schedule
-	retention_days?: #Days
-	restore_drill?:  {schedule: #Schedule, #X}
-	destination?:    string & !=""
-	#X
-}
-
-#Protection: {
-	backup?:        #Backup
-	restore_drill?: {schedule: #Schedule, #X}
-	#X
-}
+// Backup and restore-drill declarations were withdrawn. Onebox performed
+// neither, and a project that says `backup: {schedule: ...}` while nothing
+// takes a backup is the most dangerous thing this contract could contain: it
+// reads as protection, survives every review, and is discovered to be absent
+// at the only moment it mattered.
+//
+// They return when something performs them AND verifies a restore. Until then
+// the honest surface is a workload's `persistence: {mode: durable}`, which
+// says what the data is without claiming anyone is copying it.
 
 // A command is an argument list, a bare string, or the hook form.
 #Command: string & !="" | [...string] | {
@@ -226,7 +222,6 @@ package obschema
 	env?: {[#EnvName]: #Scalar}
 	volumes?: [...#Volume]
 	persistence?: #Persistence
-	protection?:  #Protection
 	needs?: [...#Need]
 	ports?: [...#PublishedPort]
 
@@ -340,7 +335,6 @@ package obschema
 	persistence?: #Persistence
 	resources?:   #Resources
 	settings?: {[string]: #Scalar}
-	backup?: #Backup
 	#X
 }
 
@@ -379,13 +373,6 @@ package obschema
 	services?: [#Ident]: {
 		resources?: {memory?: #Size | null, cpus?: #Cpus | null, #X} | null
 		settings?: {[string]: #Scalar | null} | null
-		backup?: {
-			schedule?:       #Schedule | null
-			retention_days?: #Days | null
-			restore_drill?:  {schedule: #Schedule, #X} | null
-			destination?:    string | null
-			#X
-		} | null
 		#X
 	}
 	#X

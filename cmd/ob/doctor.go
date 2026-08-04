@@ -479,28 +479,30 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 		return report
 	}
 
+	// Durable data with nothing copying it off the box is worth saying out
+	// loud. Onebox does not take backups, and a workload whose data only
+	// exists on one machine is one disk away from gone — silence here would
+	// read as approval.
 	componentNames := make([]string, 0, len(cfg.Workloads))
 	for name := range cfg.Workloads {
 		componentNames = append(componentNames, name)
 	}
 	sort.Strings(componentNames)
 	for _, name := range componentNames {
-		protection := cfg.Workloads[name].Protection
-		if protection == nil {
+		p := cfg.Workloads[name].Persistence
+		if p == nil || p.Mode != "durable" {
 			continue
 		}
-		if protection.Backup != nil {
-			report.Checks = append(report.Checks, doctorProtectionCheck{
-				Status: doctorFail, Component: name, Mechanism: "backup", Available: false,
-				Message: "component backup schedule is declared, but Onebox has no scheduler or provider availability probe for it",
-			})
-		}
-		if protection.RestoreDrill != nil {
-			report.Checks = append(report.Checks, doctorProtectionCheck{
-				Status: doctorFail, Component: name, Mechanism: "restore_drill", Available: false,
-				Message: "component restore-drill schedule is declared, but Onebox has no scheduler or provider availability probe for it",
-			})
-		}
+		report.Checks = append(report.Checks, doctorProtectionCheck{
+			Status: doctorWarning, Component: name, Mechanism: "backup", Available: false,
+			Message: "holds durable data and Onebox takes no backups; copy it off this host yourself",
+		})
+	}
+	for _, name := range cfg.ServiceNames() {
+		report.Checks = append(report.Checks, doctorProtectionCheck{
+			Status: doctorWarning, Component: name, Mechanism: "backup", Available: false,
+			Message: "managed service data lives only on this host; Onebox takes no backups yet",
+		})
 	}
 
 	if source := specSopsSource(cfg); source != "" {
@@ -542,9 +544,11 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 		report.Status = worseDoctorStatus(report.Status, check.Status)
 	}
 	if len(report.Checks) == 0 {
-		report.Message = "no local protection prerequisites or unsupported protection policies are declared"
+		report.Message = "nothing on this host holds durable data"
 	} else if report.Status == doctorFail {
 		report.Message = "one or more declared protection mechanisms are unavailable"
+	} else if report.Status == doctorWarning {
+		report.Message = "durable data is present and Onebox does not back it up"
 	} else {
 		report.Message = "declared local protection mechanisms are available"
 	}

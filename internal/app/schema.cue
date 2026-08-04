@@ -90,7 +90,10 @@ package obschema
 // ---------- health ----------
 
 #HealthHTTP: {http: #UrlPath, port?: #Port, exec?: _|_, tcp?: _|_, #HealthTiming, #X}
-#HealthExec: {exec: string & !="", http?: _|_, tcp?: _|_, port?: _|_, #HealthTiming, #X}
+// A string check runs through a shell; a list is executed directly. The list
+// form exists because an image built from scratch or distroless has no shell,
+// and a health check it cannot run is a workload that can never be released.
+#HealthExec: {exec: string & !="" | [string & !="", ...string], http?: _|_, tcp?: _|_, port?: _|_, #HealthTiming, #X}
 #HealthTCP:  {tcp: true, port: #Port, http?: _|_, exec?: _|_, #HealthTiming, #X}
 
 #HealthTiming: {

@@ -293,7 +293,10 @@ func (e *Engine) Describe(remoteCompose string) []string {
 		svc := roleName
 		head := fmt.Sprintf("release %s (%s", roleName, role.Mode())
 		if n := role.Count(); n > 1 {
-			head += fmt.Sprintf(", %d replicas → %s-1..%s-%d", n, svc, svc, n)
+			// The contract's names, not a guess: a plan that shows names the
+			// rollout will not create is a plan nobody can check against.
+			slots := e.slotNames(svc, n)
+			head += fmt.Sprintf(", %d replicas → %s..%s", n, slots[0], slots[len(slots)-1])
 		}
 		out = append(out, head+"):")
 		out = append(out, "  "+cc+" pull --quiet "+svc)

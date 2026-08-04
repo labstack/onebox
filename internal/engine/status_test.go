@@ -16,9 +16,10 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + recorded + "\n"}, true
-		// one project-wide docker ps → every container as "id service"
+		// one ownership-filtered docker ps → every container Onebox owns for
+		// this application, workloads and services alike
 		// one docker ps carries id|service|ob.release|status for every container
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			return transport.Result{Stdout: "S1|web|" + webRelease + "|Up (healthy)\n" +
 				"W1|worker|" + recorded + "|Up (healthy)\nPG1|postgres|" + recorded + "|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"): // no journals
@@ -77,7 +78,7 @@ func TestStatusFlagsNotRunning(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			// only the web role's container is up: worker + postgres are gone
 			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -103,7 +104,7 @@ func TestStatusFlagsUnhealthyRole(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			return transport.Result{Stdout: "S1|web|R2|Up (unhealthy)\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -129,7 +130,7 @@ func TestStatusFlagsCrashLoopingRole(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			return transport.Result{Stdout: "S1|web|R2|Restarting (1) 3 seconds ago\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -159,7 +160,7 @@ func TestStatusFlagsCrashLoopingAccessory(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Restarting (1) 2 seconds ago\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -196,7 +197,7 @@ func TestStatusSurfacesReadError(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			return transport.Result{Stdout: "S1;reboot|web|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
 			return transport.Result{Stdout: ""}, true

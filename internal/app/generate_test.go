@@ -392,3 +392,61 @@ func TestVolumeNamesArePinned(t *testing.T) {
 		t.Errorf("the derived volume name must be pinned\n%s", out)
 	}
 }
+
+// An image built from scratch has no shell. A health check it cannot run is a
+// workload that can never be released, so the exec form must reach the runtime
+// as CMD rather than CMD-SHELL.
+func TestExecListHealthRunsWithoutAShell(t *testing.T) {
+	out := render(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web:
+    role: application
+    image: scratch-built:1
+    health: {exec: ["/app", "health"], interval: 2s}
+`)
+	body := string(out)
+	if !strings.Contains(body, "- CMD\n") {
+		t.Fatalf("an exec list must run directly, not through a shell:\n%s", body)
+	}
+	if strings.Contains(body, "CMD-SHELL") {
+		t.Fatalf("an exec list must not be wrapped in a shell:\n%s", body)
+	}
+}
+
+// The string form still runs through a shell, which is what makes `pg_isready
+// -U x && test -f /ready` work.
+func TestExecStringHealthKeepsItsShell(t *testing.T) {
+	out := render(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, health: {exec: "test -f /ready && echo ok"}}
+`)
+	if !strings.Contains(string(out), "CMD-SHELL") {
+		t.Fatalf("a shell-form check must keep its shell:\n%s", out)
+	}
+}
+
+// The rollout takes a container out of rotation by making its health check
+// fail, before anything sends a signal. Without the guard the container reports
+// healthy right up to the moment it dies, and the requests in flight then are
+// lost — a zero-downtime deploy that is not one.
+func TestShellHealthChecksCarryTheDrainGuard(t *testing.T) {
+	for _, form := range []string{
+		`health: {http: /, port: 80}`,
+		`health: {tcp: true, port: 5432}`,
+		`health: {exec: "test -f /ready"}`,
+	} {
+		out := string(render(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, `+form+`}
+`))
+		if !strings.Contains(out, DrainFile) {
+			t.Errorf("%s is not drain-guarded:\n%s", form, out)
+		}
+	}
+}

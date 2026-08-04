@@ -452,20 +452,54 @@ func (p *Spec) routesAnywhere() bool {
 // healthcheck renders the declared probe. An HTTP probe becomes a shell probe
 // because Compose has no HTTP form; it prefers curl and falls back to wget, so
 // it works on the images people actually ship.
+// DrainFile is how a rollout takes a container out of rotation before it stops
+// it. The generated health check fails while this file exists, the runtime
+// flips the container unhealthy, and the proxy stops routing to it — all
+// before anything sends a signal. Without the guard the container reports
+// healthy until the moment it dies, and the requests in flight at that moment
+// are lost.
+const DrainFile = "/tmp/ob-drain"
+
+// drainGuarded prefixes a shell-form check with the drain test.
+func drainGuarded(check string) string {
+	return "[ -f " + DrainFile + " ] && exit 1; " + check
+}
+
 func healthcheck(h *Health) map[string]any {
 	if h == nil {
 		return nil
 	}
 	var test []string
 	switch {
-	case h.Exec != "":
-		test = []string{"CMD-SHELL", h.Exec}
+	case h.Exec != nil:
+		switch v := h.Exec.(type) {
+		case string:
+			if v == "" {
+				return nil
+			}
+			test = []string{"CMD-SHELL", drainGuarded(v)}
+		case []any:
+			// Executed directly, with no shell between the runtime and the
+			// command. This is the only form an image without a shell can run,
+			// and the one form that cannot carry the drain guard: there is no
+			// shell to test the file in. The rollout detects that and says so
+			// rather than waiting out a flip that can never happen.
+			test = []string{"CMD"}
+			for _, a := range v {
+				test = append(test, fmt.Sprint(a))
+			}
+			if len(test) == 1 {
+				return nil
+			}
+		default:
+			return nil
+		}
 	case h.HTTP != "":
 		url := fmt.Sprintf("http://127.0.0.1:%d%s", h.Port, h.HTTP)
 		test = []string{"CMD-SHELL",
-			fmt.Sprintf("curl -fsS %s || wget -qO- %s || exit 1", url, url)}
+			drainGuarded(fmt.Sprintf("curl -fsS %s || wget -qO- %s || exit 1", url, url))}
 	case h.TCP:
-		test = []string{"CMD-SHELL", fmt.Sprintf("nc -z 127.0.0.1 %d || exit 1", h.Port)}
+		test = []string{"CMD-SHELL", drainGuarded(fmt.Sprintf("nc -z 127.0.0.1 %d || exit 1", h.Port))}
 	default:
 		return nil
 	}

@@ -46,13 +46,17 @@ func (e *Engine) Preflight(ctx context.Context) error {
 			return fmt.Errorf("managed proxy is %s, refusing to deploy (ob proxy apply to converge it)", h)
 		}
 	}
-	for _, acc := range e.Spec.ServiceNames() {
-		id, err := e.containerID(ctx, acc)
+	// A service runs in its own Compose project, so it is looked up there.
+	// Looking in the application's project — which is where every workload
+	// lives — would never find one, and every deploy would refuse on a
+	// database that is running perfectly well.
+	for _, svc := range e.Spec.ServiceNames() {
+		id, err := e.serviceContainerID(ctx, svc)
 		if err != nil {
 			return err
 		}
 		if id == "" {
-			return fmt.Errorf("accessory %q not running — start it with `ob bootstrap` or `ob accessory apply`", acc)
+			return fmt.Errorf("service %q is not running — start it with `ob bootstrap` or `ob service apply`", svc)
 		}
 		health, err := e.healthOf(ctx, id)
 		if err != nil {
@@ -61,9 +65,11 @@ func (e *Engine) Preflight(ctx context.Context) error {
 		switch health {
 		case "healthy":
 		case "none":
-			e.warnf("accessory %q has no healthcheck; asserting running-only", acc)
+			// A driver with no health check cannot report one; asserting that
+			// it is running is the strongest honest statement.
+			e.warnf("service %q has no health check; asserting running-only", svc)
 		default:
-			return fmt.Errorf("accessory %q is %s, refusing to deploy", acc, health)
+			return fmt.Errorf("service %q is %s, refusing to deploy", svc, health)
 		}
 	}
 	return nil
@@ -117,6 +123,37 @@ func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 	return strings.TrimSpace(res.Stdout), nil
 }
 
+// healthDiagnosis explains a health check that cannot succeed, as opposed to
+// one that has not succeeded yet.
+//
+// A check runs inside the container, so an image built from scratch or
+// distroless has no shell to run it in and the runtime reports an exec
+// failure. Without this the deploy waits out its whole budget and reports a
+// timeout — true, useless, and pointing at the application rather than at the
+// image that cannot answer.
+func (e *Engine) healthDiagnosis(ctx context.Context, id string) string {
+	res, err := e.T.Run(ctx,
+		"docker inspect -f '{{range .State.Health.Log}}{{.ExitCode}}|{{.Output}}{{end}}' "+id)
+	if err != nil || res.ExitCode != 0 {
+		return ""
+	}
+	out := res.Stdout
+	if !strings.Contains(out, "OCI runtime exec failed") && !strings.Contains(out, "-1|") {
+		return ""
+	}
+	switch {
+	case strings.Contains(out, "/bin/sh"):
+		return "the image has no shell, so a shell-form health check cannot run in it; " +
+			"declare `health.exec` as a list — `exec: [\"/app\", \"health\"]` — which runs " +
+			"without one, or use an image that contains a shell"
+	case strings.Contains(out, "executable file not found"), strings.Contains(out, "not found"):
+		return "the health check command is not present in the image; " +
+			"declare a check the image can actually run"
+	default:
+		return "the health check could not be executed inside the container"
+	}
+}
+
 // svcContainer is one container's status as docker ps reports it (a "down"
 // container is present but not serving, so not strictly running).
 type svcContainer struct {
@@ -136,8 +173,12 @@ type svcContainer struct {
 // container without a healthcheck. A single-id health inspect is fine, but that
 // puts us back to one round trip per container.)
 func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContainer, error) {
+	// Filtered by ownership, not by Compose project. A supporting service runs
+	// in its own project so that no release can remove it, and a status that
+	// looked only in the application's project would report a database that is
+	// running perfectly well as missing.
 	res, err := e.T.Run(ctx,
-		"docker ps --filter label=com.docker.compose.project="+q(e.Spec.Name)+
+		"docker ps --filter label=ob.app="+q(e.Spec.Name)+
 			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Status}}'")
 	if err != nil {
 		return nil, err

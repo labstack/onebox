@@ -1,0 +1,113 @@
+{
+  "schema_version": "onebox.run/executable-deploy-plan/v1alpha2",
+  "runner": {
+    "version": "dev",
+    "vcs_revision": "",
+    "dirty": false,
+    "vcs_time": "",
+    "build_time": "",
+    "go_version": "go1.26.5",
+    "supported_executable_plan_schemas": [
+      "onebox.run/executable-deploy-plan/v1alpha2"
+    ]
+  },
+  "operation": {
+    "schema_version": "onebox.run/operation-plan/v1alpha1",
+    "id": "20260804-055207-nogit-deploy-511a2bc669db",
+    "kind": "deploy",
+    "release_id": "20260804-055207-nogit-deploy-511a2bc669db",
+    "created_at": "2026-08-04T05:52:07.422923Z",
+    "expires_at": "2026-08-04T06:07:07.422923Z",
+    "risk": "moderate",
+    "reversibility": "reversible",
+    "approval": "none",
+    "binding": {
+      "application": "ledger",
+      "environment": "production",
+      "target": "root@5.161.180.229",
+      "config_digest": "sha256:278ac4743bbc1353a78ff825803805167a2fb1998a78637aca56b28502d5fb25",
+      "compose_digest": "sha256:60b8c5661425a726ac92a7f90b30e0c7dab2c5f1c9ca1f89cc9bfcda8ae54580",
+      "state_digest": "sha256:e0a1fb743ed413d92235b18ee34a145ac79abceafafa885cf9761eb773181a6c",
+      "payload_digest": "6d23280c5432ee67e264fb1f2e3eb1cfc6d8fbc7f4c6ba7b187948b219ad438f",
+      "live_compose_digest": "sha256:45df741465d4e4db729b05061a301119d1f424185ab0757f4d40315929943ca4",
+      "live_payload_digest": "6d23280c5432ee67e264fb1f2e3eb1cfc6d8fbc7f4c6ba7b187948b219ad438f"
+    },
+    "steps": [
+      {
+        "id": "preflight",
+        "kind": "preflight",
+        "data_effect": "none",
+        "mutation": false
+      },
+      {
+        "id": "transfer",
+        "kind": "transfer",
+        "depends_on": [
+          "preflight"
+        ],
+        "data_effect": "none",
+        "mutation": true
+      },
+      {
+        "id": "release:web",
+        "kind": "workload_release",
+        "depends_on": [
+          "transfer"
+        ],
+        "component": "web",
+        "service": "web",
+        "data_effect": "none",
+        "strategy": "rolling",
+        "mutation": true
+      },
+      {
+        "id": "verify",
+        "kind": "verify",
+        "depends_on": [
+          "release:web"
+        ],
+        "data_effect": "none",
+        "mutation": false
+      },
+      {
+        "id": "activate",
+        "kind": "activate",
+        "depends_on": [
+          "verify"
+        ],
+        "data_effect": "none",
+        "mutation": true
+      }
+    ],
+    "plan_digest": "sha256:da1943aafe42f56b003266415ef233b1495928abc4333e073344f5991a9a6abd"
+  },
+  "artifact": {
+    "id": "20260804-055207-nogit-deploy-511a2bc669db",
+    "app": "ledger",
+    "env": "production",
+    "created_at": "2026-08-04T05:52:07.422923Z",
+    "config_hash": "sha256:278ac4743bbc1353a78ff825803805167a2fb1998a78637aca56b28502d5fb25",
+    "host_state": {
+      "host": "5.161.180.229",
+      "current_release": "20260804-055048-nogit-deploy-d04b17e82049",
+      "image_ids": {
+        "web": "sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
+      }
+    },
+    "pinned_images": {
+      "web": "nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
+    },
+    "rendered_compose": "name: ledger\nnetworks:\n    ob_ledger:\n        external: true\nservices:\n    web:\n        env_file:\n            - /var/lib/ob/ledger/services/cache.client.env\n        healthcheck:\n            interval: 2s\n            start_period: 2s\n            test:\n                - CMD-SHELL\n                - '[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS http://127.0.0.1:80/ || wget -qO- http://127.0.0.1:80/ || exit 1'\n        image: nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236\n        labels:\n            ob.app: ledger\n            ob.release: 20260804-055207-nogit-deploy-511a2bc669db\n            ob.replicas: \"2\"\n            ob.workload: web\n        networks:\n            - default\n            - ob_ledger\n        restart: unless-stopped\n",
+    "commands": [
+      "release web (rolling, 2 replicas → ledger_web..ledger_web_2):",
+      "  docker compose -p ledger -f '/var/lib/ob/ledger/releases/20260804-055207-nogit-deploy-511a2bc669db/compose.yaml' pull --quiet web",
+      "  per replica: docker compose -p ledger -f '/var/lib/ob/ledger/releases/20260804-055207-nogit-deploy-511a2bc669db/compose.yaml' up -d --no-deps --no-recreate --scale web=\u003c+1\u003e web",
+      "  wait \u003cnew\u003e healthy (ready gate)",
+      "    ├─ healthy → converge → docker exec \u003cold\u003e touch /tmp/ob-drain → wait unhealthy → converge",
+      "    │    └─ docker stop -t 30 \u003cold\u003e \u0026\u0026 docker rm \u003cold\u003e \u0026\u0026 rename \u003cnew\u003e into the freed slot",
+      "    └─ unhealthy/timeout → docker rm -f \u003cnew\u003e; existing keep serving; deploy halts"
+    ]
+  },
+  "no_op": true,
+  "plan_digest": "sha256:1a08acc25322c5205c4f3dcaf62f3609a8bb829270ee5e33d6fc3230c2a27e92"
+}

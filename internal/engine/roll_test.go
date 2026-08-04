@@ -27,6 +27,11 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 		return fs[len(fs)-1]
 	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		// Every generated shell-form check carries the drain guard; a rollout
+		// probes for it before poisoning health.
+		if strings.Contains(cmd, "Config.Healthcheck.Test") {
+			return transport.Result{Stdout: guardedHealthcheck + "\n"}, true
+		}
 		scale := 0
 		removed := map[string]bool{}
 		drained := map[string]bool{}
@@ -79,7 +84,7 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 			id := lastField(cmd)
 			n := name[id]
 			if n == "" {
-				n = "sample-web-x" // compose default before any rename
+				n = "ledger-web-should-not-appear-x" // compose default before any rename
 			}
 			return transport.Result{Stdout: "/" + n + "\n"}, true
 		case strings.Contains(cmd, "State.Health"):
@@ -97,16 +102,16 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 	return f
 }
 
-// rollFake: the common single-replica happy path (one old named `web`).
+// rollFake: the common single-replica happy path (one old named `sample_web`).
 func rollFake() *transport.Fake {
 	return replicaFake(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, false)
 }
 
 func noSleep(time.Duration) {}
 
-// A single-replica roll ends with the survivor named plainly `web`, renamed
+// A single-replica roll ends with the survivor named plainly `sample_web`, renamed
 // only AFTER the old is gone (so the name is free), and never carries the
-// sample- prefix (renamed to a transient web-new the instant it's created).
+// sample- prefix (renamed to a transient sample_web_new the instant it's created).
 func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
@@ -116,9 +121,9 @@ func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 	early, rm, final := -1, -1, -1
 	for i, c := range f.Commands {
 		switch {
-		case strings.Contains(c, "docker rename NEW1 web-new"):
+		case strings.Contains(c, "docker rename NEW1 sample_web_new"):
 			early = i
-		case strings.Contains(c, "docker rename NEW1 web"):
+		case strings.Contains(c, "docker rename NEW1 sample_web"):
 			final = i
 		case strings.Contains(c, "docker rm OLD1"):
 			rm = i
@@ -131,7 +136,7 @@ func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 		t.Fatalf("survivor must take the plain service name:\n%s", strings.Join(f.Commands, "\n"))
 	}
 	if !(early < rm && rm < final) {
-		t.Fatalf("want web-new(%d) < rm OLD1(%d) < web(%d):\n%s", early, rm, final, strings.Join(f.Commands, "\n"))
+		t.Fatalf("want sample_web_new(%d) < rm OLD1(%d) < sample_web(%d):\n%s", early, rm, final, strings.Join(f.Commands, "\n"))
 	}
 }
 
@@ -160,7 +165,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 	ordered := []string{
 		"docker compose -p sample -f '/var/lib/ob/sample/releases/R1/compose.yaml' pull --quiet web",
 		"up -d --no-deps --no-recreate --scale web=2 web",
-		"docker rename NEW1 web-new",
+		"docker rename NEW1 sample_web_new",
 		"docker exec OLD1 touch /tmp/ob-drain",
 		"docker stop -t 30 OLD1",
 		"docker rm OLD1",
@@ -208,9 +213,9 @@ func TestRollRoleAbortsOnUnhealthyNew(t *testing.T) {
 }
 
 // A 2-replica roll surges each new one in turn and ends with both named
-// web-1 and web-2 — no sample- prefix, both olds retired.
+// sample_web and sample_web_2 — no sample- prefix, both olds retired.
 func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
-	f := replicaFake(2, []string{"OLD1", "OLD2"}, map[string]string{"OLD1": "web-1", "OLD2": "web-2"}, false)
+	f := replicaFake(2, []string{"OLD1", "OLD2"}, map[string]string{"OLD1": "sample_web", "OLD2": "sample_web_2"}, false)
 	cfg := testConfig()
 	r := cfg.Workloads["web"]
 	r.Replicas = 2
@@ -222,13 +227,13 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	for _, want := range []string{
 		"docker rm OLD1", "docker rm OLD2", // both olds retired
-		"docker rename NEW1 web-1", "docker rename NEW2 web-2", // clean slots
+		"docker rename NEW1 sample_web", "docker rename NEW2 sample_web_2", // clean slots
 	} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("2-replica roll missing %q:\n%s", want, seq)
 		}
 	}
-	if strings.Contains(seq, "sample-web") {
+	if strings.Contains(seq, "ledger-web-should-not-appear") {
 		t.Fatalf("no sample- prefixed name should be committed:\n%s", seq)
 	}
 }

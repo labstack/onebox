@@ -75,7 +75,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 			return transport.Result{Stdout: "sample\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='sample'"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app='sample'"):
 			return transport.Result{Stdout: "S1|web|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
@@ -195,7 +195,7 @@ func TestStatusUnmanagedProxyUnchanged(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "project='sample'"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app='sample'"):
 			return transport.Result{Stdout: "S1|web|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
 		}

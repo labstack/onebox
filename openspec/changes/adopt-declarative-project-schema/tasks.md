@@ -43,7 +43,7 @@
 ## 6. Routes
 
 - [x] 6.1 Implement the route object with domain, path, port, protocol, and TLS mode, and the scalar domain-and-port shorthand expanding to one HTTP route at `/`.
-- [ ] 6.2 Reject two workloads in one environment claiming the same domain and path, naming both.
+- [x] 6.2 Reject two workloads in one environment claiming the same domain and path, naming both.
 - [ ] 6.3 Test a multi-route workload and a non-HTTP route end to end through canonical form and generated routing labels.
 
 ## 7. Local generation

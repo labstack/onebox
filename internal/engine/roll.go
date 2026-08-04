@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
-	"github.com/labstack/onebox/internal/compose"
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
@@ -104,7 +103,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 			}
 			// strip the <project>-<svc>-<n> name immediately so the project
 			// prefix never appears; a transient name until it takes a slot.
-			e.renameContainer(ctx, newID, svc+"-new")
+			e.renameContainer(ctx, newID, e.names().TransientContainer(roleName))
 			// join: the newcomer becomes a routable endpoint via its healthcheck
 			if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
 				e.logf("join failed for %s — removing new container, existing keep serving", roleName)
@@ -137,7 +136,22 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id string, pollEvery time.Duration) error {
 	e.sleepBusy("converge (proxy observes the newcomer)", e.Opts.ConvergeBuffer)
 
-	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
+	// Poisoning health is what takes the container out of rotation before any
+	// signal reaches it. A check that cannot read the drain file — an exec-list
+	// check in an image with no shell — can never flip, so waiting for it would
+	// burn the whole budget and then stop a container the proxy is still using.
+	// Saying so is better than a warning that reads like a fault.
+	guarded, err := e.drainGuarded(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !guarded {
+		e.logf("%s: health check cannot be drain-guarded (no shell in the image); "+
+			"relying on the converge buffer alone", id[:min(12, len(id))])
+		e.sleepBusy("converge (proxy drops the container)", e.Opts.ConvergeBuffer)
+		return e.stopAndRemove(ctx, role, id)
+	}
+	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+app.DrainFile); err != nil {
 		return err
 	}
 	// Budget the drain wait off the ACTUAL flip cost (retries × interval) plus
@@ -158,6 +172,12 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 		e.sleepBusy("drain wait ("+wait.String()+")", wait)
 	}
 
+	return e.stopAndRemove(ctx, role, id)
+}
+
+// stopAndRemove is the end of a retirement: SIGTERM with the workload's grace,
+// then removal.
+func (e *Engine) stopAndRemove(ctx context.Context, role app.Workload, id string) error {
 	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", role.StopGraceSeconds(), id)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
@@ -165,6 +185,18 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 	}
 	_, err := e.mutate(ctx, "docker rm "+id)
 	return err
+}
+
+// drainGuarded reports whether a container's health check reads the drain file.
+func (e *Engine) drainGuarded(ctx context.Context, id string) (bool, error) {
+	res, err := e.T.Run(ctx, "docker inspect -f '{{json .Config.Healthcheck.Test}}' "+id)
+	if err != nil {
+		return false, err
+	}
+	if res.ExitCode != 0 {
+		return false, nil
+	}
+	return strings.Contains(res.Stdout, app.DrainFile), nil
 }
 
 // reslot gives each new-release container a clean, stable slot name: the plain
@@ -180,7 +212,7 @@ func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int)
 	if err != nil {
 		return err
 	}
-	slots := slotNames(svc, desired)
+	slots := e.slotNames(svc, desired)
 	slotSet := map[string]bool{}
 	for _, s := range slots {
 		slotSet[s] = true
@@ -236,18 +268,26 @@ func (e *Engine) nameOf(ctx context.Context, id string) (string, error) {
 	return strings.TrimPrefix(strings.TrimSpace(res.Stdout), "/"), nil
 }
 
-// slotNames is the target name set: the plain service name for one replica,
-// else <service>-1..<service>-N.
-func slotNames(svc string, desired int) []string {
-	if desired <= 1 {
-		return []string{svc}
-	}
+// slotNames is the target name set, from the naming contract.
+//
+// It is the contract's names and not Compose's, and not a local invention
+// either. Container names are host-global: two applications that each have a
+// `web` workload would both want `web-1`, and the second would fail to start
+// or, worse, be renamed over the first. The contract carries the application
+// in every name for exactly that reason, and preflight checks those names for
+// collisions — so a rollout that used different ones would be checking for
+// collisions it then does not create, and creating collisions it never checked.
+func (e *Engine) slotNames(workload string, desired int) []string {
+	n := e.names()
 	out := make([]string, desired)
 	for i := range out {
-		out[i] = fmt.Sprintf("%s-%d", svc, i+1)
+		out[i] = n.Container(workload, i+1)
 	}
 	return out
 }
+
+// names resolves the derived-name contract for the environment being executed.
+func (e *Engine) names() app.Names { return e.Spec.NamesFor(e.Opts.Environment) }
 
 func idSet(ids []string) map[string]bool {
 	m := make(map[string]bool, len(ids))
@@ -287,6 +327,9 @@ func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interv
 			return fmt.Errorf("container %s has no healthcheck — rolling requires one (generated from ready:)", id)
 		}
 		if e.Opts.Now().After(deadline) {
+			if why := e.healthDiagnosis(ctx, id); why != "" {
+				return fmt.Errorf("timeout waiting for %s to be %s: %s", id, want, why)
+			}
 			return fmt.Errorf("timeout waiting for %s to be %s (last: %s)", id, want, h)
 		}
 		e.Opts.Sleep(interval)

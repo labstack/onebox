@@ -12,9 +12,18 @@ import (
 // happyFake scripts an entire single-host deploy: rolling web, recreate
 // worker, accessory postgres healthy, verify green, lock/fence/journal on
 // fake defaults (exit 0).
+// guardedHealthcheck is what generation emits for every shell-form check: the
+// drain guard first, so a rollout can take the container out of rotation before
+// it stops it. A rollout probes for this, and a fake that did not answer would
+// exercise the unguardable path in every test.
+const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS http://127.0.0.1:80/"]`
+
 func happyFake() *transport.Fake {
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "Config.Healthcheck.Test") {
+			return transport.Result{Stdout: guardedHealthcheck + "\n"}, true
+		}
 		// server roll state, derived from history so the loop converges: NEW1
 		// appears after a scale, OLD1 disappears once removed, names track renames.
 		scaled, oldGone, drained := false, false, false

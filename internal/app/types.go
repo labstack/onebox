@@ -153,8 +153,10 @@ type Route struct {
 }
 
 type Health struct {
-	HTTP        string `json:"http,omitempty"`
-	Exec        string `json:"exec,omitempty"`
+	HTTP string `json:"http,omitempty"`
+	// Exec is a shell string or an argument list. The list runs without a
+	// shell, which is the only form a scratch or distroless image can answer.
+	Exec any `json:"exec,omitempty"`
 	TCP         bool   `json:"tcp,omitempty"`
 	Port        int    `json:"port,omitempty"`
 	Interval    string `json:"interval,omitempty"`

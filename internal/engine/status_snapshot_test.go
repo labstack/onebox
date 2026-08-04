@@ -75,7 +75,7 @@ func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "compose.project"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			// Deliberately reverse the web ids: the public result must be stable.
 			return transport.Result{Stdout: "S2|web|R1|Up (healthy)\n" +
 				"S1|web|R2|Up (unhealthy)\n" +

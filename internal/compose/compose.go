@@ -24,11 +24,6 @@ import (
 	"github.com/compose-spec/compose-go/v2/types"
 )
 
-// DrainFile: the generated/wrapped healthcheck fails while this file exists,
-// which is how the proxy is told to stop routing to a container (the
-// traffic-shift protocol, "poison its health state").
-const DrainFile = "/tmp/ob-drain"
-
 var ident = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 func Load(ctx context.Context, composePath, projectName string, envFiles ...string) (*types.Project, error) {

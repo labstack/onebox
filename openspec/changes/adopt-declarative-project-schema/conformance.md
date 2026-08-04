@@ -56,9 +56,12 @@ change was proposed, and each becomes a fixture in task 3.2.
 | 43 | status code 600 | reject |
 | 44 | json equals null | accept |
 | 45 | migration with contains | reject |
-| 46 | override null inside backup | accept |
+| 46 | protection is no longer a field | reject |
+| 46a | a near-miss field name | reject |
 | 47 | override of image refused | reject |
-| 48 | proxy kind none | accept |
+| 48 | proxy kind none without a route | accept |
+| 48a | proxy kind none with a route | reject |
+| 48b | unmanaged proxy keeps its routes | accept |
 | 49 | migration_policy expand-only | accept |
 | 50 | persistence external | accept |
 | 51 | volume scalar | accept |

@@ -119,7 +119,7 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	for k, v := range extraNetworks {
 		nets[k] = v
 	}
-	if p.routesAnywhere() && p.Proxy.Managed && p.Proxy.Kind != "none" {
+	if p.routesAnywhere() && p.Proxy.Kind != "none" {
 		nets[p.Proxy.Network] = map[string]any{"external": true}
 	}
 	// The service network is external because the services on it outlive every
@@ -179,7 +179,7 @@ func (p *Spec) overlayFor(n Names, name string, w Workload, releaseID string) ov
 	for k, v := range p.routeLabels(n, name, w) {
 		ov.Labels[k] = v
 	}
-	if p.Proxy.Managed && p.Proxy.Kind != "none" && ov.HasRoute {
+	if p.Proxy.Kind != "none" && ov.HasRoute {
 		ov.Network = p.Proxy.Network
 	}
 	return ov
@@ -359,7 +359,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		}
 	}
 	nets := []string{"default"}
-	if len(w.NormalisedRoutes()) > 0 && p.Proxy.Managed && p.Proxy.Kind != "none" {
+	if len(w.NormalisedRoutes()) > 0 && p.Proxy.Kind != "none" {
 		nets = append(nets, p.Proxy.Network)
 	}
 	if len(p.serviceNeedsOf(w)) > 0 {
@@ -402,7 +402,7 @@ func (p *Spec) envFilesFor(w Workload) []string {
 // routeLabels emits the exact routing keys the overlay contract enumerates.
 func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 	routes := w.NormalisedRoutes()
-	if len(routes) == 0 || !p.Proxy.Managed || p.Proxy.Kind == "none" {
+	if len(routes) == 0 || p.Proxy.Kind == "none" {
 		return nil
 	}
 	out := map[string]any{

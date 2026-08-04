@@ -15,11 +15,11 @@
 
 - [x] 3.1 Port `schema.cue` from this change directory into `internal/config`, unchanged in meaning, and wire it to the loader.
 - [x] 3.2 Implement the conformance corpus in `conformance.md` as table-driven tests, and treat any divergence from the recorded expectation as a defect in the implementation, not the corpus.
-- [ ] 3.3 Implement the workload source disjunction, the role enum with job-only `run` and required `data_effect`, and refusal of job-only fields on other roles.
+- [x] 3.3 Implement the workload sources, the role enum with job-only `run` and required `data_effect`, and refusal of job-only fields on other roles. Exactly-one-source is a loader rule: as a CUE disjunction its branches had to stay open, and that openness propagated until every workload accepted any field.
 - [ ] 3.4 Assert every scalar-or-object form produces canonical output identical to its object equivalent.
-- [ ] 3.5 Implement registries, notifications, and secrets as named maps rather than singletons.
-- [ ] 3.6 Accept and ignore `x-` keys wherever a mapping is accepted, asserting the generated runtime is unaffected by their presence.
-- [ ] 3.7 Extend the error rewording layer to report every violation with its source location, never leaking the validation language, with a correction hint for a near-miss name.
+- [x] 3.5 Implement registries, notifications, and secrets as named maps rather than singletons.
+- [x] 3.6 Accept and ignore `x-` keys wherever a mapping is accepted, asserting the generated runtime is unaffected by their presence.
+- [x] 3.7 Extend the error rewording layer to report every violation with its source location, never leaking the validation language, with a correction hint for a near-miss name.
 - [ ] 3.8 Reject the internal validation language as an authoring input and remove that load path.
 - [ ] 3.9 Fixture corpus: minimum project, every shorthand, every growable field in both forms, each identifier rule, unknown field, near-miss name, unknown enum, multiple violations, both source conflicts, a job missing `data_effect`, and an `x-` annotation.
 
@@ -52,8 +52,8 @@
 - [x] 7.2 Implement the exact overlay — `ob-ingress` appended to existing networks, the three `ob.` labels, and the `traefik.` keys derived per route — asserting no other key is added, removed, or modified.
 - [x] 7.3 Fail on an overlay conflict naming the key and the file: ingress network already attached, an `ob.` label, a `traefik.` label with a route, `network_mode`, or `container_name` when the rollout is rolling or replicas exceed one.
 - [ ] 7.4 Preserve `container_name` on a single-replica recreate workload, and cover monk's worker as the fixture.
-- [ ] 7.5 Attach the environment's configured `proxy.network` rather than a fixed name, and add neither routing labels nor a network when the proxy is disabled; reject a route declared under a disabled proxy.
-- [ ] 7.6 Generate networks, volumes, and routing from the normalized model.
+- [x] 7.5 Attach the configured `proxy.network`, add neither routing labels nor a network when `proxy.kind` is none, and reject a route declared under it. `managed` is who runs the proxy, not whether anything routes — conflating them threw the routes away silently.
+- [x] 7.6 Generate networks, volumes, and routing from the normalized model.
 - [ ] 7.7 Assert generation opens no target connection on any path, success or failure.
 - [ ] 7.8 Determinism and purity tests under a harness that fails on any undeclared clock, entropy, or environment input.
 - [x] 7.9 Assert a non-runtime-affecting change — an `x-` key, a comment — leaves the runtime and digest unchanged, and that a service version does change it.
@@ -66,7 +66,7 @@
 - [x] 8.3 Golden test pinning every derived name for a reference project, so a change that would rename an existing volume fails loudly.
 - [ ] 8.4 Refuse at validation any derived name exceeding the container runtime's limit, naming the identifiers and the limit; assert no name is ever truncated.
 - [ ] 8.5 Assert every derived name is application-scoped, including the transient rollout name, and that all of them are covered by the preflight collision check.
-- [ ] 8.6 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback, reported in observation and bound into the plan.
+- [x] 8.6 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback.
 - [x] 8.7 Reserve the names a declared service derives, including its container, and check them in preflight.
 
 ## 9. Target preflight

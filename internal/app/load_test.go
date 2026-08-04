@@ -48,13 +48,20 @@ func TestConformance(t *testing.T) {
 		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: 0.0.1-m0}}}\n", false},
 		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
-		{"protection on a workload", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}, retention_days: 14}}}"), true},
+		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
+		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		{"secret as scalar path", min + "secrets: {production: secrets.yaml}\n", true},
 		{"verification workload without probe", min + "verification: [{workload: ledger}]\n", false},
 		{"verification url with exec", min + "verification: [{url: \"https://x/\", exec: \"echo\"}]\n", false},
 		{"verification url contains advisory", min + "verification: [{url: \"https://x/\", contains: \"<div\", advisory: true}]\n", true},
 		{"status code 600", min + "verification: [{url: \"https://x/\", status_codes: [600]}]\n", false},
-		{"proxy kind none", min + "proxy: {kind: none, managed: false}\n", true},
+		// `kind: none` says nothing routes. A project that also declares a
+		// route is asking for something nobody would serve.
+		{"proxy kind none without a route", wl("web: {image: nginx}") + "proxy: {kind: none}\n", true},
+		{"proxy kind none with a route", min + "proxy: {kind: none}\n", false},
+		// `managed: false` says an operator runs the proxy themselves. The
+		// routes are still real and still need their labels.
+		{"unmanaged proxy keeps its routes", min + "proxy: {managed: false}\n", true},
 		{"migration_policy expand-only", min + "deployment: {migration_policy: expand-only}\n", true},
 		{"persistence external", wl("w: {image: nginx, persistence: {mode: external}}"), true},
 		{"volume scalar", wl("w: {image: nginx, volumes: [data]}"), true},
@@ -316,5 +323,86 @@ workloads:
 `), "ob.yml")
 	if err != nil {
 		t.Fatalf("distinct paths are distinct addresses: %v", err)
+	}
+}
+
+// `kind` is what routes; `managed` is who runs it. Conflating them meant
+// `managed: false` silently threw the routes away, and a project that declared
+// a domain deployed something nothing could reach.
+func TestRoutesSurviveAnUnmanagedProxy(t *testing.T) {
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, domain: shop.example.com, port: 80}
+proxy: {managed: false}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out.Bytes), "traefik.enable") {
+		t.Fatalf("an operator running their own Traefik still needs the labels:\n%s", out.Bytes)
+	}
+}
+
+// With nothing to route, a declared route is a promise nobody keeps.
+func TestRouteWithoutAProxyIsRefused(t *testing.T) {
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, domain: shop.example.com, port: 80}
+proxy: {kind: none}
+`), "ob.yml")
+	if err == nil {
+		t.Fatal("a route with no proxy must be refused")
+	}
+	if !strings.Contains(err.Error(), "nothing would route it") {
+		t.Fatalf("the refusal must say why: %v", err)
+	}
+}
+
+// A schema that claims to be closed and is not is worse than an open one: the
+// error people rely on never comes. `#Source` was a disjunction of open
+// branches, and that openness propagated into every workload.
+func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
+	for _, role := range []string{
+		"role: application, image: nginx",
+		"role: worker, image: nginx",
+		"role: daemon, image: nginx",
+		"role: job, image: nginx, data_effect: none",
+	} {
+		_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"+
+			"workloads: {w: {"+role+", replicaz: 3}}\n"), "ob.yml")
+		if err == nil {
+			t.Errorf("%s: an unknown field must be refused", role)
+			continue
+		}
+		msg := err.Error()
+		// The failure must name the field that is wrong, not the role. A
+		// workload is a disjunction over four roles, and reporting whichever
+		// branch the validator tried first sends the author to fix the one
+		// field that was right.
+		if !strings.Contains(msg, "replicaz") {
+			t.Errorf("%s: the failure must name the field: %v", role, err)
+		}
+		if strings.Contains(msg, "conflicting values") {
+			t.Errorf("%s: the failure must not blame the role: %v", role, err)
+		}
+		if !strings.Contains(msg, "did you mean replicas?") {
+			t.Errorf("%s: a near miss should be suggested: %v", role, err)
+		}
+		// Nobody writing a project knows what a workloadWorker is.
+		if strings.Contains(msg, "workloadWorker") || strings.Contains(msg, "workloadApplication") {
+			t.Errorf("%s: the validator's own vocabulary leaked: %v", role, err)
+		}
 	}
 }

@@ -137,12 +137,12 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	}
 
 	snapshot := StatusSnapshot{
-		App:         e.App.App,
+		App:         e.Spec.Name,
 		Host:        e.T.Host(),
 		CapturedAt:  e.Opts.Now().UTC(),
 		Runner:      e.Opts.Runner,
-		Roles:       make([]StatusRole, 0, len(e.App.ReleaseOrder())),
-		Accessories: make([]StatusAccessory, 0, len(e.App.ServiceNames())),
+		Roles:       make([]StatusRole, 0, len(e.Spec.ReleaseOrder())),
+		Accessories: make([]StatusAccessory, 0, len(e.Spec.ServiceNames())),
 		Complete:    true,
 	}
 
@@ -158,7 +158,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		{
 			component: "current_release",
 			run: func() (err error) {
-				recorded, err = release.Current(ctx, e.T, e.App.App)
+				recorded, err = release.Current(ctx, e.T, e.Spec.Name)
 				return err
 			},
 		},
@@ -186,7 +186,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	}
 
 	proxyReadStart := len(reads)
-	if e.App.Proxy.Managed {
+	if e.Spec.Proxy.Managed {
 		proxyReads := e.proxyReads(ctx, &px)
 		for i, run := range proxyReads {
 			component := fmt.Sprintf("proxy.read_%d", i)
@@ -227,13 +227,13 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	releaseComplete := reads[0].err == nil
 	containersComplete := reads[1].err == nil
 	snapshot.RecordedRelease = recorded
-	for _, roleName := range e.App.ReleaseOrder() {
-		role := e.App.Workloads[roleName]
+	for _, roleName := range e.Spec.ReleaseOrder() {
+		role := e.Spec.Workloads[roleName]
 		status := makeStatusRole(roleName, role, byService[roleName], recorded, releaseComplete, containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Roles = append(snapshot.Roles, status)
 	}
-	for _, accessoryName := range e.App.ServiceNames() {
+	for _, accessoryName := range e.Spec.ServiceNames() {
 		status := makeStatusAccessory(accessoryName, byService[accessoryName], containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Accessories = append(snapshot.Accessories, status)
@@ -244,7 +244,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		snapshot.Diverged = true
 	}
 
-	if e.App.Proxy.Managed {
+	if e.Spec.Proxy.Managed {
 		proxyComplete := make([]bool, len(reads)-proxyReadStart)
 		for i := proxyReadStart; i < len(reads); i++ {
 			proxyComplete[i-proxyReadStart] = reads[i].err == nil

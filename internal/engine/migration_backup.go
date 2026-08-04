@@ -55,7 +55,7 @@ func (e *Engine) migrationBackupRequired() bool {
 	if strings.TrimSpace(e.Opts.Environment) == "" {
 		return false
 	}
-	environment, ok := e.App.Environments[e.Opts.Environment]
+	environment, ok := e.Spec.Environments[e.Opts.Environment]
 	return ok && environment.Policy.RequireMigrationBackup
 }
 

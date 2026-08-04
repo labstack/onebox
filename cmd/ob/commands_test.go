@@ -140,7 +140,7 @@ func TestNotifyOutcome(t *testing.T) {
 	defer srv.Close()
 
 	cfg := &app.Resolved{Spec: &app.Spec{
-		App:           "sample",
+		Name:          "sample",
 		Environments:  map[string]app.Environment{"production": {Server: app.Server{User: "root", Host: "h"}}},
 		Notifications: map[string]app.Notification{"ops": {Webhook: srv.URL, On: []string{"failure"}}},
 	}}

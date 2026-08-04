@@ -191,7 +191,7 @@ func TestConversionDrafts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("draft should load: %v", err)
 			}
-			if p.App == "" || len(p.Workloads) == 0 {
+			if p.Name == "" || len(p.Workloads) == 0 {
 				t.Fatalf("draft normalised to an empty project")
 			}
 		})

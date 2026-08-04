@@ -18,6 +18,11 @@ type Rendered struct {
 	Bytes  []byte
 	Digest string
 
+	// Services are the supporting services' own Compose documents, keyed by
+	// service name. They are applied outside any release, which is what keeps
+	// a rollback from taking a database with it.
+	Services map[string][]byte
+
 	// Unresolved names the build-sourced workloads that had no image. It is
 	// empty on every runtime produced for execution — Render refuses those
 	// outright — and populated only by RenderForInspection, whose output
@@ -87,7 +92,7 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 				// Ownership must be on the volume itself. Preflight reads
 				// labels to tell a previous release from a stranger's resource,
 				// and an unlabelled volume we created looks like a collision.
-				"labels": map[string]any{"ob.app": p.App},
+				"labels": map[string]any{"ob.app": p.Name},
 			}
 		}
 		// Definitions a referenced service depends on: a segmented network, an
@@ -117,6 +122,12 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	if p.routesAnywhere() && p.Proxy.Managed && p.Proxy.Kind != "none" {
 		nets[p.Proxy.Network] = map[string]any{"external": true}
 	}
+	// The service network is external because the services on it outlive every
+	// release. Compose would otherwise create it with the release and remove it
+	// with the release, taking the database's reachability with it.
+	if len(p.Services) > 0 {
+		nets[n.ServiceNetwork()] = map[string]any{"external": true}
+	}
 	if len(nets) > 0 {
 		doc["networks"] = nets
 	}
@@ -125,15 +136,41 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	if err != nil {
 		return nil, errf("render_failed", "", "", "cannot render runtime: %v", err)
 	}
-	sum := sha256.Sum256(b)
-	return &Rendered{Bytes: b, Digest: hex.EncodeToString(sum[:])}, nil
+
+	// Each service is its own document and its own project. They are rendered
+	// here, with the application, because they come from the same declaration
+	// and must agree about names and networks — but they are applied
+	// separately, and never by a release.
+	rendered := &Rendered{Bytes: b}
+	if len(p.Services) > 0 {
+		rendered.Services = map[string][]byte{}
+		for _, name := range sortedKeys(p.Services) {
+			doc, err := p.renderService(n, name, p.Services[name])
+			if err != nil {
+				return nil, err
+			}
+			rendered.Services[name] = doc
+		}
+	}
+
+	// The digest covers the services too. A changed Postgres version with an
+	// unchanged application is still a different runtime, and a plan that did
+	// not notice would be a plan that lied.
+	sum := sha256.New()
+	sum.Write(b)
+	for _, name := range sortedKeys(rendered.Services) {
+		sum.Write([]byte(name))
+		sum.Write(rendered.Services[name])
+	}
+	rendered.Digest = hex.EncodeToString(sum.Sum(nil))
+	return rendered, nil
 }
 
 // overlayFor is the enumerated set applied to a Compose-referenced workload.
 func (p *Spec) overlayFor(n Names, name string, w Workload, releaseID string) overlay {
 	ov := overlay{
 		Labels: map[string]any{
-			"ob.app":      p.App,
+			"ob.app":      p.Name,
 			"ob.workload": name,
 			"ob.release":  releaseID,
 		},
@@ -204,7 +241,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	for k, v := range w.Labels {
 		labels[k] = v
 	}
-	labels["ob.app"] = p.App
+	labels["ob.app"] = p.Name
 	labels["ob.workload"] = name
 	labels["ob.release"] = releaseID
 	// Onebox runs the replicas itself under derived slot names, so the count is
@@ -220,7 +257,14 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	if env := stringMap(w.Env); len(env) > 0 {
 		svc["environment"] = env
 	}
-	if files := p.envFilesFor(w); len(files) > 0 {
+	// A workload that needs a service reads how to reach it. The file is
+	// written on the target from the credential generated there, so the
+	// connection string never appears in the project, the rendered runtime or
+	// the digest — and an application gets its database URL without anyone
+	// copying a password into a repository.
+	files := p.envFilesFor(w)
+	files = append(files, p.serviceClientFiles(n, w)...)
+	if len(files) > 0 {
 		svc["env_file"] = files
 	}
 
@@ -251,11 +295,19 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	}
 
 	if len(w.Needs) > 0 {
+		// depends_on cannot cross Compose projects, and a service lives in its
+		// own. Ordering against a service is enforced by applying services
+		// before any release rather than by a key the runtime would reject.
 		dep := map[string]any{}
 		for _, need := range w.Needs {
+			if _, isService := p.Services[need.Name]; isService {
+				continue
+			}
 			dep[need.Name] = map[string]any{"condition": composeCondition(need.Condition)}
 		}
-		svc["depends_on"] = dep
+		if len(dep) > 0 {
+			svc["depends_on"] = dep
+		}
 	}
 
 	if hc := healthcheck(w.Health); hc != nil {
@@ -306,8 +358,15 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 			svc["cpus"] = w.Resources.CPUs
 		}
 	}
+	nets := []string{"default"}
 	if len(w.NormalisedRoutes()) > 0 && p.Proxy.Managed && p.Proxy.Kind != "none" {
-		svc["networks"] = []string{"default", p.Proxy.Network}
+		nets = append(nets, p.Proxy.Network)
+	}
+	if len(p.serviceNeedsOf(w)) > 0 {
+		nets = append(nets, n.ServiceNetwork())
+	}
+	if len(nets) > 1 {
+		svc["networks"] = nets
 	}
 	// A job runs to completion. Restarting it forever is wrong, and `compose up`
 	// must not start it at all: it runs at a release phase or on a schedule,
@@ -319,7 +378,8 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		svc["restart"] = "unless-stopped"
 	}
 
-	return svc, namedVolumes, carried, nil
+	// Everything above came from the declaration, so it is Onebox's to escape.
+	return escapeDollars(svc).(map[string]any), namedVolumes, carried, nil
 }
 
 // envFilesFor applies the workload's own list, falling back to the project-wide
@@ -466,6 +526,45 @@ func stringMap(m map[string]any) map[string]any {
 	return out
 }
 
+// escapeDollars doubles every `$` in the values Onebox generates.
+//
+// Compose interpolates the file it reads. A `$VAR` that Onebox wrote — the
+// shell expansion in a generated health check, a command the author declared
+// meaning "expand this inside the container" — would otherwise be substituted
+// on the host from an environment that does not have it, and silently become
+// the empty string. That is how a Redis ends up running with `--requirepass ""`
+// while the application holds a real password: everything reports healthy and
+// nothing works.
+//
+// Content copied verbatim from a Compose file the author referenced is left
+// alone. Interpolation is that file's own contract, and a project that writes
+// `image: app:${TAG}` there means it.
+func escapeDollars(v any) any {
+	switch t := v.(type) {
+	case string:
+		return strings.ReplaceAll(t, "$", "$$")
+	case []string:
+		out := make([]string, len(t))
+		for i, s := range t {
+			out[i] = strings.ReplaceAll(s, "$", "$$")
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = escapeDollars(e)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[k] = escapeDollars(e)
+		}
+		return out
+	}
+	return v
+}
+
 // marshalDeterministic renders with sorted keys at every level. Generation must
 // be a pure function of its inputs, and map iteration order is the easiest way
 // to accidentally make it otherwise.
@@ -562,6 +661,51 @@ func (r *Resolved) RenderForInspection(env string, images Images) (*Rendered, er
 		if w := r.Workloads[name]; w.Build != nil && images[name] == "" {
 			out.Unresolved = append(out.Unresolved, name)
 		}
+	}
+	return out, nil
+}
+
+// serviceNeedsOf lists the supporting services a workload declares a
+// prerequisite on, in declaration order.
+func (p *Spec) serviceNeedsOf(w Workload) []string {
+	var out []string
+	for _, need := range w.Needs {
+		if _, ok := p.Services[need.Name]; ok {
+			out = append(out, need.Name)
+		}
+	}
+	return out
+}
+
+// serviceClientFiles are the target-side connection files for the services a
+// workload needs.
+func (p *Spec) serviceClientFiles(n Names, w Workload) []string {
+	var out []string
+	for _, name := range p.serviceNeedsOf(w) {
+		out = append(out, n.ServiceClientFile(name))
+	}
+	return out
+}
+
+// RenderServices generates just the supporting services' documents.
+//
+// It is separate from Render because services have nothing to do with a
+// release: they can be converged on a host whose application has never been
+// built, and refusing to describe a database because an image is missing would
+// make the two failures indistinguishable.
+func (r *Resolved) RenderServices(env string) (map[string][]byte, error) {
+	p := r.Spec
+	if len(p.Services) == 0 {
+		return nil, nil
+	}
+	n := p.NamesFor(env)
+	out := make(map[string][]byte, len(p.Services))
+	for _, name := range sortedKeys(p.Services) {
+		doc, err := p.renderService(n, name, p.Services[name])
+		if err != nil {
+			return nil, err
+		}
+		out[name] = doc
 	}
 	return out, nil
 }

@@ -136,7 +136,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	liveKnown := hs.CurrentRelease == ""
 	warnings := []string{}
 	if hs.CurrentRelease != "" {
-		remoteCompose := release.PathsFor(lp.resolved.App).Releases + "/" + hs.CurrentRelease + "/compose.yaml"
+		remoteCompose := release.PathsFor(lp.resolved.Name).Releases + "/" + hs.CurrentRelease + "/compose.yaml"
 		res, runErr := e.T.Run(ctx, "cat "+quote(remoteCompose)+" 2>/dev/null")
 		if runErr != nil {
 			return DeploymentProposal{}, fmt.Errorf("read live compose: %w", runErr)
@@ -231,7 +231,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		}
 	}
 
-	remoteCompose := release.PathsFor(lp.resolved.App).Releases + "/" + releaseID + "/compose.yaml"
+	remoteCompose := release.PathsFor(lp.resolved.Name).Releases + "/" + releaseID + "/compose.yaml"
 	fullCommands := e.Describe(remoteCompose)
 	commands, redactedHooks := safeCommandSummary(fullCommands, lp.resolved)
 	hostImageIDs := make(map[string]string, len(hs.ImageIDs))
@@ -292,7 +292,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 	}{
 		ID:                        proposalID,
 		ReleaseID:                 releaseID,
-		Application:               lp.resolved.App,
+		Application:               lp.resolved.Name,
 		Environment:               environment,
 		Policy:                    policy,
 		Target:                    target,
@@ -325,7 +325,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 		SchemaVersion:             ProposalSchemaVersion,
 		ID:                        proposalID,
 		ReleaseID:                 releaseID,
-		Application:               lp.resolved.App,
+		Application:               lp.resolved.Name,
 		Environment:               environment,
 		Policy:                    policy,
 		Target:                    target,
@@ -365,7 +365,7 @@ func (s *Service) ProposeDeploy(ctx context.Context, _ ProposeDeployRequest) (De
 // source's hash and reports the missing secrets as a readiness blocker, so
 // proposing a deploy cannot be a way to get the secrets out.
 func stageProposal(ctx context.Context, lp *loadedProject, environment, id string, images app.Images) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.App)
+	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.Name)
 	if err != nil {
 		return "", nil, err
 	}

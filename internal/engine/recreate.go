@@ -15,7 +15,7 @@ import (
 // recreates the whole fleet at the desired count and gives each a clean slot
 // name.
 func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath string) error {
-	role := e.App.Workloads[roleName]
+	role := e.Spec.Workloads[roleName]
 	svc := roleName
 	cc := e.composeCmd(remoteComposePath)
 	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
@@ -92,7 +92,7 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 // env. A nonzero exit halts the deploy; migration-gate evaluation determines
 // whether later automatic rollback remains safe.
 func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComposePath string) error {
-	hook, ok := e.App.Hooks[name]
+	hook, ok := e.Spec.Hooks[name]
 	if !ok || hook.Run == "" {
 		return nil
 	}
@@ -105,7 +105,7 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 	}
 	st := e.ui.Step("hook "+name, true)
 	cmd := "cd " + q(remoteReleaseDir) +
-		" && COMPOSE_PROJECT_NAME=" + e.App.App +
+		" && COMPOSE_PROJECT_NAME=" + e.Spec.Name +
 		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook.Run
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {
@@ -125,7 +125,7 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	c := exec.CommandContext(ctx, "sh", "-c", run) // verbatim by design
 	c.Dir = e.Opts.LocalDir
 	c.Env = append(os.Environ(),
-		"OB_APP="+e.App.App,
+		"OB_APP="+e.Spec.Name,
 		"OB_HOST="+e.T.Host(),
 		"OB_TARGET="+e.T.Target(), // OpenSSH user@host (IPv6 unbracketed)
 		"OB_SSH_USER="+e.T.SSHUser(),

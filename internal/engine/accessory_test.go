@@ -6,17 +6,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
 
-func accessoryStaging(t *testing.T) string {
+// renderedServices is what generation produces for the fixture's declared
+// services: one Compose document per service, each its own project.
+func renderedServices(t *testing.T) map[string][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	if err := release.Stage(dir, []byte("services:\n  postgres:\n    image: postgres:18\n"), []byte("snap")); err != nil {
+	out, err := testConfig().RenderServices("production")
+	if err != nil {
 		t.Fatal(err)
 	}
-	return dir
+	return out
 }
 
 func accFake(mounts string) *transport.Fake {
@@ -26,7 +27,8 @@ func accFake(mounts string) *transport.Fake {
 		if strings.Contains(cmd, ".Mounts") {
 			return transport.Result{Stdout: mounts + "\n"}, true
 		}
-		if strings.Contains(cmd, "cat ") && strings.Contains(cmd, "compose.yaml") {
+		// The live document of the running service, which the diff is against.
+		if strings.Contains(cmd, "cat ") && strings.Contains(cmd, "services/postgres.yaml") {
 			return transport.Result{Stdout: "services:\n  postgres:\n    image: postgres:17\n"}, true
 		}
 		if strings.Contains(cmd, "readlink") {
@@ -37,50 +39,80 @@ func accFake(mounts string) *transport.Fake {
 	return f
 }
 
-func TestAccessoryApplyConvergesUnderRegime(t *testing.T) {
-	f := accFake("") // no mounts on the running accessory → nothing to lose
+func TestServiceApplyConvergesUnderRegime(t *testing.T) {
+	f := accFake("") // no mounts on the running service → nothing to lose
 	var out bytes.Buffer
-	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
-	if err := e.AccessoryApply(context.Background(), "R9-acc", accessoryStaging(t), false); err != nil {
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep, Environment: "production"})
+	if err := e.ServiceApply(context.Background(), "R9-acc", false); err != nil {
 		t.Fatalf("apply: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "up -d --no-deps postgres") {
-		t.Fatalf("converge missing:\n%s", seq)
+
+	// Its own project, not the application's: a release must not be able to
+	// stop it and a rollback must not be able to remove its volume.
+	if !strings.Contains(seq, "docker compose -p 'ob_sample_postgres'") {
+		t.Fatalf("service did not converge in its own project:\n%s", seq)
+	}
+	if strings.Contains(seq, "docker compose -p sample -f") && strings.Contains(seq, "postgres") {
+		t.Fatalf("service converged inside the application's project:\n%s", seq)
 	}
 	for _, c := range f.Commands {
-		if strings.Contains(c, "up -d --no-deps postgres") && !strings.Contains(c, "ob-fenced") {
+		if strings.Contains(c, "ob_sample_postgres' -f") && !strings.Contains(c, "ob-fenced") {
 			t.Fatalf("converge not fenced: %s", c)
 		}
 	}
 	if !strings.Contains(seq, `"phase":"accessory-apply"`) {
 		t.Fatalf("not journaled:\n%s", seq)
 	}
-	if !strings.Contains(out.String(), "postgres:18") {
-		t.Fatalf("diff not shown:\n%s", out.String())
+	if !strings.Contains(out.String(), "postgres:17") {
+		t.Fatalf("diff does not show what would run:\n%s", out.String())
 	}
 }
 
-func TestAccessoryApplyRefusesDestructiveMounts(t *testing.T) {
-	// running postgres uses a named volume the new config no longer declares
+// The credential is established once and never rotated: regenerating it would
+// leave the application holding a password its database no longer accepts.
+func TestServiceApplyEstablishesCredentialWithoutTravelling(t *testing.T) {
+	f := accFake("")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	rendered := renderedServices(t)
+	if err := e.ServiceApply(context.Background(), "R9-acc", false); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "/var/lib/ob/sample/services/postgres.secret.env") {
+		t.Fatalf("no credential established:\n%s", seq)
+	}
+	if !strings.Contains(seq, "if [ -s '/var/lib/ob/sample/services/postgres.secret.env' ]") {
+		t.Fatalf("credential is not established conditionally — a re-apply would rotate it:\n%s", seq)
+	}
+	if !strings.Contains(seq, "POSTGRES_URL") {
+		t.Fatalf("no connection file for the application to read:\n%s", seq)
+	}
+	if strings.Contains(string(rendered["postgres"]), "POSTGRES_PASSWORD=") {
+		t.Fatal("the password must never appear in the generated runtime")
+	}
+}
+
+func TestServiceApplyRefusesDestructiveMounts(t *testing.T) {
+	// The running service uses a volume the planned document no longer names.
 	f := accFake("volume=pgdata bind=/var/lib/ob/sample/releases/R0/conf")
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.AccessoryApply(context.Background(), "R9-acc", accessoryStaging(t), false)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	err := e.ServiceApply(context.Background(), "R9-acc", false)
 	if err == nil || !strings.Contains(err.Error(), "pgdata") {
 		t.Fatalf("want destructive refusal naming pgdata, got %v", err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "up -d --no-deps") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "ob_sample_postgres' -f") {
 		t.Fatal("must not converge after refusal")
 	}
-	// the per-release payload bind must NOT count as destructive
+	// A per-release payload bind changes every release by construction and is
+	// not data.
 	if strings.Contains(err.Error(), "/releases/") {
 		t.Fatalf("release-relative bind wrongly flagged: %v", err)
 	}
 
-	// --force proceeds
 	f2 := accFake("volume=pgdata")
-	e2 := New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e2.AccessoryApply(context.Background(), "R9-acc", accessoryStaging(t), true); err != nil {
+	e2 := New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	if err := e2.ServiceApply(context.Background(), "R9-acc", true); err != nil {
 		t.Fatalf("force apply: %v", err)
 	}
 }

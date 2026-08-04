@@ -90,7 +90,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			if cfg.App != binding.Application {
+			if cfg.Name != binding.Application {
 				return fmt.Errorf("configuration changed while preparing destroy — retry")
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "This tears down every %s container and ob's state dir on %s.\nVolumes are %s.\nType the app name (%s) to confirm: ",

@@ -77,7 +77,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("redact staged compose: %w", err)
 	}
-	liveRedacted, liveComposeDigest, err := readLiveComposeState(ctx, e, lp.resolved.App, hostState.CurrentRelease)
+	liveRedacted, liveComposeDigest, err := readLiveComposeState(ctx, e, lp.resolved.Name, hostState.CurrentRelease)
 	if err != nil {
 		return DeployPlan{}, err
 	}
@@ -112,9 +112,9 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	}
 
 	configDigest := engine.HashBytes(lp.configBytes)
-	commands := e.Describe(release.PathsFor(lp.resolved.App).Releases + "/" + releaseID + "/compose.yaml")
+	commands := e.Describe(release.PathsFor(lp.resolved.Name).Releases + "/" + releaseID + "/compose.yaml")
 	artifact := engine.Artifact{
-		ID: releaseID, App: lp.resolved.App, Env: s.environment, CreatedAt: now,
+		ID: releaseID, App: lp.resolved.Name, Env: s.environment, CreatedAt: now,
 		GitSHA: gitSHA, ConfigHash: configDigest, HostState: hostState,
 		PinnedImages: pins, RenderedCompose: string(renderedRedacted),
 		Commands: commands,
@@ -147,7 +147,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		Reversibility: reversibility,
 		Approval:      approval,
 		Binding: OperationBinding{
-			Application: lp.resolved.App, Environment: s.environment, Target: target,
+			Application: lp.resolved.Name, Environment: s.environment, Target: target,
 			ConfigDigest: configDigest, ComposeDigest: engine.HashBytes(lp.composeBytes),
 			StateDigest: stateDigest, PayloadDigest: payloadDigest,
 			LiveComposeDigest: liveComposeDigest, LivePayloadDigest: livePayloadDigest,
@@ -221,7 +221,7 @@ func readLiveComposeState(ctx context.Context, e *engine.Engine, app, currentRel
 // there is nothing left to patch into a document afterwards, and no second
 // place where the runtime can differ from what `ob preview` showed.
 func stageExecution(ctx context.Context, lp *loadedProject, environment, releaseID string, images app.Images) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.App)
+	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.Name)
 	if err != nil {
 		return "", nil, err
 	}

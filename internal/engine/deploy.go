@@ -72,7 +72,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 			return fmt.Errorf("deploy precondition under lock: %w", err)
 		}
 	}
-	prev, err := release.Current(ctx, e.T, e.App.App)
+	prev, err := release.Current(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 
 	jw := &journal.Writer{
-		T: e.T, App: e.App.App, DeployID: releaseID, Epoch: epoch,
+		T: e.T, App: e.Spec.Name, DeployID: releaseID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
 		ApprovalDigest: e.Opts.ApprovalDigest, ApprovalClass: e.Opts.ApprovalClass,
 		ApprovedBy: e.Opts.ApprovedBy, ApprovalSource: e.Opts.ApprovalSource,
@@ -142,7 +142,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 // finish:fail; a later successful activation/current release or an explicit
 // abort clears that historical debt.
 func (e *Engine) rollbackEffectDebt(ctx context.Context, current string) (bool, error) {
-	ids, byID, err := journal.Journals(ctx, e.T, e.App.App)
+	ids, byID, err := journal.Journals(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return false, err
 	}
@@ -164,7 +164,7 @@ func (e *Engine) rollbackEffectDebt(ctx context.Context, current string) (bool, 
 }
 
 func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, localStagingDir, prev string, done map[string]bool) error {
-	remoteDir := release.PathsFor(e.App.App).Releases + "/" + releaseID
+	remoteDir := release.PathsFor(e.Spec.Name).Releases + "/" + releaseID
 	remoteCompose := remoteDir + "/compose.yaml"
 
 	if done["transfer"] {
@@ -178,7 +178,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 				return fmt.Errorf("resume: release dir %s missing on host and no local staging", remoteDir)
 			}
 		} else {
-			if _, err := release.Push(ctx, e.T, localStagingDir, e.App.App, releaseID); err != nil {
+			if _, err := release.Push(ctx, e.T, localStagingDir, e.Spec.Name, releaseID); err != nil {
 				tr(err)
 				return fmt.Errorf("transfer: %w", err)
 			}
@@ -200,12 +200,12 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("pre-release: %w", err)
 	}
 
-	for _, roleName := range e.App.ReleaseOrder() {
+	for _, roleName := range e.Spec.ReleaseOrder() {
 		if done["release:"+roleName] {
 			e.logf("release %s: already complete (resume)", roleName)
 			continue
 		}
-		role := e.App.Workloads[roleName]
+		role := e.Spec.Workloads[roleName]
 		label := roleName + " " + role.Mode()
 		if n := role.Count(); n > 1 {
 			label = fmt.Sprintf("%s ×%d", label, n)
@@ -283,7 +283,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 // possibly edited working-tree config. Successful hooks are also skipped on
 // resume so a recovered deploy does not repeat their side effects.
 func (e *Engine) runRollbackEffectHook(ctx context.Context, jw *journal.Writer, done map[string]bool, name, remoteDir, remoteCompose string) error {
-	hook, ok := e.App.Hooks[name]
+	hook, ok := e.Spec.Hooks[name]
 	if !ok || hook.Run == "" {
 		return nil
 	}
@@ -309,7 +309,7 @@ func (e *Engine) runRollbackEffectHook(ctx context.Context, jw *journal.Writer, 
 }
 
 func (e *Engine) activate(ctx context.Context, id string) error {
-	p := release.PathsFor(e.App.App)
+	p := release.PathsFor(e.Spec.Name)
 	res, err := e.mutate(ctx, "ln -sfn "+q("releases/"+id)+" "+q(p.Current))
 	if err != nil {
 		return err
@@ -323,24 +323,24 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 // pruneRetention removes releases beyond retain and journals beyond twice
 // that window because a journal outlives its release.
 func (e *Engine) pruneRetention(ctx context.Context) error {
-	victims, err := release.PruneCandidates(ctx, e.T, e.App.App, e.App.Deployment.RetainReleases)
+	victims, err := release.PruneCandidates(ctx, e.T, e.Spec.Name, e.Spec.Deployment.RetainReleases)
 	if err != nil {
 		return err
 	}
 	for _, id := range victims {
-		if _, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.App.App).Releases+"/"+id)); err != nil {
+		if _, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.Spec.Name).Releases+"/"+id)); err != nil {
 			return err
 		}
 	}
 	if len(victims) > 0 {
 		e.logf("pruned %d old releases", len(victims))
 	}
-	jvictims, err := journal.PruneCandidates(ctx, e.T, e.App.App, e.App.Deployment.RetainReleases*2)
+	jvictims, err := journal.PruneCandidates(ctx, e.T, e.Spec.Name, e.Spec.Deployment.RetainReleases*2)
 	if err != nil {
 		return err
 	}
 	for _, id := range jvictims {
-		if _, err := e.mutate(ctx, "rm -f "+q(release.PathsFor(e.App.App).Base+"/journal/"+id+".jsonl")); err != nil {
+		if _, err := e.mutate(ctx, "rm -f "+q(release.PathsFor(e.Spec.Name).Base+"/journal/"+id+".jsonl")); err != nil {
 			return err
 		}
 	}
@@ -359,7 +359,7 @@ func (e *Engine) Rollback(ctx context.Context) error {
 // journal identity used for the rollback evidence. The identity is returned
 // even when execution fails after the target release has been resolved.
 func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
-	prev, err := release.Previous(ctx, e.T, e.App.App)
+	prev, err := release.Previous(ctx, e.T, e.Spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -367,7 +367,7 @@ func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
 }
 
 func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
-	prevDir := release.PathsFor(e.App.App).Releases + "/" + prev
+	prevDir := release.PathsFor(e.Spec.Name).Releases + "/" + prev
 	remoteCompose := prevDir + "/compose.yaml"
 
 	// replay engine: the snapshot's choreography when available
@@ -386,7 +386,7 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 			e.warnf("snapshot unusable (%v) — replaying with CURRENT ob.yml choreography", serr)
 		} else {
 			cp := *e
-			cp.App = resolved
+			cp.Spec = resolved
 			replay = &cp
 		}
 	} else {
@@ -402,7 +402,7 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 		return err
 	}
 	replay.fenceVal = e.fenceVal
-	jw := &journal.Writer{T: e.T, App: e.App.App, DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, App: e.Spec.Name, DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
 	_ = jw.Append(ctx, journal.Record{Phase: "rollback", Event: "start"})
 
 	e.logf("rolling back to %s", prev)
@@ -422,8 +422,8 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 }
 
 func (e *Engine) releaseRoles(ctx context.Context, remoteCompose string) error {
-	for _, roleName := range e.App.ReleaseOrder() {
-		role := e.App.Workloads[roleName]
+	for _, roleName := range e.Spec.ReleaseOrder() {
+		role := e.Spec.Workloads[roleName]
 		e.logf("release %s (%s)", roleName, role.Mode())
 		var err error
 		if role.Mode() == "rolling" {

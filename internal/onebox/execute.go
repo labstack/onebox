@@ -143,20 +143,16 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			err = e.Bootstrap(ctx, operationID, staging)
 		}
 	case KindServiceApply:
-		var staging string
-		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, nil)
-		if err == nil {
-			defer cleanupStaging()
-			result.ReleaseID = operationID
-			result.EvidenceID = operationID
-			err = e.AccessoryApply(ctx, operationID, staging, request.Force)
-		}
+		// Services are not staged into a release: they are their own Compose
+		// projects, and nothing a release can remove.
+		result.ReleaseID = operationID
+		result.EvidenceID = operationID
+		err = e.ServiceApply(ctx, operationID, request.Force)
 	case KindProxyApply:
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID, request.Force)
 	case KindSecretsPush:
-		if lp.resolved.Secrets == nil {
+		if sopsSource(lp.resolved) == "" {
 			err = errors.New("no secrets.sops source declared")
 			break
 		}
@@ -242,8 +238,8 @@ func (s *Service) executeDeploy(
 		return false, errors.New("operation risk classification differs from the resolved configuration — re-plan")
 	}
 	binding := plan.Operation.Binding
-	if lp.resolved.App != binding.Application {
-		return false, fmt.Errorf("plan application is %q, local application is %q — re-plan", binding.Application, lp.resolved.App)
+	if lp.resolved.Name != binding.Application {
+		return false, fmt.Errorf("plan application is %q, local application is %q — re-plan", binding.Application, lp.resolved.Name)
 	}
 	if s.environment != binding.Environment {
 		return false, fmt.Errorf("plan environment is %q, executing %q — re-plan", binding.Environment, s.environment)
@@ -307,7 +303,7 @@ func (s *Service) executeDeploy(
 			if expiresAt.Before(s.now().UTC()) {
 				return errors.New("deployment plan expired before mutation — re-plan")
 			}
-			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.resolved.App)
+			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.resolved.Name)
 		}
 	})
 	if err != nil {
@@ -317,7 +313,7 @@ func (s *Service) executeDeploy(
 	if target != binding.Target {
 		return false, fmt.Errorf("target changed from %q to %q — re-plan", binding.Target, target)
 	}
-	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.resolved.App); err != nil {
+	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.resolved.Name); err != nil {
 		return false, err
 	}
 	emit("binding", "succeeded", "")

@@ -45,7 +45,7 @@ func (p *Spec) NamesFor(env string) Names {
 	if base == "" {
 		base = DefaultBasePath
 	}
-	return Names{App: p.App, BasePath: base}
+	return Names{App: p.Name, BasePath: base}
 }
 
 // ComposeProject is the application's Compose project. It is the application
@@ -57,6 +57,45 @@ func (n Names) ComposeProject() string { return n.App }
 // from the application's so a release or rollback cannot remove it.
 func (n Names) ServiceProject(service string) string {
 	return join("ob", n.App, service)
+}
+
+// ServiceContainer is a service's container name. It is fixed — unlike a
+// workload, a service is never replaced by a second copy running beside it, so
+// there is no handover that a fixed name would forbid.
+func (n Names) ServiceContainer(service string) string {
+	return join(n.App, service)
+}
+
+// ServiceNetwork joins the application to its services. It is one network per
+// application rather than per service: workloads reach a service by its
+// declared name, and a network per service would mean every workload joining
+// several to say the same thing.
+//
+// It cannot collide with ServiceProject — that always carries a third segment —
+// and it is created once, outside any release, because the services attached to
+// it outlive every release.
+func (n Names) ServiceNetwork() string { return join("ob", n.App) }
+
+// ServiceDir holds what services need and releases must not touch: their
+// generated Compose documents and their credentials.
+func (n Names) ServiceDir() string { return path.Join(n.AppDir(), "services") }
+
+// ServiceFile is a service's generated Compose document on the target.
+func (n Names) ServiceFile(service string) string {
+	return path.Join(n.ServiceDir(), service+".yaml")
+}
+
+// ServiceSecretFile holds the credential Onebox generates on the target. It is
+// written once and never travels: not in the project, not in the rendered
+// runtime, not in the digest.
+func (n Names) ServiceSecretFile(service string) string {
+	return path.Join(n.ServiceDir(), service+".secret.env")
+}
+
+// ServiceClientFile holds the connection details workloads read. It is derived
+// from the credential file on the target, for the same reason.
+func (n Names) ServiceClientFile(service string) string {
+	return path.Join(n.ServiceDir(), service+".client.env")
 }
 
 // WorkloadVolume and ServiceVolume share a pattern. That is safe only because
@@ -134,7 +173,7 @@ func (p *Spec) All(env string) []string {
 		}
 	}
 	for _, s := range sortedKeys(p.Services) {
-		out = append(out, n.ServiceProject(s))
+		out = append(out, n.ServiceProject(s), n.ServiceContainer(s))
 		for _, v := range p.Services[s].Volumes {
 			out = append(out, n.ServiceVolume(s, v))
 		}

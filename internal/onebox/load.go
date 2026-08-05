@@ -9,6 +9,7 @@ import (
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"errors"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
 )
@@ -78,8 +79,16 @@ func loadProjectAt(ctx context.Context, configPath, environment string, lenient 
 		return nil, err
 	}
 
-	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(environment).ComposeProject(), spec.Dir)
+	interpolation, err := spec.InterpolationEnv()
 	if err != nil {
+		return nil, err
+	}
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(environment).ComposeProject(), spec.Dir, interpolation)
+	if err != nil {
+		var interpolation *compose.InterpolationError
+		if errors.As(err, &interpolation) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
 	}
 

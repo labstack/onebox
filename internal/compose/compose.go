@@ -20,6 +20,7 @@ import (
 	"github.com/compose-spec/compose-go/v2/cli"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
+	"strings"
 )
 
 var ident = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -69,16 +70,41 @@ func load(ctx context.Context, composePath, projectName string, envFiles ...stri
 //
 // dir anchors relative paths (build contexts, env files) exactly as the
 // project file's directory does elsewhere.
-func LoadBytes(ctx context.Context, content []byte, projectName, dir string) (*types.Project, error) {
+// env supplies `${VAR}` expressions carried in verbatim from a Compose source
+// the project referenced. It is deliberately explicit rather than inherited:
+// the runner's own environment is a developer's laptop, and a document that
+// parsed differently there than on the target would be the worst kind of
+// difference — invisible until it deployed.
+func LoadBytes(ctx context.Context, content []byte, projectName, dir string, env map[string]string) (*types.Project, error) {
+	if env == nil {
+		env = map[string]string{}
+	}
 	p, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir:  dir,
 		ConfigFiles: []types.ConfigFile{{Filename: "compose.yaml", Content: content}},
+		Environment: env,
 	}, func(o *loader.Options) {
 		o.SetProjectName(projectName, true)
 		o.SkipResolveEnvironment = true
 	})
 	if err != nil {
+		// An unsatisfied variable is the author's, not ours: it comes from a
+		// Compose file they referenced, and the caller would otherwise report
+		// it as an Onebox bug in generated output.
+		if strings.Contains(err.Error(), "interpolating") || strings.Contains(err.Error(), "required variable") {
+			return nil, &InterpolationError{err: err}
+		}
 		return nil, fmt.Errorf("compose parse: %w", err)
 	}
 	return p, nil
 }
+
+// InterpolationError is a `${VAR}` a referenced Compose source needs and the
+// project's environment files do not supply.
+type InterpolationError struct{ err error }
+
+func (e *InterpolationError) Error() string {
+	return "a referenced Compose file needs a variable the project does not supply: " + e.err.Error() +
+		"\n  declare it in one of runtime.env_files, which is what feeds interpolation"
+}
+func (e *InterpolationError) Unwrap() error { return e.err }

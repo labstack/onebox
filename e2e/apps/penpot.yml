@@ -1,0 +1,37 @@
+# Penpot. Two routes on one workload's host — the frontend serves the app and
+# proxies /api to the backend — which is the multi-route shape that only ever
+# existed in a synthetic fixture until now.
+api_version: onebox.run/v1
+app: penpot
+environments:
+  production: {server: root@TARGET}
+workloads:
+  frontend:
+    role: application
+    image: penpotapp/frontend:2.4.3
+    routes:
+      - {domain: penpot.example.com, path: /, port: 80}
+      - {domain: penpot.example.com, path: /api, port: 80}
+    needs: [backend]
+    env:
+      PENPOT_FLAGS: disable-registration disable-email-verification
+    health: {exec: "curl -fsS http://127.0.0.1:80/ >/dev/null || exit 1", interval: 10s, start_period: 30s, retries: 8}
+  backend:
+    role: worker
+    image: penpotapp/backend:2.4.3
+    needs:
+      - name: postgres
+        condition: healthy
+        env:
+          PENPOT_DATABASE_USERNAME: user
+          PENPOT_DATABASE_PASSWORD: password
+      - {name: redis, condition: healthy}
+    volumes: [{name: assets, path: /opt/data}]
+    env:
+      PENPOT_FLAGS: disable-registration disable-email-verification disable-secure-session-cookies
+      PENPOT_SECRET_KEY: replace-me-with-a-real-secret
+      PENPOT_DATABASE_URI: postgresql://postgres:5432/penpot
+      PENPOT_REDIS_URI: redis://redis/0
+services:
+  postgres: "15"
+  redis: "7.4"

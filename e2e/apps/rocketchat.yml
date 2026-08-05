@@ -1,0 +1,23 @@
+# Rocket.Chat on managed MongoDB. Mongo's root user lives in the `admin`
+# database, so the connection string needs authSource — a fix made from review
+# and never proven against a running server until this fixture.
+api_version: onebox.run/v1
+app: rocketchat
+environments:
+  production: {server: root@TARGET}
+workloads:
+  rocketchat:
+    role: application
+    image: registry.rocket.chat/rocketchat/rocket.chat:7.3.0
+    domain: chat.example.com
+    port: 3000
+    needs:
+      - name: mongodb
+        env: {MONGO_URL: url}
+    env:
+      ROOT_URL: http://chat.example.com
+      PORT: "3000"
+      DEPLOY_METHOD: docker
+    health: {exec: "curl -fsS http://127.0.0.1:3000/api/info >/dev/null || exit 1", interval: 10s, start_period: 60s, retries: 10}
+services:
+  mongodb: "7.0"

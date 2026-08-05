@@ -1,0 +1,36 @@
+# authentik. Bind mounts, a published port, and a worker that shares the
+# application's image — none of which any deployed fixture had, and the bind
+# mount in particular is the one a converted Compose file almost always brings
+# with it.
+api_version: onebox.run/v1
+app: authentik
+environments:
+  production: {server: root@TARGET}
+workloads:
+  server:
+    role: application
+    image: ghcr.io/goauthentik/server:2025.2.4
+    command: [server]
+    domain: auth.example.com
+    port: 9000
+    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
+    ports: [{host: 9000, container: 9000}]
+    volumes:
+      - {source: /srv/authentik/media, target: /media}
+      - {source: /srv/authentik/templates, target: /templates, mode: ro}
+    env: &authentik_env
+      AUTHENTIK_SECRET_KEY: replace-me-with-a-real-secret
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    health: {exec: "ak healthcheck", interval: 10s, start_period: 60s, retries: 10}
+  worker:
+    role: worker
+    image: ghcr.io/goauthentik/server:2025.2.4
+    command: [worker]
+    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
+    volumes:
+      - {source: /srv/authentik/media, target: /media}
+      - {source: /srv/authentik/certs, target: /certs}
+    env: *authentik_env
+services:
+  postgres: "16"
+  redis: "7.4"

@@ -1,0 +1,25 @@
+# Deployed and verified against managed services on a throwaway host.
+api_version: onebox.run/v1
+app: gitea
+environments:
+  production: {server: root@example.com}
+workloads:
+  server:
+    role: application
+    image: docker.gitea.com/gitea:1.27.1
+    domain: git.example.com
+    port: 3000
+    health: {http: /api/healthz, port: 3000, interval: 5s, start_period: 20s, within: 240s}
+    ports: [{host: 222, container: 22, bind: "0.0.0.0"}]
+    volumes: [{name: data, path: /data}]
+    env:
+      GITEA__database__DB_TYPE: postgres
+      GITEA__database__HOST: "postgres:5432"
+    needs:
+      - name: postgres
+        env:
+          GITEA__database__NAME: database
+          GITEA__database__USER: user
+          GITEA__database__PASSWD: password
+services:
+  postgres: 16

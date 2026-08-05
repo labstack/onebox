@@ -64,7 +64,7 @@
 - [x] 8.1 Implement underscore-joined derivation for every generated name, including application-scoped container, router, and proxy service names.
 - [x] 8.2 Property test asserting injectivity: no two distinct identifier tuples, including hyphenated ones, derive the same name.
 - [x] 8.3 Golden test pinning every derived name for a reference project, so a change that would rename an existing volume fails loudly.
-- [ ] 8.4 Refuse at validation any derived name exceeding the container runtime's limit, naming the identifiers and the limit; assert no name is ever truncated.
+- [x] 8.4 Refuse at validation any derived name exceeding the container runtime's limit, naming the identifiers and the limit; assert no name is ever truncated.
 - [ ] 8.5 Assert every derived name is application-scoped, including the transient rollout name, and that all of them are covered by the preflight collision check.
 - [x] 8.6 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback.
 - [x] 8.7 Reserve the names a declared service derives, including its container, and check them in preflight.
@@ -82,7 +82,7 @@
 - [ ] 10.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
 - [x] 10.3 Implement ejection to the default destination beside the project file or an explicit one, refusing an existing path without an explicit overwrite, and stripping the overlay from the written file.
 - [ ] 10.4 Assert generation succeeds immediately after ejection, proving the written file carries none of the keys the overlay refuses.
-- [ ] 10.5 Make ejection crash-safe: write and atomically rename the runtime before rewriting the project, and make re-running after an interruption either complete or refuse with the reason.
+- [x] 10.5 Make ejection crash-safe: write and atomically rename the runtime before rewriting the project, and make re-running after an interruption either complete or refuse with the reason.
 - [ ] 10.6 Assert ejected services are used as authored and never regenerated or re-adopted.
 - [ ] 10.7 Redaction tests over rendered and ejected output covering env files, secret references, and interpolated values.
 
@@ -99,7 +99,7 @@
 - [x] 12.3 Make scaffolding emit the `yaml-language-server` reference comment on the project's first line.
 - [x] 12.4 Define the typed error-code enumeration and the structured envelope identity in the schema guide before any of it is emitted, attaching a resolving command to every failure.
 - [x] 12.5 Assert over the fixture corpus that no failure path emits an error code outside the enumeration, and that the enumeration cannot drift in either direction: a code emitted without being listed, or listed without being emitted, fails the build.
-- [ ] 12.6 Add versioned structured output to validation, configuration printing, rendering, and ejection, asserting diagnostics never reach the structured stream and no plaintext secret appears in it.
+- [x] 12.6 Add versioned structured output to validation, configuration printing, rendering, and ejection, asserting diagnostics never reach the structured stream and no plaintext secret appears in it.
 - [ ] 12.7 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.
 
 ## 13. Conversion and cutover

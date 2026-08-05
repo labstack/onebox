@@ -181,3 +181,71 @@ func TestStructuredDeployRequiresApprovalArtifactWithoutPrompting(t *testing.T) 
 		t.Fatalf("envelope = %+v", envelope)
 	}
 }
+
+// The structured stream carries one JSON document and nothing else.
+//
+// A diagnostic printed alongside it — a warning, a progress line, a hint —
+// makes the stream unparseable for the consumer it exists to serve, and the
+// failure appears at the consumer rather than here.
+func TestStructuredOutputCarriesNoDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+runtime:
+  env_files: [.env.production]
+image: nginx
+domain: shop.example.com
+port: 3000
+`)
+	writeFile(t, dir, ".env.production", "API_TOKEN=super-secret-value\nPUBLIC_MODE=on\n")
+
+	for _, verb := range []string{"validate", "canonical", "preview"} {
+		out, err := run(t, dir, verb, "--output", "json")
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", verb, err, out)
+		}
+		var envelope map[string]any
+		if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+			t.Fatalf("%s: the stream is not one JSON document: %v\n%s", verb, err, out)
+		}
+		version, _ := envelope["schema_version"].(string)
+		if !strings.HasPrefix(version, "onebox.run/cli-") {
+			t.Errorf("%s: structured output must name its schema, got %q", verb, version)
+		}
+	}
+}
+
+// No plaintext secret reaches the structured stream. It is the form that gets
+// piped into a file, a log or a CI artifact, where a value nobody meant to
+// publish outlives the terminal it would have scrolled off.
+func TestStructuredOutputCarriesNoPlaintextSecret(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+workloads:
+  web:
+    role: application
+    image: nginx
+    domain: shop.example.com
+    port: 3000
+    env:
+      API_TOKEN: super-secret-value
+`)
+	for _, verb := range []string{"canonical", "preview"} {
+		out, err := run(t, dir, verb, "--output", "json")
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", verb, err, out)
+		}
+		if strings.Contains(out, "super-secret-value") {
+			t.Errorf("%s: a declared value reached the structured stream:\n%s", verb, out)
+		}
+	}
+	// And --raw cannot be used to defeat it.
+	if _, err := run(t, dir, "preview", "--output", "json", "--raw"); err == nil {
+		t.Error("--raw beside --output json must be refused, not silently ignored")
+	}
+}

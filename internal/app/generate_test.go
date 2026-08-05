@@ -270,8 +270,7 @@ func TestTLSTerminationNamesAResolver(t *testing.T) {
 
 // TestEveryDraftRenders runs generation over the real conversion drafts.
 func TestEveryDraftRenders(t *testing.T) {
-	dir := filepath.Join("..", "..", "openspec", "changes",
-		"adopt-declarative-project-schema", "conversions")
+	dir := filepath.Join("testdata", "corpus")
 	files, _ := filepath.Glob(filepath.Join(dir, "*.yml"))
 	if len(files) == 0 {
 		t.Skip("no conversion drafts")

@@ -139,7 +139,7 @@ func corpusProjects(t *testing.T) []string {
 	var out []string
 	for _, dir := range []string{
 		filepath.Join("..", "..", "e2e", "apps"),
-		filepath.Join("..", "..", "openspec", "changes", "adopt-declarative-project-schema", "conversions"),
+		filepath.Join("testdata", "corpus"),
 	} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {

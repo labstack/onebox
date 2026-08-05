@@ -1,0 +1,26 @@
+api_version: onebox.run/v1
+app: immich
+environments:
+  production: {server: root@example.com}
+workloads:
+  server:
+    role: application
+    image: ghcr.io/immich-app/immich-server:v1.119.0
+    domain: photos.example.com
+    port: 2283
+    needs: [{name: redis, condition: healthy}, {name: database, condition: healthy}]
+    env_files: [.env]
+    volumes: [{name: upload, path: /data}]
+  machine-learning:
+    role: daemon
+    image: ghcr.io/immich-app/immich-machine-learning:v1.119.0
+    volumes: [{name: model-cache, path: /cache}]
+    env_files: [.env]
+  redis:
+    role: daemon
+    image: "docker.io/valkey/valkey:9"
+    health: {exec: "redis-cli ping || exit 1"}
+  database:
+    role: daemon
+    compose: docker-compose.yml#database
+    persistence: {mode: durable}

@@ -1,0 +1,33 @@
+api_version: onebox.run/v1
+app: authentik
+environments:
+  production: {server: root@example.com}
+workloads:
+  server:
+    role: application
+    image: ghcr.io/goauthentik/server:2026.5.6
+    command: [server]
+    domain: auth.example.com
+    port: 9000
+    needs: [{name: postgresql, condition: healthy}]
+    env_files: [.env]
+    ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
+    volumes:
+      - {source: ./data, target: /data}
+      - {source: ./custom-templates, target: /templates, mode: ro}
+  worker:
+    role: worker
+    image: ghcr.io/goauthentik/server:2026.5.6
+    command: [worker]
+    needs: [{name: postgresql, condition: healthy}]
+    env_files: [.env]
+    volumes:
+      - {source: /var/run/docker.sock, target: /var/run/docker.sock}
+      - {source: ./data, target: /data}
+      - {source: ./certs, target: /certs}
+  postgresql:
+    role: daemon
+    image: docker.io/library/postgres:16-alpine
+    health: {exec: "pg_isready -d authentik -U authentik", interval: 30s, start_period: 20s, retries: 5}
+    volumes: [{name: database, path: /var/lib/postgresql/data}]
+    env_files: [.env]

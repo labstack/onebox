@@ -93,7 +93,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if cfg.Name != binding.Application {
 				return fmt.Errorf("configuration changed while preparing destroy — retry")
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "This tears down every %s container and ob's state dir on %s.\nVolumes are %s.\nType the app name (%s) to confirm: ",
+			fmt.Fprintf(cmd.OutOrStdout(), "This tears down every %s container \u2014 workloads, supporting services and scheduled timers \u2014 and ob's state dir on %s.\nVolumes are %s.\nType the app name (%s) to confirm: ",
 				binding.Application, binding.Environment, map[bool]string{true: "REMOVED — data loss", false: "kept"}[destroyVolumes], binding.Application)
 			line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 			if strings.TrimSpace(line) != binding.Application {

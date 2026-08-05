@@ -1,0 +1,27 @@
+# Ghost on managed MySQL. The point of this fixture is the driver: mysql is in
+# the catalogue and had never run on a host, so the credential generation, the
+# connection file and the health check were all unproven for it.
+api_version: onebox.run/v1
+app: ghost
+environments:
+  production: {server: root@TARGET}
+workloads:
+  ghost:
+    role: application
+    image: ghost:5-alpine
+    domain: blog.example.com
+    port: 2368
+    needs:
+      - name: mysql
+        env:
+          database__connection__host: host
+          database__connection__user: user
+          database__connection__password: password
+          database__connection__database: database
+    env:
+      database__client: mysql
+      url: http://blog.example.com
+      NODE_ENV: production
+    health: {exec: "wget -qO- http://127.0.0.1:2368/ >/dev/null || exit 1", interval: 10s, start_period: 40s, retries: 6}
+services:
+  mysql: "8.4"

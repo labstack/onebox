@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 func writeCfg(t *testing.T, files map[string]string) string {
@@ -29,8 +31,10 @@ func writeCfg(t *testing.T, files map[string]string) string {
 }
 
 func TestPathsHostScoped(t *testing.T) {
-	t.Setenv("OB_BASE_DIR", "/tmp/obbase")
-	p := HostPaths()
+	// The base comes from the project's resolved names, so an app declaring
+	// base_path puts the shared proxy beside its own state rather than in a
+	// second tree nothing else reads.
+	p := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"})
 	if p.Base != "/tmp/obbase/_host" {
 		t.Fatalf("base: %s", p.Base)
 	}

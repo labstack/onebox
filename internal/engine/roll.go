@@ -289,6 +289,10 @@ func (e *Engine) slotNames(workload string, desired int) []string {
 // names resolves the derived-name contract for the environment being executed.
 func (e *Engine) names() app.Names { return e.Spec.NamesFor(e.Opts.Environment) }
 
+// Names is the resolved layout for this environment: the one authority for
+// where anything belonging to this application lives on the target.
+func (e *Engine) Names() app.Names { return e.names() }
+
 func idSet(ids []string) map[string]bool {
 	m := make(map[string]bool, len(ids))
 	for _, id := range ids {

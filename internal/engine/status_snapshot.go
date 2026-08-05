@@ -158,7 +158,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		{
 			component: "current_release",
 			run: func() (err error) {
-				recorded, err = release.Current(ctx, e.T, e.Spec.Name)
+				recorded, err = release.Current(ctx, e.T, e.names())
 				return err
 			},
 		},

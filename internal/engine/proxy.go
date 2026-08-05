@@ -13,6 +13,8 @@ import (
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 // appNameRe mirrors config's app-name rule: registry entries under
@@ -30,7 +32,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	if !e.Spec.Proxy.Managed {
 		return nil
 	}
-	hp := proxy.HostPaths()
+	hp := proxy.HostPaths(e.names())
 	// Empty stays empty: joining it with the project directory would point at
 	// the repository root and ask it to be Traefik's config.
 	localCfg := e.Spec.Proxy.Config
@@ -84,7 +86,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 
-	jw := &journal.Writer{T: e.T, App: "_host", DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Names: app.Names{App: app.HostNamespace, BasePath: e.names().BasePath}, DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 
 	if remoteHash == hash && len(ids) > 0 {
 		e.logf("proxy: unchanged and running — not touched")

@@ -18,7 +18,7 @@ import (
 // audit trail after an incident is looking for. The epoch separates them: it
 // counts invocations against the app, and every record carries it.
 func (e *Engine) Audit(ctx context.Context, n int) error {
-	ids, err := journal.List(ctx, e.T, e.Spec.Name)
+	ids, err := journal.List(ctx, e.T, e.names())
 	if err != nil {
 		return err
 	}
@@ -29,7 +29,7 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 
 	var rows []auditRow
 	for _, id := range ids {
-		recs, err := journal.Read(ctx, e.T, e.Spec.Name, id)
+		recs, err := journal.Read(ctx, e.T, e.names(), id)
 		if err != nil {
 			return err
 		}

@@ -21,7 +21,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 	if res, err := e.T.Run(ctx, "docker compose version --short"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("docker compose plugin missing on %s", e.T.Host())
 	}
-	base := release.PathsFor(e.Spec.Name).Base
+	base := release.PathsFor(e.names()).Base
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(base)+" && test -w "+q(base)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("%s not writable by deploy user", base)
 	}

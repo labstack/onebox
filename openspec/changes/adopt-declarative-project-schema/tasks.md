@@ -16,12 +16,12 @@
 - [x] 3.1 Port `schema.cue` from this change directory into `internal/config`, unchanged in meaning, and wire it to the loader.
 - [x] 3.2 Implement the conformance corpus in `conformance.md` as table-driven tests, and treat any divergence from the recorded expectation as a defect in the implementation, not the corpus.
 - [x] 3.3 Implement the workload sources, the role enum with job-only `run` and required `data_effect`, and refusal of job-only fields on other roles. Exactly-one-source is a loader rule: as a CUE disjunction its branches had to stay open, and that openness propagated until every workload accepted any field.
-- [ ] 3.4 Assert every scalar-or-object form produces canonical output identical to its object equivalent.
+- [x] 3.4 Assert every scalar-or-object form produces canonical output identical to its object equivalent.
 - [x] 3.5 Implement registries, notifications, and secrets as named maps rather than singletons.
 - [x] 3.6 Accept and ignore `x-` keys wherever a mapping is accepted, asserting the generated runtime is unaffected by their presence.
 - [x] 3.7 Extend the error rewording layer to report every violation with its source location, never leaking the validation language, with a correction hint for a near-miss name.
 - [x] 3.8 Reject the internal validation language as an authoring input and remove that load path. There is no such language any more: the loader reads YAML and nothing else.
-- [ ] 3.9 Fixture corpus: minimum project, every shorthand, every growable field in both forms, each identifier rule, unknown field, near-miss name, unknown enum, multiple violations, both source conflicts, a job missing `data_effect`, and an `x-` annotation.
+- [x] 3.9 Fixture corpus: minimum project, every shorthand, every growable field in both forms, each identifier rule, unknown field, near-miss name, unknown enum, multiple violations, both source conflicts, a job missing `data_effect`, and an `x-` annotation.
 
 ## 4. Identifiers and paths
 
@@ -37,14 +37,14 @@
 - [x] 5.3 Implement the precedence chain — override, explicit, shorthand, derived, default — with a test asserting an override beats an explicit project value.
 - [x] 5.4 Implement env-file ordering with later-wins, interpolation availability, projection into application and worker workloads, and failure on a missing file.
 - [x] 5.5 Implement preflight key checks for required-and-non-empty and present.
-- [ ] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.
+- [x] 5.6 Determinism test: repeated normalization of the same text yields byte-identical canonical output including map ordering.
 - [x] 5.7 Make the canonical form printable with per-field origins, with golden tests over the corpus.
 
 ## 6. Routes
 
 - [x] 6.1 Implement the route object with domain, path, port, protocol, and TLS mode, and the scalar domain-and-port shorthand expanding to one HTTP route at `/`.
 - [x] 6.2 Reject two workloads in one environment claiming the same domain and path, naming both.
-- [ ] 6.3 Test a multi-route workload and a non-HTTP route end to end through canonical form and generated routing labels.
+- [x] 6.3 Test a multi-route workload and a non-HTTP route end to end through canonical form and generated routing labels.
 
 ## 7. Local generation
 
@@ -54,8 +54,8 @@
 - [x] 7.4 Withdrawn, as the design already recorded. A preserved name is host-global and escapes the derived-name collision check; the condition that would make it safe — single replica, recreate — lives in fields another environment may override; and the derived name is already stable and scriptable, so it buys nothing. An author removes the line and gets `<app>_<workload>`.
 - [x] 7.5 Attach the configured `proxy.network`, add neither routing labels nor a network when `proxy.kind` is none, and reject a route declared under it. `managed` is who runs the proxy, not whether anything routes — conflating them threw the routes away silently.
 - [x] 7.6 Generate networks, volumes, and routing from the normalized model.
-- [ ] 7.7 Assert generation opens no target connection on any path, success or failure.
-- [ ] 7.8 Determinism and purity tests under a harness that fails on any undeclared clock, entropy, or environment input.
+- [x] 7.7 Assert generation opens no target connection on any path, success or failure.
+- [x] 7.8 Determinism and purity tests under a harness that fails on any undeclared clock, entropy, or environment input.
 - [x] 7.9 Assert a non-runtime-affecting change — an `x-` key, a comment — leaves the runtime and digest unchanged, and that a service version does change it.
 - [x] 7.10 Assert a service declaration emits its own Compose project, durable volume, health check and shared network, and that no credential reaches the runtime.
 
@@ -65,7 +65,7 @@
 - [x] 8.2 Property test asserting injectivity: no two distinct identifier tuples, including hyphenated ones, derive the same name.
 - [x] 8.3 Golden test pinning every derived name for a reference project, so a change that would rename an existing volume fails loudly.
 - [x] 8.4 Refuse at validation any derived name exceeding the container runtime's limit, naming the identifiers and the limit; assert no name is ever truncated.
-- [ ] 8.5 Assert every derived name is application-scoped, including the transient rollout name, and that all of them are covered by the preflight collision check.
+- [x] 8.5 Assert every derived name is application-scoped, including the transient rollout name, and that all of them are covered by the preflight collision check.
 - [x] 8.6 Implement the remote layout with `/var/lib/ob` as the default base path, configurable per environment with the project value as fallback.
 - [x] 8.7 Reserve the names a declared service derives, including its container, and check them in preflight.
 
@@ -79,12 +79,12 @@
 ## 10. Rendering and ejection
 
 - [x] 10.1 Render the complete runtime without contacting a target or mutating state, with secrets by reference only.
-- [ ] 10.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
+- [x] 10.2 Assert the rendered runtime is byte-identical to the runtime a plan binds for the same inputs.
 - [x] 10.3 Implement ejection to the default destination beside the project file or an explicit one, refusing an existing path without an explicit overwrite, and stripping the overlay from the written file.
-- [ ] 10.4 Assert generation succeeds immediately after ejection, proving the written file carries none of the keys the overlay refuses.
+- [x] 10.4 Assert generation succeeds immediately after ejection, proving the written file carries none of the keys the overlay refuses.
 - [x] 10.5 Make ejection crash-safe: write and atomically rename the runtime before rewriting the project, and make re-running after an interruption either complete or refuse with the reason.
-- [ ] 10.6 Assert ejected services are used as authored and never regenerated or re-adopted.
-- [ ] 10.7 Redaction tests over rendered and ejected output covering env files, secret references, and interpolated values.
+- [x] 10.6 Assert ejected services are used as authored and never regenerated or re-adopted.
+- [x] 10.7 Redaction tests over rendered and ejected output covering env files, secret references, and interpolated values.
 
 ## 11. Plan binding
 
@@ -100,7 +100,7 @@
 - [x] 12.4 Define the typed error-code enumeration and the structured envelope identity in the schema guide before any of it is emitted, attaching a resolving command to every failure.
 - [x] 12.5 Assert over the fixture corpus that no failure path emits an error code outside the enumeration, and that the enumeration cannot drift in either direction: a code emitted without being listed, or listed without being emitted, fails the build.
 - [x] 12.6 Add versioned structured output to validation, configuration printing, rendering, and ejection, asserting diagnostics never reach the structured stream and no plaintext secret appears in it.
-- [ ] 12.7 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.
+- [x] 12.7 Assert idempotence: rendering and validation repeated on unchanged inputs produce identical output and change nothing.
 
 ## 13. Conversion and cutover
 

@@ -115,6 +115,11 @@
     "code": "schema_identity_missing"
   },
   {
+    "case": "conformance/multiple violations",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
     "case": "conformance/no environments",
     "loads": false,
     "code": "no_environment"
@@ -211,6 +216,31 @@
   },
   {
     "case": "conformance/underscore identifier",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown enum: data_effect",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown enum: persistence mode",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown enum: role",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown enum: route protocol",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown enum: strategy",
     "loads": false,
     "code": "project_invalid"
   },

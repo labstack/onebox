@@ -38,10 +38,15 @@ port: 3000
 ```
 
 That is a complete project. Onebox derives a single application workload named
-after the app, a container name, a health-gated rolling deploy, the Traefik
-router and service, TLS, the release layout under `/var/lib/ob/shop`, and a
-retention policy. `ob canonical` prints every one of those decisions with
-`# default` beside it.
+after the app, a container name, the Traefik router and service, TLS, the
+release layout under `/var/lib/ob/shop`, and a retention policy. `ob canonical`
+prints every one of those decisions with `# default` beside it.
+
+It derives `strategy: recreate`, not rolling, because it declares no health
+check: a rolling release stands the newcomer up and waits for it to report
+healthy, and there is nothing here to wait for. Add `health:` and the default
+becomes `rolling`. Asking for `strategy: rolling` without a health check is
+refused rather than quietly downgraded.
 
 ## Shape
 
@@ -86,7 +91,7 @@ A workload has a `role`, which decides how it is released:
 
 | Role | Released as | Notes |
 |---|---|---|
-| `application` | rolling by default | Receives environment files. Usually routed. |
+| `application` | rolling where it declares `health:`, otherwise recreate | Receives environment files. Usually routed. |
 | `worker` | recreate by default | Receives environment files. Never routed unless it declares a route. |
 | `daemon` | recreate | A long-running container you own — a database you still author, a sidecar. No environment files. |
 | `job` | runs to completion | Declares `data_effect`. May declare `run` and `schedule`. |

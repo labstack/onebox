@@ -90,11 +90,7 @@ func carriedDefinitions(svc map[string]any, networks, volumes map[string]any, in
 		}
 	}
 
-	for _, m := range mountStrings(svc["volumes"]) {
-		name, _, ok := strings.Cut(m, ":")
-		if !ok || strings.HasPrefix(name, "/") || strings.HasPrefix(name, ".") {
-			continue // a bind mount needs no definition
-		}
+	for _, name := range mountedVolumeNames(svc["volumes"]) {
 		if spec, ok := volumes[name]; ok {
 			d.Volumes[name] = orEmpty(spec)
 		} else {
@@ -117,15 +113,37 @@ func orEmpty(v any) any {
 	return v
 }
 
-func mountStrings(v any) []string {
+// mountedVolumeNames are the named volumes a service mounts, in both the short
+// and the long form.
+//
+// Compose accepts `data:/var/lib/data` and the equivalent mapping
+// `{type: volume, source: data, target: /var/lib/data}`. Reading only strings
+// dropped the mapping form silently: the service was copied with a mount whose
+// volume was never defined, which Compose then refuses — naming the volume,
+// and nothing about where it went.
+func mountedVolumeNames(v any) []string {
 	items, ok := v.([]any)
 	if !ok {
 		return nil
 	}
 	var out []string
 	for _, item := range items {
-		if s, ok := item.(string); ok {
-			out = append(out, s)
+		switch m := item.(type) {
+		case string:
+			name, _, ok := strings.Cut(m, ":")
+			// A bind mount defines nothing; an anonymous volume names nothing.
+			if ok && !strings.HasPrefix(name, "/") && !strings.HasPrefix(name, ".") {
+				out = append(out, name)
+			}
+		case map[string]any:
+			// Only `type: volume` carries a definition. A bind or tmpfs source
+			// is a host path or nothing at all.
+			if kind, _ := m["type"].(string); kind != "volume" {
+				continue
+			}
+			if source, _ := m["source"].(string); source != "" {
+				out = append(out, source)
+			}
 		}
 	}
 	return out

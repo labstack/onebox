@@ -141,8 +141,11 @@ func TestDefaultsMaterialise(t *testing.T) {
 	if w.Replicas != 1 {
 		t.Errorf("replicas = %d, want 1", w.Replicas)
 	}
-	if w.Strategy != "rolling" {
-		t.Errorf("strategy = %q, want rolling", w.Strategy)
+	// No health check is declared, so there is nothing for a rolling release
+	// to wait on and the default is recreate. The choice is visible: it is
+	// recorded as derived and printed with `# default`.
+	if w.Strategy != "recreate" {
+		t.Errorf("strategy = %q, want recreate for a workload with no health check", w.Strategy)
 	}
 }
 

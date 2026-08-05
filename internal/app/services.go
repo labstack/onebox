@@ -60,6 +60,11 @@ type driver struct {
 	// application name, so two projects on one host cannot end up sharing a
 	// database by accident.
 	user string
+	// urlQuery is appended to the connection string. Some drivers need a
+	// parameter to be usable at all: a Mongo root user created through
+	// MONGO_INITDB_ROOT_USERNAME lives in the `admin` database, so a URL that
+	// selects the application database authenticates against the wrong one.
+	urlQuery string
 	// majorUpgradeInPlace is whether the driver can read a data directory
 	// written by a previous major version. A database that cannot needs a dump
 	// and restore, which Onebox does not perform — so it refuses the change
@@ -139,6 +144,9 @@ var drivers = map[string]driver{
 		health:    []string{"CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"},
 		secretEnv: []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		urlUser:   "onebox", scheme: "mongodb", user: "onebox", settings: settingsUnsupported,
+		// The root user is created in `admin`; without this the client tries
+		// to authenticate against the application database and is refused.
+		urlQuery: "authSource=admin",
 	},
 	"rabbitmq": {
 		majorUpgradeInPlace: true,
@@ -416,6 +424,8 @@ type ClientEnv struct {
 	Database string
 	Host     string
 	Port     int
+	// Query is appended to the connection string, without a leading "?".
+	Query string
 	// SecretVars are the credential variables, in the order the driver's
 	// credential file declares them. The first is the one the URL embeds.
 	SecretVars []string
@@ -436,7 +446,7 @@ func (p *Spec) ClientEnvFor(name string) (ClientEnv, bool) {
 	return ClientEnv{
 		Service: name, Driver: key, Prefix: envPrefix(name),
 		Scheme: d.scheme, User: d.urlUser, Database: databaseOf(d, p.Name),
-		Host: name, Port: d.port, SecretVars: d.secretEnv,
+		Host: name, Port: d.port, SecretVars: d.secretEnv, Query: d.urlQuery,
 	}, true
 }
 
@@ -583,6 +593,9 @@ func (c ClientEnv) parts() map[string]string {
 	// selected — which fails only once something queries.
 	if c.Database != "" {
 		url += "/" + c.Database
+	}
+	if c.Query != "" {
+		url += "?" + c.Query
 	}
 	return map[string]string{
 		"url": url, "host": c.Host, "port": fmt.Sprint(c.Port),

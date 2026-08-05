@@ -342,6 +342,13 @@ func crossFieldRules(p *Spec) error {
 		// Replicating a stateful service needs a volume per instance and a
 		// protocol between them. This contract derives neither, so it refuses
 		// the declaration rather than generating something that starts.
+		// Asked for explicitly, so say why it cannot be honoured rather than
+		// quietly substituting recreate: rolling has nothing to gate on.
+		if w.Strategy == "rolling" && w.Health == nil {
+			return errf("strategy_ungated", path+".strategy", "",
+				"workload %q asks for a rolling release but declares no health check, so nothing says when the "+
+					"newcomer is ready to take traffic. Declare health:, or use strategy: recreate", name)
+		}
 		if w.Replicas > 1 && w.Persistence != nil && w.Persistence.Mode == "durable" {
 			return errf("stateful_replicas", path+".replicas", "",
 				"workload %q keeps durable state and asks for %d replicas; they would all mount the same volume. "+

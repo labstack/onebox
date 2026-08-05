@@ -204,8 +204,10 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		ref, ok := images[name]
 		if !ok || ref == "" {
 			if images[inspectionKey] == "" {
-				return nil, nil, definitions{}, errf("image_unresolved", "workloads."+name, "ob release",
-					"workload %q is built from source and has no resolved image for this release", name)
+				return nil, nil, definitions{}, errf("image_unresolved", "workloads."+name,
+					"ob deploy --image "+name+"=<reference>",
+					"workload %q is built from source, and production never builds: pass the reference "+
+						"whatever built it produced, as --image %s=<reference>", name, name)
 			}
 			ref = UnresolvedImage
 		}

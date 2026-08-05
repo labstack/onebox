@@ -123,7 +123,7 @@ func auditRows(recs []journal.Record) []auditRow {
 }
 
 // auditAction names the invocation in the operator's vocabulary rather than
-// the journal's. "accessory-apply" is an internal phase name; the person who
+// the journal's. "service-apply" is an internal phase name; the person who
 // ran the command typed `ob service apply`.
 func auditAction(phase string) string {
 	switch phase {

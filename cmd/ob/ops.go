@@ -17,7 +17,7 @@ import (
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	// supporting/data service apply
-	serviceCmd := &cobra.Command{Use: "service", Aliases: []string{"accessory"}, Short: "manage supporting and data services"}
+	serviceCmd := &cobra.Command{Use: "service", Aliases: []string{"service"}, Short: "manage supporting and data services"}
 	serviceCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
 		Short: "planned service convergence — diff shown, destructive mounts refused without --force",

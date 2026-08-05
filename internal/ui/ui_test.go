@@ -13,7 +13,7 @@ func TestPlainWriterGetsNoANSI(t *testing.T) {
 	u := New(&out, false)
 	u.Header("deploy R1")
 	u.Infof("phase %s", "release")
-	u.Warnf("accessory %q has no healthcheck", "ofelia")
+	u.Warnf("service %q has no healthcheck", "ofelia")
 	u.Begin("server rolling ×3")
 	u.Done("server rolling ×3", 84*time.Second, nil)
 	u.Done("verify", 2300*time.Millisecond, errors.New("boom"))
@@ -26,7 +26,7 @@ func TestPlainWriterGetsNoANSI(t *testing.T) {
 	for _, want := range []string{
 		"── deploy R1 ─",
 		"→ phase release",
-		"⚠ accessory \"ofelia\" has no healthcheck",
+		"⚠ service \"ofelia\" has no healthcheck",
 		"⟳ server rolling ×3",
 		"✓ server rolling ×3", "1m24s",
 		"✗ verify", "2.3s",

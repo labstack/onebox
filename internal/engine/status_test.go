@@ -31,7 +31,7 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 }
 
 // The perf contract: status must not fan a docker ps or inspect out per
-// container. For any number of roles/accessories it issues exactly one
+// container. For any number of roles/services it issues exactly one
 // project-wide ps and one batched inspect covering every container — the whole
 // reason status went from ~35 round trips to a handful on a high-latency host.
 func TestStatusRoundTripBudget(t *testing.T) {
@@ -71,7 +71,7 @@ func TestStatusInSync(t *testing.T) {
 }
 
 // After collapsing the per-service queries into one project-wide ps, a role or
-// accessory simply absent from the map must still render NOT RUNNING and force
+// service simply absent from the map must still render NOT RUNNING and force
 // divergence — the crashed-service signal must survive the refactor.
 func TestStatusFlagsNotRunning(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -89,10 +89,10 @@ func TestStatusFlagsNotRunning(t *testing.T) {
 	var out bytes.Buffer
 	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Status(context.Background()); err == nil {
-		t.Fatalf("a missing role/accessory must be divergence:\n%s", out.String())
+		t.Fatalf("a missing role/service must be divergence:\n%s", out.String())
 	}
 	s := out.String()
-	if c := strings.Count(s, "NOT RUNNING"); c != 2 { // worker role + postgres accessory
+	if c := strings.Count(s, "NOT RUNNING"); c != 2 { // worker role + postgres service
 		t.Fatalf("want NOT RUNNING for worker and postgres, got %d:\n%s", c, s)
 	}
 }
@@ -152,8 +152,8 @@ func TestStatusFlagsCrashLoopingRole(t *testing.T) {
 	}
 }
 
-// A crash-looping (Restarting) accessory is present in docker ps but not
-// serving. A fully-exited accessory already diverges (NOT RUNNING); a
+// A crash-looping (Restarting) service is present in docker ps but not
+// serving. A fully-exited service already diverges (NOT RUNNING); a
 // crash-looping one must too, not silently pass as "in sync".
 func TestStatusFlagsCrashLoopingAccessory(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -171,10 +171,10 @@ func TestStatusFlagsCrashLoopingAccessory(t *testing.T) {
 	var out bytes.Buffer
 	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Status(context.Background()); err == nil { // roles healthy → postgres is the sole cause
-		t.Fatalf("a crash-looping accessory must be a divergence:\n%s", out.String())
+		t.Fatalf("a crash-looping service must be a divergence:\n%s", out.String())
 	}
-	if line := roleLine(out.String(), "accessory postgres"); !strings.Contains(line, "down") {
-		t.Fatalf("crash-looping accessory must show 'down', got %q:\n%s", line, out.String())
+	if line := roleLine(out.String(), "service postgres"); !strings.Contains(line, "down") {
+		t.Fatalf("crash-looping service must show 'down', got %q:\n%s", line, out.String())
 	}
 }
 

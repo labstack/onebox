@@ -26,7 +26,7 @@ type StatusSnapshot struct {
 	CapturedAt      time.Time         `json:"captured_at"`
 	RecordedRelease string            `json:"recorded_release,omitempty"`
 	Roles           []StatusRole      `json:"roles"`
-	Accessories     []StatusAccessory `json:"accessories"`
+	Services        []StatusService   `json:"services"`
 	Incomplete      *StatusIncomplete `json:"incomplete,omitempty"`
 	Proxy           *StatusProxy      `json:"proxy,omitempty"`
 	Diverged        bool              `json:"diverged"`
@@ -46,10 +46,10 @@ type StatusRole struct {
 	Issues          []string          `json:"issues,omitempty"`
 }
 
-// StatusAccessory is one configured accessory and its observed containers.
-// Accessories converge independently, so their release labels are facts but
+// StatusService is one configured service and its observed containers.
+// Services converge independently, so their release labels are facts but
 // are not compared with the application's recorded release.
-type StatusAccessory struct {
+type StatusService struct {
 	Name       string            `json:"name"`
 	Containers []StatusContainer `json:"containers"`
 	Diverged   bool              `json:"diverged"`
@@ -137,13 +137,13 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	}
 
 	snapshot := StatusSnapshot{
-		App:         e.Spec.Name,
-		Host:        e.T.Host(),
-		CapturedAt:  e.Opts.Now().UTC(),
-		Runner:      e.Opts.Runner,
-		Roles:       make([]StatusRole, 0, len(e.Spec.ReleaseOrder())),
-		Accessories: make([]StatusAccessory, 0, len(e.Spec.ServiceNames())),
-		Complete:    true,
+		App:        e.Spec.Name,
+		Host:       e.T.Host(),
+		CapturedAt: e.Opts.Now().UTC(),
+		Runner:     e.Opts.Runner,
+		Roles:      make([]StatusRole, 0, len(e.Spec.ReleaseOrder())),
+		Services:   make([]StatusService, 0, len(e.Spec.ServiceNames())),
+		Complete:   true,
 	}
 
 	var (
@@ -234,9 +234,9 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		snapshot.Roles = append(snapshot.Roles, status)
 	}
 	for _, accessoryName := range e.Spec.ServiceNames() {
-		status := makeStatusAccessory(accessoryName, byService[accessoryName], containersComplete)
+		status := makeStatusService(accessoryName, byService[accessoryName], containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
-		snapshot.Accessories = append(snapshot.Accessories, status)
+		snapshot.Services = append(snapshot.Services, status)
 	}
 
 	if reads[2].err == nil && incFound {
@@ -306,8 +306,8 @@ func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded
 	return status
 }
 
-func makeStatusAccessory(name string, raw []svcContainer, containersComplete bool) StatusAccessory {
-	status := StatusAccessory{Name: name, Containers: makeStatusContainers(raw)}
+func makeStatusService(name string, raw []svcContainer, containersComplete bool) StatusService {
+	status := StatusService{Name: name, Containers: makeStatusContainers(raw)}
 	if !containersComplete {
 		return status
 	}

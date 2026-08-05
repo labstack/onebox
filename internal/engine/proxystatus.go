@@ -32,7 +32,7 @@ type proxyRaw struct {
 // in the same wave. Each thunk writes a distinct proxyRaw field, so they share
 // no state. Health comes from docker ps .Status, same as the app side.
 func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
-	hp := proxy.HostPaths()
+	hp := proxy.HostPaths(e.names())
 	return []func() error{
 		func() error {
 			id, health, err := e.proxyContainer(ctx)

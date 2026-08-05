@@ -52,7 +52,6 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := t.TempDir()
-	t.Setenv("OB_BASE_DIR", base)
 	ctx := context.Background()
 	tr := transport.NewLocal()
 	t.Cleanup(func() {
@@ -66,6 +65,9 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// base_path is the field, not an environment variable: the engine now
+		// has one path authority and it is the project's own.
+		spec.BasePath = base
 		resolved, err := spec.Resolve("production")
 		if err != nil {
 			return err

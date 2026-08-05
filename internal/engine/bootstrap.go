@@ -50,7 +50,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	}
 
 	e.logf("bootstrap: base dirs")
-	p := release.PathsFor(e.Spec.Name)
+	p := release.PathsFor(e.names())
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("mkdir %s: %v %s", p.Releases, err, res.Stderr)
 	}
@@ -65,7 +65,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.Spec.Name, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	_ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "start"})
 	defer func() { _ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "finish", Status: "ok"}) }()
 
@@ -99,7 +99,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	}
 
 	e.logf("bootstrap: pushing release payload %s", releaseID)
-	if _, err := release.Push(ctx, e.T, localStagingDir, e.Spec.Name, releaseID); err != nil {
+	if _, err := release.Push(ctx, e.T, localStagingDir, e.names(), releaseID); err != nil {
 		return err
 	}
 

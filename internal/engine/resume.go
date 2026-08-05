@@ -17,7 +17,7 @@ var ErrNoIncomplete = errors.New("no incomplete deploy found in the journal")
 // FindIncomplete returns the newest journal that started but never finished
 // or aborted — the deploy a crashed runner left behind.
 func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
-	ids, byID, err := journal.Journals(ctx, e.T, e.Spec.Name)
+	ids, byID, err := journal.Journals(ctx, e.T, e.names())
 	if err != nil {
 		return journal.Summary{}, err
 	}
@@ -96,7 +96,7 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) error
 		return err
 	}
 	jw := &journal.Writer{
-		T: e.T, App: e.Spec.Name, DeployID: s.DeployID, Epoch: epoch,
+		T: e.T, Names: e.names(), DeployID: s.DeployID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner,
 		ApprovalDigest: s.ApprovalDigest, ApprovalClass: s.ApprovalClass,
 		ApprovedBy: s.ApprovedBy, ApprovalSource: s.ApprovalSource,
@@ -119,7 +119,7 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) error
 	// adopts prev-labeled containers as no-ops and drains this deploy's
 	// newcomers as "old" — a zero-downtime abort for rolling roles. Recreate
 	// roles are skipped when they already run the previous release.
-	prevCompose := release.PathsFor(e.Spec.Name).Releases + "/" + s.PrevRelease + "/compose.yaml"
+	prevCompose := release.PathsFor(e.names()).Releases + "/" + s.PrevRelease + "/compose.yaml"
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
 		if role.Mode() == "recreate" {

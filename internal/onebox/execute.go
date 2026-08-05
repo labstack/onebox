@@ -375,7 +375,7 @@ func verifyRemoteDeployBinding(ctx context.Context, e *engine.Engine, plan *Depl
 		return err
 	}
 	binding := plan.Operation.Binding
-	_, liveComposeDigest, err := readLiveComposeState(ctx, e, app, fresh.CurrentRelease)
+	_, liveComposeDigest, err := readLiveComposeState(ctx, e, fresh.CurrentRelease)
 	if err != nil {
 		return err
 	}

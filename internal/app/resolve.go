@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"sort"
 )
 
@@ -96,7 +97,32 @@ func (p *Spec) Resolve(env string) (*Resolved, error) {
 		clone.Services[name] = merged
 	}
 
+	// The resolved project is what every downstream consumer sees, so it has
+	// to satisfy the same contract the authored one does. Merging alone only
+	// decodes into the struct: an override could otherwise produce
+	// `replicas: 0`, an unknown strategy, or a route that collides with
+	// another workload's — each of which is refused when written directly in
+	// the project, and each of which reached generation unexamined.
+	if err := validateSpec(clone); err != nil {
+		return nil, overrideError(env, err)
+	}
+	if err := crossFieldRules(clone); err != nil {
+		return nil, overrideError(env, err)
+	}
+
 	return out, nil
+}
+
+// overrideError says where the offending value came from. A refusal naming
+// `workloads.web.replicas` sends the reader to a line that is correct; the
+// value they need to change is in the environment's overrides.
+func overrideError(env string, err error) error {
+	var e *Error
+	if errors.As(err, &e) {
+		return errf(e.Code, "environments."+env+".overrides."+e.Path, "",
+			"%s (the project is valid; this comes from %q's overrides)", e.Message, env)
+	}
+	return err
 }
 
 // applyPatch merges an override into one workload or service.

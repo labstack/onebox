@@ -7,11 +7,13 @@ import (
 	"testing"
 
 	"github.com/labstack/onebox/internal/transport"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 func TestAppendCommandShape(t *testing.T) {
 	f := &transport.Fake{}
-	w := &Writer{T: f, App: "sample", DeployID: "R1", Epoch: 3, GitSHA: "abc1234", ConfigHash: "sha256:x"}
+	w := &Writer{T: f, Names: app.Names{App: "sample", BasePath: app.DefaultBasePath}, DeployID: "R1", Epoch: 3, GitSHA: "abc1234", ConfigHash: "sha256:x"}
 	if err := w.Append(context.Background(), Record{Phase: "release", Role: "web", Event: "result", Status: "ok"}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +41,7 @@ func TestAppendCommandShape(t *testing.T) {
 
 func TestAppendRedactsFailureDetails(t *testing.T) {
 	f := &transport.Fake{}
-	w := &Writer{T: f, App: "sample", DeployID: "R1", Epoch: 1}
+	w := &Writer{T: f, Names: app.Names{App: "sample", BasePath: app.DefaultBasePath}, DeployID: "R1", Epoch: 1}
 	if err := w.Append(context.Background(), Record{
 		Phase: "verify", Event: "result", Status: "fail",
 		Detail: "request failed: Authorization=Bearer super-secret-token",
@@ -63,7 +65,7 @@ func TestAppendRedactsFailureDetails(t *testing.T) {
 func TestAppendScopesAuthorizationContextToEvidenceRecords(t *testing.T) {
 	f := &transport.Fake{}
 	w := &Writer{
-		T: f, App: "sample", DeployID: "R1", Epoch: 1,
+		T: f, Names: app.Names{App: "sample", BasePath: app.DefaultBasePath}, DeployID: "R1", Epoch: 1,
 		ApprovalDigest: "sha256:approval", ApprovedBy: "operator@example",
 		MigrationBackup: &MigrationBackupEvidence{
 			Mode: "override", OverrideReason: "incident INC-42", ProtectedResources: []string{"database/postgres"},
@@ -110,7 +112,7 @@ func TestReadAndSummary(t *testing.T) {
 		}
 		return transport.Result{}, false
 	}}
-	got, err := Read(context.Background(), f, "sample", "R2")
+	got, err := Read(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath}, "R2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +132,7 @@ func TestReadAndSummary(t *testing.T) {
 	if !s.Done["transfer"] || !s.Done["migrate"] || !s.Done["release:web"] || s.Done["release:worker"] {
 		t.Fatalf("done: %+v", s.Done)
 	}
-	ids, err := List(context.Background(), f, "sample")
+	ids, err := List(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
 	if err != nil || len(ids) != 2 || ids[1] != "R2" {
 		t.Fatalf("list: %v %v", ids, err)
 	}

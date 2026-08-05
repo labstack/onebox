@@ -244,7 +244,7 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	if err := e.removeNewcomers(ctx, releaseID); err != nil {
 		return fmt.Errorf("verify failed (%v) AND auto-rollback could not remove new containers: %w", verr, err)
 	}
-	prevCompose := release.PathsFor(e.Spec.Name).Releases + "/" + prev + "/compose.yaml"
+	prevCompose := release.PathsFor(e.names()).Releases + "/" + prev + "/compose.yaml"
 	if err := e.releaseRoles(ctx, prevCompose); err != nil {
 		_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()})
 		return fmt.Errorf("verify failed (%v) AND auto-rollback failed: %w — intervene manually", verr, err)

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/transport"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 func TestNewID(t *testing.T) {
@@ -29,11 +31,11 @@ func TestPreviousAndPrune(t *testing.T) {
 		{Match: regexp.MustCompile(`ls -1`), Result: transport.Result{
 			Stdout: "20260701-010000-aaa\n20260701-020000-bbb\n20260702-030000-ccc\n"}},
 	}}
-	prev, err := Previous(context.Background(), f, "sample")
+	prev, err := Previous(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
 	if err != nil || prev != "20260701-020000-bbb" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
-	removed, err := Prune(context.Background(), f, "sample", 2)
+	removed, err := Prune(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,7 @@ func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engi
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.Name, dir)
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.Name, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

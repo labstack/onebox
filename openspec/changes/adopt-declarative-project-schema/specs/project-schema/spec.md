@@ -347,6 +347,28 @@ workloads. A missing environment file SHALL fail validation. Preflight checks
 SHALL assert that required keys are present and non-empty, and that named keys
 exist.
 
+Only the project-wide list SHALL feed interpolation. Interpolation is a
+property of the document, not of a container: a workload's own list cannot
+supply it without that workload deciding how another workload's copied service
+parses. The runner's environment SHALL NOT feed it — a document that resolved
+one way where it was planned and another way where it runs would differ exactly
+where nobody is looking. The resolved values SHALL NOT appear in the generated
+runtime or its digest: a referenced source keeps its `${VAR}` verbatim, and the
+same files supply the value again when the container runtime reads the document
+on the target.
+
+#### Scenario: Interpolation resolves from the project-wide list
+- **WHEN** a referenced Compose source uses `${VAR}` and a project-wide environment file declares it
+- **THEN** the value is used when the document is parsed, and the generated runtime still carries `${VAR}` verbatim
+
+#### Scenario: The runner's environment is not consulted
+- **WHEN** a variable a referenced source uses is set in the runner's own environment and in no declared file
+- **THEN** it resolves empty, exactly as it would on the target
+
+#### Scenario: A required variable nobody supplies is refused
+- **WHEN** a referenced source declares `${VAR:?}` and no declared environment file supplies it
+- **THEN** the failure names the variable and the environment files that feed interpolation, and does not report it as a defect in generated output
+
 #### Scenario: Workload list overrides the project list
 - **WHEN** a workload declares its own environment files and the project also declares some
 - **THEN** only the workload's files are projected into it

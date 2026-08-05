@@ -271,3 +271,57 @@ func envKeys(data []byte) (present, nonEmpty map[string]bool) {
 	}
 	return present, nonEmpty
 }
+
+// InterpolationEnv is the variable set available to `${VAR}` expressions in a
+// Compose source the project references.
+//
+// Only the project-wide `runtime.env_files` feed it. Interpolation is a
+// property of the document, not of a container: a per-workload file cannot
+// coherently supply it, because one workload's file would then decide what
+// another workload's copied service parses as. Declared order wins, later over
+// earlier, which is the same rule the files themselves follow when projected.
+//
+// The values never reach the generated runtime. A referenced source keeps its
+// `${VAR}` verbatim — interpolation is that file's own contract — so what is
+// resolved here is what the parser needs to read the document, not what is
+// written into the artifact or its digest.
+func (p *Spec) InterpolationEnv() (map[string]string, error) {
+	if p.Runtime == nil || len(p.Runtime.EnvFiles) == 0 {
+		return nil, nil
+	}
+	env := map[string]string{}
+	for _, name := range p.Runtime.EnvFiles {
+		data, err := os.ReadFile(filepath.Join(p.Dir, name))
+		if err != nil {
+			return nil, errf("env_file_unreadable", "runtime.env_files", "",
+				"cannot read the environment file %q: %v", name, err)
+		}
+		for key, value := range envValues(data) {
+			env[key] = value
+		}
+	}
+	return env, nil
+}
+
+// envValues scans dotenv-style bytes into key/value pairs, by the same rule
+// envKeys uses to find the keys.
+func envValues(data []byte) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		value := strings.TrimSpace(line[eq+1:])
+		// A quoted value keeps its content, not its quotes.
+		if len(value) >= 2 && (value[0] == '"' && value[len(value)-1] == '"' ||
+			value[0] == '\'' && value[len(value)-1] == '\'') {
+			value = value[1 : len(value)-1]
+		}
+		out[key] = value
+	}
+	return out
+}

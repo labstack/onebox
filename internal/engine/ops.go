@@ -20,7 +20,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if removeProxy && !e.Spec.Proxy.Managed {
 		return fmt.Errorf("--proxy: this app's proxy is not managed — nothing shared to remove")
 	}
-	hp := proxy.HostPaths()
+	hp := proxy.HostPaths(e.names())
 	if removeProxy {
 		// refuse BEFORE any teardown: other registered apps depend on it
 		others, err := e.proxyRegistryOthers(ctx)
@@ -39,12 +39,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if err := e.WriteFence(ctx, "destroy", epoch); err != nil {
 		return err
 	}
-	cur, err := release.Current(ctx, e.T, e.Spec.Name)
+	cur, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return err
 	}
 	if cur != "" {
-		down := e.composeCmd(release.PathsFor(e.Spec.Name).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
+		down := e.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
 		if removeVolumes {
 			down += " -v"
 		}
@@ -107,7 +107,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	}
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
-	base := release.PathsFor(e.Spec.Name).Base
+	base := release.PathsFor(e.names()).Base
 	sweep := "rm -rf " + q(base)
 	keepingCredentials := !removeVolumes && len(e.Spec.Services) > 0
 	if keepingCredentials {
@@ -171,7 +171,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 // proxyRegistryOthers lists apps other than this one registered with the
 // shared proxy.
 func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
-	res, err := e.T.Run(ctx, "ls -1 "+q(proxy.HostPaths().Apps)+" 2>/dev/null || true")
+	res, err := e.T.Run(ctx, "ls -1 "+q(proxy.HostPaths(e.names()).Apps)+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
 // Logs streams compose logs for one role/service (or all) from the current
 // release.
 func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, out io.Writer) error {
-	cur, err := release.Current(ctx, e.T, e.Spec.Name)
+	cur, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, o
 	if err != nil {
 		return err
 	}
-	cmd := e.composeCmd(release.PathsFor(e.Spec.Name).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
+	cmd := e.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
 	if follow {
 		cmd += " --follow"
 	}

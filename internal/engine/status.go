@@ -31,7 +31,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	)
 
 	reads := []func() error{
-		func() (err error) { recorded, err = release.Current(ctx, e.T, e.Spec.Name); return },
+		func() (err error) { recorded, err = release.Current(ctx, e.T, e.names()); return },
 		func() (err error) { byService, err = e.projectContainers(ctx); return },
 		func() error {
 			s, err := e.FindIncomplete(ctx)

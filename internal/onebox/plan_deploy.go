@@ -77,7 +77,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("redact staged compose: %w", err)
 	}
-	liveRedacted, liveComposeDigest, err := readLiveComposeState(ctx, e, lp.resolved.Name, hostState.CurrentRelease)
+	liveRedacted, liveComposeDigest, err := readLiveComposeState(ctx, e, hostState.CurrentRelease)
 	if err != nil {
 		return DeployPlan{}, err
 	}
@@ -112,7 +112,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	}
 
 	configDigest := engine.HashBytes(lp.configBytes)
-	commands := e.Describe(release.PathsFor(lp.resolved.Name).Releases + "/" + releaseID + "/compose.yaml")
+	commands := e.Describe(release.PathsFor(e.Names()).Releases + "/" + releaseID + "/compose.yaml")
 	artifact := engine.Artifact{
 		ID: releaseID, App: lp.resolved.Name, Env: s.environment, CreatedAt: now,
 		GitSHA: gitSHA, ConfigHash: configDigest, HostState: hostState,
@@ -192,11 +192,11 @@ func classifyDeploymentForPolicy(steps []OperationStep, currentRelease string, a
 	return risk, reversibility, approval
 }
 
-func readLiveComposeState(ctx context.Context, e *engine.Engine, app, currentRelease string) (string, string, error) {
+func readLiveComposeState(ctx context.Context, e *engine.Engine, currentRelease string) (string, string, error) {
 	if currentRelease == "" {
 		return "", "", nil
 	}
-	path := release.PathsFor(app).Releases + "/" + currentRelease + "/compose.yaml"
+	path := release.PathsFor(e.Names()).Releases + "/" + currentRelease + "/compose.yaml"
 	res, err := e.T.Run(ctx, "cat "+quote(path)+" 2>/dev/null")
 	if err != nil {
 		return "", "", fmt.Errorf("read live compose: %w", err)

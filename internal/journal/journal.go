@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -66,8 +67,10 @@ type Record struct {
 }
 
 type Writer struct {
-	T                       transport.Transport
-	App                     string
+	T transport.Transport
+	// Names carries the resolved layout, so a journal is written where the
+	// release it describes actually lives.
+	Names                   app.Names
 	DeployID                string
 	Epoch                   int
 	Operator                string
@@ -83,8 +86,8 @@ type Writer struct {
 	MigrationBackup         *MigrationBackupEvidence
 }
 
-func dir(app string) string      { return release.PathsFor(app).Base + "/journal" }
-func file(app, id string) string { return dir(app) + "/" + id + ".jsonl" }
+func dir(n app.Names) string             { return release.PathsFor(n).Base + "/journal" }
+func file(n app.Names, id string) string { return dir(n) + "/" + id + ".jsonl" }
 
 func DefaultOperator() string {
 	user := os.Getenv("USER")
@@ -150,8 +153,8 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	if err != nil {
 		return err
 	}
-	f := file(w.App, w.DeployID)
-	cmd := "mkdir -p " + q(dir(w.App)) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
+	f := file(w.Names, w.DeployID)
+	cmd := "mkdir -p " + q(dir(w.Names)) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
 	res, err := w.T.Run(ctx, cmd)
 	if err != nil {
 		return err
@@ -164,8 +167,8 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 
 // Read returns the records of one deploy; unparseable lines are tolerated
 // (the journal is forensic — a torn write must not block recovery).
-func Read(ctx context.Context, t transport.Transport, app, deployID string) ([]Record, error) {
-	res, err := t.Run(ctx, "cat "+q(file(app, deployID))+" 2>/dev/null || true")
+func Read(ctx context.Context, t transport.Transport, n app.Names, deployID string) ([]Record, error) {
+	res, err := t.Run(ctx, "cat "+q(file(n, deployID))+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +187,8 @@ func Read(ctx context.Context, t transport.Transport, app, deployID string) ([]R
 }
 
 // List returns deploy ids with journals, oldest first (ids sort by time).
-func List(ctx context.Context, t transport.Transport, app string) ([]string, error) {
-	res, err := t.Run(ctx, "ls -1 "+q(dir(app))+" 2>/dev/null || true")
+func List(ctx context.Context, t transport.Transport, n app.Names) ([]string, error) {
+	res, err := t.Run(ctx, "ls -1 "+q(dir(n))+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -211,16 +214,16 @@ const journalMarker = "@@ob-journal@@"
 // whenever no deploy is incomplete); a per-file marker lets one command carry
 // them all while parsing/Summarize stays here, unchanged. (Audit still reads
 // per-file — it is not on the status hot path.)
-func Journals(ctx context.Context, t transport.Transport, app string) ([]string, map[string][]Record, error) {
+func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string, map[string][]Record, error) {
 	// A missing journal directory is a valid never-deployed state. Existing but
 	// unreadable directories/files fail so status cannot report false completeness.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
 	// that record's line would swallow the following file's marker; each
 	// a torn write must not corrupt recovery).
-	cmd := "if [ -d " + q(dir(app)) + " ]; then cd " + q(dir(app)) + " || exit; " +
+	cmd := "if [ -d " + q(dir(n)) + " ]; then cd " + q(dir(n)) + " || exit; " +
 		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
-		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(app)) + " ]; then exit 2; fi"
+		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ]; then exit 2; fi"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err
@@ -256,8 +259,8 @@ func Journals(ctx context.Context, t transport.Transport, app string) ([]string,
 // PruneCandidates returns journal ids beyond the keep window, oldest first.
 // A journal outlives its release: keep is typically 2× the
 // release retention.
-func PruneCandidates(ctx context.Context, t transport.Transport, app string, keep int) ([]string, error) {
-	ids, err := List(ctx, t, app)
+func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, keep int) ([]string, error) {
+	ids, err := List(ctx, t, n)
 	if err != nil || len(ids) <= keep {
 		return nil, err
 	}

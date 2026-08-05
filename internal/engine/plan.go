@@ -93,7 +93,7 @@ func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState
 // Refresh gathers the drift set from the host. Nothing mutates.
 func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
 	hs := HostState{Host: e.T.Host(), ImageIDs: map[string]string{}}
-	cur, err := release.Current(ctx, e.T, e.Spec.Name)
+	cur, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return hs, err
 	}
@@ -233,7 +233,7 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 // RemotePayloadDigest computes the same digest over a release dir on the
 // host: per-file sha256 lines, bytewise-sorted, hashed together.
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
-	dir := release.PathsFor(e.Spec.Name).Releases + "/" + releaseID
+	dir := release.PathsFor(e.names()).Releases + "/" + releaseID
 	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -name '.job-*-result' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {

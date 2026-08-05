@@ -22,6 +22,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 const (
@@ -46,12 +48,12 @@ type Paths struct {
 	Hash      string // <root>/_host/proxy/config.hash
 }
 
-func HostPaths() Paths {
-	root := os.Getenv("OB_BASE_DIR") // same test hook as release.PathsFor
-	if root == "" {
-		root = "/var/lib/ob"
-	}
-	base := root + "/_host"
+// HostPaths is the host-scoped layout, resolved from the same base as
+// everything else this application writes. The proxy is shared between apps,
+// so the base has to agree with theirs — two apps disagreeing about where
+// `_host` lives would each run their own "shared" proxy.
+func HostPaths(n app.Names) Paths {
+	base := n.HostDir()
 	return Paths{
 		Base:      base,
 		Lock:      base + "/lock",

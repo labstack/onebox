@@ -234,12 +234,15 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	if source := sopsSource(lp.resolved); source != "" {
-		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), source)
+	// Every encrypted entry is decrypted into its own file, at the name the
+	// generated document references. One shared file would make a later entry
+	// win outright instead of key by key, which is not what a list means.
+	for _, entry := range encryptedEntries(lp.resolved) {
+		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
 		if err != nil {
 			return fail(err)
 		}
-		if err := os.WriteFile(filepath.Join(staging, secrets.EnvFileName), envBytes, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(staging, entry.StagedPath()), envBytes, 0o600); err != nil {
 			return fail(err)
 		}
 	}

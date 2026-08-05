@@ -70,6 +70,21 @@
     "digest": "5ac4d1f97c5a8fc93a3ebab678f6196fd68051d6f5eae0df66aaaa49d19687c6"
   },
   {
+    "case": "conformance/encrypted env file entry",
+    "loads": true,
+    "digest": "dc10be87ee5bfceae32d84803738853ac1a2a52564ab9e7b3d639e61cc02868f"
+  },
+  {
+    "case": "conformance/env file entry without a file",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/environment-scoped env files",
+    "loads": true,
+    "digest": "5d4ab0e5117c9cbd57cf39e07f8cc8cab4e81cb73c1dc7dc8d331bd8b6ef39cc"
+  },
+  {
     "case": "conformance/explicit workloads block",
     "loads": true,
     "digest": "9a25e5e99e9f1eb1cc71d17a0c8a13089938ddfadd052499097277b5dd7fcfe3"
@@ -190,11 +205,6 @@
     "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
   },
   {
-    "case": "conformance/secret as scalar path",
-    "loads": true,
-    "digest": "2cb368f9f5ab66117fd7af53be33c69f95a9392ac29550a35fb2473f55e9b556"
-  },
-  {
     "case": "conformance/service scalar",
     "loads": true,
     "digest": "37ef191260abddc6f674ea8bed3bb82970358f8395df2d5a7f5b9b5142268b47 postgres=b81a1e3ee9c0bed9"
@@ -208,6 +218,11 @@
     "case": "conformance/status code 600",
     "loads": false,
     "code": "project_invalid"
+  },
+  {
+    "case": "conformance/the withdrawn secrets block",
+    "loads": false,
+    "code": "secrets_withdrawn"
   },
   {
     "case": "conformance/two sources on a workload",
@@ -241,6 +256,11 @@
   },
   {
     "case": "conformance/unknown enum: strategy",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/unknown env file provider",
     "loads": false,
     "code": "project_invalid"
   },

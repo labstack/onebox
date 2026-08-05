@@ -74,25 +74,14 @@ func validateTopLevel(p *Spec) error {
 			return err
 		}
 	}
-	for _, name := range sortedKeys(p.Secrets) {
-		s := p.Secrets[name]
-		if err := checkEnum("secrets."+name+".provider", s.Provider, eSecretProvider); err != nil {
-			return err
-		}
-		if err := gRepoPath.check("secrets."+name+".file", s.File); err != nil {
-			return err
-		}
-	}
 	for _, name := range sortedKeys(p.Hooks) {
 		if p.Hooks[name].Run == "" {
 			return errf("project_invalid", "hooks."+name, "", "a hook must declare a command to run")
 		}
 	}
 	if p.Runtime != nil {
-		for i, f := range p.Runtime.EnvFiles {
-			if err := gRepoPath.check(indexed("runtime.env_files", i), f); err != nil {
-				return err
-			}
+		if err := validateEnvFiles(p.Runtime.EnvFiles, "runtime.env_files"); err != nil {
+			return err
 		}
 		for i, c := range p.Runtime.Preflight {
 			if err := gRepoPath.check(indexed("runtime.preflight", i)+".file", c.File); err != nil {
@@ -118,6 +107,24 @@ func validateTopLevel(p *Spec) error {
 	return nil
 }
 
+// validateEnvFiles holds every entry to the same rules wherever it is declared,
+// so a scope cannot quietly accept something another scope refuses.
+func validateEnvFiles(entries []EnvFile, path string) error {
+	for i, entry := range entries {
+		at := indexed(path, i)
+		if entry.File == "" {
+			return errf("project_invalid", at, "", "an environment file entry must name a file")
+		}
+		if err := gRepoPath.check(at, entry.File); err != nil {
+			return err
+		}
+		if err := checkEnum(at+".provider", entry.Provider, eSecretProvider); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateEnvironment(e Environment, path string) error {
 	if e.Server.Host == "" {
 		return errf("project_invalid", path+".server", "", "an environment must name a server")
@@ -128,6 +135,9 @@ func validateEnvironment(e Environment, path string) error {
 		}
 	}
 	if err := gAbsPath.checkOptional(path+".base_path", e.BasePath); err != nil {
+		return err
+	}
+	if err := validateEnvFiles(e.EnvFiles, path+".env_files"); err != nil {
 		return err
 	}
 	if err := gDur.checkOptional(path+".policy.migration_backup_max_age", e.Policy.MigrationBackupMaxAge); err != nil {
@@ -234,10 +244,8 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 	}
-	for i, f := range w.EnvFiles {
-		if err := gRepoPath.check(indexed(path+".env_files", i), f); err != nil {
-			return err
-		}
+	if err := validateEnvFiles(w.EnvFiles, path+".env_files"); err != nil {
+		return err
 	}
 	for i, v := range w.Volumes {
 		vp := indexed(path+".volumes", i)

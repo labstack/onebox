@@ -77,6 +77,17 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The block is withdrawn rather than repurposed. Its keys are arbitrary
+	// names today, so reading them as environment names would silently change
+	// what an existing project means — the failure this contract exists to
+	// remove — and leaving it accepted would keep two mechanisms for one idea.
+	if _, ok := raw["secrets"]; ok {
+		return nil, errf("secrets_withdrawn", "secrets",
+			"runtime.env_files: [{file: <path>, provider: sops}]",
+			"the `secrets` block is withdrawn: declare the file as an env_files "+
+				"entry carrying a provider, at the project, environment or workload "+
+				"scope that should receive it")
+	}
 	if err := checkShape(raw, lines); err != nil {
 		return nil, err
 	}
@@ -188,6 +199,7 @@ func expandWorkloadUnions(m map[string]any) {
 			}
 		}
 	}
+	expandEnvFiles(m)
 	if ns, ok := m["needs"].([]any); ok {
 		for i, n := range ns {
 			if s, ok := n.(string); ok {
@@ -197,12 +209,46 @@ func expandWorkloadUnions(m map[string]any) {
 	}
 }
 
+// expandEnvFiles turns `- path` into `- {file: path}`. The scalar form is what
+// every existing project writes and stays accepted permanently; the object form
+// is what carries a provider.
+func expandEnvFiles(m map[string]any) {
+	fs, ok := m["env_files"].([]any)
+	if !ok {
+		return
+	}
+	for i, f := range fs {
+		if s, ok := f.(string); ok {
+			fs[i] = map[string]any{"file": s}
+		}
+	}
+}
+
 func expandTopLevelUnions(raw map[string]any) {
+	// The project's own list. Every scope that accepts entries has to expand
+	// them, or the scalar form works in one place and not another.
+	if rt, ok := raw["runtime"].(map[string]any); ok {
+		expandEnvFiles(rt)
+	}
 	if envs, ok := raw["environments"].(map[string]any); ok {
 		for _, e := range envs {
 			em, ok := e.(map[string]any)
 			if !ok {
 				continue
+			}
+			expandEnvFiles(em)
+			// An override is authored in the same vocabulary as what it
+			// overrides, so it expands by the same rule. Without this the
+			// scalar form works everywhere except the one place an environment
+			// varies a workload's list, which is the case the field exists for.
+			if ov, ok := em["overrides"].(map[string]any); ok {
+				if wls, ok := ov["workloads"].(map[string]any); ok {
+					for _, w := range wls {
+						if wm, ok := w.(map[string]any); ok {
+							expandEnvFiles(wm)
+						}
+					}
+				}
 			}
 			if s, ok := em["server"].(string); ok {
 				host, user := s, ""

@@ -23,8 +23,8 @@ func (e *Engine) composeCmd(remoteComposePath string) string {
 	// the order the project declares them in.
 	if e.Spec.Runtime != nil {
 		dir := path.Dir(remoteComposePath)
-		for _, name := range e.Spec.Runtime.EnvFiles {
-			cmd += " --env-file " + q(path.Join(dir, name))
+		for _, entry := range e.Spec.Runtime.EnvFiles {
+			cmd += " --env-file " + q(path.Join(dir, entry.StagedPath()))
 		}
 	}
 	return cmd

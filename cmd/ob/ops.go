@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -72,8 +71,8 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return err
 			}
-			if cfg.Secrets == nil {
-				return fmt.Errorf("no secrets: {sops: ...} declared in %s", g.ConfigPath)
+			if specSopsSource(cfg) == "" {
+				return fmt.Errorf("no encrypted env_files entry declared in %s — add one as {file: <path>, provider: sops}", g.ConfigPath)
 			}
 			c := exec.CommandContext(cmd.Context(), "sops", filepath.Join(filepath.Dir(g.ConfigPath), specSopsSource(cfg)))
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -187,19 +186,20 @@ func loadConfigOnly(g *globalFlags) (*app.Spec, error) {
 	return app.Load(g.ConfigPath)
 }
 
-// specSopsSource is the declared SOPS-encrypted file, if one exists. The
-// contract allows several secret providers and only SOPS has an
-// implementation; a project declaring another gets nothing here rather than a
-// silent fallback to a file it never named.
+// specSopsSource is the first encrypted entry the project declares, which is
+// the file `ob secrets edit` opens.
+//
+// "First declared" rather than "first alphabetically": entries are an ordered
+// list, and the order is the author's. A project with several encrypted entries
+// wanting to edit a later one is a gap this leaves open deliberately rather
+// than resolving by a rule nobody stated.
 func specSopsSource(spec *app.Spec) string {
-	names := make([]string, 0, len(spec.Secrets))
-	for name := range spec.Secrets {
-		names = append(names, name)
+	if spec.Runtime == nil {
+		return ""
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		if s := spec.Secrets[name]; s.Provider == "sops" {
-			return s.File
+	for _, entry := range spec.Runtime.EnvFiles {
+		if entry.Provider == "sops" {
+			return entry.File
 		}
 	}
 	return ""

@@ -125,7 +125,7 @@ workloads:
 services:
   postgres: 17
 notifications: {ops: {webhook: "https://example.invalid/hook"}}
-secrets: {app: secrets.env}
+runtime: {env_files: [{file: secrets.env, provider: sops}]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,6 @@ secrets: {app: secrets.env}
 		"workloads.job.run":                  "manual",
 		"workloads.job.schedule.timezone":    "UTC",
 		"notifications.ops.format":           "text",
-		"secrets.app.provider":               "sops",
 	} {
 		if origins[path] != string(OriginDefault) {
 			t.Errorf("%s is %q, want %q — a default nobody can see is a default nobody can check (value should be %q)",

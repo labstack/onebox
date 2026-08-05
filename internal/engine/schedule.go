@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
@@ -19,6 +20,11 @@ import (
 // the release that installed it. A scheduled job should run the code that is
 // live, not the code that happened to be live when the timer was written, and
 // a rollback must move the job back with everything else.
+
+// A unit name reaches a shell as an argument. It is derived from names this
+// contract already bounds, and checked again here because the check is cheap
+// and the consequence of it being wrong is a root shell.
+var unitName = regexp.MustCompile(`^[a-zA-Z0-9@:_.-]+$`)
 
 // SyncSchedules installs a timer for every scheduled job and removes the timers
 // of jobs that are no longer scheduled.
@@ -155,4 +161,42 @@ func setOf(in []string) map[string]struct{} {
 		out[s] = struct{}{}
 	}
 	return out
+}
+
+// RemoveSchedules takes down every timer this app installed.
+//
+// SyncSchedules only removes what the project no longer declares, which is the
+// right rule while the app exists and the wrong one once it does not: a
+// destroyed app's timer keeps firing against a release directory that has been
+// deleted, failing every minute forever and explaining itself to nobody.
+func (e *Engine) RemoveSchedules(ctx context.Context) error {
+	prefix := "ob-" + e.Spec.Name + "-"
+	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
+	if err != nil {
+		return err
+	}
+	var units []string
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		unit := strings.TrimSpace(line)
+		if strings.HasPrefix(unit, prefix) && strings.HasSuffix(unit, ".timer") && unitName.MatchString(unit) {
+			units = append(units, strings.TrimSuffix(unit, ".timer"))
+		}
+	}
+	if len(units) == 0 {
+		return nil
+	}
+	for _, unit := range sortedNames(setOf(units)) {
+		if _, err := e.mutate(ctx, fmt.Sprintf(
+			"systemctl disable --now %s.timer >/dev/null 2>&1; rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
+			unit, unit, unit)); err != nil {
+			return err
+		}
+		e.logf("schedule: removed %s", unit)
+	}
+	if res, err := e.mutate(ctx, "systemctl daemon-reload"); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr))
+	}
+	return nil
 }

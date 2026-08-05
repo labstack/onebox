@@ -84,6 +84,32 @@ func TestDestroySequence(t *testing.T) {
 	if strings.Contains(seq, "down --remove-orphans -v") {
 		t.Fatal("volumes must be kept without --volumes")
 	}
+	if !strings.Contains(seq, "! -name services") {
+		t.Fatalf("state dir not removed:\n%s", seq)
+	}
+	// Volumes are kept, so the credentials that open them are kept too. The
+	// alternative is data nobody can ever read again.
+	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
+		t.Fatalf("kept volumes lost their credentials:\n%s", seq)
+	}
+	if !strings.Contains(seq, "systemctl disable --now ob-sample-") &&
+		strings.Contains(seq, "list-unit-files") {
+		// no timers installed in this fixture; the sweep still has to run
+		if !strings.Contains(seq, "list-unit-files --no-legend --type=timer") {
+			t.Fatalf("schedules not swept:\n%s", seq)
+		}
+	}
+}
+
+// Destroying with --volumes removes the data, so keeping the credential that
+// opens it would serve nobody.
+func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), true, false); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
 		t.Fatalf("state dir not removed:\n%s", seq)
 	}

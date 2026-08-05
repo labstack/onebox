@@ -92,12 +92,43 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			}
 		}
 	}
+	// A timer outlives the release directory it invokes, so it has to be
+	// removed explicitly or it fails every minute forever.
+	if err := e.RemoveSchedules(ctx); err != nil {
+		return err
+	}
+	// Supporting services run in their own Compose projects precisely so that
+	// no release can stop them. Destroy is not a release: the app is going
+	// away, and a database left listening with nothing to serve is not a
+	// safety property, it is a leak. The volume still survives unless the
+	// operator asked for it too.
+	if err := e.removeServices(ctx, removeVolumes); err != nil {
+		return err
+	}
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
-	if res, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.Spec.Name).Base)); err != nil {
+	base := release.PathsFor(e.Spec.Name).Base
+	sweep := "rm -rf " + q(base)
+	keepingCredentials := !removeVolumes && len(e.Spec.Services) > 0
+	if keepingCredentials {
+		// A service credential is generated once, on the target, and exists
+		// nowhere else. Deleting it while deliberately keeping the volume
+		// leaves data nothing can ever open again: the next bootstrap
+		// generates a fresh password, the database keeps the one baked into
+		// its data directory, and the application fails to authenticate
+		// against a service that reports itself perfectly healthy.
+		//
+		// So the key stays with the lock. Everything else — releases,
+		// journals, locks, fences — goes.
+		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name services -exec rm -rf {} +", q(base))
+	}
+	if res, err := e.mutate(ctx, sweep); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
+	}
+	if keepingCredentials {
+		e.logf("kept %s — the service volumes survive and these credentials are the only thing that can open them", e.names().ServiceDir())
 	}
 	if e.Spec.Proxy.Managed {
 		// host scope, after the app fence is gone: plain Run, under host lock

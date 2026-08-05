@@ -72,7 +72,20 @@ func (e *Engine) Status(ctx context.Context) error {
 		dirty = "+dirty"
 	}
 	fmt.Fprintf(e.Opts.Out, "runner:   ob %s (%s%s)\n\n", e.Opts.Runner.Version, revision, dirty)
-	e.ui.Println(e.ui.Bold(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
+	// Sized to the identifiers actually present. A release identifier is
+	// longer than any fixed width worth reading, and a column that overflows
+	// pushes every later column out of line, which is how a status table stops
+	// being scannable at exactly the moment someone is scanning it.
+	release := len("ACTUAL RELEASE")
+	for _, cs := range byService {
+		for _, c := range cs {
+			if len(c.release) > release {
+				release = len(c.release)
+			}
+		}
+	}
+	row := fmt.Sprintf("%%-12s %%-10s %%-%ds %%-10s %%s", release)
+	e.ui.Println(e.ui.Bold(fmt.Sprintf(row, "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
 
 	diverged := false
 	for _, roleName := range e.Spec.ReleaseOrder() {
@@ -80,7 +93,7 @@ func (e *Engine) Status(ctx context.Context) error {
 		cs := byService[roleName]
 		if len(cs) == 0 {
 			diverged = true
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
+			e.ui.Println(fmt.Sprintf(row, roleName, role.Mode(), "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
 			continue
 		}
 		for _, c := range cs {
@@ -97,7 +110,7 @@ func (e *Engine) Status(ctx context.Context) error {
 				state += e.ui.Warn(" (" + c.health + ")")
 				diverged = true
 			}
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), actual, c.health, state))
+			e.ui.Println(fmt.Sprintf(row, roleName, role.Mode(), actual, c.health, state))
 		}
 		// Running fewer replicas than the project declares is the shortfall a
 		// human reads this to find. Counting only the containers that exist
@@ -106,7 +119,7 @@ func (e *Engine) Status(ctx context.Context) error {
 		// command called it divergence.
 		if want := role.Count(); len(cs) != want {
 			diverged = true
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode(), "-", "-",
+			e.ui.Println(fmt.Sprintf(row, roleName, role.Mode(), "-", "-",
 				e.ui.Warn(fmt.Sprintf("REPLICAS %d/%d ⚠", len(cs), want))))
 		}
 	}

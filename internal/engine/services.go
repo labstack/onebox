@@ -177,6 +177,17 @@ func (e *Engine) ensureServiceSecret(ctx context.Context, n app.Names, name stri
 			}
 		}
 	}
+	// A credential about to be generated for the first time, against a data
+	// directory that already exists, is a credential that data will not
+	// accept: the volume keeps the password baked in when it was initialised,
+	// and the service will then start, report healthy, and refuse every
+	// connection the application makes. Caught here, because the alternative
+	// is diagnosing it as "the new container never became healthy" four
+	// minutes into a deploy.
+	if err := e.refuseOrphanedVolume(ctx, n, name); err != nil {
+		return err
+	}
+
 	script := client.ClientEnvScript(n.ServiceSecretFile(name), n.ServiceClientFile(name), aliases)
 	res, err := e.mutate(ctx, script)
 	if err != nil {
@@ -231,4 +242,72 @@ func (e *Engine) serviceContainerID(ctx context.Context, name string) (string, e
 		return "", err
 	}
 	return ids[0], nil
+}
+
+// removeServices tears down every supporting service this app owns, sweeping
+// by Compose project label so it works whether or not the generated file is
+// still on disk.
+func (e *Engine) removeServices(ctx context.Context, removeVolumes bool) error {
+	n := e.names()
+	for _, name := range sortedNames(e.Spec.Services) {
+		project := n.ServiceProject(name)
+		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(project))
+		if err != nil {
+			return err
+		}
+		for _, id := range strings.Fields(ids.Stdout) {
+			if !validID.MatchString(id) {
+				continue
+			}
+			if res, err := e.mutate(ctx, "docker rm -f "+id); err != nil {
+				return err
+			} else if res.ExitCode != 0 {
+				e.warnf("service %s: remove container %s failed: %s", name, id, strings.TrimSpace(res.Stderr))
+			}
+		}
+		if !removeVolumes {
+			continue
+		}
+		vols, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(project))
+		if err != nil {
+			return err
+		}
+		var keep []string
+		for _, v := range strings.Fields(vols.Stdout) {
+			if volName.MatchString(v) {
+				keep = append(keep, v)
+			}
+		}
+		if len(keep) > 0 {
+			if res, err := e.mutate(ctx, "docker volume rm "+strings.Join(keep, " ")); err != nil {
+				return err
+			} else if res.ExitCode != 0 {
+				e.warnf("service %s: volume rm: %s", name, strings.TrimSpace(res.Stderr))
+			}
+		}
+	}
+	return nil
+}
+
+// refuseOrphanedVolume reports a durable volume whose credential is gone.
+func (e *Engine) refuseOrphanedVolume(ctx context.Context, n app.Names, name string) error {
+	have, err := e.T.Run(ctx, "test -f "+q(n.ServiceSecretFile(name))+" && echo have || true")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(have.Stdout) == "have" {
+		return nil // established already; nothing is about to be generated
+	}
+	vol := n.ServiceVolume(name, "data")
+	res, err := e.T.Run(ctx, "docker volume ls -q --filter name="+q("^"+vol+"$"))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(res.Stdout) == "" {
+		return nil // nothing to be incompatible with
+	}
+	return fmt.Errorf("service %s: the volume %s holds data from an earlier install, but its credential is gone "+
+		"from %s. A new credential would not open it — the service would start, report healthy, and refuse every "+
+		"connection. Restore the credential file, or remove the volume with `docker volume rm %s` to start clean "+
+		"(this destroys the data)", name, vol, n.ServiceDir(), vol)
 }

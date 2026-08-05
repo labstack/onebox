@@ -195,3 +195,30 @@ func TestRecoveryIsNotBlockedWhenNoVersionWasRecorded(t *testing.T) {
 		t.Fatalf("with no recorded version Onebox cannot know what the data is, and must not guess: %v", err)
 	}
 }
+
+// A durable volume whose credential is gone cannot be opened by a freshly
+// generated one: the password is baked into the data directory. The service
+// would start, report healthy, and refuse every connection the application
+// makes — which surfaces four minutes later as "the container never became
+// healthy" and names nothing useful.
+func TestAVolumeWithoutItsCredentialIsRefused(t *testing.T) {
+	f := accFake("")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "postgres.secret.env") && strings.Contains(cmd, "test -f") {
+			return transport.Result{Stdout: ""}, true // no credential
+		}
+		if strings.Contains(cmd, "volume ls -q") && strings.Contains(cmd, "ob_sample_postgres_data") {
+			return transport.Result{Stdout: "ob_sample_postgres_data\n"}, true // data is there
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	err := e.EnsureServiceConnections(context.Background())
+	if err == nil {
+		t.Fatal("data that no credential can open must be refused, not deployed against")
+	}
+	if !strings.Contains(err.Error(), "docker volume rm") {
+		t.Fatalf("the refusal must name the way out: %v", err)
+	}
+}

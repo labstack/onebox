@@ -1,3 +1,22 @@
+## 0. Findings from review still open
+
+- [ ] 0.1 Define the `sources` declaration shape in the contract: where a source
+      is declared, what fields it has, and how a scope's list refers to one. The
+      delta specifies behaviour and not syntax, and a contract whose first
+      requirement is machine-checkable closedness cannot leave the shape to the
+      implementation.
+- [ ] 0.2 Decide the fate of `secrets` as a named map. `env_files` is retained as
+      shorthand for plaintext sources; `secrets` has no equivalent reading,
+      because a map invites the selection this change removes.
+- [ ] 0.3 State where a decrypted source lives on the target between releases. A
+      scheduled job fires from a host timer with no Onebox process alive, so
+      decrypted values must persist across reboots, and nothing says so.
+- [ ] 0.4 Name the build-time boundary: values a local build hook reads are not
+      container environment and are not modelled here.
+- [ ] 0.5 Say in the authoring guide that a job taking a third-party image should
+      declare its own sources or none, since it now inherits the application's by
+      default.
+
 ## 1. Settle the authoring surface
 
 - [ ] 1.1 Name the field. `env_files` describes plaintext files and `secrets`

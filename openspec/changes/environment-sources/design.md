@@ -12,6 +12,20 @@ nobody has raised yet without being extended.
 
 ## The corner cases, and how one model settles each
 
+### On the role principle, after review
+
+The first form of this design justified the role split as "a daemon is a server
+you author, not code you wrote". A review against the corpus falsified it: in
+every third-party conversion, no container is code the author wrote. Worse, it
+is circular — Immich's machine-learning container is a `daemon` in one
+conversion and a `worker` in another, same image, and the factor deciding the
+role is whether it should receive the environment.
+
+The behaviour survived; the reason did not. It is now stated as a property of
+the configuration rather than of the container's provenance: application-scoped
+configuration does not reach infrastructure containers by default. That can
+decide a case nobody has raised, which the previous form could not.
+
 | Case | Before | Under the model |
 |---|---|---|
 | `job` gets project env | no, unstated | yes — it runs the user's code |

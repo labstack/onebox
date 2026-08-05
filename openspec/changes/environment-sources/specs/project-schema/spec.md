@@ -1,3 +1,127 @@
+## MODIFIED Requirements
+
+### Requirement: Environment files are per workload, with a project-wide default
+
+Environment values reach containers through **environment sources**, defined in
+the requirements below. This requirement is restated in those terms so the
+contract carries one mechanism rather than two: the previous form described
+plaintext files with per-workload control and a role-restricted default, while
+decrypted secrets — the same job, different storage — had no stated rule at all.
+
+`env_files` at any scope SHALL be shorthand for a list of plaintext sources at
+that scope. It is retained because a form once accepted is accepted
+permanently, and it is not a second mechanism: it declares sources, and every
+rule about sources applies to what it declares.
+
+A workload MAY declare its own sources. A project-wide list SHALL apply to
+every workload that runs the user's code and declares none. Roles and scopes
+are specified in the requirements below.
+
+Sources SHALL be applied in declared order, with a later source overriding an
+earlier one. A missing source SHALL fail validation. Preflight checks SHALL
+assert that required keys are present and non-empty, and that named keys exist.
+
+Interpolation in referenced Compose sources SHALL be fed by the list resolved
+at document scope — the environment's list if it declares one, otherwise the
+project's — and never by a workload's own list. Interpolation is a property of
+the document: a workload's list cannot supply it without that workload deciding
+how another workload's copied service parses. Document scope includes the
+environment because the runtime is rendered per environment already; a project
+whose environments declare different sources therefore interpolates each with
+its own, which is the only reading under which the values a container receives
+and the values its document parsed with agree.
+
+The runner's environment SHALL NOT feed it — a document that resolved one way
+where it was planned and another way where it runs would differ exactly where
+nobody is looking. The resolved values SHALL NOT appear in the generated
+runtime or its digest: a referenced source keeps its `${VAR}` verbatim, and the
+same sources supply the value again when the container runtime reads the
+document on the target.
+
+#### Scenario: Workload list overrides the project list
+- **WHEN** a workload declares its own environment files and the project also declares some
+- **THEN** only the workload's files are projected into it
+
+#### Scenario: Daemons receive no project-wide files
+- **WHEN** a project declares environment files and a daemon declares none
+- **THEN** no environment file is projected into the daemon
+
+#### Scenario: Later file wins
+- **WHEN** two environment files declare the same key
+- **THEN** the value from the later file is used
+
+#### Scenario: Interpolation resolves from the project-wide list
+- **WHEN** a referenced Compose source uses `${VAR}` and a project-wide environment file declares it
+- **THEN** the value is used when the document is parsed, and the generated runtime still carries `${VAR}` verbatim
+
+#### Scenario: Interpolation follows the environment's list when it declares one
+- **WHEN** an environment declares its own sources and a referenced Compose source uses `${VAR}`
+- **THEN** that environment's deploy interpolates from its own list, so the parsed document and the container's values agree
+
+#### Scenario: The runner's environment is not consulted
+- **WHEN** a variable a referenced source uses is set in the runner's own environment and in no declared file
+- **THEN** it resolves empty, exactly as it would on the target
+
+#### Scenario: A required variable nobody supplies is refused
+- **WHEN** a referenced source declares `${VAR:?}` and no declared environment file supplies it
+- **THEN** the failure names the variable and the environment files that feed interpolation, and does not report it as a defect in generated output
+
+### Requirement: Environment overrides are closed, merge predictably, and win
+
+An environment MAY override only these fields:
+
+| Target | Overridable |
+|---|---|
+| Workload | `replicas`, `resources`, `env`, `strategy`, `routes`, `sources` |
+| Service | `resources`, `settings` |
+
+A field is overridable only if changing it cannot change which artifact runs or
+what it does to data. `build`, `image`, `compose`, `command`, `run`,
+`data_effect`, `volumes`, `persistence`, `driver`, and `version` SHALL therefore
+be refused, as SHALL any field not listed.
+
+`sources` is overridable because without it a workload that declares its own
+sources can never vary them by environment — and a daemon receives sources only
+by declaring them, so every daemon holding a credential would be pinned to one
+environment's values across all of them. That is the same failure this contract
+elsewhere refuses: one environment's credentials reaching another with nothing
+saying so. Which sources a workload reads cannot change which artifact runs or
+what it does to data, so it satisfies the rule for admission.
+
+Merge semantics SHALL be: a scalar or list replaces wholesale; a mapping merges
+key by key, and a null value removes a key. An override naming an undeclared
+workload or service SHALL be rejected, and an override SHALL NOT introduce one.
+
+An environment override SHALL take precedence over the project-level value.
+
+#### Scenario: Override beats an explicit project value
+- **WHEN** a project declares three replicas and an environment overrides it to one
+- **THEN** the canonical form for that environment carries one and reports its origin as an environment override
+
+#### Scenario: Mapping override merges
+- **WHEN** an environment overrides one key of a workload's environment mapping
+- **THEN** the other keys are retained and only that key changes
+
+#### Scenario: Null removes a key
+- **WHEN** an environment override sets a key to null
+- **THEN** that key is absent from the resolved configuration
+
+#### Scenario: List override replaces
+- **WHEN** an environment overrides a list-valued field
+- **THEN** the resolved list is the override's list, not a concatenation
+
+#### Scenario: Override outside the closed set
+- **WHEN** an environment overrides a field not in the permitted set
+- **THEN** validation fails naming the field and listing what may be overridden
+
+#### Scenario: Override introduces a workload
+- **WHEN** an environment override names a workload the project does not declare
+- **THEN** validation fails naming that workload
+
+#### Scenario: A daemon's sources vary by environment
+- **WHEN** a daemon declares sources and an environment overrides them
+- **THEN** that environment's deploy gives the daemon the overridden sources and no other environment's values
+
 ## ADDED Requirements
 
 ### Requirement: An environment source is one named contributor of values
@@ -76,12 +200,26 @@ staging. Under an ordered list resolved by scope there is no pick to get wrong.
 - **WHEN** a workload declares an empty list of sources
 - **THEN** it receives none, even though the project declares some
 
-### Requirement: The default reaches the workloads that run the user's code
+### Requirement: The default reaches the application's own workloads
 
 Where a workload declares no sources of its own, the resolved list SHALL apply
-to it if it runs the user's code — roles `application`, `worker` and `job` —
-and SHALL NOT apply to a `daemon`, which is a server the user authors rather
-than code they wrote and whose configuration belongs in its own `env`.
+to it if its role is `application`, `worker` or `job`, and SHALL NOT apply to a
+`daemon`.
+
+The reason is what the configuration is, not who wrote the container.
+Application-scoped configuration — the credentials and settings the application
+needs to do its work — SHALL NOT reach infrastructure containers by default; a
+`daemon` is infrastructure the application depends on, and its configuration is
+its own.
+
+An earlier form justified this as "a daemon is a server you author rather than
+code you wrote". That is false for the population that uses this contract:
+across every third-party conversion in the corpus, no container is code the
+author wrote. It is also circular — Immich's machine-learning container appears
+as a `daemon` in one conversion and a `worker` in another, the same image in
+both, and the deciding factor is whether it should receive the environment. A
+principle that is chosen by the outcome it is supposed to decide cannot settle
+the next case.
 
 A workload's source — `image`, `build` or `compose` — SHALL NOT affect what it
 receives. Only its role does. An application adopted verbatim from a Compose
@@ -118,10 +256,37 @@ direction is not observable at all.
 
 ### Requirement: Composition order is stated, and generated credentials win
 
-Resolved sources SHALL be applied in order, with a later source overriding an
-earlier one. Managed-service connections SHALL be applied after every declared
-source, because a credential generated on the target is the only thing that can
-open the service it describes and nothing authored may shadow it.
+The value a container receives SHALL be determined by this order, lowest
+precedence first:
+
+1. Values the referenced Compose file carries, for a `compose:`-sourced workload
+2. Resolved sources, in declared order, later overriding earlier
+3. Managed-service connections
+4. The workload's inline `env`
+
+Inline `env` sits highest because the container runtime places `environment`
+above `env_file` and a generated runtime cannot contradict the runtime that
+reads it. The previous form of this requirement stopped at (2) and (3), claimed
+connections could not be shadowed, and was false: every fixture in the corpus
+uses inline `env`, and inline `env` outranks both.
+
+The claim is made true by refusal rather than by ordering. A workload SHALL NOT
+set, in its inline `env`, a variable that a managed-service connection supplies
+to it; declaring one SHALL fail validation naming the variable and the service.
+A rule that cannot be enforced by the layer it describes has to be enforced by
+the layer above it.
+
+Connections supply the credential parts that cannot be authored, because a
+credential generated on the target exists nowhere else. They do not own the
+endpoint. A workload MAY map only the parts it wants — the per-part mapping
+already in this contract — and author host, port or database itself, which is
+what pointing an application at a connection pooler or a read replica requires.
+
+A workload whose application reads a single connection URL cannot do this: the
+URL carries the credential, the credential never travels, and no authored value
+can reconstruct it. That limitation SHALL be stated in the authoring guide
+rather than discovered, and it bounds the endpoint-override mechanism to
+applications that read connection parts separately.
 
 Values SHALL NOT appear in the project file, the generated runtime, any plan
 artifact, or any structured output, whatever their source's kind. A plaintext
@@ -135,6 +300,14 @@ differently.
 #### Scenario: A generated credential cannot be shadowed
 - **WHEN** a declared source sets a variable a managed-service connection also sets
 - **THEN** the connection's value is the one the container receives
+
+#### Scenario: Inline env colliding with a connection is refused
+- **WHEN** a workload's inline `env` sets a variable a managed-service connection supplies to it
+- **THEN** validation fails naming the variable and the service, because inline env would otherwise outrank the connection
+
+#### Scenario: An endpoint may be authored while the credential is generated
+- **WHEN** a workload maps only the user and password parts of a connection and authors the host itself
+- **THEN** it reaches the authored host with the generated credential
 
 #### Scenario: No value reaches an artifact
 - **WHEN** a project resolving any source is rendered, planned, or printed in any structured form

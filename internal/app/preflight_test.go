@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/onebox/internal/transport"
+	"os"
+	"path/filepath"
 )
 
 // fakeRunner answers commands from a script and records what was run, so a test
@@ -188,5 +190,65 @@ func TestUnreachableTargetIsAnError(t *testing.T) {
 	var e *Error
 	if !asError(err, &e) || e.Code != "target_unreachable" {
 		t.Fatalf("got %v, want target_unreachable", err)
+	}
+}
+
+// Interpolation values are parsed by Compose's own dotenv reader, so the same
+// file means the same thing here and when the container runtime reads it on
+// the target. A hand-written scanner is close enough to look right and differs
+// exactly where dotenv files get interesting.
+func TestInterpolationEnvUsesComposeSemantics(t *testing.T) {
+	dir := t.TempDir()
+	env := "" +
+		"# a comment line\n" +
+		"PLAIN=value\n" +
+		"TRAILING=value # not a comment inside an unquoted value\n" +
+		"QUOTED=\"has # hash and 'quotes'\"\n" +
+		"SINGLE='literal $NOT_EXPANDED'\n" +
+		"EXPANDED=${PLAIN}-suffix\n" +
+		"#COMMENTED=should-not-exist\n" +
+		"export EXPORTED=exported-value\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "ob.yml")
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+runtime:
+  env_files: [.env]
+image: nginx
+domain: shop.example.com
+port: 3000
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := spec.InterpolationEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"PLAIN":    "value",
+		"QUOTED":   "has # hash and 'quotes'",
+		"SINGLE":   "literal $NOT_EXPANDED",
+		"EXPANDED": "value-suffix",
+		"EXPORTED": "exported-value",
+	} {
+		if got[key] != want {
+			t.Errorf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+	// A commented assignment declares nothing. The old scanner split on the
+	// first `=` and reported this as a key.
+	if _, ok := got["#COMMENTED"]; ok {
+		t.Error("a commented line was read as a declaration")
+	}
+	if _, ok := got["COMMENTED"]; ok {
+		t.Error("a commented line was read as a declaration")
 	}
 }

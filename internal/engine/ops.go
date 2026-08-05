@@ -61,14 +61,15 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 		for _, id := range strings.Fields(ids.Stdout) {
 			if validID.MatchString(id) {
-				// Don't report a clean destroy while a container survives: a
-				// non-zero removal is surfaced so the operator knows teardown was
-				// partial. A transport/fence error aborts before the state dir is
-				// removed.
+				// Fail closed, exactly as the service sweep does. Warning and
+				// continuing would go on to delete the volumes, the schedules
+				// and the state directory while the container is still alive,
+				// and then report a clean teardown.
 				if res, err := e.mutate(ctx, "docker rm -f "+id); err != nil {
 					return err
 				} else if res.ExitCode != 0 {
-					e.warnf("remove container %s failed: %s", id, strings.TrimSpace(res.Stderr))
+					return fmt.Errorf("cannot remove container %s: %s — nothing further was destroyed",
+						id, strings.TrimSpace(res.Stderr))
 				}
 			}
 		}

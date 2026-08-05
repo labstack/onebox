@@ -196,7 +196,11 @@ func (s *Service) executeDeploy(
 		return false, errors.New("deployment plan was created in the future — check the runner clock and re-plan")
 	}
 	emit("binding", "started", "")
-	lp, err := s.loadProject(ctx, false)
+	// The plan's pinned images, not the ones this invocation happened to be
+	// given: `ob deploy --plan` is meant to release exactly what was planned,
+	// and for a build-sourced workload the plan is the only place the image is
+	// recorded.
+	lp, err := s.loadProjectWith(ctx, false, plan.Artifact.PinnedImages)
 	if err != nil {
 		return false, fmt.Errorf("load project: %w", err)
 	}

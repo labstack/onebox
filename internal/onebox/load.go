@@ -49,7 +49,41 @@ func (s *Service) loadProject(ctx context.Context, lenient bool) (*loadedProject
 	return loadProjectAt(ctx, s.configPath, s.environment, lenient, s.images)
 }
 
+// loadProjectWith loads against a specific image map.
+//
+// Deploying from a saved plan has to use the plan's pinned references, and it
+// has to use them here — rendering happens during the load, so a build-sourced
+// workload fails with image_unresolved long before anything downstream gets a
+// chance to apply them. The plan is the authority on what a build produced;
+// anything passed on the command line is a fallback for what the plan did not
+// name.
+func (s *Service) loadProjectWith(ctx context.Context, lenient bool, images app.Images) (*loadedProject, error) {
+	merged := app.Images{}
+	for name, ref := range s.images {
+		merged[name] = ref
+	}
+	for name, ref := range images {
+		merged[name] = ref
+	}
+	if len(merged) == 0 {
+		merged = nil
+	}
+	return loadProjectRestricted(ctx, s.configPath, s.environment, lenient, merged, true)
+}
+
 func loadProjectAt(ctx context.Context, configPath, environment string, lenient bool, images app.Images) (*loadedProject, error) {
+	return loadProjectRestricted(ctx, configPath, environment, lenient, images, false)
+}
+
+// loadProjectRestricted optionally narrows the image map to the workloads that
+// cannot render without it.
+//
+// A plan's pinned images are digests resolved *after* the plan rendered, so
+// feeding all of them back into the render would produce a different document
+// than the one the plan bound — and the binding check would refuse its own
+// plan. Only a build-sourced workload needs an image to render at all, and for
+// that workload the plan's entry is the same reference the render already used.
+func loadProjectRestricted(ctx context.Context, configPath, environment string, lenient bool, images app.Images, onlyBuilt bool) (*loadedProject, error) {
 	absConfig, err := filepath.Abs(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path: %w", err)
@@ -63,6 +97,19 @@ func loadProjectAt(ctx context.Context, configPath, environment string, lenient 
 		return nil, err
 	}
 	spec.Dir = filepath.Dir(absConfig)
+
+	if onlyBuilt && len(images) > 0 {
+		restricted := app.Images{}
+		for name, ref := range images {
+			if w, ok := spec.Workloads[name]; ok && w.Build != nil {
+				restricted[name] = ref
+			}
+		}
+		images = nil
+		if len(restricted) > 0 {
+			images = restricted
+		}
+	}
 
 	resolved, err := spec.Resolve(environment)
 	if err != nil {

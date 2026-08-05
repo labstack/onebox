@@ -196,11 +196,12 @@ func (s *Service) executeDeploy(
 		return false, errors.New("deployment plan was created in the future — check the runner clock and re-plan")
 	}
 	emit("binding", "started", "")
-	// The plan's pinned images, not the ones this invocation happened to be
-	// given: `ob deploy --plan` is meant to release exactly what was planned,
-	// and for a build-sourced workload the plan is the only place the image is
-	// recorded.
-	lp, err := s.loadProjectWith(ctx, false, plan.Artifact.PinnedImages)
+	// The images the plan *rendered* with, not the ones it pinned: pinning
+	// resolves a tag to a digest after the render, so reloading with the pins
+	// would produce a different document than the plan bound and the binding
+	// check would refuse its own plan. The pins are applied further down, as
+	// planning applied them.
+	lp, err := s.loadProjectWith(ctx, false, plan.Artifact.BuildImages)
 	if err != nil {
 		return false, fmt.Errorf("load project: %w", err)
 	}

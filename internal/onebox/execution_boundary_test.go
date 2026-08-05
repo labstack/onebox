@@ -927,8 +927,21 @@ func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
 // a second time — which defeats the point of a plan being the thing that was
 // reviewed.
 func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
+	// Both forms of what a build can produce. The tagged one is the case that
+	// matters: pinning turns it into a digest *after* the render, so a reload
+	// that used the pin would bind a different document than the plan did.
+	// The first version of this test used only a digest and proved nothing
+	// about that.
+	for _, built := range []string{
+		"ghcr.io/example/app:ci-1234",
+		"ghcr.io/example/app@sha256:" + strings.Repeat("ab", 32),
+	} {
+		t.Run(built, func(t *testing.T) { savedPlanCarriesImage(t, built) })
+	}
+}
+
+func savedPlanCarriesImage(t *testing.T, built string) {
 	fake := serviceFake()
-	built := "ghcr.io/example/app@sha256:" + strings.Repeat("ab", 32)
 
 	// The fixture has siblings — a referenced compose file among them — so the
 	// whole directory travels, not just the project.
@@ -992,7 +1005,11 @@ func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
 	approval := approvalForTestPlan(t, &plan)
 	_, err = newSvc(nil).Execute(context.Background(),
 		ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
-	if err != nil && strings.Contains(err.Error(), "image_unresolved") {
-		t.Fatalf("a saved plan must carry the image it pinned: %v", err)
+	if err != nil {
+		for _, refusal := range []string{"image_unresolved", "is not the one the plan bound", "configuration changed since plan"} {
+			if strings.Contains(err.Error(), refusal) {
+				t.Fatalf("a saved plan must be applicable without re-supplying the image: %v", err)
+			}
+		}
 	}
 }

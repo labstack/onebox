@@ -28,14 +28,20 @@ type HostState struct {
 // Artifact is the plan: what was computed, what it was computed against, and
 // the exact rendered bytes the apply will ship.
 type Artifact struct {
-	ID              string            `json:"id"`
-	App             string            `json:"app"`
-	Env             string            `json:"env"`
-	CreatedAt       time.Time         `json:"created_at"`
-	GitSHA          string            `json:"git_sha,omitempty"`
-	ConfigHash      string            `json:"config_hash"`
-	HostState       HostState         `json:"host_state"`
-	PinnedImages    map[string]string `json:"pinned_images"`
+	ID           string            `json:"id"`
+	App          string            `json:"app"`
+	Env          string            `json:"env"`
+	CreatedAt    time.Time         `json:"created_at"`
+	GitSHA       string            `json:"git_sha,omitempty"`
+	ConfigHash   string            `json:"config_hash"`
+	HostState    HostState         `json:"host_state"`
+	PinnedImages map[string]string `json:"pinned_images"`
+	// BuildImages is what the render was given for build-sourced workloads,
+	// before pinning. It is not PinnedImages: pinning resolves a tag to a
+	// digest *after* the render, so re-rendering with the pins produces a
+	// different document than the one this plan bound. Execution reloads with
+	// these and applies the pins afterwards, exactly as planning did.
+	BuildImages     map[string]string `json:"build_images,omitempty"`
 	RenderedCompose string            `json:"rendered_compose"`
 	Commands        []string          `json:"commands"`
 }

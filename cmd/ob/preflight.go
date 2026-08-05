@@ -37,10 +37,11 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 			if !ok {
 				return fmt.Errorf("environment %q is not declared", g.Env)
 			}
-			addr := env.Server.Host
-			if env.Server.User != "" {
-				addr = env.Server.User + "@" + env.Server.Host
-			}
+			// One authority for the address. Building it here from Host and
+			// User dropped a declared port and connected to 22 instead — a
+			// silent success against the wrong server, which is worse than
+			// any failure this command reports.
+			addr := env.Target()
 
 			t, err := transport.NewSSHContext(cmd.Context(), addr)
 			if err != nil {

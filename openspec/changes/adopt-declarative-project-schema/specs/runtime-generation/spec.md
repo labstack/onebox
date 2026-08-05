@@ -202,12 +202,26 @@ runtime in project and volume names, so underscore SHALL join every derived name
 | Service volume | `ob_<app>_<service>_<volume>` | `ob_ledger_postgres_data` |
 | Workload volume | `ob_<app>_<workload>_<volume>` | `ob_ledger_web_uploads` |
 | Router | `<app>_<workload>_r<index>` | `ledger_web_r0` |
-| Proxy service | `<app>_<workload>` | `ledger_web` |
+| Proxy service, first route | `<app>_<workload>` | `ledger_web` |
+| Proxy service, later routes | `<app>_<workload>_r<index>` | `ledger_web_r1` |
 | Shared ingress network | the environment's `proxy.network` | `ob-ingress` |
 | Proxy Compose project | `ob-proxy` | `ob-proxy` |
 | Application directory | `<base>/<app>` | `/var/lib/ob/ledger` |
 | Release directory | `<base>/<app>/releases/<release-id>` | `/var/lib/ob/ledger/releases/20260802-183045-a1b2c3d` |
 | Host-scoped state | `<base>/_host` | `/var/lib/ob/_host` |
+
+A proxy service SHALL be derived per route, not per workload. A backend carries
+the port, so one backend cannot describe a workload that routes on more than
+one — every route after the first would overwrite the port of the ones before
+it, and the workload would answer on whichever port was declared last. The
+first route keeps the workload's own name so a single-routed workload's labels
+do not move. Each router SHALL name its backend explicitly, because a router
+that does not say which of several services it means is not a router that
+selects correctly.
+
+#### Scenario: A workload with several routes gets several backends
+- **WHEN** a workload declares routes on more than one port
+- **THEN** each route derives its own proxy service carrying its own port, and each router names the one it belongs to
 
 Container names SHALL carry the application component. Container names are
 host-global in the container runtime, so a workload-only name such as `server-1`

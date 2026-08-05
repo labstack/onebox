@@ -8,7 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	"bytes"
 	"github.com/labstack/onebox/internal/transport"
+
+	"github.com/compose-spec/compose-go/v2/dotenv"
 )
 
 // Preflight is the phase that needs the target. Generation is local and pure;
@@ -257,16 +260,17 @@ func (p *Spec) RunPreflight(dir string) error {
 // and an `export ` prefix; anything else is ignored.
 func envKeys(data []byte) (present, nonEmpty map[string]bool) {
 	present, nonEmpty = map[string]bool{}, map[string]bool{}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, "export ")
-		eq := strings.IndexByte(line, '=')
-		if eq <= 0 {
-			continue
-		}
-		present[strings.TrimSpace(line[:eq])] = true
-		if strings.TrimSpace(line[eq+1:]) != "" {
-			nonEmpty[strings.TrimSpace(line[:eq])] = true
+	// Compose's parser, so preflight agrees with the runtime about what the
+	// file declares. A hand-rolled scan counted `#API_TOKEN=x` as a declared
+	// key and reported an environment ready that was not.
+	values, err := dotenv.Parse(bytes.NewReader(data))
+	if err != nil {
+		return present, nonEmpty
+	}
+	for key, value := range values {
+		present[key] = true
+		if strings.TrimSpace(value) != "" {
+			nonEmpty[key] = true
 		}
 	}
 	return present, nonEmpty
@@ -278,50 +282,31 @@ func envKeys(data []byte) (present, nonEmpty map[string]bool) {
 // Only the project-wide `runtime.env_files` feed it. Interpolation is a
 // property of the document, not of a container: a per-workload file cannot
 // coherently supply it, because one workload's file would then decide what
-// another workload's copied service parses as. Declared order wins, later over
+// another workload's copied service parses. Declared order wins, later over
 // earlier, which is the same rule the files themselves follow when projected.
 //
 // The values never reach the generated runtime. A referenced source keeps its
 // `${VAR}` verbatim — interpolation is that file's own contract — so what is
 // resolved here is what the parser needs to read the document, not what is
 // written into the artifact or its digest.
+//
+// The parsing is Compose's own. A hand-written dotenv scanner is close enough
+// to look right and wrong in the places that matter — comments, quoting,
+// escapes, and one variable expanding into another — and this contract is
+// specifically that the same files mean the same thing here and when the
+// container runtime reads them on the target. Same files, same parser.
 func (p *Spec) InterpolationEnv() (map[string]string, error) {
 	if p.Runtime == nil || len(p.Runtime.EnvFiles) == 0 {
 		return nil, nil
 	}
-	env := map[string]string{}
+	paths := make([]string, 0, len(p.Runtime.EnvFiles))
 	for _, name := range p.Runtime.EnvFiles {
-		data, err := os.ReadFile(filepath.Join(p.Dir, name))
-		if err != nil {
-			return nil, errf("env_file_unreadable", "runtime.env_files", "",
-				"cannot read the environment file %q: %v", name, err)
-		}
-		for key, value := range envValues(data) {
-			env[key] = value
-		}
+		paths = append(paths, filepath.Join(p.Dir, name))
+	}
+	env, err := dotenv.GetEnvFromFile(map[string]string{}, paths)
+	if err != nil {
+		return nil, errf("env_file_unreadable", "runtime.env_files", "",
+			"cannot read the environment files: %v", err)
 	}
 	return env, nil
-}
-
-// envValues scans dotenv-style bytes into key/value pairs, by the same rule
-// envKeys uses to find the keys.
-func envValues(data []byte) map[string]string {
-	out := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, "export ")
-		eq := strings.IndexByte(line, '=')
-		if eq <= 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:eq])
-		value := strings.TrimSpace(line[eq+1:])
-		// A quoted value keeps its content, not its quotes.
-		if len(value) >= 2 && (value[0] == '"' && value[len(value)-1] == '"' ||
-			value[0] == '\'' && value[len(value)-1] == '\'') {
-			value = value[1 : len(value)-1]
-		}
-		out[key] = value
-	}
-	return out
 }

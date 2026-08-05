@@ -14,6 +14,8 @@ import (
 
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/transport"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 func sealedTestDeployPlan(t *testing.T, createdAt, expiresAt time.Time) DeployPlan {
@@ -913,5 +915,84 @@ func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
 	}
 	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
 		t.Fatalf("a generation change reached a write: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+// A build-sourced workload can be released from a saved plan.
+//
+// Production never builds, so `build:` has no image until whatever built it
+// says what it produced. The plan records that answer. Execution used to load
+// and render the project before applying the plan's pins, so
+// `ob deploy --plan` failed with image_unresolved unless --image was supplied
+// a second time — which defeats the point of a plan being the thing that was
+// reviewed.
+func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
+	fake := serviceFake()
+	built := "ghcr.io/example/app@sha256:" + strings.Repeat("ab", 32)
+
+	// The fixture has siblings — a referenced compose file among them — so the
+	// whole directory travels, not just the project.
+	origin := writeServiceProject(t)
+	dir := t.TempDir()
+	entries, err := os.ReadDir(filepath.Dir(origin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(filepath.Dir(origin), entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, entry.Name()), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configPath := filepath.Join(dir, filepath.Base(origin))
+	source, err := os.ReadFile(origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same project, but the web workload is built rather than pulled.
+	from := "image: ghcr.io/example/app:v1"
+	body := strings.Replace(string(source), from, "build: .", 1)
+	if body == string(source) {
+		t.Skipf("fixture no longer contains %q; update this test", from)
+	}
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	base := time.Date(2026, 7, 12, 18, 0, 0, 0, time.UTC)
+	tick := 0
+	newSvc := func(images app.Images) *Service {
+		return New(Options{
+			ConfigPath: configPath,
+			Images:     images,
+			Now: func() time.Time {
+				tick++
+				return base.Add(time.Duration(tick) * time.Minute)
+			},
+			Connect: func(_ context.Context, _ string) (transport.Transport, error) { return fake, nil },
+		})
+	}
+
+	// Planning supplies what the build produced, as CI would.
+	plan, err := newSvc(app.Images{"web": built}).PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatalf("planning a build-sourced workload with --image must succeed: %v", err)
+	}
+	if plan.Artifact.PinnedImages["web"] == "" {
+		t.Fatal("the plan recorded no image for the built workload; it cannot be released from")
+	}
+
+	// Applying the plan supplies nothing: the plan is the record.
+	approval := approvalForTestPlan(t, &plan)
+	_, err = newSvc(nil).Execute(context.Background(),
+		ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
+	if err != nil && strings.Contains(err.Error(), "image_unresolved") {
+		t.Fatalf("a saved plan must carry the image it pinned: %v", err)
 	}
 }

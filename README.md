@@ -27,10 +27,11 @@ an artifact Onebox generates, digest-bound into the plan, printable with
 `ob preview`, and permanently ejectable with `ob eject`. `ob init` scaffolds a
 project from an existing Compose file to start from.
 
-Start with the [documentation map](docs/README.md). It distinguishes current
-behavior from active OpenSpec proposals. See the [product
-direction](docs/product.md), stable [`onebox.run/v1` project
-schema](docs/schema-v1.md).
+Start with the [command reference](docs/cli.md) to operate it, or the
+[project file guide](docs/schema-v1.md) to write one. The [documentation
+map](docs/README.md) says which documents are authoritative and distinguishes
+shipped behaviour from proposals; [product direction](docs/product.md) gives
+the boundaries.
 
 ## What exists today
 

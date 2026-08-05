@@ -78,6 +78,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "validate",
 		Short: "validate schema, components, and rollability — no side effects",
+		Long:  "Load the project, expand shorthand, apply defaults and the environment's\noverrides, and check every rule the contract states.\n\nContacts nothing and writes nothing. A failure names the field, the line and\nthe constraint; `ob canonical` shows what was understood.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _, err := loadAll(cmd.Context(), g)
 			if err != nil {
@@ -116,6 +117,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	planCmd := &cobra.Command{
 		Use:   "plan",
 		Short: "refresh → rendered diff + pinned images + command list → plan artifact",
+		Long:  "Read the target's current state, render the runtime, pin every image to a\ndigest, and write a plan artifact.\n\nReads the target but changes nothing there. The plan binds the configuration,\nthe rendered runtime, the host state and the pinned images, and expires after\n15 minutes — so a tag that moves afterwards cannot change what is deployed.\nApprove it with `ob approve --plan`, apply it with `ob deploy --plan`.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := resolveImages(); err != nil {
 				return err
@@ -131,6 +133,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	approveCmd := &cobra.Command{
 		Use:   "approve",
 		Short: "create a short-lived approval bound to one exact executable plan",
+		Long:  "Create a short-lived grant bound to one exact plan.\n\nPrompts for confirmation, because approving is a human act: a routine plan\nasks yes or no, and one that touches data asks for the release identifier to\nbe typed back. There is no flag to skip it. Changing or re-planning\ninvalidates the grant. Writes only the grant file; contacts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runApprove(cmd, approvePlanFile, approveOut)
 		},
@@ -145,6 +148,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
+		Long:  "Release: run pre-release jobs, replace workloads behind their health checks,\nverify, and move the current symlink.\n\nThis is the only way an application reaches a host. It takes the deploy lock,\nfences any older runner, journals every phase, drains connections before\nstopping a container, and can roll back. Without --plan it plans inline and\nasks for confirmation; with --plan it applies exactly what was reviewed.\n\nIf it is interrupted, `ob resume` finishes it and `ob abort` reverts it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := resolveImages(); err != nil {
 				return err
@@ -166,6 +170,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
+		Long:  "Prepare a host: install what the deploy needs, create the layout, log in to\nregistries, start the proxy, and start supporting services.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. It does not release the application;\n`ob deploy` does that.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindBootstrap, Force: g.Force,
@@ -181,6 +186,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
+		Long:  "Re-activate the previous release from the directory still on the host.\n\nNothing is pulled and nothing is rebuilt: the previous release's images are\nalready there, which is what makes this fast and available when a registry is\nnot. Refused when a job in the current release declared a data effect that\ncannot be undone by moving a symlink.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindRollback}, "rollback")
 		},
@@ -189,6 +195,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "resume",
 		Short: "continue an interrupted deploy from the journal (fences the old runner)",
+		Long:  "Continue a deploy that was interrupted, from the journal.\n\nFences the runner that stopped so it cannot wake up and act on stale state,\nthen carries on from the last completed phase. Use when the interruption was\nthe runner's — a lost connection, a killed process — rather than the\nrelease's.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindResume}, "resume")
 		},
@@ -197,6 +204,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	abortCmd := &cobra.Command{
 		Use:   "abort",
 		Short: "revert an interrupted deploy to the previous release (migration-gated)",
+		Long:  "Revert an interrupted deploy to the release that was serving before it.\n\nGated on what the interrupted deploy already did: a migration whose effect\ncannot be reversed by re-activating a directory refuses, because reverting\nthe containers would leave them running against data they do not match.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, Force: g.Force}, "abort")
 		},
@@ -207,6 +215,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "status",
 		Short: "recorded versus actual state per workload and service",
+		Long:  "Compare what the host records against what it is actually running, per\nworkload and service.\n\nReads only. Reports the recorded release, each container's release label and\nhealth, replica shortfalls, the proxy, and any incomplete deploy. Exits\nnon-zero on divergence so a script can branch on it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runStatus(cmd, g)
 		},
@@ -216,6 +225,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	auditCmd := &cobra.Command{
 		Use:   "audit",
 		Short: "who deployed what, when, from which SHA — incl. failed runs",
+		Long:  "Who did what, when, and from which revision — including runs whose terminal\nis long gone.\n\nReads the append-only journals on the host. One row per invocation, so a\nrollback appears as its own event rather than hiding inside the release it\nrestored.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {

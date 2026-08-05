@@ -2,9 +2,9 @@
 # One application, one host. Provision, deploy from bare, verify, destroy.
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-APP="$1"; PORT="$2"; PATHQ="$3"; WL="$4"
+APP="$1"; PORT="$2"; PATHQ="$3"; WL="${4:-}"
 NAME="ob-e2e-$APP"
-S=/private/tmp/claude-501/-Users-v-Projects-labstack-onebox/3014aad7-7c6c-4ce6-866d-cd1e81e3b035/scratchpad/vm
+S=${OB_E2E_SCRATCH:-/tmp}
 REPO=/Users/v/Projects/labstack/onebox
 
 cleanup() { hcloud server delete "$NAME" >/dev/null 2>&1; }
@@ -28,8 +28,34 @@ sed "s/root@TARGET/root@$IP/" "$REPO/e2e/apps/$APP.yml" > "$S/$APP.host.yml"
 # fences the runner, journals every phase, drains on handover, and can roll
 # back. There is deliberately no second way to put an application on a host.
 start=$(date +%s)
-out=$(cd "$REPO" && timeout 900 go run ./cmd/ob bootstrap -c "$S/$APP.host.yml" 2>&1 \
-  && timeout 900 go run ./cmd/ob deploy -c "$S/$APP.host.yml" -y 2>&1)
+# Built once. `go run` recompiles per invocation and, worse, `timeout` kills
+# the go wrapper while the real process it started keeps running — a hang then
+# looks like a slow build instead of a stuck command.
+OB="$S/ob"
+(cd "$REPO" && go build -o "$OB" ./cmd/ob) || { echo "  BUILD FAILED"; exit 1; }
+
+# Approval defaults on, so this takes the ceremony the way an operator would:
+# plan, bind a grant to that exact plan, apply both. Deploying is the only path
+# onto a host, and the approved path is the only way through it.
+#
+# The prompt is answered rather than bypassed, because there is no flag to skip
+# it and there should not be. A routine plan asks y/n; one that touches data
+# asks for the release identifier to be typed back, so read the class from the
+# plan and answer what it actually asked.
+approval_answer() {
+  python3 - "$1" <<'PYEOF'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+op = plan.get("operation", {})
+print(op.get("release_id", "") if op.get("approval") in ("strong", "break_glass") else "yes")
+PYEOF
+}
+
+out=$(cd "$REPO" && timeout 900 "$OB" bootstrap -c "$S/$APP.host.yml" 2>&1 \
+  && timeout 900 "$OB" plan -c "$S/$APP.host.yml" --out "$S/$APP.plan.json" 2>&1 \
+  && printf '%s\n' "$(approval_answer "$S/$APP.plan.json")" \
+     | timeout 300 "$OB" approve -c "$S/$APP.host.yml" --plan "$S/$APP.plan.json" --out "$S/$APP.grant.json" 2>&1 \
+  && timeout 900 "$OB" deploy -c "$S/$APP.host.yml" --plan "$S/$APP.plan.json" --approval "$S/$APP.grant.json" -y 2>&1)
 rc=$?
 elapsed=$(( $(date +%s) - start ))
 
@@ -37,6 +63,21 @@ if [ $rc -ne 0 ]; then
   echo "  DEPLOY FAILED after ${elapsed}s: $(echo "$out" | grep '^✗' | head -1)"
   exit 1
 fi
+
+if [ -z "$WL" ]; then
+  WL=$("$OB" canonical -c "$S/$APP.host.yml" --output json 2>/dev/null | python3 -c '
+import json,sys
+doc = json.load(sys.stdin)["document"]
+name, routed = None, None
+for line in doc.splitlines():
+    if line.startswith("  ") and line.endswith(":") and not line.startswith("    "):
+        name = line.strip().rstrip(":")
+    if name and ("domain:" in line or "routes:" in line) and routed is None:
+        routed = name
+print(routed or "")
+')
+fi
+[ -n "$WL" ] || { echo "  could not determine the routed workload"; exit 1; }
 
 # Verify from the host, not inside the container: depending on whichever of
 # curl or wget an image happens to ship is not a property of the deploy.

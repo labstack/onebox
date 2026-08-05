@@ -147,6 +147,15 @@ var drivers = map[string]driver{
 		// The root user is created in `admin`; without this the client tries
 		// to authenticate against the application database and is refused.
 		urlQuery: "authSource=admin",
+		// This is a standalone server. Change streams and multi-document
+		// transactions require a replica set, so an application using either
+		// connects, authenticates, and then fails in its own logs — Rocket.Chat
+		// with "The $changeStream stage is only supported on replica sets".
+		// Configuring one needs a keyfile for internal auth, a one-time
+		// rs.initiate, a health check that waits for PRIMARY rather than for a
+		// ping, and replicaSet= on every connection string. That is a
+		// service-initialisation step this driver model does not have, so the
+		// limitation is documented in the schema guide rather than hidden.
 	},
 	"rabbitmq": {
 		majorUpgradeInPlace: true,

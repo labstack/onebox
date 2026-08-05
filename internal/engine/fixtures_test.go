@@ -73,7 +73,7 @@ func testProject(t *testing.T) *ctypes.Project {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proj, err := compose.LoadBytes(context.Background(), rendered.Bytes, "sample", t.TempDir())
+	proj, err := compose.LoadBytes(context.Background(), rendered.Bytes, "sample", t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

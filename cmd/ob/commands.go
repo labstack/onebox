@@ -59,8 +59,16 @@ func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolv
 	if err != nil {
 		return nil, nil, err
 	}
-	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(g.Env).ComposeProject(), spec.Dir)
+	interpolation, err := spec.InterpolationEnv()
 	if err != nil {
+		return nil, nil, err
+	}
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(g.Env).ComposeProject(), spec.Dir, interpolation)
+	if err != nil {
+		var interpolation *compose.InterpolationError
+		if errors.As(err, &interpolation) {
+			return nil, nil, err
+		}
 		return nil, nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
 	}
 	return resolved, p, nil

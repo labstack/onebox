@@ -98,11 +98,11 @@ func renderDigest(t *testing.T, spec *Spec) string {
 	// The runtime must be something the container engine can actually read.
 	// Freezing only its digest let a generated mount with no target survive as
 	// a stable hash of a file Compose refuses to parse.
-	if _, err := compose.LoadBytes(context.Background(), rendered.Bytes, "frozen", t.TempDir()); err != nil {
+	if _, err := compose.LoadBytes(context.Background(), rendered.Bytes, "frozen", t.TempDir(), nil); err != nil {
 		return "unparseable:" + firstLine(err.Error())
 	}
 	for _, name := range sortedKeys(rendered.Services) {
-		if _, err := compose.LoadBytes(context.Background(), rendered.Services[name], "frozen-"+name, t.TempDir()); err != nil {
+		if _, err := compose.LoadBytes(context.Background(), rendered.Services[name], "frozen-"+name, t.TempDir(), nil); err != nil {
 			return "unparseable-service:" + name + ":" + firstLine(err.Error())
 		}
 	}

@@ -8,10 +8,26 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"path"
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
-	return "docker compose -p " + e.Spec.Name + " -f " + q(remoteComposePath)
+	cmd := "docker compose -p " + e.Spec.Name + " -f " + q(remoteComposePath)
+	// The same files that fed interpolation when the document was parsed feed
+	// it again when Compose reads it here. Without them a `${VAR}` carried in
+	// verbatim from a referenced Compose source resolves to empty on the
+	// target while it resolved to a value at plan time — the document would
+	// then mean something different in the place it actually runs.
+	//
+	// Compose applies repeated --env-file in order, later winning, which is
+	// the order the project declares them in.
+	if e.Spec.Runtime != nil {
+		dir := path.Dir(remoteComposePath)
+		for _, name := range e.Spec.Runtime.EnvFiles {
+			cmd += " --env-file " + q(path.Join(dir, name))
+		}
+	}
+	return cmd
 }
 
 // newcomerIDs finds containers of a specific release — the ob.release label

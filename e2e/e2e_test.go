@@ -79,7 +79,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.Name, dir)
+		p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.Name, dir, nil)
 		if err != nil {
 			return err
 		}

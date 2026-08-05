@@ -68,6 +68,7 @@ var errorCodes = map[string]string{
 	"compose_ingress_attached": "a referenced service already attaches the ingress network",
 
 	// Generation and the target.
+	"env_file_unreadable":      "an environment file the project declares cannot be read",
 	"image_unresolved":         "a build-sourced workload has no resolved image for this release",
 	"render_failed":            "the runtime could not be rendered",
 	"target_unreachable":       "the target could not be reached",

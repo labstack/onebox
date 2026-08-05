@@ -216,3 +216,59 @@ workloads:
 		t.Fatalf("the project should still load: %v", err)
 	}
 }
+
+// Ejection writes the runtime and renames it into place before the project is
+// repointed, so an interruption between the two leaves the project pointing at
+// the generator rather than at a file that may not exist.
+//
+// Re-running after that interruption completes: the workloads still declare
+// their own sources, so the runtime is regenerated over the orphan and the
+// project is repointed. What must not happen is a refusal the author cannot
+// act on, or a project referencing a file that was never placed.
+func TestEjectAfterAnInterruptionCompletes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ob.yml")
+	body := `api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+workloads:
+  web: {role: application, image: nginx, domain: shop.example.com, port: 3000}
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The state a crash between rename and repoint leaves behind: the runtime
+	// is on disk, the project still declares its own source.
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := p.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Eject("compose.yaml", "r1", nil, true)
+	if err != nil {
+		t.Fatalf("re-running after an interruption must complete: %v", err)
+	}
+	if len(res.Workloads) != 1 || res.Workloads[0] != "web" {
+		t.Fatalf("the workload was not handed over: %+v", res.Workloads)
+	}
+	// And no temporary file survives to be mistaken for the runtime.
+	if _, err := os.Stat(filepath.Join(dir, "compose.yaml.ob-tmp")); !os.IsNotExist(err) {
+		t.Error("a temporary runtime was left behind")
+	}
+	// The project now references the file that is actually on disk.
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref := reloaded.Workloads["web"].Compose; ref != "compose.yaml#web" {
+		t.Fatalf("project was not repointed at the placed file: %q", ref)
+	}
+}

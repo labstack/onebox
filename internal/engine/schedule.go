@@ -61,13 +61,15 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		// Validated by the host before anything is installed. The translation
 		// is exact by construction, and this is the check that it stayed exact
 		// against the systemd the target actually runs.
-		check, err := e.T.Run(ctx, "systemd-analyze calendar "+q(job.Calendar)+" >/dev/null 2>&1 && echo ok")
+		expr := calendarExpr(job)
+		check, err := e.T.Run(ctx, "systemd-analyze calendar "+q(expr)+" >/dev/null 2>&1 && echo ok")
 		if err != nil {
 			return err
 		}
 		if strings.TrimSpace(check.Stdout) != "ok" {
-			return fmt.Errorf("job %s: the host rejected the calendar expression %q derived from cron %q",
-				job.Name, job.Calendar, job.Cron)
+			return fmt.Errorf("job %s: the host rejected the calendar expression %q derived from cron %q in %s. "+
+				"A timezone in OnCalendar needs systemd 252 or newer; on an older host, declare the schedule in UTC",
+				job.Name, expr, job.Cron, job.Timezone)
 		}
 
 		service := scheduleServiceUnit(e.Spec.Name, job.Name, n.CurrentLink())
@@ -136,6 +138,15 @@ func scheduleServiceUnit(application, job, currentLink string) string {
 	}, "\n")
 }
 
+// calendarExpr is the one string both the host's validator and the installed
+// unit see, so the expression that was checked is the expression that runs.
+func calendarExpr(job app.ScheduledJob) string {
+	if job.Timezone == "" {
+		return job.Calendar
+	}
+	return job.Calendar + " " + job.Timezone
+}
+
 func scheduleTimerUnit(application string, job app.ScheduledJob) string {
 	return strings.Join([]string{
 		"[Unit]",
@@ -143,8 +154,11 @@ func scheduleTimerUnit(application string, job app.ScheduledJob) string {
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"",
 		"[Timer]",
-		"OnCalendar=" + job.Calendar,
-		"Timezone=" + job.Timezone,
+		// The timezone belongs in the expression. `Timezone=` is not a [Timer]
+		// directive: systemd ignores it silently and evaluates the calendar in
+		// the host's zone, so a job declared for 02:00 Europe/Berlin runs at
+		// 02:00 UTC and nothing anywhere says so.
+		"OnCalendar=" + calendarExpr(job),
 		// A box that was off at 2am still runs the job when it comes back,
 		// which is the behaviour anyone declaring a nightly job expects.
 		"Persistent=true",

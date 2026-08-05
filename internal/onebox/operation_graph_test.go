@@ -81,7 +81,7 @@ api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@h}}
 workloads:
-  web: {role: application, image: x:1, strategy: rolling}
+  web: {role: application, image: x:1, strategy: rolling, health: /healthz}
 deployment: {order: [web]}
 `), "ob.yml")
 	if err != nil {
@@ -117,7 +117,7 @@ api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@h}}
 workloads:
-  web:    {role: application, image: x:1, strategy: rolling}
+  web:    {role: application, image: x:1, strategy: rolling, health: /healthz}
   worker: {role: worker, image: x:1, strategy: recreate}
   migrate: {role: job, image: x:1, command: "echo JOB_SECRET", data_effect: migration}
   assets:  {role: job, image: x:1, data_effect: none}

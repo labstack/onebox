@@ -258,7 +258,10 @@ func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
 			continue
 		}
 		script := client.ClientEnvScript("/s.env", "/c.env", nil)
-		if !strings.Contains(script, tt.want+"\"") {
+		// The database is the last path segment, so it ends the URL or is
+		// followed by a query — mongodb needs authSource to authenticate at
+		// all, and pinning to the closing quote would forbid it.
+		if !strings.Contains(script, tt.want+"\"") && !strings.Contains(script, tt.want+"?") {
 			t.Errorf("%s: the URL selects no database:\n%s", tt.driver, script)
 		}
 	}
@@ -266,7 +269,8 @@ func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
 	for _, driver := range []string{"redis", "valkey", "rabbitmq", "meilisearch", "nats"} {
 		spec := serviceSpec(t, "services: {store: {driver: "+driver+", version: \"1\"}}\n")
 		client, _ := spec.ClientEnvFor("store")
-		if strings.Contains(client.ClientEnvScript("/s.env", "/c.env", nil), "/shop\"") {
+		script := client.ClientEnvScript("/s.env", "/c.env", nil)
+		if strings.Contains(script, "/shop\"") || strings.Contains(script, "/shop?") {
 			t.Errorf("%s has no database and must not name one", driver)
 		}
 	}

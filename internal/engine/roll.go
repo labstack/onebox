@@ -324,7 +324,7 @@ func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interv
 			return nil
 		}
 		if h == "none" && want == "healthy" {
-			return fmt.Errorf("container %s has no healthcheck — rolling requires one (generated from ready:)", id)
+			return fmt.Errorf("container %s has no healthcheck, and rolling waits for one — declare health: on the workload, or strategy: recreate", id)
 		}
 		if e.Opts.Now().After(deadline) {
 			if why := e.healthDiagnosis(ctx, id); why != "" {

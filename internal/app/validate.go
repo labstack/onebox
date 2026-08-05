@@ -203,6 +203,15 @@ func validateWorkload(w Workload, path string) error {
 		if err := checkEnum(rp+".tls", r.TLS, eRouteTLS); err != nil {
 			return err
 		}
+		// Passthrough means the proxy forwards the encrypted stream without
+		// looking at it, which an HTTP router cannot do — it exists to read
+		// the request. Accepting it here would generate a router that quietly
+		// terminates instead, and the backend would answer either way.
+		if r.TLS == "passthrough" && r.Protocol != "tcp" {
+			return errf("project_invalid", rp+".tls", "",
+				"%q requires protocol %q: an http route terminates TLS in order to read the request it routes on",
+				"passthrough", "tcp")
+		}
 	}
 	if err := validateHealth(w.Health, path+".health"); err != nil {
 		return err

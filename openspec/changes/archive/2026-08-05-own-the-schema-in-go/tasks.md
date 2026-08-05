@@ -44,5 +44,5 @@
 
 - [x] 7.1 Update `openspec/config.yaml` to describe how the contract is enforced, removing the statement that CUE provides the schema.
 - [x] 7.2 Update the schema guide to describe the published JSON Schema and how to reference it.
-- [ ] 7.3 Record in the change that the contract did not move, citing the corpus result.
-- [ ] 7.4 Run the full test suite, the race detector, the Docker-gated end-to-end suite, and `openspec validate --all --strict`, then archive.
+- [x] 7.3 Record in the change that the contract did not move, citing the corpus result.
+- [x] 7.4 Run the full test suite, the race detector, the Docker-gated end-to-end suite, and `openspec validate --all --strict`, then archive.

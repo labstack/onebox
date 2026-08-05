@@ -30,6 +30,22 @@ the checking.
 - **WHEN** an undefined field is declared on a workload of any role
 - **THEN** it is rejected, and the failure names the field rather than the role
 
+#### Scenario: Loader-enforced rule is still enforced
+- **WHEN** a project declares top-level shorthand alongside a `workloads` block
+- **THEN** loading fails naming both locations, even though the field model alone accepts it
+
+#### Scenario: Two implementations agree
+- **WHEN** two implementations are given the conformance corpus
+- **THEN** they accept and reject the same projects and produce the same canonical form
+
+#### Scenario: Schema and prose disagree
+- **WHEN** a prose statement in this specification conflicts with the enforced model
+- **THEN** the model governs and the prose is a defect to be corrected
+
+#### Scenario: Default is applied and attributed
+- **WHEN** a project omits a field carrying a default
+- **THEN** the canonical form contains the documented default and reports its origin as a default
+
 ### Requirement: A machine-readable schema is published for editors
 
 Each release SHALL publish a JSON Schema for the authoring contract, generated
@@ -42,11 +58,11 @@ accept and reject exactly what the loader accepts and rejects, and a divergence
 SHALL fail the build. A published schema that disagrees with the enforced one
 teaches an author something untrue and is worse than publishing nothing.
 
-#### Scenario: The published schema matches what is enforced
+#### Scenario: Published schema matches the enforced contract
 - **WHEN** the published schema is run against the conformance corpus
 - **THEN** it accepts and rejects exactly what the loader does
 
-#### Scenario: An editor resolves the schema
+#### Scenario: Scaffolded project references the schema
 - **WHEN** a scaffolded project is opened in an editor supporting `yaml-language-server`
 - **THEN** the schema resolves and completion, hover documentation, and inline errors are available
 

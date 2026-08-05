@@ -107,13 +107,13 @@
 - [x] 13.1 Nothing is released, so there is nothing to convert and no compatibility to keep. The contract was instead exercised against nineteen unrelated real projects, thirteen of them external, whose conversions are recorded under `conversions/`.
 - [x] 13.2 Prove the contract against projects nobody wrote it for, rather than against the four that would have been shaped by it: six deployed one-per-host from bare Ubuntu, and n8n deployed against managed Postgres and Redis.
 - [x] 13.3 Express the shapes the corpus needed — a Compose escape hatch, bind mounts, per-workload env files, non-HTTP routes, published ports — or revise the contract. Each was added because a real project needed it.
-- [ ] 13.4 Deploy the labstack projects when the contract archives. Not a migration: they are authored against it fresh, like anyone else's.
+- [ ] 13.4 Deploy the labstack projects when the contract archives. **Deferred to the owner**: these are authored fresh against the contract by whoever owns them, and this change does not block on it. Not a migration: they are authored against it fresh, like anyone else's.
 
 ## 14. Documentation and archive
 
 - [x] 14.1 Rewrite the schema guide for the declarative contract, describing implemented behavior only, including the field model, roles, routes, overrides, extension keys, the overlay, the layout, path resolution, and ejection.
 - [x] 14.2 Document the evolution rules, including that a scalar form once accepted is accepted permanently.
-- [ ] 14.3 Update `README.md` and `docs/README.md` with the breaking change and the conversion requirement.
-- [ ] 14.4 Update `docs/product.md` to state the ownership boundary as product direction, without claiming unimplemented capability.
+- [x] 14.3 Update `README.md` and `docs/README.md` with the breaking change and the conversion requirement.
+- [x] 14.4 Update `docs/product.md` to state the ownership boundary as product direction, without claiming unimplemented capability.
 - [x] 14.5 Withdraw `managed-service-operation-contract` rather than re-basing it: its premise (a managed layer over the classifier) and its MCP-primary framing are both gone. Archived unedited with a note recording what now ships and what is still unbuilt.
-- [ ] 14.6 Run the full test suite, the race detector, the Docker-gated end-to-end suite, `just diagrams-check`, and `openspec validate --all --strict`, then archive.
+- [x] 14.6 Run the full test suite, the race detector, the Docker-gated end-to-end suite, `just diagrams-check`, and `openspec validate --all --strict`, then archive.

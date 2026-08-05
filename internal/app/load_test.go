@@ -204,8 +204,7 @@ func TestOverLongNameRefused(t *testing.T) {
 // TestConversionDrafts loads every draft recorded for tasks 1.1-1.3. These are
 // real projects: five here and eight open-source.
 func TestConversionDrafts(t *testing.T) {
-	dir := filepath.Join("..", "..", "openspec", "changes",
-		"adopt-declarative-project-schema", "conversions")
+	dir := filepath.Join("testdata", "corpus")
 	files, err := filepath.Glob(filepath.Join(dir, "*.yml"))
 	if err != nil || len(files) == 0 {
 		t.Skipf("no conversion drafts found in %s", dir)

@@ -183,6 +183,15 @@ Drivers: `postgres`, `mysql`, `mariadb`, `redis`, `valkey`, `mongodb`,
 refused — guessing an image from a name produces a container that starts and
 stores nothing durable. Run it as a `daemon` workload instead and you own it.
 
+**`mongodb` runs a standalone server, not a replica set.** Change streams and
+multi-document transactions need one, and an application that uses either will
+connect, authenticate, and then fail — Rocket.Chat reports `The $changeStream
+stage is only supported on replica sets`. Onebox does not configure a replica
+set, so an application that needs one wants a `daemon` workload it owns. This
+is a limitation of the driver rather than of the contract, and it is stated
+here because the failure appears in the application's logs rather than in
+anything Onebox says.
+
 Three properties hold:
 
 - **A service outlives every release.** It runs in its own Compose project, so

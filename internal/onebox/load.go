@@ -163,13 +163,24 @@ func durableVolumeNames(w app.Workload) []string {
 // contract allows several providers; only SOPS has an implementation, and a
 // project declaring another gets nothing rather than a silent fallback to a
 // file it did not name.
-func sopsSource(r *app.Resolved) string {
-	for _, name := range sortedNames(r.Secrets) {
-		if s := r.Secrets[name]; s.Provider == "sops" {
-			return s.File
+// encryptedEntries are the document-scope entries a release must decrypt.
+//
+// This replaces a function that returned one file, chosen by sorting the
+// declared secrets by name. A project declaring two got whichever sorted first,
+// which is how one environment's credentials reached another. There is nothing
+// to choose now: the list is the answer, in the order it was written.
+func encryptedEntries(r *app.Resolved) []app.EnvFile {
+	var out []app.EnvFile
+	seen := map[string]bool{}
+	for _, w := range r.Spec.Workloads {
+		for _, entry := range r.Spec.EnvFilesFor(w) {
+			if entry.Encrypted() && !seen[entry.File] {
+				seen[entry.File] = true
+				out = append(out, entry)
+			}
 		}
 	}
-	return ""
+	return out
 }
 
 func sortedNames[V any](m map[string]V) []string {

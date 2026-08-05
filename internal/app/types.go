@@ -9,12 +9,13 @@
 // trip over there.
 //
 // The pipeline is fixed and its order is load-bearing: parse, expand shorthand,
-// validate against the embedded CUE schema, then apply cross-field rules the
-// schema cannot express. Expansion runs before validation because the schema
-// describes the normalised form — a discriminator left to a default keeps every
-// branch of a CUE disjunction alive, so `role` must be present before the
-// schema sees it.
+// check closedness against this model, decode, apply defaults, validate, then
+// apply cross-field rules a field model cannot express. Expansion runs before
+// validation because the rules describe the normalised form: `role` must be
+// present before anything reasons about it.
 package app
+
+import "strings"
 
 // Spec is the normalised form of a project file. Every field is concrete:
 // defaults have been applied by the schema and shorthand has been expanded, so
@@ -35,14 +36,19 @@ type Spec struct {
 	Workloads    map[string]Workload    `json:"workloads,omitempty"`
 	Services     map[string]Service     `json:"services,omitempty"`
 
-	Deployment    Deployment              `json:"deployment"`
-	Runtime       *Runtime                `json:"runtime,omitempty"`
+	Deployment Deployment `json:"deployment"`
+	Runtime    *Runtime   `json:"runtime,omitempty"`
+
+	// envDefault is the selected environment's list, carried onto the resolved
+	// clone so generation resolves without having to know which environment it
+	// is rendering. Unexported: it is not a field of the contract, and the
+	// closedness check reads the contract's fields from these tags.
+	envDefault    []EnvFile
 	Hooks         map[string]Command      `json:"hooks,omitempty"`
 	Verification  []Verification          `json:"verification,omitempty"`
 	Notifications map[string]Notification `json:"notifications,omitempty"`
 	Registries    map[string]Registry     `json:"registries,omitempty"`
 	Proxy         Proxy                   `json:"proxy"`
-	Secrets       map[string]Secret       `json:"secrets,omitempty"`
 	Observability *Observability          `json:"observability,omitempty"`
 
 	// rawExpanded is the authored input after shorthand expansion, kept so a
@@ -56,8 +62,14 @@ type Spec struct {
 }
 
 type Environment struct {
-	Server    Server     `json:"server"`
-	BasePath  string     `json:"base_path,omitempty"`
+	Server   Server `json:"server"`
+	BasePath string `json:"base_path,omitempty"`
+	// EnvFiles is this environment's default list. It sits on the environment
+	// rather than in an environment-scoped `runtime` block for the same reason
+	// base_path does: an environment restating a project-level default is an
+	// established shape here, and one field does not justify a second place
+	// environments carry runtime settings.
+	EnvFiles  []EnvFile  `json:"env_files,omitempty"`
 	Policy    Policy     `json:"policy"`
 	Overrides *Overrides `json:"overrides,omitempty"`
 }
@@ -102,7 +114,7 @@ type Workload struct {
 	Drain       *Drain          `json:"drain,omitempty"`
 	Resources   *Resources      `json:"resources,omitempty"`
 	Env         map[string]any  `json:"env,omitempty"`
-	EnvFiles    []string        `json:"env_files,omitempty"`
+	EnvFiles    []EnvFile       `json:"env_files,omitempty"`
 	Volumes     []Volume        `json:"volumes,omitempty"`
 	Ports       []PublishedPort `json:"ports,omitempty"`
 	Persistence *Persistence    `json:"persistence,omitempty"`
@@ -230,7 +242,7 @@ type Deployment struct {
 }
 
 type Runtime struct {
-	EnvFiles  []string    `json:"env_files,omitempty"`
+	EnvFiles  []EnvFile   `json:"env_files,omitempty"`
 	Preflight []Preflight `json:"preflight,omitempty"`
 }
 
@@ -291,9 +303,34 @@ type Proxy struct {
 	CertResolver string `json:"cert_resolver,omitempty"`
 }
 
-type Secret struct {
-	Provider string `json:"provider"`
+// EnvFile is one contributor of environment values.
+//
+// A plaintext file and an encrypted one differ in how the bytes are obtained
+// and in nothing else — not in who receives them, not in how they compose, not
+// in where they may be declared. They were two mechanisms with two sets of
+// rules, and the rules disagreed. One entry type, and `provider` says how to
+// read it.
+type EnvFile struct {
 	File     string `json:"file"`
+	Provider string `json:"provider,omitempty"`
+}
+
+// Encrypted reports whether the entry needs decrypting before it can be read.
+func (e EnvFile) Encrypted() bool { return e.Provider != "" }
+
+// StagedPath is where the container runtime reads the entry from, relative to
+// the release directory the generated document sits in.
+//
+// A plaintext entry is staged at its own repository path, so the generated
+// runtime names what the author wrote. An encrypted entry is decrypted into a
+// file beside it, named from the entry rather than shared, because two
+// encrypted entries in one list are two files and a single shared name would
+// silently make the later one win outright instead of key by key.
+func (e EnvFile) StagedPath() string {
+	if !e.Encrypted() {
+		return e.File
+	}
+	return ".ob-decrypted-" + strings.ReplaceAll(e.File, "/", "-") + ".env"
 }
 
 type Observability struct {

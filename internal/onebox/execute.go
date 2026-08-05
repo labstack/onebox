@@ -152,12 +152,16 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID, request.Force)
 	case KindSecretsPush:
-		if sopsSource(lp.resolved) == "" {
-			err = errors.New("no secrets.sops source declared")
+		entries := encryptedEntries(lp.resolved)
+		if len(entries) == 0 {
+			err = errors.New("no encrypted env_files entry declared")
 			break
 		}
+		// Pushing refreshes every encrypted entry the release carries. The
+		// engine takes one payload today, so this is the first entry; the rest
+		// are handled when staging is reworked to push per entry.
 		var envBytes []byte
-		envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), sopsSource(lp.resolved))
+		envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entries[0].File)
 		if err == nil {
 			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, envBytes)
 		}

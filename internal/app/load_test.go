@@ -64,7 +64,11 @@ func conformanceCases() []conformanceCase {
 		// deterministic: an author fixing one thing at a time must not see the
 		// order change under them.
 		{"multiple violations", wl("w: {image: nginx, replicaz: 3, strategy: sideways, role: sidecar}"), false},
-		{"secret as scalar path", min + "secrets: {production: secrets.yaml}\n", true},
+		{"the withdrawn secrets block", min + "secrets: {production: secrets.yaml}\n", false},
+		{"encrypted env file entry", min + "runtime: {env_files: [{file: secrets.env, provider: sops}]}\n", true},
+		{"unknown env file provider", min + "runtime: {env_files: [{file: s.env, provider: vault}]}\n", false},
+		{"env file entry without a file", min + "runtime: {env_files: [{provider: sops}]}\n", false},
+		{"environment-scoped env files", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
 		{"verification workload without probe", min + "verification: [{workload: ledger}]\n", false},
 		{"verification url with exec", min + "verification: [{url: \"https://x/\", exec: \"echo\"}]\n", false},
 		{"verification url contains advisory", min + "verification: [{url: \"https://x/\", contains: \"<div\", advisory: true}]\n", true},

@@ -310,8 +310,8 @@ func (p *Spec) InterpolationEnv() (map[string]string, error) {
 		return nil, nil
 	}
 	paths := make([]string, 0, len(p.Runtime.EnvFiles))
-	for _, name := range p.Runtime.EnvFiles {
-		paths = append(paths, filepath.Join(p.Dir, name))
+	for _, entry := range p.Runtime.EnvFiles {
+		paths = append(paths, filepath.Join(p.Dir, entry.File))
 	}
 	env, err := dotenv.GetEnvFromFile(map[string]string{}, paths)
 	if err != nil {
@@ -332,11 +332,11 @@ func (p *Spec) envContextBefore(dir, file string) map[string]string {
 		return nil
 	}
 	var preceding []string
-	for _, name := range p.Runtime.EnvFiles {
-		if name == file {
+	for _, entry := range p.Runtime.EnvFiles {
+		if entry.File == file {
 			break
 		}
-		preceding = append(preceding, filepath.Join(dir, name))
+		preceding = append(preceding, filepath.Join(dir, entry.File))
 	}
 	if len(preceding) == 0 {
 		return nil

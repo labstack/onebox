@@ -153,13 +153,13 @@ func TestEnvFilesAreNotProjectedIntoDaemons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.envFilesFor(p.Workloads["web"]); len(got) != 1 || got[0] != ".env.production" {
+	if got := p.EnvFilesFor(p.Workloads["web"]); len(got) != 1 || got[0].File != ".env.production" {
 		t.Errorf("application env files = %v, want the project list", got)
 	}
-	if got := p.envFilesFor(p.Workloads["worker"]); len(got) != 1 {
+	if got := p.EnvFilesFor(p.Workloads["worker"]); len(got) != 1 {
 		t.Errorf("worker env files = %v, want the project list", got)
 	}
-	if got := p.envFilesFor(p.Workloads["db"]); len(got) != 0 {
+	if got := p.EnvFilesFor(p.Workloads["db"]); len(got) != 0 {
 		t.Errorf("daemon env files = %v, want none", got)
 	}
 }
@@ -173,8 +173,8 @@ func TestWorkloadEnvFilesOverrideProjectList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := p.envFilesFor(p.Workloads["worker"])
-	if len(got) != 1 || got[0] != "worker/.env" {
+	got := p.EnvFilesFor(p.Workloads["worker"])
+	if len(got) != 1 || got[0].File != "worker/.env" {
 		t.Fatalf("worker env files = %v, want only its own", got)
 	}
 }

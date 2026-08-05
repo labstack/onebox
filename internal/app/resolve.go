@@ -21,6 +21,11 @@ import (
 var (
 	overridableWorkload = map[string]bool{
 		"replicas": true, "resources": true, "env": true, "strategy": true, "routes": true,
+		// Which files a workload reads cannot change which artifact runs or what
+		// it does to data. Without it a workload declaring its own list — which
+		// every daemon holding a credential must — is pinned to one
+		// environment's values across all of them.
+		"env_files": true,
 	}
 	overridableService = map[string]bool{
 		"resources": true, "settings": true,
@@ -62,6 +67,10 @@ func (p *Spec) Resolve(env string) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The selected environment's default travels with the clone, so generation
+	// resolves a workload's list without having to be told which environment it
+	// is rendering.
+	clone.envDefault = e.EnvFiles
 	out := &Resolved{Spec: clone, Env: env, Origins: map[string]Origin{}}
 	if e.Overrides == nil {
 		return out, nil
@@ -189,7 +198,18 @@ func isMapping(v any) bool {
 	return ok
 }
 
+// deepCopy round-trips through JSON, which is exact for everything except an
+// explicitly empty list: `omitempty` drops it on the way out and it returns as
+// absent. Those two states mean different things here — "receives none" versus
+// "did not say" — so the empties are recorded before the copy and restored
+// after it.
 func (p *Spec) deepCopy() (*Spec, error) {
+	declaredEmpty := map[string]bool{}
+	for name, w := range p.Workloads {
+		if w.EnvFiles != nil && len(w.EnvFiles) == 0 {
+			declaredEmpty[name] = true
+		}
+	}
 	b, err := json.Marshal(p)
 	if err != nil {
 		return nil, errf("internal_copy_failed", "", "", "cannot copy project: %v", err)
@@ -197,6 +217,11 @@ func (p *Spec) deepCopy() (*Spec, error) {
 	var out Spec
 	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, errf("internal_copy_failed", "", "", "cannot copy project: %v", err)
+	}
+	for name := range declaredEmpty {
+		w := out.Workloads[name]
+		w.EnvFiles = []EnvFile{}
+		out.Workloads[name] = w
 	}
 	out.Dir = p.Dir
 	// Without these a resolved project has no memory of what was authored, and

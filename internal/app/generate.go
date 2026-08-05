@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/labstack/onebox/internal/secrets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -271,8 +270,10 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	// then the managed-service connections — a generated credential is the
 	// only thing that can actually open the service it describes, so nothing
 	// authored is allowed to shadow it.
-	files := p.envFilesFor(w)
-	files = append(files, p.secretsFileFor(w)...)
+	var files []string
+	for _, entry := range p.EnvFilesFor(w) {
+		files = append(files, entry.StagedPath())
+	}
 	files = append(files, p.serviceClientFiles(n, name, w)...)
 	if len(files) > 0 {
 		svc["env_file"] = files
@@ -396,12 +397,33 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 // list for applications and workers only. A daemon never receives project-wide
 // files: it is a database or a cron runner, not the application, and projecting
 // the application's secrets into it was the failure this rule exists to prevent.
-func (p *Spec) envFilesFor(w Workload) []string {
-	if len(w.EnvFiles) > 0 {
+// envFilesFor resolves one workload's list.
+//
+// Most specific wins: the workload's own declaration, else the environment's
+// default, else the project's. An environment override has already been applied
+// to the workload by resolution, so it arrives here as the workload's own.
+//
+// A declared empty list is not an absent one. `nil` means the workload said
+// nothing and takes the next default; a non-nil empty list means it declared
+// that it receives none, which was previously inexpressible.
+//
+// The role gate governs only the default. It admits the workload roles that are
+// the application's own and excludes a `daemon`, whose configuration is its
+// own — but a daemon that declares a list receives exactly it, because the gate
+// never reaches an explicit declaration.
+//
+// What it does not consult is the workload's source. An application adopted
+// from a Compose file resolves what an application declared inline resolves;
+// the source decides where the container comes from, not what it is told.
+func (p *Spec) EnvFilesFor(w Workload) []EnvFile {
+	if w.EnvFiles != nil {
 		return w.EnvFiles
 	}
-	if w.Role != RoleApplication && w.Role != RoleWorker {
+	if !roleTakesTheDefault(w.Role) {
 		return nil
+	}
+	if p.envDefault != nil {
+		return p.envDefault
 	}
 	if p.Runtime == nil {
 		return nil
@@ -409,24 +431,10 @@ func (p *Spec) envFilesFor(w Workload) []string {
 	return p.Runtime.EnvFiles
 }
 
-// secretsFileFor references the decrypted secrets staged into the release.
-//
-// The file is rendered from SOPS at plan time and refreshed by `secrets push`,
-// but nothing referenced it, so every declared secret was shipped to the host
-// and never reached a container. It is named relative to the compose file,
-// which is the release directory it is staged into, and it is emitted only
-// when a secret is declared — Compose refuses to start against an env_file
-// that is not there.
-func (p *Spec) secretsFileFor(w Workload) []string {
-	if w.Role != RoleApplication && w.Role != RoleWorker {
-		return nil
-	}
-	for _, s := range p.Secrets {
-		if s.Provider == "sops" {
-			return []string{secrets.EnvFileName}
-		}
-	}
-	return nil
+// roleTakesTheDefault is the gate, in one place so it cannot drift between the
+// paths that ask it.
+func roleTakesTheDefault(role string) bool {
+	return role == RoleApplication || role == RoleWorker || role == RoleJob
 }
 
 // routeLabels emits the exact routing keys the overlay contract enumerates.

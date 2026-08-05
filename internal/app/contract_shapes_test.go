@@ -70,9 +70,10 @@ func TestEveryShorthandEqualsItsObjectForm(t *testing.T) {
 			"environments: {production: {server: root@h}}\nimage: nginx\nhooks: {post_deploy: \"echo hi\"}\n",
 			"environments: {production: {server: root@h}}\nimage: nginx\nhooks: {post_deploy: {run: \"echo hi\"}}\n",
 		},
-		"secret": {
-			"environments: {production: {server: root@h}}\nimage: nginx\nsecrets: {production: secrets.yaml}\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\nsecrets: {production: {file: secrets.yaml}}\n",
+		// An env_files entry is a path or an object naming the same path.
+		"env file entry": {
+			"environments: {production: {server: root@h}}\nimage: nginx\nruntime: {env_files: [.env]}\n",
+			"environments: {production: {server: root@h}}\nimage: nginx\nruntime: {env_files: [{file: .env}]}\n",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

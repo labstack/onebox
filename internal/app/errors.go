@@ -69,6 +69,7 @@ var errorCodes = map[string]string{
 
 	// Generation and the target.
 	"env_file_unreadable":      "an environment file the project declares cannot be read",
+	"secrets_withdrawn":        "the withdrawn secrets block; environment files carry encrypted entries now",
 	"image_unresolved":         "a build-sourced workload has no resolved image for this release",
 	"render_failed":            "the runtime could not be rendered",
 	"target_unreachable":       "the target could not be reached",

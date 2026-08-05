@@ -153,14 +153,6 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		}
 		p.Notifications[name] = n
 	}
-	for name := range p.Secrets {
-		s := p.Secrets[name]
-		if s.Provider == "" {
-			s.Provider = "sops"
-			mark("secrets." + name + ".provider")
-		}
-		p.Secrets[name] = s
-	}
 	// Every remaining default is the zero value — advisory false, migration
 	// backup not required — and needs no assignment. A check that cannot fail
 	// a deploy has to be asked for; the alternative is a suite that proves

@@ -89,7 +89,8 @@ workloads: {web: {role: application, build: ., domain: d.example.com, port: 80}}
 		t.Fatal("expected a build-sourced workload with no image to fail")
 	}
 	combined := out + err.Error()
-	for _, want := range []string{"image_unresolved", "workloads.web", "ob release"} {
+	// The hint has to name a command that exists and resolves the failure.
+	for _, want := range []string{"image_unresolved", "workloads.web", "--image web="} {
 		if !strings.Contains(combined, want) {
 			t.Errorf("failure should carry %q:\n%s", want, combined)
 		}

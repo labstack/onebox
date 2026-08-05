@@ -35,11 +35,17 @@ type Options struct {
 	// output stream, verbosity, and break-glass flags.
 	EngineOptions engine.Options
 	Runner        buildinfo.Runner
+	// Images resolves build-sourced workloads to the reference whatever built
+	// them produced. Production never builds, so a workload declaring `build:`
+	// has no image until one is supplied here — and without it the project
+	// cannot be rendered at all, let alone planned.
+	Images app.Images
 }
 
 type Service struct {
 	configPath   string
 	environment  string
+	images       app.Images
 	now          func() time.Time
 	connect      Connector
 	entropy      io.Reader
@@ -87,7 +93,8 @@ func New(opts Options) *Service {
 	}
 	return &Service{
 		configPath: opts.ConfigPath, environment: opts.Environment,
-		now: opts.Now, connect: opts.Connect, entropy: opts.Entropy,
+		images: opts.Images,
+		now:    opts.Now, connect: opts.Connect, entropy: opts.Entropy,
 		engineOpts: opts.EngineOptions, runner: opts.Runner,
 	}
 }

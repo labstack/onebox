@@ -45,7 +45,7 @@ type loadedProject struct {
 // whose images are not built yet still has a shape worth reporting. Every
 // execution path passes false and fails closed on an unresolved image.
 func (s *Service) loadProject(ctx context.Context, lenient bool) (*loadedProject, error) {
-	return loadProjectAt(ctx, s.configPath, s.environment, lenient, nil)
+	return loadProjectAt(ctx, s.configPath, s.environment, lenient, s.images)
 }
 
 func loadProjectAt(ctx context.Context, configPath, environment string, lenient bool, images app.Images) (*loadedProject, error) {

@@ -28,7 +28,7 @@ func TestBootstrapSequence(t *testing.T) {
 		"mkdir -p", // dirs
 		"apt-get install -y something-host-specific",         // bootstrap hook
 		"docker login 'ghcr.io' -u 'vishr' --password-stdin", // registry (stdin, quoted)
-		"docker compose -p 'ob_sample_postgres'",             // accessories
+		"docker compose -p 'ob_sample_postgres'",             // services
 	}
 	last := -1
 	for _, want := range ordered {
@@ -111,7 +111,7 @@ func TestBootstrapFailsEarlyWithoutPassword(t *testing.T) {
 	}
 }
 
-func TestBootstrapEnsuresManagedProxyBeforeAccessories(t *testing.T) {
+func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	ps := proxyPS(f, false)
@@ -149,7 +149,7 @@ func TestBootstrapEnsuresManagedProxyBeforeAccessories(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", want, seq)
 		}
 		if i < last {
-			t.Fatalf("%q out of order (proxy must precede accessories):\n%s", want, seq)
+			t.Fatalf("%q out of order (proxy must precede services):\n%s", want, seq)
 		}
 		last = i
 	}

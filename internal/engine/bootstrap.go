@@ -13,7 +13,7 @@ import (
 // Bootstrap performs first contact: base directories → the user's bootstrap
 // hook (host-specific provisioning — docker install, tailscale, data dirs —
 // stays the operator's, config management is a non-goal) → registry login →
-// push a release dir → start accessories from it. Never activates; after
+// push a release dir → start services from it. Never activates; after
 // bootstrap every deploy is a pure release.
 func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir string) error {
 	// Several registries may be declared; a login is attempted for each that
@@ -89,7 +89,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 	}
 
-	// managed proxy before accessories: role containers join its network, and
+	// managed proxy before services: role containers join its network, and
 	// preflight asserts it healthy from the first deploy on. EnsureProxy takes
 	// the HOST lock internally (own-app lock is already held — safe order).
 	if e.Spec.Proxy.Managed {

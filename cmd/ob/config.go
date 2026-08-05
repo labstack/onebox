@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-// `ob config` answers "what did you make of this". A project file shows what
+// `ob canonical` answers "what did you make of this". A project file shows what
 // was typed; it cannot show that a value is what it is because nobody said
 // otherwise, or because an environment override says so.
 func addConfigCommand(root *cobra.Command, g *globalFlags) {

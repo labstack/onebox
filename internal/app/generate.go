@@ -718,7 +718,7 @@ const inspectionKey = "ob inspection"
 // a placeholder and is named in Unresolved, instead of failing the whole
 // rendering.
 //
-// Reading and running are separated because they fail differently. `ob up`
+// Reading and running are separated because they fail differently. `ob deploy`
 // must refuse a project whose image nobody has built; `ob status` must still
 // be able to say what that project consists of. Collapsing the two either
 // makes status useless before the first release or lets a placeholder reach a

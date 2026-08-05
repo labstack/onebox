@@ -7,7 +7,7 @@ import (
 )
 
 // Resolution applies one environment's overrides to the project. Everything
-// downstream — generation, planning, `ob config` — works from a resolved
+// downstream — generation, planning, `ob canonical` — works from a resolved
 // project, so nothing has to ask which environment a value came from.
 //
 // An override may change how much of something runs. It may not change what

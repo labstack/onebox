@@ -67,7 +67,7 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 			t.Fatalf("scaffold missing %q:\n%s", want, y)
 		}
 	}
-	for _, unsupportedField := range []string{"components:", "roles:", "accessories:", "jobs:"} {
+	for _, unsupportedField := range []string{"components:", "roles:", "services:", "jobs:"} {
 		if strings.Contains(y, unsupportedField) {
 			t.Fatalf("scaffold must not emit unsupported field %q:\n%s", unsupportedField, y)
 		}

@@ -62,6 +62,10 @@ func TestServiceApplyConvergesUnderRegime(t *testing.T) {
 			t.Fatalf("converge not fenced: %s", c)
 		}
 	}
+	// The journal phase stays "accessory-apply": it is written into append-only
+	// journals on real hosts, and renaming it would make every existing record
+	// unreadable to the reader that maps it. Only what an operator reads was
+	// renamed; `ob audit` presents this as "service apply".
 	if !strings.Contains(seq, `"phase":"accessory-apply"`) {
 		t.Fatalf("not journaled:\n%s", seq)
 	}

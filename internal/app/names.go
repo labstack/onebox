@@ -158,6 +158,21 @@ func (n Names) ProxyService(workload string) string {
 	return join(n.App, workload)
 }
 
+// ProxyServiceFor is the Traefik backend for one route.
+//
+// A workload may declare several routes on different ports, and a backend
+// carries the port — so one backend per workload cannot describe them. Every
+// route after the first would overwrite the port of the ones before it, and
+// the whole workload would answer on whichever port happened to be declared
+// last. Route zero keeps the workload's own name so a single-routed workload's
+// labels do not move.
+func (n Names) ProxyServiceFor(workload string, route int) string {
+	if route == 0 {
+		return n.ProxyService(workload)
+	}
+	return join(n.App, workload, fmt.Sprintf("r%d", route))
+}
+
 // AppDir, ReleasesDir, ReleaseDir, CurrentLink and HostDir are the remote layout.
 func (n Names) AppDir() string      { return path.Join(n.BasePath, n.App) }
 func (n Names) ReleasesDir() string { return path.Join(n.AppDir(), "releases") }

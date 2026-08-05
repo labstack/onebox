@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -27,7 +28,13 @@ func (w Workload) Mode() string {
 	if w.Strategy != "" {
 		return w.Strategy
 	}
-	if w.Role == RoleApplication {
+	// Rolling means: stand the newcomer up, wait for it to report healthy,
+	// then retire an old one. A workload with no health check has nothing to
+	// wait for — Docker reports its health as "none" forever — so defaulting
+	// an application to rolling made the documented smallest project
+	// undeployable. It gets recreate instead, and `ob canonical` shows the
+	// choice with `# default` beside it.
+	if w.Role == RoleApplication && w.Health != nil {
 		return "rolling"
 	}
 	return "recreate"
@@ -257,9 +264,18 @@ func (p *Spec) Environment(name string) (Environment, error) {
 // Target is the SSH destination for this environment, in the form the
 // transport accepts.
 func (e Environment) Target() string {
-	addr := e.Server.Host
-	if e.Server.User != "" {
-		addr = e.Server.User + "@" + addr
+	host := e.Server.Host
+	// Bracketed so an IPv6 literal's own colons are not read as the port
+	// separator. Without the port the transport silently uses 22, and a host
+	// that only listens on 2222 reports itself unreachable.
+	if e.Server.Port != 0 {
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		host = fmt.Sprintf("%s:%d", host, e.Server.Port)
 	}
-	return addr
+	if e.Server.User != "" {
+		return e.Server.User + "@" + host
+	}
+	return host
 }

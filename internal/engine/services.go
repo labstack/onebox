@@ -108,16 +108,24 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 		}
 		st(nil)
 
-		// Recorded only after the service reports healthy, because the fact
-		// worth keeping is which version successfully opened the data
-		// directory — not which image was last started.
-		if healthy, err := e.serviceIsHealthy(ctx, name); err != nil {
+		// A service that never reaches health is a failure, not a service
+		// whose version went unrecorded. Reporting success here would hand
+		// the caller a dependency nothing can use, and the application that
+		// needs it would be the thing that finally says so.
+		healthy, last, err := e.serviceIsHealthy(ctx, name)
+		if err != nil {
 			return err
-		} else if healthy {
-			if err := e.writeServiceFile(ctx, n.ServiceVersionFile(name),
-				[]byte(e.Spec.DeclaredVersion(name)+"\n")); err != nil {
-				return fmt.Errorf("service %s: cannot record its version: %w", name, err)
-			}
+		}
+		if !healthy {
+			return fmt.Errorf("service %s did not become healthy within %s (last: %s)",
+				name, serviceHealthBudget, last)
+		}
+		// Recorded only after health, because the fact worth keeping is which
+		// version successfully opened the data directory — not which image
+		// was last started.
+		if err := e.writeServiceFile(ctx, n.ServiceVersionFile(name),
+			[]byte(e.Spec.DeclaredVersion(name)+"\n")); err != nil {
+			return fmt.Errorf("service %s: cannot record its version: %w", name, err)
 		}
 	}
 	return nil
@@ -126,28 +134,34 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 // serviceIsHealthy waits briefly for a just-started service to report health.
 // A driver with no health check reports "none", which is as strong a statement
 // as it can make and is treated as running.
-func (e *Engine) serviceIsHealthy(ctx context.Context, name string) (bool, error) {
-	deadline := e.Opts.Now().Add(90 * time.Second)
+func (e *Engine) serviceIsHealthy(ctx context.Context, name string) (bool, string, error) {
+	deadline := e.Opts.Now().Add(serviceHealthBudget)
+	last := "no container"
 	for {
 		id, err := e.serviceContainerID(ctx, name)
 		if err != nil {
-			return false, err
+			return false, last, err
 		}
 		if id != "" {
 			h, err := e.healthOf(ctx, id)
 			if err != nil {
-				return false, err
+				return false, last, err
 			}
+			last = h
 			if h == "healthy" || h == "none" {
-				return true, nil
+				return true, h, nil
 			}
 		}
 		if e.Opts.Now().After(deadline) {
-			return false, nil
+			return false, last, nil
 		}
 		e.Opts.Sleep(2 * time.Second)
 	}
 }
+
+// serviceHealthBudget is how long a supporting service has to come up before
+// the run reports it as failed.
+const serviceHealthBudget = 90 * time.Second
 
 // ensureServiceSecret generates the credential and the connection file the
 // first time, and leaves both alone afterwards.
@@ -259,10 +273,14 @@ func (e *Engine) removeServices(ctx context.Context, removeVolumes bool) error {
 			if !validID.MatchString(id) {
 				continue
 			}
+			// Fail closed. Continuing would delete the schedules, the state
+			// directory and the credential while the service is still live —
+			// and then report a clean teardown.
 			if res, err := e.mutate(ctx, "docker rm -f "+id); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
-				e.warnf("service %s: remove container %s failed: %s", name, id, strings.TrimSpace(res.Stderr))
+				return fmt.Errorf("service %s: cannot remove container %s: %s — nothing further was destroyed",
+					name, id, strings.TrimSpace(res.Stderr))
 			}
 		}
 		if !removeVolumes {
@@ -279,10 +297,13 @@ func (e *Engine) removeServices(ctx context.Context, removeVolumes bool) error {
 			}
 		}
 		if len(keep) > 0 {
+			// --volumes was asked for explicitly, so a volume left behind is
+			// a destroy that did not do what it said.
 			if res, err := e.mutate(ctx, "docker volume rm "+strings.Join(keep, " ")); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
-				e.warnf("service %s: volume rm: %s", name, strings.TrimSpace(res.Stderr))
+				return fmt.Errorf("service %s: cannot remove volume: %s — nothing further was destroyed",
+					name, strings.TrimSpace(res.Stderr))
 			}
 		}
 	}

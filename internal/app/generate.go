@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/labstack/onebox/internal/secrets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -262,7 +263,13 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	// connection string never appears in the project, the rendered runtime or
 	// the digest — and an application gets its database URL without anyone
 	// copying a password into a repository.
+	// Order is precedence: Compose applies each env_file over the ones before
+	// it. Declared environment files come first, then the decrypted secrets,
+	// then the managed-service connections — a generated credential is the
+	// only thing that can actually open the service it describes, so nothing
+	// authored is allowed to shadow it.
 	files := p.envFilesFor(w)
+	files = append(files, p.secretsFileFor(w)...)
 	files = append(files, p.serviceClientFiles(n, name, w)...)
 	if len(files) > 0 {
 		svc["env_file"] = files
@@ -399,6 +406,26 @@ func (p *Spec) envFilesFor(w Workload) []string {
 	return p.Runtime.EnvFiles
 }
 
+// secretsFileFor references the decrypted secrets staged into the release.
+//
+// The file is rendered from SOPS at plan time and refreshed by `secrets push`,
+// but nothing referenced it, so every declared secret was shipped to the host
+// and never reached a container. It is named relative to the compose file,
+// which is the release directory it is staged into, and it is emitted only
+// when a secret is declared — Compose refuses to start against an env_file
+// that is not there.
+func (p *Spec) secretsFileFor(w Workload) []string {
+	if w.Role != RoleApplication && w.Role != RoleWorker {
+		return nil
+	}
+	for _, s := range p.Secrets {
+		if s.Provider == "sops" {
+			return []string{secrets.EnvFileName}
+		}
+	}
+	return nil
+}
+
 // routeLabels emits the exact routing keys the overlay contract enumerates.
 func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 	routes := w.NormalisedRoutes()
@@ -409,8 +436,8 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		"traefik.enable":         "true",
 		"traefik.docker.network": p.Proxy.Network,
 	}
-	svcName := n.ProxyService(name)
 	for i, r := range routes {
+		svcName := n.ProxyServiceFor(name, i)
 		router := n.Router(name, i)
 		kind := "http"
 		rule := fmt.Sprintf("Host(`%s`)", r.Domain)
@@ -425,12 +452,23 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		out[pre+"entrypoints"] = r.Entrypoint
 		if r.TLS == "terminate" || r.TLS == "passthrough" {
 			out[pre+"tls"] = "true"
+			// `tls=true` alone terminates. Passthrough is a separate key, and
+			// without it the proxy decrypts traffic the author asked it to
+			// forward untouched — which looks like it works, because the
+			// backend still answers.
+			if r.TLS == "passthrough" {
+				out[pre+"tls.passthrough"] = "true"
+			}
 			// Without a resolver the router terminates TLS with no certificate
 			// to terminate it with.
 			if p.Proxy.CertResolver != "" && r.TLS == "terminate" {
 				out[pre+"tls.certresolver"] = p.Proxy.CertResolver
 			}
 		}
+		// Named explicitly: with more than one service defined on a container,
+		// a router that does not say which one it means is not a router that
+		// picks correctly.
+		out[pre+"service"] = svcName
 		sp := fmt.Sprintf("traefik.%s.services.%s.loadbalancer.server.", kind, svcName)
 		out[sp+"port"] = fmt.Sprint(r.Port)
 		if kind == "http" && r.Scheme != "" && r.Scheme != "http" {

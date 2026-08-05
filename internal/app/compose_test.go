@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -205,5 +207,54 @@ func TestBindMountsNeedNoDefinition(t *testing.T) {
 	deps := mergeFixtureDeps(t, "postgres", overlay{})
 	if len(deps.Volumes) != 0 {
 		t.Errorf("a bind mount needs no top-level definition, got %v", deps.Volumes)
+	}
+}
+
+// A declared health check reaches a Compose-referenced service.
+//
+// It did not, and the silence was the problem: the workload declared `health:`,
+// generation dropped it, and the rollout then refused to roll a workload whose
+// author had declared exactly the thing rolling needs. The whole Docker-gated
+// end-to-end suite failed on this, and had been skipping.
+func TestADeclaredHealthCheckReachesAReferencedService(t *testing.T) {
+	dir := t.TempDir()
+	ref := filepath.Join(dir, "docker-compose.yaml")
+	if err := os.WriteFile(ref, []byte("services:\n  web:\n    image: busybox\n    command: [\"sleep\",\"1\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "ob.yml")
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+workloads:
+  web:
+    role: application
+    compose: "docker-compose.yaml#web"
+    health: {http: /healthz, port: 8080}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := p.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered.Bytes), "healthcheck:") {
+		t.Fatalf("the declared health check did not reach the referenced service:\n%s", rendered.Bytes)
+	}
+	if !strings.Contains(string(rendered.Bytes), "8080") {
+		t.Error("the probe reached the service without the port it was declared with")
+	}
+	// And it is what the rollout will gate on, so the workload rolls.
+	if mode := r.Spec.Workloads["web"].Mode(); mode != "rolling" {
+		t.Errorf("a compose-referenced workload declaring health should roll, got %q", mode)
 	}
 }

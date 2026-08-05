@@ -176,6 +176,7 @@ func (p *Spec) overlayFor(n Names, name string, w Workload, releaseID string) ov
 			"ob.release":  releaseID,
 		},
 		HasRoute: len(w.NormalisedRoutes()) > 0,
+		Health:   healthcheck(w.Health),
 	}
 	for k, v := range p.routeLabels(n, name, w) {
 		ov.Labels[k] = v

@@ -24,6 +24,11 @@ type overlay struct {
 	Network  string         // ingress network to append, empty when the proxy is off
 	Labels   map[string]any // ob.* identity and traefik.* routing
 	HasRoute bool           // routes were declared, so traefik.* is ours
+	// Health is the workload's declared probe, applied over whatever the
+	// referenced file defines. A declared health check that did not reach the
+	// service was dropped in silence, and the rollout then refused to roll a
+	// workload whose author had declared exactly what it needed to roll on.
+	Health map[string]any
 }
 
 // mergeComposeRef reads the referenced service and applies the overlay.
@@ -220,6 +225,14 @@ func applyOverlay(svc map[string]any, ov overlay) map[string]any {
 			nets = []string{"default"}
 		}
 		out["networks"] = append(nets, ov.Network)
+	}
+
+	// A declared probe wins over one the referenced file defines. The
+	// declaration is what the rollout gates on, so the two disagreeing would
+	// mean waiting for a condition nobody asked for — and an author who wrote
+	// `health:` and got the file's own check would have no way to tell.
+	if len(ov.Health) > 0 {
+		out["healthcheck"] = ov.Health
 	}
 	return out
 }

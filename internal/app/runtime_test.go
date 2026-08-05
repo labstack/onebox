@@ -79,3 +79,27 @@ func TestParseDurationAcceptsDays(t *testing.T) {
 		t.Error("nonsense must not parse")
 	}
 }
+
+// The SSH address is derived in one place, and it carries the port.
+//
+// A declared port that goes missing does not fail — it connects to 22 and
+// succeeds against whatever is there, which is the worst shape a bug of this
+// kind can take.
+func TestTargetCarriesTheDeclaredPort(t *testing.T) {
+	for name, tc := range map[string]struct {
+		server Server
+		want   string
+	}{
+		"user and port":  {Server{User: "deploy", Host: "example.com", Port: 2222}, "deploy@example.com:2222"},
+		"port only":      {Server{Host: "example.com", Port: 2222}, "example.com:2222"},
+		"no port":        {Server{User: "root", Host: "example.com"}, "root@example.com"},
+		"ipv6 with port": {Server{User: "root", Host: "2a01:4ff::1", Port: 2222}, "root@[2a01:4ff::1]:2222"},
+		"ipv6 no port":   {Server{User: "root", Host: "2a01:4ff::1"}, "root@2a01:4ff::1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := (Environment{Server: tc.server}).Target(); got != tc.want {
+				t.Errorf("Target() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

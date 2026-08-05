@@ -31,6 +31,18 @@ Host provisioning, the container runtime, the proxy, TLS, networks, release
 staging, supporting data services, backups, restore proof, pruning, and log
 rotation are not the user's application, and therefore not the user's problem.
 
+That sentence is the direction, not an inventory. Owned today: host bootstrap,
+the container runtime check, the proxy and its TLS, the shared network, release
+staging and retention, the supporting data services and their credentials, and
+scheduled jobs. **Not owned today: backups, restore proof, and log rotation.**
+Onebox says so rather than implying otherwise — `ob doctor` reports the absence
+of backups for every workload and service holding durable data, because silence
+there would read as approval.
+
+The distinction matters more than it looks. A product direction that reads as a
+capability list is how an operator ends up believing their database is backed
+up by something that has never taken a backup.
+
 This is the organising principle behind everything else. It is why the project
 file declares intent rather than describing containers, why the Compose runtime
 becomes a generated artifact, and why a database is something you select rather

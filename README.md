@@ -1,18 +1,31 @@
 # onebox
 
-**LLM-first production operations for an application intentionally running on one
+**Production operations for an application intentionally running on one
 server.**
 
 Onebox keeps the economic and cognitive simplicity of a single box while
-making deployments inspectable, resumable, and recoverable. It uses your
-Docker Compose application and connects over SSH; there is no deployment agent
-to install on the host.
+making deployments inspectable, resumable, and recoverable. You describe what
+your application *is* in `ob.yml`; Onebox derives the Compose runtime, the
+names, the routing, and the supporting services. It connects over SSH; there
+is no deployment agent to install on the host.
 
 The product contract is:
 
-> Bring your coding agent, repository, one server, secrets, intent, and
-> approval. Get typed production observation, constrained change proposals,
-> and a proven deployment safety engine.
+> Bring an application repository, one Linux server, secrets, intent, and
+> approval. Get structured observation, constrained change proposals, and
+> evidence-backed execution within a declared safety envelope.
+
+## Breaking change: the project file is now the authoring contract
+
+`onebox.run/v1` was redefined in place rather than superseded by a `v2`. There
+is no migration path and none is planned: a project written against the earlier
+contract — which classified a Compose file you wrote — does not load, and must
+be authored fresh against the current one.
+
+The reversal is the point. Compose used to be an input Onebox read. It is now
+an artifact Onebox generates, digest-bound into the plan, printable with
+`ob preview`, and permanently ejectable with `ob eject`. `ob init` scaffolds a
+project from an existing Compose file to start from.
 
 Start with the [documentation map](docs/README.md). It distinguishes current
 behavior from active OpenSpec proposals. See the [product
@@ -36,10 +49,18 @@ schema](docs/schema-v1.md).
 - The `ob` CLI as the current execution path and as a lasting adapter for local
   development, CI, support, and break-glass recovery.
 
-PostgreSQL, MySQL, Redis, and generic service component types currently classify
-Compose-owned accessories; selecting a type does not make Onebox install,
-configure, upgrade, back up, or own that service. Traefik is the only specialized
-managed runtime today.
+Declaring `services: {postgres: 17}` makes Onebox run it: the image, a durable
+volume, a health check, a credential generated on the target that never travels,
+and the connection details the application reads. Eleven drivers are supported —
+postgres, mysql, mariadb, redis, valkey, mongodb, rabbitmq, minio, meilisearch,
+clickhouse, nats. Anything else is refused rather than guessed at, because
+inventing an image from a name produces a container that starts and stores
+nothing durable.
+
+Onebox does **not** take backups, and `ob doctor` says so for every workload and
+service holding durable data. It also refuses a major version change a driver
+cannot perform in place, rather than replacing the container and leaving the
+data intact and unreachable.
 
 The schema can already declare desired backup, restore-drill, log, metric, and
 alert capabilities. The local engine does **not** manage those continuous
@@ -48,12 +69,8 @@ dashboard/control plane will add authenticated team approvals, continuous
 evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
 
-Managed supporting services — declare `services: {postgres: 17}` and Onebox
-owns the image, the durable volume, the health check, the credential, and the
-connection details the application reads — are specified in the active
-[`adopt-declarative-project-schema`](openspec/changes/adopt-declarative-project-schema/).
-Versioned driver contracts, drift observation, and backup evidence are not part
-of it and are not shipped.
+Versioned driver contracts, drift observation, and backup evidence are not
+shipped.
 
 ## Start using it
 
@@ -88,10 +105,16 @@ Both commands also support `--json`.
 From a repository with a working Compose file, scaffold and inspect `ob.yml`:
 
 ```sh
-ob init
-ob validate
-ob config
+ob init        # scaffold a project from the Compose file you have
+ob validate    # no side effects, no target contacted
+ob canonical   # what Onebox understood, with where each value came from
+ob preview     # the Compose runtime it will generate
 ```
+
+`ob canonical` marks every value you did not write with `# default`,
+`# shorthand` or `# override`, because the difference between a value someone
+chose and one that appeared by itself is what a person checking a production
+configuration needs to see.
 
 Review production without changing it:
 
@@ -211,10 +234,12 @@ not several. It is not a cluster manager, Kubernetes replacement, hosting
 provider, or high-availability system. Rolling deployment can avoid application interruption while the box is
 healthy; it cannot make a failed physical host available.
 
-Compose is the runtime contract. Onebox can operate any containerized
-application inside that supported envelope when its health, rollout,
-persistence, and job semantics are declared honestly. It cannot make arbitrary
-external side effects universally reversible.
+Compose is the generated runtime, not the contract you write. Onebox can
+operate any containerized application inside that envelope when its health,
+rollout, persistence, and job semantics are declared honestly. A container it
+cannot describe can still be adopted verbatim through `compose:`, and `ob eject`
+hands the whole runtime over permanently. It cannot make arbitrary external
+side effects reversible.
 
 ## Development
 

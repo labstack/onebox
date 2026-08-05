@@ -84,14 +84,29 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	})
 
 	var planOut string
+	// Shared by plan and deploy: both need to know what a build produced.
+	var imageArgs []string
+	resolveImages := func() error {
+		images, err := parseImages(imageArgs)
+		if err != nil {
+			return err
+		}
+		g.Images = images
+		return nil
+	}
+
 	planCmd := &cobra.Command{
 		Use:   "plan",
 		Short: "refresh → rendered diff + pinned images + command list → plan artifact",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := resolveImages(); err != nil {
+				return err
+			}
 			return runPlan(cmd, g, planOut)
 		},
 	}
 	planCmd.Flags().StringVarP(&planOut, "out", "o", "ob-plan.json", "plan artifact path")
+	planCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	root.AddCommand(planCmd)
 
 	var approvePlanFile, approveOut string
@@ -113,6 +128,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := resolveImages(); err != nil {
+				return err
+			}
 			return runDeploy(cmd, g, planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason, deployYes, deployRedeploy)
 		},
 	}
@@ -120,6 +138,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd.Flags().StringVar(&approvalFile, "approval", "", "apply a plan-bound approval grant")
 	deployCmd.Flags().StringVar(&backupEvidenceFile, "backup-evidence", "", "apply a plan-bound migration backup evidence receipt")
 	deployCmd.Flags().StringVar(&migrationBackupOverrideReason, "override-migration-backup", "", "audited break-glass reason for proceeding without required backup evidence (requires --approval)")
+	deployCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
 	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
@@ -407,6 +426,7 @@ func operationsServiceWithUI(cmd *cobra.Command, g *globalFlags, u *ui.UI) *oneb
 	}
 	return onebox.New(onebox.Options{
 		ConfigPath: g.ConfigPath, Environment: g.Env, Connect: connector,
+		Images:        g.Images,
 		EngineOptions: engine.Options{Verbose: g.Verbose, UI: u, Out: commandOutput(cmd, g)},
 	})
 }

@@ -36,13 +36,9 @@ func addEjectCommand(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return explain(err)
 			}
-			images := app.Images{}
-			for _, pair := range imageFlags {
-				name, ref, ok := strings.Cut(pair, "=")
-				if !ok {
-					return fmt.Errorf("--image expects workload=reference, got %q", pair)
-				}
-				images[name] = ref
+			images, err := parseImages(imageFlags)
+			if err != nil {
+				return err
 			}
 			res, err := resolved.Eject(dest, "ejected", images, overwrite)
 			if err != nil {

@@ -135,7 +135,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindBootstrap:
 		var staging string
 		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, nil)
+		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, s.images)
 		if err == nil {
 			defer cleanupStaging()
 			result.ReleaseID = operationID

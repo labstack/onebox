@@ -20,7 +20,9 @@ them wrong:
    that was a decision.
 4. **Multiple secrets resolve arbitrarily.** A project declaring more than one
    SOPS secret gets whichever name sorts first. Not the first declared —
-   alphabetically first.
+   alphabetically first. Declaring them as a named map is what invited a
+   selection at all; the runtime's own `env_file` is a list, and a list has
+   nothing to select from.
 5. **The environment is never consulted.** `secrets: {production: …, staging: …}`
    reads like a per-environment declaration and is not one. Deploying to
    staging ships production's secrets, silently, because "production" sorts
@@ -61,8 +63,10 @@ the kind of behaviour that returns the moment it is not written down.
 
 ## Impact
 
-- Selecting a secret by name becomes required where a project declares more
-  than one. A project declaring exactly one is unaffected.
+- Secrets become an ordered list rather than a named map, so a project
+  declaring several gets all of them in order instead of one chosen by sorting.
+- Where environments need different values, each declares its own list. This is
+  newly possible; today it cannot be expressed at all.
 - `job` and `compose:`-sourced workloads begin receiving the environment their
   role implies. Generated runtimes and frozen verdicts move, deliberately.
 - Environments and workloads gain control they did not have; no existing field

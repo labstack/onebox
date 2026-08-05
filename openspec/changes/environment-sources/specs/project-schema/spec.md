@@ -16,18 +16,31 @@ per-workload control, and different defaults, for the same job of getting
 values into a container. Two mechanisms for one idea is how the rules came to
 disagree.
 
-A source name SHALL be an identifier and SHALL NOT imply anything about where
-it is used. In particular a source named after an environment SHALL NOT be
-selected because an environment of that name is being deployed; selection is
-explicit and is defined below.
+Sources SHALL be declared as an ordered list, not as a named set to choose
+from. A list of sources means every one of them applies, in the order written.
+
+This follows the container runtime's own `env_file`, which takes a list and
+applies it in order. Adopting different semantics for the same idea would mean
+a project file and the runtime it generates disagreed about what a list of
+files means.
+
+The upstream shape it has to serve is one file shared widely: authentik gives a
+single `.env` to its server, its worker and its Postgres; Immich gives one to
+its server and its machine-learning container. Sharing, not selecting, is what
+these deployments do.
+
+The distinction is load-bearing. The contract previously declared secrets as a
+named map, which reads as a set to select from, and the implementation duly
+selected — taking whichever name sorted first. A list cannot be selected from
+by accident, because there is nothing to select.
 
 #### Scenario: A source is declared and used regardless of its kind
 - **WHEN** a project declares one plaintext source and one SOPS source and a workload resolves both
 - **THEN** both contribute values, in declared order, and neither is treated specially because of its kind
 
-#### Scenario: A source name is not a selector
-- **WHEN** a project declares a source named `staging` and the `staging` environment is deployed
-- **THEN** the source is used only if something selects it by name
+#### Scenario: Several sources compose
+- **WHEN** a project declares several sources
+- **THEN** every one applies in the order written, and none is chosen over another
 
 ### Requirement: Every workload resolves an ordered list of sources
 
@@ -40,10 +53,12 @@ list SHALL mean the workload takes the next declaration in that order. The
 distinction SHALL be observable in the canonical form, because "declared none"
 and "did not say" are different intents and the failure they produce differs.
 
-Selection SHALL be by name. Where a project declares more than one source and
-nothing selects between them, loading SHALL fail naming the sources, rather
-than choosing one. Choosing silently is how a project came to ship one
-environment's credentials to another.
+Where an environment needs different values, it SHALL declare its own list.
+Varying by scope is the whole mechanism: there is no rule that inspects a
+source's name, matches it against the environment being deployed, or picks
+between candidates. A previous implementation did pick — the alphabetically
+first — and that is how a project came to ship production's credentials to
+staging. Under an ordered list resolved by scope there is no pick to get wrong.
 
 #### Scenario: A workload's own list wins
 - **WHEN** a workload declares sources and the project also declares some
@@ -56,10 +71,6 @@ environment's credentials to another.
 #### Scenario: Environments select different sources
 - **WHEN** two environments each select a different source by name
 - **THEN** each deploy carries only the source its environment selected
-
-#### Scenario: An ambiguous selection is refused
-- **WHEN** a project declares more than one source and no environment or workload selects between them
-- **THEN** loading fails naming the declared sources, and no source is chosen by ordering
 
 #### Scenario: A workload declines every source
 - **WHEN** a workload declares an empty list of sources
@@ -79,6 +90,15 @@ nothing, which nothing stated and nobody chose.
 
 A `daemon` MAY name sources explicitly and SHALL receive them when it does, so
 that a server legitimately needing a credential can be given one.
+
+Naming it is required rather than automatic, and the cost is real: the common
+upstream layout shares one file across every service, so converting authentik
+or Immich means naming the source on the database too. That cost is accepted
+deliberately. Projecting every source into every container would put the
+application's third-party credentials inside its database, and a default that
+is wrong in the safe direction is recoverable — the container fails to start
+and says which variable is missing — while a default that is wrong in the other
+direction is not observable at all.
 
 #### Scenario: A job receives the default
 - **WHEN** a project declares sources and a job declares none

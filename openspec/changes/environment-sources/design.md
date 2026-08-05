@@ -73,6 +73,24 @@ things, and the second is not overridden by the first.
 The general form: the project file states intent, the referenced file states
 implementation, and intent decides what reaches the container.
 
+## What the corpus says, and what it does not
+
+The conformance corpus contains both third-party OSS conversions and projects
+belonging to this repository's author. Only the former are evidence about what
+applications in general need; the latter show what one team does and would
+quietly shape the contract around its habits if used as justification.
+
+From the upstream conversions alone: authentik shares one `.env` across an
+application, a worker and a Postgres daemon; Immich shares one across an
+application and a machine-learning daemon. Both need a daemon to receive a
+source, which is why that is expressible rather than merely permitted.
+
+Neither upstream conversion declares more than one source at once. The rule
+that a list composes in order therefore rests on the container runtime's own
+`env_file` semantics, not on a corpus observation — and the runtime is the
+better authority for it anyway, since a project file that meant something
+different by a list than the runtime it generates would be its own defect.
+
 ## What this deliberately does not do
 
 **No per-key scoping or filtering.** The unit is the source. A project needing

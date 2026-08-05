@@ -83,6 +83,16 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return explain(err)
 			}
+			if isStructuredOutput(g) {
+				return writeCLIJSON(cmd.OutOrStdout(), cliValidateEnvelope{
+					SchemaVersion: cliValidateSchemaVersion,
+					App:           cfg.Name,
+					Environment:   g.Env,
+					Workloads:     cfg.ReleaseOrder(),
+					Jobs:          cfg.JobOrder(),
+					Services:      cfg.ServiceNames(),
+				}, g.Output == "json")
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s)\n",
 				countLabel(len(cfg.ReleaseOrder()), "workload"),
 				countLabel(len(cfg.JobOrder()), "job"),

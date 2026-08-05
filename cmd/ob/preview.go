@@ -54,6 +54,40 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 			}
 
 			out := cmd.OutOrStdout()
+
+			if isStructuredOutput(g) {
+				// The structured stream is the one that gets piped into a
+				// file, a log or a CI artifact. It is always redacted, and
+				// --raw is refused beside it rather than silently ignored:
+				// a flag that appears to work and does not is worse than one
+				// that says no.
+				if showRaw {
+					return fmt.Errorf("--raw cannot be combined with --output %s: "+
+						"the structured stream is always redacted", g.Output)
+				}
+				body, err := redactEnvValues(rendered.Bytes)
+				if err != nil {
+					return err
+				}
+				services := map[string]string{}
+				for _, name := range sortedServiceNames(rendered.Services) {
+					doc, err := redactEnvValuesExcept(rendered.Services[name], p.ServicePublicEnv(name))
+					if err != nil {
+						return err
+					}
+					services[name] = string(doc)
+				}
+				return writeCLIJSON(out, cliPreviewEnvelope{
+					SchemaVersion: cliPreviewSchemaVersion,
+					Environment:   g.Env,
+					Release:       release,
+					Digest:        rendered.Digest,
+					Redacted:      true,
+					Runtime:       string(body),
+					Services:      services,
+				}, g.Output == "json")
+			}
+
 			if digestOnly {
 				fmt.Fprintln(out, rendered.Digest)
 				return nil
@@ -167,7 +201,10 @@ func redactNode(n *yaml.Node, inEnv bool, visible map[string]bool) {
 				val.Style = 0
 				continue
 			}
-			redactNode(val, key.Value == "environment", visible)
+			// "environment" is the generated runtime's key; "env" is the
+			// project document's. The same rule covers both, so the canonical
+			// form cannot be the one place a declared value escapes.
+			redactNode(val, key.Value == "environment" || key.Value == "env", visible)
 		}
 		return
 	}

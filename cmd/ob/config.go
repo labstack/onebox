@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"text/tabwriter"
 
@@ -36,16 +35,34 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 			}
 			out := cmd.OutOrStdout()
 
-			if origins {
-				if g.Output == "json" {
-					rows := map[string]string{}
-					for _, kv := range resolved.OriginTable() {
-						rows[kv[0]] = kv[1]
-					}
-					enc := json.NewEncoder(out)
-					enc.SetIndent("", "  ")
-					return enc.Encode(rows)
+			// One envelope whether or not --origins is given: the flag chooses
+			// what a human is shown, and a consumer of the structured form
+			// should not have to run the command twice to get both halves.
+			if isStructuredOutput(g) {
+				body, err := resolved.Canonical()
+				if err != nil {
+					return explain(err)
 				}
+				// Same rule as preview: the structured stream is the one that
+				// gets piped somewhere durable, so a declared value does not
+				// travel in it. The human form still shows what was written.
+				if body, err = redactEnvValues(body); err != nil {
+					return explain(err)
+				}
+				rows := map[string]string{}
+				for _, kv := range resolved.OriginTable() {
+					rows[kv[0]] = kv[1]
+				}
+				return writeCLIJSON(out, cliCanonicalEnvelope{
+					SchemaVersion: cliCanonicalSchemaVersion,
+					Environment:   g.Env,
+					Document:      string(body),
+					Redacted:      true,
+					Origins:       rows,
+				}, g.Output == "json")
+			}
+
+			if origins {
 				w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 				for _, kv := range resolved.OriginTable() {
 					fmt.Fprintf(w, "%s\t%s\n", kv[0], kv[1])

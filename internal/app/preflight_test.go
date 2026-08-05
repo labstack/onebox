@@ -252,3 +252,60 @@ port: 3000
 		t.Error("a commented line was read as a declaration")
 	}
 }
+
+// A value that expands another file's variable is resolved, not reported
+// missing.
+//
+// Compose loads the declared environment files in order, so a later file may
+// build on an earlier one. Checking each file alone resolved `${ROOT}` to
+// empty and failed a preflight on an environment the runtime would have
+// assembled correctly — the opposite of the failure preflight exists to catch.
+func TestPreflightResolvesAcrossDeclaredFilesInOrder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env.base"), []byte("ROOT=https://api.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env.production"), []byte("API_TOKEN=${ROOT}/token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "ob.yml")
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+runtime:
+  env_files: [.env.base, .env.production]
+  preflight:
+    - file: .env.production
+      require: [API_TOKEN]
+image: nginx
+domain: shop.example.com
+port: 3000
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.RunPreflight(dir); err != nil {
+		t.Fatalf("a value built from an earlier file must resolve: %v", err)
+	}
+
+	// And the check still bites. A value that is nothing but an expansion of a
+	// variable no earlier file supplies resolves to empty, which is what
+	// Compose would produce and what preflight must report.
+	//
+	// Note what is *not* asserted: `${ROOT}/token` with ROOT unset resolves to
+	// "/token", which is non-empty and therefore passes. That is Compose's
+	// behaviour, and preflight agreeing with it is the whole point.
+	if err := os.WriteFile(filepath.Join(dir, ".env.production"), []byte("API_TOKEN=${ROOT}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env.base"), []byte("OTHER=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.RunPreflight(dir); err == nil {
+		t.Fatal("a value that resolves to nothing must be reported empty")
+	}
+}

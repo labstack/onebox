@@ -36,6 +36,7 @@ func addInitCommand(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "init",
 		Short: "scaffold ob.yml from the compose file + rollability doctor",
+		Long:  "Scaffold `ob.yml` from the Compose file already in this repository.\n\nA starting point, not permission to deploy: read what it inferred about\nroles, persistence, health and job data effects before planning. Writes only\nin this repository and contacts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runInit(cmd.Context(), cmd, g)
 		},

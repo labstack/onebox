@@ -1013,3 +1013,45 @@ func savedPlanCarriesImage(t *testing.T, built string) {
 		}
 	}
 }
+
+// 10.2 — the runtime a plan binds is the runtime generation produces.
+//
+// A plan is only a promise if the bytes it bound can be reproduced from the
+// same inputs. If planning rendered through any path that a later render does
+// not take, the binding check would be comparing the generator against itself
+// and would pass no matter what shipped.
+func TestAPlanBindsTheSameBytesGenerationProduces(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Render again from the project the plan named, with the plan's own
+	// release identity, and compare against the digest it bound.
+	lp, err := loadProjectAt(context.Background(), svc.configPath, svc.environment, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := engine.HashBytes(lp.composeBytes); got != plan.Operation.Binding.ComposeDigest {
+		t.Errorf("a fresh render does not reproduce the bytes the plan bound:\n plan:  %s\n fresh: %s",
+			plan.Operation.Binding.ComposeDigest, got)
+	}
+	if got := engine.HashBytes(lp.configBytes); got != plan.Artifact.ConfigHash {
+		t.Errorf("the configuration digest does not reproduce:\n plan:  %s\n fresh: %s",
+			plan.Artifact.ConfigHash, got)
+	}
+
+	// And twice more, to catch anything order-dependent.
+	for i := 0; i < 5; i++ {
+		again, err := loadProjectAt(context.Background(), svc.configPath, svc.environment, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if engine.HashBytes(again.composeBytes) != plan.Operation.Binding.ComposeDigest {
+			t.Fatalf("render %d does not reproduce the plan's bytes", i)
+		}
+	}
+}

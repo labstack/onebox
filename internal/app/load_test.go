@@ -53,6 +53,17 @@ func conformanceCases() []conformanceCase {
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
 		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
+		// A closed value set is only closed if a value outside it is refused,
+		// and the refusal has to name the set rather than the type.
+		{"unknown enum: strategy", wl("w: {image: nginx, health: /h, strategy: sideways}"), false},
+		{"unknown enum: role", wl("w: {image: nginx, role: sidecar}"), false},
+		{"unknown enum: data_effect", wl("j: {image: nginx, role: job, data_effect: maybe}"), false},
+		{"unknown enum: route protocol", wl("w: {image: nginx, routes: [{domain: x, port: 1, protocol: quic}]}"), false},
+		{"unknown enum: persistence mode", wl("w: {image: nginx, persistence: {mode: sometimes}}"), false},
+		// Several problems at once. What matters is that the refusal is
+		// deterministic: an author fixing one thing at a time must not see the
+		// order change under them.
+		{"multiple violations", wl("w: {image: nginx, replicaz: 3, strategy: sideways, role: sidecar}"), false},
 		{"secret as scalar path", min + "secrets: {production: secrets.yaml}\n", true},
 		{"verification workload without probe", min + "verification: [{workload: ledger}]\n", false},
 		{"verification url with exec", min + "verification: [{url: \"https://x/\", exec: \"echo\"}]\n", false},

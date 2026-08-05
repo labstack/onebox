@@ -1,4 +1,43 @@
-## 0. Findings from review still open
+## 0. Blocking — a second review says this cannot be locked in yet
+
+Two independent reviews against the third-party corpus and published upstream
+deployments. These five block; the rest of this file assumes they are settled.
+
+- [ ] 0.0 **Decide how this change ships against the growth rule.** The parent
+      contract says it grows additively and SHALL NOT change the meaning of an
+      accepted project. This change does: `env_files: []` flips from "absent" to
+      "none", and jobs and compose-sourced workloads begin receiving values they
+      did not. Three honest options — amend the growth requirement with an
+      explicit pre-release clause, ship under a new identity, or drop the
+      meaning changes. Being quietly inconsistent with it is not one. This is a
+      product decision, not an editorial one.
+- [ ] 0.1 **Write the runtime-generation delta.** That contract says the overlay
+      onto a Compose-referenced workload adds a network and two label sets "and
+      SHALL modify nothing else". Projecting sources into a compose-sourced
+      application adds `env_file` to that service, which the table forbids. The
+      marquee fix is unimplementable until the overlay contract permits it, and
+      the ordering against a referenced service's own `env_file` list needs
+      stating.
+- [ ] 0.2 **Fix the base of the precedence stack.** Verified against the
+      container runtime: `environment:` beats `env_file:`. A referenced
+      service's `environment:` therefore outranks both resolved sources and
+      connections, inverting levels 1<2 and 1<3 — and Immich's and authentik's
+      published compose configure their databases exactly that way. Extend the
+      collision refusal already applied to inline `env`, or restate level 1 as
+      the referenced file's `env_file` entries only.
+- [ ] 0.3 **Specify syntax, not only behaviour.** Where a source is declared,
+      its shape, the field a scope's list uses, and what names `env_files`
+      shorthand produces so an override can reference them. The override table
+      already commits to the name `sources` while 1.1 calls it undecided; close
+      that either way.
+- [ ] 0.4 **Decide `secrets`.** Leaving the second mechanism accepted and
+      undefined reproduces the absence this change diagnoses. The reading that
+      fits both the model and what authors plainly meant: the map's keys are
+      environment names, so `secrets: {production: file}` is shorthand for that
+      environment's list containing that source — which also kills the
+      motivating defect at its root.
+
+## 0a. Findings from review still open
 
 - [ ] 0.1 Define the `sources` declaration shape in the contract: where a source
       is declared, what fields it has, and how a scope's list refers to one. The

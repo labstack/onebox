@@ -26,18 +26,24 @@ the configuration rather than of the container's provenance: application-scoped
 configuration does not reach infrastructure containers by default. That can
 decide a case nobody has raised, which the previous form could not.
 
+This table is normative for the change's behaviour — `tasks.md` requires a test
+per row — so it is kept in step with the delta rather than left as the first
+draft's reasoning. Three rows below previously said the opposite of the delta,
+which would have had an implementer building a refusal the contract forbids.
+
 | Case | Before | Under the model |
 |---|---|---|
-| `job` gets project env | no, unstated | yes — it runs the user's code |
-| `daemon` gets project env | no, unstated | no — it is a server you author |
+| `job` gets project env | no, unstated | yes — its role is one of the application's own |
+| `daemon` gets project env | no, unstated | no — application-scoped configuration does not reach infrastructure by default |
 | `daemon` that needs a credential | impossible | names the source |
 | `compose:`-sourced application | silently nothing | same as any application; source is not a factor |
-| several sources declared | alphabetically first | refused unless something selects |
-| per-environment values | impossible | the environment selects |
+| several sources declared | alphabetically first | all of them apply, in declared order |
+| per-environment values | impossible | the environment declares its own list, or overrides a workload's |
 | withholding from one workload | impossible | the empty list |
 | plaintext vs encrypted | different rules | one rule; kind is a property of the source |
 | ordering between them | undefined | declared order, later wins |
-| a generated credential vs a declared one | undefined | the connection wins, always |
+| a generated credential vs an authored one | undefined | the connection wins for credential parts; a colliding inline `env` is refused |
+| an authored endpoint with a generated credential | inexpressible | map only the credential parts, author the host |
 
 Ten answers, four rules. That ratio is the point; the previous ratio was four
 answers, four rules, and the fifth question had no answer at all.

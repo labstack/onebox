@@ -116,8 +116,9 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	artifact := engine.Artifact{
 		ID: releaseID, App: lp.resolved.Name, Env: s.environment, CreatedAt: now,
 		GitSHA: gitSHA, ConfigHash: configDigest, HostState: hostState,
-		PinnedImages: pins, RenderedCompose: string(renderedRedacted),
-		Commands: commands,
+		PinnedImages: pins, BuildImages: buildImagesFor(lp, s.images),
+		RenderedCompose: string(renderedRedacted),
+		Commands:        commands,
 	}
 	stateDigest, err := artifactDigest(artifact)
 	if err != nil {
@@ -280,4 +281,24 @@ func applyPinnedImages(project *ctypes.Project, pins map[string]string) {
 			project.Services[service] = component
 		}
 	}
+}
+
+// buildImagesFor records what the render was given for build-sourced
+// workloads. Only those: an image-sourced workload renders from its own
+// declaration, and feeding anything back for it would change the document the
+// plan is about to bind.
+func buildImagesFor(lp *loadedProject, images app.Images) map[string]string {
+	if len(images) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for name, ref := range images {
+		if w, ok := lp.resolved.Spec.Workloads[name]; ok && w.Build != nil {
+			out[name] = ref
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

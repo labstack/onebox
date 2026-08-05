@@ -231,7 +231,7 @@ func (p *Spec) RunPreflight(dir string) error {
 			missing = append(missing, fmt.Sprintf("%s: cannot be read (%v)", check.File, err))
 			continue
 		}
-		present, nonEmpty := envKeys(data)
+		present, nonEmpty := envKeys(data, p.envContextBefore(dir, check.File))
 		for _, k := range check.Require {
 			switch {
 			case !present[k]:
@@ -258,12 +258,22 @@ func (p *Spec) RunPreflight(dir string) error {
 // envKeys scans dotenv-style bytes into the set of declared keys and the subset
 // with a non-empty value. A line is `KEY=value`, tolerating leading whitespace
 // and an `export ` prefix; anything else is ignored.
-func envKeys(data []byte) (present, nonEmpty map[string]bool) {
+// envKeys reports what a file declares, resolved against the values the files
+// declared before it already established.
+//
+// Without that context a value such as `API_TOKEN=${ROOT}` resolves to empty,
+// and preflight rejects an environment the container runtime would have
+// assembled correctly — the opposite failure to the one preflight exists to
+// prevent.
+func envKeys(data []byte, context map[string]string) (present, nonEmpty map[string]bool) {
 	present, nonEmpty = map[string]bool{}, map[string]bool{}
 	// Compose's parser, so preflight agrees with the runtime about what the
 	// file declares. A hand-rolled scan counted `#API_TOKEN=x` as a declared
 	// key and reported an environment ready that was not.
-	values, err := dotenv.Parse(bytes.NewReader(data))
+	values, err := dotenv.ParseWithLookup(bytes.NewReader(data), func(key string) (string, bool) {
+		v, ok := context[key]
+		return v, ok
+	})
 	if err != nil {
 		return present, nonEmpty
 	}
@@ -309,4 +319,33 @@ func (p *Spec) InterpolationEnv() (map[string]string, error) {
 			"cannot read the environment files: %v", err)
 	}
 	return env, nil
+}
+
+// envContextBefore is the environment the declared files preceding this one
+// establish, in declared order.
+//
+// A file that is not itself declared in runtime.env_files sees all of them:
+// preflight is asserting that the environment as a whole is ready, and there
+// is no position in the order from which to exclude anything.
+func (p *Spec) envContextBefore(dir, file string) map[string]string {
+	if p.Runtime == nil || len(p.Runtime.EnvFiles) == 0 {
+		return nil
+	}
+	var preceding []string
+	for _, name := range p.Runtime.EnvFiles {
+		if name == file {
+			break
+		}
+		preceding = append(preceding, filepath.Join(dir, name))
+	}
+	if len(preceding) == 0 {
+		return nil
+	}
+	env, err := dotenv.GetEnvFromFile(map[string]string{}, preceding)
+	if err != nil {
+		// An unreadable declared file is reported by the check that names it;
+		// failing here would replace that with a worse message.
+		return nil
+	}
+	return env
 }

@@ -10,7 +10,7 @@ import (
 )
 
 // happyFake scripts an entire single-host deploy: rolling web, recreate
-// worker, accessory postgres healthy, verify green, lock/fence/journal on
+// worker, service postgres healthy, verify green, lock/fence/journal on
 // fake defaults (exit 0).
 // guardedHealthcheck is what generation emits for every shell-form check: the
 // drain guard first, so a rollout can take the container out of rotation before

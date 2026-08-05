@@ -41,8 +41,8 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if got := snapshot.Roles[0]; got.Service != "web" || got.Mode != "rolling" || got.DesiredReplicas != 1 || len(got.Containers) != 1 || got.Containers[0].ID != "S1" {
 		t.Fatalf("unexpected web status: %#v", got)
 	}
-	if len(snapshot.Accessories) != 1 || snapshot.Accessories[0].Name != "postgres" || snapshot.Accessories[0].Containers[0].ID != "PG1" {
-		t.Fatalf("unexpected accessories: %#v", snapshot.Accessories)
+	if len(snapshot.Services) != 1 || snapshot.Services[0].Name != "postgres" || snapshot.Services[0].Containers[0].ID != "PG1" {
+		t.Fatalf("unexpected services: %#v", snapshot.Services)
 	}
 	if snapshot.Incomplete != nil || snapshot.Proxy != nil {
 		t.Fatalf("clean unmanaged app must omit incomplete/proxy: %#v", snapshot)
@@ -59,7 +59,7 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"app", "host", "captured_at", "recorded_release", "roles", "accessories", "diverged", "complete"} {
+	for _, key := range []string{"app", "host", "captured_at", "recorded_release", "roles", "services", "diverged", "complete"} {
 		if _, ok := doc[key]; !ok {
 			t.Fatalf("JSON missing %q: %s", key, b)
 		}
@@ -108,8 +108,8 @@ func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T
 	if worker := snapshot.Roles[1]; !worker.Diverged || !strings.Contains(strings.Join(worker.Issues, "\n"), "replica count") {
 		t.Fatalf("missing worker must be explicit: %#v", worker)
 	}
-	if postgres := snapshot.Accessories[0]; !postgres.Diverged || !strings.Contains(strings.Join(postgres.Issues, "\n"), "is down") {
-		t.Fatalf("down accessory must be explicit: %#v", postgres)
+	if postgres := snapshot.Services[0]; !postgres.Diverged || !strings.Contains(strings.Join(postgres.Issues, "\n"), "is down") {
+		t.Fatalf("down service must be explicit: %#v", postgres)
 	}
 	if snapshot.Incomplete == nil {
 		t.Fatal("unfinished deployment must be present")

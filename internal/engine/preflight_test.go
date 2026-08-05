@@ -39,7 +39,7 @@ func TestPreflightFailsOnStoppedAccessory(t *testing.T) {
 	}}
 	err := fakeEngine(t, f).Preflight(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "postgres") {
-		t.Fatalf("want accessory-down error, got %v", err)
+		t.Fatalf("want service-down error, got %v", err)
 	}
 }
 

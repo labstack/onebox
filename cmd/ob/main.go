@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,19 +38,16 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			switch g.Output {
-			case "human", "json", "ndjson":
-				return nil
-			default:
-				return fmt.Errorf("--output must be human, json, or ndjson")
-			}
+		Args:          cobra.NoArgs,
+		RunE:          showCommandHelp,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			return validateOutputMode(cmd, g)
 		},
 	}
 	root.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "print every remote command")
 	root.PersistentFlags().StringVarP(&g.Env, "env", "e", "production", "environment name")
 	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "ob.yml", "path to ob.yml")
-	root.PersistentFlags().StringVar(&g.Output, "output", "human", "output mode for plan, deploy, status, and operation events: human|json|ndjson")
+	root.PersistentFlags().StringVar(&g.Output, "output", "human", "output mode for supported commands: human|json|ndjson (see docs/cli.md)")
 	addVersionCommand(root)
 	addDoctorCommand(root, g)
 	addBackupEvidenceCommand(root, g)
@@ -64,6 +60,13 @@ func newRootCmd() *cobra.Command {
 	addEjectCommand(root, g)
 	addConfigCommand(root, g)
 	return root
+}
+
+// showCommandHelp makes command groups participate in Cobra's execution
+// lifecycle. Persistent validation therefore runs before their human help is
+// rendered, so an unsupported machine-output request cannot succeed with text.
+func showCommandHelp(cmd *cobra.Command, _ []string) error {
+	return cmd.Help()
 }
 
 func main() {

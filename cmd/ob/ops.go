@@ -16,12 +16,13 @@ import (
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	// supporting/data service apply
-	serviceCmd := &cobra.Command{Use: "service", Aliases: []string{"service"}, Short: "manage supporting and data services",
+	serviceCmd := &cobra.Command{Use: "service", Short: "manage supporting and data services",
 		Long: "Manage the supporting services this project declares.\n\n" +
 			"They run in their own Compose projects, so no deploy and no rollback can\n" +
 			"stop them or remove their volumes. `apply` converges them to what the\n" +
 			"project declares; a major version change a driver cannot perform in place\n" +
-			"is refused rather than attempted."}
+			"is refused rather than attempted.",
+		Args: cobra.NoArgs, RunE: showCommandHelp}
 	serviceCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
 		Short: "planned service convergence — diff shown, destructive mounts refused without --force",
@@ -41,7 +42,8 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Long: "Manage the proxy shared by every application on this box.\n\n" +
 			"Host-scoped rather than application-scoped: one proxy holds the ports and\n" +
 			"the certificates, and applications register with it. It is taken under a\n" +
-			"separate host lock so two applications cannot reconfigure it at once."}
+			"separate host lock so two applications cannot reconfigure it at once.",
+		Args: cobra.NoArgs, RunE: showCommandHelp}
 	proxyCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
 		Short: "converge the shared proxy — diff shown; unchanged config never touches the container (ACME-safe)",
@@ -61,7 +63,8 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			"`edit` decrypts to a temporary file, opens an editor, and re-encrypts.\n" +
 			"`push` renders the decrypted values into the current release on the host\n" +
 			"and restarts what reads them. Plaintext never enters the project file, the\n" +
-			"generated runtime, or any plan."}
+			"generated runtime, or any plan.",
+		Args: cobra.NoArgs, RunE: showCommandHelp}
 	secretsCmd.AddCommand(&cobra.Command{
 		Use:   "edit",
 		Short: "open the encrypted file in $EDITOR via sops",

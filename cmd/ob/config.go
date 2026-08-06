@@ -27,11 +27,11 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := app.Load(g.ConfigPath)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, cliCanonicalSchemaVersion, err)
 			}
 			resolved, err := p.Resolve(g.Env)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, cliCanonicalSchemaVersion, err)
 			}
 			out := cmd.OutOrStdout()
 
@@ -41,13 +41,13 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 			if isStructuredOutput(g) {
 				body, err := resolved.Canonical()
 				if err != nil {
-					return explain(err)
+					return writeStructuredReadFailure(cmd, g, cliCanonicalSchemaVersion, err)
 				}
 				// Same rule as preview: the structured stream is the one that
 				// gets piped somewhere durable, so a declared value does not
 				// travel in it. The human form still shows what was written.
 				if body, err = redactEnvValues(body); err != nil {
-					return explain(err)
+					return writeStructuredReadFailure(cmd, g, cliCanonicalSchemaVersion, err)
 				}
 				rows := map[string]string{}
 				for _, kv := range resolved.OriginTable() {

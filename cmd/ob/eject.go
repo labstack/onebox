@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -30,25 +29,27 @@ func addEjectCommand(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := app.Load(g.ConfigPath)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
 			}
 			resolved, err := p.Resolve(g.Env)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
 			}
 			images, err := parseImages(imageFlags)
 			if err != nil {
-				return err
+				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
 			}
 			res, err := resolved.Eject(dest, "ejected", images, overwrite)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
 			}
 			out := cmd.OutOrStdout()
-			if g.Output == "json" {
-				enc := json.NewEncoder(out)
-				enc.SetIndent("", "  ")
-				return enc.Encode(res)
+			if isStructuredOutput(g) {
+				return writeCLIJSON(out, cliEjectEnvelope{
+					SchemaVersion: cliEjectSchemaVersion,
+					Runtime:       res.Runtime,
+					Workloads:     res.Workloads,
+				}, g.Output == "json")
 			}
 			fmt.Fprintf(out, "wrote %s\n", res.Runtime)
 			fmt.Fprintf(out, "handed over: %s\n", strings.Join(res.Workloads, ", "))

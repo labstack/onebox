@@ -47,7 +47,18 @@ func Load(path string) (*Spec, error) {
 	if err != nil {
 		return nil, errf("project_unreadable", path, "ob init", "cannot read project file: %v", err)
 	}
-	return LoadBytes(b, path)
+	p, err := LoadBytes(b, path)
+	if err != nil {
+		return nil, err
+	}
+	// Only here. LoadBytes answers "are these bytes a valid project"; whether
+	// the files it names are on disk is a different question and needs a disk.
+	// Folding it into LoadBytes made every byte-based caller — the conformance
+	// corpus among them — fail on files that were never meant to exist.
+	if err := p.checkDeclaredFilesExist(); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // LoadBytes runs the fixed pipeline: parse, expand, validate, then apply the
@@ -101,10 +112,14 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 		return nil, err
 	}
 	applyDefaults(p, raw, derived)
+	// Before validation, not after: validation stats the files a project
+	// declares, and without the directory that check silently passed on every
+	// project. A guard that cannot see what it guards is worse than none,
+	// because the enumeration then promises a failure that never fires.
+	p.Dir = filepath.Dir(filename)
 	if err := validateSpec(p); err != nil {
 		return nil, err
 	}
-	p.Dir = filepath.Dir(filename)
 	defaultProxyManagement(p, raw, derived)
 	p.captureRaw(raw, derived)
 	if err := crossFieldRules(p); err != nil {
@@ -627,4 +642,37 @@ func firstLine(s string) string {
 		return strings.TrimSpace(s[:i])
 	}
 	return strings.TrimSpace(s)
+}
+
+// checkDeclaredFilesExist refuses an entry naming a file that is not there.
+//
+// The generated runtime references it, so the container runtime would refuse to
+// start against it on the target — a failure that arrives after a deploy has
+// begun, naming a path the operator has to trace back themselves.
+func (p *Spec) checkDeclaredFilesExist() error {
+	check := func(entries []EnvFile, at string) error {
+		for i, entry := range entries {
+			if _, err := os.Stat(filepath.Join(p.Dir, entry.File)); err != nil {
+				return errf("env_file_missing", indexed(at, i), "",
+					"the environment file %q does not exist", entry.File)
+			}
+		}
+		return nil
+	}
+	if p.Runtime != nil {
+		if err := check(p.Runtime.EnvFiles, "runtime.env_files"); err != nil {
+			return err
+		}
+	}
+	for _, name := range sortedKeys(p.Environments) {
+		if err := check(p.Environments[name].EnvFiles, "environments."+name+".env_files"); err != nil {
+			return err
+		}
+	}
+	for _, name := range sortedKeys(p.Workloads) {
+		if err := check(p.Workloads[name].EnvFiles, "workloads."+name+".env_files"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

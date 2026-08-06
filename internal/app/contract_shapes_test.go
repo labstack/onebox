@@ -10,6 +10,11 @@ import (
 func loadText(t *testing.T, body string) *Spec {
 	t.Helper()
 	dir := t.TempDir()
+	// The loader now refuses an entry naming a file that is not on disk, so a
+	// fixture exercising env_files has to put one there.
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("A=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "ob.yml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -166,6 +171,8 @@ func TestInspectionChangesNothingOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The fixture writes ob.yml only; anything else present was left by
+	// inspection, which is the thing this asserts.
 	if len(entries) != 1 {
 		var names []string
 		for _, e := range entries {

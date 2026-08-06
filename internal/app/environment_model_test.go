@@ -65,6 +65,9 @@ environments:
     overrides:
       workloads:
         db: {env_files: [.env.staging]}
+        mixed: {env_files: [.env.staging]}
+        silent: {env_files: []}
+        quiet: {replicas: 2}
 runtime:
   env_files: [.env]
 workloads:
@@ -72,6 +75,8 @@ workloads:
   cron:   {role: job, image: nginx, command: ["true"], data_effect: none}
   quiet:  {role: worker, image: nginx, env_files: []}
   own:    {role: worker, image: nginx, env_files: [.env.own]}
+  mixed:  {role: worker, image: nginx, env_files: [.env.own]}
+  silent: {role: worker, image: nginx, env_files: [.env.own]}
   db:     {role: daemon, image: postgres:16}
 `
 
@@ -484,5 +489,92 @@ health: {http: /healthz, port: 3000}
 	// unsupplied.
 	if hidden := r.Spec.EncryptedDocumentEntries(); len(hidden) != 1 || hidden[0] != "s.enc" {
 		t.Errorf("the unreadable entry must be reportable, got %v", hidden)
+	}
+}
+
+// A workload's own list beats the environment's.
+//
+// The rule is one ordering — override, own, environment, project — and the
+// middle pair is the one an author is most likely to have both of. Reading the
+// environment first would hand every workload the same list and silently
+// discard the one it declared for itself.
+func TestAWorkloadsOwnListBeatsItsEnvironments(t *testing.T) {
+	staging := resolvedFor(t, envModelProject(t, envModelBody, envModelFiles), "staging")
+	if got := listFor(t, staging, "own"); len(got) != 1 || got[0] != ".env.own" {
+		t.Errorf("own resolved %v on staging, want its own list, not the environment's", got)
+	}
+}
+
+// An override replaces the list it overrides; it does not extend it.
+//
+// Concatenating instead would leave the workload still reading the file the
+// override exists to stop it reading — and because a later entry wins key by
+// key, whether the old values survive would depend on which keys they share.
+// There would be no way to say "this and nothing else".
+func TestAnOverrideReplacesRatherThanExtends(t *testing.T) {
+	staging := resolvedFor(t, envModelProject(t, envModelBody, envModelFiles), "staging")
+	got := listFor(t, staging, "mixed")
+	if len(got) != 1 || got[0] != ".env.staging" {
+		t.Errorf("the override resolved %v, want only the override's list", got)
+	}
+}
+
+// An override declaring an empty list means none, and survives the patch.
+//
+// The list travels through a JSON round trip on the way to being applied, and
+// `omitempty` drops an empty one — so the workload fell back to its own list
+// and read the very file the override declined. "Receives nothing" has to be
+// expressible, or there is no way to withdraw a credential in one environment.
+func TestAnOverrideDeclaringNoneIsPreserved(t *testing.T) {
+	staging := resolvedFor(t, envModelProject(t, envModelBody, envModelFiles), "staging")
+	if got := listFor(t, staging, "silent"); len(got) != 0 {
+		t.Errorf("the override declined every entry, but the workload resolved %v", got)
+	}
+	// And the environment it was not declared in is untouched.
+	production := resolvedFor(t, envModelProject(t, envModelBody, envModelFiles), "production")
+	if got := listFor(t, production, "silent"); len(got) != 1 || got[0] != ".env.own" {
+		t.Errorf("production resolved %v, want the workload's own list", got)
+	}
+}
+
+// An entry naming a file that is not there is refused at load.
+//
+// Compose fails on a missing env_file at the far end of a deploy, on the host,
+// after the release is staged and the old one is coming down. The name is in
+// the document; there is no reason to find out there.
+func TestAnEntryNamingAMissingFileIsRefused(t *testing.T) {
+	body := `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+runtime:
+  env_files: [.env.absent]
+workloads:
+  web: {image: nginx, domain: s.example.com, port: 3000}
+`
+	_, err := Load(envModelProject(t, body, nil))
+	if err == nil {
+		t.Fatal("an entry naming a file that does not exist must be refused")
+	}
+	if !strings.Contains(err.Error(), "env_file_missing") {
+		t.Errorf("the refusal must carry a code to branch on, got %v", err)
+	}
+	if !strings.Contains(err.Error(), ".env.absent") {
+		t.Errorf("the refusal must name the file, got %v", err)
+	}
+}
+
+// Overriding some other field leaves a declared empty list declared.
+//
+// The list survives the patch as JSON, where `omitempty` drops an empty one.
+// So raising the replica count in one environment handed the workload back the
+// project's list, and a workload deliberately holding no credentials was given
+// them — by an edit that says nothing about credentials at all.
+func TestOverridingAnotherFieldKeepsADeclaredEmptyList(t *testing.T) {
+	staging := resolvedFor(t, envModelProject(t, envModelBody, envModelFiles), "staging")
+	if got := listFor(t, staging, "quiet"); len(got) != 0 {
+		t.Errorf("overriding replicas resolved %v, but the workload declared none", got)
+	}
+	if n := staging.Spec.Workloads["quiet"].Count(); n != 2 {
+		t.Errorf("the override itself must still apply, replicas = %d", n)
 	}
 }

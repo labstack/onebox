@@ -19,16 +19,28 @@ import (
 // project dir (/var/run/docker.sock, /data/...) are host paths — untouched.
 // This makes the transferred release directory self-contained.
 func StagePayload(p *types.Project, stagingDir string) (map[string]string, error) {
-	return StagePayloadContext(context.Background(), p, stagingDir)
+	return StagePayloadContext(context.Background(), p, stagingDir, nil)
 }
 
 // StagePayloadContext is StagePayload with cancellation checks while walking
 // and copying project payloads.
-func StagePayloadContext(ctx context.Context, p *types.Project, stagingDir string) (map[string]string, error) {
+//
+// projected names the files the caller has already written into the staging
+// dir itself, keyed by project-relative slash path. They are referenced by the
+// document like any other payload, but they exist nowhere else — a decrypted
+// environment file is produced during staging and is deliberately never written
+// beside the source it came from. Copying one from the project dir fails
+// outright, which took every deploy carrying an encrypted entry with it. They
+// stay in the rewrite map, because the rendered bytes must not depend on how a
+// file arrived.
+func StagePayloadContext(ctx context.Context, p *types.Project, stagingDir string, projected map[string]bool) (map[string]string, error) {
 	rewrites := PayloadRewrites(p)
 	for abs, rel := range rewrites {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if projected[strings.TrimPrefix(rel, "./")] {
+			continue
 		}
 		dst := filepath.Join(stagingDir, filepath.FromSlash(strings.TrimPrefix(rel, "./")))
 		if err := copyTreeContext(ctx, abs, dst); err != nil {

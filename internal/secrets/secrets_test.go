@@ -74,3 +74,32 @@ func TestDecryptedPlaintextMayAlreadyBeAnEnvironmentFile(t *testing.T) {
 		})
 	}
 }
+
+// A decrypted secret is bytes, not a template.
+//
+// A general dotenv parser expands `$VAR` while reading, so a bcrypt hash or a
+// generated password containing `$` was silently truncated at the first one —
+// and the parser logged the fragment it could not resolve as a warning, putting
+// part of the credential on stderr. Both are severe and neither was visible:
+// the deploy succeeded and the application got a shorter password than the one
+// in the file.
+func TestDecryptedValuesAreNotExpanded(t *testing.T) {
+	for name, plaintext := range map[string]string{
+		"dotenv":   "HASH=$2y$10$abcdefghijklmno\nPW=ab$cd\n",
+		"yaml map": "HASH: $2y$10$abcdefghijklmno\nPW: ab$cd\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := renderDecrypted("probe", []byte(plaintext))
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			out := string(got)
+			if !strings.Contains(out, "HASH=$2y$10$abcdefghijklmno") {
+				t.Errorf("the hash was altered: %q", out)
+			}
+			if !strings.Contains(out, "PW=ab$cd") {
+				t.Errorf("the password was altered: %q", out)
+			}
+		})
+	}
+}

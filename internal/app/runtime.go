@@ -281,7 +281,8 @@ func (e Environment) Target() string {
 }
 
 // ProbePort is the port an HTTP health check probes when it names none: the
-// port the workload routes on. A workload with several routes uses the first,
+// workload's own `port`, else the first route's, else the first published
+// container port. A workload with several routes uses the first,
 // which is the one the shorthand form would have described.
 func (w Workload) ProbePort() int {
 	if w.Port != 0 {

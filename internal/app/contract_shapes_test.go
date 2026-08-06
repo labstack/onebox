@@ -49,8 +49,8 @@ func TestEveryShorthandEqualsItsObjectForm(t *testing.T) {
 			"environments: {production: {server: root@h}}\nimage: {reference: nginx}\n",
 		},
 		"health": {
-			"environments: {production: {server: root@h}}\nimage: nginx\nhealth: /healthz\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\nhealth: {http: /healthz}\n",
+			"environments: {production: {server: root@h}}\nimage: nginx\ndomain: x\nport: 8080\nhealth: /healthz\n",
+			"environments: {production: {server: root@h}}\nimage: nginx\ndomain: x\nport: 8080\nhealth: {http: /healthz}\n",
 		},
 		"server": {
 			"environments: {production: {server: root@203.0.113.10}}\nimage: nginx\n",

@@ -118,6 +118,7 @@ func (r *Resolved) Canonical() ([]byte, error) {
 	// nothing, or the output cannot be used to check the thing it exists to
 	// show.
 	restoreDeclaredEmpty(generic, r.Spec)
+	restoreDeclaredEmptyScopes(generic, r.Spec)
 	origins := r.Spec.originOf()
 	for path, o := range r.Origins {
 		// An override is more specific than anything derived from the file, and
@@ -239,6 +240,30 @@ func restoreDeclaredEmpty(generic map[string]any, spec *Spec) {
 			continue
 		}
 		if m, ok := workloads[name].(map[string]any); ok {
+			m["env_files"] = []any{}
+		}
+	}
+}
+
+// restoreDeclaredEmptyScopes does the same for the project and the
+// environments, which declare lists too and lost their empties to the same
+// encoding. Restoring only workloads meant the canonical form told the two
+// apart in one scope out of three.
+func restoreDeclaredEmptyScopes(generic map[string]any, spec *Spec) {
+	if spec.Runtime != nil && spec.Runtime.EnvFiles != nil && len(spec.Runtime.EnvFiles) == 0 {
+		if m, ok := generic["runtime"].(map[string]any); ok {
+			m["env_files"] = []any{}
+		}
+	}
+	envs, ok := generic["environments"].(map[string]any)
+	if !ok {
+		return
+	}
+	for name, e := range spec.Environments {
+		if e.EnvFiles == nil || len(e.EnvFiles) > 0 {
+			continue
+		}
+		if m, ok := envs[name].(map[string]any); ok {
 			m["env_files"] = []any{}
 		}
 	}

@@ -285,3 +285,29 @@ port: 3000
 		t.Error("the entry should be referenced by path")
 	}
 }
+
+// An http probe with nothing to probe is refused, not generated against port 0.
+//
+// The port default covers a workload that routes or publishes. A worker or a
+// job using the bare path shorthand has neither, and the earlier fix left those
+// generating `http://127.0.0.1:0/` — a check that can never pass, which a
+// rolling release waits out in full before reporting the container unhealthy
+// without naming a port.
+func TestAProbeWithNoPortIsRefused(t *testing.T) {
+	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  worker:
+    role: worker
+    image: nginx
+    health: /healthz
+`, nil))
+	if err == nil {
+		t.Fatal("a probe with no port to probe must be refused")
+	}
+	var e *Error
+	if !asError(err, &e) || e.Code != "health_port_unknown" {
+		t.Fatalf("want health_port_unknown, got %v", err)
+	}
+}

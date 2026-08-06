@@ -246,3 +246,42 @@ health: /healthz
 		t.Error("the generated probe still targets port 0")
 	}
 }
+
+// No value from any entry reaches an artifact, whatever the entry's kind.
+//
+// Plaintext is not less sensitive than encrypted — it is less protected. The
+// redaction rules were written when only the encrypted mechanism existed, and
+// a contract treating "how it is stored" as "who may see it" would let the
+// commoner form leak.
+func TestNoEntryValueReachesAnArtifact(t *testing.T) {
+	path := envModelProject(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@203.0.113.10}}
+runtime:
+  env_files: [.env]
+image: nginx
+domain: s.example.com
+port: 3000
+`, map[string]string{".env": "API_TOKEN=super-secret-value\n"})
+
+	r := resolvedFor(t, path, "production")
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rendered.Bytes), "super-secret-value") {
+		t.Error("a plaintext entry's value reached the generated runtime")
+	}
+	canonical, err := r.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(canonical), "super-secret-value") {
+		t.Error("a plaintext entry's value reached the canonical form")
+	}
+	// Referenced, never inlined: that is what keeps the value in one place
+	// rather than copied into everything that describes the release.
+	if !strings.Contains(string(rendered.Bytes), ".env") {
+		t.Error("the entry should be referenced by path")
+	}
+}

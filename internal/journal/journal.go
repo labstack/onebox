@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -443,4 +444,4 @@ func recordRollbackSafe(r Record) bool {
 	return detail == "changed=false" || strings.Contains(detail, "rollback-safe by data_effect=none")
 }
 
-func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func q(s string) string { return shellquote.Quote(s) }

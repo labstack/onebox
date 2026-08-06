@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/labstack/onebox/internal/shellquote"
 )
 
 // Supporting services are the reason this tool exists. Nearly every
@@ -272,8 +274,12 @@ func (p *Spec) renderService(n Names, name string, s Service) ([]byte, error) {
 		}, "\n"), key, strings.Join(DriverNames(), ", "))
 	}
 
+	image := d.image + ":" + versionString(s.Version)
+	if err := checkImageRef("services."+name+".version", image); err != nil {
+		return nil, err
+	}
 	svc := map[string]any{
-		"image":          d.image + ":" + versionString(s.Version),
+		"image":          image,
 		"restart":        "unless-stopped",
 		"container_name": n.ServiceContainer(name),
 		"labels": map[string]any{
@@ -657,5 +663,5 @@ func writeEnvFile(path string, names map[string]string, parts map[string]string)
 // it receives is a derived name or a variable name, never user content, but
 // quoting them keeps the generated script readable and the rule uniform.
 func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return shellquote.Quote(s)
 }

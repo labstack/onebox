@@ -45,7 +45,7 @@ func validateTopLevel(p *Spec) error {
 	if err := checkEnum("proxy.kind", p.Proxy.Kind, eProxyKind); err != nil {
 		return err
 	}
-	if err := gImageRef.checkOptional("proxy.image", p.Proxy.Image); err != nil {
+	if err := checkOptionalImageRef("proxy.image", p.Proxy.Image); err != nil {
 		return err
 	}
 	if err := gRepoPath.checkOptional("proxy.config", p.Proxy.Config); err != nil {
@@ -160,7 +160,7 @@ func validateWorkload(w Workload, path string) error {
 		return err
 	}
 	if w.Image != nil {
-		if err := gImageRef.check(path+".image", w.Image.Reference); err != nil {
+		if err := checkImageRef(path+".image", w.Image.Reference); err != nil {
 			return err
 		}
 		if err := checkEnum(path+".image.pull", w.Image.Pull, eImagePull); err != nil {

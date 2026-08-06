@@ -29,6 +29,9 @@ func TestVersionJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("decode version JSON: %v\n%s", err, out)
 	}
+	if got.SchemaVersion != versionReportSchemaVersion {
+		t.Fatalf("schema version = %q, want %q", got.SchemaVersion, versionReportSchemaVersion)
+	}
 	want := buildinfo.Read()
 	if got.Info != want {
 		t.Fatalf("build info = %+v, want %+v", got.Info, want)

@@ -30,8 +30,9 @@ When documents conflict:
 - [`README.md`](../README.md): installation, current capabilities, and the
   supported single-host envelope.
 - [`schema-v1.md`](schema-v1.md): accepted `onebox.run/v1` authoring contract as
-  the binary parses it today. The active `adopt-declarative-project-schema`
-  change redefines that identity; until it archives, this file is what ships.
+  the binary parses it today.
+- [`cli.md`](cli.md): command side effects, structured-output contracts, and
+  the supported operator workflows.
 - [`product.md`](product.md): product direction — the ownership boundary, the
   one-application-per-host scope, and the CLI as the interface.
 - [`archive/`](archive/): superseded documents, kept unedited so a decision can
@@ -39,17 +40,18 @@ When documents conflict:
 
 ## Active OpenSpec changes
 
-- [`adopt-declarative-project-schema`](../openspec/changes/adopt-declarative-project-schema/):
-  the `onebox.run/v1` authoring contract, the runtime it generates, and the
-  managed supporting services it runs. In progress.
+There are no active changes. Everything under
+[`openspec/changes/archive/`](../openspec/changes/archive/) is historical
+context, not a statement of future or shipped behavior.
 
 `managed-service-operation-contract` was withdrawn rather than completed; it is
 kept under [`../openspec/changes/archive/`](../openspec/changes/archive/) with a
 note recording what it proposed that now ships and what remains unbuilt.
 
-Adoption of an already-running database, detach and destroy, backup and
-restore, and major-version upgrades are not covered by any active change.
-Declaring `backup:` records intent; nothing performs or verifies one.
+Adoption of an already-running database, detach, managed backup/restore, and
+major-version upgrades are not shipped. `ob destroy` is shipped. Migration
+policy can require externally produced, plan-bound backup evidence, but Onebox
+does not create or store backups.
 
 ## Canonical capability specifications
 
@@ -65,7 +67,8 @@ Behavioral changes follow the OpenSpec lifecycle:
 2. Resolve design and safety decisions.
 3. Review the implementation checklist.
 4. Apply the change with tests and fault-oriented verification.
-5. Update the current schema and MCP guides only for behavior that shipped.
+5. Update the current project-schema and CLI guides only for behavior that
+   shipped.
 6. Strict-validate and archive the change so its specifications become durable
    project truth.
 

@@ -79,6 +79,63 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	}
 }
 
+func TestResumeUsesInterruptedReleaseSnapshotAfterConfigEdit(t *testing.T) {
+	f := happyFake()
+	jr := journalLines(
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0", TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
+		case strings.Contains(cmd, "/releases/R1/ob.snapshot.yml"):
+			return transport.Result{Stdout: oldSnapshot}, true
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R0\n"}, true
+		}
+		return base(cmd)
+	}
+
+	cfg := testConfig()
+	cfg.Workloads = map[string]app.Workload{"web": cfg.Workloads["web"]}
+	cfg.Deployment.Order = []string{"web"}
+	cfg.Services = nil
+	cfg.Verification = nil
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("resume: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
+		t.Fatalf("resume did not use the interrupted snapshot's worker choreography:\n%s", seq)
+	}
+	if strings.Contains(seq, "--scale web=") {
+		t.Fatalf("resume used the edited working-tree web choreography:\n%s", seq)
+	}
+}
+
+func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
+	f := interruptedFake("changed=false")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "/releases/R1/ob.snapshot.yml") {
+			return transport.Result{ExitCode: 1, Stderr: "No such file"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	id, err := e.ResumeWithJournalID(context.Background())
+	if id != "R1" || err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
+		t.Fatalf("resume id/error = %q, %v", id, err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "ob-fenced") {
+		t.Fatalf("resume must fail before mutation:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
 func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 	f := happyFake()
 	jr := journalLines(
@@ -99,6 +156,8 @@ func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
 			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
+		case strings.Contains(cmd, "ob.snapshot.yml"):
+			return transport.Result{Stdout: strings.Replace(engineProject, "data_effect: unknown", "data_effect: migration", 1)}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
@@ -279,4 +338,79 @@ func TestAbortUsesInterruptedExpandOnlyPolicyAfterConfigEdit(t *testing.T) {
 	// edit back to manual policy must not turn that historical decision into an
 	// unsafe refusal or, in the opposite direction, weaken an uncovered attempt.
 	testAbortReplaysPreviousRelease(t, "changed=unknown", true)
+}
+
+const interruptedWebSnapshot = `
+api_version: onebox.run/v1
+app: sample
+environments: { production: { server: deploy@h } }
+workloads:
+  web:
+    role: application
+    image: ghcr.io/x/app:v2
+    health: {http: /healthz, port: 7500}
+deployment:
+  order: [web]
+`
+
+func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
+	f := happyFake()
+	jr := journalLines(
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0", TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
+		case strings.Contains(cmd, "/releases/R1/ob.snapshot.yml"):
+			return transport.Result{Stdout: interruptedWebSnapshot}, true
+		case strings.Contains(cmd, "/releases/R0/ob.snapshot.yml"):
+			return transport.Result{Stdout: oldSnapshot}, true
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release='R0'"):
+			return transport.Result{}, true
+		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release='R1'"):
+			return transport.Result{Stdout: "NEW1\n"}, true
+		}
+		return base(cmd)
+	}
+
+	cfg := testConfig()
+	cfg.Workloads = map[string]app.Workload{"migrate": cfg.Workloads["migrate"]}
+	cfg.Deployment.Order = nil
+	cfg.Services = nil
+	cfg.Verification = nil
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Abort(context.Background(), false); err != nil {
+		t.Fatalf("abort: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
+		t.Fatalf("abort did not restore the previous snapshot's worker:\n%s", seq)
+	}
+	if !strings.Contains(seq, "docker stop -t 10 NEW1 && docker rm NEW1") {
+		t.Fatalf("abort did not sweep the interrupted snapshot's web newcomer:\n%s", seq)
+	}
+}
+
+func TestAbortStopsWhenIntentCannotBeJournaled(t *testing.T) {
+	f := interruptedFake("changed=false")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, `"phase":"abort","event":"intent"`) {
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Abort(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "journal abort intent") {
+		t.Fatalf("abort error = %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "releases/R0/compose.yaml' pull") {
+		t.Fatalf("abort mutated workloads after its intent write failed:\n%s", seq)
+	}
 }

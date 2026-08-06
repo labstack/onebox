@@ -74,6 +74,25 @@ func TestServiceApplyConvergesUnderRegime(t *testing.T) {
 	}
 }
 
+func TestServiceApplyStopsWhenJournalStartFails(t *testing.T) {
+	f := accFake("")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, `"phase":"accessory-apply","event":"start"`) {
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	err := e.ServiceApply(context.Background(), "R9-acc", false)
+	if err == nil || !strings.Contains(err.Error(), "journal service apply start") {
+		t.Fatalf("service apply error = %v", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "docker compose -p 'ob_sample_postgres'") {
+		t.Fatalf("service apply mutated after journal failure:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
 // The credential is established once and never rotated: regenerating it would
 // leave the application holding a password its database no longer accepts.
 func TestServiceApplyEstablishesCredentialWithoutTravelling(t *testing.T) {

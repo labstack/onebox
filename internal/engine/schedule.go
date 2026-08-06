@@ -89,8 +89,8 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		}
 	}
 	for _, unit := range sortedNames(setOf(stale)) {
-		if _, err := e.mutate(ctx, fmt.Sprintf(
-			"systemctl disable --now %s.timer >/dev/null 2>&1; rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
+		if err := e.mutateChecked(ctx, "remove schedule "+unit, fmt.Sprintf(
+			"systemctl disable --now %s.timer >/dev/null 2>&1 && rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
 			unit, unit, unit)); err != nil {
 			return err
 		}
@@ -200,8 +200,8 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 		return nil
 	}
 	for _, unit := range sortedNames(setOf(units)) {
-		if _, err := e.mutate(ctx, fmt.Sprintf(
-			"systemctl disable --now %s.timer >/dev/null 2>&1; rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
+		if err := e.mutateChecked(ctx, "remove schedule "+unit, fmt.Sprintf(
+			"systemctl disable --now %s.timer >/dev/null 2>&1 && rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
 			unit, unit, unit)); err != nil {
 			return err
 		}

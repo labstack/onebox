@@ -261,6 +261,27 @@ func (e *Engine) mutate(ctx context.Context, cmd string) (res transport.Result, 
 	return res, nil
 }
 
+// mutateChecked is the default for mutations whose success is required. The
+// transport reports a remote command's exit status separately from Go errors,
+// so checking only err can otherwise turn a refused mutation into success.
+func (e *Engine) mutateChecked(ctx context.Context, action, cmd string) error {
+	res, err := e.mutate(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode == 0 {
+		return nil
+	}
+	detail := strings.TrimSpace(res.Stderr)
+	if detail == "" {
+		detail = strings.TrimSpace(res.Stdout)
+	}
+	if detail == "" {
+		return fmt.Errorf("%s failed (exit %d)", action, res.ExitCode)
+	}
+	return fmt.Errorf("%s failed (exit %d): %s", action, res.ExitCode, detail)
+}
+
 func sanitizeID(s string) string {
 	if !validID.MatchString(strings.ReplaceAll(s, "-", "")) {
 		return "invalid"

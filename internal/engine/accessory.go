@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -20,7 +21,7 @@ import (
 // release, because a service is not part of one. Comparing to the release
 // would report every service as changed on the first apply after a deploy,
 // and report nothing when a Postgres version changed under an untouched app.
-func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool) error {
+func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool) (err error) {
 	if len(e.Spec.ServiceNames()) == 0 {
 		return fmt.Errorf("no services declared")
 	}
@@ -114,10 +115,21 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 		return err
 	}
 	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
-	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")})
+	if err := jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")}); err != nil {
+		return fmt.Errorf("journal service apply start: %w", err)
+	}
+	defer func() {
+		finish := journal.Record{Phase: "accessory-apply", Event: "finish", Status: "ok"}
+		if err != nil {
+			finish.Status = "fail"
+			finish.Detail = err.Error()
+		}
+		if journalErr := jw.Append(ctx, finish); journalErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal service apply finish: %w", journalErr))
+		}
+	}()
 
 	if err := e.ApplyServices(ctx); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail", Detail: err.Error()})
 		return err
 	}
 	for _, acc := range e.Spec.ServiceNames() {
@@ -127,7 +139,6 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 			e.logf("service %s: %s", acc, h)
 		}
 	}
-	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "ok"})
 	return nil
 }
 

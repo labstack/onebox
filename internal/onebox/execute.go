@@ -160,10 +160,19 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		// Pushing refreshes every encrypted entry the release carries. The
 		// engine takes one payload today, so this is the first entry; the rest
 		// are handled when staging is reworked to push per entry.
-		var envBytes []byte
-		envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entries[0].File)
-		if err == nil {
-			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, envBytes)
+		// Every encrypted entry, each to the file the runtime references for
+		// it. Pushing one while the release carries several would leave the
+		// rest at the values staged when the release was made.
+		for _, entry := range entries {
+			var envBytes []byte
+			envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
+			if err != nil {
+				break
+			}
+			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, entry.StagedPath(), envBytes)
+			if err != nil {
+				break
+			}
 		}
 	case KindDestroy:
 		err = e.Destroy(ctx, request.RemoveVolumes, request.RemoveProxy)

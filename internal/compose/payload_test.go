@@ -61,7 +61,7 @@ func TestStagePayloadContextHonorsCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := StagePayloadContext(ctx, p, t.TempDir()); !errors.Is(err, context.Canceled) {
+	if _, err := StagePayloadContext(ctx, p, t.TempDir(), nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("StagePayloadContext error = %v; want context cancellation", err)
 	}
 }

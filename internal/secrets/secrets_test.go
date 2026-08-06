@@ -68,8 +68,12 @@ func TestDecryptedPlaintextMayAlreadyBeAnEnvironmentFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s plaintext must be accepted: %v", name, err)
 			}
-			if string(got) != "A=one\nB=two\n" {
-				t.Errorf("both forms must render identically, got %q", got)
+			// A dotenv plaintext is passed through byte for byte, so it keeps
+			// the order and the quoting the author wrote. Parsing and
+			// re-emitting it lost both: `KEY="a #b"` came back as `KEY=a #b`,
+			// which the container runtime then reads as `a`.
+			if !strings.Contains(string(got), "A=one") || !strings.Contains(string(got), "B=two") {
+				t.Errorf("%s: both values must survive, got %q", name, got)
 			}
 		})
 	}
@@ -101,5 +105,53 @@ func TestDecryptedValuesAreNotExpanded(t *testing.T) {
 				t.Errorf("the password was altered: %q", out)
 			}
 		})
+	}
+}
+
+// Quoting and padding survive, because the plaintext is passed through rather
+// than parsed and re-emitted.
+//
+// Stripping the quotes here and writing the value bare meant the container
+// runtime re-parsed it and applied its own rules: `KEY="a #b"` became `a`, and
+// `KEY="  padded  "` lost its padding. The same class as the `$` truncation —
+// a secret altered in transit with nothing downstream able to tell.
+func TestQuotedSecretsSurviveIntact(t *testing.T) {
+	got, err := renderDecrypted("probe", []byte("KEY=\"a #b\"\nPAD=\"  padded  \"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "KEY=\"a #b\"\nPAD=\"  padded  \"\n" {
+		t.Errorf("the plaintext was altered: %q", got)
+	}
+}
+
+// A payload declaring nothing is a failure, not an empty environment.
+func TestAnEmptyPayloadIsRefused(t *testing.T) {
+	for name, plaintext := range map[string]string{
+		"empty map":     "{}\n",
+		"empty":         "",
+		"blank lines":   "\n\n",
+		"comments only": "# nothing here\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := renderDecrypted("probe", []byte(plaintext)); err == nil {
+				t.Error("an empty payload must be refused, or the application starts with every credential unset")
+			}
+		})
+	}
+}
+
+// A value containing a colon is an environment line, not a YAML mapping.
+//
+// Deciding by "does YAML parse it" made `CONFIG={"a": 1}` — a service-account
+// blob, among the most common things anyone encrypts — fail naming a key the
+// author never wrote.
+func TestColonBearingValuesAreEnvironmentLines(t *testing.T) {
+	got, err := renderDecrypted("probe", []byte("CONFIG={\"a\": 1}\n"))
+	if err != nil {
+		t.Fatalf("a JSON value must be accepted: %v", err)
+	}
+	if string(got) != "CONFIG={\"a\": 1}\n" {
+		t.Errorf("the value was altered: %q", got)
 	}
 }

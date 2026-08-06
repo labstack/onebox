@@ -237,6 +237,7 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 	// Every encrypted entry is decrypted into its own file, at the name the
 	// generated document references. One shared file would make a later entry
 	// win outright instead of key by key, which is not what a list means.
+	projected := map[string]bool{}
 	for _, entry := range encryptedEntries(lp.resolved) {
 		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
 		if err != nil {
@@ -245,12 +246,15 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 		if err := os.WriteFile(filepath.Join(staging, entry.StagedPath()), envBytes, 0o600); err != nil {
 			return fail(err)
 		}
+		// Written here and nowhere else, so the payload stager must not go
+		// looking for it beside the encrypted source.
+		projected[entry.StagedPath()] = true
 	}
 	rendered, err := lp.resolved.Render(environment, releaseID, images)
 	if err != nil {
 		return fail(err)
 	}
-	rewrites, err := compose.StagePayloadContext(ctx, lp.compose, staging)
+	rewrites, err := compose.StagePayloadContext(ctx, lp.compose, staging, projected)
 	if err != nil {
 		return fail(err)
 	}

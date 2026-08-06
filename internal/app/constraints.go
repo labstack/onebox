@@ -115,9 +115,15 @@ var (
 	eMigrationPolicy = []string{"manual", "auto", "expand-only"}
 	eNotifyFormat    = []string{"text", "json"}
 	eProxyKind       = []string{"traefik-docker", "none"}
-	eSecretProvider  = []string{"sops", "age"}
-	eRole            = []string{RoleApplication, RoleWorker, RoleDaemon, RoleJob}
-	eConnectionPart  = []string{"url", "host", "port", "user", "password", "database"}
+	// One provider, because one is implemented. The withdrawn `secrets` block
+	// accepted `age` and nothing ever decrypted it — every path shells out to
+	// `sops -d` — so carrying it forward meant `provider: age` validated,
+	// rendered a filename, and staged nothing, failing on the target with a
+	// name the author never wrote. Accepting a value no code can honour is not
+	// generosity.
+	eSecretProvider = []string{"sops"}
+	eRole           = []string{RoleApplication, RoleWorker, RoleDaemon, RoleJob}
+	eConnectionPart = []string{"url", "host", "port", "user", "password", "database"}
 )
 
 // reservedAppNames are the identities the host layout already uses. An

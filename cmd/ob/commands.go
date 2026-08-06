@@ -59,7 +59,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolv
 	if err != nil {
 		return nil, nil, err
 	}
-	interpolation, err := spec.InterpolationEnv()
+	interpolation, err := resolved.Spec.InterpolationEnv()
 	if err != nil {
 		return nil, nil, err
 	}

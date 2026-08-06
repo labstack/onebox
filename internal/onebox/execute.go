@@ -157,9 +157,6 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			err = errors.New("no encrypted env_files entry declared")
 			break
 		}
-		// Pushing refreshes every encrypted entry the release carries. The
-		// engine takes one payload today, so this is the first entry; the rest
-		// are handled when staging is reworked to push per entry.
 		// Every encrypted entry, each to the file the runtime references for
 		// it. Pushing one while the release carries several would leave the
 		// rest at the values staged when the release was made.
@@ -169,6 +166,9 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			if err != nil {
 				break
 			}
+			// The last entry's journal identity is the one reported. Each push
+			// journals its own; the caller carries one, and the journal holds
+			// the rest.
 			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, entry.StagedPath(), envBytes)
 			if err != nil {
 				break

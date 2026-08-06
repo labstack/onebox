@@ -78,7 +78,7 @@ func (e *Engine) secretsPush(ctx context.Context, cur, name string, envBytes []b
 	}
 	remoteStaging := e.base() + "/.secrets-" + strconv.Itoa(epoch)
 	staleCleanup := "find " + q(e.base()) + " -mindepth 1 -maxdepth 1 -type d -name '.secrets-*' -exec rm -rf -- {} +" +
-		" && find " + q(curDir) + " -mindepth 1 -maxdepth 1 -type f -name '*.env.tmp-*' -delete"
+		" && find " + q(curDir) + " -mindepth 1 -maxdepth 1 -type f -name '.ob-decrypted-*.tmp-*' -delete -o -name '*.env.tmp-*' -delete"
 	if res, err := e.mutate(ctx, staleCleanup); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("clean stale secret staging: %v %s", err, strings.TrimSpace(res.Stderr))
 	}

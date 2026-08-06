@@ -148,6 +148,14 @@ func applyPatch[T any](path string, target T, patch map[string]any, allowed map[
 	if err != nil {
 		return zero, err
 	}
+	// `omitempty` erases a declared empty list here too, so overriding any
+	// other field of a workload silently converted "receives nothing" back into
+	// "did not say". The patch may legitimately declare its own empty list, so
+	// this only restores what the target had and lets the patch overwrite it
+	// below.
+	if w, ok := any(target).(Workload); ok && w.EnvFiles != nil && len(w.EnvFiles) == 0 {
+		raw["env_files"] = []any{}
+	}
 
 	for _, key := range sortedKeys(patch) {
 		if !allowed[key] {
@@ -210,6 +218,17 @@ func (p *Spec) deepCopy() (*Spec, error) {
 			declaredEmpty[name] = true
 		}
 	}
+	// Every scope that can declare a list can declare an empty one, and every
+	// one of them loses it to `omitempty`. Restoring only workloads meant a
+	// project or environment declaring "the default is none" silently became
+	// "did not say" — the same defect, in the two scopes nobody checked.
+	runtimeEmpty := p.Runtime != nil && p.Runtime.EnvFiles != nil && len(p.Runtime.EnvFiles) == 0
+	envEmpty := map[string]bool{}
+	for name, e := range p.Environments {
+		if e.EnvFiles != nil && len(e.EnvFiles) == 0 {
+			envEmpty[name] = true
+		}
+	}
 	b, err := json.Marshal(p)
 	if err != nil {
 		return nil, errf("internal_copy_failed", "", "", "cannot copy project: %v", err)
@@ -222,6 +241,14 @@ func (p *Spec) deepCopy() (*Spec, error) {
 		w := out.Workloads[name]
 		w.EnvFiles = []EnvFile{}
 		out.Workloads[name] = w
+	}
+	if runtimeEmpty && out.Runtime != nil {
+		out.Runtime.EnvFiles = []EnvFile{}
+	}
+	for name := range envEmpty {
+		e := out.Environments[name]
+		e.EnvFiles = []EnvFile{}
+		out.Environments[name] = e
 	}
 	out.Dir = p.Dir
 	// Without these a resolved project has no memory of what was authored, and

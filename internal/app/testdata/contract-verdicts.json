@@ -72,7 +72,7 @@
   {
     "case": "conformance/encrypted env file entry",
     "loads": true,
-    "digest": "2c0ead030fdccbd848287bea0054564d3163d455f0ebb8a65cc4fcfc372f8d72"
+    "digest": "c92184d40076555d14a0c0c05bd88ecae355c4f8fe472448c6773763c63e97b8"
   },
   {
     "case": "conformance/env file entry without a file",

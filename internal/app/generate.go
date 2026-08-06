@@ -825,11 +825,13 @@ func (p *Spec) connectionVars(name string, w Workload) map[string]string {
 		if _, ok := p.Services[need.Name]; !ok {
 			continue
 		}
-		if len(need.Env) > 0 {
-			for variable := range need.Env {
-				out[variable] = need.Name
-			}
-			continue
+		// Both sets, always. A workload that maps a part still receives the
+		// canonical connection file beside its alias file, so stopping at the
+		// aliases left every canonical name unguarded — a workload mapping one
+		// part could author POSTGRES_PASSWORD and outrank the credential it was
+		// given.
+		for variable := range need.Env {
+			out[variable] = need.Name
 		}
 		if client, ok := p.ClientEnvFor(need.Name); ok {
 			for variable := range client.canonicalNames() {

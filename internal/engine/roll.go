@@ -24,6 +24,13 @@ func (e *Engine) composeCmd(remoteComposePath string) string {
 	if e.Spec.Runtime != nil {
 		dir := path.Dir(remoteComposePath)
 		for _, entry := range e.Spec.Runtime.EnvFiles {
+			// An encrypted entry is staged only when a workload resolves it, so
+			// naming one here unconditionally passes `--env-file` for a file
+			// that may never have been written and fails the whole invocation.
+			// Interpolation is fed by the plaintext entries either way.
+			if entry.Encrypted() {
+				continue
+			}
 			cmd += " --env-file " + q(path.Join(dir, entry.StagedPath()))
 		}
 	}

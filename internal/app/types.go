@@ -330,11 +330,18 @@ func (e EnvFile) StagedPath() string {
 	if !e.Encrypted() {
 		return e.File
 	}
+	// The prefix is what separates a staged name from an authored path. A
+	// plaintext entry keeps its own path, so without a prefix no authored path
+	// could ever collide with one — but an authored path may itself begin with
+	// the prefix, so the provider is folded in as well: two entries naming one
+	// file under different providers are different entries and must not share
+	// a file.
 	// Injective: the replacement character is escaped before the separator is
 	// replaced, so `a/s.env` and `a-s.env` derive different names. Replacing
 	// the separator alone collides, and the generated document would then list
 	// one name twice and quietly keep whichever entry came last.
-	return ".ob-decrypted-" + strings.ReplaceAll(strings.ReplaceAll(e.File, "-", "--"), "/", "-")
+	escaped := strings.ReplaceAll(strings.ReplaceAll(e.File, "-", "--"), "/", "-")
+	return ".ob-decrypted-" + e.Provider + "-" + escaped
 }
 
 type Observability struct {

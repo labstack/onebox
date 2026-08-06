@@ -77,6 +77,10 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Before checkShape, deliberately: the contract requires this to fail with
+	// direction rather than as an unknown field, and closedness would otherwise
+	// answer first with a generic refusal.
+	//
 	// The block is withdrawn rather than repurposed. Its keys are arbitrary
 	// names today, so reading them as environment names would silently change
 	// what an existing project means — the failure this contract exists to
@@ -398,6 +402,16 @@ func crossFieldRules(p *Spec) error {
 						"generated credential, which exists nowhere else",
 					variable, service)
 			}
+		}
+		// An HTTP probe needs somewhere to probe. Defaulting supplies the
+		// routed or published port; a workload with neither — a worker or a job
+		// using the bare path shorthand — would otherwise generate a check
+		// against port 0 that can never pass, and a rolling release would wait
+		// out its whole budget before saying so without naming a port.
+		if w.Health != nil && w.Health.HTTP != "" && w.Health.Port == 0 {
+			return errf("health_port_unknown", path+".health", "",
+				"an http health check needs a port: workload %q declares no port, no route and no published port, "+
+					"so there is nothing to probe. Name one as health.port", name)
 		}
 		if w.Strategy == "rolling" && w.Health == nil {
 			return errf("strategy_ungated", path+".strategy", "",

@@ -126,7 +126,7 @@ func loadProjectRestricted(ctx context.Context, configPath, environment string, 
 		return nil, err
 	}
 
-	interpolation, err := spec.InterpolationEnv()
+	interpolation, err := resolved.Spec.InterpolationEnv()
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +159,6 @@ func durableVolumeNames(w app.Workload) []string {
 	return out
 }
 
-// sopsSource is the declared SOPS-encrypted secrets file, if there is one. The
-// contract allows several providers; only SOPS has an implementation, and a
-// project declaring another gets nothing rather than a silent fallback to a
-// file it did not name.
 // encryptedEntries are the document-scope entries a release must decrypt.
 //
 // This replaces a function that returned one file, chosen by sorting the
@@ -172,7 +168,12 @@ func durableVolumeNames(w app.Workload) []string {
 func encryptedEntries(r *app.Resolved) []app.EnvFile {
 	var out []app.EnvFile
 	seen := map[string]bool{}
-	for _, w := range r.Spec.Workloads {
+	// Sorted, because ranging a map is not an order. The comment this replaces
+	// claimed "the order it was written" while iterating `Workloads`, which
+	// swapped one nondeterminism for another — and the whole point of the list
+	// is that nothing is chosen by accident.
+	for _, name := range sortedNames(r.Spec.Workloads) {
+		w := r.Spec.Workloads[name]
 		for _, entry := range r.Spec.EnvFilesFor(w) {
 			if entry.Encrypted() && !seen[entry.File] {
 				seen[entry.File] = true

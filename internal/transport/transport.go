@@ -14,6 +14,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/labstack/onebox/internal/shellquote"
 )
 
 type Result struct {
@@ -100,13 +102,5 @@ func (l *Local) Close() error    { return nil }
 
 // shq single-quotes a shell argument.
 func shq(s string) string {
-	b := []byte{'\''}
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\'' {
-			b = append(b, '\'', '\\', '\'', '\'', '\'')
-		} else {
-			b = append(b, s[i])
-		}
-	}
-	return string(append(b, '\''))
+	return shellquote.Quote(s)
 }

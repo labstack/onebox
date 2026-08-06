@@ -317,19 +317,17 @@ func (p *Spec) InterpolationEnv() (map[string]string, error) {
 	// Commands that reach this hold no key material by contract: `ob validate`
 	// and `ob canonical` contact nothing. A variable only an encrypted entry
 	// supplies therefore resolves as unsupplied, and the refusal names it.
+	// Plaintext entries only. Ciphertext handed to a dotenv parser puts
+	// `ENC[AES256_GCM,…]` into the interpolation environment, and skipping an
+	// entry silently resolves its variables empty. Neither is acceptable, so
+	// what is unreadable here is reported by the caller when — and only when —
+	// a variable actually goes unsupplied. Refusing eagerly was worse than
+	// both: a project declaring an encrypted entry and referencing no Compose
+	// file needs no interpolation at all, and stopped loading.
 	paths := make([]string, 0, len(p.documentScopeEntries()))
 	for _, entry := range p.documentScopeEntries() {
 		if entry.Encrypted() {
-			// Named, not skipped. Feeding ciphertext to the parser put
-			// `ENC[AES256_GCM,…]` into the interpolation environment; skipping
-			// it instead resolved the variable empty, which the contract
-			// refuses in the same sentence. Commands that reach here hold no
-			// key material by contract, so the honest answer is to say which
-			// entry cannot be read.
-			return nil, errf("env_file_encrypted_offline", "runtime.env_files", "",
-				"the entry %q is encrypted, and interpolating a referenced Compose file needs its values. "+
-					"This command decrypts nothing: move the variables that feed interpolation into a "+
-					"plaintext entry, or plan the deploy, which decrypts as it stages", entry.File)
+			continue
 		}
 		paths = append(paths, filepath.Join(p.Dir, entry.File))
 	}
@@ -386,4 +384,21 @@ func (p *Spec) documentScopeEntries() []EnvFile {
 		return nil
 	}
 	return p.Runtime.EnvFiles
+}
+
+// EncryptedDocumentEntries names the document-scope entries this command cannot
+// read, so a failure to interpolate can say where the value might have been.
+//
+// The contract requires an unsupplied variable to name the entry rather than
+// resolve empty. It cannot be named at the point the values are gathered,
+// because nothing there knows whether any variable needs it — only the parse
+// knows that. So the fact travels, and the caller joins it to the failure.
+func (p *Spec) EncryptedDocumentEntries() []string {
+	var out []string
+	for _, entry := range p.documentScopeEntries() {
+		if entry.Encrypted() {
+			out = append(out, entry.File)
+		}
+	}
+	return out
 }

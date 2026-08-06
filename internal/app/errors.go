@@ -69,7 +69,6 @@ var errorCodes = map[string]string{
 
 	// Generation and the target.
 	"env_file_unreadable":         "an environment file the project declares cannot be read",
-	"env_file_encrypted_offline":  "interpolation needs values from an entry this command cannot decrypt",
 	"env_file_missing":            "an environment file the project declares is not on disk",
 	"health_port_unknown":         "an http health check has no port to probe and none can be derived",
 	"connection_variable_claimed": "an authored value claims a name a managed-service connection supplies",

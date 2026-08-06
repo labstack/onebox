@@ -12,6 +12,7 @@ import (
 	"errors"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
+	"strings"
 )
 
 // Loading changed shape with the declarative contract. There is no longer a
@@ -134,6 +135,10 @@ func loadProjectRestricted(ctx context.Context, configPath, environment string, 
 	if err != nil {
 		var interpolation *compose.InterpolationError
 		if errors.As(err, &interpolation) {
+			if hidden := resolved.Spec.EncryptedDocumentEntries(); len(hidden) > 0 {
+				return nil, fmt.Errorf("%w\n  the encrypted %s may supply it, and this command decrypts nothing — plan the deploy, which decrypts as it stages",
+					err, strings.Join(hidden, ", "))
+			}
 			return nil, err
 		}
 		return nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)

@@ -1,104 +1,199 @@
 package onebox
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"sort"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"errors"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
+	"strings"
 )
 
-type composeLoader func(context.Context, string, string, ...string) (*ctypes.Project, error)
+// Loading changed shape with the declarative contract. There is no longer a
+// user-authored Compose file to read and classify: the project declares its
+// workloads, and the runtime is generated from that declaration. What used to
+// be inference — guess which service is the app, which is a database, what
+// order they start in — is now something the author states and the loader
+// checks.
+//
+// The generated runtime is still parsed back into a Compose project, because
+// the execution engine works in terms of services and images and that is the
+// form it needs. Parsing our own output is cheap and keeps one source of truth
+// for what a service is.
 
 type loadedProject struct {
-	config       *config.Config
-	project      *ctypes.Project
+	spec     *app.Spec
+	resolved *app.Resolved
+	// compose is the parsed generated runtime. On an inspection load it may
+	// carry placeholder images for workloads nobody has built yet; unresolved
+	// names them so a caller reports "not released" rather than a fake digest.
+	compose      *ctypes.Project
+	unresolved   []string
 	configPath   string
-	composePath  string
 	configBytes  []byte
 	composeBytes []byte
 }
 
-func loadProject(ctx context.Context, configPath string, lenient bool) (*loadedProject, error) {
+// loadProject reads the project, resolves it for the environment, and renders
+// the runtime it implies.
+//
+// lenient asks for a runtime that can be described but not deployed: a project
+// whose images are not built yet still has a shape worth reporting. Every
+// execution path passes false and fails closed on an unresolved image.
+func (s *Service) loadProject(ctx context.Context, lenient bool) (*loadedProject, error) {
+	return loadProjectAt(ctx, s.configPath, s.environment, lenient, s.images)
+}
+
+// loadProjectWith loads against a specific image map.
+//
+// Deploying from a saved plan has to use the plan's pinned references, and it
+// has to use them here — rendering happens during the load, so a build-sourced
+// workload fails with image_unresolved long before anything downstream gets a
+// chance to apply them. The plan is the authority on what a build produced;
+// anything passed on the command line is a fallback for what the plan did not
+// name.
+func (s *Service) loadProjectWith(ctx context.Context, lenient bool, images app.Images) (*loadedProject, error) {
+	merged := app.Images{}
+	for name, ref := range s.images {
+		merged[name] = ref
+	}
+	for name, ref := range images {
+		merged[name] = ref
+	}
+	if len(merged) == 0 {
+		merged = nil
+	}
+	return loadProjectRestricted(ctx, s.configPath, s.environment, lenient, merged, true)
+}
+
+func loadProjectAt(ctx context.Context, configPath, environment string, lenient bool, images app.Images) (*loadedProject, error) {
+	return loadProjectRestricted(ctx, configPath, environment, lenient, images, false)
+}
+
+// loadProjectRestricted optionally narrows the image map to the workloads that
+// cannot render without it.
+//
+// A plan's pinned images are digests resolved *after* the plan rendered, so
+// feeding all of them back into the render would produce a different document
+// than the one the plan bound — and the binding check would refuse its own
+// plan. Only a build-sourced workload needs an image to render at all, and for
+// that workload the plan's entry is the same reference the render already used.
+func loadProjectRestricted(ctx context.Context, configPath, environment string, lenient bool, images app.Images, onlyBuilt bool) (*loadedProject, error) {
 	absConfig, err := filepath.Abs(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path: %w", err)
 	}
-	loader := composeLoader(compose.Load)
-	if lenient {
-		loader = compose.LoadLenient
-	}
-
 	cfgBytes, err := os.ReadFile(absConfig)
 	if err != nil {
 		return nil, err
 	}
-	var cfg *config.Config
-	if strings.HasSuffix(absConfig, ".cue") {
-		cfg, err = config.LoadCUEBytes(cfgBytes, absConfig)
+	spec, err := app.LoadBytes(cfgBytes, absConfig)
+	if err != nil {
+		return nil, err
+	}
+	spec.Dir = filepath.Dir(absConfig)
+
+	if onlyBuilt && len(images) > 0 {
+		restricted := app.Images{}
+		for name, ref := range images {
+			if w, ok := spec.Workloads[name]; ok && w.Build != nil {
+				restricted[name] = ref
+			}
+		}
+		images = nil
+		if len(restricted) > 0 {
+			images = restricted
+		}
+	}
+
+	resolved, err := spec.Resolve(environment)
+	if err != nil {
+		return nil, err
+	}
+
+	var rendered *app.Rendered
+	if lenient {
+		rendered, err = resolved.RenderForInspection(environment, images)
 	} else {
-		cfg, err = config.LoadBytes(cfgBytes, absConfig)
+		rendered, err = resolved.Render(environment, "", images)
 	}
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Dir(absConfig)
-	if cfg.App == "" {
-		cfg.App = config.DefaultApp(absConfig)
-	}
-	if cfg.Compose == "" {
-		cfg.Compose = config.FindCompose(dir)
-	}
-	composePath := cfg.Compose
-	if !filepath.IsAbs(composePath) {
-		composePath = filepath.Join(dir, composePath)
-	}
-	composePath, err = filepath.Abs(composePath)
+
+	interpolation, err := resolved.Spec.InterpolationEnv()
 	if err != nil {
-		return nil, fmt.Errorf("resolve compose path: %w", err)
+		return nil, err
 	}
-	composeDir := filepath.Dir(composePath)
-	var envFiles []string
-	for _, ef := range cfg.EnvFiles {
-		abs := ef
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(composeDir, ef)
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(environment).ComposeProject(), spec.Dir, interpolation)
+	if err != nil {
+		var interpolation *compose.InterpolationError
+		if errors.As(err, &interpolation) {
+			if hidden := resolved.Spec.EncryptedDocumentEntries(); len(hidden) > 0 {
+				return nil, fmt.Errorf("%w\n  the encrypted %s may supply it, and this command decrypts nothing — plan the deploy, which decrypts as it stages",
+					err, strings.Join(hidden, ", "))
+			}
+			return nil, err
 		}
-		if rel, relErr := filepath.Rel(composeDir, abs); relErr != nil || strings.HasPrefix(rel, "..") {
-			return nil, fmt.Errorf("env_files: %q resolves outside the project (%s) — it must live with the compose file so it ships with the release", ef, composeDir)
-		}
-		envFiles = append(envFiles, abs)
+		return nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
 	}
-	composeBytes, err := os.ReadFile(composePath)
-	if err != nil {
-		return nil, err
-	}
-	p, err := loader(ctx, composePath, cfg.App, envFiles...)
-	if err != nil {
-		return nil, err
-	}
-	compose.Infer(cfg, p)
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	if err := compose.Classify(p, cfg); err != nil {
-		return nil, err
-	}
-	composeAfter, err := os.ReadFile(composePath)
-	if err != nil {
-		return nil, err
-	}
-	if !bytes.Equal(composeBytes, composeAfter) {
-		return nil, fmt.Errorf("compose changed while it was being loaded; retry the operation")
-	}
+
 	return &loadedProject{
-		config: cfg, project: p, configPath: absConfig, composePath: composePath,
-		configBytes: cfgBytes, composeBytes: composeBytes,
+		spec: spec, resolved: resolved, compose: p, unresolved: rendered.Unresolved,
+		configPath: absConfig, configBytes: cfgBytes, composeBytes: rendered.Bytes,
 	}, nil
+}
+
+// durableVolumeNames is the set of managed volumes a workload keeps across
+// releases. Bind mounts are excluded: the host owns those, and naming one as a
+// backup resource would promise Onebox can restore something it never created.
+func durableVolumeNames(w app.Workload) []string {
+	var out []string
+	for _, v := range w.Volumes {
+		if !v.IsBind() {
+			out = append(out, v.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// encryptedEntries are the document-scope entries a release must decrypt.
+//
+// This replaces a function that returned one file, chosen by sorting the
+// declared secrets by name. A project declaring two got whichever sorted first,
+// which is how one environment's credentials reached another. There is nothing
+// to choose now: the list is the answer, in the order it was written.
+func encryptedEntries(r *app.Resolved) []app.EnvFile {
+	var out []app.EnvFile
+	seen := map[string]bool{}
+	// Sorted, because ranging a map is not an order. The comment this replaces
+	// claimed "the order it was written" while iterating `Workloads`, which
+	// swapped one nondeterminism for another — and the whole point of the list
+	// is that nothing is chosen by accident.
+	for _, name := range sortedNames(r.Spec.Workloads) {
+		w := r.Spec.Workloads[name]
+		for _, entry := range r.Spec.EnvFilesFor(w) {
+			if entry.Encrypted() && !seen[entry.File] {
+				seen[entry.File] = true
+				out = append(out, entry)
+			}
+		}
+	}
+	return out
+}
+
+func sortedNames[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

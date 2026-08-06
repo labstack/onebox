@@ -49,28 +49,25 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 	y := string(b)
 	for _, want := range []string{
 		"api_version: onebox.run/v1",
-		"target: deploy@CHANGE-ME",
-		"components:",
-		"type: service",
-		"type: postgres",
-		"type: mysql",
-		"type: redis",
-		"type: job",
-		"type: application",
-		"type: worker",
+		"server: deploy@CHANGE-ME",
+		"workloads:",
+		"role: application",
+		"role: worker",
+		"role: daemon",
+		"role: job",
 		"data_effect: migration",
 		"persistence: { mode: durable }",
 		"persistence: { mode: ephemeral }",
-		"deployment: { strategy: rolling }",
-		"deployment: { strategy: recreate }",
-		"readiness: { http: /healthz, port: 7500 }",
+		"strategy: rolling",
+		"strategy: recreate",
+		"health: { http: /healthz, port: 7500 }",
 		"order: [server, worker]",
 	} {
 		if !strings.Contains(y, want) {
 			t.Fatalf("scaffold missing %q:\n%s", want, y)
 		}
 	}
-	for _, unsupportedField := range []string{"roles:", "accessories:", "jobs:"} {
+	for _, unsupportedField := range []string{"components:", "roles:", "services:", "jobs:"} {
 		if strings.Contains(y, unsupportedField) {
 			t.Fatalf("scaffold must not emit unsupported field %q:\n%s", unsupportedField, y)
 		}
@@ -81,9 +78,12 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 	}
 	// The scaffold's target is deliberately unusable until the operator makes
 	// the production authority explicit.
+	// The scaffold points at the user's Compose file, and doctor has just
+	// listed what stands between it and a rolling deploy. Loading must refuse
+	// for one of those reasons rather than accept a project that cannot run.
 	validateOut, err := run(t, dir, "validate")
-	if err == nil || !strings.Contains(err.Error()+validateOut, "CHANGE-ME") {
-		t.Fatalf("untouched scaffold target must be rejected: %v\n%s", err, validateOut)
+	if err == nil {
+		t.Fatalf("untouched scaffold must be rejected: %s", validateOut)
 	}
 	y = strings.Replace(y, "deploy@CHANGE-ME", "deploy@example.test", 1)
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(y), 0o644); err != nil {

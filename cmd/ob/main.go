@@ -12,6 +12,8 @@ import (
 
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/ui"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 var version = buildinfo.Read().Version
@@ -23,14 +25,17 @@ type globalFlags struct {
 	NoRollback bool
 	Force      bool
 	Output     string
+	// Images resolves build-sourced workloads. Parsed from --image by the
+	// verbs that accept it.
+	Images app.Images
 }
 
 func newRootCmd() *cobra.Command {
 	g := &globalFlags{}
 	root := &cobra.Command{
 		Use:           "ob",
-		Short:         "onebox — MCP-first production operations for one box",
-		Long:          "onebox (ob) — MCP-first, plan-before-apply production operations for Compose applications on one server.\nAgentless over SSH, health-gated, journaled, and fenced; Compose is the runtime contract and one box is the product scope.",
+		Short:         "onebox — one application, one host",
+		Long:          "onebox (ob) — plan-before-apply production operations for one application on one server.\n\nYou describe what the application is in ob.yml; Onebox generates the Compose\nruntime, the names, the routing and the supporting services. Agentless over\nSSH, health-gated, journaled and fenced.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -53,7 +58,11 @@ func newRootCmd() *cobra.Command {
 	addCommands(root, g)
 	addInitCommand(root, g)
 	addOpsCommands(root, g)
-	addMCPCommand(root, g)
+	addPreviewCommand(root, g)
+	addSchemaCommand(root, g)
+	addPreflightCommand(root, g)
+	addEjectCommand(root, g)
+	addConfigCommand(root, g)
 	return root
 }
 

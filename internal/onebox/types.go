@@ -19,20 +19,18 @@ type Provenance struct {
 
 // ServiceDescription is the declared, non-secret shape of one Compose service.
 type ServiceDescription struct {
-	Name               string `json:"name" jsonschema:"Stable logical component name"`
-	Service            string `json:"service" jsonschema:"Compose service implementing the component"`
-	Type               string `json:"type" jsonschema:"Component type such as application, worker, job, postgres, redis, or service"`
-	Strategy           string `json:"strategy,omitempty" jsonschema:"Deployment strategy for application and worker components"`
-	Replicas           int    `json:"replicas,omitempty" jsonschema:"Resolved steady-state replica count"`
-	DataEffect         string `json:"data_effect,omitempty" jsonschema:"Declared job data effect"`
-	PersistenceMode    string `json:"persistence_mode,omitempty" jsonschema:"Declared durable, ephemeral, or external persistence mode"`
-	ProtectionDeclared bool   `json:"protection_declared" jsonschema:"Whether a backup or restore-drill policy is declared"`
-	ProtectionManaged  bool   `json:"protection_managed" jsonschema:"Whether Onebox currently enforces the declared protection policy"`
-	ImageDeclared      bool   `json:"image_declared" jsonschema:"Whether the Compose service declares an image reference; the scalar value is hidden"`
+	Name            string `json:"name" jsonschema:"Stable logical component name"`
+	Service         string `json:"service" jsonschema:"Compose service implementing the component"`
+	Type            string `json:"type" jsonschema:"Component type such as application, worker, job, postgres, redis, or service"`
+	Strategy        string `json:"strategy,omitempty" jsonschema:"Deployment strategy for application and worker components"`
+	Replicas        int    `json:"replicas,omitempty" jsonschema:"Resolved steady-state replica count"`
+	DataEffect      string `json:"data_effect,omitempty" jsonschema:"Declared job data effect"`
+	PersistenceMode string `json:"persistence_mode,omitempty" jsonschema:"Declared durable, ephemeral, or external persistence mode"`
+	ImageDeclared   bool   `json:"image_declared" jsonschema:"Whether the Compose service declares an image reference; the scalar value is hidden"`
 }
 
 type EnvironmentPolicyDescription struct {
-	RequireApproval     bool `json:"require_approval" jsonschema:"Declared policy that production mutation requires human approval; current MCP is read-only"`
+	RequireApproval     bool `json:"require_approval" jsonschema:"Declared policy that production mutation requires human approval"`
 	AllowAgentProposals bool `json:"allow_agent_proposals" jsonschema:"Whether an agent may construct deployment proposals"`
 }
 

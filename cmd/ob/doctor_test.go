@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/onebox"
 )
 
@@ -30,26 +30,20 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 	}
 	oldBinary := filepath.Join(oldDir, "ob")
 	currentBinary := filepath.Join(currentDir, "ob")
-	requireApproval := true
-	cfg := &config.Config{
+	cfg := &app.Spec{
 		APIVersion: "onebox.run/v1",
-		App:        "demo",
-		Environments: map[string]config.Environment{
+		Name:       "demo",
+		Environments: map[string]app.Environment{
 			"production": {
-				Policy: config.EnvironmentPolicy{
-					RequireApproval:      &requireApproval,
+				Policy: app.Policy{
+					RequireApproval:      true,
 					MinimumOneboxVersion: "v2026.07.1",
 					MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 				},
 			},
 		},
-		Components: map[string]config.Component{
-			"database": {
-				Protection: &config.Protection{
-					Backup:       &config.BackupPolicy{},
-					RestoreDrill: &config.RestoreDrillPolicy{},
-				},
-			},
+		Workloads: map[string]app.Workload{
+			"database": {Persistence: &app.Persistence{Mode: "durable"}},
 		},
 	}
 	runner := buildinfo.Runner{
@@ -81,7 +75,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 			return buildinfo.Info{}, errors.New("unexpected candidate")
 		},
 		querySSHAgent: func(context.Context, string) (int, error) { return 2, nil },
-		loadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		loadConfig:    func(string) (*app.Spec, error) { return cfg, nil },
 	}
 }
 
@@ -89,7 +83,10 @@ func TestBuildDoctorReportFindsShadowingPolicyAndProtectionGaps(t *testing.T) {
 	deps := doctorTestDependencies(t)
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "/project/ob.yml", Env: "production"}, deps)
 
-	if report.SchemaVersion != doctorReportSchemaVersion || report.Status != doctorFail {
+	// Durable data with no backup is a warning, not a failure: the
+	// configuration is sound, the risk is real, and refusing to run would be
+	// the wrong answer to "you should copy this off the box".
+	if report.SchemaVersion != doctorReportSchemaVersion || report.Status != doctorWarning {
 		t.Fatalf("unexpected report envelope: %+v", report)
 	}
 	if !report.Binary.Shadowed || len(report.Binary.Candidates) != 2 {
@@ -110,10 +107,12 @@ func TestBuildDoctorReportFindsShadowingPolicyAndProtectionGaps(t *testing.T) {
 	if !report.Approval.PolicyKnown || !report.Approval.Required || !report.Approval.Available {
 		t.Fatalf("approval report = %+v", report.Approval)
 	}
-	if report.Protections.Status != doctorFail || len(report.Protections.Checks) != 2 {
+	// Durable data with nothing copying it off the box must be said out loud;
+	// silence would read as approval.
+	if report.Protections.Status != doctorWarning || len(report.Protections.Checks) != 1 {
 		t.Fatalf("protection report = %+v", report.Protections)
 	}
-	for _, mechanism := range []string{"backup", "restore_drill"} {
+	for _, mechanism := range []string{"backup"} {
 		found := false
 		for _, check := range report.Protections.Checks {
 			found = found || check.Mechanism == mechanism && !check.Available
@@ -141,8 +140,8 @@ func TestDoctorCommandOutputModes(t *testing.T) {
 			cmd.SetOut(&out)
 			cmd.SetErr(&stderr)
 			cmd.SetArgs(args)
-			if err := cmd.Execute(); !errors.Is(err, errDoctorFailed) {
-				t.Fatalf("execute doctor error = %v, want %v\n%s", err, errDoctorFailed, out.String())
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute doctor error = %v\n%s", err, out.String())
 			}
 			if stderr.Len() != 0 {
 				t.Fatalf("structured doctor output polluted stderr: %q", stderr.String())
@@ -165,14 +164,13 @@ func TestDoctorHumanOutputNamesEveryDiagnosticArea(t *testing.T) {
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "/project/ob.yml", Env: "production"}, doctorTestDependencies(t))
 	out := formatDoctorReport(report)
 	for _, want := range []string{
-		"Onebox doctor: FAIL",
+		"Onebox doctor: WARNING",
 		"binary:",
 		"ssh-agent:",
 		"project:",
 		"approval:",
 		"protections:",
 		"database/backup",
-		"database/restore_drill",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("human doctor output missing %q:\n%s", want, out)
@@ -182,7 +180,7 @@ func TestDoctorHumanOutputNamesEveryDiagnosticArea(t *testing.T) {
 
 func TestDoctorReportsMissingProjectWithoutAborting(t *testing.T) {
 	deps := doctorTestDependencies(t)
-	deps.loadConfig = func(string) (*config.Config, error) { return nil, os.ErrNotExist }
+	deps.loadConfig = func(string) (*app.Spec, error) { return nil, os.ErrNotExist }
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "missing.yml", Env: "production"}, deps)
 	if report.Project.Status != doctorWarning || report.Project.Found {
 		t.Fatalf("project report = %+v", report.Project)
@@ -194,13 +192,13 @@ func TestDoctorReportsMissingProjectWithoutAborting(t *testing.T) {
 
 func TestDoctorReportsIncompatibleProjectPolicy(t *testing.T) {
 	deps := doctorTestDependencies(t)
-	deps.loadConfig = func(string) (*config.Config, error) {
-		return &config.Config{
+	deps.loadConfig = func(string) (*app.Spec, error) {
+		return &app.Spec{
 			APIVersion: "onebox.run/v1",
-			Environments: map[string]config.Environment{
-				"production": {Policy: config.EnvironmentPolicy{MinimumOneboxVersion: "v2027.01.1"}},
+			Environments: map[string]app.Environment{
+				"production": {Policy: app.Policy{MinimumOneboxVersion: "v2027.01.1"}},
 			},
-			Components: map[string]config.Component{},
+			Workloads: map[string]app.Workload{},
 		}, nil
 	}
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "/project/ob.yml", Env: "production"}, deps)

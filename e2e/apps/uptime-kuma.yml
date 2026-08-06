@@ -1,0 +1,8 @@
+api_version: onebox.run/v1
+app: uptime-kuma
+environments:
+  production: {server: root@TARGET}
+image: louislam/uptime-kuma:1.23.16
+domain: kuma.example.com
+port: 3001
+health: {http: /, port: 3001, interval: 10s, start_period: 30s, retries: 5}

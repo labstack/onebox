@@ -23,10 +23,10 @@ import (
 func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 	e.hostLockVal = ""
 	e.hostLockToken = ""
-	hp := proxy.HostPaths()
+	hp := proxy.HostPaths(e.names())
 	token := fmt.Sprintf("%x", time.Now().UnixNano())
 	meta := lockMeta{
-		Owner: journal.DefaultOperator(), DeployID: e.Cfg.App,
+		Owner: journal.DefaultOperator(), DeployID: e.Spec.Name,
 		TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339), Token: token,
 	}
 	b, _ := json.Marshal(meta)
@@ -83,7 +83,7 @@ func (e *Engine) releaseHostLock(ctx context.Context) {
 		return
 	}
 	expected := e.hostLockVal
-	path := proxy.HostPaths().Lock
+	path := proxy.HostPaths(e.names()).Lock
 	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	res, err := e.T.Run(cleanupContext, `if [ "$(cat `+q(path)+` 2>/dev/null)" = `+q(expected)+` ]; then rm -f `+q(path)+`; fi`)
@@ -101,7 +101,7 @@ func (e *Engine) hostMutate(ctx context.Context, cmd string) (res transport.Resu
 	if e.hostLockVal == "" {
 		return res, fmt.Errorf("host mutation attempted without owning the host lock")
 	}
-	guarded := `if [ "$(cat ` + q(proxy.HostPaths().Lock) + ` 2>/dev/null)" = ` + q(e.hostLockVal) + ` ]; then ` + cmd + `; else echo ob-host-fenced >&2; exit 96; fi`
+	guarded := `if [ "$(cat ` + q(proxy.HostPaths(e.names()).Lock) + ` 2>/dev/null)" = ` + q(e.hostLockVal) + ` ]; then ` + cmd + `; else echo ob-host-fenced >&2; exit 96; fi`
 	res, err = e.mutate(ctx, guarded)
 	if err != nil {
 		return res, err

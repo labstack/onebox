@@ -17,8 +17,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/onebox"
 )
 
@@ -127,7 +127,7 @@ type doctorDependencies struct {
 	stat          func(string) (os.FileInfo, error)
 	inspectBinary func(string) (buildinfo.Info, error)
 	querySSHAgent func(context.Context, string) (int, error)
-	loadConfig    func(string) (*config.Config, error)
+	loadConfig    func(string) (*app.Spec, error)
 }
 
 var newDoctorDependencies = defaultDoctorDependencies
@@ -142,7 +142,7 @@ func defaultDoctorDependencies() doctorDependencies {
 		stat:          os.Stat,
 		inspectBinary: buildinfo.ReadFile,
 		querySSHAgent: queryLocalSSHAgent,
-		loadConfig:    config.Load,
+		loadConfig:    app.Load,
 	}
 }
 
@@ -151,6 +151,7 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check local runner provenance and deployment safety capabilities",
+		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that has no backup — Onebox does not take backups, and silence\nthere would read as approval.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())
@@ -411,7 +412,7 @@ func queryLocalSSHAgent(ctx context.Context, socket string) (int, error) {
 	return len(identities), nil
 }
 
-func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjectReport, *config.Config, *config.Environment) {
+func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjectReport, *app.Spec, *app.Environment) {
 	path := absolutePath(g.ConfigPath)
 	report := doctorProjectReport{
 		Status: doctorWarning, Path: path, Environment: g.Env,
@@ -430,7 +431,7 @@ func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjec
 	report.Found = true
 	report.Valid = true
 	report.APIVersion = cfg.APIVersion
-	report.Application = cfg.App
+	report.Application = cfg.Name
 	environment, err := cfg.Environment(g.Env)
 	if err != nil {
 		report.Status = doctorFail
@@ -450,7 +451,7 @@ func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjec
 	return report, cfg, &environment
 }
 
-func inspectDoctorApproval(environment *config.Environment) doctorApprovalReport {
+func inspectDoctorApproval(environment *app.Environment) doctorApprovalReport {
 	report := doctorApprovalReport{
 		Status:             doctorPass,
 		Available:          true,
@@ -462,7 +463,7 @@ func inspectDoctorApproval(environment *config.Environment) doctorApprovalReport
 		return report
 	}
 	report.PolicyKnown = true
-	report.Required = environment.Policy.ApprovalRequired()
+	report.Required = environment.Policy.RequireApproval
 	if report.Required {
 		report.Message = "project requires approval and this runner can create plan-bound local grants"
 	} else {
@@ -471,7 +472,7 @@ func inspectDoctorApproval(environment *config.Environment) doctorApprovalReport
 	return report
 }
 
-func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctorDependencies) doctorProtectionsReport {
+func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDependencies) doctorProtectionsReport {
 	report := doctorProtectionsReport{Status: doctorPass, Checks: []doctorProtectionCheck{}}
 	if cfg == nil {
 		report.Status = doctorWarning
@@ -479,32 +480,33 @@ func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctor
 		return report
 	}
 
-	componentNames := make([]string, 0, len(cfg.Components))
-	for name := range cfg.Components {
+	// Durable data with nothing copying it off the box is worth saying out
+	// loud. Onebox does not take backups, and a workload whose data only
+	// exists on one machine is one disk away from gone — silence here would
+	// read as approval.
+	componentNames := make([]string, 0, len(cfg.Workloads))
+	for name := range cfg.Workloads {
 		componentNames = append(componentNames, name)
 	}
 	sort.Strings(componentNames)
 	for _, name := range componentNames {
-		protection := cfg.Components[name].Protection
-		if protection == nil {
+		p := cfg.Workloads[name].Persistence
+		if p == nil || p.Mode != "durable" {
 			continue
 		}
-		if protection.Backup != nil {
-			report.Checks = append(report.Checks, doctorProtectionCheck{
-				Status: doctorFail, Component: name, Mechanism: "backup", Available: false,
-				Message: "component backup schedule is declared, but Onebox has no scheduler or provider availability probe for it",
-			})
-		}
-		if protection.RestoreDrill != nil {
-			report.Checks = append(report.Checks, doctorProtectionCheck{
-				Status: doctorFail, Component: name, Mechanism: "restore_drill", Available: false,
-				Message: "component restore-drill schedule is declared, but Onebox has no scheduler or provider availability probe for it",
-			})
-		}
+		report.Checks = append(report.Checks, doctorProtectionCheck{
+			Status: doctorWarning, Component: name, Mechanism: "backup", Available: false,
+			Message: "holds durable data and Onebox takes no backups; copy it off this host yourself",
+		})
+	}
+	for _, name := range cfg.ServiceNames() {
+		report.Checks = append(report.Checks, doctorProtectionCheck{
+			Status: doctorWarning, Component: name, Mechanism: "backup", Available: false,
+			Message: "managed service data lives only on this host; Onebox takes no backups yet",
+		})
 	}
 
-	if cfg.Secrets != nil {
-		source := cfg.Secrets.Sops
+	if source := specSopsSource(cfg); source != "" {
 		if !filepath.IsAbs(source) {
 			source = filepath.Join(filepath.Dir(configPath), source)
 		}
@@ -526,7 +528,7 @@ func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctor
 		report.Checks = append(report.Checks, check)
 	}
 
-	if len(cfg.Preflight) > 0 {
+	if cfg.Runtime != nil && len(cfg.Runtime.Preflight) > 0 {
 		check := doctorProtectionCheck{Mechanism: "runtime_preflight"}
 		if err := cfg.RunPreflight(filepath.Dir(configPath)); err != nil {
 			check.Status = doctorFail
@@ -543,9 +545,11 @@ func inspectDoctorProtections(cfg *config.Config, configPath string, deps doctor
 		report.Status = worseDoctorStatus(report.Status, check.Status)
 	}
 	if len(report.Checks) == 0 {
-		report.Message = "no local protection prerequisites or unsupported protection policies are declared"
+		report.Message = "nothing on this host holds durable data"
 	} else if report.Status == doctorFail {
 		report.Message = "one or more declared protection mechanisms are unavailable"
+	} else if report.Status == doctorWarning {
+		report.Message = "durable data is present and Onebox does not back it up"
 	} else {
 		report.Message = "declared local protection mechanisms are available"
 	}

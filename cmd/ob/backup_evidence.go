@@ -29,11 +29,13 @@ func addBackupEvidenceCommand(root *cobra.Command, g *globalFlags) {
 	group := &cobra.Command{
 		Use:   "backup-evidence",
 		Short: "create plan-bound attestations about externally validated backups",
+		Long:  "Seal externally validated facts about a backup into a receipt bound to one\nplan.\n\nFor environments whose policy requires backup evidence before a migration.\nThe receipt records artifact, integrity, restore-test and key-usability\nfacts — never backup bytes and never secrets. Onebox does not take the\nbackup; it records that something else did, and refuses to be the thing that\nclaims one exists.",
 	}
 	var planPath, manifestPath, outPath string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "seal validation facts into a migration backup evidence receipt",
+		Long:  "Seal a facts manifest into a receipt bound to one exact plan.\n\nThe manifest records artifact, integrity, restore-test and key-usability\nfacts about a backup something else took — never backup bytes and never\nsecrets. Onebox does not take the backup and will not claim one exists.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runBackupEvidenceCreate(cmd, g, planPath, manifestPath, outPath)

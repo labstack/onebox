@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 )
 
 const maxVerificationBodyBytes = 1 << 20
 
 // verifyURL is the runner-side edge check (ob.sh's smoke test, absorbed).
-func (e *Engine) verifyURL(ctx context.Context, chk config.VerifyCheck) error {
+func (e *Engine) verifyURL(ctx context.Context, chk app.Verification) error {
 	label := verificationURLLabel(chk.URL)
 	client := &http.Client{
 		Timeout: e.Opts.HTTPTimeout,
@@ -140,7 +140,7 @@ func readVerificationBody(body io.Reader) ([]byte, error) {
 	return limited, nil
 }
 
-func verifyJSONAssertions(body []byte, assertions []config.JSONAssertion) error {
+func verifyJSONAssertions(body []byte, assertions []app.JSONAssertion) error {
 	if len(assertions) == 0 {
 		return nil
 	}
@@ -241,7 +241,7 @@ func scalarNumberString(value any) (string, bool) {
 // the edge, because an edge blip must not fail a healthy release. URL
 // checks go through the edge from the runner and are advisory territory.
 func (e *Engine) Verify(ctx context.Context) error {
-	for _, chk := range e.Cfg.Verify {
+	for _, chk := range e.Spec.Verification {
 		if chk.MigrationRevisions != nil {
 			assertion := chk.MigrationRevisions
 			result, ok := e.jobResults[assertion.Job]
@@ -268,25 +268,25 @@ func (e *Engine) Verify(ctx context.Context) error {
 			e.logf("verify %s: ok", verificationURLLabel(chk.URL))
 			continue
 		}
-		role, ok := e.Cfg.Roles[chk.Role]
+		role, ok := e.Spec.Workloads[chk.Workload]
 		if !ok {
-			return fmt.Errorf("verify: unknown role %q", chk.Role)
+			return fmt.Errorf("verify: unknown workload %q", chk.Workload)
 		}
-		id, err := e.containerID(ctx, role.Service)
+		id, err := e.containerID(ctx, chk.Workload)
 		if err != nil {
 			return err
 		}
 		if id == "" {
-			return fmt.Errorf("verify %s: no running container", chk.Role)
+			return fmt.Errorf("verify %s: no running container", chk.Workload)
 		}
 		switch {
 		case chk.HTTP != "":
 			port := chk.Port
-			if port == 0 && role.Ready != nil {
-				port = role.Ready.Port
+			if port == 0 && role.Health != nil {
+				port = role.Health.Port
 			}
 			if port == 0 {
-				return fmt.Errorf("verify %s: no port (set verify.port or the role's ready.port)", chk.Role)
+				return fmt.Errorf("verify %s: no port (set the check's port, or the workload's health port)", chk.Workload)
 			}
 			res, err := e.T.Run(ctx, "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "+id)
 			if err != nil {
@@ -294,18 +294,18 @@ func (e *Engine) Verify(ctx context.Context) error {
 			}
 			fields := strings.Fields(res.Stdout)
 			if len(fields) == 0 {
-				return fmt.Errorf("verify %s: container %s has no network address", chk.Role, id)
+				return fmt.Errorf("verify %s: container %s has no network address", chk.Workload, id)
 			}
 			ip := fields[0]
 			if strings.ContainsAny(ip, ";|&$`'\"") {
-				return fmt.Errorf("verify %s: suspicious address %q", chk.Role, ip)
+				return fmt.Errorf("verify %s: suspicious address %q", chk.Workload, ip)
 			}
 			cres, err := e.T.Run(ctx, fmt.Sprintf("curl -fsS -m 5 http://%s:%d%s", ip, port, chk.HTTP))
 			if err != nil {
 				return err
 			}
 			if cres.ExitCode != 0 {
-				return fmt.Errorf("verify %s: GET %s -> exit %d %s", chk.Role, chk.HTTP, cres.ExitCode, strings.TrimSpace(cres.Stderr))
+				return fmt.Errorf("verify %s: GET %s -> exit %d %s", chk.Workload, chk.HTTP, cres.ExitCode, strings.TrimSpace(cres.Stderr))
 			}
 		case chk.Exec != "":
 			res, err := e.T.Run(ctx, "docker exec "+id+" sh -c "+q(chk.Exec))
@@ -313,10 +313,10 @@ func (e *Engine) Verify(ctx context.Context) error {
 				return err
 			}
 			if res.ExitCode != 0 {
-				return fmt.Errorf("verify %s: exec failed (%d): %s", chk.Role, res.ExitCode, strings.TrimSpace(res.Stderr))
+				return fmt.Errorf("verify %s: exec failed (%d): %s", chk.Workload, res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
 		}
-		e.logf("verify %s: ok", chk.Role)
+		e.logf("verify %s: ok", chk.Workload)
 	}
 	return nil
 }

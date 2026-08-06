@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/transport"
 )
@@ -30,7 +30,7 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 		}
 	}
 	cfg := testConfig()
-	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
 	hash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "")
 	if err != nil {
 		t.Fatal(err)

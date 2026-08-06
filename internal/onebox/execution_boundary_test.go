@@ -14,6 +14,8 @@ import (
 
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/transport"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 func sealedTestDeployPlan(t *testing.T, createdAt, expiresAt time.Time) DeployPlan {
@@ -451,19 +453,26 @@ func TestExecuteRejectsComposeDriftBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A Compose edit that leaves the parsed service set (and thus the graph)
-	// intact — only the Compose digest binds it.
+	// An edit to a referenced Compose file that leaves the service set — and
+	// thus the operation graph — intact, but changes what would actually run.
+	// Only the runtime digest binds it.
+	//
+	// The digest covers the generated runtime, not the file that fed it, so a
+	// comment-only edit is deliberately not drift: nothing about the release
+	// would differ, and forcing a re-plan for it would teach operators that
+	// re-planning is noise.
 	composePath := filepath.Join(filepath.Dir(svc.configPath), "docker-compose.yaml")
 	source, err := os.ReadFile(composePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(composePath, append(source, []byte("\n# drift introduced after planning\n")...), 0o600); err != nil {
+	drifted := strings.Replace(string(source), "ghcr.io/example/postgres:", "ghcr.io/example/other:", 1)
+	if err := os.WriteFile(composePath, []byte(drifted), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fake.Uploads, fake.Inputs = nil, nil
 	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
-	if err == nil || !strings.Contains(err.Error(), "Compose file changed since plan") {
+	if err == nil || !strings.Contains(err.Error(), "not the one the plan bound") {
 		t.Fatalf("compose drift was not rejected: result=%#v err=%v", result, err)
 	}
 	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
@@ -529,14 +538,14 @@ func TestExecuteRejectsLiveBaselineDrift(t *testing.T) {
 	}
 	baseDynamic := fake.Dynamic
 	fake.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "postgres") {
+		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "'database'") {
 			return transport.Result{Stdout: "PG1\n"}, true
 		}
-		if strings.Contains(command, "docker inspect") && strings.Contains(command, "PG1") {
+		if strings.Contains(command, "docker inspect") && strings.Contains(command, "Health") {
 			return transport.Result{Stdout: "healthy\n"}, true
 		}
 		if strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml") {
-			return transport.Result{Stdout: "services:\n  server:\n    image: changed-after-plan\n"}, true
+			return transport.Result{Stdout: "services:\n  web:\n    image: changed-after-plan\n"}, true
 		}
 		return baseDynamic(command)
 	}
@@ -561,10 +570,10 @@ func TestExecuteRechecksBindingAfterTakingFence(t *testing.T) {
 	baseDynamic := fake.Dynamic
 	liveReads := 0
 	fake.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "postgres") {
+		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "'database'") {
 			return transport.Result{Stdout: "PG1\n"}, true
 		}
-		if strings.Contains(command, "docker inspect") && strings.Contains(command, "PG1") {
+		if strings.Contains(command, "docker inspect") && strings.Contains(command, "Health") {
 			return transport.Result{Stdout: "healthy\n"}, true
 		}
 		if strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml") {
@@ -755,7 +764,7 @@ func TestExecuteRejectsChangedConfirmedBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := strings.Replace(string(source), "target: deploy@example.invalid", "target: deploy@other.invalid", 1)
+	changed := strings.Replace(string(source), "server: deploy@example.invalid", "server: deploy@other.invalid", 1)
 	if err := os.WriteFile(svc.configPath, []byte(changed), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -792,5 +801,257 @@ func TestExecuteEarlyFailureHasCorrelationIdentity(t *testing.T) {
 	}
 	if strings.Contains(events[0].Message, "missing.yml") {
 		t.Fatalf("structured event leaked local diagnostics: %#v", events[0])
+	}
+}
+
+// A plan binds the runtime it would produce. Anything that feeds generation is
+// therefore bound too, and each of these is a way the runtime could differ from
+// what was reviewed while every other fact about the plan stayed identical.
+
+// The base path decides the entire remote layout: where the release lands, where
+// the journal is, where a service's credential lives.
+func TestExecuteRejectsRelocatedBasePathBeforeMutation(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(svc.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := strings.Replace(string(source), "app: demo\n", "app: demo\nbase_path: /srv/onebox\n", 1)
+	if err := os.WriteFile(svc.configPath, []byte(moved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	// Refused by the configuration digest: the base path is part of the
+	// project, and the runtime digest would catch it too.
+	if err == nil || !strings.Contains(err.Error(), "configuration changed since plan") {
+		t.Fatalf("a relocated base path must be refused: the plan bound a different layout: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("a relocated base path reached a write: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+// A plan pins a digest, and execution deploys that digest. A tag that moves
+// between planning and applying therefore changes nothing — which is stronger
+// than refusing, and is the entire reason for pinning.
+//
+// This was originally written as a drift test and passed for the wrong reason:
+// without an approval it stopped at the approval gate and proved nothing about
+// images at all.
+func TestAMovedTagCannotChangeWhatIsDeployed(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := map[string]string{}
+	for k, v := range plan.Artifact.PinnedImages {
+		planned[k] = v
+	}
+	if len(planned) == 0 {
+		t.Fatal("the plan pinned nothing; this proves nothing")
+	}
+
+	// The registry now answers with a different digest for the same tag.
+	base := fake.Dynamic
+	fake.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker buildx imagetools inspect") {
+			return transport.Result{Stdout: "sha256:" + strings.Repeat("cd", 32) + "\n"}, true
+		}
+		return base(cmd)
+	}
+
+	approval := approvalForTestPlan(t, &plan)
+	fake.Commands = nil
+	_, _ = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
+
+	// Execution must not ask the registry again: the answer it would get is
+	// not the one that was reviewed.
+	for _, c := range fake.Commands {
+		if strings.Contains(c, "imagetools inspect") {
+			t.Fatalf("execution re-resolved an image the plan had already pinned: %s", c)
+		}
+	}
+	for name, digest := range plan.Artifact.PinnedImages {
+		if digest != planned[name] {
+			t.Errorf("%s: the plan's pin changed during execution: %q became %q", name, planned[name], digest)
+		}
+		if strings.Contains(digest, strings.Repeat("cd", 32)) {
+			t.Errorf("%s: execution adopted the registry's new digest instead of the pinned one", name)
+		}
+	}
+}
+
+// A runner whose generation changed must not deploy a runtime nobody reviewed.
+// The plan carries the digest of what it would produce; a binary that renders
+// differently produces a different one.
+func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Standing in for a generator change: the same project, rendering to
+	// something else. Nothing else about the plan differs.
+	plan.Operation.Binding.ComposeDigest = "sha256:" + strings.Repeat("ef", 32)
+	if err := plan.Operation.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fake.Uploads, fake.Inputs = nil, nil
+	_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "not the one the plan bound") {
+		t.Fatalf("a generation change must be refused, naming what to do: %v", err)
+	}
+	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
+		t.Fatalf("a generation change reached a write: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
+	}
+}
+
+// A build-sourced workload can be released from a saved plan.
+//
+// Production never builds, so `build:` has no image until whatever built it
+// says what it produced. The plan records that answer. Execution used to load
+// and render the project before applying the plan's pins, so
+// `ob deploy --plan` failed with image_unresolved unless --image was supplied
+// a second time — which defeats the point of a plan being the thing that was
+// reviewed.
+func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
+	// Both forms of what a build can produce. The tagged one is the case that
+	// matters: pinning turns it into a digest *after* the render, so a reload
+	// that used the pin would bind a different document than the plan did.
+	// The first version of this test used only a digest and proved nothing
+	// about that.
+	for _, built := range []string{
+		"ghcr.io/example/app:ci-1234",
+		"ghcr.io/example/app@sha256:" + strings.Repeat("ab", 32),
+	} {
+		t.Run(built, func(t *testing.T) { savedPlanCarriesImage(t, built) })
+	}
+}
+
+func savedPlanCarriesImage(t *testing.T, built string) {
+	fake := serviceFake()
+
+	// The fixture has siblings — a referenced compose file among them — so the
+	// whole directory travels, not just the project.
+	origin := writeServiceProject(t)
+	dir := t.TempDir()
+	entries, err := os.ReadDir(filepath.Dir(origin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(filepath.Dir(origin), entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, entry.Name()), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configPath := filepath.Join(dir, filepath.Base(origin))
+	source, err := os.ReadFile(origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same project, but the web workload is built rather than pulled.
+	from := "image: ghcr.io/example/app:v1"
+	body := strings.Replace(string(source), from, "build: .", 1)
+	if body == string(source) {
+		t.Skipf("fixture no longer contains %q; update this test", from)
+	}
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	base := time.Date(2026, 7, 12, 18, 0, 0, 0, time.UTC)
+	tick := 0
+	newSvc := func(images app.Images) *Service {
+		return New(Options{
+			ConfigPath: configPath,
+			Images:     images,
+			Now: func() time.Time {
+				tick++
+				return base.Add(time.Duration(tick) * time.Minute)
+			},
+			Connect: func(_ context.Context, _ string) (transport.Transport, error) { return fake, nil },
+		})
+	}
+
+	// Planning supplies what the build produced, as CI would.
+	plan, err := newSvc(app.Images{"web": built}).PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatalf("planning a build-sourced workload with --image must succeed: %v", err)
+	}
+	if plan.Artifact.PinnedImages["web"] == "" {
+		t.Fatal("the plan recorded no image for the built workload; it cannot be released from")
+	}
+
+	// Applying the plan supplies nothing: the plan is the record.
+	approval := approvalForTestPlan(t, &plan)
+	_, err = newSvc(nil).Execute(context.Background(),
+		ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
+	if err != nil {
+		for _, refusal := range []string{"image_unresolved", "is not the one the plan bound", "configuration changed since plan"} {
+			if strings.Contains(err.Error(), refusal) {
+				t.Fatalf("a saved plan must be applicable without re-supplying the image: %v", err)
+			}
+		}
+	}
+}
+
+// 10.2 — the runtime a plan binds is the runtime generation produces.
+//
+// A plan is only a promise if the bytes it bound can be reproduced from the
+// same inputs. If planning rendered through any path that a later render does
+// not take, the binding check would be comparing the generator against itself
+// and would pass no matter what shipped.
+func TestAPlanBindsTheSameBytesGenerationProduces(t *testing.T) {
+	fake := serviceFake()
+	svc := newTestService(t, fake)
+
+	plan, err := svc.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Render again from the project the plan named, with the plan's own
+	// release identity, and compare against the digest it bound.
+	lp, err := loadProjectAt(context.Background(), svc.configPath, svc.environment, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := engine.HashBytes(lp.composeBytes); got != plan.Operation.Binding.ComposeDigest {
+		t.Errorf("a fresh render does not reproduce the bytes the plan bound:\n plan:  %s\n fresh: %s",
+			plan.Operation.Binding.ComposeDigest, got)
+	}
+	if got := engine.HashBytes(lp.configBytes); got != plan.Artifact.ConfigHash {
+		t.Errorf("the configuration digest does not reproduce:\n plan:  %s\n fresh: %s",
+			plan.Artifact.ConfigHash, got)
+	}
+
+	// And twice more, to catch anything order-dependent.
+	for i := 0; i < 5; i++ {
+		again, err := loadProjectAt(context.Background(), svc.configPath, svc.environment, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if engine.HashBytes(again.composeBytes) != plan.Operation.Binding.ComposeDigest {
+			t.Fatalf("render %d does not reproduce the plan's bytes", i)
+		}
 	}
 }

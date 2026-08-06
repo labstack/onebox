@@ -21,7 +21,7 @@ import (
 // single connection, so their latencies overlap instead of summing — behind a
 // spinner, since nothing streams until the whole table renders at the end.
 func (e *Engine) Status(ctx context.Context) error {
-	managed := e.Cfg.Proxy.Managed
+	managed := e.Spec.Proxy.Managed
 	var (
 		recorded  string
 		byService map[string][]svcContainer
@@ -31,7 +31,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	)
 
 	reads := []func() error{
-		func() (err error) { recorded, err = release.Current(ctx, e.T, e.Cfg.App); return },
+		func() (err error) { recorded, err = release.Current(ctx, e.T, e.names()); return },
 		func() (err error) { byService, err = e.projectContainers(ctx); return },
 		func() error {
 			s, err := e.FindIncomplete(ctx)
@@ -59,7 +59,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	if recorded == "" {
 		recorded = "(none — never deployed)"
 	}
-	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.Cfg.App, e.T.Host())
+	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.Spec.Name, e.T.Host())
 	fmt.Fprintf(e.Opts.Out, "recorded: %s\n", recorded)
 	revision := e.Opts.Runner.VCSRevision
 	if revision == "" {
@@ -72,15 +72,28 @@ func (e *Engine) Status(ctx context.Context) error {
 		dirty = "+dirty"
 	}
 	fmt.Fprintf(e.Opts.Out, "runner:   ob %s (%s%s)\n\n", e.Opts.Runner.Version, revision, dirty)
-	e.ui.Println(e.ui.Bold(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
+	// Sized to the identifiers actually present. A release identifier is
+	// longer than any fixed width worth reading, and a column that overflows
+	// pushes every later column out of line, which is how a status table stops
+	// being scannable at exactly the moment someone is scanning it.
+	release := len("ACTUAL RELEASE")
+	for _, cs := range byService {
+		for _, c := range cs {
+			if len(c.release) > release {
+				release = len(c.release)
+			}
+		}
+	}
+	row := fmt.Sprintf("%%-12s %%-10s %%-%ds %%-10s %%s", release)
+	e.ui.Println(e.ui.Bold(fmt.Sprintf(row, "ROLE", "MODE", "ACTUAL RELEASE", "HEALTH", "STATE")))
 
 	diverged := false
-	for _, roleName := range e.Cfg.Order {
-		role := e.Cfg.Roles[roleName]
-		cs := byService[role.Service]
+	for _, roleName := range e.Spec.ReleaseOrder() {
+		role := e.Spec.Workloads[roleName]
+		cs := byService[roleName]
 		if len(cs) == 0 {
 			diverged = true
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
+			e.ui.Println(fmt.Sprintf(row, roleName, role.Mode(), "-", "-", e.ui.Warn("NOT RUNNING ⚠")))
 			continue
 		}
 		for _, c := range cs {
@@ -97,29 +110,39 @@ func (e *Engine) Status(ctx context.Context) error {
 				state += e.ui.Warn(" (" + c.health + ")")
 				diverged = true
 			}
-			e.ui.Println(fmt.Sprintf("%-12s %-10s %-32s %-10s %s", roleName, role.Mode, actual, c.health, state))
+			e.ui.Println(fmt.Sprintf(row, roleName, role.Mode(), actual, c.health, state))
+		}
+		// Running fewer replicas than the project declares is the shortfall a
+		// human reads this to find. Counting only the containers that exist
+		// meant a stopped replica vanished from the table and the report said
+		// everything was in sync, while the structured output of the same
+		// command called it divergence.
+		if want := role.Count(); len(cs) != want {
+			diverged = true
+			e.ui.Println(fmt.Sprintf(row, roleName, role.Mode(), "-", "-",
+				e.ui.Warn(fmt.Sprintf("REPLICAS %d/%d ⚠", len(cs), want))))
 		}
 	}
 
-	// accessories: running/health only — they converge separately, so an
+	// services: running/health only — they converge separately, so an
 	// unhealthy/starting one is shown but not a divergence. Absent (NOT RUNNING)
 	// and present-but-not-serving ("down": crash-looping/paused) are both real
-	// problems — a fully-exited accessory already diverged, so a crash-looping
+	// problems — a fully-exited service already diverged, so a crash-looping
 	// one must too.
 	fmt.Fprintln(e.Opts.Out)
-	for _, acc := range e.Cfg.Accessories {
+	for _, acc := range e.Spec.ServiceNames() {
 		cs := byService[acc]
 		if len(cs) == 0 {
-			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("NOT RUNNING ⚠")))
+			e.ui.Println(fmt.Sprintf("service %-12s %s", acc, e.ui.Warn("NOT RUNNING ⚠")))
 			diverged = true
 			continue
 		}
 		if cs[0].health == "down" {
-			e.ui.Println(fmt.Sprintf("accessory %-12s %s", acc, e.ui.Warn("down ⚠")))
+			e.ui.Println(fmt.Sprintf("service %-12s %s", acc, e.ui.Warn("down ⚠")))
 			diverged = true
 			continue
 		}
-		fmt.Fprintf(e.Opts.Out, "accessory %-12s %s\n", acc, cs[0].health)
+		fmt.Fprintf(e.Opts.Out, "service %-12s %s\n", acc, cs[0].health)
 	}
 
 	if managed {

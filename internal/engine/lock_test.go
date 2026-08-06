@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/proxy"
+	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -187,9 +189,11 @@ func TestAcquireLockReReadsEpochAfterBreakingStaleLock(t *testing.T) {
 // and must stop refreshing once re-fenced. Driven over the real-shell Local
 // transport so `touch -c` and the fence guard are actually evaluated.
 func TestRefreshLockNeverResurrectsDeletedLock(t *testing.T) {
-	base := t.TempDir()
-	t.Setenv("OB_BASE_DIR", base)
-	e := New(testConfig(), testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	// Declared, not injected: base_path is the field an operator writes, and
+	// it is now the only thing that decides where state lives.
+	cfg := testConfig()
+	cfg.BasePath = t.TempDir()
+	e := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	ctx := context.Background()
 	if err := os.MkdirAll(e.base(), 0o755); err != nil {
 		t.Fatal(err)
@@ -367,5 +371,35 @@ func TestHeartbeatTouchesLock(t *testing.T) {
 	// and it only refreshes while the fence still names this runner.
 	if !strings.Contains(seq, "cat '/var/lib/ob/sample/fence'") {
 		t.Fatalf("heartbeat must be fence-guarded:\n%s", seq)
+	}
+}
+
+// Every path the engine writes comes from the project's resolved names.
+//
+// There were two authorities: generation and preflight honoured `base_path`,
+// while locks, fences, journals, releases and secret pushes were derived from
+// the app name alone. A project declaring base_path therefore validated one
+// tree and operated on another, and nothing anywhere compared them.
+func TestStatePathsFollowTheDeclaredBasePath(t *testing.T) {
+	cfg := testConfig()
+	cfg.BasePath = "/srv/ob"
+	e := New(cfg, testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+
+	if got := e.base(); got != "/srv/ob/sample" {
+		t.Errorf("lock/fence base = %q, want /srv/ob/sample", got)
+	}
+	if got := release.PathsFor(e.Names()).Releases; got != "/srv/ob/sample/releases" {
+		t.Errorf("releases = %q, want /srv/ob/sample/releases", got)
+	}
+	if got := proxy.HostPaths(e.Names()).Base; got != "/srv/ob/_host" {
+		t.Errorf("host scope = %q, want /srv/ob/_host", got)
+	}
+	// And an environment may move it again.
+	env := cfg.Environments["production"]
+	env.BasePath = "/mnt/data/ob"
+	cfg.Environments["production"] = env
+	e2 := New(cfg, testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	if got := e2.base(); got != "/mnt/data/ob/sample" {
+		t.Errorf("environment base_path ignored: %q", got)
 	}
 }

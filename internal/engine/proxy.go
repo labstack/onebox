@@ -13,6 +13,8 @@ import (
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 // appNameRe mirrors config's app-name rule: registry entries under
@@ -27,12 +29,14 @@ var appNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 // only on restart). Divergent config across registered apps is a named
 // conflict, not last-writer-wins.
 func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) error {
-	if !e.Cfg.Proxy.Managed {
+	if !e.Spec.Proxy.Managed {
 		return nil
 	}
-	hp := proxy.HostPaths()
-	localCfg := e.Cfg.Proxy.Config
-	if !filepath.IsAbs(localCfg) {
+	hp := proxy.HostPaths(e.names())
+	// Empty stays empty: joining it with the project directory would point at
+	// the repository root and ask it to be Traefik's config.
+	localCfg := e.Spec.Proxy.Config
+	if localCfg != "" && !filepath.IsAbs(localCfg) {
 		localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 	}
 	staging, err := os.MkdirTemp("", "ob-proxy")
@@ -40,7 +44,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 	defer os.RemoveAll(staging)
-	hash, err := proxy.Stage(localCfg, staging, e.Cfg.Proxy.Image, e.Cfg.Proxy.Network)
+	hash, err := proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network)
 	if err != nil {
 		return err
 	}
@@ -82,7 +86,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 
-	jw := &journal.Writer{T: e.T, App: "_host", DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Names: app.Names{App: app.HostNamespace, BasePath: e.names().BasePath}, DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 
 	if remoteHash == hash && len(ids) > 0 {
 		e.logf("proxy: unchanged and running — not touched")
@@ -196,7 +200,7 @@ func (e *Engine) proxyConflict(ctx context.Context, hp proxy.Paths, hash string,
 		return err
 	}
 	for _, name := range strings.Fields(res.Stdout) {
-		if name == e.Cfg.App || !appNameRe.MatchString(name) {
+		if name == e.Spec.Name || !appNameRe.MatchString(name) {
 			continue
 		}
 		r, err := e.T.Run(ctx, "cat "+q(hp.Apps+"/"+name)+" 2>/dev/null || true")
@@ -209,14 +213,14 @@ func (e *Engine) proxyConflict(ctx context.Context, hp proxy.Paths, hash string,
 				continue
 			}
 			return fmt.Errorf("proxy config conflict: app %q registered %.8s, this apply is %.8s — the host proxy is SHARED; align both apps' proxy.config, or --force to make %q the loser",
-				name, other, hash, e.Cfg.App)
+				name, other, hash, e.Spec.Name)
 		}
 	}
 	return nil
 }
 
 func (e *Engine) registerProxyApp(ctx context.Context, hp proxy.Paths, hash string) error {
-	res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Apps+"/"+e.Cfg.App))
+	res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Apps+"/"+e.Spec.Name))
 	if err != nil {
 		return err
 	}
@@ -236,7 +240,7 @@ func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {
 
 // ProxyApply is the CLI verb: converge the shared proxy outside any deploy.
 func (e *Engine) ProxyApply(ctx context.Context, deployID string, force bool) error {
-	if !e.Cfg.Proxy.Managed {
+	if !e.Spec.Proxy.Managed {
 		return fmt.Errorf("proxy is not managed (proxy.managed: true enables ob-owned Traefik)")
 	}
 	return e.EnsureProxy(ctx, deployID, force)

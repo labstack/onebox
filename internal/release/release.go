@@ -13,17 +13,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
 type Paths struct{ Base, Releases, Current string }
 
-func PathsFor(app string) Paths {
-	root := os.Getenv("OB_BASE_DIR") // test hook (e2e on macOS); default is the real layout
-	if root == "" {
-		root = "/var/lib/ob"
-	}
-	base := root + "/" + app
+// PathsFor resolves the remote layout from the project's own names.
+//
+// There used to be a second authority here that read only the app name and an
+// environment variable, so locks, fences, journals, releases and secret pushes
+// could operate in a different tree from the one preflight validated and
+// generation wrote — any time a project or environment declared `base_path`.
+// One authority: whatever `NamesFor(environment)` resolved.
+func PathsFor(n app.Names) Paths {
+	base := n.AppDir()
 	return Paths{Base: base, Releases: base + "/releases", Current: base + "/current"}
 }
 
@@ -54,16 +58,16 @@ func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	return os.WriteFile(filepath.Join(dir, "ob.snapshot.yml"), snapshotYAML, 0o644)
 }
 
-func Push(ctx context.Context, t transport.Transport, stagingDir, app, id string) (string, error) {
-	remote := PathsFor(app).Releases + "/" + id
+func Push(ctx context.Context, t transport.Transport, stagingDir string, n app.Names, id string) (string, error) {
+	remote := PathsFor(n).Releases + "/" + id
 	if err := t.Upload(ctx, stagingDir, remote); err != nil {
 		return "", err
 	}
 	return remote, nil
 }
 
-func Current(ctx context.Context, t transport.Transport, app string) (string, error) {
-	p := PathsFor(app)
+func Current(ctx context.Context, t transport.Transport, n app.Names) (string, error) {
+	p := PathsFor(n)
 	res, err := t.Run(ctx, "if [ -L "+q(p.Current)+" ]; then readlink "+q(p.Current)+"; elif [ -e "+q(p.Current)+" ]; then exit 2; fi")
 	if err != nil {
 		return "", err
@@ -78,8 +82,8 @@ func Current(ctx context.Context, t transport.Transport, app string) (string, er
 	return filepath.Base(link), nil
 }
 
-func list(ctx context.Context, t transport.Transport, app string) ([]string, error) {
-	res, err := t.Run(ctx, "ls -1 "+q(PathsFor(app).Releases)+" 2>/dev/null || true")
+func list(ctx context.Context, t transport.Transport, n app.Names) ([]string, error) {
+	res, err := t.Run(ctx, "ls -1 "+q(PathsFor(n).Releases)+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -93,12 +97,12 @@ func list(ctx context.Context, t transport.Transport, app string) ([]string, err
 	return ids, nil
 }
 
-func Previous(ctx context.Context, t transport.Transport, app string) (string, error) {
-	cur, err := Current(ctx, t, app)
+func Previous(ctx context.Context, t transport.Transport, n app.Names) (string, error) {
+	cur, err := Current(ctx, t, n)
 	if err != nil {
 		return "", err
 	}
-	ids, err := list(ctx, t, app)
+	ids, err := list(ctx, t, n)
 	if err != nil {
 		return "", err
 	}
@@ -110,8 +114,8 @@ func Previous(ctx context.Context, t transport.Transport, app string) (string, e
 	return "", fmt.Errorf("no previous release (current=%q, releases=%v)", cur, ids)
 }
 
-func Activate(ctx context.Context, t transport.Transport, app, id string) error {
-	p := PathsFor(app)
+func Activate(ctx context.Context, t transport.Transport, n app.Names, id string) error {
+	p := PathsFor(n)
 	res, err := t.Run(ctx, "ln -sfn "+q("releases/"+id)+" "+q(p.Current))
 	if err != nil {
 		return err
@@ -125,12 +129,12 @@ func Activate(ctx context.Context, t transport.Transport, app, id string) error 
 // PruneCandidates returns releases beyond retain, never the current target.
 // Removal is the caller's job (the engine fences it). Images are deliberately
 // NOT pruned, because rollback never pulls.
-func PruneCandidates(ctx context.Context, t transport.Transport, app string, retain int) ([]string, error) {
-	ids, err := list(ctx, t, app)
+func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, retain int) ([]string, error) {
+	ids, err := list(ctx, t, n)
 	if err != nil || len(ids) <= retain {
 		return nil, err
 	}
-	cur, err := Current(ctx, t, app)
+	cur, err := Current(ctx, t, n)
 	if err != nil {
 		return nil, err
 	}
@@ -144,14 +148,14 @@ func PruneCandidates(ctx context.Context, t transport.Transport, app string, ret
 }
 
 // Prune removes releases beyond retain, never the current target.
-func Prune(ctx context.Context, t transport.Transport, app string, retain int) ([]string, error) {
-	victims, err := PruneCandidates(ctx, t, app, retain)
+func Prune(ctx context.Context, t transport.Transport, n app.Names, retain int) ([]string, error) {
+	victims, err := PruneCandidates(ctx, t, n, retain)
 	if err != nil {
 		return nil, err
 	}
 	var removed []string
 	for _, id := range victims {
-		res, err := t.Run(ctx, "rm -rf "+q(PathsFor(app).Releases+"/"+id))
+		res, err := t.Run(ctx, "rm -rf "+q(PathsFor(n).Releases+"/"+id))
 		if err != nil {
 			return removed, err
 		}

@@ -1,23 +1,37 @@
 # onebox
 
-**LLM-first, MCP-native production operations for applications intentionally running on one
+**Production operations for an application intentionally running on one
 server.**
 
 Onebox keeps the economic and cognitive simplicity of a single box while
-making deployments inspectable, resumable, and recoverable. It uses your
-Docker Compose application and connects over SSH; there is no deployment agent
-to install on the host.
+making deployments inspectable, resumable, and recoverable. You describe what
+your application *is* in `ob.yml`; Onebox derives the Compose runtime, the
+names, the routing, and the supporting services. It connects over SSH; there
+is no deployment agent to install on the host.
 
 The product contract is:
 
-> Bring your coding agent, repository, one server, secrets, intent, and
-> approval. Get typed production observation, constrained change proposals,
-> and a proven deployment safety engine.
+> Bring an application repository, one Linux server, secrets, intent, and
+> approval. Get structured observation, constrained change proposals, and
+> evidence-backed execution within a declared safety envelope.
 
-Start with the [documentation map](docs/README.md). It distinguishes current
-behavior from active OpenSpec proposals. See the [product
-direction](docs/product.md), stable [`onebox.run/v1` project
-schema](docs/schema-v1.md), and current [MCP quick start](docs/mcp.md).
+## Breaking change: the project file is now the authoring contract
+
+`onebox.run/v1` was redefined in place rather than superseded by a `v2`. There
+is no migration path and none is planned: a project written against the earlier
+contract — which classified a Compose file you wrote — does not load, and must
+be authored fresh against the current one.
+
+The reversal is the point. Compose used to be an input Onebox read. It is now
+an artifact Onebox generates, digest-bound into the plan, printable with
+`ob preview`, and permanently ejectable with `ob eject`. `ob init` scaffolds a
+project from an existing Compose file to start from.
+
+Start with the [command reference](docs/cli.md) to operate it, or the
+[project file guide](docs/schema-v1.md) to write one. The [documentation
+map](docs/README.md) says which documents are authoritative and distinguishes
+shipped behaviour from proposals; [product direction](docs/product.md) gives
+the boundaries.
 
 ## What exists today
 
@@ -33,16 +47,21 @@ schema](docs/schema-v1.md), and current [MCP quick start](docs/mcp.md).
   observation, proposals, execution, structured events, and operational
   memory. The CLI is an adapter over that service; engine locks, fencing,
   journals, drift checks, and rollback gates remain the execution authority.
-- `ob mcp` with redaction-safe observation, deployment-proposal, memory-read,
-  and memory-change-proposal tools. All are read-only; there is no MCP
-  production-mutation tool yet.
 - The `ob` CLI as the current execution path and as a lasting adapter for local
   development, CI, support, and break-glass recovery.
 
-PostgreSQL, MySQL, Redis, and generic service component types currently classify
-Compose-owned accessories; selecting a type does not make Onebox install,
-configure, upgrade, back up, or own that service. Traefik is the only specialized
-managed runtime today.
+Declaring `services: {postgres: 17}` makes Onebox run it: the image, a durable
+volume, a health check, a credential generated on the target that never travels,
+and the connection details the application reads. Eleven drivers are supported —
+postgres, mysql, mariadb, redis, valkey, mongodb, rabbitmq, minio, meilisearch,
+clickhouse, nats. Anything else is refused rather than guessed at, because
+inventing an image from a name produces a container that starts and stores
+nothing durable.
+
+Onebox does **not** take backups, and `ob doctor` says so for every workload and
+service holding durable data. It also refuses a major version change a driver
+cannot perform in place, rather than replacing the container and leaving the
+data intact and unreachable.
 
 The schema can already declare desired backup, restore-drill, log, metric, and
 alert capabilities. The local engine does **not** manage those continuous
@@ -51,11 +70,8 @@ dashboard/control plane will add authenticated team approvals, continuous
 evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
 
-The production-disabled managed-service framework, including version selection,
-typed settings, visible defaults, durable operations, and the proposed MCP
-surface, is specified in the active
-[`managed-service-operation-contract`](openspec/changes/managed-service-operation-contract/).
-That OpenSpec change is proposed behavior, not a shipped capability.
+Versioned driver contracts, drift observation, and backup evidence are not
+shipped.
 
 ## Start using it
 
@@ -90,10 +106,16 @@ Both commands also support `--json`.
 From a repository with a working Compose file, scaffold and inspect `ob.yml`:
 
 ```sh
-ob init
-ob validate
-ob config
+ob init        # scaffold a project from the Compose file you have
+ob validate    # no side effects, no target contacted
+ob canonical   # what Onebox understood, with where each value came from
+ob preview     # the Compose runtime it will generate
 ```
+
+`ob canonical` marks every value you did not write with `# default`,
+`# shorthand` or `# override`, because the difference between a value someone
+chose and one that appeared by itself is what a person checking a production
+configuration needs to see.
 
 Review production without changing it:
 
@@ -192,34 +214,33 @@ verification:
       applied_revisions: ["202607130001"]
 ```
 
-## LLM-first, MCP-native
+## LLM-first
 
-An MCP-capable agent is the intended user interface. MCP earns that role by
-returning typed, secret-safe state and immutable proposals rather than asking a
-model to interpret arbitrary shell output. Trusted approval or secret-entry
-interactions may be elicited when needed, but there is no separate manual
-operations workflow to learn.
+The CLI is the interface, for people and for agents alike. It is deterministic,
+composable in CI, easy to test, and it calls one canonical operations service
+that owns every lifecycle decision.
 
-The CLI remains useful because it is deterministic, composable in CI, easy to
-test, and available if an MCP client is down. It calls the same canonical
-operations service used by MCP-facing reads and proposals. CLI mutation is the
-current transitional execution path until approval-bound MCP execution ships;
-it is not the target product experience.
-
-Connect Claude, Codex, or another MCP client using [docs/mcp.md](docs/mcp.md).
+Onebox served an MCP surface once and no longer does. It was read-only, so
+every mutation already went through the CLI, and an agent able to run `ob
+deploy` in a shell was never constrained by a read-only tool list. A second
+protocol earned no safety and cost a second contract to keep honest. Point an
+agent at the `ob` binary the way you would point it at `gh`.
 
 ## Scope
 
-Onebox supports several applications, workers, jobs, databases, caches,
-volumes, and a proxy on one active production host per environment. It is not a
-cluster manager, Kubernetes replacement, hosting provider, or high-availability
-system. Rolling deployment can avoid application interruption while the box is
+Onebox operates one application per environment, on one active production host.
+That application may have as many workloads as it needs — a server, workers,
+jobs, databases, caches, and a proxy — but a host runs one Onebox application,
+not several. It is not a cluster manager, Kubernetes replacement, hosting
+provider, or high-availability system. Rolling deployment can avoid application interruption while the box is
 healthy; it cannot make a failed physical host available.
 
-Compose is the runtime contract. Onebox can operate any containerized
-application inside that supported envelope when its health, rollout,
-persistence, and job semantics are declared honestly. It cannot make arbitrary
-external side effects universally reversible.
+Compose is the generated runtime, not the contract you write. Onebox can
+operate any containerized application inside that envelope when its health,
+rollout, persistence, and job semantics are declared honestly. A container it
+cannot describe can still be adopted verbatim through `compose:`, and `ob eject`
+hands the whole runtime over permanently. It cannot make arbitrary external
+side effects reversible.
 
 ## Development
 

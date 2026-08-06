@@ -2,13 +2,14 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
-	"path"
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
@@ -126,12 +127,14 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 			}
 			// strip the <project>-<svc>-<n> name immediately so the project
 			// prefix never appears; a transient name until it takes a slot.
-			e.renameContainer(ctx, newID, e.names().TransientContainer(roleName))
+			if err := e.renameContainer(ctx, newID, e.names().TransientContainer(roleName)); err != nil {
+				return err
+			}
 			// join: the newcomer becomes a routable endpoint via its healthcheck
 			if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
 				e.logf("join failed for %s — removing new container, existing keep serving", roleName)
-				_, _ = e.mutate(ctx, "docker rm -f "+newID)
-				return fmt.Errorf("role %s: new container never became healthy: %w", roleName, err)
+				cleanupErr := e.mutateChecked(ctx, "remove unhealthy newcomer "+newID, "docker rm -f "+newID)
+				return errors.Join(fmt.Errorf("role %s: new container never became healthy: %w", roleName, err), cleanupErr)
 			}
 		}
 
@@ -174,7 +177,7 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 		e.sleepBusy("converge (proxy drops the container)", e.Opts.ConvergeBuffer)
 		return e.stopAndRemove(ctx, role, id)
 	}
-	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+app.DrainFile); err != nil {
+	if err := e.mutateChecked(ctx, "mark container "+id+" draining", "docker exec "+id+" touch "+app.DrainFile); err != nil {
 		return err
 	}
 	// Budget the drain wait off the ACTUAL flip cost (retries × interval) plus
@@ -190,7 +193,9 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 
 	if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
 		if sig := role.DrainSignal(); sig != "TERM" {
-			_, _ = e.mutate(ctx, "docker kill --signal="+sig+" "+id)
+			if err := e.mutateChecked(ctx, "signal draining container "+id, "docker kill --signal="+sig+" "+id); err != nil {
+				return err
+			}
 		}
 		e.sleepBusy("drain wait ("+wait.String()+")", wait)
 	}
@@ -206,8 +211,7 @@ func (e *Engine) stopAndRemove(ctx context.Context, role app.Workload, id string
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("stop %s: %s", id, res.Stderr)
 	}
-	_, err := e.mutate(ctx, "docker rm "+id)
-	return err
+	return e.mutateChecked(ctx, "remove container "+id, "docker rm "+id)
 }
 
 // drainGuarded reports whether a container's health check reads the drain file.
@@ -267,19 +271,22 @@ func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int)
 		if target == "" {
 			continue // no free slot yet (an old still holds it)
 		}
-		_, _ = e.mutate(ctx, "docker rename "+id+" "+target)
+		if err := e.mutateChecked(ctx, "rename container "+id, "docker rename "+id+" "+target); err != nil {
+			return err
+		}
 		taken[target] = true
 	}
 	return nil
 }
 
-// renameContainer renames a container, idempotent and best-effort — ob
-// identifies containers by label, so a failed rename never affects correctness.
-func (e *Engine) renameContainer(ctx context.Context, id, name string) {
-	if cur, err := e.nameOf(ctx, id); err == nil && cur == name {
-		return
+// renameContainer gives a newcomer its temporary application-scoped name.
+func (e *Engine) renameContainer(ctx context.Context, id, name string) error {
+	if cur, err := e.nameOf(ctx, id); err != nil {
+		return err
+	} else if cur == name {
+		return nil
 	}
-	_, _ = e.mutate(ctx, "docker rename "+id+" "+name)
+	return e.mutateChecked(ctx, "rename container "+id, "docker rename "+id+" "+name)
 }
 
 // nameOf returns a container's name without the leading slash docker reports.

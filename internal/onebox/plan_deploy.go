@@ -234,20 +234,12 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	// Every encrypted entry is decrypted into its own file, at the name the
-	// generated document references. One shared file would make a later entry
-	// win outright instead of key by key, which is not what a list means.
+	// Mark generated secret files before staging ordinary project payload. Root
+	// bind mounts copy the whole project, so the generated files are written
+	// afterwards and cannot be replaced by stale files from the source tree.
+	entries := encryptedEntries(lp.resolved)
 	projected := map[string]bool{}
-	for _, entry := range encryptedEntries(lp.resolved) {
-		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
-		if err != nil {
-			return fail(err)
-		}
-		if err := os.WriteFile(filepath.Join(staging, entry.StagedPath()), envBytes, 0o600); err != nil {
-			return fail(err)
-		}
-		// Written here and nowhere else, so the payload stager must not go
-		// looking for it beside the encrypted source.
+	for _, entry := range entries {
 		projected[entry.StagedPath()] = true
 	}
 	rendered, err := lp.resolved.Render(environment, releaseID, images)
@@ -257,6 +249,25 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 	rewrites, err := compose.StagePayloadContext(ctx, lp.compose, staging, projected)
 	if err != nil {
 		return fail(err)
+	}
+	// Every encrypted entry is decrypted into its own file, at the name the
+	// generated document references. One shared file would make a later entry
+	// win outright instead of key by key, which is not what a list means.
+	for _, entry := range entries {
+		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
+		if err != nil {
+			return fail(err)
+		}
+		secretPath := filepath.Join(staging, entry.StagedPath())
+		// WriteFile preserves an existing file's mode. A root bind may have
+		// copied a stale placeholder here, so remove that staged copy first and
+		// create the decrypted file with the required private permissions.
+		if err := os.Remove(secretPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fail(err)
+		}
+		if err := os.WriteFile(secretPath, envBytes, 0o600); err != nil {
+			return fail(err)
+		}
 	}
 	body := compose.RewriteSources(rendered.Bytes, rewrites)
 	if err := release.Stage(staging, body, lp.configBytes); err != nil {

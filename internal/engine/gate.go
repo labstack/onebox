@@ -75,10 +75,13 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 		}
 		st(err)
 		if err != nil {
-			_ = jw.Append(ctx, journal.Record{
+			journalErr := jw.Append(ctx, journal.Record{
 				Phase: "pre-release", SubStep: key, Event: "result", Status: "fail", Detail: err.Error(),
 				RollbackPolicySafe: policySafe,
 			})
+			if journalErr != nil {
+				return errors.Join(err, fmt.Errorf("journal %s result: %w", key, journalErr))
+			}
 			return err
 		}
 		if !safe {
@@ -230,7 +233,9 @@ func jobResultDetail(evidence journal.JobResultEvidence) string {
 // operator's informed promise (migration_policy: expand-only), and not
 // --no-rollback.
 func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releaseID, prev string, verr error) error {
-	_ = jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "fail", Detail: verr.Error()})
+	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "fail", Detail: verr.Error()}); err != nil {
+		return errors.Join(verr, fmt.Errorf("journal verify result: %w", err))
+	}
 	switch {
 	case e.Opts.NoRollback:
 		return fmt.Errorf("verify: %w — halting (--no-rollback); release NOT activated", verr)
@@ -239,22 +244,42 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	case !e.rollbackCovered:
 		return fmt.Errorf("verify: %w — HALT-AND-PAGE: a job or lifecycle hook has rollback-unknown data effects not covered by a safe result or migration_policy. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --force`", verr)
 	}
+	replay, err := e.engineFromReleaseSnapshot(ctx, prev)
+	if err != nil {
+		return fmt.Errorf("verify: %w — automatic rollback refused: %v; release NOT activated", verr, err)
+	}
+	replay.fenceVal = e.fenceVal
 	e.logf("verify failed — auto-rollback to %s (gate open: effects declared safe, changed=false, or expand-only migrations)", prev)
-	_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "intent", Detail: "to=" + prev})
+	if err := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "intent", Detail: "to=" + prev}); err != nil {
+		return errors.Join(verr, fmt.Errorf("journal auto-rollback intent: %w", err))
+	}
 	if err := e.removeNewcomers(ctx, releaseID); err != nil {
-		return fmt.Errorf("verify failed (%v) AND auto-rollback could not remove new containers: %w", verr, err)
+		rollbackErr := fmt.Errorf("verify failed (%v) AND auto-rollback could not remove new containers: %w", verr, err)
+		if journalErr := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
+			return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", journalErr))
+		}
+		return rollbackErr
 	}
 	prevCompose := release.PathsFor(e.names()).Releases + "/" + prev + "/compose.yaml"
-	if err := e.releaseRoles(ctx, prevCompose); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()})
-		return fmt.Errorf("verify failed (%v) AND auto-rollback failed: %w — intervene manually", verr, err)
+	if err := replay.releaseRoles(ctx, prevCompose); err != nil {
+		rollbackErr := fmt.Errorf("verify failed (%v) AND auto-rollback failed: %w — intervene manually", verr, err)
+		if journalErr := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
+			return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", journalErr))
+		}
+		return rollbackErr
 	}
-	if err := e.Verify(ctx); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()})
-		return fmt.Errorf("verify failed (%v) AND the rolled-back release also fails verify: %w — intervene manually", verr, err)
+	if err := replay.Verify(ctx); err != nil {
+		rollbackErr := fmt.Errorf("verify failed (%v) AND the rolled-back release also fails verify: %w — intervene manually", verr, err)
+		if journalErr := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
+			return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", journalErr))
+		}
+		return rollbackErr
 	}
-	_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "ok"})
-	return fmt.Errorf("verify: %w — auto-rolled back to %s (healthy); new release NOT activated", verr, prev)
+	rollbackErr := fmt.Errorf("verify: %w — auto-rolled back to %s (healthy); new release NOT activated", verr, prev)
+	if err := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "ok"}); err != nil {
+		return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", err))
+	}
+	return rollbackErr
 }
 
 func (e *Engine) jobDataEffect(job string) string {
@@ -278,7 +303,7 @@ func (e *Engine) removeNewcomers(ctx context.Context, releaseID string) error {
 			return err
 		}
 		for _, id := range ids {
-			if _, err := e.mutate(ctx, "docker stop -t 10 "+id+" && docker rm "+id); err != nil {
+			if err := e.mutateChecked(ctx, "remove newcomer "+id, "docker stop -t 10 "+id+" && docker rm "+id); err != nil {
 				return err
 			}
 		}

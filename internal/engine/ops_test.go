@@ -53,6 +53,25 @@ func TestSecretsPushBouncesOnChange(t *testing.T) {
 	}
 }
 
+func TestSecretsPushStopsWhenJournalStartFails(t *testing.T) {
+	f := opsFake("deadbeef")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, `"phase":"secrets-push","event":"start"`) {
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", []byte("KEY=new\n"))
+	if err == nil || !strings.Contains(err.Error(), "journal secrets push start") {
+		t.Fatalf("secrets push error = %v", err)
+	}
+	if len(f.Uploads) != 0 {
+		t.Fatalf("secrets uploaded after journal failure: %v", f.Uploads)
+	}
+}
+
 func TestSecretsPushNoopOnMatch(t *testing.T) {
 	// sha256("KEY=same\n")
 	const h = "1c9f79ee3d19a731d0a1a301a1a175467bcb99a8ea4b09b8b25e00b46a5a1a75"

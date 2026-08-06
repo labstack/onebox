@@ -47,3 +47,21 @@ func TestPreviousAndPrune(t *testing.T) {
 		t.Fatalf("prune command missing:\n%s", joined)
 	}
 }
+
+func TestPruneReturnsRemoteRemovalFailure(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R3\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: "R1\nR2\nR3\n"}, true
+		case strings.Contains(cmd, "rm -rf"):
+			return transport.Result{ExitCode: 13, Stderr: "permission denied"}, true
+		}
+		return transport.Result{}, false
+	}}
+	removed, err := Prune(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath}, 2)
+	if len(removed) != 0 || err == nil || !strings.Contains(err.Error(), "prune release R1 failed (exit 13): permission denied") {
+		t.Fatalf("removed=%v err=%v", removed, err)
+	}
+}

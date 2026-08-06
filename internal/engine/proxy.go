@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ var appNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 // (`up -d`); a config-only change uploads + restarts (static config reloads
 // only on restart). Divergent config across registered apps is a named
 // conflict, not last-writer-wins.
-func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) error {
+func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) (err error) {
 	if !e.Spec.Proxy.Managed {
 		return nil
 	}
@@ -60,6 +61,20 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 	defer e.releaseHostLock(ctx)
+	jw := &journal.Writer{T: e.T, Names: app.Names{App: app.HostNamespace, BasePath: e.names().BasePath}, DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	if err := jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "start", Detail: "hash=" + hash}); err != nil {
+		return fmt.Errorf("journal proxy apply start: %w", err)
+	}
+	defer func() {
+		finish := journal.Record{Phase: "proxy-apply", Event: "finish", Status: "ok"}
+		if err != nil {
+			finish.Status = "fail"
+			finish.Detail = err.Error()
+		}
+		if journalErr := jw.Append(ctx, finish); journalErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal proxy apply finish: %w", journalErr))
+		}
+	}()
 	if res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("clean stale proxy staging: %v %s", err, strings.TrimSpace(res.Stderr))
 	}
@@ -86,8 +101,6 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 
-	jw := &journal.Writer{T: e.T, Names: app.Names{App: app.HostNamespace, BasePath: e.names().BasePath}, DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
-
 	if remoteHash == hash && len(ids) > 0 {
 		e.logf("proxy: unchanged and running — not touched")
 		return e.registerProxyApp(ctx, hp, hash)
@@ -110,11 +123,6 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		// config content is never diffed or printed — .env may hold secrets;
 		// only hashes travel
 		e.logf("proxy: config changed (%.8s → %.8s)", remoteHash, hash)
-	}
-
-	_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "start", Detail: "hash=" + hash})
-	fail := func(detail string) {
-		_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "fail", Detail: detail})
 	}
 
 	if remoteHash != hash || remoteCompose == "" {
@@ -150,10 +158,8 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	before := idSet(ids)
 	e.logf("proxy: converging")
 	if res, err := e.hostMutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d"); err != nil {
-		fail("")
 		return err
 	} else if res.ExitCode != 0 {
-		fail(res.Stderr)
 		return fmt.Errorf("proxy up: %s", strings.TrimSpace(res.Stderr))
 	}
 	ids, err = e.proxyContainerIDs(ctx)
@@ -161,21 +167,17 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 		return err
 	}
 	if len(ids) == 0 {
-		fail("no container after converge")
 		return fmt.Errorf("proxy: no container after converge")
 	}
 	if before[ids[0]] {
 		e.logf("proxy: container not recreated — restarting %s to load the new config", proxy.ContainerName)
 		if res, err := e.hostMutate(ctx, "docker restart "+proxy.ContainerName); err != nil {
-			fail("")
 			return err
 		} else if res.ExitCode != 0 {
-			fail(res.Stderr)
 			return fmt.Errorf("proxy restart: %s", strings.TrimSpace(res.Stderr))
 		}
 	}
 	if err := e.waitHealth(ctx, ids[0], "healthy", 180*time.Second, 5*time.Second); err != nil {
-		fail(err.Error())
 		return fmt.Errorf("proxy never became healthy (traefik.yml must enable ping: {}): %w", err)
 	}
 	// the applied-state marker — written ONLY after health confirms, so an
@@ -186,7 +188,6 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) e
 	if err := e.registerProxyApp(ctx, hp, hash); err != nil {
 		return err
 	}
-	_ = jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "finish", Status: "ok"})
 	e.logf("proxy: healthy at config %.8s", hash)
 	return nil
 }

@@ -99,6 +99,8 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: ""}, true
 		case strings.Contains(cmd, "ls -1"):
 			return transport.Result{Stdout: "R1\n"}, true
+		case strings.Contains(cmd, "ob.snapshot.yml"):
+			return transport.Result{Stdout: engineProject}, true
 		}
 		return transport.Result{}, false
 	}
@@ -145,6 +147,44 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 	// lock released at the end
 	if !strings.Contains(seq, "rm -f '/var/lib/ob/sample/lock'") {
 		t.Fatal("lock never released")
+	}
+}
+
+func TestDeployStopsWhenRequiredJournalEvidenceCannotBeWritten(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		record    string
+		forbidden string
+		want      string
+	}{
+		{name: "transfer result", record: `"phase":"transfer","event":"result","status":"ok"`, forbidden: "OB_RESULT_FILE", want: "journal transfer result"},
+		{name: "release intent", record: `"phase":"release","role":"web","event":"intent"`, forbidden: "--scale web=", want: "journal release web intent"},
+		{name: "release result", record: `"phase":"release","role":"web","event":"result","status":"ok"`, forbidden: "--force-recreate --timeout 30 worker", want: "journal release web result"},
+		{name: "verify result", record: `"phase":"verify","event":"result","status":"ok"`, forbidden: "ln -sfn 'releases/R1'", want: "journal verify result"},
+		{name: "deploy finish", record: `"phase":"deploy","event":"finish","status":"ok"`, want: "journal deploy finish"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := happyFake()
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, tt.record) {
+					return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+				}
+				return base(cmd)
+			}
+			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			err := e.Deploy(context.Background(), "R1", t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("deploy error = %v, want %q", err, tt.want)
+			}
+			seq := strings.Join(f.Commands, "\n")
+			if tt.forbidden != "" && strings.Contains(seq, tt.forbidden) {
+				t.Fatalf("deploy continued after %s journal failure:\n%s", tt.name, seq)
+			}
+			if tt.name == "deploy finish" && !strings.Contains(seq, "ln -sfn 'releases/R1'") {
+				t.Fatalf("finish failure must report the already-completed activation:\n%s", seq)
+			}
+		})
 	}
 }
 

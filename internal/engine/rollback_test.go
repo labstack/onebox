@@ -51,27 +51,61 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 	}
 }
 
-func TestRollbackFallsBackWithoutSnapshot(t *testing.T) {
+func TestRollbackRefusesWithoutUsableSnapshot(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		snapshot transport.Result
+		want     string
+	}{
+		{name: "missing", snapshot: transport.Result{ExitCode: 1, Stderr: "No such file"}, want: "snapshot unavailable"},
+		{name: "invalid", snapshot: transport.Result{Stdout: "not: [valid"}, want: "snapshot unusable"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := happyFake()
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch {
+				case strings.Contains(cmd, "readlink"):
+					return transport.Result{Stdout: "releases/R2\n"}, true
+				case strings.Contains(cmd, "ls -1"):
+					return transport.Result{Stdout: "R1\nR2\n"}, true
+				case strings.Contains(cmd, "ob.snapshot.yml"):
+					return tt.snapshot, true
+				}
+				return base(cmd)
+			}
+			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+			err := e.Rollback(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("rollback error = %v, want %q", err, tt.want)
+			}
+			if strings.Contains(strings.Join(f.Commands, "\n"), "ob-fenced") {
+				t.Fatalf("rollback must fail before mutation:\n%s", strings.Join(f.Commands, "\n"))
+			}
+		})
+	}
+}
+
+func TestRollbackReportsMissingFinishEvidence(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "readlink") {
+		switch {
+		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		}
-		if strings.Contains(cmd, "ls -1") {
+		case strings.Contains(cmd, "ls -1"):
 			return transport.Result{Stdout: "R1\nR2\n"}, true
-		}
-		if strings.Contains(cmd, "ob.snapshot.yml") {
-			return transport.Result{ExitCode: 1, Stderr: "No such file"}, true
+		case strings.Contains(cmd, `"phase":"rollback","event":"finish","status":"ok"`):
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
 		}
 		return base(cmd)
 	}
-	var out bytes.Buffer
-	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep, Environment: "production"})
-	if err := e.Rollback(context.Background()); err != nil {
-		t.Fatalf("rollback fallback: %v", err)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Rollback(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "journal rollback finish") {
+		t.Fatalf("rollback error = %v", err)
 	}
-	if !strings.Contains(out.String(), "⚠") {
-		t.Fatalf("fallback must warn loudly: %s", out.String())
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "ln -sfn 'releases/R1'") {
+		t.Fatalf("rollback must report that activation completed before evidence failed:\n%s", seq)
 	}
 }

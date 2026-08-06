@@ -94,6 +94,25 @@ func TestEnsureProxyFreshHost(t *testing.T) {
 	}
 }
 
+func TestEnsureProxyStopsWhenJournalStartFails(t *testing.T) {
+	f := &transport.Fake{}
+	e, _, _ := proxyFixture(t, f)
+	ps := proxyPS(f, false)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, `"phase":"proxy-apply","event":"start"`) {
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return ps(cmd)
+	}
+	err := e.EnsureProxy(context.Background(), "R1", false)
+	if err == nil || !strings.Contains(err.Error(), "journal proxy apply start") {
+		t.Fatalf("proxy apply error = %v", err)
+	}
+	if len(f.Uploads) != 0 || strings.Contains(strings.Join(f.Commands, "\n"), "up -d") {
+		t.Fatalf("proxy converged after journal failure: uploads=%v\n%s", f.Uploads, strings.Join(f.Commands, "\n"))
+	}
+}
+
 func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	f := &transport.Fake{}
 	e, hash, _ := proxyFixture(t, f)

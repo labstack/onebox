@@ -330,7 +330,11 @@ func (e EnvFile) StagedPath() string {
 	if !e.Encrypted() {
 		return e.File
 	}
-	return ".ob-decrypted-" + strings.ReplaceAll(e.File, "/", "-") + ".env"
+	// Injective: the replacement character is escaped before the separator is
+	// replaced, so `a/s.env` and `a-s.env` derive different names. Replacing
+	// the separator alone collides, and the generated document would then list
+	// one name twice and quietly keep whichever entry came last.
+	return ".ob-decrypted-" + strings.ReplaceAll(strings.ReplaceAll(e.File, "-", "--"), "/", "-")
 }
 
 type Observability struct {

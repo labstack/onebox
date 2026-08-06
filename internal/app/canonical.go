@@ -112,6 +112,12 @@ func (r *Resolved) Canonical() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// toGeneric marshals with `omitempty`, which cannot tell an empty list from
+	// an absent one — and those are different intents here. A workload that
+	// declared it receives nothing must read differently from one that said
+	// nothing, or the output cannot be used to check the thing it exists to
+	// show.
+	restoreDeclaredEmpty(generic, r.Spec)
 	origins := r.Spec.originOf()
 	for path, o := range r.Origins {
 		// An override is more specific than anything derived from the file, and
@@ -220,4 +226,20 @@ func (p *Spec) captureRaw(raw map[string]any, derived map[string]Origin) {
 	}
 	p.rawExpanded = copied
 	p.derivedPaths = derived
+}
+
+// restoreDeclaredEmpty puts back the empty lists `omitempty` removed.
+func restoreDeclaredEmpty(generic map[string]any, spec *Spec) {
+	workloads, ok := generic["workloads"].(map[string]any)
+	if !ok {
+		return
+	}
+	for name, w := range spec.Workloads {
+		if w.EnvFiles == nil || len(w.EnvFiles) > 0 {
+			continue
+		}
+		if m, ok := workloads[name].(map[string]any); ok {
+			m["env_files"] = []any{}
+		}
+	}
 }

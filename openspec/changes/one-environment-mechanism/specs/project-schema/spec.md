@@ -201,9 +201,13 @@ the environment's override for that workload; otherwise the workload's own list;
 otherwise the environment's list; otherwise the project's list.
 
 A declared empty list SHALL mean the workload receives no entries. An absent
-list SHALL mean the next declaration in that order applies. The two SHALL be
-distinguishable in the canonical form, each carrying its origin, because
-"declared none" and "did not say" are different intents.
+list SHALL mean the next declaration in that order applies.
+
+The canonical form SHALL render a declared empty list as an empty list, and an
+absent one by omitting the field. "Declared none" and "did not say" are
+different intents with different consequences, and the canonical form exists to
+show what was understood — a reader who cannot tell them apart there cannot
+check the one thing that output is for.
 
 #### Scenario: The workload's own list beats the environment's default
 - **WHEN** a workload declares a list and the environment also declares one
@@ -215,7 +219,11 @@ distinguishable in the canonical form, each carrying its origin, because
 
 #### Scenario: Declining is expressible
 - **WHEN** a workload declares an empty list
-- **THEN** it receives no entries although the project declares some, and the canonical form shows the empty list as explicit
+- **THEN** it receives no entries although the project declares some
+
+#### Scenario: The canonical form tells the two apart
+- **WHEN** one workload declares an empty list and another declares nothing
+- **THEN** the canonical form renders an empty list for the first and omits the field for the second
 
 #### Scenario: An override replaces the resolved list wholesale
 - **WHEN** an environment overrides a workload's list
@@ -313,9 +321,20 @@ Each encrypted entry SHALL be decrypted into a per-entry file inside the release
 directory when the release is staged, occupying that entry's position in the
 generated `env_file` list.
 
+The derivation from an entry's path to that file's name SHALL be injective: two
+entries SHALL NOT derive the same name. A derivation that merely replaces the
+path separator collides — `a/s.env` and `a-s.env` produce one name — and the
+generated document then lists it twice, so one entry's values replace the
+other's with nothing to indicate it. Anything that cannot collide satisfies
+this; escaping the separator's replacement character is the cheapest.
+
 Staged decrypted files SHALL persist with the release, because a scheduled job
 fires from the host's own timer with no Onebox process alive — including after a
 reboot — and must resolve the values the deploy resolved.
+
+#### Scenario: Two entries never share a staged file
+- **WHEN** a scope declares two encrypted entries whose paths differ only where the derivation substitutes
+- **THEN** they stage to different files and the generated document lists both
 
 #### Scenario: A timer-fired job resolves its values after a reboot
 - **WHEN** a scheduled job whose list includes an encrypted entry fires after the host reboots

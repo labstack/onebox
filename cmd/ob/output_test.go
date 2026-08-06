@@ -258,6 +258,29 @@ func TestStructuredOutputIsRejectedWhenACommandDoesNotImplementIt(t *testing.T) 
 	}
 }
 
+func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
+	for _, path := range [][]string{
+		{},
+		{"service"},
+		{"proxy"},
+		{"secrets"},
+		{"backup-evidence"},
+	} {
+		args := append(append([]string(nil), path...), "--output", "json")
+		out, err := run(t, t.TempDir(), args...)
+		command := strings.TrimSpace("ob " + strings.Join(path, " "))
+		if err == nil {
+			t.Fatalf("%s silently rendered human help for JSON output", command)
+		}
+		if want := "--output json is not supported by " + command; !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: error = %v, want %q", command, err, want)
+		}
+		if out != "" {
+			t.Errorf("%s: unsupported structured output wrote human help:\n%s", command, out)
+		}
+	}
+}
+
 func TestEjectStructuredOutputIsVersioned(t *testing.T) {
 	for _, mode := range []string{"json", "ndjson"} {
 		dir := t.TempDir()

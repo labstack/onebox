@@ -65,7 +65,7 @@ func (r *Resolved) Eject(dest, releaseID string, images Images, overwrite bool) 
 	if err != nil {
 		return nil, err
 	}
-	stripped, names, err := stripOverlay(rendered.Bytes, generated)
+	stripped, names, err := stripOverlay(rendered.Bytes, generated, r.projectedEverywhere(r.Spec.NamesFor(r.Env)))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,10 @@ func (r *Resolved) projectFile() string {
 
 // stripOverlay removes what Onebox adds and reports which workloads were
 // generated rather than referenced.
-func stripOverlay(runtime []byte, generated map[string]bool) ([]byte, []string, error) {
+// projected is every path the overlay adds to any workload's env_file. They are
+// removed on the way out: the ejected file is the author's, and leaving them in
+// would make the next generation append the same entries a second time.
+func stripOverlay(runtime []byte, generated map[string]bool, projected map[string]bool) ([]byte, []string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(runtime, &doc); err != nil {
 		return nil, nil, errf("eject_failed", "", "", "cannot read the generated runtime: %v", err)
@@ -137,6 +140,7 @@ func stripOverlay(runtime []byte, generated map[string]bool) ([]byte, []string, 
 		names = append(names, name)
 		dropLabels(svc)
 		dropIngress(svc)
+		dropProjectedEnvFiles(svc, projected)
 		kept = append(kept, services.Content[i], svc)
 	}
 	services.Content = kept
@@ -330,4 +334,39 @@ func setMapKey(n *yaml.Node, key, value, head, line string) {
 	k := &yaml.Node{Kind: yaml.ScalarNode, Value: key, HeadComment: head}
 	v := &yaml.Node{Kind: yaml.ScalarNode, Value: value, Tag: "!!str", LineComment: line}
 	n.Content = append(n.Content, k, v)
+}
+
+// projectedEverywhere is the union of what the overlay projects onto any
+// workload, which is what ejection has to take back out.
+func (r *Resolved) projectedEverywhere(n Names) map[string]bool {
+	out := map[string]bool{}
+	for name, w := range r.Spec.Workloads {
+		for _, path := range r.Spec.projectedEnvFiles(n, name, w) {
+			out[path] = true
+		}
+	}
+	return out
+}
+
+// dropProjectedEnvFiles removes the projected entries and, if nothing the
+// author wrote remains, the key itself.
+func dropProjectedEnvFiles(svc *yaml.Node, projected map[string]bool) {
+	if len(projected) == 0 {
+		return
+	}
+	list := mapValue(svc, "env_file")
+	if list == nil || list.Kind != yaml.SequenceNode {
+		return
+	}
+	var kept []*yaml.Node
+	for _, entry := range list.Content {
+		if !projected[entry.Value] {
+			kept = append(kept, entry)
+		}
+	}
+	if len(kept) == 0 {
+		dropMapKey(svc, "env_file")
+		return
+	}
+	list.Content = kept
 }

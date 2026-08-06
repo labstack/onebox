@@ -174,8 +174,10 @@ func (p *Spec) overlayFor(n Names, name string, w Workload, releaseID string) ov
 			"ob.workload": name,
 			"ob.release":  releaseID,
 		},
-		HasRoute: len(w.NormalisedRoutes()) > 0,
-		Health:   healthcheck(w.Health),
+		HasRoute:       len(w.NormalisedRoutes()) > 0,
+		Health:         healthcheck(w.Health),
+		EnvFiles:       p.projectedEnvFiles(n, name, w),
+		ConnectionVars: p.connectionVars(name, w),
 	}
 	for k, v := range p.routeLabels(n, name, w) {
 		ov.Labels[k] = v
@@ -798,4 +800,45 @@ func (r *Resolved) RenderServices(env string) (map[string][]byte, error) {
 		out[name] = doc
 	}
 	return out, nil
+}
+
+// projectedEnvFiles is what a workload's role entitles it to, as the paths the
+// generated document names.
+func (p *Spec) projectedEnvFiles(n Names, name string, w Workload) []string {
+	var out []string
+	for _, entry := range p.EnvFilesFor(w) {
+		out = append(out, entry.StagedPath())
+	}
+	return append(out, p.serviceClientFiles(n, name, w)...)
+}
+
+// connectionVars maps each variable a managed-service connection supplies to
+// this workload to the service supplying it.
+//
+// A workload that names the parts it wants receives those names; one that names
+// none receives the driver's canonical set. Either way these are names the
+// author must not claim, because the value behind them is generated on the
+// target and exists nowhere a project could reach.
+func (p *Spec) connectionVars(name string, w Workload) map[string]string {
+	out := map[string]string{}
+	for _, need := range w.Needs {
+		if _, ok := p.Services[need.Name]; !ok {
+			continue
+		}
+		if len(need.Env) > 0 {
+			for variable := range need.Env {
+				out[variable] = need.Name
+			}
+			continue
+		}
+		if client, ok := p.ClientEnvFor(need.Name); ok {
+			for variable := range client.canonicalNames() {
+				out[variable] = need.Name
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

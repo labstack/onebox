@@ -319,9 +319,19 @@ func (p *Spec) InterpolationEnv() (map[string]string, error) {
 	// supplies therefore resolves as unsupplied, and the refusal names it.
 	paths := make([]string, 0, len(p.documentScopeEntries()))
 	for _, entry := range p.documentScopeEntries() {
-		if !entry.Encrypted() {
-			paths = append(paths, filepath.Join(p.Dir, entry.File))
+		if entry.Encrypted() {
+			// Named, not skipped. Feeding ciphertext to the parser put
+			// `ENC[AES256_GCM,…]` into the interpolation environment; skipping
+			// it instead resolved the variable empty, which the contract
+			// refuses in the same sentence. Commands that reach here hold no
+			// key material by contract, so the honest answer is to say which
+			// entry cannot be read.
+			return nil, errf("env_file_encrypted_offline", "runtime.env_files", "",
+				"the entry %q is encrypted, and interpolating a referenced Compose file needs its values. "+
+					"This command decrypts nothing: move the variables that feed interpolation into a "+
+					"plaintext entry, or plan the deploy, which decrypts as it stages", entry.File)
 		}
+		paths = append(paths, filepath.Join(p.Dir, entry.File))
 	}
 	env, err := dotenv.GetEnvFromFile(map[string]string{}, paths)
 	if err != nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -170,4 +171,4 @@ func noneIfEmpty(s string) string {
 	return s
 }
 
-func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func quote(s string) string { return shellquote.Quote(s) }

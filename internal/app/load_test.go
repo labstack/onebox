@@ -25,6 +25,8 @@ func conformanceCases() []conformanceCase {
 	return []conformanceCase{
 		{"minimum project", min, true},
 		{"explicit workloads block", wl("web: {image: nginx}"), true},
+		{"image reference with registry port", wl("web: {image: \"registry.example.com:5000/acme/app:1.2\"}"), true},
+		{"image reference with uppercase repository", wl("web: {image: \"ghcr.io/Acme/app:1.2\"}"), false},
 		{"one-char identifier", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
 		{"app starting ob-", "api_version: onebox.run/v1\napp: ob-proxy\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 		{"underscore identifier", "api_version: onebox.run/v1\napp: my_app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},

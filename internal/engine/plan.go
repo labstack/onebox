@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/imageref"
 	"github.com/labstack/onebox/internal/release"
 )
 
@@ -154,23 +155,15 @@ func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 			pins[svc] = s.Image
 			continue
 		}
-		pinned := withDigest(s.Image, digest)
+		pinned, err := imageref.WithDigest(s.Image, digest)
+		if err != nil {
+			return nil, fmt.Errorf("pin image for service %q: %w", svc, err)
+		}
 		s.Image = pinned
 		e.Compose.Services[svc] = s
 		pins[svc] = pinned
 	}
 	return pins, nil
-}
-
-func withDigest(ref, digest string) string {
-	name := ref
-	if i := strings.LastIndex(name, "@"); i >= 0 {
-		name = name[:i]
-	}
-	if i := strings.LastIndex(name, ":"); i > strings.LastIndex(name, "/") {
-		name = name[:i]
-	}
-	return name + "@" + digest
 }
 
 // FidelityContract is printed at the top of every plan: the

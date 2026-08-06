@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -167,4 +168,4 @@ func Prune(ctx context.Context, t transport.Transport, n app.Names, retain int) 
 	return removed, nil
 }
 
-func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func q(s string) string { return shellquote.Quote(s) }

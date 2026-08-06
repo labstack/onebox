@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // RecreateRole replaces a role's containers in place: a stated brief gap, the
@@ -16,8 +15,8 @@ import (
 // recreates the whole fleet at the desired count and gives each a clean slot
 // name.
 func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath string) error {
-	role := e.Cfg.Roles[roleName]
-	svc := role.Service
+	role := e.Spec.Workloads[roleName]
+	svc := roleName
 	cc := e.composeCmd(remoteComposePath)
 	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
 	desired := role.Count()
@@ -30,7 +29,7 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	// Signal before recreate whenever the contract declares a fixed drain wait.
 	// Compose sends TERM during replacement too, but doing it only then skipped
 	// drain.wait entirely and left recreate workers at Compose's default timeout.
-	if role.Drain != nil && role.Drain.Wait > 0 && role.Drain.Signal != "" {
+	if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
 		ids, err := e.containerIDs(ctx, svc)
 		if err != nil {
 			return err
@@ -40,14 +39,14 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 			// drain.signal that docker rejects) must not silently degrade every
 			// recreate to an abrupt stop — surface it. A transport/fence error
 			// aborts: recreating under a lost lock is never correct.
-			if res, err := e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id); err != nil {
+			if res, err := e.mutate(ctx, "docker kill --signal="+role.DrainSignal()+" "+id); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
-				e.warnf("drain signal %s to %s failed: %s", role.Drain.Signal, svc, strings.TrimSpace(res.Stderr))
+				e.warnf("drain signal %s to %s failed: %s", role.DrainSignal(), svc, strings.TrimSpace(res.Stderr))
 			}
 		}
 		if len(ids) > 0 {
-			e.Opts.Sleep(time.Duration(role.Drain.Wait))
+			e.Opts.Sleep(wait)
 		}
 	}
 	scaleArg := ""
@@ -67,9 +66,9 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 	if len(ids) == 0 {
 		return fmt.Errorf("recreate %s: no container after up", svc)
 	}
-	within, pollEvery := readyTiming(role)
+	within, pollEvery := role.ReadyTiming()
 	for _, id := range ids {
-		if role.Ready != nil {
+		if role.Health != nil {
 			if err := e.waitHealth(ctx, id, "healthy", within, pollEvery); err != nil {
 				return err
 			}
@@ -93,7 +92,7 @@ func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath s
 // env. A nonzero exit halts the deploy; migration-gate evaluation determines
 // whether later automatic rollback remains safe.
 func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComposePath string) error {
-	hook, ok := e.Cfg.Hooks[name]
+	hook, ok := e.Spec.Hooks[name]
 	if !ok || hook.Run == "" {
 		return nil
 	}
@@ -106,7 +105,7 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 	}
 	st := e.ui.Step("hook "+name, true)
 	cmd := "cd " + q(remoteReleaseDir) +
-		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
+		" && COMPOSE_PROJECT_NAME=" + e.Spec.Name +
 		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook.Run
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {
@@ -126,7 +125,7 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	c := exec.CommandContext(ctx, "sh", "-c", run) // verbatim by design
 	c.Dir = e.Opts.LocalDir
 	c.Env = append(os.Environ(),
-		"OB_APP="+e.Cfg.App,
+		"OB_APP="+e.Spec.Name,
 		"OB_HOST="+e.T.Host(),
 		"OB_TARGET="+e.T.Target(), // OpenSSH user@host (IPv6 unbracketed)
 		"OB_SSH_USER="+e.T.SSHUser(),

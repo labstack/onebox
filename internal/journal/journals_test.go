@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/labstack/onebox/internal/transport"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 // Journals must read every deploy's records in ONE round trip, split them back
@@ -39,7 +41,7 @@ func TestJournalsOneRoundTrip(t *testing.T) {
 		return transport.Result{}, false
 	}}
 
-	ids, byID, err := Journals(context.Background(), f, "sample")
+	ids, byID, err := Journals(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +83,7 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 		}
 		return transport.Result{}, false
 	}}
-	ids, byID, err := Journals(context.Background(), f, "sample")
+	ids, byID, err := Journals(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +102,7 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 // output, and Journals returns nothing rather than erroring.
 func TestJournalsNoJournalDir(t *testing.T) {
 	f := &transport.Fake{} // default: empty stdout, exit 0
-	ids, byID, err := Journals(context.Background(), f, "sample")
+	ids, byID, err := Journals(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
 	if err != nil {
 		t.Fatal(err)
 	}

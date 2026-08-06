@@ -16,7 +16,53 @@ const (
 	cliOperationSchemaVersion = "onebox.run/cli-operation/v1alpha1"
 	cliRecordSchemaVersion    = "onebox.run/cli-record/v1alpha1"
 	cliStatusSchemaVersion    = "onebox.run/status/v1alpha1"
+
+	// The read-only verbs. Each carries its own identity so a consumer can
+	// tell what it is holding without inferring it from the shape, and so the
+	// shape can grow without the consumer guessing which version it grew in.
+	cliValidateSchemaVersion  = "onebox.run/cli-validate/v1alpha1"
+	cliCanonicalSchemaVersion = "onebox.run/cli-canonical/v1alpha1"
+	cliPreviewSchemaVersion   = "onebox.run/cli-preview/v1alpha1"
 )
+
+// cliValidateEnvelope is what `ob validate --output json` emits.
+type cliValidateEnvelope struct {
+	SchemaVersion string          `json:"schema_version"`
+	App           string          `json:"app,omitempty"`
+	Environment   string          `json:"environment,omitempty"`
+	Workloads     []string        `json:"workloads,omitempty"`
+	Jobs          []string        `json:"jobs,omitempty"`
+	Services      []string        `json:"services,omitempty"`
+	Error         *cliPublicError `json:"error,omitempty"`
+}
+
+// cliCanonicalEnvelope carries the normalised document and, separately, where
+// each value came from. The human form marks origins in comments; a comment is
+// not something a consumer can read, so the same fact is given as data.
+type cliCanonicalEnvelope struct {
+	SchemaVersion string            `json:"schema_version"`
+	Environment   string            `json:"environment"`
+	Document      string            `json:"document"`
+	Redacted      bool              `json:"redacted"`
+	Origins       map[string]string `json:"origins,omitempty"`
+	Error         *cliPublicError   `json:"error,omitempty"`
+}
+
+// cliPreviewEnvelope carries the generated runtime and its digest.
+//
+// Redacted is always true: the structured stream is the one that gets piped
+// into a file, a log or a CI artifact, and --raw is refused alongside it. The
+// field is stated rather than implied so a consumer never has to assume.
+type cliPreviewEnvelope struct {
+	SchemaVersion string            `json:"schema_version"`
+	Environment   string            `json:"environment"`
+	Release       string            `json:"release"`
+	Digest        string            `json:"digest"`
+	Redacted      bool              `json:"redacted"`
+	Runtime       string            `json:"runtime"`
+	Services      map[string]string `json:"services,omitempty"`
+	Error         *cliPublicError   `json:"error,omitempty"`
+}
 
 type cliPublicError struct {
 	Code    string `json:"code"`

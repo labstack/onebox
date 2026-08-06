@@ -2,3 +2,13 @@
 /bin/
 .serena/
 .codegraph/
+
+# Generated at runtime, never source: a plan artifact carries a concrete
+# deploy target, live host state, and an expiry. An approval is bound to one
+# exact plan and is worthless the moment it leaves the machine that made it.
+/ob-plan.json
+/ob-approval.json
+*.ob-plan.json
+
+# Browser-session diagnostics from local tooling.
+.playwright-mcp/

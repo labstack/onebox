@@ -6,19 +6,19 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 )
 
 var executableSchemaVersion = regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v([0-9]+)(?:(alpha|beta)([0-9]+))?$`)
 
 // CheckRunnerCompatibility applies the same version and executable-plan schema
 // policy used at execution without loading a plan or performing any mutation.
-func CheckRunnerCompatibility(policy config.EnvironmentPolicy, runner buildinfo.Runner) error {
+func CheckRunnerCompatibility(policy app.Policy, runner buildinfo.Runner) error {
 	return enforceRunnerPolicy(policy, runner, ExecutableDeployPlanSchemaVersion)
 }
 
-func enforceRunnerPolicy(policy config.EnvironmentPolicy, runner buildinfo.Runner, planSchema string) error {
+func enforceRunnerPolicy(policy app.Policy, runner buildinfo.Runner, planSchema string) error {
 	if minimum := strings.TrimSpace(policy.MinimumOneboxVersion); minimum != "" {
 		minimumVersion, err := buildinfo.ParseReleaseVersion(minimum)
 		if err != nil {

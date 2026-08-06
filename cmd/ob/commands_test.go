@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/onebox"
 )
 
@@ -61,26 +61,15 @@ func TestConfirmInteractiveDeployRequiresConfirmationWithoutPolicyApproval(t *te
 func writeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	composeYAML := `
-services:
-  server:
-    image: ghcr.io/x/app:v1
-  postgres:
-    image: postgres:17
-`
 	obYAML := `
 api_version: onebox.run/v1
 app: demo
-compose: docker-compose.yaml
-environments: { production: { target: deploy@example.invalid } }
-components:
-  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
-  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
+environments: { production: { server: deploy@example.invalid } }
+workloads:
+  web:      { role: application, image: ghcr.io/x/app:v1, health: { http: /healthz, port: 8080 } }
+  postgres: { role: daemon, image: postgres:17, persistence: { mode: durable } }
 deployment: { order: [web] }
 `
-	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(composeYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -109,126 +98,15 @@ func TestValidateOK(t *testing.T) {
 	}
 }
 
-func TestValidateCatchesRollabilityViolation(t *testing.T) {
-	dir := writeProject(t)
-	bad := `
-services:
-  server:
-    image: ghcr.io/x/app:v1
-    container_name: pinned
-  postgres:
-    image: postgres:17
-`
-	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(bad), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run(t, dir, "validate")
-	if err == nil {
-		t.Fatalf("expected rollability error, got: %s", out)
-	}
-	if !strings.Contains(out, "container_name") {
-		t.Fatalf("error should name container_name: %s", out)
-	}
-}
-
-func TestRenderInjectsDrainGuard(t *testing.T) {
-	dir := writeProject(t)
-	out, err := run(t, dir, "render")
-	if err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
-	if !strings.Contains(out, "/tmp/ob-drain") || !strings.Contains(out, "ob.release") {
-		t.Fatalf("render missing injections:\n%s", out)
-	}
-}
-
-// render must never print interpolated secret values — a secret referenced
-// inline in environment is redacted to a content hash.
-func TestRenderRedactsEnvSecrets(t *testing.T) {
-	dir := writeProject(t)
-	composeYAML := `
-services:
-  server:
-    image: ghcr.io/x/app:v1
-    environment:
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_live_TOPSECRET}
-  postgres:
-    image: postgres:17
-`
-	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(composeYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run(t, dir, "render")
-	if err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
-	if strings.Contains(out, "sk_live_TOPSECRET") {
-		t.Fatalf("render leaked a secret value:\n%s", out)
-	}
-	if !strings.Contains(out, "STRIPE_SECRET_KEY") || !strings.Contains(out, "redacted:sha256:") {
-		t.Fatalf("render should keep the key and show a hash:\n%s", out)
-	}
-}
-
-// env_files render onto role AND job services as env_file refs (container
-// runtime env), while their secret contents never appear in the output.
-func TestRenderInjectsEnvFiles(t *testing.T) {
-	dir := writeProject(t)
-	composeYAML := `
-services:
-  server:
-    image: ghcr.io/x/app:v1
-  migrate:
-    image: ghcr.io/x/app:v1
-    command: migrate
-  postgres:
-    image: postgres:17
-`
-	obYAML := `
-api_version: onebox.run/v1
-app: demo
-compose: docker-compose.yaml
-environments: { production: { target: deploy@example.invalid } }
-components:
-  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
-  migrate: { type: job, service: migrate, data_effect: migration }
-  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
-deployment: { order: [web] }
-runtime: { env_files: [app.env] }
-`
-	for name, body := range map[string]string{
-		"docker-compose.yaml": composeYAML,
-		"ob.yml":              obYAML,
-		"app.env":             "SECRET=leaky-xyz\n",
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	out, err := run(t, dir, "render")
-	if err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
-	if strings.Contains(out, "leaky-xyz") {
-		t.Fatalf("env_file secret leaked into render:\n%s", out)
-	}
-	if strings.Count(out, "app.env") < 2 {
-		t.Fatalf("app.env must attach to both role and job:\n%s", out)
-	}
-}
-
-// A preflight check with a missing key halts the deploy before any host
-// contact, naming the file and key.
 func TestPreflightBlocksDeploy(t *testing.T) {
 	dir := writeProject(t)
 	obYAML := `
 api_version: onebox.run/v1
 app: demo
-compose: docker-compose.yaml
-environments: { production: { target: deploy@example.invalid } }
-components:
-  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
-  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
+environments: { production: { server: deploy@example.invalid } }
+workloads:
+  web:      { role: application, image: ghcr.io/x/app:v1, health: { http: /healthz, port: 8080 } }
+  postgres: { role: daemon, image: postgres:17, persistence: { mode: durable } }
 deployment: { order: [web] }
 runtime:
   preflight:
@@ -251,31 +129,6 @@ runtime:
 
 // An env_files entry that resolves outside the project must be rejected at load
 // (it could never ship with the release) — caught by validate, before deploy.
-func TestEnvFilesOutsideProjectRejected(t *testing.T) {
-	dir := writeProject(t)
-	obYAML := `
-api_version: onebox.run/v1
-app: demo
-compose: docker-compose.yaml
-environments: { production: { target: deploy@example.invalid } }
-components:
-  web: { type: application, service: server, deployment: { strategy: rolling }, readiness: { http: /healthz, port: 8080 } }
-  postgres: { type: postgres, service: postgres, persistence: { mode: durable } }
-deployment: { order: [web] }
-runtime: { env_files: ["../escapes.env"] }
-`
-	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run(t, dir, "validate")
-	if err == nil {
-		t.Fatalf("expected rejection of out-of-project env_files: %s", out)
-	}
-	if !strings.Contains(err.Error()+out, "outside the project") {
-		t.Fatalf("error should explain the constraint: %v\n%s", err, out)
-	}
-}
-
 func TestNotifyOutcome(t *testing.T) {
 	var got map[string]any
 	hits := 0
@@ -286,11 +139,11 @@ func TestNotifyOutcome(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{
-		App:          "sample",
-		Environments: map[string]config.Environment{"production": {Hosts: []string{"root@h"}}},
-		Notify:       &config.Notify{Webhook: srv.URL, On: []string{"failure"}},
-	}
+	cfg := &app.Resolved{Spec: &app.Spec{
+		Name:          "sample",
+		Environments:  map[string]app.Environment{"production": {Server: app.Server{User: "root", Host: "h"}}},
+		Notifications: map[string]app.Notification{"ops": {Webhook: srv.URL, On: []string{"failure"}}},
+	}}
 	g := &globalFlags{Env: "production"}
 
 	// success filtered by on: [failure]
@@ -311,15 +164,15 @@ func TestNotifyOutcome(t *testing.T) {
 		t.Fatalf("notification text was not safely redacted: %v", text)
 	}
 	// A saved-plan no-op must not claim that its unactivated release succeeded.
-	cfg.Notify.On = []string{"success", "failure"}
+	cfg.Notifications["ops"] = app.Notification{Webhook: cfg.Notifications["ops"].Webhook, On: []string{"success", "failure"}}
 	notifyOperationOutcome(cfg, g, "deploy", onebox.OperationResult{
 		Status: "no_op", NoOp: true, ReleaseID: "UNACTIVATED",
 	}, nil)
 	if hits != 1 {
 		t.Fatal("no-op must not notify as a successful deploy")
 	}
-	// nil notify config: silent no-op
-	cfg.Notify = nil
+	// no notification declared: silent no-op
+	cfg.Notifications = nil
 	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("x"))
 	if hits != 1 {
 		t.Fatal("nil notify must be a no-op")

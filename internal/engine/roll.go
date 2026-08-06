@@ -7,19 +7,41 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
+	"path"
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
-	return "docker compose -p " + e.Cfg.App + " -f " + q(remoteComposePath)
+	cmd := "docker compose -p " + e.Spec.Name + " -f " + q(remoteComposePath)
+	// The same files that fed interpolation when the document was parsed feed
+	// it again when Compose reads it here. Without them a `${VAR}` carried in
+	// verbatim from a referenced Compose source resolves to empty on the
+	// target while it resolved to a value at plan time — the document would
+	// then mean something different in the place it actually runs.
+	//
+	// Compose applies repeated --env-file in order, later winning, which is
+	// the order the project declares them in.
+	if e.Spec.Runtime != nil {
+		dir := path.Dir(remoteComposePath)
+		for _, entry := range e.Spec.Runtime.EnvFiles {
+			// An encrypted entry is staged only when a workload resolves it, so
+			// naming one here unconditionally passes `--env-file` for a file
+			// that may never have been written and fails the whole invocation.
+			// Interpolation is fed by the plaintext entries either way.
+			if entry.Encrypted() {
+				continue
+			}
+			cmd += " --env-file " + q(path.Join(dir, entry.StagedPath()))
+		}
+	}
+	return cmd
 }
 
 // newcomerIDs finds containers of a specific release — the ob.release label
 // render injects is what makes resume possible.
 func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+q(e.Cfg.App)+
+		"docker ps -q --filter label=com.docker.compose.project="+q(e.Spec.Name)+
 			" --filter label=com.docker.compose.service="+q(svc)+
 			" --filter label=ob.release="+q(releaseID))
 	if err != nil {
@@ -36,12 +58,12 @@ func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]stri
 // every replica is the new release. Resume-aware: already-running newcomers of
 // this release are adopted, not duplicated.
 func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath string) error {
-	role := e.Cfg.Roles[roleName]
-	svc := role.Service
+	role := e.Spec.Workloads[roleName]
+	svc := roleName
 	cc := e.composeCmd(remoteComposePath)
 	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
 	desired := role.Count()
-	within, pollEvery := readyTiming(role)
+	within, pollEvery := role.ReadyTiming()
 
 	pulled := false
 	// Each pass converges by one step: add a missing new replica, or retire a
@@ -104,7 +126,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 			}
 			// strip the <project>-<svc>-<n> name immediately so the project
 			// prefix never appears; a transient name until it takes a slot.
-			e.renameContainer(ctx, newID, svc+"-new")
+			e.renameContainer(ctx, newID, e.names().TransientContainer(roleName))
 			// join: the newcomer becomes a routable endpoint via its healthcheck
 			if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
 				e.logf("join failed for %s — removing new container, existing keep serving", roleName)
@@ -134,10 +156,25 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 // retireContainer drains one container out of rotation (poison its health so the
 // proxy drops it BEFORE any signal), waits the drain, optionally bleeds long
 // connections, then stops and removes it.
-func (e *Engine) retireContainer(ctx context.Context, role config.Role, id string, pollEvery time.Duration) error {
+func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id string, pollEvery time.Duration) error {
 	e.sleepBusy("converge (proxy observes the newcomer)", e.Opts.ConvergeBuffer)
 
-	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+compose.DrainFile); err != nil {
+	// Poisoning health is what takes the container out of rotation before any
+	// signal reaches it. A check that cannot read the drain file — an exec-list
+	// check in an image with no shell — can never flip, so waiting for it would
+	// burn the whole budget and then stop a container the proxy is still using.
+	// Saying so is better than a warning that reads like a fault.
+	guarded, err := e.drainGuarded(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !guarded {
+		e.logf("%s: health check cannot be drain-guarded (no shell in the image); "+
+			"relying on the converge buffer alone", id[:min(12, len(id))])
+		e.sleepBusy("converge (proxy drops the container)", e.Opts.ConvergeBuffer)
+		return e.stopAndRemove(ctx, role, id)
+	}
+	if _, err := e.mutate(ctx, "docker exec "+id+" touch "+app.DrainFile); err != nil {
 		return err
 	}
 	// Budget the drain wait off the ACTUAL flip cost (retries × interval) plus
@@ -151,13 +188,19 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	}
 	e.sleepBusy("converge (proxy drops the drained container)", e.Opts.ConvergeBuffer)
 
-	if role.Drain != nil && role.Drain.Wait > 0 {
-		if role.Drain.Signal != "" && role.Drain.Signal != "TERM" {
-			_, _ = e.mutate(ctx, "docker kill --signal="+role.Drain.Signal+" "+id)
+	if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
+		if sig := role.DrainSignal(); sig != "TERM" {
+			_, _ = e.mutate(ctx, "docker kill --signal="+sig+" "+id)
 		}
-		e.sleepBusy("drain wait ("+time.Duration(role.Drain.Wait).String()+")", time.Duration(role.Drain.Wait))
+		e.sleepBusy("drain wait ("+wait.String()+")", wait)
 	}
 
+	return e.stopAndRemove(ctx, role, id)
+}
+
+// stopAndRemove is the end of a retirement: SIGTERM with the workload's grace,
+// then removal.
+func (e *Engine) stopAndRemove(ctx context.Context, role app.Workload, id string) error {
 	if res, err := e.mutate(ctx, fmt.Sprintf("docker stop -t %d %s", role.StopGraceSeconds(), id)); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
@@ -165,6 +208,18 @@ func (e *Engine) retireContainer(ctx context.Context, role config.Role, id strin
 	}
 	_, err := e.mutate(ctx, "docker rm "+id)
 	return err
+}
+
+// drainGuarded reports whether a container's health check reads the drain file.
+func (e *Engine) drainGuarded(ctx context.Context, id string) (bool, error) {
+	res, err := e.T.Run(ctx, "docker inspect -f '{{json .Config.Healthcheck.Test}}' "+id)
+	if err != nil {
+		return false, err
+	}
+	if res.ExitCode != 0 {
+		return false, nil
+	}
+	return strings.Contains(res.Stdout, app.DrainFile), nil
 }
 
 // reslot gives each new-release container a clean, stable slot name: the plain
@@ -180,7 +235,7 @@ func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int)
 	if err != nil {
 		return err
 	}
-	slots := slotNames(svc, desired)
+	slots := e.slotNames(svc, desired)
 	slotSet := map[string]bool{}
 	for _, s := range slots {
 		slotSet[s] = true
@@ -236,18 +291,30 @@ func (e *Engine) nameOf(ctx context.Context, id string) (string, error) {
 	return strings.TrimPrefix(strings.TrimSpace(res.Stdout), "/"), nil
 }
 
-// slotNames is the target name set: the plain service name for one replica,
-// else <service>-1..<service>-N.
-func slotNames(svc string, desired int) []string {
-	if desired <= 1 {
-		return []string{svc}
-	}
+// slotNames is the target name set, from the naming contract.
+//
+// It is the contract's names and not Compose's, and not a local invention
+// either. Container names are host-global: two applications that each have a
+// `web` workload would both want `web-1`, and the second would fail to start
+// or, worse, be renamed over the first. The contract carries the application
+// in every name for exactly that reason, and preflight checks those names for
+// collisions — so a rollout that used different ones would be checking for
+// collisions it then does not create, and creating collisions it never checked.
+func (e *Engine) slotNames(workload string, desired int) []string {
+	n := e.names()
 	out := make([]string, desired)
 	for i := range out {
-		out[i] = fmt.Sprintf("%s-%d", svc, i+1)
+		out[i] = n.Container(workload, i+1)
 	}
 	return out
 }
+
+// names resolves the derived-name contract for the environment being executed.
+func (e *Engine) names() app.Names { return e.Spec.NamesFor(e.Opts.Environment) }
+
+// Names is the resolved layout for this environment: the one authority for
+// where anything belonging to this application lives on the target.
+func (e *Engine) Names() app.Names { return e.names() }
 
 func idSet(ids []string) map[string]bool {
 	m := make(map[string]bool, len(ids))
@@ -255,25 +322,6 @@ func idSet(ids []string) map[string]bool {
 		m[id] = true
 	}
 	return m
-}
-
-// readyTiming: gate budget and poll interval, with defaults for roles whose
-// readiness is ADOPTED from the compose healthcheck (ready absent or
-// timing-only).
-func readyTiming(role config.Role) (within, interval time.Duration) {
-	// 2s poll matches the generated healthcheck's default interval so ob detects
-	// the join (newcomer healthy) and the drain flip (old unhealthy) promptly,
-	// instead of leaving up to 5s of slack on each wait. within bounds the join.
-	within, interval = 120*time.Second, 2*time.Second
-	if role.Ready != nil {
-		if role.Ready.Within > 0 {
-			within = time.Duration(role.Ready.Within)
-		}
-		if role.Ready.Interval > 0 {
-			interval = time.Duration(role.Ready.Interval)
-		}
-	}
-	return within, interval
 }
 
 func subtract(all, remove []string) []string {
@@ -303,9 +351,12 @@ func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interv
 			return nil
 		}
 		if h == "none" && want == "healthy" {
-			return fmt.Errorf("container %s has no healthcheck — rolling requires one (generated from ready:)", id)
+			return fmt.Errorf("container %s has no healthcheck, and rolling waits for one — declare health: on the workload, or strategy: recreate", id)
 		}
 		if e.Opts.Now().After(deadline) {
+			if why := e.healthDiagnosis(ctx, id); why != "" {
+				return fmt.Errorf("timeout waiting for %s to be %s: %s", id, want, why)
+			}
 			return fmt.Errorf("timeout waiting for %s to be %s (last: %s)", id, want, h)
 		}
 		e.Opts.Sleep(interval)

@@ -16,8 +16,8 @@ const rollbackUnavailableConsequence = "automatic rollback is unavailable after 
 // `jobs` service, plus an untyped `migrate` hook that isn't itself a job (some
 // configs ran the migrate hook whether or not migrate was classified a job).
 func (e *Engine) gateSteps() []string {
-	steps := append([]string{}, e.Cfg.Jobs...)
-	if h, ok := e.Cfg.Hooks["migrate"]; ok && h.Run != "" {
+	steps := append([]string{}, e.Spec.JobOrder()...)
+	if h, ok := e.Spec.Hooks["migrate"]; ok && h.Run != "" {
 		for _, s := range steps {
 			if s == "migrate" {
 				return steps
@@ -115,7 +115,7 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps" +
 		" -e OB_RESULT_FILE=" + containerResultFile +
 		" -v " + q(resultFile+":"+containerResultFile+":rw") + " " + job
-	if h, ok := e.Cfg.Hooks[job]; ok && h.Run != "" {
+	if h, ok := e.Spec.Hooks[job]; ok && h.Run != "" {
 		if h.Local {
 			// a local hook can't reach the host result file — run it, fail safe
 			e.logf("job %s (local hook): %s", job, h.Run)
@@ -145,7 +145,7 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 		" && rm -rf " + q(resultDir) +
 		" && install -d -m 700 " + q(resultDir) +
 		" && install -m " + resultMode + " /dev/null " + q(resultFile) +
-		" && COMPOSE_PROJECT_NAME=" + e.Cfg.App +
+		" && COMPOSE_PROJECT_NAME=" + e.Spec.Name +
 		" COMPOSE_FILE=" + q(remoteCompose) +
 		" OB_RESULT_FILE=" + q(resultFile) +
 		" " + runCmd
@@ -244,7 +244,7 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	if err := e.removeNewcomers(ctx, releaseID); err != nil {
 		return fmt.Errorf("verify failed (%v) AND auto-rollback could not remove new containers: %w", verr, err)
 	}
-	prevCompose := release.PathsFor(e.Cfg.App).Releases + "/" + prev + "/compose.yaml"
+	prevCompose := release.PathsFor(e.names()).Releases + "/" + prev + "/compose.yaml"
 	if err := e.releaseRoles(ctx, prevCompose); err != nil {
 		_ = jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()})
 		return fmt.Errorf("verify failed (%v) AND auto-rollback failed: %w — intervene manually", verr, err)
@@ -257,25 +257,23 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	return fmt.Errorf("verify: %w — auto-rolled back to %s (healthy); new release NOT activated", verr, prev)
 }
 
-func (e *Engine) jobDataEffect(service string) string {
-	for _, component := range e.Cfg.Components {
-		if component.Type == "job" && component.Service == service {
-			return component.DataEffect
-		}
+func (e *Engine) jobDataEffect(job string) string {
+	if w, ok := e.Spec.Workloads[job]; ok && w.IsJob() && w.DataEffect != "" {
+		return w.DataEffect
 	}
 	return "unknown"
 }
 
 func (e *Engine) jobRollbackPolicySafe(service string) bool {
 	effect := e.jobDataEffect(service)
-	return effect == "none" || e.Cfg.Migrations == "expand-only" && effect == "migration"
+	return effect == "none" || e.Spec.Deployment.MigrationPolicy == "expand-only" && effect == "migration"
 }
 
 // removeNewcomers stops and removes every container of the given release
 // (identified by the ob.release label the render injected).
 func (e *Engine) removeNewcomers(ctx context.Context, releaseID string) error {
-	for _, role := range e.Cfg.Roles {
-		ids, err := e.newcomerIDs(ctx, role.Service, releaseID)
+	for _, roleName := range e.Spec.ReleaseOrder() {
+		ids, err := e.newcomerIDs(ctx, roleName, releaseID)
 		if err != nil {
 			return err
 		}

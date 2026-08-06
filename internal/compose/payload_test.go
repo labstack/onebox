@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestStagePayloadRewritesProjectRelativeSources(t *testing.T) {
@@ -16,21 +16,16 @@ func TestStagePayloadRewritesProjectRelativeSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
-		App:   "demo",
-		Roles: map[string]config.Role{"app": {Service: "server", Mode: "recreate"}},
-	}
 	staging := t.TempDir()
 	rewrites, err := StagePayload(p, staging)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := Render(p, cfg, "R1")
+	body, err := yaml.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered = RewriteSources(rendered, rewrites)
-	out := string(rendered)
+	out := string(RewriteSources(body, rewrites))
 
 	// project-relative bind mount: staged + rewritten
 	if _, err := os.Stat(filepath.Join(staging, "conf", "app.conf")); err != nil {
@@ -66,7 +61,7 @@ func TestStagePayloadContextHonorsCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := StagePayloadContext(ctx, p, t.TempDir()); !errors.Is(err, context.Canceled) {
+	if _, err := StagePayloadContext(ctx, p, t.TempDir(), nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("StagePayloadContext error = %v; want context cancellation", err)
 	}
 }

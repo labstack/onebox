@@ -1,0 +1,41 @@
+# Immich. Its database is Postgres with the pgvector extension, which is not
+# the image the managed driver runs — so it is a daemon the user owns, which is
+# exactly the boundary the contract draws. Also the heaviest images in the set.
+api_version: onebox.run/v1
+app: immich
+environments:
+  production: {server: root@TARGET}
+workloads:
+  server:
+    role: application
+    image: ghcr.io/immich-app/immich-server:v1.125.7
+    domain: photos.example.com
+    port: 2283
+    needs: [{name: database, condition: healthy}, {name: redis, condition: healthy}]
+    volumes: [{name: upload, path: /usr/src/app/upload}]
+    env:
+      DB_HOSTNAME: database
+      DB_USERNAME: immich
+      DB_PASSWORD: immich
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      IMMICH_MACHINE_LEARNING_URL: http://machine-learning:3003
+    health: {exec: "curl -fsS http://127.0.0.1:2283/api/server/ping >/dev/null || exit 1", interval: 10s, start_period: 90s, retries: 12}
+  machine-learning:
+    role: worker
+    image: ghcr.io/immich-app/immich-machine-learning:v1.125.7
+    volumes: [{name: model-cache, path: /cache}]
+  database:
+    role: daemon
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.3.0
+    env:
+      POSTGRES_USER: immich
+      POSTGRES_PASSWORD: immich
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes: [{name: pgdata, path: /var/lib/postgresql/data}]
+    health: {exec: "pg_isready -U immich", interval: 10s, start_period: 30s, retries: 10}
+  redis:
+    role: daemon
+    image: docker.io/valkey/valkey:8-alpine
+    health: {exec: "valkey-cli ping", interval: 5s, retries: 10}

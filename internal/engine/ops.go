@@ -17,10 +17,10 @@ import (
 // managed proxy is refcounted: destroy deregisters this app; the proxy itself
 // goes only with removeProxy AND an empty registry (it may serve other apps).
 func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) error {
-	if removeProxy && !e.Cfg.Proxy.Managed {
+	if removeProxy && !e.Spec.Proxy.Managed {
 		return fmt.Errorf("--proxy: this app's proxy is not managed — nothing shared to remove")
 	}
-	hp := proxy.HostPaths()
+	hp := proxy.HostPaths(e.names())
 	if removeProxy {
 		// refuse BEFORE any teardown: other registered apps depend on it
 		others, err := e.proxyRegistryOthers(ctx)
@@ -39,12 +39,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if err := e.WriteFence(ctx, "destroy", epoch); err != nil {
 		return err
 	}
-	cur, err := release.Current(ctx, e.T, e.Cfg.App)
+	cur, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return err
 	}
 	if cur != "" {
-		down := e.composeCmd(release.PathsFor(e.Cfg.App).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
+		down := e.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
 		if removeVolumes {
 			down += " -v"
 		}
@@ -55,27 +55,28 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 	} else {
 		// no release ever activated: sweep by project label
-		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.Cfg.App))
+		ids, err := e.T.Run(ctx, "docker ps -aq --filter label=com.docker.compose.project="+q(e.Spec.Name))
 		if err != nil {
 			return err
 		}
 		for _, id := range strings.Fields(ids.Stdout) {
 			if validID.MatchString(id) {
-				// Don't report a clean destroy while a container survives: a
-				// non-zero removal is surfaced so the operator knows teardown was
-				// partial. A transport/fence error aborts before the state dir is
-				// removed.
+				// Fail closed, exactly as the service sweep does. Warning and
+				// continuing would go on to delete the volumes, the schedules
+				// and the state directory while the container is still alive,
+				// and then report a clean teardown.
 				if res, err := e.mutate(ctx, "docker rm -f "+id); err != nil {
 					return err
 				} else if res.ExitCode != 0 {
-					e.warnf("remove container %s failed: %s", id, strings.TrimSpace(res.Stderr))
+					return fmt.Errorf("cannot remove container %s: %s — nothing further was destroyed",
+						id, strings.TrimSpace(res.Stderr))
 				}
 			}
 		}
 		// `docker rm -f` never removes named volumes — honor --volumes here
 		// too (compose labels volumes with the project, same as containers)
 		if removeVolumes {
-			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.Cfg.App))
+			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.Spec.Name))
 			if err != nil {
 				return err
 			}
@@ -92,14 +93,45 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			}
 		}
 	}
+	// A timer outlives the release directory it invokes, so it has to be
+	// removed explicitly or it fails every minute forever.
+	if err := e.RemoveSchedules(ctx); err != nil {
+		return err
+	}
+	// Supporting services run in their own Compose projects precisely so that
+	// no release can stop them. Destroy is not a release: the app is going
+	// away, and a database left listening with nothing to serve is not a
+	// safety property, it is a leak. The volume still survives unless the
+	// operator asked for it too.
+	if err := e.removeServices(ctx, removeVolumes); err != nil {
+		return err
+	}
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
-	if res, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.Cfg.App).Base)); err != nil {
+	base := release.PathsFor(e.names()).Base
+	sweep := "rm -rf " + q(base)
+	keepingCredentials := !removeVolumes && len(e.Spec.Services) > 0
+	if keepingCredentials {
+		// A service credential is generated once, on the target, and exists
+		// nowhere else. Deleting it while deliberately keeping the volume
+		// leaves data nothing can ever open again: the next bootstrap
+		// generates a fresh password, the database keeps the one baked into
+		// its data directory, and the application fails to authenticate
+		// against a service that reports itself perfectly healthy.
+		//
+		// So the key stays with the lock. Everything else — releases,
+		// journals, locks, fences — goes.
+		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name services -exec rm -rf {} +", q(base))
+	}
+	if res, err := e.mutate(ctx, sweep); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
 	}
-	if e.Cfg.Proxy.Managed {
+	if keepingCredentials {
+		e.logf("kept %s — the service volumes survive and these credentials are the only thing that can open them", e.names().ServiceDir())
+	}
+	if e.Spec.Proxy.Managed {
 		// host scope, after the app fence is gone: plain Run, under host lock
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 			return err
@@ -108,7 +140,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// The app state (and its fence) is intentionally gone; subsequent
 		// mutations are protected solely by the host-scoped lock token.
 		e.fenceVal = ""
-		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.Cfg.App)); err != nil || res.ExitCode != 0 {
+		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.Spec.Name)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("deregister from proxy: %v %s", err, res.Stderr)
 		}
 		others, err := e.proxyRegistryOthers(ctx)
@@ -133,20 +165,20 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			e.logf("shared proxy kept with no registered apps — `ob destroy --proxy` removes it, or clean %s manually", hp.Dir)
 		}
 	}
-	e.logf("destroyed %s (volumes %s)", e.Cfg.App, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
+	e.logf("destroyed %s (volumes %s)", e.Spec.Name, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil
 }
 
 // proxyRegistryOthers lists apps other than this one registered with the
 // shared proxy.
 func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
-	res, err := e.T.Run(ctx, "ls -1 "+q(proxy.HostPaths().Apps)+" 2>/dev/null || true")
+	res, err := e.T.Run(ctx, "ls -1 "+q(proxy.HostPaths(e.names()).Apps)+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
 	var others []string
 	for _, name := range strings.Fields(res.Stdout) {
-		if name != e.Cfg.App && appNameRe.MatchString(name) {
+		if name != e.Spec.Name && appNameRe.MatchString(name) {
 			others = append(others, name)
 		}
 	}
@@ -156,7 +188,7 @@ func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
 // Logs streams compose logs for one role/service (or all) from the current
 // release.
 func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, out io.Writer) error {
-	cur, err := release.Current(ctx, e.T, e.Cfg.App)
+	cur, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return err
 	}
@@ -167,7 +199,7 @@ func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, o
 	if err != nil {
 		return err
 	}
-	cmd := e.composeCmd(release.PathsFor(e.Cfg.App).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
+	cmd := e.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
 	if follow {
 		cmd += " --follow"
 	}
@@ -197,22 +229,21 @@ func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer
 	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), out)
 }
 
-// resolveService maps a logical component or normalized role name to its Compose
-// service; a raw service name passes through; empty means "all" (logs only).
+// resolveService maps a name the operator typed to a Compose service. A
+// workload's name IS its service name now, so the old indirection is gone; what
+// remains is the check that the name means something, and a pass-through for a
+// service that only the rendered runtime knows about.
 func (e *Engine) resolveService(name string) (string, error) {
 	if name == "" {
 		return "", nil
 	}
-	if component, ok := e.Cfg.Components[name]; ok {
-		return component.Service, nil
-	}
-	if r, ok := e.Cfg.Roles[name]; ok {
-		return r.Service, nil
-	}
-	if _, ok := e.Project.Services[name]; ok {
+	if _, ok := e.Spec.Workloads[name]; ok {
 		return name, nil
 	}
-	return "", fmt.Errorf("%q is neither a component nor a compose service", name)
+	if _, ok := e.Compose.Services[name]; ok {
+		return name, nil
+	}
+	return "", fmt.Errorf("%q is neither a workload nor a compose service", name)
 }
 
 // volName: docker volume names — never interpolated back into a shell

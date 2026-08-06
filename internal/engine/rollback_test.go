@@ -14,10 +14,9 @@ import (
 const oldSnapshot = `
 api_version: onebox.run/v1
 app: sample
-compose: docker-compose.yaml
-environments: { production: { target: deploy@h } }
-components:
-  worker: { type: worker, service: worker, deployment: { strategy: recreate } }
+environments: { production: { server: deploy@h } }
+workloads:
+  worker: { role: worker, image: ghcr.io/x/app:v1, command: work, strategy: recreate }
 deployment:
   order: [worker]
 `
@@ -38,7 +37,7 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 		return base(cmd)
 	}
 	var out bytes.Buffer
-	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep, Environment: "production"})
 	if err := e.Rollback(context.Background()); err != nil {
 		t.Fatalf("rollback: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
@@ -47,7 +46,7 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 		t.Fatalf("snapshot choreography (worker recreate) not replayed:\n%s", seq)
 	}
 	// current ob.yml rolls web — snapshot doesn't; web must NOT be touched
-	if strings.Contains(seq, "--scale server=2") {
+	if strings.Contains(seq, "--scale web=2") {
 		t.Fatalf("rollback used CURRENT config choreography instead of snapshot:\n%s", seq)
 	}
 }
@@ -68,7 +67,7 @@ func TestRollbackFallsBackWithoutSnapshot(t *testing.T) {
 		return base(cmd)
 	}
 	var out bytes.Buffer
-	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep, Environment: "production"})
 	if err := e.Rollback(context.Background()); err != nil {
 		t.Fatalf("rollback fallback: %v", err)
 	}

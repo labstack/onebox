@@ -17,12 +17,13 @@ prints it before anything is deployed.
 Start with the schema reference so your editor can help:
 
 ```yaml
-# yaml-language-server: $schema=https://onebox.run/schema/onebox.run-v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
 api_version: onebox.run/v1
 ```
 
 `ob schema --to onebox.schema.json` writes a local copy, and `ob init` puts the
-reference on the first line of a scaffolded project.
+published reference on the first line of a scaffolded project. The checked-in
+schema is generated from the model and tested byte-for-byte against `ob schema`.
 
 ## The smallest project
 
@@ -166,6 +167,56 @@ health from something that cannot report it is refused.
 
 `needs` also decides release order when `deployment.order` is absent.
 
+### Advanced container controls
+
+The object forms expose container-runtime controls without making Compose the
+project contract:
+
+```yaml
+workloads:
+  web:
+    role: application
+    image: {reference: ghcr.io/acme/shop:1.4.0, pull: missing, platform: linux/amd64}
+    entrypoint: ["/app/entrypoint"]
+    user: "1000:1000"
+    hostname: shop-web
+    working_dir: /app
+    init: true
+    tty: false
+    stdin_open: false
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    resources: {memory: 512MB, cpus: "0.5"}
+    ports: [{host: 8080, container: 3000, bind: 127.0.0.1, protocol: tcp}]
+    logging: {driver: local, options: {max-size: 10m}}
+```
+
+A build-sourced workload uses the build object instead of `image`:
+
+```yaml
+build:
+  context: .
+  dockerfile: build/Dockerfile
+  target: production
+  args: {VERSION: "1.4.0"}
+  platform: linux/amd64
+```
+
+`ports` are direct host publications, independent of proxy routes. `bind`
+defaults to loopback and `protocol` to `tcp`. A volume's `mode` defaults to
+`rw`; `persistence.mode` defaults to `durable` when persistence is declared.
+`labels` are accepted outside the `ob.` and `traefik.` namespaces.
+
+Drain behavior is explicit when defaults are not enough:
+
+```yaml
+drain: {signal: TERM, wait: 10s, grace: 30s}
+```
+
+`health.retries` controls how many consecutive failures make a container
+unhealthy. `image.pull` is `missing`, `always`, or `never`; an image object's
+`registry` is currently only a canonical metadata label. Authentication logs in
+to every top-level `registries` entry; the label does not select one.
+
 ## Services
 
 ```yaml
@@ -282,6 +333,43 @@ swap the image is a different application wearing the same name.
 Permitted: `replicas`, `resources`, `env`, `strategy`, `routes` on a workload;
 `resources` and `settings` on a service.
 
+### Environment policy
+
+```yaml
+policy:
+  require_approval: true
+  allow_agent_proposals: true
+  minimum_onebox_version: v2026.08.1
+  minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+  require_migration_backup: true
+  migration_backup_max_age: 24h
+  require_migration_restore_test: true
+  migration_backup_key_material: [production-kms-key]
+```
+
+Approval and the declared agent-proposal permission default on. The current CLI
+does not distinguish agent identity, so `allow_agent_proposals` is recorded
+policy rather than a separate CLI authorization gate; execution remains
+approval-gated. The minimum runner fields make old or unreleased binaries fail
+closed. Migration-backup policy does not make Onebox take a backup: it requires
+externally validated evidence bound to the exact plan. The key-material list
+names keys whose usability that evidence must attest.
+
+### Runtime preflight
+
+`runtime.preflight` checks dotenv files before a target is contacted:
+
+```yaml
+runtime:
+  preflight:
+    - file: .env.production
+      require: [DATABASE_URL, API_TOKEN]
+      present: [OPTIONAL_FEATURE]
+```
+
+`require` names keys that must exist with non-empty values. `present` names keys
+that must be declared but may intentionally be empty.
+
 ## What Onebox generates
 
 - **Names.** `shop_web`, `shop_web_2`, `ob_shop_postgres`,
@@ -292,7 +380,8 @@ Permitted: `replicas`, `resources`, `env`, `strategy`, `routes` on a workload;
 - **The proxy.** If anything is routed, Onebox runs Traefik and writes its
   static configuration. Declare `proxy.config` to own that configuration
   instead. `proxy.kind: none` means nothing routes, and a route declared under
-  it is refused.
+  it is refused. `proxy.cert_resolver` names the Traefik certificate resolver;
+  each route's `tls` value chooses termination, passthrough, or no TLS.
 
 `ob preview` prints all of it. `ob eject` writes it into your repository and
 hands it over permanently — the overlay is stripped so the file is ordinary
@@ -406,6 +495,68 @@ sensitive than encrypted, only less protected.
 
 Onebox does not model the `*_FILE` convention some images use to read a secret
 from a path, and values a local build hook reads are not container environment.
+
+## Deployment and verification
+
+```yaml
+deployment:
+  order: [migrate, web, worker]
+  retain_releases: 5
+  migration_policy: manual
+
+verification:
+  - url: https://shop.example.com/healthz
+    status_codes: [200]
+    required_headers: {X-App-Ready: "yes"}
+    contains: ready
+    json_assertions:
+      - {path: service.ready, equals: true}
+  - migration_revisions:
+      job: migrate
+      provider: atlas
+      applied_revisions: ["202607130001"]
+  - workload: web
+    exec: ./bin/smoke-test
+    advisory: true
+```
+
+`order` replaces dependency-derived release order. `retain_releases` defaults
+to five. `migration_policy` controls how migration jobs affect release and
+recovery gates.
+
+A verification chooses one probe: external `url`, workload `http`/`exec`, or
+`migration_revisions`. HTTP checks can constrain `status_codes`, exact
+`required_headers`, body `contains`, and scalar JSON values through
+`json_assertions`. Migration verification binds a job, optional provider, and
+ordered `applied_revisions` to the result evidence captured during the release.
+An `advisory` failure is reported but does not block activation.
+
+## Registries, notifications, and observability intent
+
+```yaml
+registries:
+  ghcr: {server: ghcr.io, username: robot, password_env: GHCR_TOKEN}
+
+notifications:
+  operations:
+    webhook: https://hooks.example.com/onebox
+    on: [deployed, failed]
+    format: text
+
+observability:
+  logs: {enabled: true, retention_days: 30}
+  metrics: {enabled: true}
+  alerts: {unhealthy_after: 5m}
+```
+
+`password_env` names a local environment variable; its value never enters the
+project or a plan. Notification `format` defaults to `text`, and `on` filters
+the outcomes sent to the `webhook`.
+
+`logs`, `metrics`, and `alerts` declare intent only. Their `enabled`,
+`retention_days`, and `unhealthy_after` values are visible to validation and
+planning, but the current local engine does not run continuous collectors or
+alert managers.
 
 
 ## Failures

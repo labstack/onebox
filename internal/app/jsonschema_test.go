@@ -3,6 +3,9 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -140,4 +143,113 @@ func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "replicaz") {
 		t.Errorf("the failure should name the field: %v", err)
 	}
+}
+
+func TestPublishedSchemaDocumentsEveryPublicField(t *testing.T) {
+	body, err := JSONSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	var walk func(any, string)
+	walk = func(value any, path string) {
+		switch node := value.(type) {
+		case map[string]any:
+			// Closed objects are model structs. Conditional schemas also use a
+			// properties key, but those entries are predicates rather than fields.
+			if closed, ok := node["additionalProperties"].(bool); ok && !closed {
+				if properties, ok := node["properties"].(map[string]any); ok {
+					for name, raw := range properties {
+						property, ok := raw.(map[string]any)
+						if !ok {
+							t.Errorf("%s.%s is not an object schema", path, name)
+							continue
+						}
+						if strings.TrimSpace(stringValue(property["description"])) == "" {
+							t.Errorf("%s.%s has no description", path, name)
+						}
+					}
+				}
+			}
+			for key, child := range node {
+				walk(child, path+"."+key)
+			}
+		case []any:
+			for _, child := range node {
+				walk(child, path+"[]")
+			}
+		}
+	}
+	walk(doc, "$")
+}
+
+func TestPublishedSchemaDocumentsImportantDefaultsAndExamples(t *testing.T) {
+	body, err := JSONSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		path     []string
+		key      string
+		expected any
+	}{
+		{[]string{"base_path"}, "default", "/var/lib/ob"},
+		{[]string{"deployment", "retain_releases"}, "default", float64(5)},
+		{[]string{"environments", "*", "policy", "require_approval"}, "default", true},
+		{[]string{"workloads", "*", "replicas"}, "default", float64(1)},
+		{[]string{"app"}, "examples", []any{"shop"}},
+	}
+	for _, check := range checks {
+		at := indexPath(doc, check.path)
+		if at == nil {
+			t.Errorf("schema path %v is missing", check.path)
+			continue
+		}
+		if got, ok := at[check.key]; !ok || !reflect.DeepEqual(got, check.expected) {
+			t.Errorf("schema path %v %s = %#v, want %#v", check.path, check.key, got, check.expected)
+		}
+	}
+}
+
+func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
+	body, err := JSONSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(append([]byte(nil), body...), '\n')
+	path := filepath.Join("..", "..", "docs", "onebox.run-v1.schema.json")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read published schema: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --to docs/onebox.run-v1.schema.json`", path)
+	}
+}
+
+func TestPublishedSchemaURLIsUsedByTheHumanGuide(t *testing.T) {
+	if !strings.HasPrefix(SchemaID, "https://raw.githubusercontent.com/labstack/onebox/main/") {
+		t.Fatalf("schema identity must be a retrievable main-branch URL, got %q", SchemaID)
+	}
+	guide, err := os.ReadFile(filepath.Join("..", "..", "docs", "schema-v1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(guide), SchemaID) {
+		t.Fatalf("docs/schema-v1.md does not reference the published schema %q", SchemaID)
+	}
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }

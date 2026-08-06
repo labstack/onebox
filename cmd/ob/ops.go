@@ -186,8 +186,9 @@ func loadConfigOnly(g *globalFlags) (*app.Spec, error) {
 	return app.Load(g.ConfigPath)
 }
 
-// specSopsSource is the first encrypted entry the project declares, which is
-// the file `ob secrets edit` opens.
+// specSopsSource is the first encrypted entry declared at project scope, which
+// is the file `ob secrets edit` opens. An entry declared on an environment or a
+// workload is not reachable from here.
 //
 // "First declared" rather than "first alphabetically": entries are an ordered
 // list, and the order is the author's. A project with several encrypted entries

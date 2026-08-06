@@ -76,6 +76,33 @@ part of 5.1: an encrypted entry's plaintext may be an environment file, which
 is the shape `env_files` invites, and the renderer accepted only a flat YAML
 map.
 
+### Corpus movement, as the growth gate requires
+
+The clause this change added says a pre-release revision "SHALL re-freeze the
+conformance corpus and enumerate every verdict and every generated runtime that
+moved. A moved verdict absent from that record SHALL be a defect." Checking the
+task off without writing the enumeration was itself the defect; here it is.
+
+**No previously accepted project changed meaning.** Zero verdicts moved: every
+case present before this change kept its accept/reject outcome, its error code,
+and its generated-runtime digest.
+
+Removed (1):
+- `conformance/secret as scalar path` — the `secrets` block it exercised is
+  withdrawn, and its replacement is the refusal case below.
+
+Added (6):
+- `conformance/the withdrawn secrets block` — refused, `secrets_withdrawn`
+- `conformance/encrypted env file entry` — accepted
+- `conformance/unknown env file provider` — refused, `project_invalid`
+- `conformance/env file entry without a file` — refused, `project_invalid`
+- `conformance/environment-scoped env files` — accepted
+- probe-without-a-port and provider refusals, added when review found them
+
+That the footprint is this small is the fact the pre-release gate rests on, and
+it was measured rather than assumed: no third-party conversion in the corpus
+declares a project-wide list or a `secrets` block.
+
 ## 5. Land
 
 - [x] 5.1 Rewrite the environment section of `docs/schema-v1.md`, including the

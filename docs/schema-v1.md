@@ -300,7 +300,7 @@ Compose, and the workloads are repointed at it with your comments intact.
 
 ## Environment values
 
-One field carries them, at three scopes. An entry is a path, an object naming
+One field carries them, at three scopes plus a per-environment override. An entry is a path, an object naming
 the same path, or an object that also names a provider:
 
 ```yaml
@@ -312,7 +312,7 @@ runtime:
 ```
 
 Whether an entry is encrypted is a property of the entry, not of the workload
-reading it. Providers are `sops` and `age`.
+reading it. The only provider is `sops`.
 
 ### Where a list may be declared
 
@@ -357,7 +357,7 @@ or Immich means naming it on the database too. That costs a line; the opposite
 default costs a credential in a place nobody looks.
 
 `env_files: []` means the workload receives nothing, which is different from
-declaring no list. `ob canonical` shows which you wrote.
+declaring no list. `ob canonical` shows which you wrote, at every scope.
 
 A workload's source never changes what it receives: an application adopted
 through `compose:` resolves what an application declared inline resolves.
@@ -388,7 +388,8 @@ carries the credential and the credential never travels.
 ### Encrypted entries
 
 The plaintext may be an environment file or a flat YAML map — both render to
-the same thing, and a nested map is refused:
+the same thing, and a nested map, or one declaring no values at all, is
+refused. Values are read literally: a password containing `$` is not expanded.
 
 ```
 API_TOKEN=value          # or:    API_TOKEN: value

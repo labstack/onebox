@@ -1,4 +1,6 @@
-// Package secrets renders a SOPS-encrypted YAML file into a flat env file.
+// Package secrets renders a SOPS-encrypted file into the environment file a
+// container reads. The plaintext may be an environment file already or a flat
+// YAML map; both render to the same thing and a nested map is refused.
 // Decryption is runner-side (`sops -d` — sops+age is the curated provider,
 // package; the host only ever sees the rendered file at mode 600 inside
 // a release dir.
@@ -13,20 +15,13 @@ import (
 	"sort"
 	"strings"
 
-	"bytes"
 	"gopkg.in/yaml.v3"
-
-	"github.com/compose-spec/compose-go/v2/dotenv"
 )
-
-// EnvFileName is the rendered file's name inside a release dir; render
-// injects it as an env_file on role services.
-const EnvFileName = ".ob-secrets.env"
 
 var keyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Render decrypts the SOPS file and renders sorted KEY=VALUE lines.
-// The encrypted file must be a flat map — nesting is an error, not a guess.
+// A YAML plaintext must be a flat map — nesting is an error, not a guess.
 func Render(configDir, sopsFile string) ([]byte, error) {
 	return RenderContext(context.Background(), configDir, sopsFile)
 }
@@ -57,7 +52,7 @@ func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
 	// YAML first, so every rule that applied to a YAML map still applies —
 	// nested values and invalid key names are rejected exactly as before.
 	var m map[string]any
-	if err := yaml.Unmarshal(out, &m); err == nil && m != nil {
+	if err := yaml.Unmarshal(out, &m); err == nil && len(m) > 0 {
 		keys := make([]string, 0, len(m))
 		for k := range m {
 			keys = append(keys, k)
@@ -83,9 +78,16 @@ func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
 	// `KEY=value`, and encrypts it. SOPS decrypts by the file's own format, so
 	// that comes back as dotenv, and demanding a YAML map rejected it with a
 	// message naming nothing an author could act on.
-	values, err := dotenv.Parse(bytes.NewReader(out))
-	if err != nil || len(values) == 0 {
-		return nil, fmt.Errorf("%s: decrypted content is neither an environment file nor a flat YAML map", sopsFile)
+	// A `{}` payload decodes as a valid empty map, which used to render zero
+	// bytes and report success — a rotation script that emptied the file would
+	// have started the application with every credential unset. Empty is a
+	// failure, not an environment.
+	values, err := parseLiteralEnv(out)
+	if err != nil {
+		return nil, fmt.Errorf("%s: decrypted content is neither an environment file nor a flat YAML map: %w", sopsFile, err)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%s: decrypted content declares no values", sopsFile)
 	}
 	keys := make([]string, 0, len(values))
 	for k := range values {
@@ -100,4 +102,42 @@ func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
 		fmt.Fprintf(&b, "%s=%s\n", k, values[k])
 	}
 	return []byte(b.String()), nil
+}
+
+// parseLiteralEnv reads decrypted plaintext as an environment file without
+// expanding anything.
+//
+// A general dotenv parser substitutes `$VAR` and `${VAR}` while reading. That
+// is right for a file an author wrote and wrong for a decrypted secret, which
+// is bytes rather than a template: a bcrypt hash or a generated password
+// containing `$` is silently truncated at the first one — `$2y$10$abc` becomes
+// `$2y$10` — and the parser logs the fragment it could not resolve as a
+// warning, putting part of the credential on stderr in a package whose rule is
+// that content never travels, only hashes.
+//
+// So this reads literally. Comments, blank lines, an `export` prefix and
+// surrounding quotes are handled because a file someone encrypted may carry
+// them; nothing else is interpreted.
+func parseLiteralEnv(in []byte) (map[string]string, error) {
+	out := map[string]string{}
+	for _, line := range strings.Split(string(in), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return nil, fmt.Errorf("not an environment file")
+		}
+		key = strings.TrimSpace(key)
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') ||
+				(value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		out[key] = value
+	}
+	return out, nil
 }

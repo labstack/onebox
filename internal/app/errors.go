@@ -69,6 +69,7 @@ var errorCodes = map[string]string{
 
 	// Generation and the target.
 	"env_file_unreadable":         "an environment file the project declares cannot be read",
+	"health_port_unknown":         "an http health check has no port to probe and none can be derived",
 	"connection_variable_claimed": "an authored value claims a name a managed-service connection supplies",
 	"secrets_withdrawn":           "the withdrawn secrets block; environment files carry encrypted entries now",
 	"image_unresolved":            "a build-sourced workload has no resolved image for this release",

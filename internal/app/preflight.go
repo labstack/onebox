@@ -306,12 +306,22 @@ func envKeys(data []byte, context map[string]string) (present, nonEmpty map[stri
 // specifically that the same files mean the same thing here and when the
 // container runtime reads them on the target. Same files, same parser.
 func (p *Spec) InterpolationEnv() (map[string]string, error) {
-	if p.Runtime == nil || len(p.Runtime.EnvFiles) == 0 {
+	if len(p.documentScopeEntries()) == 0 {
 		return nil, nil
 	}
-	paths := make([]string, 0, len(p.Runtime.EnvFiles))
-	for _, entry := range p.Runtime.EnvFiles {
-		paths = append(paths, filepath.Join(p.Dir, entry.File))
+	// Plaintext entries only. An encrypted entry is ciphertext on disk, and
+	// feeding it to a dotenv parser yields nothing useful — the guard exists on
+	// the sibling helper below and was missing here, so a project mixing an
+	// encrypted entry with a Compose reference interpolated from garbage.
+	//
+	// Commands that reach this hold no key material by contract: `ob validate`
+	// and `ob canonical` contact nothing. A variable only an encrypted entry
+	// supplies therefore resolves as unsupplied, and the refusal names it.
+	paths := make([]string, 0, len(p.documentScopeEntries()))
+	for _, entry := range p.documentScopeEntries() {
+		if !entry.Encrypted() {
+			paths = append(paths, filepath.Join(p.Dir, entry.File))
+		}
 	}
 	env, err := dotenv.GetEnvFromFile(map[string]string{}, paths)
 	if err != nil {
@@ -328,11 +338,11 @@ func (p *Spec) InterpolationEnv() (map[string]string, error) {
 // preflight is asserting that the environment as a whole is ready, and there
 // is no position in the order from which to exclude anything.
 func (p *Spec) envContextBefore(dir, file string) map[string]string {
-	if p.Runtime == nil || len(p.Runtime.EnvFiles) == 0 {
+	if len(p.documentScopeEntries()) == 0 {
 		return nil
 	}
 	var preceding []string
-	for _, entry := range p.Runtime.EnvFiles {
+	for _, entry := range p.documentScopeEntries() {
 		if entry.File == file {
 			break
 		}
@@ -348,4 +358,22 @@ func (p *Spec) envContextBefore(dir, file string) map[string]string {
 		return nil
 	}
 	return env
+}
+
+// documentScopeEntries is the list that feeds interpolation: the environment's
+// if it declares one, otherwise the project's.
+//
+// Interpolation is a property of the document, so a workload's own list can
+// never feed it — that would let one workload decide how another workload's
+// copied service parses. The environment counts as document scope because the
+// runtime is rendered per environment already, and any other reading has a
+// container's values disagreeing with the document that parsed them.
+func (p *Spec) documentScopeEntries() []EnvFile {
+	if p.envDefault != nil {
+		return p.envDefault
+	}
+	if p.Runtime == nil {
+		return nil
+	}
+	return p.Runtime.EnvFiles
 }

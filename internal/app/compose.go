@@ -249,20 +249,30 @@ func applyOverlay(svc map[string]any, ov overlay) map[string]any {
 		case string:
 			existing = []string{v}
 		case []any:
-			for _, e := range v {
-				if s, ok := e.(string); ok {
-					existing = append(existing, s)
+			// Copied through whatever their shape. Compose accepts a long form
+			// — `{path: .env, required: false}` — and collecting only strings
+			// deleted those entries from a file the author owns, which the
+			// overlay is not allowed to do.
+			merged := make([]any, 0, len(v)+len(ov.EnvFiles))
+			merged = append(merged, v...)
+			for _, e := range ov.EnvFiles {
+				merged = append(merged, e)
+			}
+			out["env_file"] = merged
+			existing = nil
+		}
+		if out["env_file"] == nil || len(existing) > 0 || len(ov.EnvFiles) > 0 {
+			if _, done := out["env_file"].([]any); !done {
+				merged := make([]any, 0, len(existing)+len(ov.EnvFiles))
+				for _, e := range existing {
+					merged = append(merged, e)
 				}
+				for _, e := range ov.EnvFiles {
+					merged = append(merged, e)
+				}
+				out["env_file"] = merged
 			}
 		}
-		merged := make([]any, 0, len(existing)+len(ov.EnvFiles))
-		for _, e := range existing {
-			merged = append(merged, e)
-		}
-		for _, e := range ov.EnvFiles {
-			merged = append(merged, e)
-		}
-		out["env_file"] = merged
 	}
 
 	// A declared probe wins over one the referenced file defines. The
@@ -373,17 +383,45 @@ func refuseConnectionClaims(ref string, svc map[string]any, ov overlay) error {
 	if len(ov.ConnectionVars) == 0 {
 		return nil
 	}
-	env, ok := svc["environment"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	for _, key := range sortedKeys(env) {
+	for _, key := range environmentKeys(svc["environment"]) {
 		if service, claimed := ov.ConnectionVars[key]; claimed {
 			return errf("connection_variable_claimed", ref, "",
 				"the referenced service sets %q, which the managed service %q supplies to this workload; "+
 					"a credential generated on the target exists nowhere else, so nothing authored may claim its name",
 				key, service)
 		}
+	}
+	return nil
+}
+
+// environmentKeys reads the variable names a Compose service sets, in both
+// forms the runtime accepts.
+//
+// `environment` may be a mapping or a `["KEY=value"]` sequence. Only the
+// mapping was read, so a referenced service using the sequence — which
+// published upstream files do, and adopting those is what `compose:` exists
+// for — could shadow a generated credential while the refusal that exists to
+// prevent exactly that reported nothing.
+func environmentKeys(v any) []string {
+	switch env := v.(type) {
+	case map[string]any:
+		return sortedKeys(env)
+	case []any:
+		var out []string
+		for _, item := range env {
+			s, ok := item.(string)
+			if !ok {
+				continue
+			}
+			// `KEY=value` sets it; a bare `KEY` passes it through from the
+			// runner's environment, which is still a claim on the name.
+			name, _, _ := strings.Cut(s, "=")
+			if name != "" {
+				out = append(out, name)
+			}
+		}
+		sort.Strings(out)
+		return out
 	}
 	return nil
 }

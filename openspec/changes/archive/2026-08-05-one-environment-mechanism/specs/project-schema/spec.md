@@ -55,9 +55,14 @@ not additive, which costs more than the guarantee is worth.
 Environment values SHALL reach containers through `env_files`. An entry SHALL be
 a repository path, an object `{file: <path>}`, or an object
 `{file: <path>, provider: <provider>}` where the provider set is closed and
-contains `sops` and `age` — the set the withdrawn `secrets` block already
-accepted. Dropping one while absorbing the field would narrow an accepted value
-for no reason the change requires. Whether an entry is plaintext or encrypted SHALL
+contains `sops`.
+
+The withdrawn block also accepted `age`, and carrying it forward looked like the
+conservative choice. It was not: nothing decrypts `age` — every path shells out
+to `sops -d` — so `provider: age` validated, derived a staged filename, staged
+nothing, and failed on the target naming a file the author never wrote.
+Accepting a value no implementation honours is not generosity. Adding a provider
+later, with something behind it, is additive. Whether an entry is plaintext or encrypted SHALL
 be a property of the entry; nothing else about how it behaves SHALL depend on
 which it is.
 

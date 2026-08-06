@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -20,9 +21,9 @@ import (
 // against the conformance corpus: it must accept and reject exactly what the
 // loader does. A published schema that disagrees teaches something untrue.
 
-// SchemaID is the identity a project references. It is stable across releases
-// because a `$schema` line in a project file outlives any one of them.
-const SchemaID = "https://onebox.run/schema/onebox.run-v1.json"
+// SchemaID is both the schema identity and its stable, publicly retrievable
+// location. The main-branch path stays fixed across Onebox releases.
+const SchemaID = "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json"
 
 // JSONSchema is the published contract, ready to write.
 func JSONSchema() ([]byte, error) {
@@ -43,9 +44,7 @@ func JSONSchema() ([]byte, error) {
 	// editor would stay silent on a value that fails at deploy time.
 	for _, c := range schemaConstraints {
 		if at := indexPath(doc, c.path); at != nil {
-			for k, v := range c.apply {
-				at[k] = v
-			}
+			mergeSchema(at, c.apply)
 		}
 	}
 	applyRoleRules(doc)
@@ -99,7 +98,9 @@ func schemaFor(t reflect.Type, defs map[string]any) map[string]any {
 	case reflect.Struct:
 		props := map[string]any{}
 		for name, field := range fieldsOf(t) {
-			props[name] = schemaFor(field.Type, defs)
+			property := schemaFor(field.Type, defs)
+			annotateSchemaField(property, field)
+			props[name] = property
 		}
 		out := map[string]any{
 			"type":       "object",
@@ -112,6 +113,57 @@ func schemaFor(t reflect.Type, defs map[string]any) map[string]any {
 		return out
 	}
 	return map[string]any{}
+}
+
+// annotateSchemaField carries the public field contract beside the Go model.
+// Adding a field without adding its description is caught by the schema tests.
+func annotateSchemaField(schema map[string]any, field reflect.StructField) {
+	if description := field.Tag.Get("description"); description != "" {
+		schema["description"] = description
+	}
+	if value := field.Tag.Get("default"); value != "" {
+		schema["default"] = schemaTagValue(value, field.Type)
+	}
+	if value := field.Tag.Get("example"); value != "" {
+		schema["examples"] = []any{schemaTagValue(value, field.Type)}
+	}
+}
+
+func schemaTagValue(value string, t reflect.Type) any {
+	switch deref(t).Kind() {
+	case reflect.Bool:
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			return parsed
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return parsed
+		}
+	case reflect.Float32, reflect.Float64:
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			return parsed
+		}
+	}
+	return value
+}
+
+// mergeSchema preserves semantic hover text when a grammar adds its more
+// mechanical constraint. Both are useful: what a field does, then what it accepts.
+func mergeSchema(dst, src map[string]any) {
+	for key, value := range src {
+		if key == "description" {
+			incoming, _ := value.(string)
+			existing, _ := dst[key].(string)
+			switch {
+			case existing == "":
+				dst[key] = incoming
+			case incoming != "" && !strings.Contains(existing, incoming):
+				dst[key] = existing + " " + incoming
+			}
+			continue
+		}
+		dst[key] = value
+	}
 }
 
 // authoredForms are the shapes the author may write that the loader expands
@@ -233,8 +285,13 @@ func replaceAt(doc map[string]any, path []string, alternative map[string]any, no
 	if !ok {
 		return
 	}
+	description, _ := full["description"].(string)
+	if description != "" {
+		description += " "
+	}
+	description += "Also accepts " + note + "."
 	container[key] = map[string]any{
-		"description": "Also accepts " + note + ".",
+		"description": description,
 		"anyOf":       []any{alternative, full},
 	}
 }

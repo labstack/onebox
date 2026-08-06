@@ -249,3 +249,70 @@ workloads:
 		t.Error("--raw beside --output json must be refused, not silently ignored")
 	}
 }
+
+func TestStructuredOutputIsRejectedWhenACommandDoesNotImplementIt(t *testing.T) {
+	if _, err := run(t, t.TempDir(), "schema", "--output", "json"); err == nil {
+		t.Fatal("schema silently accepted an output mode it does not implement")
+	} else if !strings.Contains(err.Error(), "--output json is not supported by ob schema") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEjectStructuredOutputIsVersioned(t *testing.T) {
+	for _, mode := range []string{"json", "ndjson"} {
+		dir := t.TempDir()
+		writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+image: nginx
+`)
+		out, err := run(t, dir, "eject", "--output", mode)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", mode, err, out)
+		}
+		var envelope cliEjectEnvelope
+		if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+			t.Fatalf("%s: decode structured output: %v\n%s", mode, err, out)
+		}
+		if envelope.SchemaVersion != cliEjectSchemaVersion {
+			t.Errorf("%s: schema version = %q", mode, envelope.SchemaVersion)
+		}
+		if envelope.Runtime == "" || len(envelope.Workloads) != 1 || envelope.Workloads[0] != "shop" {
+			t.Errorf("%s: incomplete eject envelope: %+v", mode, envelope)
+		}
+	}
+}
+
+func TestStructuredReadFailuresEmitTypedSafeRecords(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@203.0.113.10}
+workloads:
+  web: {role: application, image: nginx, replicaz: 3}
+`)
+	for _, verb := range []string{"validate", "canonical", "preview", "eject"} {
+		out, err := run(t, dir, verb, "--output", "json")
+		if err == nil {
+			t.Fatalf("%s: invalid project succeeded", verb)
+		}
+		var record struct {
+			SchemaVersion string          `json:"schema_version"`
+			Error         *cliPublicError `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(out), &record); err != nil {
+			t.Fatalf("%s: decode failure record: %v\n%s", verb, err, out)
+		}
+		if record.SchemaVersion == "" || record.Error == nil {
+			t.Fatalf("%s: incomplete failure record: %+v", verb, record)
+		}
+		if record.Error.Code != "unknown_field" || record.Error.Path != "workloads.web.replicaz" {
+			t.Errorf("%s: failure = %+v", verb, record.Error)
+		}
+		if strings.Contains(out, "did you mean") {
+			t.Errorf("%s: detailed diagnostic leaked into the structured stream: %s", verb, out)
+		}
+	}
+}

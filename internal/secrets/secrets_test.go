@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/compose-spec/compose-go/v2/dotenv"
 )
 
 // stubSops puts a fake `sops` first in PATH that prints the given plaintext.
@@ -34,9 +36,49 @@ func TestRenderSortedEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "DATABASE_URL=postgres://u:p@h/db\nDEBUG=false\nZKEY=last\n"
+	want := "DATABASE_URL=\"postgres://u:p@h/db\"\nDEBUG=false\nZKEY=\"last\"\n"
 	if string(b) != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", b, want)
+	}
+}
+
+func TestYAMLStringsRoundTripThroughComposeDotenv(t *testing.T) {
+	plaintext := []byte(`
+BACKSLASH: 'C:\path\n'
+DOLLAR: '$2y$10$abcdefghijklmno'
+EMPTY: ""
+HASH: 'a #b'
+MULTILINE: |-
+  line one
+  line two
+PADDED: '  padded  '
+QUOTE: 'say "hi"'
+UNICODE: 'café'
+`)
+	rendered, err := renderDecrypted("probe", plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := dotenv.ParseWithLookup(strings.NewReader(string(rendered)), func(string) (string, bool) {
+		return "", false
+	})
+	if err != nil {
+		t.Fatalf("parse rendered dotenv: %v\n%s", err, rendered)
+	}
+	want := map[string]string{
+		"BACKSLASH": "C:\\path\\n",
+		"DOLLAR":    "$2y$10$abcdefghijklmno",
+		"EMPTY":     "",
+		"HASH":      "a #b",
+		"MULTILINE": "line one\nline two",
+		"PADDED":    "  padded  ",
+		"QUOTE":     `say "hi"`,
+		"UNICODE":   "café",
+	}
+	for key, expected := range want {
+		if parsed[key] != expected {
+			t.Errorf("%s = %q, want %q (rendered %q)", key, parsed[key], expected, rendered)
+		}
 	}
 }
 
@@ -68,12 +110,24 @@ func TestDecryptedPlaintextMayAlreadyBeAnEnvironmentFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s plaintext must be accepted: %v", name, err)
 			}
+			if name == "dotenv" {
+				if string(got) != plaintext {
+					t.Errorf("dotenv plaintext was altered: %q", got)
+				}
+				return
+			}
+			parsed, err := dotenv.ParseWithLookup(strings.NewReader(string(got)), func(string) (string, bool) {
+				return "", false
+			})
+			if err != nil {
+				t.Fatalf("parse rendered dotenv: %v", err)
+			}
 			// A dotenv plaintext is passed through byte for byte, so it keeps
 			// the order and the quoting the author wrote. Parsing and
 			// re-emitting it lost both: `KEY="a #b"` came back as `KEY=a #b`,
 			// which the container runtime then reads as `a`.
-			if !strings.Contains(string(got), "A=one") || !strings.Contains(string(got), "B=two") {
-				t.Errorf("%s: both values must survive, got %q", name, got)
+			if parsed["A"] != "one" || parsed["B"] != "two" {
+				t.Errorf("%s: both values must survive, got %#v", name, parsed)
 			}
 		})
 	}
@@ -97,12 +151,23 @@ func TestDecryptedValuesAreNotExpanded(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", name, err)
 			}
-			out := string(got)
-			if !strings.Contains(out, "HASH=$2y$10$abcdefghijklmno") {
-				t.Errorf("the hash was altered: %q", out)
+			if name == "dotenv" {
+				if string(got) != plaintext {
+					t.Errorf("dotenv plaintext was altered: %q", got)
+				}
+				return
 			}
-			if !strings.Contains(out, "PW=ab$cd") {
-				t.Errorf("the password was altered: %q", out)
+			parsed, err := dotenv.ParseWithLookup(strings.NewReader(string(got)), func(string) (string, bool) {
+				return "", false
+			})
+			if err != nil {
+				t.Fatalf("parse rendered dotenv: %v", err)
+			}
+			if parsed["HASH"] != "$2y$10$abcdefghijklmno" {
+				t.Errorf("the hash was altered: %q", parsed["HASH"])
+			}
+			if parsed["PW"] != "ab$cd" {
+				t.Errorf("the password was altered: %q", parsed["PW"])
 			}
 		})
 	}

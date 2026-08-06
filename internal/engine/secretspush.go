@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,7 +45,7 @@ func (e *Engine) SecretsPushWithJournalID(ctx context.Context, name string, envB
 	return cur, e.secretsPush(ctx, cur, name, envBytes)
 }
 
-func (e *Engine) secretsPush(ctx context.Context, cur, name string, envBytes []byte) error {
+func (e *Engine) secretsPush(ctx context.Context, cur, name string, envBytes []byte) (err error) {
 	curDir := release.PathsFor(e.names()).Releases + "/" + cur
 	sum := sha256.Sum256(envBytes)
 	localHash := hex.EncodeToString(sum[:])
@@ -66,7 +67,19 @@ func (e *Engine) secretsPush(ctx context.Context, cur, name string, envBytes []b
 		return err
 	}
 	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: cur, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
-	_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "start", Detail: "hash=sha256:" + localHash})
+	if err := jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "start", Detail: "hash=sha256:" + localHash}); err != nil {
+		return fmt.Errorf("journal secrets push start: %w", err)
+	}
+	defer func() {
+		finish := journal.Record{Phase: "secrets-push", Event: "finish", Status: "ok"}
+		if err != nil {
+			finish.Status = "fail"
+			finish.Detail = err.Error()
+		}
+		if journalErr := jw.Append(ctx, finish); journalErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal secrets push finish: %w", journalErr))
+		}
+	}()
 
 	staging, err := os.MkdirTemp("", "ob-secrets")
 	if err != nil {
@@ -86,17 +99,17 @@ func (e *Engine) secretsPush(ctx context.Context, cur, name string, envBytes []b
 	defer func() {
 		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = e.mutate(cleanupContext, "rm -rf "+q(remoteStaging)+" && rm -f "+q(remoteTemporary))
+		if err := e.mutateChecked(cleanupContext, "clean secret staging", "rm -rf "+q(remoteStaging)+" && rm -f "+q(remoteTemporary)); err != nil {
+			e.warnf("clean secret staging: %v", err)
+		}
 	}()
 	if err := e.T.Upload(ctx, staging, remoteStaging); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "finish", Status: "fail", Detail: err.Error()})
 		return err
 	}
 	install := "cp " + q(remoteStaging+"/"+name) + " " + q(remoteTemporary) +
 		" && chmod 600 " + q(remoteTemporary) + " && mv -f " + q(remoteTemporary) + " " + q(curDir+"/"+name) +
 		" && rm -rf " + q(remoteStaging)
 	if res, err := e.mutate(ctx, install); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "finish", Status: "fail", Detail: err.Error()})
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("install secrets: %s", strings.TrimSpace(res.Stderr))
@@ -104,13 +117,10 @@ func (e *Engine) secretsPush(ctx context.Context, cur, name string, envBytes []b
 
 	e.logf("secrets changed — bouncing roles")
 	if err := e.releaseRoles(ctx, curDir+"/compose.yaml"); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "finish", Status: "fail", Detail: err.Error()})
 		return fmt.Errorf("secrets push: %w", err)
 	}
 	if err := e.Verify(ctx); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "finish", Status: "fail", Detail: err.Error()})
 		return fmt.Errorf("secrets push verify: %w", err)
 	}
-	_ = jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "finish", Status: "ok"})
 	return nil
 }

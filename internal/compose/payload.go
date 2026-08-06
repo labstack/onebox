@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/types"
@@ -25,14 +26,10 @@ func StagePayload(p *types.Project, stagingDir string) (map[string]string, error
 // StagePayloadContext is StagePayload with cancellation checks while walking
 // and copying project payloads.
 //
-// projected names the files the caller has already written into the staging
-// dir itself, keyed by project-relative slash path. They are referenced by the
-// document like any other payload, but they exist nowhere else — a decrypted
-// environment file is produced during staging and is deliberately never written
-// beside the source it came from. Copying one from the project dir fails
-// outright, which took every deploy carrying an encrypted entry with it. They
-// stay in the rewrite map, because the rendered bytes must not depend on how a
-// file arrived.
+// projected names files the caller supplies directly in the staging dir, keyed
+// by project-relative slash path. They are referenced by the document like any
+// other payload, but do not need copying from the project. They stay in the
+// rewrite map, because the rendered bytes must not depend on how a file arrived.
 func StagePayloadContext(ctx context.Context, p *types.Project, stagingDir string, projected map[string]bool) (map[string]string, error) {
 	rewrites := PayloadRewrites(p)
 	for abs, rel := range rewrites {
@@ -61,8 +58,12 @@ func PayloadRewrites(p *types.Project) map[string]string {
 			return
 		}
 		rel, err := filepath.Rel(projectDir, abs)
-		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return // outside the project: a host path, not payload
+		}
+		if rel == "." {
+			rewrites[abs] = "."
+			return
 		}
 		rewrites[abs] = "./" + filepath.ToSlash(rel)
 	}
@@ -79,14 +80,64 @@ func PayloadRewrites(p *types.Project) map[string]string {
 	return rewrites
 }
 
-// RewriteSources replaces absolute runner paths with release-relative ones in
-// the rendered YAML. Absolute paths are unique strings — plain replacement is
-// exact.
+// RewriteSources replaces complete absolute runner path scalars with their
+// release-relative forms. Longer paths go first, and scalar boundaries prevent
+// a project root such as /srv/app from corrupting an unrelated /srv/app-data
+// host mount.
 func RewriteSources(rendered []byte, rewrites map[string]string) []byte {
-	for abs, rel := range rewrites {
-		rendered = bytes.ReplaceAll(rendered, []byte(abs), []byte(rel))
+	paths := make([]string, 0, len(rewrites))
+	for abs := range rewrites {
+		paths = append(paths, abs)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		if len(paths[i]) == len(paths[j]) {
+			return paths[i] < paths[j]
+		}
+		return len(paths[i]) > len(paths[j])
+	})
+	for _, abs := range paths {
+		rendered = replacePathScalar(rendered, []byte(abs), []byte(rewrites[abs]))
 	}
 	return rendered
+}
+
+func replacePathScalar(in, old, replacement []byte) []byte {
+	var out []byte
+	for len(in) > 0 {
+		i := bytes.Index(in, old)
+		if i < 0 {
+			return append(out, in...)
+		}
+		end := i + len(old)
+		startsScalar := i == 0 || isScalarStart(in[i-1])
+		if startsScalar && (end == len(in) || isScalarEnd(in[end])) {
+			out = append(out, in[:i]...)
+			out = append(out, replacement...)
+			in = in[end:]
+			continue
+		}
+		out = append(out, in[:end]...)
+		in = in[end:]
+	}
+	return out
+}
+
+func isScalarStart(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n', ',', '[', '{', '\'', '"':
+		return true
+	default:
+		return false
+	}
+}
+
+func isScalarEnd(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n', ':', ',', ']', '}', '\'', '"':
+		return true
+	default:
+		return false
+	}
 }
 
 func copyTree(src, dst string) error {
@@ -97,11 +148,17 @@ func copyTreeContext(ctx context.Context, src, dst string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	info, err := os.Stat(src)
+	info, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing symlink %s", src)
+	}
 	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing non-regular file %s", src)
+		}
 		return copyFileContext(ctx, src, dst, info.Mode())
 	}
 	return filepath.Walk(src, func(path string, fi os.FileInfo, err error) error {
@@ -118,6 +175,12 @@ func copyTreeContext(ctx context.Context, src, dst string) error {
 		target := filepath.Join(dst, rel)
 		if fi.IsDir() {
 			return os.MkdirAll(target, 0o755)
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink %s", path)
+		}
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("refusing non-regular file %s", path)
 		}
 		return copyFileContext(ctx, path, target, fi.Mode())
 	})

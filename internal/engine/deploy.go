@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/ui"
@@ -111,28 +109,32 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 			Phase: "pre-release", SubStep: journal.EffectBaselineSubStep,
 			Event: "result", Status: "ok", Detail: detail, RollbackSafe: !rollbackDebt,
 		}); err != nil {
-			_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: "fail", Detail: "effect baseline: " + err.Error()})
-			return fmt.Errorf("journal effect baseline: %w", err)
+			baselineErr := fmt.Errorf("journal effect baseline: %w", err)
+			finishErr := jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: "fail", Detail: baselineErr.Error()})
+			if finishErr != nil {
+				return errors.Join(baselineErr, fmt.Errorf("journal deploy finish: %w", finishErr))
+			}
+			return baselineErr
 		}
 		e.gateOpen = !rollbackDebt
 		e.rollbackCovered = !rollbackDebt
 	}
 
 	err = e.runPhases(ctx, jw, releaseID, localStagingDir, prev, done)
+	finish := journal.Record{Phase: "deploy", Event: "finish", Status: "ok"}
+	if err != nil {
+		finish.Status = "fail"
+		finish.Detail = err.Error()
+	}
+	if finishErr := jw.Append(ctx, finish); finishErr != nil {
+		return errors.Join(err, fmt.Errorf("journal deploy finish: %w", finishErr))
+	}
 	if err == nil {
 		hint := ""
 		if prev != "" {
 			hint = " (prev " + prev + " — `ob rollback`)"
 		}
 		e.ui.Successf("deployed %s in %s%s", releaseID, ui.FmtDur(time.Since(t0)), hint)
-	}
-
-	status := "ok"
-	if err != nil {
-		status = "fail"
-		_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: status, Detail: err.Error()})
-	} else {
-		_ = jw.Append(ctx, journal.Record{Phase: "deploy", Event: "finish", Status: status})
 	}
 	return err
 }
@@ -184,7 +186,9 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 			}
 		}
 		tr(nil)
-		_ = jw.Append(ctx, journal.Record{Phase: "transfer", Event: "result", Status: "ok"})
+		if err := jw.Append(ctx, journal.Record{Phase: "transfer", Event: "result", Status: "ok"}); err != nil {
+			return fmt.Errorf("journal transfer result: %w", err)
+		}
 	}
 
 	// Before any job runs: a job can need a database as readily as an
@@ -218,7 +222,10 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 			label = fmt.Sprintf("%s ×%d", label, n)
 		}
 		st := e.ui.Step(label, true)
-		_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "intent"})
+		if err := jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "intent"}); err != nil {
+			st(err)
+			return fmt.Errorf("journal release %s intent: %w", roleName, err)
+		}
 		var err error
 		if role.Mode() == "rolling" {
 			err = e.RollRole(ctx, roleName, remoteCompose)
@@ -227,10 +234,15 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		}
 		st(err)
 		if err != nil {
-			_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "fail", Detail: err.Error()})
-			return fmt.Errorf("release %s: %w (deploy halted — `ob resume` after fixing, or `ob abort`)", roleName, err)
+			releaseErr := fmt.Errorf("release %s: %w (deploy halted — `ob resume` after fixing, or `ob abort`)", roleName, err)
+			if journalErr := jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
+				return errors.Join(releaseErr, fmt.Errorf("journal release %s result: %w", roleName, journalErr))
+			}
+			return releaseErr
 		}
-		_ = jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "ok"})
+		if err := jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "ok"}); err != nil {
+			return fmt.Errorf("journal release %s result: %w", roleName, err)
+		}
 	}
 	if err := e.runRollbackEffectHook(ctx, jw, done, "post_release", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("post-release: %w", err)
@@ -244,7 +256,9 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return e.onVerifyFailure(ctx, jw, releaseID, prev, err)
 	}
 	vf(nil)
-	_ = jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"})
+	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
+		return fmt.Errorf("journal verify result: %w", err)
+	}
 	e.progress("verification", "succeeded", "")
 
 	e.progress("activation", "started", "")
@@ -258,11 +272,15 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	}
 	if err := e.activate(ctx, releaseID); err != nil {
 		fin(err)
-		_ = jw.Append(ctx, journal.Record{
+		activationErr := fmt.Errorf("finalize: %w", err)
+		journalErr := jw.Append(ctx, journal.Record{
 			Phase: "activation", Event: "result", Status: "fail", Detail: "release=" + releaseID,
 		})
 		e.progress("activation", "failed", "activation failed; inspect journal evidence")
-		return fmt.Errorf("finalize: %w", err)
+		if journalErr != nil {
+			return errors.Join(activationErr, fmt.Errorf("journal activation result: %w", journalErr))
+		}
+		return activationErr
 	}
 	if err := jw.Append(ctx, journal.Record{
 		Phase: "activation", Event: "result", Status: "ok", Detail: "release=" + releaseID,
@@ -341,7 +359,7 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 		return err
 	}
 	for _, id := range victims {
-		if _, err := e.mutate(ctx, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
+		if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
 			return err
 		}
 	}
@@ -353,7 +371,7 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 		return err
 	}
 	for _, id := range jvictims {
-		if _, err := e.mutate(ctx, "rm -f "+q(release.PathsFor(e.names()).Base+"/journal/"+id+".jsonl")); err != nil {
+		if err := e.mutateChecked(ctx, "prune journal "+id, "rm -f "+q(release.PathsFor(e.names()).Base+"/journal/"+id+".jsonl")); err != nil {
 			return err
 		}
 	}
@@ -379,31 +397,13 @@ func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
 	return prev, e.rollbackTo(ctx, prev)
 }
 
-func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
+func (e *Engine) rollbackTo(ctx context.Context, prev string) (err error) {
 	prevDir := release.PathsFor(e.names()).Releases + "/" + prev
 	remoteCompose := prevDir + "/compose.yaml"
 
-	// replay engine: the snapshot's choreography when available
-	replay := e
-	res, err := e.T.Run(ctx, "cat "+q(prevDir+"/ob.snapshot.yml"))
+	replay, err := e.engineFromReleaseSnapshot(ctx, prev)
 	if err != nil {
 		return err
-	}
-	if res.ExitCode == 0 && strings.TrimSpace(res.Stdout) != "" {
-		snap, serr := app.LoadBytes([]byte(res.Stdout), prev+"/ob.snapshot.yml")
-		var resolved *app.Resolved
-		if serr == nil {
-			resolved, serr = snap.Resolve(e.Opts.Environment)
-		}
-		if serr != nil {
-			e.warnf("snapshot unusable (%v) — replaying with CURRENT ob.yml choreography", serr)
-		} else {
-			cp := *e
-			cp.Spec = resolved
-			replay = &cp
-		}
-	} else {
-		e.warnf("no snapshot in %s — replaying with CURRENT ob.yml choreography", prev)
 	}
 
 	epoch, err := e.AcquireLock(ctx, prev, e.Opts.ForceLock)
@@ -416,21 +416,30 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) error {
 	}
 	replay.fenceVal = e.fenceVal
 	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
-	_ = jw.Append(ctx, journal.Record{Phase: "rollback", Event: "start"})
+	if err := jw.Append(ctx, journal.Record{Phase: "rollback", Event: "start"}); err != nil {
+		return fmt.Errorf("journal rollback start: %w", err)
+	}
+	defer func() {
+		finish := journal.Record{Phase: "rollback", Event: "finish", Status: "ok"}
+		if err != nil {
+			finish.Status = "fail"
+			finish.Detail = err.Error()
+		}
+		if journalErr := jw.Append(ctx, finish); journalErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal rollback finish: %w", journalErr))
+		}
+	}()
 
 	e.logf("rolling back to %s", prev)
 	if err := replay.releaseRoles(ctx, remoteCompose); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "rollback", Event: "finish", Status: "fail", Detail: err.Error()})
 		return fmt.Errorf("rollback: %w", err)
 	}
 	if err := replay.Verify(ctx); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "rollback", Event: "finish", Status: "fail", Detail: err.Error()})
 		return fmt.Errorf("rollback verify: %w", err)
 	}
 	if err := e.activate(ctx, prev); err != nil {
 		return err
 	}
-	_ = jw.Append(ctx, journal.Record{Phase: "rollback", Event: "finish", Status: "ok"})
 	return nil
 }
 

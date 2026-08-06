@@ -50,6 +50,8 @@ workloads:
     image: nginx
     port: 3000
     domain: shop.example.com
+    volumes:
+      - {source: ., target: /app}
     env_files:
       - shared.env
       - {file: api.enc.env, provider: sops}
@@ -60,6 +62,43 @@ workloads:
       - {file: worker.enc.env, provider: sops}
 `)
 	return filepath.Join(dir, "ob.yml")
+}
+
+// A root bind copies every project file, including a stale file at the name
+// reserved for decrypted output. Decryption must win so an old secret can never
+// replace the current SOPS payload.
+func TestRootBindCannotOverwriteProjectedSecret(t *testing.T) {
+	fakeSops(t)
+	configPath := twoEncryptedEntries(t)
+	name := app.EnvFile{File: "api.enc.env", Provider: "sops"}.StagedPath()
+	if err := os.WriteFile(filepath.Join(filepath.Dir(configPath), name), []byte("TOKEN=stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lp, err := loadProjectAt(context.Background(), configPath, "production", false, app.Images{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", app.Images{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	body, err := os.ReadFile(filepath.Join(staging, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "TOKEN=api-token\n" {
+		t.Fatalf("staged secret = %q, want current decrypted value", body)
+	}
+	info, err := os.Stat(filepath.Join(staging, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("staged secret mode = %o, want 600", info.Mode().Perm())
+	}
 }
 
 // Every encrypted entry is decrypted into its own file, at the name the

@@ -43,3 +43,26 @@ func TestFindIncompleteScansPastNewerFinished(t *testing.T) {
 		t.Fatalf("want a single round trip, got %d: %v", len(f.Commands), f.Commands)
 	}
 }
+
+func TestFindIncompleteReturnsFailedRecoveryAttempt(t *testing.T) {
+	out := journalMarkerLine + "R1.jsonl\n" +
+		`{"deploy_id":"R1","phase":"deploy","event":"start","ts":"t"}` + "\n" +
+		`{"deploy_id":"R1","phase":"deploy","event":"finish","status":"fail","ts":"t"}` + "\n" +
+		`{"deploy_id":"R1","phase":"abort","event":"abort","status":"fail","ts":"t"}` + "\n"
+
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for f in") {
+			return transport.Result{Stdout: out}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+
+	s, err := e.FindIncomplete(context.Background())
+	if err != nil {
+		t.Fatalf("failed deploy and abort attempts must remain recoverable: %v", err)
+	}
+	if s.DeployID != "R1" || !s.Failed {
+		t.Fatalf("unexpected incomplete summary: %+v", s)
+	}
+}

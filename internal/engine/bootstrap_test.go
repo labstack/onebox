@@ -59,6 +59,27 @@ func TestBootstrapSequence(t *testing.T) {
 	}
 }
 
+func TestBootstrapStopsWhenJournalStartFails(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, `"phase":"bootstrap","event":"start"`) {
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	cfg.Hooks["bootstrap"] = app.Command{Run: "touch /tmp/bootstrap-ran"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Bootstrap(context.Background(), "R1-bootstrap", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "journal bootstrap start") {
+		t.Fatalf("bootstrap error = %v", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "touch /tmp/bootstrap-ran") {
+		t.Fatalf("bootstrap hook ran after journal failure:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
 func TestBootstrapInstallsMissingRuntime(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic

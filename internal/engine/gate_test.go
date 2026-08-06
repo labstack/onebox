@@ -60,6 +60,75 @@ func TestGateOpenAutoRollsBack(t *testing.T) {
 	}
 }
 
+func TestAutoRollbackUsesPreviousReleaseSnapshot(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/R0\n"}, true
+		case strings.Contains(cmd, "/releases/R0/ob.snapshot.yml"):
+			return transport.Result{Stdout: oldSnapshot}, true
+		case strings.Contains(cmd, "curl -fsS"):
+			return transport.Result{ExitCode: 22, Stderr: "500"}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	cfg.Workloads = map[string]app.Workload{"web": cfg.Workloads["web"]}
+	cfg.Deployment.Order = []string{"web"}
+	cfg.Services = nil
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
+		t.Fatalf("deploy error = %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "releases/R0/compose.yaml") || !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
+		t.Fatalf("auto-rollback did not use the previous release snapshot:\n%s", seq)
+	}
+	if strings.Count(seq, "--scale web=") != 1 {
+		t.Fatalf("auto-rollback replayed the edited web choreography:\n%s", seq)
+	}
+}
+
+func TestAutoRollbackStopsWhenIntentCannotBeJournaled(t *testing.T) {
+	f := gateFake("changed=false\n")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, `"phase":"auto-rollback","event":"intent"`) {
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "journal auto-rollback intent") {
+		t.Fatalf("deploy error = %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "docker stop -t 10 NEW1") || strings.Contains(seq, "releases/R0/compose.yaml' pull") {
+		t.Fatalf("auto-rollback mutated after its intent write failed:\n%s", seq)
+	}
+}
+
+func TestRemoveNewcomersRejectsRemoteRemovalFailure(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release='R1'"):
+			return transport.Result{Stdout: "NEW1\n"}, true
+		case strings.Contains(cmd, "docker stop -t 10 NEW1"):
+			return transport.Result{ExitCode: 55, Stderr: "daemon refused"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.removeNewcomers(context.Background(), "R1")
+	if err == nil || !strings.Contains(err.Error(), "remove newcomer NEW1 failed (exit 55): daemon refused") {
+		t.Fatalf("remove newcomers error = %v", err)
+	}
+}
+
 // A job with no same-named hook auto-runs `compose run --rm --no-deps <job>` —
 // no `migrate` hook needed in ob.yml.
 func TestJobAutoRunsWithoutHook(t *testing.T) {

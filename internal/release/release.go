@@ -159,9 +159,10 @@ func Prune(ctx context.Context, t transport.Transport, n app.Names, retain int) 
 		if err != nil {
 			return removed, err
 		}
-		if res.ExitCode == 0 {
-			removed = append(removed, id)
+		if res.ExitCode != 0 {
+			return removed, fmt.Errorf("prune release %s failed (exit %d): %s", id, res.ExitCode, strings.TrimSpace(res.Stderr))
 		}
+		removed = append(removed, id)
 	}
 	return removed, nil
 }

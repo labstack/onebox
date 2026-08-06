@@ -354,6 +354,20 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 	}
 }
 
+func TestMutateCheckedRejectsRemoteNonZeroExit(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker rm OLD1") {
+			return transport.Result{ExitCode: 23, Stderr: "permission denied"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := lockEngine(t, f)
+	err := e.mutateChecked(context.Background(), "remove old container", "docker rm OLD1")
+	if err == nil || !strings.Contains(err.Error(), "remove old container failed (exit 23): permission denied") {
+		t.Fatalf("checked mutation error = %v", err)
+	}
+}
+
 func TestHeartbeatTouchesLock(t *testing.T) {
 	f := &transport.Fake{}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LockTTL: 200 * time.Millisecond})

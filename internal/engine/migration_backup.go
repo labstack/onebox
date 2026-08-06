@@ -19,12 +19,15 @@ func (e *Engine) enforceMigrationBackup(ctx context.Context, jw *journal.Writer,
 	e.progress("migration_backup", "started", "")
 	evidence := e.Opts.MigrationBackup
 	if err := validateMigrationBackupEvidence(evidence, e.Opts.Now().UTC()); err != nil {
-		_ = jw.Append(ctx, journal.Record{
+		journalErr := jw.Append(ctx, journal.Record{
 			Phase: "pre-release", SubStep: journal.MigrationBackupSubStep,
 			Event: "result", Status: "fail", Detail: "migration backup authorization rejected",
 			ErrorCode: "migration_backup_required",
 		})
 		e.progress("migration_backup", "failed", "migration backup evidence is required before migration")
+		if journalErr != nil {
+			return errors.Join(err, fmt.Errorf("journal migration backup evidence: %w", journalErr))
+		}
 		return err
 	}
 	if done[journal.MigrationBackupSubStep] {

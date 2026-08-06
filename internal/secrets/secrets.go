@@ -79,13 +79,37 @@ func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
 			return nil, fmt.Errorf("%s: key %q is not a valid env var name", sopsFile, k)
 		}
 		switch v := m[k].(type) {
-		case string, int, int64, float64, bool:
+		case string:
+			if strings.IndexByte(v, 0) >= 0 {
+				return nil, fmt.Errorf("%s: key %q contains a NUL byte", sopsFile, k)
+			}
+			fmt.Fprintf(&b, "%s=%s\n", k, quoteEnvString(v))
+		case int, int64, float64, bool:
 			fmt.Fprintf(&b, "%s=%v\n", k, v)
 		default:
 			return nil, fmt.Errorf("%s: key %q is nested — secrets must be a flat map", sopsFile, k)
 		}
 	}
 	return []byte(b.String()), nil
+}
+
+// quoteEnvString emits a Compose dotenv value without changing its bytes when
+// Compose parses it. Quoting protects whitespace and #; escaping also prevents
+// interpolation of secret values containing $.
+func quoteEnvString(value string) string {
+	replacer := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		`$`, `$$`,
+		"\a", `\a`,
+		"\b", `\b`,
+		"\f", `\f`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"\t", `\t`,
+		"\v", `\v`,
+	)
+	return `"` + replacer.Replace(value) + `"`
 }
 
 // environmentFileKeys reports the keys of a dotenv payload, and whether the

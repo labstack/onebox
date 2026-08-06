@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // stays the operator's, config management is a non-goal) → registry login →
 // push a release dir → start services from it. Never activates; after
 // bootstrap every deploy is a pure release.
-func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir string) error {
+func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir string) (err error) {
 	// Several registries may be declared; a login is attempted for each that
 	// carries credentials, and a named-but-empty password variable is an error
 	// rather than a silent anonymous pull that fails later on a private image.
@@ -66,8 +67,19 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		return err
 	}
 	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
-	_ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "start"})
-	defer func() { _ = jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "finish", Status: "ok"}) }()
+	if err := jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "start"}); err != nil {
+		return fmt.Errorf("journal bootstrap start: %w", err)
+	}
+	defer func() {
+		finish := journal.Record{Phase: "bootstrap", Event: "finish", Status: "ok"}
+		if err != nil {
+			finish.Status = "fail"
+			finish.Detail = err.Error()
+		}
+		if journalErr := jw.Append(ctx, finish); journalErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal bootstrap finish: %w", journalErr))
+		}
+	}()
 
 	remoteDir := p.Releases + "/" + releaseID
 	if err := e.RunHook(ctx, "bootstrap", p.Base, remoteDir+"/compose.yaml"); err != nil {

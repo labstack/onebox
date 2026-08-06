@@ -16,7 +16,7 @@ import (
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	// supporting/data service apply
-	serviceCmd := &cobra.Command{Use: "service", Aliases: []string{"service"}, Short: "manage supporting and data services",
+	serviceCmd := &cobra.Command{Use: "service", Short: "manage supporting and data services",
 		Long: "Manage the supporting services this project declares.\n\n" +
 			"They run in their own Compose projects, so no deploy and no rollback can\n" +
 			"stop them or remove their volumes. `apply` converges them to what the\n" +

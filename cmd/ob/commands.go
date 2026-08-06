@@ -86,7 +86,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _, err := loadAll(cmd.Context(), g)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, cliValidateSchemaVersion, err)
 			}
 			if isStructuredOutput(g) {
 				return writeCLIJSON(cmd.OutOrStdout(), cliValidateEnvelope{

@@ -12,13 +12,17 @@ import (
 	"github.com/labstack/onebox/internal/onebox"
 )
 
+const versionReportSchemaVersion = "onebox.run/version-report/v1alpha1"
+
 type versionReport struct {
+	SchemaVersion string `json:"schema_version"`
 	buildinfo.Info
 	SupportedExecutablePlanSchemas []string `json:"supported_executable_plan_schemas"`
 }
 
 func currentVersionReport() versionReport {
 	return versionReport{
+		SchemaVersion:                  versionReportSchemaVersion,
 		Info:                           buildinfo.Read(),
 		SupportedExecutablePlanSchemas: onebox.SupportedExecutableDeployPlanSchemas(),
 	}

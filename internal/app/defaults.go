@@ -67,6 +67,18 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			w.Replicas = 1
 			mark(path + ".replicas")
 		}
+		// An HTTP probe with no port of its own probes the port the workload
+		// routes on. Without this it probes port 0 — the shorthand
+		// `health: /healthz` carries a path and nothing else — and the check
+		// can never pass, so a rolling release waits out its whole budget and
+		// reports the container unhealthy. The failure names the container and
+		// says nothing about the port, which is the hardest kind to place.
+		if w.Health != nil && w.Health.HTTP != "" && w.Health.Port == 0 {
+			if port := w.ProbePort(); port != 0 {
+				w.Health.Port = port
+				mark(path + ".health.port")
+			}
+		}
 		if w.Strategy == "" {
 			w.Strategy = w.Mode()
 			mark(path + ".strategy")

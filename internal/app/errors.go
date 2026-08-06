@@ -68,12 +68,13 @@ var errorCodes = map[string]string{
 	"compose_ingress_attached": "a referenced service already attaches the ingress network",
 
 	// Generation and the target.
-	"env_file_unreadable":      "an environment file the project declares cannot be read",
-	"secrets_withdrawn":        "the withdrawn secrets block; environment files carry encrypted entries now",
-	"image_unresolved":         "a build-sourced workload has no resolved image for this release",
-	"render_failed":            "the runtime could not be rendered",
-	"target_unreachable":       "the target could not be reached",
-	"preflight_env_incomplete": "an environment file is missing keys the project requires",
+	"env_file_unreadable":         "an environment file the project declares cannot be read",
+	"connection_variable_claimed": "an authored value claims a name a managed-service connection supplies",
+	"secrets_withdrawn":           "the withdrawn secrets block; environment files carry encrypted entries now",
+	"image_unresolved":            "a build-sourced workload has no resolved image for this release",
+	"render_failed":               "the runtime could not be rendered",
+	"target_unreachable":          "the target could not be reached",
+	"preflight_env_incomplete":    "an environment file is missing keys the project requires",
 
 	// Ejection.
 	"eject_destination_exists": "the ejection destination already exists",

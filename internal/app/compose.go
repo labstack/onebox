@@ -24,6 +24,17 @@ type overlay struct {
 	Network  string         // ingress network to append, empty when the proxy is off
 	Labels   map[string]any // ob.* identity and traefik.* routing
 	HasRoute bool           // routes were declared, so traefik.* is ours
+	// EnvFiles are the resolved entries and connection files, projected onto
+	// the referenced service. A workload adopted from a Compose file has a role
+	// like any other, and its role decides what it receives; without this the
+	// overlay silently withheld the project's environment from every
+	// compose-sourced workload.
+	EnvFiles []string
+	// ConnectionVars are the variables a managed-service connection supplies to
+	// this workload, so a referenced service claiming one can be refused. The
+	// container runtime ranks `environment` above `env_file`, so such a key
+	// would outrank the connection and no ordering here could stop it.
+	ConnectionVars map[string]string
 	// Health is the workload's declared probe, applied over whatever the
 	// referenced file defines. A declared health check that did not reach the
 	// service was dropped in silence, and the rollout then refused to roll a
@@ -66,6 +77,9 @@ func mergeComposeRef(dir, ref string, ov overlay) (map[string]any, definitions, 
 	}
 
 	if err := refuseConflicts(ref, svc, ov); err != nil {
+		return nil, definitions{}, err
+	}
+	if err := refuseConnectionClaims(ref, svc, ov); err != nil {
 		return nil, definitions{}, err
 	}
 
@@ -227,6 +241,30 @@ func applyOverlay(svc map[string]any, ov overlay) map[string]any {
 		out["networks"] = append(nets, ov.Network)
 	}
 
+	// Referenced entries first, then what the overlay projects: the author's
+	// own list is the more general statement and the projection refines it.
+	if len(ov.EnvFiles) > 0 {
+		var existing []string
+		switch v := out["env_file"].(type) {
+		case string:
+			existing = []string{v}
+		case []any:
+			for _, e := range v {
+				if s, ok := e.(string); ok {
+					existing = append(existing, s)
+				}
+			}
+		}
+		merged := make([]any, 0, len(existing)+len(ov.EnvFiles))
+		for _, e := range existing {
+			merged = append(merged, e)
+		}
+		for _, e := range ov.EnvFiles {
+			merged = append(merged, e)
+		}
+		out["env_file"] = merged
+	}
+
 	// A declared probe wins over one the referenced file defines. The
 	// declaration is what the rollout gates on, so the two disagreeing would
 	// mean waiting for a condition nobody asked for — and an author who wrote
@@ -321,4 +359,31 @@ func (p *Spec) ComposeRefsOf() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// refuseConnectionClaims rejects a referenced service that sets a variable a
+// managed-service connection supplies to this workload.
+//
+// It cannot be resolved by ordering. The container runtime places
+// `environment` above `env_file`, and the connection arrives as an env_file, so
+// the referenced key would win — handing the application an authored value
+// where a credential generated on the target was required. A rule the layer
+// below cannot enforce is enforced by the layer above.
+func refuseConnectionClaims(ref string, svc map[string]any, ov overlay) error {
+	if len(ov.ConnectionVars) == 0 {
+		return nil
+	}
+	env, ok := svc["environment"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, key := range sortedKeys(env) {
+		if service, claimed := ov.ConnectionVars[key]; claimed {
+			return errf("connection_variable_claimed", ref, "",
+				"the referenced service sets %q, which the managed service %q supplies to this workload; "+
+					"a credential generated on the target exists nowhere else, so nothing authored may claim its name",
+				key, service)
+		}
+	}
+	return nil
 }

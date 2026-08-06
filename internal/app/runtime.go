@@ -279,3 +279,23 @@ func (e Environment) Target() string {
 	}
 	return host
 }
+
+// ProbePort is the port an HTTP health check probes when it names none: the
+// port the workload routes on. A workload with several routes uses the first,
+// which is the one the shorthand form would have described.
+func (w Workload) ProbePort() int {
+	if w.Port != 0 {
+		return w.Port
+	}
+	for _, r := range w.NormalisedRoutes() {
+		if r.Port != 0 {
+			return r.Port
+		}
+	}
+	for _, p := range w.Ports {
+		if p.Container != 0 {
+			return p.Container
+		}
+	}
+	return 0
+}

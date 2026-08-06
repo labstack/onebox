@@ -127,7 +127,7 @@ var authoredForms = []struct {
 	alternative map[string]any
 	note        string
 }{
-	{[]string{"workloads", "*", "image"}, stringForm(), "an image reference"},
+	{[]string{"workloads", "*", "image"}, imageStringForm(), "an image reference"},
 	{[]string{"workloads", "*", "build"}, stringForm(), "a build context path"},
 	{[]string{"workloads", "*", "health"}, stringForm(), "an HTTP health path"},
 	{[]string{"workloads", "*", "command"}, commandForms(), "a command line or argument list"},
@@ -142,6 +142,12 @@ var authoredForms = []struct {
 }
 
 func stringForm() map[string]any { return map[string]any{"type": "string"} }
+
+func imageStringForm() map[string]any {
+	out := pattern(gImageRef)
+	out["type"] = "string"
+	return out
+}
 
 func scalarForm() map[string]any {
 	return map[string]any{"type": []any{"string", "number", "integer"}}

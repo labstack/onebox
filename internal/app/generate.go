@@ -228,7 +228,23 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		if ref := images[name]; ref != "" && ref != UnresolvedImage {
 			merged["image"] = ref
 		}
+		if raw, exists := merged["image"]; exists {
+			image, ok := raw.(string)
+			if !ok {
+				return nil, nil, definitions{}, errf("project_invalid", "workloads."+name+".image", "",
+					"workload %q has a non-string image reference", name)
+			}
+			if err := checkImageRef("workloads."+name+".image", image); err != nil {
+				return nil, nil, definitions{}, err
+			}
+		}
 		return merged, nil, carried, nil
+	}
+
+	if image, ok := svc["image"].(string); ok {
+		if err := checkImageRef("workloads."+name+".image", image); err != nil {
+			return nil, nil, definitions{}, err
+		}
 	}
 
 	if w.Command != nil {

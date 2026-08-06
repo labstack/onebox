@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/labstack/onebox/internal/imageref"
 )
 
 // The grammars and the sentences explaining their violation live together.
@@ -65,9 +67,10 @@ var (
 	gUrlPath = grammar{"url path", regexp.MustCompile("^/[^\\x00-\\x1f'\"$` \\\\]*$"),
 		"a path beginning with /"}
 
-	// A registry reference. Bounded because it is passed to the container
-	// runtime as a command argument.
-	gImageRef = grammar{"image reference", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?(@sha256:[a-f0-9]{64})?$`),
+	// A registry reference. The registry library owns this grammar; keeping its
+	// pattern here also makes the generated JSON schema agree with runtime
+	// validation.
+	gImageRef = grammar{"image reference", imageref.Pattern,
 		"a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…"}
 
 	gEnvName = grammar{"environment variable", regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`),
@@ -167,6 +170,21 @@ func (g grammar) checkOptional(path, value string) error {
 		return nil
 	}
 	return g.check(path, value)
+}
+
+func checkImageRef(path, value string) error {
+	if err := imageref.Validate(value); err == nil {
+		return nil
+	}
+	return errf("project_invalid", path, "",
+		"%q is not %s: expected %s", value, gImageRef.name, gImageRef.means)
+}
+
+func checkOptionalImageRef(path, value string) error {
+	if value == "" {
+		return nil
+	}
+	return checkImageRef(path, value)
 }
 
 func checkEnum(path, value string, allowed []string) error {

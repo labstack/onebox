@@ -58,10 +58,23 @@ absent, collapsing the two states the contract requires be distinguishable.
 
 ## 4. Verify on a host
 
-- [ ] 4.1 Staging and production selecting different entries; each host holds
+- [x] 4.1 Staging and production selecting different entries; each host holds
       only its own values.
-- [ ] 4.2 A scheduled backup job with an encrypted entry, fired by the timer
+- [x] 4.2 A scheduled backup job with an encrypted entry, fired by the timer
       after a reboot, uploading successfully.
+
+### Verified on a host
+
+Two environments declaring different entries, deployed to one box in turn:
+each container held its own values and the other environment's were absent,
+with the shared base present in both. A scheduled job with a SOPS entry fired
+from its timer with the decrypted values, and fired again with them after a
+reboot — the case the model exists to serve and the one no unit test reaches.
+
+One defect found there and nowhere else, recorded in `docs/schema-v1.md` as
+part of 5.1: an encrypted entry's plaintext may be an environment file, which
+is the shape `env_files` invites, and the renderer accepted only a flat YAML
+map.
 
 ## 5. Land
 

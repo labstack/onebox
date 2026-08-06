@@ -375,23 +375,29 @@ func Summarize(recs []Record) Summary {
 			}
 		}
 
+		deployRecord := r.Phase == "" || r.Phase == "deploy" // phase was absent in early journals
 		switch r.Event {
 		case "start":
-			s.Started = true
-			s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
-			if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
-				s.PrevRelease = v
+			if deployRecord {
+				s.Started = true
+				s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
+				if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
+					s.PrevRelease = v
+				}
 			}
 		case "finish":
-			s.Finished = true
-			if r.Phase == "deploy" && r.Status == "ok" {
+			if deployRecord && r.Status == "ok" {
+				s.Finished = true
 				s.DeploySucceeded = true
-			}
-			if r.Status == "fail" {
+			} else if r.Status == "fail" {
 				s.Failed = true
 			}
 		case "abort":
-			s.Aborted = true
+			if r.Status == "ok" {
+				s.Aborted = true
+			} else if r.Status == "fail" {
+				s.Failed = true
+			}
 		case "result":
 			if r.Status != "ok" {
 				continue

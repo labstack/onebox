@@ -272,12 +272,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	// then the managed-service connections — a generated credential is the
 	// only thing that can actually open the service it describes, so nothing
 	// authored is allowed to shadow it.
-	var files []string
-	for _, entry := range p.EnvFilesFor(w) {
-		files = append(files, entry.StagedPath())
-	}
-	files = append(files, p.serviceClientFiles(n, name, w)...)
-	if len(files) > 0 {
+	if files := p.projectedEnvFiles(n, name, w); len(files) > 0 {
 		svc["env_file"] = files
 	}
 
@@ -804,6 +799,17 @@ func (r *Resolved) RenderServices(env string) (map[string][]byte, error) {
 
 // projectedEnvFiles is what a workload's role entitles it to, as the paths the
 // generated document names.
+//
+// Order is precedence: Compose applies each env_file over the ones before it.
+// Declared entries come first — decrypted ones under the name they are staged
+// as — and the managed-service connection files last, because a generated
+// credential is the only thing that can open the service it describes and
+// nothing authored may shadow it.
+//
+// Every path that names a workload's files comes through here. An inline
+// workload and a compose-sourced one each had their own copy of this, which is
+// how a compose-sourced workload came to receive nothing at all: the two were
+// only ever equal by inspection, and one of them was wrong.
 func (p *Spec) projectedEnvFiles(n Names, name string, w Workload) []string {
 	var out []string
 	for _, entry := range p.EnvFilesFor(w) {

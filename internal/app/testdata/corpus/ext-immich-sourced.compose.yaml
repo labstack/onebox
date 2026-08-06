@@ -1,0 +1,22 @@
+# The Compose file `ext-immich-sourced.yml` references. Checked in — unlike the
+# files the other compose-sourced corpus projects name — so that the projection
+# into a referenced service is frozen rather than recorded as unreadable.
+#
+# Trimmed to what the projection touches: a service with its own `env_file` and
+# its own `environment`, which is where the precedence stack is decided.
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v1.119.1
+    env_file:
+      - ./immich.env
+    environment:
+      IMMICH_WORKERS_INCLUDE: api
+    volumes:
+      - ./library:/usr/src/app/upload
+    ports:
+      - 2283:2283
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v1.119.1
+    volumes:
+      - ./model-cache:/cache

@@ -330,6 +330,11 @@
     "digest": "6d3a2518ab077033b35018bb81aa9702a641a2ad7433468afacb6070083d60a8 postgres=238898be86f05d65 redis=ca3980ea23888990"
   },
   {
+    "case": "corpus/ext-authentik-managed.yml",
+    "loads": true,
+    "digest": "f6b0b547d0bc7d55b8309e57f4f928a57e2ce44dd4fecc773599c9785580083f postgres=238898be86f05d65 redis=ca3980ea23888990"
+  },
+  {
     "case": "corpus/ext-authentik.yml",
     "loads": true,
     "digest": "c3536ec0316f5d8ebb123c8cc7e924a108740029f1b7112b0a165742229fd46b"
@@ -343,6 +348,11 @@
     "case": "corpus/ext-gitea.yml",
     "loads": true,
     "digest": "03c61add17f60397b761451f5e606c70afc2ac75828057ddc21914db3e546d63 postgres=7741691b0fff52df"
+  },
+  {
+    "case": "corpus/ext-immich-sourced.yml",
+    "loads": true,
+    "digest": "b852204b8ab417c0b5ca7c162108f95189829c69f8b7284d58120fe1e17c47d9 postgres=fd08f7b5d17785ae redis=0f572c4b0e1f6c29"
   },
   {
     "case": "corpus/ext-immich.yml",

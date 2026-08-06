@@ -241,3 +241,33 @@ func TestSummarizeDeploySuccessSurvivesMaintenanceFailure(t *testing.T) {
 		t.Fatal("later maintenance must not erase the compatible deploy checkpoint")
 	}
 }
+
+func TestSummarizeFailedTerminalAttemptsRemainRecoverable(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		record Record
+	}{
+		{name: "deploy finish", record: Record{Phase: "deploy", Event: "finish", Status: "fail"}},
+		{name: "abort", record: Record{Phase: "abort", Event: "abort", Status: "fail"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := Summarize([]Record{{Phase: "deploy", Event: "start"}, tt.record})
+			if s.Finished || s.Aborted {
+				t.Fatalf("failed terminal attempt closed recovery: %+v", s)
+			}
+			if !s.Failed {
+				t.Fatalf("failed attempt evidence was lost: %+v", s)
+			}
+		})
+	}
+}
+
+func TestSummarizeMaintenanceRecordsAreNotDeployTerminals(t *testing.T) {
+	s := Summarize([]Record{
+		{Phase: "accessory-apply", Event: "start"},
+		{Phase: "accessory-apply", Event: "finish", Status: "ok"},
+	})
+	if s.Started || s.Finished || s.DeploySucceeded {
+		t.Fatalf("maintenance journal was reduced as a deployment: %+v", s)
+	}
+}

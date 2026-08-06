@@ -67,6 +67,10 @@ func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolv
 	if err != nil {
 		var interpolation *compose.InterpolationError
 		if errors.As(err, &interpolation) {
+			if hidden := resolved.Spec.EncryptedDocumentEntries(); len(hidden) > 0 {
+				return nil, nil, fmt.Errorf("%w\n  the encrypted %s may supply it, and this command decrypts nothing — plan the deploy, which decrypts as it stages",
+					err, strings.Join(hidden, ", "))
+			}
 			return nil, nil, err
 		}
 		return nil, nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)

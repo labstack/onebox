@@ -450,3 +450,39 @@ func resolvedForErr(t *testing.T, path string) ([]byte, error) {
 	}
 	return rendered.Bytes, nil
 }
+
+// A project declaring an encrypted entry and referencing no Compose file needs
+// no interpolation, and must load.
+//
+// An earlier fix refused the whole load whenever a document-scope entry was
+// encrypted, on the reasoning that interpolation could not read it. That was
+// eager: nothing had asked for interpolation. It stopped a correct project from
+// loading, which is a worse failure than the one it was preventing.
+func TestAnEncryptedEntryDoesNotBlockAProjectThatNeedsNoInterpolation(t *testing.T) {
+	path := envModelProject(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@203.0.113.10}}
+runtime:
+  env_files: [{file: s.enc, provider: sops}]
+image: nginx
+domain: s.example.com
+port: 3000
+health: {http: /healthz, port: 3000}
+`, map[string]string{"s.enc": "A=1\n"})
+	// Through the function the callers use. `Load` does not reach it, so a test
+	// that only loads proves nothing about it — which is how the first version
+	// of this test passed while the behaviour it named was broken.
+	r := resolvedFor(t, path, "production")
+	values, err := r.Spec.InterpolationEnv()
+	if err != nil {
+		t.Fatalf("a project needing no interpolation must not be refused: %v", err)
+	}
+	if len(values) != 0 {
+		t.Errorf("an encrypted entry must contribute nothing here, got %v", values)
+	}
+	// And the fact travels, so a caller can name it if a variable does go
+	// unsupplied.
+	if hidden := r.Spec.EncryptedDocumentEntries(); len(hidden) != 1 || hidden[0] != "s.enc" {
+		t.Errorf("the unreadable entry must be reportable, got %v", hidden)
+	}
+}

@@ -1,6 +1,10 @@
 package app
 
-import "strings"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // Applying the constraints is explicit and typed, so the compiler knows when a
 // field moves and a reader can see exactly which rule a field is held to. The
@@ -18,7 +22,7 @@ func validateSpec(p *Spec) error {
 	}
 
 	for _, name := range sortedKeys(p.Environments) {
-		if err := validateEnvironment(p.Environments[name], "environments."+name); err != nil {
+		if err := validateEnvironment(p.Environments[name], "environments."+name, p.Dir); err != nil {
 			return err
 		}
 	}
@@ -26,7 +30,7 @@ func validateSpec(p *Spec) error {
 		if err := gIdent.check("workloads."+name, name); err != nil {
 			return err
 		}
-		if err := validateWorkload(p.Workloads[name], "workloads."+name); err != nil {
+		if err := validateWorkload(p.Workloads[name], "workloads."+name, p.Dir); err != nil {
 			return err
 		}
 	}
@@ -80,7 +84,7 @@ func validateTopLevel(p *Spec) error {
 		}
 	}
 	if p.Runtime != nil {
-		if err := validateEnvFiles(p.Runtime.EnvFiles, "runtime.env_files"); err != nil {
+		if err := validateEnvFiles(p.Runtime.EnvFiles, "runtime.env_files", p.Dir); err != nil {
 			return err
 		}
 		for i, c := range p.Runtime.Preflight {
@@ -109,7 +113,7 @@ func validateTopLevel(p *Spec) error {
 
 // validateEnvFiles holds every entry to the same rules wherever it is declared,
 // so a scope cannot quietly accept something another scope refuses.
-func validateEnvFiles(entries []EnvFile, path string) error {
+func validateEnvFiles(entries []EnvFile, path, dir string) error {
 	for i, entry := range entries {
 		at := indexed(path, i)
 		if entry.File == "" {
@@ -121,11 +125,19 @@ func validateEnvFiles(entries []EnvFile, path string) error {
 		if err := checkEnum(at+".provider", entry.Provider, eSecretProvider); err != nil {
 			return err
 		}
+		if dir != "" {
+			if _, err := os.Stat(filepath.Join(dir, entry.File)); err != nil {
+				return errf("env_file_missing", at, "",
+					"the environment file %q does not exist. It is referenced by the generated runtime, "+
+						"so the container runtime would refuse to start against it on the target",
+					entry.File)
+			}
+		}
 	}
 	return nil
 }
 
-func validateEnvironment(e Environment, path string) error {
+func validateEnvironment(e Environment, path, dir string) error {
 	if e.Server.Host == "" {
 		return errf("project_invalid", path+".server", "", "an environment must name a server")
 	}
@@ -137,7 +149,7 @@ func validateEnvironment(e Environment, path string) error {
 	if err := gAbsPath.checkOptional(path+".base_path", e.BasePath); err != nil {
 		return err
 	}
-	if err := validateEnvFiles(e.EnvFiles, path+".env_files"); err != nil {
+	if err := validateEnvFiles(e.EnvFiles, path+".env_files", dir); err != nil {
 		return err
 	}
 	if err := gDur.checkOptional(path+".policy.migration_backup_max_age", e.Policy.MigrationBackupMaxAge); err != nil {
@@ -149,7 +161,7 @@ func validateEnvironment(e Environment, path string) error {
 	return gCalVer.checkOptional(path+".policy.minimum_onebox_version", e.Policy.MinimumOneboxVersion)
 }
 
-func validateWorkload(w Workload, path string) error {
+func validateWorkload(w Workload, path, dir string) error {
 	if err := checkEnum(path+".role", w.Role, eRole); err != nil {
 		return err
 	}
@@ -244,7 +256,7 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 	}
-	if err := validateEnvFiles(w.EnvFiles, path+".env_files"); err != nil {
+	if err := validateEnvFiles(w.EnvFiles, path+".env_files", dir); err != nil {
 		return err
 	}
 	for i, v := range w.Volumes {

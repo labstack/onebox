@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // One test per scenario of the contract's environment model. The delta's
@@ -201,9 +203,13 @@ workloads:
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(rendered.Bytes)
-	if !strings.Contains(body, "own.env") || !strings.Contains(body, ".env") {
-		t.Fatalf("the referenced entry and the projection must both appear:\n%s", body)
+	// Assert the list, not substrings of it. The first version of this test
+	// checked `strings.Contains(body, ".env")`, which "own.env" satisfies — so
+	// deleting the entire projection left it green. A test for a projection has
+	// to look at what was projected, in order.
+	legacy := composeServiceEnvFiles(t, rendered.Bytes, "legacy")
+	if len(legacy) != 2 || legacy[0] != "own.env" || legacy[1] != ".env" {
+		t.Fatalf("env_file = %v, want the referenced entry first then the projection", legacy)
 	}
 
 	if _, err := r.Eject("compose.yaml", "R1", nil, false); err != nil {
@@ -310,4 +316,137 @@ workloads:
 	if !asError(err, &e) || e.Code != "health_port_unknown" {
 		t.Fatalf("want health_port_unknown, got %v", err)
 	}
+}
+
+// composeServiceEnvFiles reads one service's env_file list out of a generated
+// runtime, so a test can assert the list and its order rather than that some
+// substring appears somewhere in the document.
+func composeServiceEnvFiles(t *testing.T, runtime []byte, service string) []string {
+	t.Helper()
+	var doc struct {
+		Services map[string]struct {
+			EnvFile []string `yaml:"env_file"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(runtime, &doc); err != nil {
+		t.Fatalf("generated runtime does not parse: %v", err)
+	}
+	return doc.Services[service].EnvFile
+}
+
+// The projection is what a compose-sourced workload receives, and its order is
+// part of the contract: the author's own entries first, then what the overlay
+// adds. Both halves were unguarded — deleting the projection outright left the
+// suite green.
+func TestTheProjectionAppendsAndPreservesOrder(t *testing.T) {
+	path := envModelProject(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@203.0.113.10}}
+runtime:
+  env_files: [.env.one, .env.two]
+workloads:
+  legacy:
+    role: application
+    compose: legacy.yml#legacy
+    domain: s.example.com
+    port: 80
+`, map[string]string{
+		".env.one":   "A=1\n",
+		".env.two":   "B=2\n",
+		"legacy.yml": "services:\n  legacy:\n    image: nginx\n    env_file: [own.env]\n",
+		"own.env":    "C=3\n",
+	})
+	r := resolvedFor(t, path, "production")
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := composeServiceEnvFiles(t, rendered.Bytes, "legacy")
+	want := []string{"own.env", ".env.one", ".env.two"}
+	if len(got) != len(want) {
+		t.Fatalf("env_file = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("env_file = %v, want %v — declared order is the contract", got, want)
+		}
+	}
+}
+
+// A managed-service connection is applied after every declared entry, so it
+// cannot be shadowed by one. Emitting them in the other order passed every
+// test.
+func TestConnectionFilesComeAfterDeclaredEntries(t *testing.T) {
+	path := envModelProject(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@203.0.113.10}}
+runtime:
+  env_files: [.env]
+workloads:
+  web:
+    role: application
+    image: nginx
+    domain: s.example.com
+    port: 3000
+    needs: [postgres]
+services:
+  postgres: 17
+`, map[string]string{".env": "A=1\n"})
+	r := resolvedFor(t, path, "production")
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := composeServiceEnvFiles(t, rendered.Bytes, "web")
+	if len(got) < 2 || got[0] != ".env" {
+		t.Fatalf("env_file = %v, want the declared entry first", got)
+	}
+	if !strings.Contains(got[len(got)-1], "postgres") {
+		t.Fatalf("env_file = %v, want the connection file last so nothing authored shadows it", got)
+	}
+}
+
+// A referenced service claiming a connection variable is refused. The inline
+// half was tested; this half is a scenario stated twice in the contract and had
+// no test — making the check unconditionally return nil passed everything.
+func TestAReferencedServiceCannotClaimAConnectionVariable(t *testing.T) {
+	_, err := resolvedForErr(t, envModelProject(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@203.0.113.10}}
+workloads:
+  legacy:
+    role: application
+    compose: legacy.yml#legacy
+    domain: s.example.com
+    port: 80
+    needs: [postgres]
+services:
+  postgres: 17
+`, map[string]string{
+		"legacy.yml": "services:\n  legacy:\n    image: nginx\n    environment:\n      POSTGRES_PASSWORD: mine\n",
+	}))
+	if err == nil {
+		t.Fatal("a referenced service claiming a connection variable must be refused")
+	}
+	if !strings.Contains(err.Error(), "POSTGRES_PASSWORD") {
+		t.Errorf("the refusal must name the variable: %v", err)
+	}
+}
+
+// resolvedForErr renders and returns the error rather than failing the test.
+func resolvedForErr(t *testing.T, path string) ([]byte, error) {
+	t.Helper()
+	p, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	r, err := p.Resolve("production")
+	if err != nil {
+		return nil, err
+	}
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		return nil, err
+	}
+	return rendered.Bytes, nil
 }

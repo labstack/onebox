@@ -61,7 +61,7 @@ refused rather than quietly downgraded.
 | `runtime` | Environment files and preflight assertions. |
 | `hooks` | Commands at lifecycle seams. |
 | `verification` | What must be true for a release to activate. |
-| `registries`, `secrets`, `notifications`, `observability` | Named maps. |
+| `registries`, `notifications`, `observability` | Named maps. |
 
 Any mapping also accepts `x-` keys. They are carried nowhere and never change
 the generated runtime.
@@ -82,6 +82,7 @@ health: /healthz                 # health: {http: /healthz}
 server: root@203.0.113.10        # server: {user: root, host: 203.0.113.10}
 needs: [postgres]                # needs: [{name: postgres}]
 services: {postgres: 17}         # services: {postgres: {version: 17}}
+env_files: [.env]                # env_files: [{file: .env}]
 hooks: {post_deploy: "echo hi"}  # hooks: {post_deploy: {run: "echo hi"}}
 ```
 
@@ -296,6 +297,115 @@ Permitted: `replicas`, `resources`, `env`, `strategy`, `routes` on a workload;
 `ob preview` prints all of it. `ob eject` writes it into your repository and
 hands it over permanently — the overlay is stripped so the file is ordinary
 Compose, and the workloads are repointed at it with your comments intact.
+
+## Environment values
+
+One field carries them, at three scopes. An entry is a path, an object naming
+the same path, or an object that also names a provider:
+
+```yaml
+runtime:
+  env_files:
+    - .env                                      # plaintext
+    - {file: .env.production}                   # the same thing, object form
+    - {file: secrets/prod.env, provider: sops}  # encrypted at rest
+```
+
+Whether an entry is encrypted is a property of the entry, not of the workload
+reading it. Providers are `sops` and `age`.
+
+### Where a list may be declared
+
+| Scope | Where |
+|---|---|
+| Project | `runtime.env_files` |
+| Environment | `environments.<name>.env_files` |
+| Workload | `workloads.<name>.env_files` |
+| One workload, one environment | `environments.<name>.overrides.workloads.<name>.env_files` |
+
+A workload resolves **one** list, from the most specific declaration present:
+its environment's override, else its own, else the environment's, else the
+project's. Lists replace rather than extend, so a workload wanting the
+project's files plus its own restates both.
+
+Several entries all apply, in the order written, a later one overriding an
+earlier key by key. Nothing selects between them and no rule matches an entry
+against an environment's name. Environments differ by declaring different
+lists:
+
+```yaml
+environments:
+  production:
+    server: root@203.0.113.10
+    env_files: [.env, {file: secrets/production.env, provider: sops}]
+  staging:
+    server: root@203.0.113.20
+    env_files: [.env, {file: secrets/staging.env, provider: sops}]
+```
+
+### Who receives the default
+
+The project's or environment's list reaches the workloads that are the
+application's own — `application`, `worker`, `job` — and not a `daemon`.
+Application configuration should not land in infrastructure by default: a
+database does not want your Stripe key, it wants `POSTGRES_PASSWORD`, which
+belongs in its own `env`.
+
+A daemon that needs a file names one and receives exactly it. The common
+upstream layout shares one file across every service, so converting authentik
+or Immich means naming it on the database too. That costs a line; the opposite
+default costs a credential in a place nobody looks.
+
+`env_files: []` means the workload receives nothing, which is different from
+declaring no list. `ob canonical` shows which you wrote.
+
+A workload's source never changes what it receives: an application adopted
+through `compose:` resolves what an application declared inline resolves.
+
+### What wins
+
+Lowest precedence first:
+
+1. the referenced Compose service's own `env_file`, for a `compose:` workload
+2. the resolved `env_files` entries, in order
+3. managed-service connection files
+4. the service's `environment` — your inline `env`, or the referenced service's
+
+Level 4 outranks the rest because the container runtime places `environment`
+above `env_file`, and a generated runtime cannot contradict the runtime that
+reads it. Shadowing an entry that way is legitimate — it is your most specific
+statement about that container.
+
+Shadowing a **connection** variable is refused, naming the variable and the
+service. A credential generated on the target exists nowhere else, so nothing
+authored may claim its name; ordering cannot protect it, so validation does.
+
+Connections own the credential, not the endpoint. Map only the parts you want
+and author the host yourself to reach a pooler or a read replica. An
+application reading a single connection URL cannot do this, because the URL
+carries the credential and the credential never travels.
+
+### Encrypted entries
+
+The plaintext may be an environment file or a flat YAML map — both render to
+the same thing, and a nested map is refused:
+
+```
+API_TOKEN=value          # or:    API_TOKEN: value
+```
+
+Each encrypted entry is decrypted into its own file inside the release when the
+release is staged, and stays there: a scheduled job fires from the host's timer
+with no Onebox process alive, including after a reboot, and must resolve the
+values the deploy resolved.
+
+No value from any entry appears in the project file, the generated runtime, a
+plan, or any structured output — plaintext included. Plaintext is not less
+sensitive than encrypted, only less protected.
+
+Onebox does not model the `*_FILE` convention some images use to read a secret
+from a path, and values a local build hook reads are not container environment.
+
 
 ## Failures
 

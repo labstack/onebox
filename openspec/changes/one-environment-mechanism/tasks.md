@@ -52,7 +52,7 @@ absent, collapsing the two states the contract requires be distinguishable.
       neither carries the other's values.
 - [x] 3.3 A compose-sourced application resolves what an image-sourced one does.
 - [x] 3.4 Eject then generate: no duplicated entries.
-- [ ] 3.5 Redaction covers plaintext entries, not only encrypted ones.
+- [x] 3.5 Redaction covers plaintext entries, not only encrypted ones.
 - [x] 3.6 Re-freeze the corpus and enumerate every moved verdict in the change
       record, which the growth gate now requires.
 
@@ -78,8 +78,8 @@ map.
 
 ## 5. Land
 
-- [ ] 5.1 Rewrite the environment section of `docs/schema-v1.md`, including the
+- [x] 5.1 Rewrite the environment section of `docs/schema-v1.md`, including the
       connection-URL limitation on endpoint overrides and the `*_FILE` convention
       being out of model.
-- [ ] 5.2 Full suite, race, Docker-gated end-to-end, `openspec validate --all
+- [x] 5.2 Full suite, race, Docker-gated end-to-end, `openspec validate --all
       --strict`, then archive.

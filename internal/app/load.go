@@ -390,6 +390,15 @@ func crossFieldRules(p *Spec) error {
 		// the declaration rather than generating something that starts.
 		// Asked for explicitly, so say why it cannot be honoured rather than
 		// quietly substituting recreate: rolling has nothing to gate on.
+		for _, variable := range sortedKeys(w.Env) {
+			if service, claimed := p.connectionVars(name, w)[variable]; claimed {
+				return errf("connection_variable_claimed", path+".env."+variable, "",
+					"%q is supplied to this workload by the managed service %q. The container runtime ranks "+
+						"an inline environment above an environment file, so this value would replace the "+
+						"generated credential, which exists nowhere else",
+					variable, service)
+			}
+		}
 		if w.Strategy == "rolling" && w.Health == nil {
 			return errf("strategy_ungated", path+".strategy", "",
 				"workload %q asks for a rolling release but declares no health check, so nothing says when the "+

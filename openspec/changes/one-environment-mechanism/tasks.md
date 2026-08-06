@@ -20,14 +20,14 @@
 - [x] 2.1 Entry decoding: scalar, object, encrypted object; closed provider set.
 - [x] 2.2 One resolver: override, workload, environment, project; empty distinct
       from absent; origin recorded for the canonical form.
-- [ ] 2.3 Role default applied on the compose path as well as the image path.
+- [x] 2.3 Role default applied on the compose path as well as the image path.
       Blocked on 2.7: the overlay is where a compose-sourced workload's
       `env_file` would be written, so this lands with the projection.
-- [ ] 2.4 Staging decrypts each encrypted entry to its own file in the release.
-- [ ] 2.5 Refuse an inline `env` and a referenced `environment` key that claims a
+- [x] 2.4 Staging decrypts each encrypted entry to its own file in the release.
+- [x] 2.5 Refuse an inline `env` and a referenced `environment` key that claims a
       connection variable.
 - [x] 2.6 Refuse `secrets` with the directed message.
-- [ ] 2.7 Overlay projection and the matching ejection strip.
+- [x] 2.7 Overlay projection and the matching ejection strip.
 
 ### Landed so far
 
@@ -46,14 +46,14 @@ absent, collapsing the two states the contract requires be distinguishable.
 
 ## 3. Prove
 
-- [ ] 3.1 A test per scenario. The delta's scenarios are the specification;
+- [x] 3.1 A test per scenario. The delta's scenarios are the specification;
       one without a test is a behaviour nobody checked.
-- [ ] 3.2 Two environments with different entries produce different runtimes and
+- [x] 3.2 Two environments with different entries produce different runtimes and
       neither carries the other's values.
-- [ ] 3.3 A compose-sourced application resolves what an image-sourced one does.
-- [ ] 3.4 Eject then generate: no duplicated entries.
+- [x] 3.3 A compose-sourced application resolves what an image-sourced one does.
+- [x] 3.4 Eject then generate: no duplicated entries.
 - [ ] 3.5 Redaction covers plaintext entries, not only encrypted ones.
-- [ ] 3.6 Re-freeze the corpus and enumerate every moved verdict in the change
+- [x] 3.6 Re-freeze the corpus and enumerate every moved verdict in the change
       record, which the growth gate now requires.
 
 ## 4. Verify on a host

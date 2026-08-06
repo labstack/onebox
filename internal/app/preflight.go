@@ -314,9 +314,6 @@ func (p *Spec) InterpolationEnv() (map[string]string, error) {
 	// the sibling helper below and was missing here, so a project mixing an
 	// encrypted entry with a Compose reference interpolated from garbage.
 	//
-	// Commands that reach this hold no key material by contract: `ob validate`
-	// and `ob canonical` contact nothing. A variable only an encrypted entry
-	// supplies therefore resolves as unsupplied, and the refusal names it.
 	// Plaintext entries only. Ciphertext handed to a dotenv parser puts
 	// `ENC[AES256_GCM,…]` into the interpolation environment, and skipping an
 	// entry silently resolves its variables empty. Neither is acceptable, so

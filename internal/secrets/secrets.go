@@ -49,48 +49,27 @@ func RenderContext(ctx context.Context, configDir, sopsFile string) ([]byte, err
 // renderDecrypted turns decrypted bytes into the environment file the
 // container runtime reads, accepting either form the plaintext may take.
 func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
-	// YAML first, so every rule that applied to a YAML map still applies —
-	// nested values and invalid key names are rejected exactly as before.
-	var m map[string]any
-	if err := yaml.Unmarshal(out, &m); err == nil && len(m) > 0 {
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var b strings.Builder
+	// An environment file is passed through unchanged. Parsing and re-emitting
+	// it corrupts values in ways nothing downstream can detect: quotes are
+	// stripped here and the container runtime then reads `KEY="a #b"` as `a`,
+	// and padding inside quotes is lost the same way. The bytes were already
+	// the format the runtime reads, so the safe transformation is none.
+	if keys, ok := environmentFileKeys(out); ok {
 		for _, k := range keys {
 			if !keyRe.MatchString(k) {
 				return nil, fmt.Errorf("%s: key %q is not a valid env var name", sopsFile, k)
 			}
-			switch v := m[k].(type) {
-			case string, int, int64, float64, bool:
-				fmt.Fprintf(&b, "%s=%v\n", k, v)
-			default:
-				return nil, fmt.Errorf("%s: key %q is nested — secrets must be a flat map", sopsFile, k)
-			}
 		}
-		return []byte(b.String()), nil
+		return out, nil
 	}
 
-	// Otherwise the plaintext is already an environment file, which is the
-	// shape the field's name invites: an author names a `.env`, writes
-	// `KEY=value`, and encrypts it. SOPS decrypts by the file's own format, so
-	// that comes back as dotenv, and demanding a YAML map rejected it with a
-	// message naming nothing an author could act on.
-	// A `{}` payload decodes as a valid empty map, which used to render zero
-	// bytes and report success — a rotation script that emptied the file would
-	// have started the application with every credential unset. Empty is a
-	// failure, not an environment.
-	values, err := parseLiteralEnv(out)
-	if err != nil {
-		return nil, fmt.Errorf("%s: decrypted content is neither an environment file nor a flat YAML map: %w", sopsFile, err)
+	// Otherwise a flat YAML map, rendered into that format.
+	var m map[string]any
+	if err := yaml.Unmarshal(out, &m); err != nil || len(m) == 0 {
+		return nil, fmt.Errorf("%s: decrypted content is neither an environment file nor a flat YAML map", sopsFile)
 	}
-	if len(values) == 0 {
-		return nil, fmt.Errorf("%s: decrypted content declares no values", sopsFile)
-	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
+	keys := make([]string, 0, len(m))
+	for k := range m {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -99,45 +78,37 @@ func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
 		if !keyRe.MatchString(k) {
 			return nil, fmt.Errorf("%s: key %q is not a valid env var name", sopsFile, k)
 		}
-		fmt.Fprintf(&b, "%s=%s\n", k, values[k])
+		switch v := m[k].(type) {
+		case string, int, int64, float64, bool:
+			fmt.Fprintf(&b, "%s=%v\n", k, v)
+		default:
+			return nil, fmt.Errorf("%s: key %q is nested — secrets must be a flat map", sopsFile, k)
+		}
 	}
 	return []byte(b.String()), nil
 }
 
-// parseLiteralEnv reads decrypted plaintext as an environment file without
-// expanding anything.
+// environmentFileKeys reports the keys of a dotenv payload, and whether the
+// payload is one at all.
 //
-// A general dotenv parser substitutes `$VAR` and `${VAR}` while reading. That
-// is right for a file an author wrote and wrong for a decrypted secret, which
-// is bytes rather than a template: a bcrypt hash or a generated password
-// containing `$` is silently truncated at the first one — `$2y$10$abc` becomes
-// `$2y$10` — and the parser logs the fragment it could not resolve as a
-// warning, putting part of the credential on stderr in a package whose rule is
-// that content never travels, only hashes.
-//
-// So this reads literally. Comments, blank lines, an `export` prefix and
-// surrounding quotes are handled because a file someone encrypted may carry
-// them; nothing else is interpreted.
-func parseLiteralEnv(in []byte) (map[string]string, error) {
-	out := map[string]string{}
+// This decides which shape the plaintext is, and it has to decide before YAML
+// gets a chance: `CONFIG={"a": 1}` and `GREETING=hello: world` are ordinary
+// environment lines that YAML also accepts as a one-key mapping, and letting
+// YAML win made a service-account blob — one of the most common things anyone
+// encrypts — fail naming a key the author never wrote.
+func environmentFileKeys(in []byte) ([]string, bool) {
+	var keys []string
 	for _, line := range strings.Split(string(in), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		line = strings.TrimPrefix(line, "export ")
-		key, value, ok := strings.Cut(line, "=")
+		key, _, ok := strings.Cut(line, "=")
 		if !ok {
-			return nil, fmt.Errorf("not an environment file")
+			return nil, false
 		}
-		key = strings.TrimSpace(key)
-		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') ||
-				(value[0] == '\'' && value[len(value)-1] == '\'') {
-				value = value[1 : len(value)-1]
-			}
-		}
-		out[key] = value
+		keys = append(keys, strings.TrimSpace(key))
 	}
-	return out, nil
+	return keys, len(keys) > 0
 }

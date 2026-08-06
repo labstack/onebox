@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -37,26 +37,27 @@ func gate(t *testing.T) {
 
 // buildDeploy loads config+compose fresh (env-sensitive) and returns an
 // engine plus a staged release ready for Deploy.
-func buildDeploy(t *testing.T, dir, cfgFile, version string) (*engine.Engine, string, string) {
+func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engine, string, string) {
 	t.Helper()
 	t.Setenv("APP_VERSION", version)
 	ctx := context.Background()
-	cfg, err := config.Load(filepath.Join(dir, cfgFile))
+	spec, err := app.Load(filepath.Join(dir, cfgFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	p, err := compose.Load(ctx, filepath.Join(dir, "docker-compose.yaml"), cfg.App)
+	// One path authority, and it is the project's own. Every call in a test
+	// shares a base so the second deploy sees the first one's state.
+	spec.BasePath = base
+	resolved, err := spec.Resolve("production")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := compose.Classify(p, cfg); err != nil {
 		t.Fatal(err)
 	}
 	id := release.NewID(time.Now(), "") + "-" + version
-	rendered, err := compose.Render(p, cfg, id)
+	rendered, err := resolved.Render("production", id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.Name, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +65,10 @@ func buildDeploy(t *testing.T, dir, cfgFile, version string) (*engine.Engine, st
 	if _, err := compose.StagePayload(p, staging); err != nil {
 		t.Fatal(err)
 	}
-	if err := release.Stage(staging, rendered, []byte("snapshot")); err != nil {
+	if err := release.Stage(staging, rendered.Bytes, []byte("snapshot")); err != nil {
 		t.Fatal(err)
 	}
-	e := engine.New(cfg, p, transport.NewLocal(), engine.Options{Out: os.Stderr})
+	e := engine.New(resolved, p, transport.NewLocal(), engine.Options{Out: os.Stderr, Environment: "production"})
 	return e, id, staging
 }
 
@@ -95,7 +96,7 @@ func webContainers(project string) []string {
 func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	gate(t)
 	dir, _ := filepath.Abs("testdata/app")
-	t.Setenv("OB_BASE_DIR", t.TempDir())
+	base := t.TempDir()
 	composeDown("obe2e", dir)
 	t.Cleanup(func() { composeDown("obe2e", dir) })
 
@@ -105,7 +106,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 		t.Fatalf("traefik: %v\n%s", err, out)
 	}
 	waitHealthy(t, "obe2e", "traefik", 60*time.Second)
-	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1")
+	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1", base)
 	if err := e.Deploy(context.Background(), id, staging); err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
@@ -138,7 +139,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	}()
 
 	// v2 with a runner that "dies" as soon as the newcomer exists
-	e2, id2, staging2 := buildDeploy(t, dir, "ob.yml", "v2")
+	e2, id2, staging2 := buildDeploy(t, dir, "ob.yml", "v2", base)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		for {
@@ -156,7 +157,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	t.Logf("runner killed as intended: %v", err)
 
 	// resume with a fresh runner
-	e3, _, _ := buildDeploy(t, dir, "ob.yml", "v2")
+	e3, _, _ := buildDeploy(t, dir, "ob.yml", "v2", base)
 	if err := e3.Resume(context.Background()); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
@@ -178,17 +179,17 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 	gate(t)
 	dir, _ := filepath.Abs("testdata/worker")
-	t.Setenv("OB_BASE_DIR", t.TempDir())
+	base := t.TempDir()
 	composeDown("obworker", dir)
 	t.Cleanup(func() { composeDown("obworker", dir) })
 
-	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1")
+	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1", base)
 	if err := e.Deploy(context.Background(), id, staging); err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
 	waitBody(t, "http://localhost:18081/", "v1\n", 30*time.Second)
 
-	e2, id2, staging2 := buildDeploy(t, dir, "ob-broken.yml", "v2")
+	e2, id2, staging2 := buildDeploy(t, dir, "ob-broken.yml", "v2", base)
 	err := e2.Deploy(context.Background(), id2, staging2)
 	if err == nil || !strings.Contains(err.Error(), "worker") {
 		t.Fatalf("broken worker must halt the release: %v", err)
@@ -200,7 +201,7 @@ func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 
 	// and the journal knows
 	var audit bytes.Buffer
-	e3, _, _ := buildDeploy(t, dir, "ob.yml", "v1")
+	e3, _, _ := buildDeploy(t, dir, "ob.yml", "v1", base)
 	e3.Opts.Out = &audit
 	if err := e3.Audit(context.Background(), 5); err != nil {
 		t.Fatal(err)

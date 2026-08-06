@@ -13,6 +13,8 @@ import (
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/spf13/cobra"
 
+	"github.com/labstack/onebox/internal/app"
+
 	"github.com/labstack/onebox/internal/compose"
 )
 
@@ -34,6 +36,7 @@ func addInitCommand(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "init",
 		Short: "scaffold ob.yml from the compose file + rollability doctor",
+		Long:  "Scaffold `ob.yml` from the Compose file already in this repository.\n\nA starting point, not permission to deploy: read what it inferred about\nroles, persistence, health and job data effects before planning. Writes only\nin this repository and contacts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runInit(cmd.Context(), cmd, g)
 		},
@@ -55,8 +58,8 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	if composePath == "" {
 		return fmt.Errorf("no compose file found in %s", dir)
 	}
-	app := sanitizeApp(filepath.Base(mustAbs(dir)))
-	p, err := compose.Load(ctx, filepath.Join(dir, composePath), app)
+	application := sanitizeApp(filepath.Base(mustAbs(dir)))
+	p, err := compose.Load(ctx, filepath.Join(dir, composePath), application)
 	if err != nil {
 		return err
 	}
@@ -91,27 +94,44 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	sort.Strings(componentNames)
 
 	var b strings.Builder
+	// The schema reference first, so an editor offers completion and inline
+	// errors from the moment the file exists rather than after someone finds
+	// out it could.
+	fmt.Fprintf(&b, "# yaml-language-server: $schema=%s\n", app.SchemaID)
 	b.WriteString("api_version: onebox.run/v1\n")
-	fmt.Fprintf(&b, "app: %s\ncompose: %s\n", app, composePath)
-	b.WriteString("environments:\n  production:\n    target: deploy@CHANGE-ME\n")
-	b.WriteString("components:\n")
+	fmt.Fprintf(&b, "app: %s\n", application)
+	b.WriteString("environments:\n  production:\n    server: deploy@CHANGE-ME\n")
+	b.WriteString("workloads:\n")
 	for _, name := range componentNames {
 		typ := types[name]
-		fmt.Fprintf(&b, "  %s:\n    type: %s\n    service: %s\n", name, typ, name)
-		switch typ {
+		role := map[string]string{
+			"application": "application", "worker": "worker", "job": "job",
+		}[typ]
+		if role == "" {
+			// Everything else in a Compose file is a long-running process
+			// Onebox does not route: a database, a cache, a sidecar. The
+			// declaration says what it is; nothing is guessed from the image.
+			role = "daemon"
+		}
+		fmt.Fprintf(&b, "  %s:\n    role: %s\n", name, role)
+		// The workload keeps referencing the Compose service it came from, so
+		// adoption changes nothing about how it runs on the first deploy. Move
+		// fields into the declaration when you want Onebox to own them.
+		fmt.Fprintf(&b, "    compose: %q\n", composePath+"#"+name)
+		switch role {
 		case "application", "worker":
 			strategy := "recreate"
 			if rolling[name] {
 				strategy = "rolling"
 			}
-			fmt.Fprintf(&b, "    deployment: { strategy: %s }\n", strategy)
+			fmt.Fprintf(&b, "    strategy: %s\n", strategy)
 			if strategy == "rolling" {
 				path, port, ok := inferHTTPReadiness(p.Services[name])
 				switch {
 				case ok:
-					fmt.Fprintf(&b, "    readiness: { http: %s, port: %d }\n", path, port)
+					fmt.Fprintf(&b, "    health: { http: %s, port: %d }\n", path, port)
 				case p.Services[name].HealthCheck == nil:
-					b.WriteString("    readiness: { http: /healthz, port: CHANGE-ME }\n")
+					b.WriteString("    health: { http: /healthz, port: CHANGE-ME }\n")
 				}
 			}
 		case "job":
@@ -120,13 +140,16 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 				effect = "migration"
 			}
 			fmt.Fprintf(&b, "    data_effect: %s\n", effect)
-		case "postgres", "mysql":
-			b.WriteString("    persistence: { mode: durable }\n")
-		case "redis":
-			// Redis is commonly a cache. A declared volume is a strong signal
-			// that this instance instead carries durable application data.
+		case "daemon":
+			// Durability is scaffolded from what the image is, not from
+			// whether a volume happens to be declared. A Postgres written
+			// down as ephemeral is a data-loss default, and the operator
+			// reading the scaffold is the one who would have to notice.
 			mode := "ephemeral"
-			if len(p.Services[name].Volumes) > 0 {
+			switch {
+			case typ == "postgres" || typ == "mysql":
+				mode = "durable"
+			case len(p.Services[name].Volumes) > 0:
 				mode = "durable"
 			}
 			fmt.Fprintf(&b, "    persistence: { mode: %s }\n", mode)

@@ -286,19 +286,8 @@ func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingEvidenceBe
 		"      allow_agent_proposals: true\n      require_migration_backup: true\n      migration_backup_max_age: 24h\n      require_migration_restore_test: true\n      migration_backup_key_material: [application_encryption_key]\n", 1)
 	configText = strings.Replace(configText,
 		"  database:\n",
-		"  migrate:\n    type: job\n    service: migrate\n    data_effect: migration\n  database:\n", 1)
+		"  migrate:\n    role: job\n    image: ghcr.io/example/app:migrate\n    data_effect: migration\n  database:\n", 1)
 	if err := os.WriteFile(configPath, []byte(configText), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	composePath := filepath.Join(filepath.Dir(configPath), "docker-compose.yaml")
-	composeBytes, err := os.ReadFile(composePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	composeText := strings.Replace(string(composeBytes),
-		"  postgres:\n",
-		"  migrate:\n    image: ghcr.io/example/app:migrate\n  postgres:\n", 1)
-	if err := os.WriteFile(composePath, []byte(composeText), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

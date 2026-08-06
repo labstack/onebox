@@ -32,7 +32,7 @@ type proxyRaw struct {
 // in the same wave. Each thunk writes a distinct proxyRaw field, so they share
 // no state. Health comes from docker ps .Status, same as the app side.
 func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
-	hp := proxy.HostPaths()
+	hp := proxy.HostPaths(e.names())
 	return []func() error{
 		func() error {
 			id, health, err := e.proxyContainer(ctx)
@@ -68,8 +68,10 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return statusReadResult("proxy certificate store", res, err)
 		},
 		func() error {
-			localCfg := e.Cfg.Proxy.Config
-			if !filepath.IsAbs(localCfg) {
+			// Empty stays empty: joining it with the project directory would
+			// point at the repository root and ask it to be Traefik's config.
+			localCfg := e.Spec.Proxy.Config
+			if localCfg != "" && !filepath.IsAbs(localCfg) {
 				localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 			}
 			staging, err := os.MkdirTemp("", "ob-proxy-status")
@@ -77,7 +79,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				return err
 			}
 			defer os.RemoveAll(staging)
-			px.localHash, err = proxy.Stage(localCfg, staging, e.Cfg.Proxy.Image, e.Cfg.Proxy.Network)
+			px.localHash, err = proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network)
 			return err
 		},
 	}

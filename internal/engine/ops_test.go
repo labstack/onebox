@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -28,20 +28,24 @@ func opsFake(remoteSecretsHash string) *transport.Fake {
 func TestSecretsPushBouncesOnChange(t *testing.T) {
 	f := opsFake("deadbeef") // remote hash differs from anything
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.SecretsPush(context.Background(), []byte("KEY=new\n")); err != nil {
+	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", []byte("KEY=new\n")); err != nil {
 		t.Fatalf("push: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, `"phase":"secrets-push"`) {
 		t.Fatalf("not journaled:\n%s", seq)
 	}
-	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") || !strings.Contains(seq, "--scale server=2") {
+	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") || !strings.Contains(seq, "--scale web=2") {
 		t.Fatalf("roles not bounced:\n%s", seq)
 	}
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/.secrets-") {
 		t.Fatalf("secrets not uploaded to an epoch-private staging dir: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "cp '/var/lib/ob/sample/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/sample/releases/R7/.ob-secrets.env'") {
+	// The installed name is the one the generated runtime references for this
+	// entry, not a constant. Pushing to a constant while generation referenced
+	// a derived name wrote a file nothing read: `secrets push` reported success
+	// and the container kept the values staged when the release was made.
+	if !strings.Contains(seq, "cp '/var/lib/ob/sample/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/sample/releases/R7/.ob-decrypted-s.env.env'") {
 		t.Fatalf("secrets were not installed behind the app fence:\n%s", seq)
 	}
 	if strings.Contains(seq, "KEY=new") {
@@ -60,7 +64,7 @@ func TestSecretsPushNoopOnMatch(t *testing.T) {
 	// prime fake with the real hash of env
 	f2 := opsFake(HashBytesHex(env))
 	e = New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.SecretsPush(context.Background(), env); err != nil {
+	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", env); err != nil {
 		t.Fatal(err)
 	}
 	if len(f2.Uploads) != 0 {
@@ -84,6 +88,32 @@ func TestDestroySequence(t *testing.T) {
 	if strings.Contains(seq, "down --remove-orphans -v") {
 		t.Fatal("volumes must be kept without --volumes")
 	}
+	if !strings.Contains(seq, "! -name services") {
+		t.Fatalf("state dir not removed:\n%s", seq)
+	}
+	// Volumes are kept, so the credentials that open them are kept too. The
+	// alternative is data nobody can ever read again.
+	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
+		t.Fatalf("kept volumes lost their credentials:\n%s", seq)
+	}
+	if !strings.Contains(seq, "systemctl disable --now ob-sample-") &&
+		strings.Contains(seq, "list-unit-files") {
+		// no timers installed in this fixture; the sweep still has to run
+		if !strings.Contains(seq, "list-unit-files --no-legend --type=timer") {
+			t.Fatalf("schedules not swept:\n%s", seq)
+		}
+	}
+}
+
+// Destroying with --volumes removes the data, so keeping the credential that
+// opens it would serve nobody.
+func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), true, false); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
 		t.Fatalf("state dir not removed:\n%s", seq)
 	}
@@ -93,23 +123,21 @@ func TestLogsAndExecShapes(t *testing.T) {
 	f := opsFake("x")
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Components = map[string]config.Component{
-		"database": {Type: "postgres", Service: "postgres"},
-	}
+	cfg.Workloads["postgres"] = app.Workload{Role: app.RoleDaemon, Image: &app.Image{Reference: "postgres:17"}}
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Logs(context.Background(), "web", true, 50, &out); err != nil {
 		t.Fatal(err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "logs --tail 50 --follow server") {
+	if !strings.Contains(seq, "logs --tail 50 --follow web") {
 		t.Fatalf("logs shape wrong:\n%s", seq)
 	}
-	if err := e.Logs(context.Background(), "database", false, 20, &out); err != nil {
+	if err := e.Logs(context.Background(), "postgres", false, 20, &out); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "logs --tail 20 postgres") {
-		t.Fatalf("component logs shape wrong:\n%s", seq)
+		t.Fatalf("workload logs shape wrong:\n%s", seq)
 	}
 	if err := e.ExecIn(context.Background(), "web", "alembic current", &out); err != nil {
 		t.Fatal(err)
@@ -118,12 +146,12 @@ func TestLogsAndExecShapes(t *testing.T) {
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
 	}
-	if err := e.ExecIn(context.Background(), "database", "psql --version", &out); err != nil {
+	if err := e.ExecIn(context.Background(), "postgres", "psql --version", &out); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker exec PG1 sh -c 'psql --version'") {
-		t.Fatalf("component exec shape wrong:\n%s", seq)
+		t.Fatalf("workload exec shape wrong:\n%s", seq)
 	}
 	if svc, err := e.resolveService("postgres"); err != nil || svc != "postgres" {
 		t.Fatalf("raw compose service resolution = %q, %v", svc, err)
@@ -133,9 +161,9 @@ func TestLogsAndExecShapes(t *testing.T) {
 	}
 }
 
-func proxyManagedCfg() *config.Config {
+func proxyManagedCfg() *app.Resolved {
 	cfg := testConfig()
-	cfg.Proxy = config.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
 	return cfg
 }
 

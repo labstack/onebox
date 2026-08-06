@@ -23,10 +23,10 @@ func sanitizeStatus(status engine.StatusSnapshot) engine.StatusSnapshot {
 		status.Roles[i].Containers = sanitizeContainers(status.Roles[i].Containers)
 		status.Roles[i].Issues = statusIssueCodes("role", status.Roles[i].Issues)
 	}
-	status.Accessories = append([]engine.StatusAccessory(nil), status.Accessories...)
-	for i := range status.Accessories {
-		status.Accessories[i].Containers = sanitizeContainers(status.Accessories[i].Containers)
-		status.Accessories[i].Issues = statusIssueCodes("accessory", status.Accessories[i].Issues)
+	status.Services = append([]engine.StatusService(nil), status.Services...)
+	for i := range status.Services {
+		status.Services[i].Containers = sanitizeContainers(status.Services[i].Containers)
+		status.Services[i].Issues = statusIssueCodes("service", status.Services[i].Issues)
 	}
 	if status.Incomplete != nil {
 		incomplete := *status.Incomplete
@@ -188,9 +188,9 @@ func proposalPreconditions(status engine.StatusSnapshot, refreshedRelease string
 			}
 		}
 	}
-	for _, accessory := range status.Accessories {
-		for _, issue := range accessory.Issues {
-			preconditions.Blockers = append(preconditions.Blockers, fmt.Sprintf("accessory %s: %s", accessory.Name, issue))
+	for _, service := range status.Services {
+		for _, issue := range service.Issues {
+			preconditions.Blockers = append(preconditions.Blockers, fmt.Sprintf("service %s: %s", service.Name, issue))
 		}
 	}
 	if status.Proxy != nil {

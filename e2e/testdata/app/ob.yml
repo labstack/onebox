@@ -1,20 +1,22 @@
 api_version: onebox.run/v1
 app: obe2e
-compose: docker-compose.yaml
 environments:
-  production: { target: local } # e2e uses LocalTransport; target value unused
-components:
+  production: { server: local } # e2e uses the local transport; the value is unused
+workloads:
   web:
-    type: application
-    service: web
-    deployment: { strategy: rolling }
-    readiness: { http: /, port: 8080, interval: 1s, start_period: 1s, within: 60s }
-  traefik:
-    type: service
-    service: traefik
+    role: application
+    # The workload references the Compose file so the e2e fixture keeps its
+    # Traefik labels and its busybox command exactly as written.
+    compose: "docker-compose.yaml#web"
+    strategy: rolling
+    health: { http: /, port: 8080, interval: 1s, start_period: 1s, within: 60s }
 deployment:
   order: [web]
+proxy:
+  # Traefik is started by the test itself, from the same Compose file, so
+  # Onebox must not try to manage one.
+  managed: false
 verification:
   # exec (not http): on macOS the container bridge network is unreachable
   # from the host, so probe from inside the container.
-  - { exec: "wget -qO- http://localhost:8080/", component: web }
+  - { exec: "wget -qO- http://localhost:8080/", workload: web }

@@ -1,0 +1,32 @@
+# Rocket.Chat on managed MongoDB.
+#
+# It does not run, and that is what this fixture records. The connection is
+# correct: the generated URL authenticates against a live server, which is the
+# authSource fix proven. What fails is the application. Rocket.Chat needs change
+# streams, change streams need a replica set, and the managed driver runs a
+# standalone server, so it starts, connects, and then fails in its own logs with
+# "The $changeStream stage is only supported on replica sets".
+#
+# Kept as a rendering and validation case, and as the thing to re-run if the
+# driver ever configures a replica set. An application that needs one today
+# wants a daemon workload it owns.
+api_version: onebox.run/v1
+app: rocketchat
+environments:
+  production: {server: root@TARGET}
+workloads:
+  rocketchat:
+    role: application
+    image: registry.rocket.chat/rocketchat/rocket.chat:7.3.0
+    domain: chat.example.com
+    port: 3000
+    needs:
+      - name: mongodb
+        env: {MONGO_URL: url}
+    env:
+      ROOT_URL: http://chat.example.com
+      PORT: "3000"
+      DEPLOY_METHOD: docker
+    health: {exec: "curl -fsS http://127.0.0.1:3000/api/info >/dev/null || exit 1", interval: 10s, start_period: 60s, retries: 10}
+services:
+  mongodb: "7.0"

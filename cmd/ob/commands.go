@@ -15,169 +15,129 @@ import (
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/spf13/cobra"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/notify"
 	"github.com/labstack/onebox/internal/onebox"
-	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/transport"
 	"github.com/labstack/onebox/internal/ui"
 )
 
-func loadAll(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
-	return loadAllWith(ctx, g, compose.Load)
+// loadAll reads the project, resolves it for the selected environment, and
+// parses the runtime it generates. There is no user-authored Compose file to
+// find any more: the declaration is the source, and what used to be inference
+// is now something the author states.
+func loadAll(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
+	return loadAllWith(ctx, g, false)
 }
 
-// loadAllLenient is for READ-ONLY verbs (status, logs, exec, audit) and proxy
-// apply — none consume interpolated compose values, so a missing ${VAR:?}
-// (e.g. an image version normally resolved by the deploy wrapper) must not
-// block a query.
-func loadAllLenient(ctx context.Context, g *globalFlags) (*config.Config, *ctypes.Project, error) {
-	return loadAllWith(ctx, g, compose.LoadLenient)
+// loadAllLenient is for read-only verbs — status, logs, exec, audit, proxy
+// apply. None of them run anything, so a workload whose image nobody has built
+// yet must not block the query; it renders with a placeholder and the caller
+// can say so.
+func loadAllLenient(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
+	return loadAllWith(ctx, g, true)
 }
 
-func loadAllWith(ctx context.Context, g *globalFlags, load func(context.Context, string, string, ...string) (*ctypes.Project, error)) (*config.Config, *ctypes.Project, error) {
-	cfg, err := config.Load(g.ConfigPath)
+func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolved, *ctypes.Project, error) {
+	spec, err := app.Load(g.ConfigPath)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Defaults ob can derive without the project: app from the directory,
-	// compose from the conventional file. Inference (which needs the project)
-	// runs after the load; Validate then checks the fully-resolved config.
-	dir := filepath.Dir(g.ConfigPath)
-	if cfg.App == "" {
-		cfg.App = config.DefaultApp(g.ConfigPath)
-	}
-	if cfg.Compose == "" {
-		cfg.Compose = config.FindCompose(dir)
-	}
-	composePath := cfg.Compose
-	if !filepath.IsAbs(composePath) {
-		composePath = filepath.Join(dir, composePath)
-	}
-	// env_files feed ${VAR} interpolation; resolve them against the compose
-	// working dir — the same base InjectEnvFiles/StagePayload use, so the file
-	// that feeds interpolation is exactly the one that ships as container env.
-	composeDir := filepath.Dir(composePath)
-	var envFiles []string
-	for _, ef := range cfg.EnvFiles {
-		abs := ef
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(composeDir, ef)
-		}
-		// An env file must live under the project dir so it ships with the
-		// release (StagePayload only stages sources inside it). One outside
-		// would leave a local-machine path in the compose shipped to the host —
-		// a silent runtime failure. Reject it here, mirroring PayloadRewrites'
-		// staging predicate, so `ob validate` catches it.
-		if rel, err := filepath.Rel(composeDir, abs); err != nil || strings.HasPrefix(rel, "..") {
-			return nil, nil, fmt.Errorf("env_files: %q resolves outside the project (%s) — it must live with the compose file so it ships with the release", ef, composeDir)
-		}
-		envFiles = append(envFiles, abs)
-	}
-	p, err := load(ctx, composePath, cfg.App, envFiles...)
+	resolved, err := spec.Resolve(g.Env)
 	if err != nil {
 		return nil, nil, err
 	}
-	compose.Infer(cfg, p)
-	if err := cfg.Validate(); err != nil {
+	var rendered *app.Rendered
+	if lenient {
+		rendered, err = resolved.RenderForInspection(g.Env, nil)
+	} else {
+		rendered, err = resolved.Render(g.Env, "", nil)
+	}
+	if err != nil {
 		return nil, nil, err
 	}
-	if err := compose.Classify(p, cfg); err != nil {
+	interpolation, err := resolved.Spec.InterpolationEnv()
+	if err != nil {
 		return nil, nil, err
 	}
-	return cfg, p, nil
+	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(g.Env).ComposeProject(), spec.Dir, interpolation)
+	if err != nil {
+		var interpolation *compose.InterpolationError
+		if errors.As(err, &interpolation) {
+			if hidden := resolved.Spec.EncryptedDocumentEntries(); len(hidden) > 0 {
+				return nil, nil, fmt.Errorf("%w\n  the encrypted %s may supply it, and this command decrypts nothing — plan the deploy, which decrypts as it stages",
+					err, strings.Join(hidden, ", "))
+			}
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
+	}
+	return resolved, p, nil
 }
 
 func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "validate",
 		Short: "validate schema, components, and rollability — no side effects",
+		Long:  "Load the project, expand shorthand, apply defaults and the environment's\noverrides, and check every rule the contract states.\n\nContacts nothing and writes nothing. A failure names the field, the line and\nthe constraint; `ob canonical` shows what was understood.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
+			cfg, _, err := loadAll(cmd.Context(), g)
 			if err != nil {
-				return err
+				return explain(err)
 			}
-			if errs := compose.CheckRollable(p, cfg); len(errs) > 0 {
-				for _, e := range errs {
-					fmt.Fprintln(cmd.OutOrStdout(), "error:", e)
-				}
-				return fmt.Errorf("%d rollability error(s)", len(errs))
+			if isStructuredOutput(g) {
+				return writeCLIJSON(cmd.OutOrStdout(), cliValidateEnvelope{
+					SchemaVersion: cliValidateSchemaVersion,
+					App:           cfg.Name,
+					Environment:   g.Env,
+					Workloads:     cfg.ReleaseOrder(),
+					Jobs:          cfg.JobOrder(),
+					Services:      cfg.ServiceNames(),
+				}, g.Output == "json")
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s, %s)\n",
-				countLabel(len(cfg.Components), "component"), countLabel(len(cfg.Roles), "workload"),
-				countLabel(len(cfg.Jobs), "job"), countLabel(len(cfg.Accessories), "supporting/data service"))
+			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s)\n",
+				countLabel(len(cfg.ReleaseOrder()), "workload"),
+				countLabel(len(cfg.JobOrder()), "job"),
+				countLabel(len(cfg.ServiceNames()), "supporting service"))
 			return nil
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
-		Use:   "config",
-		Short: "print the fully-resolved config (defaults + inference applied)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			// lenient: inference reads structure (ports/healthchecks/names),
-			// never interpolated values — a pure diagnostic like status
-			cfg, _, err := loadAllLenient(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			b, err := cfg.YAML()
-			if err != nil {
-				return err
-			}
-			_, err = cmd.OutOrStdout().Write(b)
-			return err
-		},
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "render",
-		Short: "print the rendered per-release compose (shows the injected delta; env values redacted)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, p, err := loadAll(cmd.Context(), g)
-			if err != nil {
-				return err
-			}
-			compose.InjectEnvFiles(p, cfg)
-			if cfg.Proxy.Managed {
-				network := cfg.Proxy.Network
-				if network == "" {
-					network = proxy.DefaultNetwork
-				}
-				compose.InjectProxyNetwork(p, cfg, network)
-			}
-			out, err := compose.Render(p, cfg, "render-preview")
-			if err != nil {
-				return err
-			}
-			// Redact environment values — even a preview must never print
-			// secrets to the terminal.
-			out, err = compose.RedactEnvYAML(out)
-			if err != nil {
-				return err
-			}
-			_, err = cmd.OutOrStdout().Write(out)
-			return err
-		},
-	})
-
 	var planOut string
+	// Shared by plan and deploy: both need to know what a build produced.
+	var imageArgs []string
+	resolveImages := func() error {
+		images, err := parseImages(imageArgs)
+		if err != nil {
+			return err
+		}
+		g.Images = images
+		return nil
+	}
+
 	planCmd := &cobra.Command{
 		Use:   "plan",
 		Short: "refresh → rendered diff + pinned images + command list → plan artifact",
+		Long:  "Read the target's current state, render the runtime, pin every image to a\ndigest, and write a plan artifact.\n\nReads the target but changes nothing there. The plan binds the configuration,\nthe rendered runtime, the host state and the pinned images, and expires after\n15 minutes — so a tag that moves afterwards cannot change what is deployed.\nApprove it with `ob approve --plan`, apply it with `ob deploy --plan`.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := resolveImages(); err != nil {
+				return err
+			}
 			return runPlan(cmd, g, planOut)
 		},
 	}
 	planCmd.Flags().StringVarP(&planOut, "out", "o", "ob-plan.json", "plan artifact path")
+	planCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	root.AddCommand(planCmd)
 
 	var approvePlanFile, approveOut string
 	approveCmd := &cobra.Command{
 		Use:   "approve",
 		Short: "create a short-lived approval bound to one exact executable plan",
+		Long:  "Create a short-lived grant bound to one exact plan.\n\nPrompts for confirmation, because approving is a human act: a routine plan\nasks yes or no, and one that touches data asks for the release identifier to\nbe typed back. There is no flag to skip it. Changing or re-planning\ninvalidates the grant. Writes only the grant file; contacts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runApprove(cmd, approvePlanFile, approveOut)
 		},
@@ -192,7 +152,11 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
+		Long:  "Release: run pre-release jobs, replace workloads behind their health checks,\nverify, and move the current symlink.\n\nThis is the only way an application reaches a host. It takes the deploy lock,\nfences any older runner, journals every phase, drains connections before\nstopping a container, and can roll back. Without --plan it plans inline and\nasks for confirmation; with --plan it applies exactly what was reviewed.\n\nIf it is interrupted, `ob resume` finishes it and `ob abort` reverts it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := resolveImages(); err != nil {
+				return err
+			}
 			return runDeploy(cmd, g, planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason, deployYes, deployRedeploy)
 		},
 	}
@@ -200,6 +164,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd.Flags().StringVar(&approvalFile, "approval", "", "apply a plan-bound approval grant")
 	deployCmd.Flags().StringVar(&backupEvidenceFile, "backup-evidence", "", "apply a plan-bound migration backup evidence receipt")
 	deployCmd.Flags().StringVar(&migrationBackupOverrideReason, "override-migration-backup", "", "audited break-glass reason for proceeding without required backup evidence (requires --approval)")
+	deployCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
 	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
@@ -209,6 +174,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
+		Long:  "Prepare a host: install what the deploy needs, create the layout, log in to\nregistries, start the proxy, and start supporting services.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. It does not release the application;\n`ob deploy` does that.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindBootstrap, Force: g.Force,
@@ -224,6 +190,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
+		Long:  "Re-activate the previous release from the directory still on the host.\n\nNothing is pulled and nothing is rebuilt: the previous release's images are\nalready there, which is what makes this fast and available when a registry is\nnot. Refused when a job in the current release declared a data effect that\ncannot be undone by moving a symlink.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindRollback}, "rollback")
 		},
@@ -232,6 +199,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "resume",
 		Short: "continue an interrupted deploy from the journal (fences the old runner)",
+		Long:  "Continue a deploy that was interrupted, from the journal.\n\nFences the runner that stopped so it cannot wake up and act on stale state,\nthen carries on from the last completed phase. Use when the interruption was\nthe runner's — a lost connection, a killed process — rather than the\nrelease's.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindResume}, "resume")
 		},
@@ -240,6 +208,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	abortCmd := &cobra.Command{
 		Use:   "abort",
 		Short: "revert an interrupted deploy to the previous release (migration-gated)",
+		Long:  "Revert an interrupted deploy to the release that was serving before it.\n\nGated on what the interrupted deploy already did: a migration whose effect\ncannot be reversed by re-activating a directory refuses, because reverting\nthe containers would leave them running against data they do not match.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, Force: g.Force}, "abort")
 		},
@@ -250,6 +219,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "status",
 		Short: "recorded versus actual state per workload and service",
+		Long:  "Compare what the host records against what it is actually running, per\nworkload and service.\n\nReads only. Reports the recorded release, each container's release label and\nhealth, replica shortfalls, the proxy, and any incomplete deploy. Exits\nnon-zero on divergence so a script can branch on it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runStatus(cmd, g)
 		},
@@ -259,6 +229,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	auditCmd := &cobra.Command{
 		Use:   "audit",
 		Short: "who deployed what, when, from which SHA — incl. failed runs",
+		Long:  "Who did what, when, and from which revision — including runs whose terminal\nis long gone.\n\nReads the append-only journals on the host. One row per invocation, so a\nrollback appears as its own event rather than hiding inside the release it\nrestored.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
@@ -280,7 +251,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 // owns host observation, image pinning, staging, binding, and execution; the
 // adapter only renders the result and asks for confirmation.
 type preparedPlan struct {
-	cfg  *config.Config
+	cfg  *app.Resolved
 	svc  *onebox.Service
 	plan onebox.DeployPlan
 	ui   *ui.UI
@@ -288,16 +259,16 @@ type preparedPlan struct {
 
 // notifyOutcome pushes a mutating verb's outcome to the configured webhook.
 // Fail-open: a webhook problem is a stderr warning, never the verb's result.
-func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, err error) {
-	if cfg == nil || cfg.Notify == nil {
+func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err error) {
+	if cfg == nil || len(cfg.Notifications) == 0 {
 		return
 	}
 	host := ""
-	if env, eerr := cfg.Environment(g.Env); eerr == nil && len(env.Hosts) == 1 {
-		host = env.Hosts[0]
+	if env, eerr := cfg.Environment(g.Env); eerr == nil {
+		host = env.Target()
 	}
 	p := notify.Payload{
-		App: cfg.App, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
+		App: cfg.Name, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
 		Status: "ok", Operator: journal.DefaultOperator(),
 	}
 	if err != nil {
@@ -306,15 +277,17 @@ func notifyOutcome(cfg *config.Config, g *globalFlags, verb, deployID string, er
 		// stable, redaction-safe outcome.
 		p.Status, p.Error = "fail", "operation failed; inspect trusted local diagnostics and journal evidence"
 	}
-	if nerr := notify.Send(cfg.Notify, p); nerr != nil {
-		fmt.Fprintf(os.Stderr, "warn: notify webhook: %v\n", nerr)
+	for _, name := range sortedNames(cfg.Notifications) {
+		if nerr := notify.Send(cfg.Notifications[name], p); nerr != nil {
+			fmt.Fprintf(os.Stderr, "warn: notify webhook %s: %v\n", name, nerr)
+		}
 	}
 }
 
 // notifyOperationOutcome maps the canonical result to the stable webhook fields.
 // A no-op is deliberately silent: reporting the planned release ID as deployed
 // would claim an activation that never happened.
-func notifyOperationOutcome(cfg *config.Config, g *globalFlags, verb string, result onebox.OperationResult, err error) {
+func notifyOperationOutcome(cfg *app.Resolved, g *globalFlags, verb string, result onebox.OperationResult, err error) {
 	if err == nil && result.NoOp {
 		return
 	}
@@ -485,19 +458,30 @@ func operationsServiceWithUI(cmd *cobra.Command, g *globalFlags, u *ui.UI) *oneb
 	}
 	return onebox.New(onebox.Options{
 		ConfigPath: g.ConfigPath, Environment: g.Env, Connect: connector,
+		Images:        g.Images,
 		EngineOptions: engine.Options{Verbose: g.Verbose, UI: u, Out: commandOutput(cmd, g)},
 	})
 }
 
-func notificationConfig(g *globalFlags) (*config.Config, error) {
-	cfg, err := config.Load(g.ConfigPath)
+// notificationConfig loads only enough to know where to report an outcome. It
+// deliberately does not render: a verb whose failure was the rendering must
+// still be able to say so.
+func notificationConfig(g *globalFlags) (*app.Resolved, error) {
+	spec, err := app.Load(g.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.App == "" {
-		cfg.App = config.DefaultApp(g.ConfigPath)
+	return spec.Resolve(g.Env)
+}
+
+// sortedNames orders map keys so repeated runs report in the same sequence.
+func sortedNames[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	return cfg, nil
+	sort.Strings(out)
+	return out
 }
 
 func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteRequest, verb string) error {
@@ -573,12 +557,12 @@ func writeStatusFailure(cmd *cobra.Command, g *globalFlags, statusErr error) err
 	return statusErr
 }
 
-func connect(cmd *cobra.Command, g *globalFlags, cfg *config.Config, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
+func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
 	env, err := cfg.Environment(g.Env)
 	if err != nil {
 		return nil, nil, err
 	}
-	t, err := cliConnector(cmd.Context(), env.Hosts[0])
+	t, err := cliConnector(cmd.Context(), env.Target())
 	if err != nil {
 		return nil, nil, err
 	}

@@ -94,14 +94,14 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	}
 
 	lenient := request.Kind == KindProxyApply || request.Kind == KindDestroy
-	lp, err := loadProject(ctx, s.configPath, lenient)
+	lp, err := s.loadProject(ctx, lenient)
 	if err != nil {
 		return finish(fmt.Errorf("load project: %w", err))
 	}
-	if err := ensureEnvironment(lp.config, s.environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return finish(err)
 	}
-	environmentConfig, err := lp.config.Environment(s.environment)
+	environmentConfig, err := lp.resolved.Environment(s.environment)
 	if err != nil {
 		return finish(err)
 	}
@@ -110,11 +110,6 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	}
 	if err := s.verifyExecutionBinding(lp, request.ExpectedBinding); err != nil {
 		return finish(err)
-	}
-	if request.Kind == KindRollback {
-		if errs := compose.CheckRollable(lp.project, lp.config); len(errs) > 0 {
-			return finish(fmt.Errorf("not rollable: %v", errs))
-		}
 	}
 	operationID := result.ID
 	emit("operation", "started", "")
@@ -140,7 +135,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindBootstrap:
 		var staging string
 		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, operationID)
+		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, s.images)
 		if err == nil {
 			defer cleanupStaging()
 			result.ReleaseID = operationID
@@ -148,27 +143,36 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			err = e.Bootstrap(ctx, operationID, staging)
 		}
 	case KindServiceApply:
-		var staging string
-		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, operationID)
-		if err == nil {
-			defer cleanupStaging()
-			result.ReleaseID = operationID
-			result.EvidenceID = operationID
-			err = e.AccessoryApply(ctx, operationID, staging, request.Force)
-		}
+		// Services are not staged into a release: they are their own Compose
+		// projects, and nothing a release can remove.
+		result.ReleaseID = operationID
+		result.EvidenceID = operationID
+		err = e.ServiceApply(ctx, operationID, request.Force)
 	case KindProxyApply:
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID, request.Force)
 	case KindSecretsPush:
-		if lp.config.Secrets == nil {
-			err = errors.New("no secrets.sops source declared")
+		entries := encryptedEntries(lp.resolved)
+		if len(entries) == 0 {
+			err = errors.New("no encrypted env_files entry declared")
 			break
 		}
-		var envBytes []byte
-		envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), lp.config.Secrets.Sops)
-		if err == nil {
-			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, envBytes)
+		// Every encrypted entry, each to the file the runtime references for
+		// it. Pushing one while the release carries several would leave the
+		// rest at the values staged when the release was made.
+		for _, entry := range entries {
+			var envBytes []byte
+			envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
+			if err != nil {
+				break
+			}
+			// The last entry's journal identity is the one reported. Each push
+			// journals its own; the caller carries one, and the journal holds
+			// the rest.
+			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, entry.StagedPath(), envBytes)
+			if err != nil {
+				break
+			}
 		}
 	case KindDestroy:
 		err = e.Destroy(ctx, request.RemoveVolumes, request.RemoveProxy)
@@ -205,34 +209,36 @@ func (s *Service) executeDeploy(
 		return false, errors.New("deployment plan was created in the future — check the runner clock and re-plan")
 	}
 	emit("binding", "started", "")
-	lp, err := loadProject(ctx, s.configPath, false)
+	// The images the plan *rendered* with, not the ones it pinned: pinning
+	// resolves a tag to a digest after the render, so reloading with the pins
+	// would produce a different document than the plan bound and the binding
+	// check would refuse its own plan. The pins are applied further down, as
+	// planning applied them.
+	lp, err := s.loadProjectWith(ctx, false, plan.Artifact.BuildImages)
 	if err != nil {
 		return false, fmt.Errorf("load project: %w", err)
 	}
-	if err := ensureEnvironment(lp.config, s.environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return false, err
 	}
-	environmentConfig, err := lp.config.Environment(s.environment)
+	environmentConfig, err := lp.resolved.Environment(s.environment)
 	if err != nil {
 		return false, err
 	}
 	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, plan.SchemaVersion); err != nil {
 		return false, err
 	}
-	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
+	if err := lp.resolved.Spec.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return false, err
 	}
-	if errs := compose.CheckRollable(lp.project, lp.config); len(errs) > 0 {
-		return false, fmt.Errorf("not rollable: %v", errs)
-	}
-	expectedGraph, err := DeploymentGraph(lp.config, plan.Operation.ReleaseID)
+	expectedGraph, err := DeploymentGraph(lp.resolved, plan.Operation.ReleaseID)
 	if err != nil {
 		return false, fmt.Errorf("build expected operation graph: %w", err)
 	}
 	if !reflect.DeepEqual(plan.Operation.Steps, expectedGraph) {
 		return false, errors.New("operation graph differs from the resolved configuration — re-plan")
 	}
-	expectedMigrationBackup, err := migrationBackupRequirement(lp.config, environmentConfig.Policy, expectedGraph)
+	expectedMigrationBackup, err := migrationBackupRequirement(lp.resolved, environmentConfig.Policy, expectedGraph)
 	if err != nil {
 		return false, fmt.Errorf("build expected migration backup requirement: %w", err)
 	}
@@ -242,7 +248,7 @@ func (s *Service) executeDeploy(
 	expectedRisk, expectedReversibility, expectedApproval := classifyDeploymentForPolicy(
 		expectedGraph,
 		plan.Artifact.HostState.CurrentRelease,
-		environmentConfig.Policy.ApprovalRequired(),
+		environmentConfig.Policy.RequireApproval,
 	)
 	if plan.Operation.Risk != expectedRisk ||
 		plan.Operation.Reversibility != expectedReversibility ||
@@ -250,8 +256,8 @@ func (s *Service) executeDeploy(
 		return false, errors.New("operation risk classification differs from the resolved configuration — re-plan")
 	}
 	binding := plan.Operation.Binding
-	if lp.config.App != binding.Application {
-		return false, fmt.Errorf("plan application is %q, local application is %q — re-plan", binding.Application, lp.config.App)
+	if lp.resolved.Name != binding.Application {
+		return false, fmt.Errorf("plan application is %q, local application is %q — re-plan", binding.Application, lp.resolved.Name)
 	}
 	if s.environment != binding.Environment {
 		return false, fmt.Errorf("plan environment is %q, executing %q — re-plan", binding.Environment, s.environment)
@@ -259,10 +265,17 @@ func (s *Service) executeDeploy(
 	if engine.HashBytes(lp.configBytes) != binding.ConfigDigest {
 		return false, errors.New("configuration changed since plan — re-plan")
 	}
+	// The runtime is generated, so this catches every input that feeds
+	// generation — a referenced Compose file, a resolved image, the base path,
+	// and a change in how this binary renders. Naming only the Compose file
+	// would send the operator to look at one of five things.
 	if engine.HashBytes(lp.composeBytes) != binding.ComposeDigest {
-		return false, errors.New("Compose file changed since plan — re-plan")
+		return false, errors.New(
+			"the runtime this project generates is not the one the plan bound — " +
+				"a referenced Compose file, a resolved image, the base path, or this binary's " +
+				"generation changed since planning — re-plan")
 	}
-	approvalRequired := environmentConfig.Policy.ApprovalRequired() && (!plan.NoOp || request.Redeploy)
+	approvalRequired := environmentConfig.Policy.RequireApproval && (!plan.NoOp || request.Redeploy)
 	if approvalRequired {
 		emit("approval", "started", "")
 		if request.Approval == nil {
@@ -296,7 +309,7 @@ func (s *Service) executeDeploy(
 	if migrationBackupAudit != nil {
 		emit("migration_backup", "succeeded", "")
 	}
-	applyPinnedImages(lp.project, plan.Artifact.PinnedImages)
+	applyPinnedImages(lp.compose, plan.Artifact.PinnedImages)
 	e, cleanup, target, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
 		options.ForceLock = request.Force
 		options.NoRollback = request.NoRollback
@@ -315,7 +328,7 @@ func (s *Service) executeDeploy(
 			if expiresAt.Before(s.now().UTC()) {
 				return errors.New("deployment plan expired before mutation — re-plan")
 			}
-			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.config.App)
+			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.resolved.Name)
 		}
 	})
 	if err != nil {
@@ -325,13 +338,13 @@ func (s *Service) executeDeploy(
 	if target != binding.Target {
 		return false, fmt.Errorf("target changed from %q to %q — re-plan", binding.Target, target)
 	}
-	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.config.App); err != nil {
+	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.resolved.Name); err != nil {
 		return false, err
 	}
 	emit("binding", "succeeded", "")
 
 	emit("stage", "started", "")
-	staging, cleanupStaging, err := stageExecution(ctx, lp, plan.Operation.ReleaseID)
+	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, plan.Operation.ReleaseID, plan.Artifact.PinnedImages)
 	if err != nil {
 		return false, err
 	}
@@ -380,7 +393,7 @@ func verifyRemoteDeployBinding(ctx context.Context, e *engine.Engine, plan *Depl
 		return err
 	}
 	binding := plan.Operation.Binding
-	_, liveComposeDigest, err := readLiveComposeState(ctx, e, app, fresh.CurrentRelease)
+	_, liveComposeDigest, err := readLiveComposeState(ctx, e, fresh.CurrentRelease)
 	if err != nil {
 		return err
 	}

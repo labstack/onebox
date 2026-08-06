@@ -6,15 +6,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -33,11 +35,17 @@ type Options struct {
 	// output stream, verbosity, and break-glass flags.
 	EngineOptions engine.Options
 	Runner        buildinfo.Runner
+	// Images resolves build-sourced workloads to the reference whatever built
+	// them produced. Production never builds, so a workload declaring `build:`
+	// has no image until one is supplied here — and without it the project
+	// cannot be rendered at all, let alone planned.
+	Images app.Images
 }
 
 type Service struct {
 	configPath   string
 	environment  string
+	images       app.Images
 	now          func() time.Time
 	connect      Connector
 	entropy      io.Reader
@@ -85,7 +93,8 @@ func New(opts Options) *Service {
 	}
 	return &Service{
 		configPath: opts.ConfigPath, environment: opts.Environment,
-		now: opts.Now, connect: opts.Connect, entropy: opts.Entropy,
+		images: opts.Images,
+		now:    opts.Now, connect: opts.Connect, entropy: opts.Entropy,
 		engineOpts: opts.EngineOptions, runner: opts.Runner,
 	}
 }
@@ -102,11 +111,11 @@ func (s *Service) engine(ctx context.Context, lp *loadedProject, environment str
 }
 
 func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment string, configure func(*engine.Options)) (*engine.Engine, func(), string, error) {
-	env, err := lp.config.Environment(environment)
+	env, err := lp.resolved.Environment(environment)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	target := env.Hosts[0]
+	target := env.Target()
 	t, err := s.connect(ctx, target)
 	if err != nil {
 		return nil, nil, "", err
@@ -124,11 +133,9 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	if configure != nil {
 		configure(&engineOpts)
 	}
-	e := engine.New(lp.config, lp.project, t, engineOpts)
+	e := engine.New(lp.resolved, lp.compose, t, engineOpts)
 	return e, func() { _ = t.Close() }, target, nil
 }
-
-func resolvedReplicas(role config.Role) int { return role.Count() }
 
 func serviceImage(p *ctypes.Project, name string) string {
 	svc, ok := p.Services[name]
@@ -138,9 +145,29 @@ func serviceImage(p *ctypes.Project, name string) string {
 	return svc.Image
 }
 
-func ensureEnvironment(cfg *config.Config, name string) error {
+func ensureEnvironment(cfg *app.Resolved, name string) error {
 	if _, err := cfg.Environment(name); err != nil {
 		return fmt.Errorf("environment: %w", err)
 	}
 	return nil
 }
+
+// gitShortSHA is the working tree's revision, recorded on every operation so a
+// journal entry can be traced to the code that produced it. An unavailable or
+// dirty revision is simply absent rather than guessed at.
+func gitShortSHA(ctx context.Context, dir string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--short=7", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func noneIfEmpty(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}
+
+func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

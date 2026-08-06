@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
-	"github.com/labstack/onebox/internal/config"
 )
 
 func TestEnforceRunnerPolicy(t *testing.T) {
@@ -15,7 +15,7 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 			"onebox.run/executable-deploy-plan/v1alpha2",
 		},
 	}
-	policy := config.EnvironmentPolicy{
+	policy := app.Policy{
 		MinimumOneboxVersion: "v2026.08.3",
 		MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 	}

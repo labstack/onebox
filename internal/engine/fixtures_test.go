@@ -2,62 +2,78 @@ package engine
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
-	"time"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 )
 
-func testConfig() *config.Config {
-	return &config.Config{
-		App: "sample", Compose: "docker-compose.yaml", Retain: 5,
-		Environments: map[string]config.Environment{"production": {Hosts: []string{"deploy@h"}}},
-		Roles: map[string]config.Role{
-			"web": {Service: "server", Mode: "rolling", Ready: &config.Ready{
-				HTTP: "/healthz", Port: 7500,
-				Interval:    config.Duration(5 * time.Second),
-				StartPeriod: config.Duration(5 * time.Second),
-				Within:      config.Duration(120 * time.Second),
-			}},
-			"worker": {Service: "worker", Mode: "recreate", Drain: &config.Drain{Signal: "TERM", Wait: config.Duration(time.Second)}},
-		},
-		Order:       []string{"web", "worker"},
-		Accessories: []string{"postgres"},
-		Jobs:        []string{"migrate"},
-		Hooks:       map[string]config.Hook{"migrate": {Run: "docker compose run --rm --no-deps migrate"}},
-		Verify:      []config.VerifyCheck{{HTTP: "/healthz", Role: "web"}},
-	}
-}
-
-const engineCompose = `
-services:
-  server:
+// The engine's fixture is now a project declaration rather than a hand-built
+// normalised config. Loading it through the real loader is the point: a test
+// that assembles the struct directly can assert on a shape the loader would
+// never produce.
+const engineProject = `
+api_version: onebox.run/v1
+app: sample
+environments:
+  production:
+    server: deploy@h
+workloads:
+  web:
+    role: application
     image: ghcr.io/x/app:v2
+    health: {http: /healthz, port: 7500, interval: 5s, start_period: 5s, within: 120s}
   worker:
+    role: worker
     image: ghcr.io/x/app:v2
     command: work
-  postgres:
-    image: postgres:17
-    healthcheck: { test: ["CMD", "pg_isready"] }
+    strategy: recreate
+    drain: {signal: TERM, wait: 1s}
   migrate:
+    role: job
     image: ghcr.io/x/app:v2
     command: migrate
+    run: pre_release
+    data_effect: unknown
+services:
+  postgres:
+    driver: postgres
+    version: 17
+deployment:
+  order: [web, worker]
+verification:
+  - workload: web
+    http: /healthz
 `
 
-// testProject loads the fixture through the real compose loader.
+func testConfig() *app.Resolved {
+	spec, err := app.LoadBytes([]byte(engineProject), "ob.yml")
+	if err != nil {
+		panic("engine fixture does not load: " + err.Error())
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		panic("engine fixture does not resolve: " + err.Error())
+	}
+	// Tests shape a case by adding a hook; an absent hooks block would make
+	// every one of them a nil-map panic rather than an assertion.
+	if resolved.Hooks == nil {
+		resolved.Hooks = map[string]app.Command{}
+	}
+	return resolved
+}
+
+// testProject parses the runtime the fixture generates, the same way every
+// execution path does.
 func testProject(t *testing.T) *ctypes.Project {
 	t.Helper()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "docker-compose.yaml")
-	if err := os.WriteFile(p, []byte(engineCompose), 0o644); err != nil {
+	rendered, err := testConfig().Render("production", "test-release", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	proj, err := compose.Load(context.Background(), p, "sample")
+	proj, err := compose.LoadBytes(context.Background(), rendered.Bytes, "sample", t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

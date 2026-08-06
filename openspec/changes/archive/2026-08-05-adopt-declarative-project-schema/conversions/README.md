@@ -1,0 +1,76 @@
+# Conversion drafts
+
+Task 1.1–1.3. Every project below was expressed under `schema.cue` and validated
+against it. The four adopting projects and `fanout` are the stated acceptance
+test; the five external stacks were added to check the contract against code
+nobody here wrote.
+
+| Draft | Source | What it stresses |
+|---|---|---|
+| `goal` | this organization | rolling application, two data services, local bootstrap hook |
+| `monk` | this organization | exec health check, worker, ofelia cron, local pre-release and post-deploy hooks, advisory verification with `contains` |
+| `pursue` | this organization | migration job, pinned proxy image, registry credentials |
+| `recast` | this organization | migration job, ClamAV daemon, runner and plan-schema policy |
+| `fanout` | this organization, **declined the previous schema** | one application, three workloads serving four hostnames; OTLP gRPC listener, three per-service env files, proxy config staging |
+| `ext-umami` | umami-software/umami | smallest real stack: app plus one database, health-gated |
+| `ext-paperless` | paperless-ngx/paperless-ngx | five services, published host port, single-workload env file |
+| `ext-n8n` | n8n-io/n8n-hosting | queue-mode worker split from one image, sidecar runners, staged init script |
+| `ext-plausible` | plausible/community-edition | two unlike datastores, four mounted XML config files, ulimits |
+| `ext-immich` | immich-app/immich | ML sidecar, `shm_size`, one env file shared by two of four workloads |
+| `ext-authentik` | goauthentik/authentik | server and worker from one image, four bind mounts including the Docker socket, two published ports |
+| `ext-gitea` | go-gitea/gitea | SSH published on a non-HTTP port, host bind mounts for timezone and data |
+| `ext-frigate` | blakeblackshear/frigate | devices, privileged, `shm_size`, `tmpfs`, and a port published over both TCP and UDP |
+
+## What the exercise changed
+
+Structural validation passed early and proved little. The value was in what had
+to be worked around, and five gaps were confirmed by more than one project each:
+
+1. **`#Health` variants were not discriminated.** The first draft of `goal` failed
+   immediately. The 57-case corpus had missed it because it only ever tested the
+   scalar form. Fixed by mutual negation, as verification already had.
+2. **Environment files were project-wide only.** paperless gives one file to its
+   web server alone, immich shares one between two of four services, fanout has
+   three for three services. A project-wide list would have put every service's
+   secrets in every container. Now per-workload, with the project list as a
+   default for applications and workers.
+3. **`needs` could not express health-gating.** All ten projects gate startup on a
+   dependency being *healthy*, not merely started. A prerequisite now carries a
+   condition, defaulting to `healthy`.
+4. **Host ports had no home.** paperless publishes `8000:8000`, outline binds
+   `127.0.0.1:5432`. Not everything is reached through the proxy. Published ports
+   now exist and bind to loopback unless stated otherwise.
+5. **Mounted configuration was never staged.** plausible mounts four ClickHouse
+   XML files, n8n an init script, fanout its proxy config. The Compose reference
+   was staged but the files it mounts were not. A `files:` list now stages them.
+
+A second round against authentik, gitea, and frigate confirmed two more:
+
+6. **Volumes could only be named.** Authentik bind-mounts four paths including the
+   Docker socket, gitea binds its data directory and timezone, frigate binds its
+   config and storage — and `goal` and `monk` already bind `/data/postgres`. A
+   named-volume-only model would have forced every one of them through a Compose
+   reference. Volumes are now named or bound.
+7. **Published ports had no protocol.** Frigate publishes 8555 over both TCP and
+   UDP. Ports now carry a protocol, defaulting to TCP.
+
+Frigate also settled the shape of the boundary. Its devices, privileged flag,
+shared-memory size, and tmpfs mount are deliberately *not* modelled — they are
+real but rare, runtime-specific, and would grow the contract far more than they
+would help. The contract now names them explicitly and directs authors to the
+Compose reference, so the limit is documented rather than discovered. Such a
+workload is still released, health-gated, routed, and rolled back normally.
+
+`fanout` additionally needed a backend scheme: its OTLP listener is gRPC, which
+`protocol` and TLS mode alone cannot express. Routes now carry `scheme`.
+
+## Known conversion costs
+
+- `recast` declares `minimum_onebox_version: 0.0.1-m0`, which is not a release
+  identity. It must become a real CalVer or be removed.
+- `monk` sets `container_name: feed`; container naming is owned by Onebox, so the
+  key is deleted during conversion.
+- Image references are pinned by hand in these drafts. Resolving them from a
+  version is the release-pipeline change, not this one.
+- `monk`'s ofelia cron jobs stay as a daemon here. They become scheduled jobs
+  once `schedule` is implemented, which is what retires ofelia.

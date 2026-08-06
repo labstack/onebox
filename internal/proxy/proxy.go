@@ -22,6 +22,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 const (
@@ -46,12 +48,12 @@ type Paths struct {
 	Hash      string // <root>/_host/proxy/config.hash
 }
 
-func HostPaths() Paths {
-	root := os.Getenv("OB_BASE_DIR") // same test hook as release.PathsFor
-	if root == "" {
-		root = "/var/lib/ob"
-	}
-	base := root + "/_host"
+// HostPaths is the host-scoped layout, resolved from the same base as
+// everything else this application writes. The proxy is shared between apps,
+// so the base has to agree with theirs — two apps disagreeing about where
+// `_host` lives would each run their own "shared" proxy.
+func HostPaths(n app.Names) Paths {
+	base := n.HostDir()
 	return Paths{
 		Base:      base,
 		Lock:      base + "/lock",
@@ -155,7 +157,44 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 // Stage builds the local staging payload for the host proxy: compose.yaml +
 // config/<the app's flat traefik dir>, and returns the payload hash — the
 // identity used for cross-app conflict detection and change detection.
+// DefaultStaticConfig is the Traefik static configuration Onebox uses when the
+// project declares none.
+//
+// Onebox owns the proxy. Requiring the author to write Traefik's static
+// configuration before their first deploy contradicts that, and the file they
+// would write is the same one every time: watch Docker, do not expose
+// containers that did not ask, answer the health check, and put ACME where the
+// volume is. A project that needs something else still declares
+// `proxy.config`, and that directory wins entirely.
+//
+// The certificate resolver is defined but no email is set, so it is inert
+// until a route asks for it via `proxy.cert_resolver`.
+const DefaultStaticConfig = `# Written by Onebox because the project declared no proxy.config.
+# Declare one to take ownership of Traefik's static configuration.
+ping: {}
+providers:
+  docker:
+    exposedByDefault: false
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint: {to: websecure, scheme: https}
+  websecure:
+    address: ":443"
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+`
+
 func Stage(localCfgDir, stagingDir, image, network string) (string, error) {
+	if localCfgDir == "" {
+		return stageDefault(stagingDir, image, network)
+	}
 	entries, err := os.ReadDir(localCfgDir)
 	if err != nil {
 		return "", fmt.Errorf("proxy.config: %w", err)
@@ -175,7 +214,9 @@ func Stage(localCfgDir, stagingDir, image, network string) (string, error) {
 		}
 	}
 	if !hasTraefik {
-		return "", fmt.Errorf("proxy.config: traefik.yml required (static config; must enable ping: {} and store ACME at /letsencrypt/acme.json)")
+		return "", fmt.Errorf("proxy.config: %s contains no traefik.yml. "+
+			"Remove proxy.config to use the configuration Onebox writes, or add the file to own it",
+			localCfgDir)
 	}
 	sort.Strings(names)
 
@@ -204,4 +245,27 @@ func Stage(localCfgDir, stagingDir, image, network string) (string, error) {
 	fmt.Fprintf(h, "compose.yaml\x00%d\x00", len(compose))
 	h.Write(compose)
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// stageDefault writes the configuration Onebox owns, so a project that declares
+// a domain and nothing else can bootstrap.
+func stageDefault(stagingDir, image, network string) (string, error) {
+	cfgOut := filepath.Join(stagingDir, "config")
+	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
+		return "", err
+	}
+	body := []byte(DefaultStaticConfig)
+	if err := os.WriteFile(filepath.Join(cfgOut, "traefik.yml"), body, 0o600); err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%d\x00", "traefik.yml", len(body))
+	h.Write(body)
+
+	compose := RenderCompose(image, network, false)
+	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
+		return "", err
+	}
+	h.Write(compose)
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }

@@ -1,0 +1,34 @@
+# From project file to sealed plan.
+#
+# Expansion is drawn before defaults because the order is load-bearing: a
+# defaulted value must never be mistakable for a shorthand expansion, and both
+# must finish before cross-field checks see the project.
+#
+# There is no second loader. The schema is redefined under one identity, so the
+# legacy path an earlier draft carried here is gone.
+#
+# `schema` would be a reserved keyword as a node name, hence `jsonschema`.
+direction: right
+
+src: "ob.yml\napi_version: onebox.run/v1"
+
+cue: "CUE\nshape · enums · patterns"
+expand: "Expand shorthand\nscalar to object\ntop-level to workload"
+env: "Apply environment overrides\nclosed field set"
+defaults: "Resolve defaults\nrecord origin per field"
+semantic: "Go\ncross-field + compose semantics"
+
+model: "Normalized model" {
+  style.bold: true
+}
+
+gen: "Generate runtime"
+seal: "Seal plan\nbind runtime digest + base path"
+
+jsonschema: "JSON Schema\nexported for editors"
+
+src -> cue -> expand -> env -> defaults -> semantic -> model
+model -> gen -> seal
+cue -> jsonschema: "same source,\ncannot diverge" {
+  style.stroke-dash: 3
+}

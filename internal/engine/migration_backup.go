@@ -55,8 +55,8 @@ func (e *Engine) migrationBackupRequired() bool {
 	if strings.TrimSpace(e.Opts.Environment) == "" {
 		return false
 	}
-	environment, ok := e.Cfg.Environments[e.Opts.Environment]
-	return ok && environment.Policy.MigrationBackupRequired()
+	environment, ok := e.Spec.Environments[e.Opts.Environment]
+	return ok && environment.Policy.RequireMigrationBackup
 }
 
 func (e *Engine) hasPendingMigration(done map[string]bool) bool {

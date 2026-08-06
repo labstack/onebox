@@ -25,11 +25,11 @@ func containerEngine(t *testing.T, psOut string) (*Engine, *transport.Fake) {
 // The injection guard: a container id that isn't a plain hex/alnum token must
 // abort, not flow into the map a caller might reuse in a command.
 func TestProjectContainersRejectsSuspiciousID(t *testing.T) {
-	e, _ := containerEngine(t, "S1;reboot|server|R2|Up (healthy)\n")
+	e, _ := containerEngine(t, "S1;reboot|web|R2|Up (healthy)\n")
 	if _, err := e.projectContainers(context.Background()); err == nil {
 		t.Fatal("a non-alnum container id must be rejected")
 	}
-	e2, _ := containerEngine(t, strings.Repeat("a", 65)+"|server|R2|Up\n") // >64 chars
+	e2, _ := containerEngine(t, strings.Repeat("a", 65)+"|web|R2|Up\n") // >64 chars
 	if _, err := e2.projectContainers(context.Background()); err == nil {
 		t.Fatal("an over-length container id must be rejected")
 	}
@@ -38,16 +38,16 @@ func TestProjectContainersRejectsSuspiciousID(t *testing.T) {
 // Blank lines and containers with no compose-service label are dropped; real
 // services still map, carrying release + parsed health.
 func TestProjectContainersParsesAndDropsUnlabeled(t *testing.T) {
-	e, _ := containerEngine(t, "S1|server|R2|Up 2 hours (healthy)\nORPHAN\n\nPG1|postgres||Up 2 days\n")
+	e, _ := containerEngine(t, "S1|web|R2|Up 2 hours (healthy)\nORPHAN\n\nPG1|postgres||Up 2 days\n")
 	byService, err := e.projectContainers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(byService) != 2 {
-		t.Fatalf("want only server+postgres, got %v", byService)
+		t.Fatalf("want only web+postgres, got %v", byService)
 	}
-	if c := byService["server"][0]; c.id != "S1" || c.release != "R2" || c.health != "healthy" {
-		t.Fatalf("server parse wrong: %+v", c)
+	if c := byService["web"][0]; c.id != "S1" || c.release != "R2" || c.health != "healthy" {
+		t.Fatalf("web parse wrong: %+v", c)
 	}
 	if c := byService["postgres"][0]; c.release != "" || c.health != "none" { // no label, no healthcheck
 		t.Fatalf("postgres parse wrong: %+v", c)
@@ -56,12 +56,12 @@ func TestProjectContainersParsesAndDropsUnlabeled(t *testing.T) {
 
 // Multiple containers of one service keep docker's newest-first order.
 func TestProjectContainersGroupsByService(t *testing.T) {
-	e, _ := containerEngine(t, "A1|server|R2|Up (healthy)\nA2|server|R2|Up (healthy)\nP1|postgres||Up\n")
+	e, _ := containerEngine(t, "A1|web|R2|Up (healthy)\nA2|web|R2|Up (healthy)\nP1|postgres||Up\n")
 	byService, err := e.projectContainers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := byService["server"]; len(got) != 2 || got[0].id != "A1" || got[1].id != "A2" {
+	if got := byService["web"]; len(got) != 2 || got[0].id != "A1" || got[1].id != "A2" {
 		t.Fatalf("server ids/order wrong: %v", got)
 	}
 }

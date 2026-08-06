@@ -12,8 +12,8 @@ import (
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/pmezard/go-difflib/difflib"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"github.com/labstack/onebox/internal/config"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
@@ -30,25 +30,22 @@ type PlanDeployRequest struct{}
 // and never appear in the returned plan.
 func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPlan, error) {
 	now := s.now().UTC()
-	lp, err := loadProject(ctx, s.configPath, false)
+	lp, err := s.loadProject(ctx, false)
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("load project: %w", err)
 	}
-	if err := ensureEnvironment(lp.config, s.environment); err != nil {
+	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return DeployPlan{}, err
 	}
-	environmentConfig, err := lp.config.Environment(s.environment)
+	environmentConfig, err := lp.resolved.Environment(s.environment)
 	if err != nil {
 		return DeployPlan{}, err
 	}
 	if err := enforceRunnerPolicy(environmentConfig.Policy, s.runner, ExecutableDeployPlanSchemaVersion); err != nil {
 		return DeployPlan{}, err
 	}
-	if err := lp.config.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
+	if err := lp.resolved.Spec.RunPreflight(filepath.Dir(lp.configPath)); err != nil {
 		return DeployPlan{}, err
-	}
-	if errs := compose.CheckRollable(lp.project, lp.config); len(errs) > 0 {
-		return DeployPlan{}, fmt.Errorf("not rollable: %v", errs)
 	}
 	e, cleanup, target, err := s.engine(ctx, lp, s.environment)
 	if err != nil {
@@ -66,7 +63,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	}
 	gitSHA := gitShortSHA(ctx, filepath.Dir(lp.configPath))
 	releaseID := s.newOperationID(now, gitSHA, KindDeploy)
-	staging, cleanupStaging, err := stageExecution(ctx, lp, releaseID)
+	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, releaseID, pins)
 	if err != nil {
 		return DeployPlan{}, err
 	}
@@ -80,7 +77,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("redact staged compose: %w", err)
 	}
-	liveRedacted, liveComposeDigest, err := readLiveComposeState(ctx, e, lp.config.App, hostState.CurrentRelease)
+	liveRedacted, liveComposeDigest, err := readLiveComposeState(ctx, e, hostState.CurrentRelease)
 	if err != nil {
 		return DeployPlan{}, err
 	}
@@ -115,29 +112,30 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	}
 
 	configDigest := engine.HashBytes(lp.configBytes)
-	commands := e.Describe(release.PathsFor(lp.config.App).Releases + "/" + releaseID + "/compose.yaml")
+	commands := e.Describe(release.PathsFor(e.Names()).Releases + "/" + releaseID + "/compose.yaml")
 	artifact := engine.Artifact{
-		ID: releaseID, App: lp.config.App, Env: s.environment, CreatedAt: now,
+		ID: releaseID, App: lp.resolved.Name, Env: s.environment, CreatedAt: now,
 		GitSHA: gitSHA, ConfigHash: configDigest, HostState: hostState,
-		PinnedImages: pins, RenderedCompose: string(renderedRedacted),
-		Commands: commands,
+		PinnedImages: pins, BuildImages: buildImagesFor(lp, s.images),
+		RenderedCompose: string(renderedRedacted),
+		Commands:        commands,
 	}
 	stateDigest, err := artifactDigest(artifact)
 	if err != nil {
 		return DeployPlan{}, err
 	}
-	steps, err := DeploymentGraph(lp.config, releaseID)
+	steps, err := DeploymentGraph(lp.resolved, releaseID)
 	if err != nil {
 		return DeployPlan{}, err
 	}
-	migrationBackup, err := migrationBackupRequirement(lp.config, environmentConfig.Policy, steps)
+	migrationBackup, err := migrationBackupRequirement(lp.resolved, environmentConfig.Policy, steps)
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("build migration backup requirement: %w", err)
 	}
 	risk, reversibility, approval := classifyDeploymentForPolicy(
 		steps,
 		hostState.CurrentRelease,
-		environmentConfig.Policy.ApprovalRequired(),
+		environmentConfig.Policy.RequireApproval,
 	)
 	operation := OperationPlan{
 		SchemaVersion: OperationPlanSchemaVersion,
@@ -150,7 +148,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		Reversibility: reversibility,
 		Approval:      approval,
 		Binding: OperationBinding{
-			Application: lp.config.App, Environment: s.environment, Target: target,
+			Application: lp.resolved.Name, Environment: s.environment, Target: target,
 			ConfigDigest: configDigest, ComposeDigest: engine.HashBytes(lp.composeBytes),
 			StateDigest: stateDigest, PayloadDigest: payloadDigest,
 			LiveComposeDigest: liveComposeDigest, LivePayloadDigest: livePayloadDigest,
@@ -195,11 +193,11 @@ func classifyDeploymentForPolicy(steps []OperationStep, currentRelease string, a
 	return risk, reversibility, approval
 }
 
-func readLiveComposeState(ctx context.Context, e *engine.Engine, app, currentRelease string) (string, string, error) {
+func readLiveComposeState(ctx context.Context, e *engine.Engine, currentRelease string) (string, string, error) {
 	if currentRelease == "" {
 		return "", "", nil
 	}
-	path := release.PathsFor(app).Releases + "/" + currentRelease + "/compose.yaml"
+	path := release.PathsFor(e.Names()).Releases + "/" + currentRelease + "/compose.yaml"
 	res, err := e.T.Run(ctx, "cat "+quote(path)+" 2>/dev/null")
 	if err != nil {
 		return "", "", fmt.Errorf("read live compose: %w", err)
@@ -214,8 +212,17 @@ func readLiveComposeState(ctx context.Context, e *engine.Engine, app, currentRel
 	return string(redacted), engine.HashBytes([]byte(res.Stdout)), nil
 }
 
-func stageExecution(ctx context.Context, lp *loadedProject, releaseID string) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "ob-"+lp.config.App)
+// stageExecution builds the release payload: the generated runtime, the
+// project snapshot that lets a rollback replay the choreography that shipped,
+// any decrypted secrets, and the files a workload's env_files and bind mounts
+// reference.
+//
+// The injection steps this used to perform — env files, the proxy network,
+// secrets env — are gone. Generation emits all three from the declaration, so
+// there is nothing left to patch into a document afterwards, and no second
+// place where the runtime can differ from what `ob preview` showed.
+func stageExecution(ctx context.Context, lp *loadedProject, environment, releaseID string, images app.Images) (string, func(), error) {
+	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.Name)
 	if err != nil {
 		return "", nil, err
 	}
@@ -227,46 +234,50 @@ func stageExecution(ctx context.Context, lp *loadedProject, releaseID string) (s
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	compose.InjectEnvFiles(lp.project, lp.config)
-	if lp.config.Proxy.Managed {
-		compose.InjectProxyNetwork(lp.project, lp.config, managedProxyNetwork(lp.config))
-	}
-	if lp.config.Secrets != nil {
-		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), lp.config.Secrets.Sops)
+	// Every encrypted entry is decrypted into its own file, at the name the
+	// generated document references. One shared file would make a later entry
+	// win outright instead of key by key, which is not what a list means.
+	projected := map[string]bool{}
+	for _, entry := range encryptedEntries(lp.resolved) {
+		envBytes, err := secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
 		if err != nil {
 			return fail(err)
 		}
-		if err := os.WriteFile(filepath.Join(staging, secrets.EnvFileName), envBytes, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(staging, entry.StagedPath()), envBytes, 0o600); err != nil {
 			return fail(err)
 		}
-		compose.InjectSecretsEnv(lp.project, lp.config, "./"+secrets.EnvFileName)
+		// Written here and nowhere else, so the payload stager must not go
+		// looking for it beside the encrypted source.
+		projected[entry.StagedPath()] = true
 	}
-	rendered, err := compose.Render(lp.project, lp.config, releaseID)
+	rendered, err := lp.resolved.Render(environment, releaseID, images)
 	if err != nil {
 		return fail(err)
 	}
-	snapshot, err := lp.config.YAML()
+	rewrites, err := compose.StagePayloadContext(ctx, lp.compose, staging, projected)
 	if err != nil {
 		return fail(err)
 	}
-	rewrites, err := compose.StagePayloadContext(ctx, lp.project, staging)
-	if err != nil {
-		return fail(err)
-	}
-	rendered = compose.RewriteSources(rendered, rewrites)
-	if err := release.Stage(staging, rendered, snapshot); err != nil {
+	body := compose.RewriteSources(rendered.Bytes, rewrites)
+	if err := release.Stage(staging, body, lp.configBytes); err != nil {
 		return fail(err)
 	}
 	return staging, cleanup, nil
 }
 
-func managedProxyNetwork(cfg *config.Config) string {
+func managedProxyNetwork(cfg *app.Resolved) string {
 	if cfg.Proxy.Network != "" {
 		return cfg.Proxy.Network
 	}
 	return proxy.DefaultNetwork
 }
 
+// applyPinnedImages records the plan's resolved digests on the parsed runtime
+// so host comparisons see what the plan pinned.
+//
+// The pins also go into generation, which is what actually decides the image a
+// release runs. Patching only the parsed copy would leave the staged runtime
+// on mutable tags while every report claimed a digest.
 func applyPinnedImages(project *ctypes.Project, pins map[string]string) {
 	for service, image := range pins {
 		if image == "" {
@@ -277,4 +288,24 @@ func applyPinnedImages(project *ctypes.Project, pins map[string]string) {
 			project.Services[service] = component
 		}
 	}
+}
+
+// buildImagesFor records what the render was given for build-sourced
+// workloads. Only those: an image-sourced workload renders from its own
+// declaration, and feeding anything back for it would change the document the
+// plan is about to bind.
+func buildImagesFor(lp *loadedProject, images app.Images) map[string]string {
+	if len(images) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for name, ref := range images {
+		if w, ok := lp.resolved.Spec.Workloads[name]; ok && w.Build != nil {
+			out[name] = ref
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

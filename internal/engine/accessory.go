@@ -3,57 +3,66 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
-	"github.com/labstack/onebox/internal/release"
 )
 
-// AccessoryApply converges stateful services explicitly as a
-// planned maintenance event — never mid-deploy. Shows the diff against the
-// live release, refuses destructive mount changes without force, then
-// `up -d --no-deps <accessories>` under the full lock/fence/journal regime.
-func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir string, force bool) error {
-	if len(e.Cfg.Accessories) == 0 {
-		return fmt.Errorf("no accessories declared")
+// ServiceApply converges the supporting services explicitly, as a planned
+// maintenance event — never mid-deploy. It shows the diff against what is
+// running, refuses destructive mount changes without force, then converges
+// each service's own Compose project under the full lock/fence/journal regime.
+//
+// The diff is against each service's live document rather than against a
+// release, because a service is not part of one. Comparing to the release
+// would report every service as changed on the first apply after a deploy,
+// and report nothing when a Postgres version changed under an untouched app.
+func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool) error {
+	if len(e.Spec.ServiceNames()) == 0 {
+		return fmt.Errorf("no services declared")
 	}
-	newB, err := os.ReadFile(filepath.Join(localStagingDir, "compose.yaml"))
+	n := e.Spec.NamesFor(e.Opts.Environment)
+	rendered, err := e.Spec.RenderServices(e.Opts.Environment)
 	if err != nil {
 		return err
 	}
 
-	// the diff: rendered vs the live release's compose
-	cur, err := release.Current(ctx, e.T, e.Cfg.App)
-	if err != nil {
+	// A major version change to a service that cannot read the previous
+	// version's data directory is refused before anything is replaced. The
+	// diff shows one line — `postgres:16` becoming `postgres:17` — which reads
+	// as routine and is not: the new container starts, finds a data directory
+	// it cannot open, and crash-loops with the database intact and unreachable.
+	if err := e.refuseUnsafeMajorUpgrade(ctx, n, force); err != nil {
 		return err
 	}
-	live := ""
-	if cur != "" {
-		res, err := e.T.Run(ctx, "cat "+q(release.PathsFor(e.Cfg.App).Releases+"/"+cur+"/compose.yaml")+" 2>/dev/null || true")
+
+	changed := false
+	for _, name := range e.Spec.ServiceNames() {
+		res, err := e.T.Run(ctx, "cat "+q(n.ServiceFile(name))+" 2>/dev/null || true")
 		if err != nil {
 			return err
 		}
-		live = res.Stdout
+		diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+			A: difflib.SplitLines(res.Stdout), B: difflib.SplitLines(string(rendered[name])),
+			FromFile: "live (" + name + ")", ToFile: "planned (" + name + ")", Context: 2,
+		})
+		if diff != "" {
+			changed = true
+			e.ui.Diff(diff)
+		}
 	}
-	diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-		A: difflib.SplitLines(live), B: difflib.SplitLines(string(newB)),
-		FromFile: "live (" + cur + ")", ToFile: "planned (" + releaseID + ")", Context: 2,
-	})
-	if diff == "" {
-		e.logf("accessory apply: no rendered change vs live release")
-	} else {
-		e.ui.Diff(diff)
+	if !changed {
+		e.logf("service apply: no change vs what is running")
 	}
 
 	// destructive-mount check: a named volume or absolute bind the running
 	// container uses that the new config drops means data would detach
 	var destructive []string
-	for _, acc := range e.Cfg.Accessories {
-		id, err := e.containerID(ctx, acc)
+	for _, acc := range e.Spec.ServiceNames() {
+		id, err := e.serviceContainerID(ctx, acc)
 		if err != nil {
 			return err
 		}
@@ -65,11 +74,12 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 		if err != nil {
 			return err
 		}
+		// What the planned document mounts. A service's durable volume is
+		// derived, so this is the contract name and a mount that no longer
+		// appears in it is data about to detach.
 		newSet := map[string]bool{}
-		if svc, ok := e.Project.Services[acc]; ok {
-			for _, v := range svc.Volumes {
-				newSet[string(v.Type)+"="+v.Source] = true
-			}
+		for _, v := range e.Spec.Services[acc].Volumes {
+			newSet["volume="+n.ServiceVolume(acc, v)] = true
 		}
 		for _, m := range strings.Fields(res.Stdout) {
 			src := strings.SplitN(m, "=", 2)
@@ -103,29 +113,64 @@ func (e *Engine) AccessoryApply(ctx context.Context, releaseID, localStagingDir 
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, App: e.Cfg.App, DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
-	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Cfg.Accessories, ",")})
+	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")})
 
-	pushed, err := release.Push(ctx, e.T, localStagingDir, e.Cfg.App, releaseID)
-	if err != nil {
+	if err := e.ApplyServices(ctx); err != nil {
+		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail", Detail: err.Error()})
 		return err
 	}
-	cc := e.composeCmd(pushed + "/compose.yaml")
-	args := strings.Join(e.Cfg.Accessories, " ")
-	if res, err := e.mutate(ctx, cc+" up -d --no-deps "+args); err != nil {
-		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail"})
-		return err
-	} else if res.ExitCode != 0 {
-		_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "fail", Detail: res.Stderr})
-		return fmt.Errorf("accessory apply: %s", strings.TrimSpace(res.Stderr))
-	}
-	for _, acc := range e.Cfg.Accessories {
-		id, _ := e.containerID(ctx, acc)
+	for _, acc := range e.Spec.ServiceNames() {
+		id, _ := e.serviceContainerID(ctx, acc)
 		if id != "" {
 			h, _ := e.healthOf(ctx, id)
-			e.logf("accessory %s: %s", acc, h)
+			e.logf("service %s: %s", acc, h)
 		}
 	}
 	_ = jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "finish", Status: "ok"})
+	return nil
+}
+
+// refuseUnsafeMajorUpgrade compares the version a service is running against
+// the one the project now declares.
+//
+// Onebox owns these services, which means it owns the consequences of changing
+// one. It cannot perform a dump-and-restore upgrade yet, so the honest answer
+// is to refuse the change and say what it would take, rather than to converge
+// and leave the operator with a database that will not start.
+func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names, force bool) error {
+	for _, name := range e.Spec.ServiceNames() {
+		if e.Spec.UpgradeInPlace(name) {
+			continue
+		}
+		// The version that last ran successfully, which is the one that wrote
+		// the data directory. Absent means Onebox has never recorded a healthy
+		// run, and it cannot then claim to know what the data is — refusing on
+		// a guess would trap an operator recovering from exactly that state.
+		res, err := e.T.Run(ctx, "cat "+q(n.ServiceVersionFile(name))+" 2>/dev/null || true")
+		if err != nil {
+			return err
+		}
+		applied := strings.TrimSpace(res.Stdout)
+		if applied == "" {
+			continue
+		}
+		declared := e.Spec.DeclaredVersion(name)
+		if app.MajorOf(applied) == app.MajorOf(declared) {
+			continue
+		}
+		runningVersion := applied
+		if force {
+			e.warnf("service %s: %s → %s across a major version (--force); its data directory may not open",
+				name, runningVersion, declared)
+			continue
+		}
+		return fmt.Errorf(
+			"service %s runs %s and the project declares %s. A %s data directory written by %s "+
+				"cannot be opened by %s, so replacing the container would leave it crash-looping with the "+
+				"data intact and unreachable. Onebox does not perform this upgrade yet: dump the data, "+
+				"remove the service and its volume, then apply the new version and restore",
+			name, runningVersion, declared, name, app.MajorOf(runningVersion), app.MajorOf(declared))
+	}
 	return nil
 }

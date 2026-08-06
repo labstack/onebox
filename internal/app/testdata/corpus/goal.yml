@@ -1,0 +1,38 @@
+api_version: onebox.run/v1
+app: goal
+environments:
+  production:
+    server: root@goal.labstack.net
+    policy: {require_approval: true, allow_agent_proposals: true}
+workloads:
+  server:
+    role: application
+    image: ghcr.io/labstack/goal-server:2026.8.1
+    replicas: 3
+    strategy: rolling
+    domain: goal.fit
+    port: 7510
+    health: {http: /healthz, port: 7510, interval: 5s, start_period: 15s, within: 2m, retries: 5}
+    drain: {signal: TERM, grace: 30s}
+    env: {ENVIRONMENT: production, OTEL_SERVICE_NAME: goal-server}
+  database:
+    role: daemon
+    compose: docker-compose.yaml#postgres
+    persistence: {mode: durable}
+  cache:
+    role: daemon
+    compose: docker-compose.yaml#redis
+    persistence: {mode: durable}
+deployment: {order: [server], retain_releases: 5}
+runtime:
+  env_files: [server/.env.production, server/.env.production.secrets]
+  preflight:
+    - file: server/.env.production.secrets
+      require: [JWT_SECRET, POSTGRES_PASSWORD]
+      present: [RESEND_API_KEY, TWILIO_ACCOUNT_SID, S3_BUCKET, AWS_ACCESS_KEY_ID]
+proxy: {managed: true, config: traefik}
+hooks:
+  bootstrap: {run: 'scripts/bootstrap.sh "$OB_TARGET"', local: true}
+verification:
+  - {workload: server, http: /readyz, port: 7510}
+  - {url: "https://goal.fit/healthz"}

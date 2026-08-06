@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/onebox/internal/config"
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -18,7 +18,7 @@ func planFake() *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R0\n"}, true
-		case strings.Contains(cmd, "service='server'") && strings.Contains(cmd, "docker ps"):
+		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "OLD1\n"}, true
 		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "W1\n"}, true
@@ -46,7 +46,7 @@ func TestRefreshCollectsDriftSet(t *testing.T) {
 	if hs.CurrentRelease != "R0" {
 		t.Fatalf("current: %q", hs.CurrentRelease)
 	}
-	if hs.ImageIDs["server"] != "sha256:aaaa" || hs.ImageIDs["worker"] != "sha256:aaaa" {
+	if hs.ImageIDs["web"] != "sha256:aaaa" || hs.ImageIDs["worker"] != "sha256:aaaa" {
 		t.Fatalf("image ids: %+v", hs.ImageIDs)
 	}
 	if _, ok := hs.ImageIDs["migrate"]; ok {
@@ -63,11 +63,11 @@ func TestPinImagesRewritesToDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "ghcr.io/x/app@sha256:" + strings.Repeat("ab", 32)
-	if pins["server"] != want {
-		t.Fatalf("pin: %q want %q", pins["server"], want)
+	if pins["web"] != want {
+		t.Fatalf("pin: %q want %q", pins["web"], want)
 	}
-	if p.Services["server"].Image != want {
-		t.Fatalf("project image not rewritten: %q", p.Services["server"].Image)
+	if p.Services["web"].Image != want {
+		t.Fatalf("project image not rewritten: %q", p.Services["web"].Image)
 	}
 }
 
@@ -87,8 +87,8 @@ func TestPinImagesFallsBackUnpinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pins["server"] != "ghcr.io/x/app:v2" {
-		t.Fatalf("unpinned should keep tag: %q", pins["server"])
+	if pins["web"] != "ghcr.io/x/app:v2" {
+		t.Fatalf("unpinned should keep tag: %q", pins["web"])
 	}
 	if !strings.Contains(out.String(), "unpinned") {
 		t.Fatalf("unpinned must be stated, not hidden: %s", out.String())
@@ -99,7 +99,7 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 	a := &Artifact{
 		ID: "R1", App: "sample", Env: "production",
 		ConfigHash:      HashBytes([]byte("cfg")),
-		HostState:       HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"server": "sha256:aaaa"}},
+		HostState:       HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"web": "sha256:aaaa"}},
 		RenderedCompose: "services: {}\n",
 	}
 	path := filepath.Join(t.TempDir(), "plan.json")
@@ -110,7 +110,7 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.ID != "R1" || b.HostState.ImageIDs["server"] != "sha256:aaaa" {
+	if b.ID != "R1" || b.HostState.ImageIDs["web"] != "sha256:aaaa" {
 		t.Fatalf("roundtrip: %+v", b)
 	}
 
@@ -119,7 +119,7 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 		t.Fatal("config change must refuse")
 	}
 	// binding: drift
-	drifted := HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"server": "sha256:bbbb"}}
+	drifted := HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"web": "sha256:bbbb"}}
 	if err := b.VerifyBinding("production", []byte("cfg"), drifted); err == nil {
 		t.Fatal("host drift must refuse")
 	}
@@ -135,14 +135,14 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 
 func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 	cfg := testConfig()
-	cfg.Hooks["pre_release"] = config.Hook{Run: "bun run build", Local: true}
+	cfg.Hooks["pre_release"] = app.Command{Run: "bun run build", Local: true}
 	// A bootstrap hook belongs to `ob bootstrap`, not deploy — it must NOT
 	// appear in the deploy plan (that would claim a step that never runs).
-	cfg.Hooks["bootstrap"] = config.Hook{Run: "scripts/bootstrap.sh", Local: true}
+	cfg.Hooks["bootstrap"] = app.Command{Run: "scripts/bootstrap.sh", Local: true}
 	e := New(cfg, testProject(t), planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	lines := strings.Join(e.Describe("<release>/compose.yaml"), "\n")
 	for _, want := range []string{
-		"--scale server=<+1>",
+		"--scale web=<+1>",
 		"unhealthy/timeout →",                  // the branch
 		"--force-recreate --timeout 30 worker", // recreate role
 		"job migrate (gated",                   // the migrate job, auto-run + gated

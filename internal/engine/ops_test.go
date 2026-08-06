@@ -28,7 +28,7 @@ func opsFake(remoteSecretsHash string) *transport.Fake {
 func TestSecretsPushBouncesOnChange(t *testing.T) {
 	f := opsFake("deadbeef") // remote hash differs from anything
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.SecretsPush(context.Background(), []byte("KEY=new\n")); err != nil {
+	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", []byte("KEY=new\n")); err != nil {
 		t.Fatalf("push: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -41,7 +41,11 @@ func TestSecretsPushBouncesOnChange(t *testing.T) {
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/.secrets-") {
 		t.Fatalf("secrets not uploaded to an epoch-private staging dir: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "cp '/var/lib/ob/sample/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/sample/releases/R7/.ob-secrets.env'") {
+	// The installed name is the one the generated runtime references for this
+	// entry, not a constant. Pushing to a constant while generation referenced
+	// a derived name wrote a file nothing read: `secrets push` reported success
+	// and the container kept the values staged when the release was made.
+	if !strings.Contains(seq, "cp '/var/lib/ob/sample/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/sample/releases/R7/.ob-decrypted-s.env.env'") {
 		t.Fatalf("secrets were not installed behind the app fence:\n%s", seq)
 	}
 	if strings.Contains(seq, "KEY=new") {
@@ -60,7 +64,7 @@ func TestSecretsPushNoopOnMatch(t *testing.T) {
 	// prime fake with the real hash of env
 	f2 := opsFake(HashBytesHex(env))
 	e = New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.SecretsPush(context.Background(), env); err != nil {
+	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", env); err != nil {
 		t.Fatal(err)
 	}
 	if len(f2.Uploads) != 0 {

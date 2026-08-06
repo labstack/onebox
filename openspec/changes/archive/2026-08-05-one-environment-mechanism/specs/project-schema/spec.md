@@ -119,6 +119,14 @@ and the same entries supply the value again on the target.
 - **WHEN** a project declares a top-level `secrets` block
 - **THEN** loading fails naming the block and the entry form that replaces it, rather than reporting an unknown field
 
+#### Scenario: Missing environment file
+- **WHEN** a declared environment file does not exist
+- **THEN** validation fails and names the file
+
+#### Scenario: Required key absent
+- **WHEN** a preflight check requires a key that is absent or empty
+- **THEN** validation fails and names the key and the file
+
 #### Scenario: Interpolation resolves from the project-wide list
 - **WHEN** a referenced Compose source uses `${VAR}` and a project-wide environment file declares it
 - **THEN** the value is used when the document is parsed, and the generated runtime still carries `${VAR}` verbatim

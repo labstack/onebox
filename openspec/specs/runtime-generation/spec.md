@@ -68,6 +68,7 @@ SHALL modify nothing else:
 | Ingress network | append the project's `proxy.network`, resolved for the environment, to the service's networks, preserving existing entries in order |
 | Identity labels | `ob.app`, `ob.release`, `ob.workload` |
 | Routing labels | `traefik.enable`, `traefik.docker.network`, and per route: `traefik.<protocol>.routers.<router>.rule`, `.entrypoints`, `.tls`, and `traefik.<protocol>.services.<service>.loadbalancer.server.port`, using the router and proxy service names from the naming table |
+| Environment projection | append the workload's resolved `env_files` entries, as staged paths, then its managed-service connection files, to the service's `env_file` list, preserving referenced entries first and in order; create the key when absent |
 
 The ingress network SHALL be the project's `proxy.network` as resolved for the
 selected environment, not a fixed name. When `proxy.kind` is `none` or `proxy.managed` is false, Onebox SHALL
@@ -98,6 +99,35 @@ A referenced service declaring `network_mode` SHALL be refused **when a network
 would be attached**, because the container runtime rejects a service carrying
 both `network_mode` and `networks`. When the proxy is disabled no network is
 attached, so `network_mode` SHALL be preserved.
+
+The projection row exists because a workload's environment follows from its
+role, and a workload adopted from a Compose file has a role like any other.
+Without it the overlay silently withheld the project's environment from every
+`compose:`-sourced workload, whatever its role — behaviour nothing stated and
+nobody chose. "SHALL modify nothing else" continues to hold: the enumeration is
+larger, not weaker.
+
+The overlay SHALL additionally be refused, naming the variable, the service and
+the file, when the referenced service's `environment` sets a variable a
+managed-service connection supplies to the workload. The container runtime
+places `environment` above `env_file`, so such a key would outrank the
+connection, and a credential generated on the target exists nowhere else.
+
+Ejection SHALL strip everything the overlay adds, which now includes the
+projected `env_file` entries, so the ejected file remains ordinary
+user-authored Compose and generating from it again does not duplicate them.
+
+#### Scenario: Projection appends and preserves
+- **WHEN** a referenced service already declares an `env_file` list and the workload resolves two entries
+- **THEN** the generated service's `env_file` carries the referenced entries first, then the resolved entries in order, then any connection files, and no other key changes
+
+#### Scenario: A referenced environment key claiming a connection variable is refused
+- **WHEN** a compose-sourced workload needs a managed service and the referenced service's `environment` sets a variable that connection supplies
+- **THEN** generation fails naming the variable, the service and the file
+
+#### Scenario: Ejection strips the projection
+- **WHEN** a workload whose runtime carries projected `env_file` entries is ejected and then generated again
+- **THEN** the ejected file carries only what the author's declaration implies, and generation does not duplicate the entries
 
 #### Scenario: Fixed container name is refused
 - **WHEN** a Compose-referenced workload sets `container_name`

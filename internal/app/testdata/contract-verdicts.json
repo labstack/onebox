@@ -95,6 +95,16 @@
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
   },
   {
+    "case": "conformance/image reference with registry port",
+    "loads": true,
+    "digest": "4f17d1c2310f306e61106858d29aaf3c80f276b09f8c36d6db1264955733fe7d"
+  },
+  {
+    "case": "conformance/image reference with uppercase repository",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/incomplete plan schema",
     "loads": false,
     "code": "project_invalid"

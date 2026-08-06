@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/labstack/onebox/internal/release"
+	"github.com/labstack/onebox/internal/shellquote"
 )
 
 const minDiskKiB = 1 << 20 // 1 GiB
@@ -237,4 +238,4 @@ func healthFromStatus(status string) string {
 	}
 }
 
-func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func q(s string) string { return shellquote.Quote(s) }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/imageref"
 )
 
 // parseImages reads repeated --image workload=reference pairs.
@@ -23,6 +24,9 @@ func parseImages(pairs []string) (app.Images, error) {
 		name, ref, ok := strings.Cut(pair, "=")
 		if !ok || name == "" || ref == "" {
 			return nil, fmt.Errorf("--image expects workload=reference, got %q", pair)
+		}
+		if err := imageref.Validate(ref); err != nil {
+			return nil, fmt.Errorf("--image for workload %q: %w", name, err)
 		}
 		if previous, seen := images[name]; seen && previous != ref {
 			return nil, fmt.Errorf("--image names %q twice, as %q and %q", name, previous, ref)

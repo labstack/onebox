@@ -1,0 +1,2009 @@
+{
+  "$id": "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "properties": {
+        "workloads": {
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "workloads"
+      ]
+    },
+    {
+      "anyOf": [
+        {
+          "required": [
+            "build"
+          ]
+        },
+        {
+          "required": [
+            "image"
+          ]
+        },
+        {
+          "required": [
+            "compose"
+          ]
+        }
+      ]
+    }
+  ],
+  "description": "One application, its workloads, the services it needs, and how a release rolls out.",
+  "not": {
+    "allOf": [
+      {
+        "required": [
+          "workloads"
+        ]
+      },
+      {
+        "anyOf": [
+          {
+            "required": [
+              "build"
+            ]
+          },
+          {
+            "required": [
+              "image"
+            ]
+          },
+          {
+            "required": [
+              "compose"
+            ]
+          },
+          {
+            "required": [
+              "domain"
+            ]
+          },
+          {
+            "required": [
+              "port"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "routes"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "properties": {
+    "api_version": {
+      "const": "onebox.run/v1",
+      "description": "Project contract version. Must be onebox.run/v1.",
+      "examples": [
+        "onebox.run/v1"
+      ],
+      "type": "string"
+    },
+    "app": {
+      "description": "Stable application name used in generated container, volume, network, and host paths. The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin \"ob-\" or be a name the host layout reserves.",
+      "examples": [
+        "shop"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "^ob-"
+          },
+          {
+            "const": "ob"
+          },
+          {
+            "const": "proxy"
+          },
+          {
+            "const": "_host"
+          }
+        ]
+      },
+      "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+      "type": "string"
+    },
+    "base_path": {
+      "default": "/var/lib/ob",
+      "description": "Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter.",
+      "examples": [
+        "/srv/ob"
+      ],
+      "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
+      "type": "string"
+    },
+    "build": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Build metadata for development. Production requires a resolved image supplied with --image.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "args": {
+              "additionalProperties": {},
+              "description": "Build arguments supplied by the external build system.",
+              "type": "object"
+            },
+            "context": {
+              "description": "Repository-relative build context. Expects a path inside the repository, with no control character or shell metacharacter.",
+              "examples": [
+                "."
+              ],
+              "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+              "type": "string"
+            },
+            "dockerfile": {
+              "description": "Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter.",
+              "examples": [
+                "Dockerfile"
+              ],
+              "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+              "type": "string"
+            },
+            "platform": {
+              "description": "Target image platform for the external build.",
+              "examples": [
+                "linux/amd64"
+              ],
+              "type": "string"
+            },
+            "target": {
+              "description": "Named Dockerfile stage to build.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path."
+    },
+    "compose": {
+      "description": "Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service.",
+      "examples": [
+        "docker-compose.yml#web"
+      ],
+      "pattern": "^[^/#][^#]*#[a-zA-Z0-9._-]+$",
+      "type": "string"
+    },
+    "deployment": {
+      "additionalProperties": false,
+      "description": "Release ordering, retention, and migration behavior.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "migration_policy": {
+          "default": "manual",
+          "description": "Policy for migration jobs during release and recovery.",
+          "enum": [
+            "manual",
+            "auto",
+            "expand-only"
+          ],
+          "type": "string"
+        },
+        "order": {
+          "description": "Explicit workload release order. Dependency order is derived when omitted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "retain_releases": {
+          "default": 5,
+          "description": "Number of completed release directories retained for inspection and rollback.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "domain": {
+      "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes.",
+      "examples": [
+        "shop.example.com"
+      ],
+      "type": "string"
+    },
+    "environments": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "base_path": {
+            "description": "Environment-specific replacement for the project base_path. Expects an absolute path with no control character or shell metacharacter.",
+            "examples": [
+              "/srv/ob"
+            ],
+            "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
+            "type": "string"
+          },
+          "env_files": {
+            "description": "Default ordered environment-file list for application, worker, and job workloads in this environment.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "patternProperties": {
+                    "^x-": {}
+                  },
+                  "properties": {
+                    "file": {
+                      "description": "Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter.",
+                      "examples": [
+                        ".env.production"
+                      ],
+                      "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                      "type": "string"
+                    },
+                    "provider": {
+                      "description": "Decryptor used before staging the file. The supported encrypted provider is sops.",
+                      "enum": [
+                        "sops"
+                      ],
+                      "examples": [
+                        "sops"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "type": "object"
+                }
+              ],
+              "description": "Also accepts a path to an environment file."
+            },
+            "type": "array"
+          },
+          "overrides": {
+            "additionalProperties": false,
+            "description": "Environment-specific operational tuning. Overrides cannot change workload identity or data semantics.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "services": {
+                "additionalProperties": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "description": "Allowed service tuning keyed by service name: resources and settings.",
+                "type": "object"
+              },
+              "workloads": {
+                "additionalProperties": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "description": "Allowed workload tuning keyed by workload name: replicas, resources, env, env_files, strategy, and routes.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "policy": {
+            "additionalProperties": false,
+            "description": "Approval, runner compatibility, and migration-backup requirements for this environment.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "allow_agent_proposals": {
+                "default": true,
+                "description": "Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated.",
+                "type": "boolean"
+              },
+              "migration_backup_key_material": {
+                "description": "Names of key material whose usability must be attested in migration backup evidence.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "migration_backup_max_age": {
+                "description": "Maximum age of backup evidence accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "24h"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                "type": "string"
+              },
+              "minimum_onebox_version": {
+                "description": "Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.08.1.",
+                "examples": [
+                  "v2026.08.1"
+                ],
+                "pattern": "^v[0-9]{4}\\.(0[1-9]|1[0-2])\\.[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minimum_plan_schema": {
+                "description": "Oldest executable plan schema accepted by this environment. Expects a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2.",
+                "examples": [
+                  "onebox.run/executable-deploy-plan/v1alpha2"
+                ],
+                "pattern": "^onebox\\.run/executable-deploy-plan/v[1-9][0-9]*((alpha|beta)[1-9][0-9]*)?$",
+                "type": "string"
+              },
+              "require_approval": {
+                "default": true,
+                "description": "Require a plan-bound approval grant before mutating this environment.",
+                "type": "boolean"
+              },
+              "require_migration_backup": {
+                "default": false,
+                "description": "Require plan-bound external backup evidence before a release with migration risk.",
+                "type": "boolean"
+              },
+              "require_migration_restore_test": {
+                "default": false,
+                "description": "Require the backup evidence to attest that a restore test succeeded.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "SSH target, written as user@host or as an object with host, user, and port.",
+                "examples": [
+                  "root@203.0.113.10"
+                ],
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "host": {
+                    "description": "SSH hostname or IP address.",
+                    "examples": [
+                      "203.0.113.10"
+                    ],
+                    "type": "string"
+                  },
+                  "port": {
+                    "description": "SSH port. The SSH default is used when omitted.",
+                    "examples": [
+                      2222
+                    ],
+                    "type": "integer"
+                  },
+                  "user": {
+                    "description": "SSH user. The local SSH configuration supplies it when omitted.",
+                    "examples": [
+                      "root"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "SSH target, written as user@host or as an object with host, user, and port. Also accepts user@host."
+          }
+        },
+        "type": "object"
+      },
+      "description": "Named deployment targets and the policy applied to each target.",
+      "minProperties": 1,
+      "type": "object"
+    },
+    "health": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Readiness check used to gate rolling replacement.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "exec": {
+              "description": "Health command as a shell string or direct argument list."
+            },
+            "http": {
+              "description": "HTTP path probed inside the container. Expects a path beginning with /.",
+              "examples": [
+                "/healthz"
+              ],
+              "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
+              "type": "string"
+            },
+            "interval": {
+              "description": "Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "examples": [
+                "2s"
+              ],
+              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+              "type": "string"
+            },
+            "port": {
+              "description": "Container port probed by HTTP or TCP health checks.",
+              "examples": [
+                8080
+              ],
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "retries": {
+              "description": "Consecutive failed probes before the container is unhealthy.",
+              "examples": [
+                3
+              ],
+              "type": "integer"
+            },
+            "start_period": {
+              "description": "Startup grace period before failed probes count. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "examples": [
+                "5s"
+              ],
+              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+              "type": "string"
+            },
+            "tcp": {
+              "default": false,
+              "description": "Probe the configured port by opening a TCP connection.",
+              "type": "boolean"
+            },
+            "within": {
+              "description": "Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "examples": [
+                "120s"
+              ],
+              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Readiness check used to gate rolling replacement. Also accepts an HTTP health path."
+    },
+    "hooks": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "local": {
+                "default": false,
+                "description": "Run on the operator machine instead of the target host.",
+                "type": "boolean"
+              },
+              "run": {
+                "description": "Command executed at the lifecycle seam.",
+                "examples": [
+                  "./scripts/notify.sh"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "Also accepts the command to run."
+      },
+      "description": "Named lifecycle commands, including pre_deploy, post_deploy, pre_rollback, and post_rollback.",
+      "type": "object"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "description": "Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:….",
+          "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Container image source, written as a reference string or an object.",
+          "examples": [
+            "ghcr.io/acme/shop:1.4.0"
+          ],
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "platform": {
+              "description": "Platform selected when the image is multi-platform.",
+              "examples": [
+                "linux/amd64"
+              ],
+              "type": "string"
+            },
+            "pull": {
+              "default": "missing",
+              "description": "Image pull policy: missing, always, or never.",
+              "enum": [
+                "always",
+                "missing",
+                "never"
+              ],
+              "type": "string"
+            },
+            "reference": {
+              "description": "Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:….",
+              "examples": [
+                "ghcr.io/acme/shop:1.4.0"
+              ],
+              "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
+              "type": "string"
+            },
+            "registry": {
+              "description": "Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Container image source, written as a reference string or an object. Also accepts an image reference."
+    },
+    "notifications": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "format": {
+            "default": "text",
+            "description": "Notification payload format.",
+            "enum": [
+              "text",
+              "json"
+            ],
+            "type": "string"
+          },
+          "on": {
+            "description": "Operation outcomes that trigger this notification.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "webhook": {
+            "description": "HTTP endpoint that receives operation notifications.",
+            "examples": [
+              "https://hooks.example.com/onebox"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Named webhooks that receive selected operation outcomes.",
+      "type": "object"
+    },
+    "observability": {
+      "additionalProperties": false,
+      "description": "Declared logging, metrics, and alerting intent. Continuous management is not currently provided.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "alerts": {
+          "additionalProperties": false,
+          "description": "Declared alerting intent. Continuous management is not currently provided.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "unhealthy_after": {
+              "description": "Desired duration of unhealthy state before alerting. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "examples": [
+                "5m"
+              ],
+              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "logs": {
+          "additionalProperties": false,
+          "description": "Declared log-retention intent. Continuous management is not currently provided.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Declare that log collection is desired.",
+              "type": "boolean"
+            },
+            "retention_days": {
+              "description": "Desired log-retention period in days.",
+              "examples": [
+                30
+              ],
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "metrics": {
+          "additionalProperties": false,
+          "description": "Declared metric-collection intent. Continuous management is not currently provided.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Declare that metric collection is desired.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "port": {
+      "description": "Container port used with domain shorthand and as the default HTTP health port.",
+      "examples": [
+        3000
+      ],
+      "maximum": 65535,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "proxy": {
+      "additionalProperties": false,
+      "description": "Ownership and configuration of the host ingress proxy.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "cert_resolver": {
+          "description": "Traefik certificate resolver used by terminating TLS routes.",
+          "type": "string"
+        },
+        "config": {
+          "description": "Repository-relative static proxy configuration owned by the project. Expects a path inside the repository, with no control character or shell metacharacter.",
+          "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+          "type": "string"
+        },
+        "image": {
+          "description": "Container image used for the managed proxy. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:….",
+          "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
+          "type": "string"
+        },
+        "kind": {
+          "default": "traefik-docker",
+          "description": "Proxy implementation, or none to disable routing.",
+          "enum": [
+            "traefik-docker",
+            "none"
+          ],
+          "type": "string"
+        },
+        "managed": {
+          "description": "Let Onebox converge the host-scoped proxy when routes are declared.",
+          "type": "boolean"
+        },
+        "network": {
+          "default": "ob-ingress",
+          "description": "External container network shared with routed workloads.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "registries": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "password_env": {
+            "description": "Local environment-variable name containing the registry password or token. Expects a variable name of letters, digits and underscores, not starting with a digit.",
+            "examples": [
+              "GHCR_TOKEN"
+            ],
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "type": "string"
+          },
+          "server": {
+            "description": "Registry hostname, optionally with a port. Expects a host with an optional port and path, such as ghcr.io or registry.example.com:5000.",
+            "examples": [
+              "ghcr.io"
+            ],
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[A-Za-z0-9._/-]*)?$",
+            "type": "string"
+          },
+          "username": {
+            "description": "Registry login username. Expects a username of letters, digits and . _ @ + -.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@+-]*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Named container registries and the environment variables holding their credentials.",
+      "type": "object"
+    },
+    "routes": {
+      "description": "Ingress routes exposed by this workload.",
+      "items": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "domain": {
+            "description": "DNS name matched by the proxy.",
+            "examples": [
+              "shop.example.com"
+            ],
+            "type": "string"
+          },
+          "entrypoint": {
+            "default": "websecure",
+            "description": "Named proxy listener used for the route.",
+            "type": "string"
+          },
+          "path": {
+            "default": "/",
+            "description": "URL path prefix matched by an HTTP route. Expects a path beginning with /.",
+            "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
+            "type": "string"
+          },
+          "port": {
+            "description": "Container port receiving routed traffic.",
+            "examples": [
+              3000
+            ],
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "protocol": {
+            "default": "http",
+            "description": "Routing protocol: http, tcp, or udp.",
+            "enum": [
+              "http",
+              "tcp"
+            ],
+            "type": "string"
+          },
+          "scheme": {
+            "default": "http",
+            "description": "Backend connection scheme: http, https, h2c, tcp, or udp.",
+            "enum": [
+              "http",
+              "https",
+              "h2c"
+            ],
+            "type": "string"
+          },
+          "tls": {
+            "default": "terminate",
+            "description": "TLS handling: terminate, passthrough, or none.",
+            "enum": [
+              "terminate",
+              "passthrough",
+              "none"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "runtime": {
+      "additionalProperties": false,
+      "description": "Project-wide environment files and local preflight requirements.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "env_files": {
+          "description": "Project-wide ordered environment-file list for application, worker, and job workloads.",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "file": {
+                    "description": "Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter.",
+                    "examples": [
+                      ".env.production"
+                    ],
+                    "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                    "type": "string"
+                  },
+                  "provider": {
+                    "description": "Decryptor used before staging the file. The supported encrypted provider is sops.",
+                    "enum": [
+                      "sops"
+                    ],
+                    "examples": [
+                      "sops"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "Also accepts a path to an environment file."
+          },
+          "type": "array"
+        },
+        "preflight": {
+          "description": "Local environment-file assertions checked before planning or deploying.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "file": {
+                "description": "Repository-relative dotenv file whose declared keys are checked. Expects a path inside the repository, with no control character or shell metacharacter.",
+                "examples": [
+                  ".env.production"
+                ],
+                "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                "type": "string"
+              },
+              "present": {
+                "description": "Environment keys that must be declared but may be empty.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "require": {
+                "description": "Environment keys that must be declared with non-empty values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "services": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": [
+              "string",
+              "number",
+              "integer"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "driver": {
+                "description": "Built-in service driver. Defaults to the service map key. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
+                "examples": [
+                  "postgres"
+                ],
+                "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+                "type": "string"
+              },
+              "persistence": {
+                "additionalProperties": false,
+                "description": "Data-lifetime declaration for this supporting service.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "mode": {
+                    "default": "durable",
+                    "description": "Data lifetime: durable, ephemeral, or external.",
+                    "enum": [
+                      "durable",
+                      "ephemeral",
+                      "external"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "resources": {
+                "additionalProperties": false,
+                "description": "Memory and CPU limits for this supporting service.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "cpus": {
+                    "description": "Container CPU limit expressed as a positive decimal count. Expects a number of CPUs such as 0.5 or 2.",
+                    "examples": [
+                      "0.5"
+                    ],
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$",
+                    "type": "string"
+                  },
+                  "memory": {
+                    "description": "Container memory limit. Expects a size such as 512MB or 1.5GB.",
+                    "examples": [
+                      "512MB"
+                    ],
+                    "pattern": "^[0-9]+(\\.[0-9]+)?(B|KB|MB|GB|TB)$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "settings": {
+                "additionalProperties": {},
+                "description": "Driver-specific settings validated by the selected service driver.",
+                "type": "object"
+              },
+              "version": {
+                "description": "Driver version or image tag to run.",
+                "examples": [
+                  "17"
+                ]
+              },
+              "volumes": {
+                "description": "Additional driver-defined persistent volume names.",
+                "items": {
+                  "description": "Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
+                  "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "Also accepts the version to run."
+      },
+      "description": "Supporting services managed outside application releases, such as databases and caches.",
+      "type": "object"
+    },
+    "verification": {
+      "description": "Checks that must pass before a release becomes current unless marked advisory.",
+      "items": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "advisory": {
+            "default": false,
+            "description": "Report a failed check without blocking release activation.",
+            "type": "boolean"
+          },
+          "contains": {
+            "description": "Text that the HTTP response body must contain.",
+            "type": "string"
+          },
+          "exec": {
+            "description": "Shell command verified inside the named workload.",
+            "type": "string"
+          },
+          "http": {
+            "description": "HTTP path verified inside the named workload. Expects a path beginning with /.",
+            "examples": [
+              "/healthz"
+            ],
+            "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
+            "type": "string"
+          },
+          "json_assertions": {
+            "description": "Scalar JSON response values that must match exactly.",
+            "items": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "equals": {
+                  "description": "Exact scalar value required at path."
+                },
+                "path": {
+                  "description": "Dot-separated path to a scalar value in the JSON response.",
+                  "examples": [
+                    "service.ready"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "migration_revisions": {
+            "additionalProperties": false,
+            "description": "Expected migration provider and applied revisions, checked against captured job evidence.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "applied_revisions": {
+                "description": "Ordered migration revisions expected to be applied.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "job": {
+                "description": "Migration job whose result evidence is checked.",
+                "examples": [
+                  "migrate"
+                ],
+                "type": "string"
+              },
+              "provider": {
+                "description": "Migration provider expected in the job result.",
+                "examples": [
+                  "atlas"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "port": {
+            "description": "Container port used by an internal HTTP verification.",
+            "examples": [
+              3000
+            ],
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "required_headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Exact HTTP response headers required for success.",
+            "type": "object"
+          },
+          "status_codes": {
+            "description": "Allowed HTTP response status codes. A successful 2xx response is expected when omitted.",
+            "items": {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "url": {
+            "description": "External HTTP or HTTPS URL verified from the operator side. Expects an http or https URL.",
+            "examples": [
+              "https://shop.example.com/healthz"
+            ],
+            "pattern": "^https?://",
+            "type": "string"
+          },
+          "workload": {
+            "description": "Workload in which an internal HTTP or exec verification runs.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "workloads": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "build"
+                ]
+              },
+              {
+                "required": [
+                  "image"
+                ]
+              },
+              {
+                "required": [
+                  "compose"
+                ]
+              }
+            ]
+          },
+          {
+            "not": {
+              "allOf": [
+                {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "domain"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "port"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "required": [
+                    "routes"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "domain"
+              ]
+            },
+            "then": {
+              "required": [
+                "port"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "port"
+              ]
+            },
+            "then": {
+              "required": [
+                "domain"
+              ]
+            }
+          },
+          {
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "run"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "data_effect"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "schedule"
+                    ]
+                  }
+                ]
+              }
+            },
+            "if": {
+              "properties": {
+                "role": {
+                  "const": "job"
+                }
+              },
+              "required": [
+                "role"
+              ]
+            },
+            "then": {
+              "required": [
+                "data_effect"
+              ]
+            }
+          }
+        ],
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Build metadata for development. Production requires a resolved image supplied with --image.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "args": {
+                    "additionalProperties": {},
+                    "description": "Build arguments supplied by the external build system.",
+                    "type": "object"
+                  },
+                  "context": {
+                    "description": "Repository-relative build context. Expects a path inside the repository, with no control character or shell metacharacter.",
+                    "examples": [
+                      "."
+                    ],
+                    "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                    "type": "string"
+                  },
+                  "dockerfile": {
+                    "description": "Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter.",
+                    "examples": [
+                      "Dockerfile"
+                    ],
+                    "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "description": "Target image platform for the external build.",
+                    "examples": [
+                      "linux/amd64"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Named Dockerfile stage to build.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path."
+          },
+          "command": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              {
+                "description": "Container command as a shell string or argument list.",
+                "examples": [
+                  "./bin/server"
+                ]
+              }
+            ],
+            "description": "Container command as a shell string or argument list. Also accepts a command line or argument list."
+          },
+          "compose": {
+            "description": "Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service.",
+            "examples": [
+              "docker-compose.yml#web"
+            ],
+            "pattern": "^[^/#][^#]*#[a-zA-Z0-9._-]+$",
+            "type": "string"
+          },
+          "data_effect": {
+            "description": "Job data impact used by rollback and abort gates.",
+            "enum": [
+              "none",
+              "migration",
+              "destructive",
+              "unknown"
+            ],
+            "examples": [
+              "migration"
+            ],
+            "type": "string"
+          },
+          "domain": {
+            "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes.",
+            "examples": [
+              "shop.example.com"
+            ],
+            "type": "string"
+          },
+          "drain": {
+            "additionalProperties": false,
+            "description": "Signal and timing used to remove a container from traffic before stopping it.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "grace": {
+                "description": "Maximum graceful-shutdown time before forced termination. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "30s"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                "type": "string"
+              },
+              "signal": {
+                "default": "TERM",
+                "description": "Signal sent to begin graceful shutdown. Expects a signal name such as TERM or QUIT.",
+                "pattern": "^[A-Z][A-Z0-9]*$",
+                "type": "string"
+              },
+              "wait": {
+                "description": "Time allowed for the proxy to stop routing before shutdown begins. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "10s"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "entrypoint": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              {
+                "description": "Container entrypoint as a string or argument list."
+              }
+            ],
+            "description": "Container entrypoint as a string or argument list. Also accepts an entrypoint or argument list."
+          },
+          "env": {
+            "additionalProperties": {},
+            "description": "Literal container environment values. Managed-service credential variables cannot be overridden.",
+            "type": "object"
+          },
+          "env_files": {
+            "description": "Workload-specific ordered environment-file list. Replaces broader defaults when present.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "patternProperties": {
+                    "^x-": {}
+                  },
+                  "properties": {
+                    "file": {
+                      "description": "Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter.",
+                      "examples": [
+                        ".env.production"
+                      ],
+                      "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                      "type": "string"
+                    },
+                    "provider": {
+                      "description": "Decryptor used before staging the file. The supported encrypted provider is sops.",
+                      "enum": [
+                        "sops"
+                      ],
+                      "examples": [
+                        "sops"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "type": "object"
+                }
+              ],
+              "description": "Also accepts a path to an environment file."
+            },
+            "type": "array"
+          },
+          "extra_hosts": {
+            "description": "Additional host-to-address entries added to the container.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Readiness check used to gate rolling replacement.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "exec": {
+                    "description": "Health command as a shell string or direct argument list."
+                  },
+                  "http": {
+                    "description": "HTTP path probed inside the container. Expects a path beginning with /.",
+                    "examples": [
+                      "/healthz"
+                    ],
+                    "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
+                    "type": "string"
+                  },
+                  "interval": {
+                    "description": "Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "2s"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  },
+                  "port": {
+                    "description": "Container port probed by HTTP or TCP health checks.",
+                    "examples": [
+                      8080
+                    ],
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "retries": {
+                    "description": "Consecutive failed probes before the container is unhealthy.",
+                    "examples": [
+                      3
+                    ],
+                    "type": "integer"
+                  },
+                  "start_period": {
+                    "description": "Startup grace period before failed probes count. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "5s"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  },
+                  "tcp": {
+                    "default": false,
+                    "description": "Probe the configured port by opening a TCP connection.",
+                    "type": "boolean"
+                  },
+                  "within": {
+                    "description": "Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "120s"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Readiness check used to gate rolling replacement. Also accepts an HTTP health path."
+          },
+          "hostname": {
+            "description": "Hostname assigned inside the workload container.",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "description": "Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:….",
+                "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Container image source, written as a reference string or an object.",
+                "examples": [
+                  "ghcr.io/acme/shop:1.4.0"
+                ],
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "platform": {
+                    "description": "Platform selected when the image is multi-platform.",
+                    "examples": [
+                      "linux/amd64"
+                    ],
+                    "type": "string"
+                  },
+                  "pull": {
+                    "default": "missing",
+                    "description": "Image pull policy: missing, always, or never.",
+                    "enum": [
+                      "always",
+                      "missing",
+                      "never"
+                    ],
+                    "type": "string"
+                  },
+                  "reference": {
+                    "description": "Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:….",
+                    "examples": [
+                      "ghcr.io/acme/shop:1.4.0"
+                    ],
+                    "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
+                    "type": "string"
+                  },
+                  "registry": {
+                    "description": "Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Container image source, written as a reference string or an object. Also accepts an image reference."
+          },
+          "init": {
+            "description": "Run a minimal init process as PID 1 inside the container.",
+            "type": "boolean"
+          },
+          "labels": {
+            "additionalProperties": {},
+            "description": "Additional container labels outside namespaces reserved by Onebox and the proxy.",
+            "type": "object"
+          },
+          "logging": {
+            "additionalProperties": false,
+            "description": "Container logging driver and driver-specific options.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "driver": {
+                "description": "Container runtime logging driver.",
+                "examples": [
+                  "local"
+                ],
+                "type": "string"
+              },
+              "options": {
+                "additionalProperties": {},
+                "description": "Driver-specific logging options passed to the container runtime.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "needs": {
+            "description": "Workload or supporting-service prerequisites and optional connection-variable mappings.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "patternProperties": {
+                    "^x-": {}
+                  },
+                  "properties": {
+                    "condition": {
+                      "description": "Prerequisite condition: started or healthy.",
+                      "enum": [
+                        "started",
+                        "healthy",
+                        "completed"
+                      ],
+                      "type": "string"
+                    },
+                    "env": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Maps application environment-variable names to service connection parts such as host, port, user, password, database, or url.",
+                      "type": "object"
+                    },
+                    "name": {
+                      "description": "Name of a workload or supporting service that must start first. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
+                      "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ],
+              "description": "Also accepts the name of a prerequisite."
+            },
+            "type": "array"
+          },
+          "persistence": {
+            "additionalProperties": false,
+            "description": "Declares whether this workload holds data that must outlive releases.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "mode": {
+                "default": "durable",
+                "description": "Data lifetime: durable, ephemeral, or external.",
+                "enum": [
+                  "durable",
+                  "ephemeral",
+                  "external"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "port": {
+            "description": "Container port used with domain shorthand and as the default HTTP health port.",
+            "examples": [
+              3000
+            ],
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "ports": {
+            "description": "Host ports published outside the proxy. They bind to loopback by default.",
+            "items": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "bind": {
+                  "default": "127.0.0.1",
+                  "description": "Host address on which the published port listens.",
+                  "type": "string"
+                },
+                "container": {
+                  "description": "Port receiving traffic inside the container.",
+                  "examples": [
+                    3000
+                  ],
+                  "maximum": 65535,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "host": {
+                  "description": "Port exposed on the host.",
+                  "examples": [
+                    8080
+                  ],
+                  "maximum": 65535,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "protocol": {
+                  "default": "tcp",
+                  "description": "Published transport protocol: tcp or udp.",
+                  "enum": [
+                    "tcp",
+                    "udp"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "replicas": {
+            "default": 1,
+            "description": "Desired number of long-running workload containers.",
+            "examples": [
+              2
+            ],
+            "minimum": 1,
+            "type": "integer"
+          },
+          "resources": {
+            "additionalProperties": false,
+            "description": "Container memory and CPU limits.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "cpus": {
+                "description": "Container CPU limit expressed as a positive decimal count. Expects a number of CPUs such as 0.5 or 2.",
+                "examples": [
+                  "0.5"
+                ],
+                "pattern": "^[0-9]+(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              "memory": {
+                "description": "Container memory limit. Expects a size such as 512MB or 1.5GB.",
+                "examples": [
+                  "512MB"
+                ],
+                "pattern": "^[0-9]+(\\.[0-9]+)?(B|KB|MB|GB|TB)$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "role": {
+            "description": "Lifecycle role: application, worker, daemon, or job.",
+            "enum": [
+              "application",
+              "worker",
+              "daemon",
+              "job"
+            ],
+            "examples": [
+              "application"
+            ],
+            "type": "string"
+          },
+          "routes": {
+            "description": "Ingress routes exposed by this workload.",
+            "items": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "domain": {
+                  "description": "DNS name matched by the proxy.",
+                  "examples": [
+                    "shop.example.com"
+                  ],
+                  "type": "string"
+                },
+                "entrypoint": {
+                  "default": "websecure",
+                  "description": "Named proxy listener used for the route.",
+                  "type": "string"
+                },
+                "path": {
+                  "default": "/",
+                  "description": "URL path prefix matched by an HTTP route. Expects a path beginning with /.",
+                  "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
+                  "type": "string"
+                },
+                "port": {
+                  "description": "Container port receiving routed traffic.",
+                  "examples": [
+                    3000
+                  ],
+                  "maximum": 65535,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "protocol": {
+                  "default": "http",
+                  "description": "Routing protocol: http, tcp, or udp.",
+                  "enum": [
+                    "http",
+                    "tcp"
+                  ],
+                  "type": "string"
+                },
+                "scheme": {
+                  "default": "http",
+                  "description": "Backend connection scheme: http, https, h2c, tcp, or udp.",
+                  "enum": [
+                    "http",
+                    "https",
+                    "h2c"
+                  ],
+                  "type": "string"
+                },
+                "tls": {
+                  "default": "terminate",
+                  "description": "TLS handling: terminate, passthrough, or none.",
+                  "enum": [
+                    "terminate",
+                    "passthrough",
+                    "none"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "run": {
+            "default": "manual",
+            "description": "When a job runs: manual, pre_release, or post_release.",
+            "enum": [
+              "pre_release",
+              "post_release",
+              "manual"
+            ],
+            "type": "string"
+          },
+          "schedule": {
+            "additionalProperties": false,
+            "description": "Host-resident recurring schedule for a job.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "cron": {
+                "description": "Five-field cron schedule translated to a host timer. Expects five cron fields.",
+                "examples": [
+                  "0 2 * * *"
+                ],
+                "pattern": "^[-0-9*/,A-Za-z ]+$",
+                "type": "string"
+              },
+              "timezone": {
+                "default": "UTC",
+                "description": "IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin.",
+                "examples": [
+                  "Europe/Berlin"
+                ],
+                "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "stdin_open": {
+            "description": "Keep standard input open for the container.",
+            "type": "boolean"
+          },
+          "strategy": {
+            "description": "Release strategy. Defaults to rolling only for an application workload with health; all other workloads default to recreate.",
+            "enum": [
+              "rolling",
+              "recreate"
+            ],
+            "type": "string"
+          },
+          "tty": {
+            "description": "Allocate a pseudo-TTY for the container.",
+            "type": "boolean"
+          },
+          "user": {
+            "description": "User or UID used to run the container process.",
+            "type": "string"
+          },
+          "volumes": {
+            "description": "Managed named volumes or repository bind mounts.",
+            "items": {
+              "additionalProperties": false,
+              "anyOf": [
+                {
+                  "required": [
+                    "name",
+                    "path"
+                  ]
+                },
+                {
+                  "required": [
+                    "source",
+                    "target"
+                  ]
+                }
+              ],
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "mode": {
+                  "default": "rw",
+                  "description": "Mount access mode: rw or ro.",
+                  "enum": [
+                    "rw",
+                    "ro"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
+                  "examples": [
+                    "data"
+                  ],
+                  "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Absolute container path where a named volume is mounted. Expects an absolute path with no control character or shell metacharacter.",
+                  "examples": [
+                    "/var/lib/app"
+                  ],
+                  "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
+                  "type": "string"
+                },
+                "source": {
+                  "description": "Repository-relative source path of a bind mount.",
+                  "examples": [
+                    "./config"
+                  ],
+                  "type": "string"
+                },
+                "target": {
+                  "description": "Absolute container destination of a bind mount. Expects an absolute path with no control character or shell metacharacter.",
+                  "examples": [
+                    "/etc/app"
+                  ],
+                  "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "working_dir": {
+            "description": "Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter.",
+            "examples": [
+              "/app"
+            ],
+            "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Application containers, workers, daemons, and jobs managed as releases.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "api_version",
+    "environments"
+  ],
+  "title": "Onebox project (onebox.run/v1)",
+  "type": "object"
+}

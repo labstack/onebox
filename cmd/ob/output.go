@@ -2,12 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"sync"
 
 	"github.com/spf13/cobra"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/onebox"
 )
@@ -23,6 +26,7 @@ const (
 	cliValidateSchemaVersion  = "onebox.run/cli-validate/v1alpha1"
 	cliCanonicalSchemaVersion = "onebox.run/cli-canonical/v1alpha1"
 	cliPreviewSchemaVersion   = "onebox.run/cli-preview/v1alpha1"
+	cliEjectSchemaVersion     = "onebox.run/cli-eject/v1alpha1"
 )
 
 // cliValidateEnvelope is what `ob validate --output json` emits.
@@ -64,9 +68,18 @@ type cliPreviewEnvelope struct {
 	Error         *cliPublicError   `json:"error,omitempty"`
 }
 
+type cliEjectEnvelope struct {
+	SchemaVersion string          `json:"schema_version"`
+	Runtime       string          `json:"runtime"`
+	Workloads     []string        `json:"workloads"`
+	Error         *cliPublicError `json:"error,omitempty"`
+}
+
 type cliPublicError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Path    string `json:"path,omitempty"`
+	Next    string `json:"next,omitempty"`
 }
 
 type cliOperationEnvelope struct {
@@ -94,6 +107,37 @@ func isStructuredOutput(g *globalFlags) bool {
 	return g != nil && (g.Output == "json" || g.Output == "ndjson")
 }
 
+var structuredOutputCommands = map[string]bool{
+	"ob abort":                  true,
+	"ob backup-evidence create": true,
+	"ob bootstrap":              true,
+	"ob canonical":              true,
+	"ob deploy":                 true,
+	"ob doctor":                 true,
+	"ob eject":                  true,
+	"ob plan":                   true,
+	"ob preview":                true,
+	"ob proxy apply":            true,
+	"ob resume":                 true,
+	"ob rollback":               true,
+	"ob service apply":          true,
+	"ob status":                 true,
+	"ob validate":               true,
+}
+
+func validateOutputMode(cmd *cobra.Command, g *globalFlags) error {
+	if g.Output == "human" {
+		return nil
+	}
+	if g.Output != "json" && g.Output != "ndjson" {
+		return fmt.Errorf("--output must be human, json, or ndjson")
+	}
+	if !structuredOutputCommands[cmd.CommandPath()] {
+		return fmt.Errorf("--output %s is not supported by %s", g.Output, cmd.CommandPath())
+	}
+	return nil
+}
+
 func commandOutput(cmd *cobra.Command, g *globalFlags) io.Writer {
 	if isStructuredOutput(g) {
 		return io.Discard
@@ -108,6 +152,31 @@ func writeCLIJSON(out io.Writer, value any, pretty bool) error {
 		encoder.SetIndent("", "  ")
 	}
 	return encoder.Encode(value)
+}
+
+func writeStructuredReadFailure(cmd *cobra.Command, g *globalFlags, schemaVersion string, commandErr error) error {
+	explained := explain(commandErr)
+	if !isStructuredOutput(g) {
+		return explained
+	}
+	publicErr := &cliPublicError{
+		Code:    "command_failed",
+		Message: "command failed; inspect stderr for diagnostic detail",
+	}
+	var projectErr *app.Error
+	if errors.As(commandErr, &projectErr) {
+		publicErr.Code = projectErr.Code
+		publicErr.Message = "project is invalid; inspect stderr for diagnostic detail"
+		publicErr.Path = projectErr.Path
+		publicErr.Next = projectErr.Next
+	}
+	if err := writeCLIJSON(cmd.OutOrStdout(), struct {
+		SchemaVersion string          `json:"schema_version"`
+		Error         *cliPublicError `json:"error"`
+	}{SchemaVersion: schemaVersion, Error: publicErr}, g.Output == "json"); err != nil {
+		return err
+	}
+	return explained
 }
 
 func safeOperationError() *cliPublicError {

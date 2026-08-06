@@ -63,15 +63,16 @@ service holding durable data. It also refuses a major version change a driver
 cannot perform in place, rather than replacing the container and leaving the
 data intact and unreachable.
 
-The schema can already declare desired backup, restore-drill, log, metric, and
-alert capabilities. The local engine does **not** manage those continuous
-services yet, and reports them as declared rather than managed. The planned
+The schema can already declare desired log, metric, and alert capabilities.
+The local engine does **not** manage those continuous services yet, and reports
+them as declared rather than managed. The planned
 dashboard/control plane will add authenticated team approvals, continuous
 evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
 
-Versioned driver contracts, drift observation, and backup evidence are not
-shipped.
+Versioned driver contracts and continuous observability management are not
+shipped. Plan/status drift observation and plan-bound migration backup evidence
+are shipped; Onebox still does not create or store the backup itself.
 
 ## Start using it
 
@@ -138,8 +139,8 @@ payload change requires a new plan.
 
 `ob init` is a starting point, not permission to deploy. Review component
 types, persistence semantics, readiness, job data effects, and the environment
-target before running a plan. The [schema guide](docs/schema-v1.md) contains a
-complete example.
+target before running a plan. The [schema guide](docs/schema-v1.md) documents
+the accepted fields and representative examples.
 
 ## Execution contracts
 

@@ -38,6 +38,8 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE:          showCommandHelp,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			return validateOutputMode(cmd, g)
 		},
@@ -58,6 +60,13 @@ func newRootCmd() *cobra.Command {
 	addEjectCommand(root, g)
 	addConfigCommand(root, g)
 	return root
+}
+
+// showCommandHelp makes command groups participate in Cobra's execution
+// lifecycle. Persistent validation therefore runs before their human help is
+// rendered, so an unsupported machine-output request cannot succeed with text.
+func showCommandHelp(cmd *cobra.Command, _ []string) error {
+	return cmd.Help()
 }
 
 func main() {

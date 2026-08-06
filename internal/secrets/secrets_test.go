@@ -50,3 +50,27 @@ func TestRenderRejectsNestedAndBadKeys(t *testing.T) {
 		t.Fatal("invalid env name must be rejected")
 	}
 }
+
+// An encrypted entry's plaintext may already be an environment file.
+//
+// The field is `env_files`, so an author names a `.env`, puts `KEY=value` in
+// it, and encrypts it. SOPS decrypts by the file's own format, so the plaintext
+// comes back as dotenv — and demanding a flat YAML map rejected exactly the
+// shape the field's name invites. Found on a host: the deploy failed with
+// "decrypted content is not a YAML map", naming nothing an author could act on.
+func TestDecryptedPlaintextMayAlreadyBeAnEnvironmentFile(t *testing.T) {
+	for name, plaintext := range map[string]string{
+		"dotenv":   "B=two\nA=one\n",
+		"yaml map": "A: one\nB: two\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := renderDecrypted("probe", []byte(plaintext))
+			if err != nil {
+				t.Fatalf("%s plaintext must be accepted: %v", name, err)
+			}
+			if string(got) != "A=one\nB=two\n" {
+				t.Errorf("both forms must render identically, got %q", got)
+			}
+		})
+	}
+}

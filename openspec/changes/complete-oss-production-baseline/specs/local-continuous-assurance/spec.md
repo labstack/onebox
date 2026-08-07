@@ -10,6 +10,10 @@ Onebox SHALL install host timers that evaluate workload and service health,
 disk pressure, certificate runway, backup freshness, restore-drill freshness,
 and generated-unit state without a resident Onebox process. A check SHALL NOT
 restart, repair, prune, deploy, renew, or otherwise converge the target.
+For a `disable-pending` service, checks SHALL continue to observe service health,
+required unit safety, state age, deadline, and continued storage activity, but
+SHALL exclude backup and restore-drill freshness from health transitions because
+those no longer determine the service tier.
 
 #### Scenario: Unhealthy workload
 - **GIVEN** a workload becomes unhealthy between deployments
@@ -21,6 +25,11 @@ restart, repair, prune, deploy, renew, or otherwise converge the target.
 - **WHEN** its next schedule runs
 - **THEN** it performs a fresh read and does not infer success from incomplete evidence
 
+#### Scenario: Protection disablement is pending
+- **GIVEN** a service deliberately entered `disable-pending`
+- **WHEN** assurance runs after backup or restore proof would otherwise become stale
+- **THEN** it reports `protection_disable_pending` with age, deadline, continued storage activity, and the exact resolving command instead of emitting backup- or drill-freshness failures
+
 ### Requirement: Notifications describe transitions without leaking secrets
 
 The watchdog SHALL use the existing notification destination and outcome
@@ -29,6 +38,10 @@ component and evidence identifiers. Notification bodies and delivery errors
 SHALL exclude secret values, credential-bearing URLs, private certificate
 material, and database content. Notification failure SHALL NOT alter the
 observed health result.
+Entering `disable-pending` SHALL emit one state transition. Freshness expiry
+while that state persists SHALL emit no backup or drill transition; crossing the
+action deadline SHALL instead emit `protection_disablement_overdue` and use the
+bounded reminder cadence for that actionable state.
 
 #### Scenario: Healthy service becomes unhealthy
 - **GIVEN** the previous completed check recorded the service healthy
@@ -39,6 +52,11 @@ observed health result.
 - **GIVEN** the same failure persists across checks
 - **WHEN** no reminder interval has elapsed
 - **THEN** no duplicate notification is emitted
+
+#### Scenario: Pending disablement proof expires
+- **GIVEN** a service remains `disable-pending` after its prior backup or restore-drill proof expires
+- **WHEN** the watchdog compares the completed check with prior evidence
+- **THEN** it emits no stale-backup or stale-drill transition and keeps the pending disablement as the only protection action state
 
 ### Requirement: Assurance evidence is honest about staleness
 
@@ -68,4 +86,3 @@ SHALL not cause a later reader to treat an incomplete record as terminal proof.
 - **GIVEN** a completed assurance record exists
 - **WHEN** JSON output is requested
 - **THEN** the response carries its schema version, per-check state, overall state, expiry, and safe next commands
-

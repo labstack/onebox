@@ -88,8 +88,16 @@ rollback, verification, unit and image transitions, and remote-data handback.
 A restart-bound reversal SHALL require a fresh strong approval delivered
 independently of model-authored text. Until verification succeeds, Onebox SHALL
 retain the recorded service image and every hook, credential, configuration,
-and unit required to keep the engine safe. Disablement SHALL NOT delete remote
-backups, replicas, manifests, previous volumes, or manifest-referenced images.
+and unit required to keep the engine safe. While disablement is pending, Onebox
+SHALL retain the last effective target and retention contract and continue its
+base-backup, continuous-archive, and native-prune schedules so archive growth
+remains retention-bounded; it SHALL stop restore-drill schedules. The state
+SHALL record its request time and a 24-hour action deadline and SHALL report its
+age, continued storage activity, and exact resolving approval/apply command.
+After that deadline it SHALL report `protection_disablement_overdue` without
+implicitly approving or executing the reversal. Disablement SHALL NOT delete
+remote backups, replicas, manifests, previous volumes, or manifest-referenced
+images.
 
 #### Scenario: Disablement restart lacks approval
 - **GIVEN** an enabled protection prerequisite requires restart-bound reversal
@@ -105,6 +113,16 @@ backups, replicas, manifests, previous volumes, or manifest-referenced images.
 - **GIVEN** prerequisite reversal verified but live image reversion did not complete
 - **WHEN** the runner crashes or disconnects
 - **THEN** durable phase state resumes safely with the derived image still installed and all remote recovery assets preserved
+
+#### Scenario: Disablement waits for approval
+- **GIVEN** protection is `disable-pending` and restart approval has not arrived
+- **WHEN** scheduled work runs
+- **THEN** the last effective base-backup, archive, and native-prune schedules continue with bounded retention, restore drills do not run, and status reports the continued storage contract plus the exact disablement command
+
+#### Scenario: Disablement passes its action deadline
+- **GIVEN** protection remains `disable-pending` more than 24 hours after its recorded request time
+- **WHEN** status, doctor, or assurance reads the state
+- **THEN** it reports `protection_disablement_overdue`, elapsed age, continued storage activity, and the resolving command without reverting any prerequisite automatically
 
 ### Requirement: Backup creation is consistent, encrypted, and retry-safe
 
@@ -351,7 +369,8 @@ patched.
 
 ### Requirement: Protection CLI is agent-operable
 
-Protection enable/disable, backup, restore, restore-test, list, inspect, and status commands SHALL provide
+Service-image patch, protection enable/disable, backup, restore, restore-test,
+list, inspect, and status commands SHALL provide
 versioned JSON and NDJSON contracts. Mutations SHALL stream ordered events and
 a terminal result; failures SHALL carry stable codes, secret-free messages,
 operation identifiers, and resolving next commands. Read commands SHALL NOT

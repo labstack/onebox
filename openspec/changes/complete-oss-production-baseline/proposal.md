@@ -30,6 +30,11 @@ the `Run` tier.
   verified; only then may the live runtime return to ordinary tag rendering.
   Remote backups, manifests, and their exact restore-image digests remain
   preserved.
+- Close the protected image-maintenance loop. An enabled PostgreSQL service may
+  take a separately approved same-major derived-image patch without disabling
+  protection: the plan proves pgBackRest/repository compatibility, preserves
+  archive settings and WAL continuity across one restart, and retains the prior
+  digest for every manifest that still references it.
 - Add safe restore choreography that restores into an isolated volume, verifies
   it with an exact-compatible temporary service, requires a plan-bound strong
   approval for live cutover, preserves the prior volume, and never treats a
@@ -88,9 +93,11 @@ and unprotected. Enabling protection may resolve, plan, and apply an exact
 service image digest as an explicit prerequisite. Existing PostgreSQL services
 whose observed patch predates the published derived-image window receive an
 explicit same-major `ob service apply --refresh-image` patch plan before a
-separate protection-enablement plan; protection never hides that patch. New structured CLI
-documents receive new schema identities rather than changing existing output
-shapes. Generated backup units, manifests, restore volumes, and protection
+separate protection-enablement plan; protection never hides that patch. The
+same command on an enabled service plans a protected derived-to-derived patch
+that keeps archive prerequisites and WAL continuity effective. New structured
+CLI documents receive new schema identities rather than changing existing
+output shapes. Generated backup units, manifests, restore volumes, and protection
 state become Onebox-owned inspectable artifacts on the target; backup bytes
 remain in storage owned and paid for by the user.
 

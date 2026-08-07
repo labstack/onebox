@@ -73,6 +73,15 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 - **WHEN** an existing service enables protection but the only published derived mapping would change its observed upstream patch/base digest
 - **THEN** planning refuses with `protection_service_patch_required` and names a separate same-major `ob service apply --refresh-image` patch plan rather than upgrading as a side effect of protection enablement
 
+#### Scenario: Pre-protection same-major patch succeeds
+- **GIVEN** an existing service is not protected and a qualified patch exists in its declared major
+- **WHEN** its approved `ob service apply --refresh-image` plan executes
+- **THEN** Onebox preserves its volume and rollback identity, applies the exact qualified upstream digest, restarts and verifies the service, leaves protection disabled, and names the subsequent protection command
+
+#### Scenario: Service patch would cross a major version
+- **WHEN** a refresh-image plan would change the declared service major
+- **THEN** planning refuses with `service_major_upgrade_unsupported` without changing the image, volume, or protection state
+
 #### Scenario: Recorded protection image is cached
 - **WHEN** an existing protected service is applied or restored while the registry is unreachable and its recorded digest is present locally
 - **THEN** Onebox verifies and uses the exact local digest without resolving the mutable tag
@@ -80,6 +89,10 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 #### Scenario: Derived image publication is overdue
 - **WHEN** a supported upstream patch exceeds the documented derived-publication target without a qualified mapping
 - **THEN** status reports `protection_image_update_overdue`, the affected selector and upstream version, and the current recorded digest without silently upgrading the service
+
+#### Scenario: Protected service patch is available
+- **WHEN** an enabled service has a newer qualified same-major derived mapping
+- **THEN** status retains its evidence-derived tier, reports `protection_service_patch_available`, and names `ob service apply --refresh-image` without changing the live image
 
 #### Scenario: Protection policy is removed while prerequisites remain active
 - **WHEN** an apply removes the policy from a service with installed protection prerequisites
@@ -94,6 +107,31 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 - **THEN** preflight fails with `protected_service_identity_changed` and identifies the evidence that would be orphaned
 
 ## ADDED Requirements
+
+### Requirement: Protected service image maintenance preserves recovery continuity
+
+Refreshing an enabled service image SHALL use a state-bound, strongly approved,
+same-major `service_image_patch` plan rather than disable and re-enable
+protection. The plan
+SHALL bind the old and new service and helper digests, live volume and
+configuration identity, observed repository and stanza identity, a fresh
+pre-patch recovery point, and the WAL position. Before mutation, Onebox SHALL
+prove that the new native helper is compatible with the existing repository and
+stanza. Across the single service restart it SHALL keep every effective archive
+prerequisite, credential, hook, and schedule unchanged. It SHALL verify service
+health, effective archive configuration, repository readability, an archive
+round trip, and WAL continuity before committing the new digest. It SHALL retain
+the previous digest while any protection manifest references it and SHALL roll
+back safely or stop with explicit recovery choices when verification fails.
+
+#### Scenario: Protected same-major patch succeeds
+- **GIVEN** PostgreSQL protection is enabled and a compatible qualified same-major derived image is available
+- **WHEN** the strongly approved refresh-image plan executes
+- **THEN** PostgreSQL restarts once on the new digest with archive mode still effective, WAL continuity and repository readability verify, protection remains enabled, and manifest roots retain the prior digest
+
+#### Scenario: Protected patch compatibility is unproven
+- **WHEN** the new pgBackRest cannot prove compatibility with the recorded stanza or repository
+- **THEN** planning refuses with `protected_service_patch_incompatible` before changing the image or interrupting the service
 
 ### Requirement: Protection prerequisites that alter service runtime are explicit
 

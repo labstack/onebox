@@ -105,10 +105,11 @@ upstream base; it never smuggles a PostgreSQL patch upgrade into protection
 enablement. A newly created protected service selects the latest qualified
 mapping for its selector. The selected mapping binds into the plan, and
 ordinary apply does not chase a moved upstream tag. Existing protected services
-keep their recorded mapping until a separately planned patch update. A first
-protection enablement for which no matching derived image is published refuses
-with `protection_service_image_unpublished` and leaves the service unchanged
-and `Run`.
+keep their recorded mapping until `ob service apply --refresh-image <service>`
+creates a separate state-bound patch plan. A first protection enablement for
+which no matching derived image is published refuses with
+`protection_service_image_unpublished` and leaves the service unchanged and
+`Run`.
 
 Qualification publishes the current supported PostgreSQL patch/base when the
 driver graduates and publishes forward from that point; it does not backfill
@@ -119,6 +120,20 @@ state-bound, strongly approved same-major patch plan, resolves the exact current
 qualified upstream base, preserves the volume and rollback identity, restarts
 and verifies PostgreSQL, and stops without enabling protection. A subsequent
 plan selects the derived image over that same base and enables protection.
+For an `enabled` service, the same command instead creates a protected
+same-major derived-to-derived patch plan. It binds the old and new image and
+pgBackRest digests, observed stanza and repository identity, volume and
+configuration identity, a fresh pre-patch recovery point, and the WAL archive
+position. Preflight refuses unless the new pgBackRest remains compatible with
+the existing stanza and repository. A fresh strong approval authorizes one
+restart while `archive_mode`, the archive command, credentials, and schedules
+remain effective. Completion requires PostgreSQL health, unchanged effective
+archive configuration, a successful stanza check and archive round trip, and
+continuous WAL evidence spanning the restart. Failure rolls back to the prior
+derived digest when safe; a cross-major request or unproven repository
+compatibility refuses without mutation. The prior digest remains a pruning root
+while any manifest references it. This path never disables or re-enables
+protection and never starts a new WAL chain.
 When a previously recorded digest is present locally and verifies, apply and
 restore may use that cache during registry outage; otherwise they refuse with
 `service_image_digest_unavailable`. Services that have never enabled protection
@@ -237,10 +252,10 @@ because a backup schedule must survive disconnection and reboot.
 
 ### 4. Protection operations extend the canonical operation graph
 
-New operation kinds are `protection_enable`, `protection_disable`,
-`backup_create`, `backup_prune`, `replay_archive`, `replication_check`,
-`restore_test`, `restore_prepare`, `restore_cutover`, `restore_abort`,
-`hygiene_run`, and `assurance_check`. Each has a random
+New operation kinds are `service_image_patch`, `protection_enable`,
+`protection_disable`, `backup_create`, `backup_prune`, `replay_archive`,
+`replication_check`, `restore_test`, `restore_prepare`, `restore_cutover`,
+`restore_abort`, `hygiene_run`, and `assurance_check`. Each has a random
 operation identity, state binding, supported runner schemas, deterministic step
 identities, and terminal result. Database-invoked archive hooks use a restricted
 sub-envelope bound to their owning service and may append archive evidence but
@@ -286,11 +301,18 @@ Protection runtime state is explicit: `never-enabled`, `enabled`,
 `disable-pending`, or `disabled`. The live image and installed prerequisites
 derive from that state, not merely from whether the current project text has a
 policy. Removing a policy moves an enabled service to `disable-pending`, reports
-the service `Run`, and emits a state-bound `protection_disable` plan. Until that
-plan completes, Onebox keeps the recorded service digest, configuration,
-archive hook, credentials, and schedules required to prevent data-volume
-growth or a broken engine contract; ordinary apply cannot reinterpret removal
-as permission to change them.
+the service `Run`, records the request time and a 24-hour action deadline, and
+emits a state-bound `protection_disable` plan with the exact approval/apply
+command. Until that plan completes, Onebox keeps the recorded service digest,
+configuration, archive hook, credentials, and the last effective base-backup,
+continuous-archive, and native-prune schedules. Those schedules continue under
+the last effective target and retention contract so remote growth remains
+retention-bounded; restore-drill schedules stop because their proof no longer
+qualifies the service. Status makes that continued storage activity explicit.
+After the deadline it reports `protection_disablement_overdue` with elapsed age
+and the same resolving command. No timeout may bypass approval or revert a live
+prerequisite; ordinary apply cannot reinterpret removal as permission to change
+it.
 
 If disablement must revert a restart-bound prerequisite, its plan names the
 outage, rollback, remote-data handback, and verification and requires a fresh
@@ -330,8 +352,12 @@ mistaken for current protection.
 It does not demote an otherwise current `Managed` recovery contract because a
 late derived rebuild does not invalidate existing backup or restore evidence.
 `Managed` therefore does not claim that the service base image contains the
-latest upstream patch. A requested policy removal, by contrast, reports `Run`
-and `disable-pending` until safe disablement completes.
+latest upstream patch. When a newer qualified mapping exists, status reports
+`protection_service_patch_available` and the exact refresh command without
+changing the tier or image automatically. A requested policy removal, by
+contrast, reports `Run` and `disable-pending` until safe disablement completes;
+backup and drill freshness transitions are replaced by the pending state and
+its deadline rather than reported as unrelated protection failures.
 
 Driver health may be an in-container health check or a bounded, digest-pinned
 driver helper probe when the upstream image intentionally contains no shell.
@@ -678,7 +704,9 @@ rollback, or recovery implementation.
 - [Partial protection disablement can strand engine prerequisites] → Drive
   disablement through a fenced, approved, crash-resumable state machine; keep
   the working image and hooks until restart-bound prerequisites are verified
-  absent; refuse unsafe image reversion; and preserve remote recovery assets.
+  absent; keep backup/archive/prune schedules under bounded retention while
+  pending; stop drills; report an action deadline; refuse unsafe image
+  reversion; and preserve remote recovery assets.
 - [The umbrella change is large] → Implement capability foundations first,
   graduate one driver at a time, and keep all unfinished drivers visibly
   `Run`; no task group may update current docs before its evidence gate passes.
@@ -697,7 +725,8 @@ rollback, or recovery implementation.
    and fault tests.
 4. Add isolated restore and restore drills; then add approved live cutover and
    crash recovery.
-5. Qualify PostgreSQL patch-then-protect onboarding, the derived
+5. Qualify PostgreSQL patch-then-protect onboarding, protected same-major image
+   maintenance with uninterrupted WAL continuity, the derived
    PostgreSQL/pgBackRest image, approved archive-mode enablement and disablement,
    base/WAL/PITR, and update current docs only after its full evidence gate.
    Repeat independently for MySQL XtraBackup plus binlogs and MariaDB Backup

@@ -96,6 +96,32 @@ access, credentials, UID/GID compatibility, and explicit prepare/restore
 ownership. ClickHouse configuration is a generated, digest-bound mount read by
 the service rather than an untracked host edit.
 
+Every lifecycle capability record publishes zero or more qualified
+current-to-candidate protected patch transitions for its delivery class:
+`derived-image`, `upstream-digest`, or `external-helper`. A transition binds the
+exact current and candidate service and any applicable helper digests, the
+driver-declared non-major maintenance range, required pre-patch recovery point,
+interruption and rollback limits, and
+driver-specific continuity probes. There is no default transition. Status emits
+`protection_service_patch_available` only for a published transition; a request
+without one refuses with `protected_service_patch_unsupported` and leaves the
+service and tier evidence unchanged.
+
+`service_image_patch` supplies common fencing, locking, approval, one-restart
+choreography, manifest-root retention, and safe rollback/stop behavior. Each
+driver supplies its own preflight and post-restart evidence: PostgreSQL stanza,
+repository, and WAL continuity; MySQL/MariaDB helper-matrix and binlog
+continuity; MongoDB PBM and oplog continuity; and exact-version native snapshot,
+cold, or replication checks for the remaining drivers. A candidate is not safe
+merely because its tag shares a major. While lifecycle state is
+`disable-pending`, refresh refuses with `service_image_patch_disable_pending`
+and reports the pending age, deadline, and disablement command.
+
+Alternative considered: treat any same-major image change as a safe generic
+patch. Rejected because server/helper, data-format, repository, replay-log, and
+replication compatibility boundaries differ by driver and can be narrower than
+an upstream major tag.
+
 The PostgreSQL capability release record is the closed mapping from an authored
 selector such as `postgres: 17` plus an exact upstream PostgreSQL patch/base
 digest to a compatible pgBackRest version, derived image digest, publication
@@ -120,7 +146,7 @@ state-bound, strongly approved same-major patch plan, resolves the exact current
 qualified upstream base, preserves the volume and rollback identity, restarts
 and verifies PostgreSQL, and stops without enabling protection. A subsequent
 plan selects the derived image over that same base and enables protection.
-For an `enabled` service, the same command instead creates a protected
+For an `enabled` PostgreSQL service, the same command instead creates a protected
 same-major derived-to-derived patch plan. It binds the old and new image and
 pgBackRest digests, observed stanza and repository identity, volume and
 configuration identity, a fresh pre-patch recovery point, and the WAL archive
@@ -312,7 +338,12 @@ qualifies the service. Status makes that continued storage activity explicit.
 After the deadline it reports `protection_disablement_overdue` with elapsed age
 and the same resolving command. No timeout may bypass approval or revert a live
 prerequisite; ordinary apply cannot reinterpret removal as permission to change
-it.
+it. Plan generation overlays the durable last-effective protection projection
+onto current project intent while pending, so matching retained artifacts are
+desired state rather than drift and unrelated application steps may proceed.
+Only divergence from that durable projection is drift. Image refresh is not an
+unrelated step and remains refused until disablement completes or the operator
+restores the policy to return lifecycle state to `enabled`.
 
 If disablement must revert a restart-bound prerequisite, its plan names the
 outage, rollback, remote-data handback, and verification and requires a fresh
@@ -352,9 +383,10 @@ mistaken for current protection.
 It does not demote an otherwise current `Managed` recovery contract because a
 late derived rebuild does not invalidate existing backup or restore evidence.
 `Managed` therefore does not claim that the service base image contains the
-latest upstream patch. When a newer qualified mapping exists, status reports
-`protection_service_patch_available` and the exact refresh command without
-changing the tier or image automatically. A requested policy removal, by
+latest upstream patch. When a newer qualified exact transition exists, status
+reports `protection_service_patch_available` and the exact refresh command
+without changing the tier or image automatically; absence of a qualified
+transition likewise does not invalidate current recovery evidence. A requested policy removal, by
 contrast, reports `Run` and `disable-pending` until safe disablement completes;
 backup and drill freshness transitions are replaced by the pending state and
 its deadline rather than reported as unrelated protection failures.
@@ -701,6 +733,10 @@ rollback, or recovery implementation.
 - [Remote storage outage can create false confidence] → Tier derives from
   freshness and real restore proof, watchdog alerts on expiry, and retention
   never removes old verified snapshots after a failed new backup.
+- [A service patch can outrun helper, data-format, or continuity compatibility]
+  → Publish no default transition; require every driver gate to qualify exact
+  current/candidate service and helper digests, recovery evidence, rollback,
+  and driver-native continuity before offering refresh.
 - [Partial protection disablement can strand engine prerequisites] → Drive
   disablement through a fenced, approved, crash-resumable state machine; keep
   the working image and hooks until restart-bound prerequisites are verified
@@ -730,15 +766,18 @@ rollback, or recovery implementation.
    PostgreSQL/pgBackRest image, approved archive-mode enablement and disablement,
    base/WAL/PITR, and update current docs only after its full evidence gate.
    Repeat independently for MySQL XtraBackup plus binlogs and MariaDB Backup
-   plus generated binlog configuration and approved enablement.
+   plus generated binlog configuration and approved enablement, including each
+   exact protected service/helper patch transition.
 6. Add MongoDB single-node replica-set creation, explicit standalone conversion,
-   PBM base backups, and oplog PITR, then qualify MongoDB protection.
+   PBM base backups, oplog PITR, and PBM-compatible protected patch transitions,
+   then qualify MongoDB protection.
 7. Qualify ClickHouse native backup and encryption, Redis sealed native backup
    or its separately gated RDB fallback, Valkey's safe two-phase RDB restore,
-   Meilisearch snapshot, and authenticated NATS account snapshot/health
-   independently.
+   Meilisearch snapshot, and authenticated NATS account snapshot/health plus
+   each exact protected patch transition independently.
 8. Add RabbitMQ's explicit cold contract and MinIO's independent versioned
-   replication contract, keeping each `Run` until its special evidence passes.
+   replication contract, including their exact protected patch transitions,
+   keeping each `Run` until its special evidence passes.
 9. Add log rotation, disk gates, image reachability pruning, assurance timers,
    and webhook transitions.
 10. Add external-service connections and the official CI workflow.

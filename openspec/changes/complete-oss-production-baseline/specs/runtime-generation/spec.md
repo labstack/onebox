@@ -91,8 +91,12 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 - **THEN** status reports `protection_image_update_overdue`, the affected selector and upstream version, and the current recorded digest without silently upgrading the service
 
 #### Scenario: Protected service patch is available
-- **WHEN** an enabled service has a newer qualified same-major derived mapping
+- **WHEN** an enabled service has a qualified exact non-major current-to-candidate transition for its delivery class and driver
 - **THEN** status retains its evidence-derived tier, reports `protection_service_patch_available`, and names `ob service apply --refresh-image` without changing the live image
+
+#### Scenario: Image refresh is requested during disablement
+- **WHEN** `ob service apply --refresh-image` targets a `disable-pending` service
+- **THEN** planning refuses with `service_image_patch_disable_pending`, reports the pending age and deadline, and names the exact disablement command without changing the image or schedules
 
 #### Scenario: Protection policy is removed while prerequisites remain active
 - **WHEN** an apply removes the policy from a service with installed protection prerequisites
@@ -108,21 +112,31 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 
 ## ADDED Requirements
 
-### Requirement: Protected service image maintenance preserves recovery continuity
+### Requirement: Protected service image maintenance is driver-qualified and recovery-safe
 
-Refreshing an enabled service image SHALL use a state-bound, strongly approved,
-same-major `service_image_patch` plan rather than disable and re-enable
-protection. The plan
-SHALL bind the old and new service and helper digests, live volume and
-configuration identity, observed repository and stanza identity, a fresh
-pre-patch recovery point, and the WAL position. Before mutation, Onebox SHALL
-prove that the new native helper is compatible with the existing repository and
-stanza. Across the single service restart it SHALL keep every effective archive
-prerequisite, credential, hook, and schedule unchanged. It SHALL verify service
-health, effective archive configuration, repository readability, an archive
-round trip, and WAL continuity before committing the new digest. It SHALL retain
-the previous digest while any protection manifest references it and SHALL roll
-back safely or stop with explicit recovery choices when verification fails.
+Refreshing an enabled service image in any service delivery class SHALL use a
+state-bound, strongly approved, driver-qualified non-major `service_image_patch` plan rather
+than disable and re-enable protection. Onebox SHALL offer the plan only when the
+driver lifecycle contract publishes the exact current-to-candidate service and
+any applicable helper digest transition plus driver-specific compatibility and continuity
+checks. There SHALL be no default protected patch behavior. The plan SHALL bind
+the live volume and configuration identity, a fresh pre-patch recovery point,
+and the driver continuity marker. Across the service restart it SHALL keep every
+effective prerequisite, credential, hook, and schedule unchanged. It SHALL
+verify service health, the driver compatibility matrix, effective protection
+configuration, repository or replica readability, and driver-native continuity
+before committing the candidate digest. It SHALL retain every previous digest
+referenced by a protection manifest and SHALL roll back safely or stop with
+explicit recovery choices when verification fails.
+
+#### Scenario: Protected upstream-digest patch succeeds
+- **GIVEN** an upstream-digest service has a qualified exact non-major transition with compatible helper and continuity checks
+- **WHEN** its strongly approved refresh-image plan executes
+- **THEN** the service restarts on the candidate digest, protection remains effective, driver-native continuity verifies, and prior manifest image roots remain retained
+
+#### Scenario: Protected transition is not qualified
+- **WHEN** an enabled service has no published exact current-to-candidate transition for its delivery class and driver
+- **THEN** planning refuses with `protected_service_patch_unsupported`, identifies the current service and applicable helper digests, and leaves the runtime and tier evidence unchanged
 
 #### Scenario: Protected same-major patch succeeds
 - **GIVEN** PostgreSQL protection is enabled and a compatible qualified same-major derived image is available
@@ -184,6 +198,13 @@ contract or the driver's bounded native protocol rather than embed a second
 Onebox lifecycle implementation. The scheduled runner and envelope SHALL
 declare mutually compatible protocol ranges; incompatibility in either
 direction SHALL refuse before mutation.
+The plan-bound desired artifact set SHALL derive from current project intent
+plus durable protection lifecycle state. While a service is `disable-pending`,
+the recorded last-effective target, retention, image, configuration, hooks,
+credentials, and required schedules SHALL remain in that desired set; their
+absence from current project text SHALL NOT by itself be drift. A target-side
+difference from that durable retained projection SHALL still fail closed as
+real drift.
 
 #### Scenario: Backup schedule is previewed
 - **WHEN** a protected service runtime is previewed
@@ -192,6 +213,11 @@ direction SHALL refuse before mutation.
 #### Scenario: Generated artifact drifts
 - **WHEN** a target-side protection unit differs from the plan-bound artifact
 - **THEN** execution fails before mutation with a typed drift error and directs the operator to re-plan or apply the protection artifact
+
+#### Scenario: Pending-disable artifact is intentionally retained
+- **GIVEN** durable lifecycle state records a `disable-pending` retained artifact projection
+- **WHEN** an unrelated apply observes matching image, hook, configuration, and required schedule artifacts that are absent from current project text
+- **THEN** it preserves them, does not report drift, and allows unrelated plan steps to continue
 
 #### Scenario: Native archive hook is generated
 - **WHEN** a qualified point-in-time driver requires database-driven log archiving or a driver-owned helper process

@@ -96,10 +96,16 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 		return err
 	}
 	replay := interrupted
+	legacyReplay := false
 	if s.PrevRelease != "" {
 		replay, err = e.engineFromReleaseSnapshot(ctx, s.PrevRelease)
 		if err != nil {
-			return err
+			if !force {
+				return fmt.Errorf("%w; re-run with --force to use the interrupted release choreography for the legacy previous runtime", err)
+			}
+			e.warnf("previous release snapshot is unusable; using interrupted release choreography (--force): %v", err)
+			replay = interrupted
+			legacyReplay = true
 		}
 	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
@@ -175,7 +181,9 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 	if err := interrupted.removeNewcomers(ctx, s.DeployID); err != nil {
 		return err
 	}
-	if err := replay.Verify(ctx); err != nil {
+	if legacyReplay {
+		e.warnf("previous release verification contract is unavailable; workload health gates passed, skipping release assertions (--force)")
+	} else if err := replay.Verify(ctx); err != nil {
 		return fmt.Errorf("abort verify: %w", err)
 	}
 	e.logf("aborted %s — %s serving", s.DeployID, s.PrevRelease)

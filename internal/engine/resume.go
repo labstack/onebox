@@ -71,6 +71,10 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 // Abort reverts an interrupted deploy to the previous release. The migration
 // gate governs abort exactly like auto-rollback: aborting
 // after a schema change is the same hazard.
+//
+// force is that gate and nothing else. A previous release whose snapshot cannot
+// be read is not a gate an operator may assert past: without it there is no
+// record of that release's choreography, so there is nothing to replay.
 func (e *Engine) Abort(ctx context.Context, force bool) error {
 	_, err := e.AbortWithJournalID(ctx, force)
 	return err

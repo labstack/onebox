@@ -14,6 +14,10 @@ installed runner has an executable driver contract for that service version,
 recovery objective, target kind, and runtime prerequisites. The author SHALL
 declare the recovery outcome and maximum tolerable data-loss window, not a
 backup executable. Declaration alone SHALL NOT change a service's tier.
+When a restore-drill schedule is defaulted, Onebox SHALL derive stable
+per-service start times inside the documented windows and SHALL include the
+full window, host admission delay, and driver time budget in proof-expiry
+validation.
 
 #### Scenario: Qualified policy loads
 - **GIVEN** a driver supported by the installed backup runner and a declared target
@@ -40,6 +44,11 @@ backup executable. Declaration alone SHALL NOT change a service's tier.
 - **WHEN** the protection policy is validated
 - **THEN** validation fails with code `restore_drill_schedule_too_sparse` and names an acceptable maximum cadence
 
+#### Scenario: Default drill schedules are spread
+- **GIVEN** multiple protected services use the default restore-drill schedule
+- **WHEN** canonical schedules are generated
+- **THEN** each receives a stable service-specific start time within the documented windows and the maximum proof interval remains explicit
+
 ### Requirement: Restart-bound protection enablement is separately authorized
 
 When a qualified contract requires a restart-bound runtime prerequisite,
@@ -48,8 +57,11 @@ configuration delta, expected interruption, rollback action, and post-restart
 health verification. It SHALL NOT apply that delta or restart the service from
 ordinary policy convergence, a recurring interruption window, or a scheduled
 operation. Execution SHALL require a fresh strong approval delivered
-independently of model-authored text. Passing enablement evidence SHALL remain
-a prerequisite for backup execution and `Managed` graduation.
+independently of model-authored text. The enablement record SHALL prove how the
+prerequisite was established but SHALL NOT serve as continuing proof. Backup
+preflight, status, doctor, and assurance SHALL re-observe the effective runtime
+prerequisite and configuration identity. A missing or drifted prerequisite
+SHALL block dependent backup operations and `Managed` graduation.
 
 #### Scenario: Enablement restart lacks approval
 - **GIVEN** PostgreSQL archive mode, MariaDB binary logging, or ClickHouse backup configuration requires a service restart
@@ -59,7 +71,12 @@ a prerequisite for backup execution and `Managed` graduation.
 #### Scenario: Enablement restart succeeds
 - **GIVEN** a fresh strongly approved enablement plan and unchanged live state
 - **WHEN** Onebox installs the driver-owned configuration and restarts the service
-- **THEN** it verifies service health and the effective prerequisite before recording enablement evidence
+- **THEN** it verifies service health and the effective prerequisite before recording enablement provenance
+
+#### Scenario: Effective prerequisite later drifts
+- **GIVEN** protection enablement previously succeeded but the effective archive, binary-log, named-collection, or equivalent prerequisite is now absent or changed
+- **WHEN** backup preflight, status, doctor, or assurance observes the service
+- **THEN** it reports `protection_prerequisite_drifted`, blocks dependent backup work, and reports the service `Run` until a newly approved enablement restores and verifies the prerequisite
 
 ### Requirement: Backup creation is consistent, encrypted, and retry-safe
 

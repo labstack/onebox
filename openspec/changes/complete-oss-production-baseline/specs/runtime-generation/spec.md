@@ -8,10 +8,23 @@
 ### Requirement: Service declarations produce driver-owned runtime and reserve their names
 
 Generation SHALL emit a separate, stable runtime document for each supported
-Onebox-run service and SHALL keep it outside application releases. The document
-SHALL resolve the driver's versioned image to an immutable registry digest at
-apply, render that digest, and retain it in service state. It SHALL contain the
-durable volumes, resource limits, qualified in-container or external-helper
+Onebox-run service and SHALL keep it outside application releases. A service
+without a protection policy SHALL retain the existing version-tag image
+behavior and SHALL NOT require registry digest resolution. Before managed
+protection can be enabled, Onebox SHALL map the declared service selector to a
+qualified immutable service image digest, bind the mapping into a state-bound
+plan, render that digest after authorized convergence, and retain it in service
+state. A derived mapping SHALL identify the exact upstream patch/base digest,
+compatible native helper version, derived digest, publication time, and support
+state. Protection enablement for an existing service SHALL use a qualified
+derived image over its observed current upstream base and SHALL NOT introduce a
+patch upgrade; a separate state-bound patch plan is required to change that
+base. A new protected service SHALL use the latest qualified mapping for its
+selector. Onebox SHALL NOT silently substitute an unpublished or unqualified
+image. During registry outage Onebox SHALL accept a previously recorded,
+locally present image for apply or restore only when its digest verifies
+exactly. The document SHALL contain the durable volumes, resource limits,
+qualified in-container or external-helper
 health semantics, shared network, and references to target-generated
 credentials without containing credential values. Application deployment and
 rollback SHALL NOT recreate, stop, or remove those service volumes.
@@ -40,8 +53,28 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 - **THEN** no service container, volume, network, or lifecycle unit is emitted
 
 #### Scenario: Service image resolves to a digest
-- **WHEN** a versioned service image is applied
+- **WHEN** managed protection is enabled for a versioned service image
 - **THEN** the generated runtime and service state use the registry-confirmed immutable digest and retain it as a restore and pruning root
+
+#### Scenario: Unprotected service remains tag-based
+- **WHEN** a service without a protection policy is applied while its registry is unreachable
+- **THEN** generation preserves the existing version-tag runtime behavior and introduces no protection-driven registry failure
+
+#### Scenario: Protection image mapping is unpublished
+- **WHEN** a service enables protection but its declared selector has no qualified published service-image mapping and no previously recorded verified digest
+- **THEN** planning refuses with `protection_service_image_unpublished`, leaves the runtime unchanged, and keeps the service `Run`
+
+#### Scenario: Existing service has only a newer derived mapping
+- **WHEN** an existing service enables protection but the only published derived mapping would change its observed upstream patch/base digest
+- **THEN** planning refuses the mapping and requires a separate service patch plan rather than upgrading as a side effect of protection enablement
+
+#### Scenario: Recorded protection image is cached
+- **WHEN** an existing protected service is applied or restored while the registry is unreachable and its recorded digest is present locally
+- **THEN** Onebox verifies and uses the exact local digest without resolving the mutable tag
+
+#### Scenario: Derived image publication is overdue
+- **WHEN** a supported upstream patch exceeds the documented derived-publication target without a qualified mapping
+- **THEN** status reports `protection_image_update_overdue`, the affected selector and upstream version, and the current recorded digest without silently upgrading the service
 
 #### Scenario: Protected service is renamed
 - **WHEN** a plan changes the declared name of a service bound by a protection policy or manifest
@@ -61,8 +94,10 @@ protected identity. NATS SHALL use generated least-privilege account
 credentials and a digest-pinned external CLI health probe when the upstream
 service image cannot provide an in-container check. Existing unauthenticated
 NATS runtimes SHALL remain unchanged and `Run` until a separate state-bound,
-strongly approved conversion updates server and workload credentials together
-and verifies reconnection.
+strongly approved conversion declares expected connection interruption, updates
+server and workload credentials together, redeploys dependent workloads,
+verifies authenticated reconnection and stream health, and preserves a bounded
+rollback to the prior server/runtime projection until verification passes.
 
 #### Scenario: New MongoDB runtime is initialized
 - **WHEN** a newly declared MongoDB service is first applied or safely retried
@@ -82,7 +117,7 @@ and verifies reconnection.
 
 #### Scenario: Existing NATS runtime is unauthenticated
 - **WHEN** protection planning finds an existing unauthenticated NATS service
-- **THEN** it refuses automatic credential enablement and requires an approved conversion plan that preserves the prior runtime until authenticated server and workload connectivity verify
+- **THEN** it refuses automatic credential enablement and requires an approved conversion plan naming expected interruption, affected workloads, rollback, and post-change authenticated health before the prior runtime can be discarded
 
 ### Requirement: Protection artifacts are generated, bound, and inspectable
 
@@ -92,8 +127,8 @@ state paths, isolated restore-runtime templates, and any driver-owned archive
 hook or helper sidecar required by the selected recovery objective. Every
 helper, hook, configuration, and executable artifact SHALL be version-bound and
 digest-bound into the operation plan, carry verifiable publication provenance,
-and be printable in redacted form before
-mutation. A generated unit or sidecar SHALL invoke the canonical protection
+and be printable in redacted form before mutation. A generated unit or sidecar
+SHALL invoke the canonical protection
 contract or the driver's bounded native protocol rather than embed a second
 Onebox lifecycle implementation. The scheduled runner and envelope SHALL
 declare mutually compatible protocol ranges; incompatibility in either

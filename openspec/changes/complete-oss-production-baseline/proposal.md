@@ -16,7 +16,8 @@ the `Run` tier.
   service driver selects its native consistency and restore engine. Backup
   artifacts and evidence bind the application, environment, service, driver,
   version, recovery kind, method, destination, and exact protected resources.
-- Resolve every managed service runtime to an immutable image digest and ship
+- Resolve each service runtime that enables managed protection to an immutable
+  image digest while leaving unprotected service rendering unchanged, and ship
   digest-pinned Onebox service/helper artifacts where native recovery tooling
   must execute inside or against that runtime. PostgreSQL uses a derived
   PostgreSQL-plus-pgBackRest image built from a pinned upstream base; physical
@@ -73,8 +74,11 @@ workflow above remain proposed until this change is implemented, documented,
 strict-validated, and archived.
 
 Compatibility is additive within `onebox.run/v1`. Existing projects continue
-to load and keep their present behavior; a durable service without a qualified
-backup policy continues to report `Run` and unprotected. New structured CLI
+to load and keep their present behavior; services without protection policies
+keep the current version-tag runtime and do not require registry resolution. A
+durable service without a qualified backup policy continues to report `Run`
+and unprotected. Enabling protection may resolve, plan, and apply an exact
+service image digest as an explicit prerequisite. New structured CLI
 documents receive new schema identities rather than changing existing output
 shapes. Generated backup units, manifests, restore volumes, and protection
 state become Onebox-owned inspectable artifacts on the target; backup bytes
@@ -154,7 +158,9 @@ Explicit non-goals:
   where a native driver emits an artifact rather than owning an off-host
   repository. It also adds derived service-image build, publication, SBOM,
   digest, and provenance verification for tools such as pgBackRest that must
-  be present inside the service container. Plaintext data and credentials may
+  be present inside the service container, including a closed mapping from a
+  declared PostgreSQL version to a qualified upstream patch/base digest and
+  derived-image digest. Plaintext data and credentials may
   not enter plans, logs, journals, structured output, or model-visible
   arguments.
 - Adds fault-oriented integration coverage for interrupted streams, partial

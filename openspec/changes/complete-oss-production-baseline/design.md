@@ -96,6 +96,23 @@ access, credentials, UID/GID compatibility, and explicit prepare/restore
 ownership. ClickHouse configuration is a generated, digest-bound mount read by
 the service rather than an untracked host edit.
 
+The PostgreSQL capability release record is the closed mapping from an authored
+selector such as `postgres: 17` plus an exact upstream PostgreSQL patch/base
+digest to a compatible pgBackRest version, derived image digest, publication
+time, and support state. For an existing service, first protection enablement
+selects only a qualified derived image built over the service's observed current
+upstream base; it never smuggles a PostgreSQL patch upgrade into protection
+enablement. A newly created protected service selects the latest qualified
+mapping for its selector. The selected mapping binds into the plan, and
+ordinary apply does not chase a moved upstream tag. Existing protected services
+keep their recorded mapping until a separately planned patch update. A first
+protection enablement for which no matching derived image is published refuses with
+`protection_service_image_unpublished` and leaves the service unchanged and
+`Run`. When a previously recorded digest is present locally and verifies, apply
+and restore may use that cache during registry outage; otherwise they refuse
+with `service_image_digest_unavailable`. Unprotected services continue using
+the current version-tag rendering and gain no registry-resolution dependency.
+
 An internal non-graduating test driver implements every lifecycle seam before
 the first production driver. It is unavailable in project schema, status, and
 documentation and can never report `Managed`; it exists only so repository,
@@ -232,7 +249,12 @@ plan that names the configuration delta, expected outage, rollback, and health
 checks. Apply refuses with `protection_enablement_restart_not_authorized` until
 a fresh strong approval arrives independently of model text. The approved
 operation writes the generated configuration, deliberately restarts and
-verifies the service, and records prerequisite evidence. A policy's recurring
+verifies the service, and records how the prerequisite was established. That
+record is provenance, not continuing proof: backup preflight, status, doctor,
+and assurance re-observe the effective runtime prerequisite and configuration
+digest. Drift immediately reports `protection_prerequisite_drifted`, blocks new
+backup work that depends on it, and keeps or returns the service to `Run` until
+an approved enablement plan re-establishes it. A policy's recurring
 interruption permission cannot authorize this restart, and the scheduled
 runner can never perform it implicitly. MariaDB receives a driver-owned
 `log_bin` configuration because its project settings surface cannot enable
@@ -363,9 +385,12 @@ Their initial contracts are deliberately different:
   runtimes use generated least-privilege account credentials, and the same
   pinned CLI provides the external driver health probe because the service
   image carries no shell. Existing unauthenticated runtimes remain `Run` until
-  a state-bound, strongly approved conversion updates both server and projected
-  workload credentials and verifies reconnection. Restore targets an empty
-  isolated server/account and verifies stream and consumer state. NATS
+  a state-bound, strongly approved conversion names the expected connection
+  interruption, updates server and projected workload credentials in one
+  fenced operation, redeploys dependent workloads, verifies authenticated
+  reconnection and stream health, and can roll back both runtime and workload
+  projections before the prior credentials are discarded. Restore targets an
+  empty isolated server/account and verifies stream and consumer state. NATS
   documents native account and stream backup/restore:
   https://docs.nats.io/running-a-nats-service/nats_admin/jetstream_admin/disaster_recovery
 - **RabbitMQ:** a live definitions export protects topology only and never
@@ -468,10 +493,12 @@ Defaults are additive `onebox.run/v1` values:
   cannot preserve the stated minimum and never emulates native retention by
   deleting objects inside a native repository;
 - restore proof expires after seven days;
-- restore drills run by default at 03:00 UTC every Sunday and Wednesday, with
-  bounded jitter. Validation requires the maximum possible installed cadence,
-  jitter, and driver time budget to be shorter than the restore-proof maximum
-  age;
+- restore drills run twice weekly by default. Canonicalization derives a stable
+  per-service UTC offset inside separate Sunday and Wednesday six-hour windows
+  from the protected service identity, so services do not share one start slot.
+  Validation includes the full window, host admission delay, and driver time
+  budget when proving that the maximum interval remains shorter than the
+  restore-proof maximum age;
 - generated container logs use the Docker `local` driver with 20 MiB per file
   and five files where no author policy exists;
 - disk warning is the stricter of 10% free or 5 GiB; critical is the stricter
@@ -485,15 +512,21 @@ preserved; where Onebox cannot verify its retention, protection status says
 ### 9. Prune only from a proven ownership and reachability graph
 
 Image roots are computed from current and retained releases, service runtime
-documents, the proxy, scheduled jobs, helper images, and active/in-progress
-restore state. Onebox deletes only images carrying its ownership evidence and
+documents, the proxy, scheduled jobs, helper images, every service-image digest
+referenced by a retained protection manifest, and active/in-progress restore
+state. Onebox deletes only images carrying its ownership evidence and
 unreachable from all roots. It never calls `docker system prune`, never deletes
 volumes as housekeeping, and recomputes the graph after cancellation or retry.
 
 Disk checks cover every distinct filesystem backing the app base, Docker data
 root, backup staging, and restore/drill staging. The host contract may select a
 separate restore/drill staging filesystem. Each driver estimates and caps its
-second-copy footprint before a drill. Insufficient headroom records
+second-copy footprint before a drill. A host-wide admission coordinator holds
+an atomic per-filesystem reservation ledger across all apps and services;
+materialization begins only when the new reservation plus every active
+reservation fits the configured staging budget. Distinct filesystems may admit
+drills concurrently, while shared filesystems serialize or defer safely.
+Insufficient aggregate headroom records
 `drill_deferred_capacity` with the required bytes and resolving commands rather
 than misreporting a corrupt backup; if proof later expires, tier still honestly
 falls to `Run`. Critical pressure blocks space-increasing mutations but leaves
@@ -547,10 +580,14 @@ rollback, or recovery implementation.
   every manifest, test the oldest supported format, and publish direct recovery
   procedures for each qualified contract. Restic receives the same treatment
   only for artifact-producing drivers.
-- [Derived service images add a supply-chain responsibility] → Build from exact
-  upstream digests in a reproducible official workflow, publish source/base
-  provenance and SBOMs, verify the resulting digest before apply and restore,
-  and retain every digest referenced by recovery evidence.
+- [Derived PostgreSQL images make Onebox part of the PostgreSQL patch path] →
+  Poll supported upstream image digests at least every 24 hours; target a
+  qualified derived publication within 72 hours of a supported security patch
+  and seven days of another supported patch. Build from exact upstream digests
+  in a reproducible official workflow, publish source/base provenance and SBOMs,
+  report `protection_image_update_overdue` when the target is missed, verify the
+  chosen digest before apply and restore, never auto-upgrade a running protected
+  service, and retain every digest referenced by recovery evidence.
 - [A scheduled executable appears agent-like] → Keep it short-lived, schema
   restricted, non-listening, least-privileged, and built from the canonical Go
   service; document that no daemon or inbound control plane exists.

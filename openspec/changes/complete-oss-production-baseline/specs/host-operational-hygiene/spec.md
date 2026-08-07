@@ -26,8 +26,9 @@ default origin visible in canonical output.
 ### Requirement: Image pruning preserves every recovery image
 
 Onebox SHALL identify images referenced by the current release, every retained
-release, supporting services, restore staging, scheduled jobs, and the managed
-proxy before pruning. It SHALL delete only images whose Onebox ownership and
+release, supporting services, restore staging, scheduled jobs, the managed
+proxy, and every retained protection manifest before pruning. It SHALL delete
+only images whose Onebox ownership and
 unreachability from those roots are proven, and SHALL never invoke an
 unscoped system-wide prune.
 
@@ -46,6 +47,11 @@ unscoped system-wide prune.
 - **WHEN** housekeeping is retried
 - **THEN** it recomputes reachability from current state before any further deletion
 
+#### Scenario: Older backup retains its service image
+- **GIVEN** a service was patched after a retained protection manifest recorded its prior service-image digest
+- **WHEN** image pruning computes reachability
+- **THEN** it retains the prior digest and a restore of that manifest remains able to start the exact compatible image
+
 ### Requirement: Disk pressure is observable and gates unsafe growth
 
 Onebox SHALL report absolute and percentage disk headroom for its base path,
@@ -55,7 +61,11 @@ state SHALL block deployments, backups, and restore staging that increase disk
 usage while preserving read, cleanup-plan, backup-list, and recovery commands.
 The host contract SHALL permit a distinct restore-drill staging filesystem.
 Before a drill, the selected driver SHALL publish a bounded second-copy
-footprint and Onebox SHALL compare it with effective headroom.
+footprint. Onebox SHALL atomically reserve that footprint against a host-wide
+per-filesystem staging budget before materialization, accounting for every
+active drill across applications and services. It SHALL release the reservation
+after durable completion or cleanup and SHALL serialize or defer work that
+would exceed aggregate headroom.
 
 #### Scenario: Critical disk pressure
 - **GIVEN** a relevant filesystem is below its critical threshold
@@ -71,6 +81,11 @@ footprint and Onebox SHALL compare it with effective headroom.
 - **GIVEN** the bounded driver footprint exceeds headroom on the effective drill staging filesystem
 - **WHEN** the drill timer runs
 - **THEN** no restore bytes are materialized and status reports `drill_deferred_capacity`, required bytes, the selected filesystem, and safe cleanup or reconfiguration commands separately from backup integrity
+
+#### Scenario: Concurrent drills share a filesystem
+- **GIVEN** two individually valid drill footprints would jointly exceed the shared staging budget
+- **WHEN** their schedules overlap
+- **THEN** the admission coordinator materializes at most the admitted footprint and serializes or defers the other drill before it allocates restore bytes
 
 ### Requirement: Housekeeping is host-native and inspectable
 

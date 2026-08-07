@@ -75,6 +75,12 @@ func Send(cfg app.Notification, p Payload) error {
 	if p.TS == "" {
 		p.TS = time.Now().UTC().Format(time.RFC3339)
 	}
+	// Diagnostic errors may contain provider output, query text, or credentials.
+	// Notifications cross the host trust boundary, so they carry only the stable
+	// outcome; operators use the trusted local diagnostics for details.
+	if p.Status != "ok" && p.Error != "" {
+		p.Error = "operation failed; inspect trusted local diagnostics"
+	}
 	p.Text = p.text()
 	body, contentType := []byte(nil), "application/json"
 	if cfg.Format == "text" {

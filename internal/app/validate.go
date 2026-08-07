@@ -22,6 +22,22 @@ func validateSpec(p *Spec) error {
 			return err
 		}
 	}
+	for _, name := range sortedKeys(p.BackupTargets) {
+		if err := gIdent.check("backup_targets."+name, name); err != nil {
+			return err
+		}
+		if err := validateBackupTarget(p.BackupTargets[name], "backup_targets."+name); err != nil {
+			return err
+		}
+	}
+	for _, name := range sortedKeys(p.ExternalServices) {
+		if err := gIdent.check("external_services."+name, name); err != nil {
+			return err
+		}
+		if err := validateExternalService(p.ExternalServices[name], "external_services."+name); err != nil {
+			return err
+		}
+	}
 	for _, name := range sortedKeys(p.Workloads) {
 		if err := gIdent.check("workloads."+name, name); err != nil {
 			return err
@@ -380,6 +396,11 @@ func validateService(s Service, path string) error {
 			return err
 		}
 	}
+	if s.Protection != nil {
+		if err := validateProtectionPolicy(*s.Protection, path+".protection"); err != nil {
+			return err
+		}
+	}
 	return validateResources(s.Resources, path+".resources")
 }
 
@@ -399,6 +420,9 @@ func validateSchedule(s *Schedule, path string) error {
 	}
 	if err := gCron.check(path+".cron", s.Cron); err != nil {
 		return err
+	}
+	if len(strings.Fields(s.Cron)) != 5 {
+		return errf("project_invalid", path+".cron", "", "%q must contain exactly five cron fields", s.Cron)
 	}
 	return gTZ.checkOptional(path+".timezone", s.Timezone)
 }

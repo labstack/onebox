@@ -65,6 +65,16 @@ type Record struct {
 	MigrationBackupRequired bool                     `json:"migration_backup_required,omitempty"`
 	MigrationBackup         *MigrationBackupEvidence `json:"migration_backup,omitempty"`
 	JobResult               *JobResultEvidence       `json:"job_result,omitempty"`
+	// Protection fields extend the same host-synced operation journal without
+	// weakening compatibility with older deployment records.
+	OperationKind       string                    `json:"operation_kind,omitempty"`
+	Service             string                    `json:"service,omitempty"`
+	ProtectionStepID    string                    `json:"protection_step_id,omitempty"`
+	ProtectionAttempt   int                       `json:"protection_attempt,omitempty"`
+	IncompleteResources []IncompleteResource      `json:"incomplete_resources,omitempty"`
+	Retry               *RetryClassification      `json:"retry,omitempty"`
+	HelperProvenance    *HelperProvenance         `json:"helper_provenance,omitempty"`
+	TerminalResult      *ProtectionTerminalResult `json:"terminal_result,omitempty"`
 }
 
 type Writer struct {

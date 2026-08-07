@@ -30,11 +30,13 @@ type Spec struct {
 	// Name is the application's name. Spelled Name rather than App because
 	// inside a package called app, `spec.App` is a stutter and every caller
 	// then writes `.App.App`. The authored key is still `app:`.
-	Name         string                 `json:"app" description:"Stable application name used in generated container, volume, network, and host paths." example:"shop"`
-	BasePath     string                 `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/ob" example:"/srv/ob"`
-	Environments map[string]Environment `json:"environments" description:"Named deployment targets and the policy applied to each target."`
-	Workloads    map[string]Workload    `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
-	Services     map[string]Service     `json:"services,omitempty" description:"Supporting services managed outside application releases, such as databases and caches."`
+	Name             string                     `json:"app" description:"Stable application name used in generated container, volume, network, and host paths." example:"shop"`
+	BasePath         string                     `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/ob" example:"/srv/ob"`
+	Environments     map[string]Environment     `json:"environments" description:"Named deployment targets and the policy applied to each target."`
+	Workloads        map[string]Workload        `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
+	Services         map[string]Service         `json:"services,omitempty" description:"Supporting services managed outside application releases, such as databases and caches."`
+	ExternalServices map[string]ExternalService `json:"external_services,omitempty" description:"Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and protection remain external."`
+	BackupTargets    map[string]BackupTarget    `json:"backup_targets,omitempty" description:"User-owned off-host repositories and independently operated replication destinations available to service protection policies."`
 
 	Deployment Deployment `json:"deployment" description:"Release ordering, retention, and migration behavior."`
 	Runtime    *Runtime   `json:"runtime,omitempty" description:"Project-wide environment files and local preflight requirements."`
@@ -227,12 +229,98 @@ type Schedule struct {
 }
 
 type Service struct {
-	Driver      string         `json:"driver,omitempty" description:"Built-in service driver. Defaults to the service map key." example:"postgres"`
-	Version     any            `json:"version" description:"Driver version or image tag to run." example:"17"`
-	Volumes     []string       `json:"volumes,omitempty" description:"Additional driver-defined persistent volume names."`
-	Persistence *Persistence   `json:"persistence,omitempty" description:"Data-lifetime declaration for this supporting service."`
-	Resources   *Resources     `json:"resources,omitempty" description:"Memory and CPU limits for this supporting service."`
-	Settings    map[string]any `json:"settings,omitempty" description:"Driver-specific settings validated by the selected service driver."`
+	Driver      string            `json:"driver,omitempty" description:"Built-in service driver. Defaults to the service map key." example:"postgres"`
+	Version     any               `json:"version" description:"Driver version or image tag to run." example:"17"`
+	Volumes     []string          `json:"volumes,omitempty" description:"Additional driver-defined persistent volume names."`
+	Persistence *Persistence      `json:"persistence,omitempty" description:"Data-lifetime declaration for this supporting service."`
+	Resources   *Resources        `json:"resources,omitempty" description:"Memory and CPU limits for this supporting service."`
+	Settings    map[string]any    `json:"settings,omitempty" description:"Driver-specific settings validated by the selected service driver."`
+	Protection  *ProtectionPolicy `json:"protection,omitempty" description:"Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection."`
+}
+
+// BackupTarget is a closed destination declaration. Kind-specific validation
+// keeps an S3 repository distinct from an independently operated MinIO
+// replication deployment; neither shape accepts inline credentials.
+type BackupTarget struct {
+	Kind                string              `json:"kind" description:"Destination kind: s3-compatible or minio-replication." example:"s3-compatible"`
+	Endpoint            string              `json:"endpoint" description:"Destination API endpoint. HTTPS is required unless tls is explicitly insecure." example:"https://objects.example.com"`
+	Bucket              string              `json:"bucket,omitempty" description:"Existing destination bucket used by this target." example:"onebox-backups"`
+	Prefix              string              `json:"prefix,omitempty" description:"Non-secret object prefix reserved for Onebox protection data." example:"production/shop"`
+	Region              string              `json:"region,omitempty" description:"S3-compatible region when the endpoint requires one." example:"us-east-1"`
+	TLS                 string              `json:"tls" description:"TLS verification policy: required or insecure." default:"required"`
+	FailureDomain       FailureDomain       `json:"failure_domain" description:"Operator-declared identity used to prove the destination does not share the protected host or deployment."`
+	Credentials         CredentialReference `json:"credentials" description:"Trusted encrypted-file entries containing destination credentials; values never appear in the project."`
+	Encryption          TargetEncryption    `json:"encryption" description:"Required encryption mode for each recovery kind this target may store."`
+	OperatorProvisioned bool                `json:"operator_provisioned,omitempty" description:"Confirms that a MinIO replication destination already exists and is independently operated; Onebox never provisions it."`
+	Versioning          bool                `json:"versioning,omitempty" description:"Confirms that the independent MinIO replication destination has object versioning enabled."`
+}
+
+type FailureDomain struct {
+	Identity   string `json:"identity" description:"Stable operator-owned failure-domain identity, distinct from the protected deployment." example:"provider-a/us-east-1/account-42"`
+	Host       string `json:"host,omitempty" description:"Destination host identity used to refuse a target on the protected host." example:"backup-01.example.net"`
+	Deployment string `json:"deployment,omitempty" description:"Independent storage deployment identity, required for MinIO replication." example:"minio-dr-west"`
+}
+
+// CredentialReference names entries in a trusted SOPS file. Entry names are
+// ordinary environment-variable identifiers; credential values are never
+// accepted by this model.
+type CredentialReference struct {
+	File              string `json:"file" description:"Repository-relative encrypted credential file staged through the trusted secret flow." example:"secrets/backup.env"`
+	Provider          string `json:"provider" description:"Trusted secret provider. Only sops is currently executable." default:"sops"`
+	AccessKeyEntry    string `json:"access_key_entry" description:"Variable name containing the destination access key." example:"BACKUP_ACCESS_KEY_ID"`
+	SecretKeyEntry    string `json:"secret_key_entry" description:"Variable name containing the destination secret key." example:"BACKUP_SECRET_ACCESS_KEY"`
+	SessionTokenEntry string `json:"session_token_entry,omitempty" description:"Optional variable name containing a temporary destination session token." example:"BACKUP_SESSION_TOKEN"`
+}
+
+type TargetEncryption struct {
+	Snapshot   string `json:"snapshot,omitempty" description:"Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse."`
+	PITR       string `json:"pitr,omitempty" description:"Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse."`
+	Cold       string `json:"cold,omitempty" description:"Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse."`
+	Replicated string `json:"replicated,omitempty" description:"Encryption mode required for replicated recovery: replica-inherited."`
+}
+
+type ProtectionPolicy struct {
+	Target                  string              `json:"target" description:"Name of a project-level backup target." example:"offsite"`
+	RecoveryKind            string              `json:"recovery_kind" description:"Required recovery envelope: snapshot, pitr, cold, or replicated." example:"pitr"`
+	MaximumDataLoss         string              `json:"maximum_data_loss" description:"Maximum tolerable interval between the latest recoverable point and failure." example:"15m"`
+	AllowBackupInterruption bool                `json:"allow_backup_interruption" description:"Whether recurring backup operations may use the driver-declared stopped-service window." default:"false"`
+	Schedule                Schedule            `json:"schedule" description:"Exact recurring base-backup or replication-check schedule."`
+	Retention               ProtectionRetention `json:"retention" description:"Portable minimum recovery history that the selected native driver must be able to preserve."`
+	RestoreDrill            RestoreDrillPolicy  `json:"restore_drill" description:"Exact isolated restore-test schedule, proof age, and optional staging filesystem."`
+}
+
+type ProtectionRetention struct {
+	MinimumGenerations int    `json:"minimum_generations" description:"Minimum number of independently recoverable base generations to retain." default:"7" example:"7"`
+	RecoveryWindow     string `json:"recovery_window" description:"Minimum continuous recovery history the native retention mapping must preserve." default:"7d" example:"7d"`
+}
+
+type RestoreDrillPolicy struct {
+	Schedule          Schedule `json:"schedule" description:"Exact recurring isolated restore-test schedule."`
+	ProofMaxAge       string   `json:"proof_max_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
+	StagingFilesystem string   `json:"staging_filesystem,omitempty" description:"Absolute filesystem path used for isolated restore materialization instead of the host default." example:"/srv/onebox-restore"`
+}
+
+type ExternalService struct {
+	Driver          string                 `json:"driver" description:"Built-in connection shape used to validate and project this dependency." example:"postgres"`
+	Connection      ExternalConnection     `json:"connection" description:"Trusted connection source and driver-shaped entry mapping."`
+	ProtectionOwner string                 `json:"protection_owner" description:"Operator or provider responsible for backup, restore, upgrades, credentials, and durability." example:"platform-team/rds"`
+	Probe           *ExternalReadOnlyProbe `json:"probe,omitempty" description:"Optional bounded read-only health observation; it never creates or repairs provider resources."`
+}
+
+type ExternalConnection struct {
+	Source  ExternalConnectionSource `json:"source" description:"Trusted encrypted file containing the connection values."`
+	Entries map[string]string        `json:"entries" description:"Maps driver connection parts such as host, port, user, password, database, or url to variable names in the trusted source."`
+}
+
+type ExternalConnectionSource struct {
+	File     string `json:"file" description:"Repository-relative encrypted environment file staged through the trusted secret flow." example:"secrets/production-db.env"`
+	Provider string `json:"provider" description:"Trusted secret provider. Only sops is currently executable." default:"sops"`
+}
+
+type ExternalReadOnlyProbe struct {
+	Kind    string `json:"kind" description:"Read-only observation kind: driver-health." default:"driver-health"`
+	Timeout string `json:"timeout" description:"Maximum duration of one read-only probe." default:"5s" example:"5s"`
+	MaxAge  string `json:"max_age" description:"Maximum age of a probe observation bound into a plan." default:"5m" example:"5m"`
 }
 
 type Deployment struct {

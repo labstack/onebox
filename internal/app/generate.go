@@ -145,7 +145,11 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	if len(p.Services) > 0 {
 		rendered.Services = map[string][]byte{}
 		for _, name := range sortedKeys(p.Services) {
-			doc, err := p.renderService(n, name, p.Services[name])
+			selection, err := r.ServiceImageForRuntime(name)
+			if err != nil {
+				return nil, err
+			}
+			doc, err := p.renderService(n, name, p.Services[name], selection.Image)
 			if err != nil {
 				return nil, err
 			}
@@ -804,7 +808,12 @@ func (r *Resolved) RenderServices(env string) (map[string][]byte, error) {
 	n := p.NamesFor(env)
 	out := make(map[string][]byte, len(p.Services))
 	for _, name := range sortedKeys(p.Services) {
-		doc, err := p.renderService(n, name, p.Services[name])
+		service := p.Services[name]
+		selection, err := r.ServiceImageForRuntime(name)
+		if err != nil {
+			return nil, err
+		}
+		doc, err := p.renderService(n, name, service, selection.Image)
 		if err != nil {
 			return nil, err
 		}

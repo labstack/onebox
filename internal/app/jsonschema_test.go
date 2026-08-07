@@ -75,6 +75,9 @@ var beyondJSONSchema = map[string]string{
 	"unknown service driver":           "a driver Onebox has an implementation for",
 	"absolute env_file":                "a path that resolves inside the repository after joining",
 	"absolute compose ref":             "a path that resolves inside the repository after joining",
+	"protection self target":           "a target and environment host are declared in separate objects",
+	"protection unsupported objective": "a recovery kind is qualified by the selected service driver",
+	"protection sparse drill":          "cron cadence must be compared with restore proof age",
 
 	// Exclusivity within one object that a schema could express, and does not
 	// here because the resulting document would be harder to read than the

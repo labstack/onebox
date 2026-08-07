@@ -31,6 +31,20 @@ const (
 	KindProxyApply   OperationKind = "proxy_apply"
 	KindSecretsPush  OperationKind = "secrets_push"
 	KindDestroy      OperationKind = "destroy"
+
+	KindServiceImagePatch OperationKind = "service_image_patch"
+	KindProtectionEnable  OperationKind = "protection_enable"
+	KindProtectionDisable OperationKind = "protection_disable"
+	KindBackupCreate      OperationKind = "backup_create"
+	KindBackupPrune       OperationKind = "backup_prune"
+	KindReplayArchive     OperationKind = "replay_archive"
+	KindReplicationCheck  OperationKind = "replication_check"
+	KindRestoreTest       OperationKind = "restore_test"
+	KindRestorePrepare    OperationKind = "restore_prepare"
+	KindRestoreCutover    OperationKind = "restore_cutover"
+	KindRestoreAbort      OperationKind = "restore_abort"
+	KindHygieneRun        OperationKind = "hygiene_run"
+	KindAssuranceCheck    OperationKind = "assurance_check"
 )
 
 type RiskClass string
@@ -70,6 +84,10 @@ const (
 	StepWorkloadRelease OperationStepKind = "workload_release"
 	StepVerify          OperationStepKind = "verify"
 	StepActivate        OperationStepKind = "activate"
+	StepProtectionLock  OperationStepKind = "protection_lock"
+	StepLifecycleAction OperationStepKind = "lifecycle_action"
+	StepLifecycleRecord OperationStepKind = "lifecycle_record"
+	StepArchiveAppend   OperationStepKind = "archive_append"
 )
 
 type DataEffectClass string
@@ -122,38 +140,60 @@ type OperationStep struct {
 	Mutation     bool              `json:"mutation"`
 }
 
+// SecretSlotReference binds an operation to a named entry in a mode-0600 file
+// already staged on the target. It intentionally has no field capable of
+// carrying the credential value.
+type SecretSlotReference struct {
+	Slot  string `json:"slot"`
+	File  string `json:"file"`
+	Entry string `json:"entry"`
+}
+
 // OperationPlan is the canonical executable representation shared by every
 // adapter. Human-readable commands and approval cards are renderings of it.
 type OperationPlan struct {
-	SchemaVersion string             `json:"schema_version"`
-	ID            string             `json:"id"`
-	Kind          OperationKind      `json:"kind"`
-	ReleaseID     string             `json:"release_id,omitempty"`
-	CreatedAt     string             `json:"created_at"`
-	ExpiresAt     string             `json:"expires_at"`
-	Risk          RiskClass          `json:"risk"`
-	Reversibility ReversibilityClass `json:"reversibility"`
-	Approval      ApprovalClass      `json:"approval"`
-	Binding       OperationBinding   `json:"binding"`
-	Steps         []OperationStep    `json:"steps"`
-	PlanDigest    string             `json:"plan_digest"`
+	SchemaVersion string                     `json:"schema_version"`
+	ID            string                     `json:"id"`
+	Kind          OperationKind              `json:"kind"`
+	ReleaseID     string                     `json:"release_id,omitempty"`
+	CreatedAt     string                     `json:"created_at"`
+	ExpiresAt     string                     `json:"expires_at"`
+	Risk          RiskClass                  `json:"risk"`
+	Reversibility ReversibilityClass         `json:"reversibility"`
+	Approval      ApprovalClass              `json:"approval"`
+	Binding       OperationBinding           `json:"binding"`
+	Steps         []OperationStep            `json:"steps"`
+	SecretSlots   []SecretSlotReference      `json:"secret_slots,omitempty"`
+	Artifacts     []OperationArtifactBinding `json:"artifacts,omitempty"`
+	PlanDigest    string                     `json:"plan_digest"`
+}
+
+// OperationArtifactBinding binds an executable plan to one exact generated
+// artifact without copying artifact contents (or secret inputs) into the plan.
+type OperationArtifactBinding struct {
+	Class  string `json:"class"`
+	Path   string `json:"path"`
+	Mode   uint32 `json:"mode"`
+	Digest string `json:"digest"`
 }
 
 // CanonicalJSON returns the deterministic digest input. PlanDigest is always
 // excluded, preventing a self-referential identity.
 func (p OperationPlan) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		SchemaVersion string             `json:"schema_version"`
-		ID            string             `json:"id"`
-		Kind          OperationKind      `json:"kind"`
-		ReleaseID     string             `json:"release_id,omitempty"`
-		CreatedAt     string             `json:"created_at"`
-		ExpiresAt     string             `json:"expires_at"`
-		Risk          RiskClass          `json:"risk"`
-		Reversibility ReversibilityClass `json:"reversibility"`
-		Approval      ApprovalClass      `json:"approval"`
-		Binding       OperationBinding   `json:"binding"`
-		Steps         []OperationStep    `json:"steps"`
+		SchemaVersion string                     `json:"schema_version"`
+		ID            string                     `json:"id"`
+		Kind          OperationKind              `json:"kind"`
+		ReleaseID     string                     `json:"release_id,omitempty"`
+		CreatedAt     string                     `json:"created_at"`
+		ExpiresAt     string                     `json:"expires_at"`
+		Risk          RiskClass                  `json:"risk"`
+		Reversibility ReversibilityClass         `json:"reversibility"`
+		Approval      ApprovalClass              `json:"approval"`
+		Binding       OperationBinding           `json:"binding"`
+		Steps         []OperationStep            `json:"steps"`
+		SecretSlots   []SecretSlotReference      `json:"secret_slots,omitempty"`
+		Artifacts     []OperationArtifactBinding `json:"artifacts,omitempty"`
 	}{
 		SchemaVersion: p.SchemaVersion,
 		ID:            p.ID,
@@ -166,6 +206,8 @@ func (p OperationPlan) CanonicalJSON() ([]byte, error) {
 		Approval:      p.Approval,
 		Binding:       p.Binding,
 		Steps:         p.Steps,
+		SecretSlots:   p.SecretSlots,
+		Artifacts:     p.Artifacts,
 	})
 }
 
@@ -293,6 +335,43 @@ func (p OperationPlan) Validate() error {
 		}
 		seen[step.ID] = struct{}{}
 	}
+	seenSlots := make(map[string]struct{}, len(p.SecretSlots))
+	for index, slot := range p.SecretSlots {
+		if !safeLifecycleMetadata(slot.Slot) || !safeLifecycleMetadata(slot.Entry) {
+			return fmt.Errorf("secret_slots[%d] has invalid slot or entry metadata", index)
+		}
+		if !filepath.IsAbs(slot.File) || filepath.Clean(slot.File) != slot.File {
+			return fmt.Errorf("secret_slots[%d].file must be a clean absolute target path", index)
+		}
+		if _, exists := seenSlots[slot.Slot]; exists {
+			return fmt.Errorf("duplicate secret slot %q", slot.Slot)
+		}
+		seenSlots[slot.Slot] = struct{}{}
+	}
+	seenArtifacts := make(map[string]struct{}, len(p.Artifacts))
+	previousArtifact := ""
+	for index, artifact := range p.Artifacts {
+		if !safeLifecycleMetadata(artifact.Class) {
+			return fmt.Errorf("artifacts[%d].class is invalid metadata", index)
+		}
+		if !filepath.IsAbs(artifact.Path) || filepath.Clean(artifact.Path) != artifact.Path {
+			return fmt.Errorf("artifacts[%d].path must be a clean absolute target path", index)
+		}
+		if artifact.Mode != 0o600 && artifact.Mode != 0o644 {
+			return fmt.Errorf("artifacts[%d].mode must be 0600 or 0644", index)
+		}
+		if !lifecycleGraphDigest.MatchString(artifact.Digest) {
+			return fmt.Errorf("artifacts[%d].digest must be sha256:<64 lowercase hex>", index)
+		}
+		if _, exists := seenArtifacts[artifact.Class]; exists {
+			return fmt.Errorf("duplicate artifact class %q", artifact.Class)
+		}
+		if previousArtifact != "" && artifact.Class <= previousArtifact {
+			return errors.New("artifacts must be sorted by class")
+		}
+		seenArtifacts[artifact.Class] = struct{}{}
+		previousArtifact = artifact.Class
+	}
 	return nil
 }
 
@@ -393,7 +472,11 @@ func requireJSONEOF(decoder *json.Decoder) error {
 func validOperationKind(kind OperationKind) bool {
 	switch kind {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap,
-		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy:
+		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy,
+		KindServiceImagePatch, KindProtectionEnable, KindProtectionDisable,
+		KindBackupCreate, KindBackupPrune, KindReplayArchive, KindReplicationCheck,
+		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,
+		KindHygieneRun, KindAssuranceCheck:
 		return true
 	default:
 		return false
@@ -429,7 +512,8 @@ func validApprovalClass(class ApprovalClass) bool {
 
 func validStepKind(kind OperationStepKind) bool {
 	switch kind {
-	case StepPreflight, StepTransfer, StepJob, StepHook, StepWorkloadRelease, StepVerify, StepActivate:
+	case StepPreflight, StepTransfer, StepJob, StepHook, StepWorkloadRelease, StepVerify, StepActivate,
+		StepProtectionLock, StepLifecycleAction, StepLifecycleRecord, StepArchiveAppend:
 		return true
 	default:
 		return false

@@ -39,8 +39,8 @@ func TestSendPostsPayload(t *testing.T) {
 	if !strings.Contains(text, "sample") || !strings.Contains(text, "deploy") || !strings.Contains(text, "FAILED") {
 		t.Fatalf("text summary: %q", text)
 	}
-	if !strings.Contains(text, "HALT-AND-PAGE") {
-		t.Fatalf("error must reach the text line: %q", text)
+	if strings.Contains(text, "HALT-AND-PAGE") || !strings.Contains(text, "trusted local diagnostics") {
+		t.Fatalf("notification error must be redacted: %q", text)
 	}
 }
 
@@ -101,10 +101,10 @@ func TestSendFormatText(t *testing.T) {
 	defer srv.Close()
 
 	n := app.Notification{Webhook: srv.URL, On: []string{"failure"}, Format: "text"}
-	if err := Send(n, Payload{App: "sample", Host: "root@h", Verb: "deploy", Status: "fail", Error: "boom"}); err != nil {
+	if err := Send(n, Payload{App: "sample", Host: "root@h", Verb: "deploy", Status: "fail", Error: "credential-canary-value; customer@example.invalid database row"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(body, "{") || !strings.Contains(body, "FAILED") || !strings.Contains(body, "boom") {
+	if strings.Contains(body, "{") || !strings.Contains(body, "FAILED") || strings.Contains(body, "credential-canary") || strings.Contains(body, "customer@example.invalid") || !strings.Contains(body, "trusted local diagnostics") {
 		t.Fatalf("text format must send the human line only: %q", body)
 	}
 	if !strings.HasPrefix(ct, "text/plain") {

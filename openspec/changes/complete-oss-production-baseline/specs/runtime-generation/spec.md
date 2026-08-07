@@ -9,8 +9,12 @@
 
 Generation SHALL emit a separate, stable runtime document for each supported
 Onebox-run service and SHALL keep it outside application releases. A service
-without a protection policy SHALL retain the existing version-tag image
-behavior and SHALL NOT require registry digest resolution. Before managed
+that has never enabled protection, or whose approved disablement completed,
+SHALL retain the existing version-tag image behavior and SHALL NOT require
+protection-driven registry digest resolution. Removing a policy from an enabled
+service SHALL move durable runtime state to `disable-pending`; it SHALL NOT by
+itself change the image, configuration, hooks, credentials, or units required by
+the still-effective engine prerequisites. Before managed
 protection can be enabled, Onebox SHALL map the declared service selector to a
 qualified immutable service image digest, bind the mapping into a state-bound
 plan, render that digest after authorized convergence, and retain it in service
@@ -18,8 +22,9 @@ state. A derived mapping SHALL identify the exact upstream patch/base digest,
 compatible native helper version, derived digest, publication time, and support
 state. Protection enablement for an existing service SHALL use a qualified
 derived image over its observed current upstream base and SHALL NOT introduce a
-patch upgrade; a separate state-bound patch plan is required to change that
-base. A new protected service SHALL use the latest qualified mapping for its
+patch upgrade. When that base predates the published mapping window, Onebox
+SHALL require a separate state-bound, same-major service patch plan before
+protection. A new protected service SHALL use the latest qualified mapping for its
 selector. Onebox SHALL NOT silently substitute an unpublished or unqualified
 image. During registry outage Onebox SHALL accept a previously recorded,
 locally present image for apply or restore only when its digest verifies
@@ -57,7 +62,7 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 - **THEN** the generated runtime and service state use the registry-confirmed immutable digest and retain it as a restore and pruning root
 
 #### Scenario: Unprotected service remains tag-based
-- **WHEN** a service without a protection policy is applied while its registry is unreachable
+- **WHEN** a service that never enabled protection or completed approved disablement is applied while its registry is unreachable
 - **THEN** generation preserves the existing version-tag runtime behavior and introduces no protection-driven registry failure
 
 #### Scenario: Protection image mapping is unpublished
@@ -66,7 +71,7 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 
 #### Scenario: Existing service has only a newer derived mapping
 - **WHEN** an existing service enables protection but the only published derived mapping would change its observed upstream patch/base digest
-- **THEN** planning refuses the mapping and requires a separate service patch plan rather than upgrading as a side effect of protection enablement
+- **THEN** planning refuses with `protection_service_patch_required` and names a separate same-major `ob service apply --refresh-image` patch plan rather than upgrading as a side effect of protection enablement
 
 #### Scenario: Recorded protection image is cached
 - **WHEN** an existing protected service is applied or restored while the registry is unreachable and its recorded digest is present locally
@@ -75,6 +80,14 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 #### Scenario: Derived image publication is overdue
 - **WHEN** a supported upstream patch exceeds the documented derived-publication target without a qualified mapping
 - **THEN** status reports `protection_image_update_overdue`, the affected selector and upstream version, and the current recorded digest without silently upgrading the service
+
+#### Scenario: Protection policy is removed while prerequisites remain active
+- **WHEN** an apply removes the policy from a service with installed protection prerequisites
+- **THEN** the service enters `disable-pending`, retains its recorded digest and working hooks, reports `Run`, and requires a state-bound approved disablement before ordinary tag rendering
+
+#### Scenario: Image reversion would strand an archive command
+- **WHEN** a plan would replace the recorded service image while an effective archive command still depends on a binary present only in that image
+- **THEN** planning refuses with `protection_image_revert_unsafe` without changing the live runtime
 
 #### Scenario: Protected service is renamed
 - **WHEN** a plan changes the declared name of a service bound by a protection policy or manifest
@@ -181,12 +194,15 @@ Housekeeping, assurance, backup, and restore-drill units SHALL reside under the
 Onebox-owned host layout, carry application/environment labels, and be listed
 by inspection. Removing or disabling a declaration SHALL remove only its
 generated units, envelopes, and unreferenced runner artifacts after an
-authorized convergence; remote backups, application
-data, service volumes, and foreign units SHALL remain untouched.
+authorized convergence and, where applicable, successful prerequisite
+disablement. Units or hooks required by an effective engine prerequisite SHALL
+remain until that prerequisite is verified absent. Remote backups, manifests,
+manifest-referenced images, application data, service volumes, and foreign
+units SHALL remain untouched.
 
 #### Scenario: Protection is disabled
-- **WHEN** an authorized change removes a service backup schedule
-- **THEN** the corresponding generated timer is removed and existing remote backups and service volumes remain
+- **WHEN** an authorized disablement has reverted and verified every installed prerequisite
+- **THEN** the corresponding generated timer, hook, and unreferenced live-runtime artifact may be removed while remote backups, manifests, restore-image digests, and service volumes remain
 
 #### Scenario: Application is destroyed
 - **WHEN** an authorized destroy removes the last reference to a scheduled runner or protection envelope

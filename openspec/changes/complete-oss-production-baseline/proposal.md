@@ -24,6 +24,12 @@ the `Run` tier.
   MySQL/MariaDB helpers receive only their contract-bound data and credential
   mounts. Every derived artifact carries reproducible-build provenance and is
   retained as a restore dependency.
+- Add symmetric protection disablement. Removing a policy first produces a
+  state-bound, strongly approved plan that keeps the recorded service image and
+  archive hooks effective until restart-bound prerequisites are reverted and
+  verified; only then may the live runtime return to ordinary tag rendering.
+  Remote backups, manifests, and their exact restore-image digests remain
+  preserved.
 - Add safe restore choreography that restores into an isolated volume, verifies
   it with an exact-compatible temporary service, requires a plan-bound strong
   approval for live cutover, preserves the prior volume, and never treats a
@@ -75,10 +81,14 @@ strict-validated, and archived.
 
 Compatibility is additive within `onebox.run/v1`. Existing projects continue
 to load and keep their present behavior; services without protection policies
-keep the current version-tag runtime and do not require registry resolution. A
+keep the current version-tag runtime and do not require registry resolution
+unless previously installed protection prerequisites are still active. A
 durable service without a qualified backup policy continues to report `Run`
 and unprotected. Enabling protection may resolve, plan, and apply an exact
-service image digest as an explicit prerequisite. New structured CLI
+service image digest as an explicit prerequisite. Existing PostgreSQL services
+whose observed patch predates the published derived-image window receive an
+explicit same-major `ob service apply --refresh-image` patch plan before a
+separate protection-enablement plan; protection never hides that patch. New structured CLI
 documents receive new schema identities rather than changing existing output
 shapes. Generated backup units, manifests, restore volumes, and protection
 state become Onebox-owned inspectable artifacts on the target; backup bytes
@@ -160,7 +170,10 @@ Explicit non-goals:
   digest, and provenance verification for tools such as pgBackRest that must
   be present inside the service container, including a closed mapping from a
   declared PostgreSQL version to a qualified upstream patch/base digest and
-  derived-image digest. Plaintext data and credentials may
+  derived-image digest. A repository-owned scheduled and manually dispatchable
+  release workflow detects upstream patch digests, builds and qualifies the
+  derived image reproducibly, signs provenance, and publishes the capability
+  mapping. Plaintext data and credentials may
   not enter plans, logs, journals, structured output, or model-visible
   arguments.
 - Adds fault-oriented integration coverage for interrupted streams, partial

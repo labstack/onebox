@@ -15,9 +15,10 @@ recovery objective, target kind, and runtime prerequisites. The author SHALL
 declare the recovery outcome and maximum tolerable data-loss window, not a
 backup executable. Declaration alone SHALL NOT change a service's tier.
 When a restore-drill schedule is defaulted, Onebox SHALL derive stable
-per-service start times inside the documented windows and SHALL include the
-full window, host admission delay, and driver time budget in proof-expiry
-validation.
+per-service start times from canonical application identity, environment,
+declared service name, and driver inside the documented windows. It SHALL
+include the full window, host admission delay, and driver time budget in
+proof-expiry validation.
 
 #### Scenario: Qualified policy loads
 - **GIVEN** a driver supported by the installed backup runner and a declared target
@@ -77,6 +78,33 @@ SHALL block dependent backup operations and `Managed` graduation.
 - **GIVEN** protection enablement previously succeeded but the effective archive, binary-log, named-collection, or equivalent prerequisite is now absent or changed
 - **WHEN** backup preflight, status, doctor, or assurance observes the service
 - **THEN** it reports `protection_prerequisite_drifted`, blocks dependent backup work, and reports the service `Run` until a newly approved enablement restores and verifies the prerequisite
+
+### Requirement: Protection disablement preserves service safety and recovery assets
+
+Removing a protection policy SHALL NOT itself remove runtime support or revert
+an image while an installed prerequisite remains effective. Onebox SHALL emit a
+state-bound disablement plan naming interruption, prerequisite reversal,
+rollback, verification, unit and image transitions, and remote-data handback.
+A restart-bound reversal SHALL require a fresh strong approval delivered
+independently of model-authored text. Until verification succeeds, Onebox SHALL
+retain the recorded service image and every hook, credential, configuration,
+and unit required to keep the engine safe. Disablement SHALL NOT delete remote
+backups, replicas, manifests, previous volumes, or manifest-referenced images.
+
+#### Scenario: Disablement restart lacks approval
+- **GIVEN** an enabled protection prerequisite requires restart-bound reversal
+- **WHEN** the policy is removed without a fresh approval bound to the disablement plan and live state
+- **THEN** execution refuses with `protection_disablement_not_authorized`, keeps the safe runtime effective, and reports `disable-pending`
+
+#### Scenario: PostgreSQL protection is disabled safely
+- **GIVEN** PostgreSQL archive mode and an archive command are effective in the derived service image
+- **WHEN** an approved disablement executes
+- **THEN** it first disables and verifies archive mode and WAL recycling while retaining the derived image, and only afterward may remove archive support or return the live runtime to ordinary tag rendering
+
+#### Scenario: Disablement crashes between phases
+- **GIVEN** prerequisite reversal verified but live image reversion did not complete
+- **WHEN** the runner crashes or disconnects
+- **THEN** durable phase state resumes safely with the derived image still installed and all remote recovery assets preserved
 
 ### Requirement: Backup creation is consistent, encrypted, and retry-safe
 
@@ -272,8 +300,8 @@ fall back to a generic live-volume archive.
 A service SHALL report `Managed` only while its service runtime uses the exact
 immutable image digest recorded at apply and retained by its protection
 manifests, resource policy is effective, driver health is verified through the
-qualified in-container or digest-pinned external probe, declared protection objective
-is currently satisfied, backup or replication schedule is installed, the
+qualified in-container or digest-pinned external probe, declared protection
+objective is currently satisfied, backup or replication schedule is installed, the
 latest recoverable point is within policy, and restore-drill proof is fresh. A
 qualified driver missing any evidence SHALL report `Run` with the missing
 evidence. Graduation SHALL be independent for PostgreSQL, MySQL, MariaDB,
@@ -281,6 +309,10 @@ MongoDB, ClickHouse, Redis, Valkey, RabbitMQ, MinIO, Meilisearch, and NATS; one
 driver's passing suite SHALL NOT qualify another driver or version. `Managed`
 SHALL always be accompanied by the effective recovery kind and observed RPO so
 the tier cannot imply point-in-time or zero-data-loss behavior it does not have.
+An overdue derived-image rebuild SHALL be reported as separate security
+maintenance and SHALL NOT demote otherwise valid recovery evidence; `Managed`
+SHALL NOT be presented as a claim that the service base image is currently
+patched.
 
 #### Scenario: All graduation evidence is current
 - **GIVEN** every required protection and runtime check passes for a qualified driver
@@ -291,6 +323,11 @@ the tier cannot imply point-in-time or zero-data-loss behavior it does not have.
 - **GIVEN** a catalogue tag now resolves differently from the immutable service digest recorded for the protected runtime
 - **WHEN** service status or restore compatibility is evaluated
 - **THEN** Onebox uses and reports the recorded digest, refuses an unavailable digest with `service_image_digest_unavailable`, and never treats the mutable tag as equivalent evidence
+
+#### Scenario: Derived image rebuild is overdue
+- **GIVEN** current backup, replay, health, and restore-proof evidence passes but the derived-image publication target was missed
+- **WHEN** service status is rendered
+- **THEN** it reports `Managed` for the recovery contract plus `protection_image_update_overdue` as separate security maintenance without claiming patch currency
 
 #### Scenario: Backup is stale
 - **GIVEN** a previously managed service whose latest verified backup exceeds policy
@@ -314,7 +351,7 @@ the tier cannot imply point-in-time or zero-data-loss behavior it does not have.
 
 ### Requirement: Protection CLI is agent-operable
 
-Backup, restore, restore-test, list, inspect, and status commands SHALL provide
+Protection enable/disable, backup, restore, restore-test, list, inspect, and status commands SHALL provide
 versioned JSON and NDJSON contracts. Mutations SHALL stream ordered events and
 a terminal result; failures SHALL carry stable codes, secret-free messages,
 operation identifiers, and resolving next commands. Read commands SHALL NOT

@@ -106,12 +106,32 @@ enablement. A newly created protected service selects the latest qualified
 mapping for its selector. The selected mapping binds into the plan, and
 ordinary apply does not chase a moved upstream tag. Existing protected services
 keep their recorded mapping until a separately planned patch update. A first
-protection enablement for which no matching derived image is published refuses with
-`protection_service_image_unpublished` and leaves the service unchanged and
-`Run`. When a previously recorded digest is present locally and verifies, apply
-and restore may use that cache during registry outage; otherwise they refuse
-with `service_image_digest_unavailable`. Unprotected services continue using
-the current version-tag rendering and gain no registry-resolution dependency.
+protection enablement for which no matching derived image is published refuses
+with `protection_service_image_unpublished` and leaves the service unchanged
+and `Run`.
+
+Qualification publishes the current supported PostgreSQL patch/base when the
+driver graduates and publishes forward from that point; it does not backfill
+arbitrary historical upstream digests. An existing service on an older base
+receives `protection_service_patch_required` and the resolving command
+`ob service apply --refresh-image <service>`. That command creates a separate
+state-bound, strongly approved same-major patch plan, resolves the exact current
+qualified upstream base, preserves the volume and rollback identity, restarts
+and verifies PostgreSQL, and stops without enabling protection. A subsequent
+plan selects the derived image over that same base and enables protection.
+When a previously recorded digest is present locally and verifies, apply and
+restore may use that cache during registry outage; otherwise they refuse with
+`service_image_digest_unavailable`. Services that have never enabled protection
+continue using current version-tag rendering and gain no protection-driven
+registry dependency.
+
+A repository-owned GitHub Actions release workflow runs on a bounded schedule
+and by manual dispatch. It observes supported upstream digests, builds twice to
+check reproducibility, runs the PostgreSQL/pgBackRest compatibility and restore
+smoke suite, emits the SBOM, signs or transparency-publishes provenance, pushes
+the derived digest, and atomically publishes the qualified capability mapping.
+Publication failure leaves the prior mapping intact and records pipeline
+evidence used by `protection_image_update_overdue`.
 
 An internal non-graduating test driver implements every lifecycle seam before
 the first production driver. It is unavailable in project schema, status, and
@@ -217,9 +237,10 @@ because a backup schedule must survive disconnection and reboot.
 
 ### 4. Protection operations extend the canonical operation graph
 
-New operation kinds are `backup_create`, `backup_prune`, `replay_archive`,
-`replication_check`, `restore_test`, `restore_prepare`, `restore_cutover`,
-`restore_abort`, `hygiene_run`, and `assurance_check`. Each has a random
+New operation kinds are `protection_enable`, `protection_disable`,
+`backup_create`, `backup_prune`, `replay_archive`, `replication_check`,
+`restore_test`, `restore_prepare`, `restore_cutover`, `restore_abort`,
+`hygiene_run`, and `assurance_check`. Each has a random
 operation identity, state binding, supported runner schemas, deterministic step
 identities, and terminal result. Database-invoked archive hooks use a restricted
 sub-envelope bound to their owning service and may append archive evidence but
@@ -261,6 +282,30 @@ runner can never perform it implicitly. MariaDB receives a driver-owned
 binary logging; PostgreSQL archive settings and ClickHouse named collections
 use the same planned-enablement contract where their effective runtime changes.
 
+Protection runtime state is explicit: `never-enabled`, `enabled`,
+`disable-pending`, or `disabled`. The live image and installed prerequisites
+derive from that state, not merely from whether the current project text has a
+policy. Removing a policy moves an enabled service to `disable-pending`, reports
+the service `Run`, and emits a state-bound `protection_disable` plan. Until that
+plan completes, Onebox keeps the recorded service digest, configuration,
+archive hook, credentials, and schedules required to prevent data-volume
+growth or a broken engine contract; ordinary apply cannot reinterpret removal
+as permission to change them.
+
+If disablement must revert a restart-bound prerequisite, its plan names the
+outage, rollback, remote-data handback, and verification and requires a fresh
+strong approval. PostgreSQL first remains on the derived image, disables
+`archive_mode` and its archive command, restarts, verifies WAL recycling and
+health, and durably records the prerequisite as absent. Only a later phase may
+remove generated archive units/configuration and return the live runtime to
+ordinary version-tag rendering. A crash between phases safely leaves the
+derived image installed. An image change attempted while an effective archive
+command still depends on the removed binary refuses with
+`protection_image_revert_unsafe`; missing approval refuses with
+`protection_disablement_not_authorized`. Disablement never deletes repositories,
+replicas, manifests, or the exact image digests those manifests need for
+restore.
+
 ### 5. Derive service tier from evidence, never configuration
 
 `Run`, `Managed`, and `External` are output states, not author-set fields.
@@ -280,6 +325,13 @@ Status carries each contributing fact, its source, observation time, expiry,
 and resolving command. A previously managed service immediately degrades to
 `Run` when evidence expires; historical proof remains visible but cannot be
 mistaken for current protection.
+
+`protection_image_update_overdue` is a separate security-maintenance warning.
+It does not demote an otherwise current `Managed` recovery contract because a
+late derived rebuild does not invalidate existing backup or restore evidence.
+`Managed` therefore does not claim that the service base image contains the
+latest upstream patch. A requested policy removal, by contrast, reports `Run`
+and `disable-pending` until safe disablement completes.
 
 Driver health may be an in-container health check or a bounded, digest-pinned
 driver helper probe when the upstream image intentionally contains no shell.
@@ -495,7 +547,9 @@ Defaults are additive `onebox.run/v1` values:
 - restore proof expires after seven days;
 - restore drills run twice weekly by default. Canonicalization derives a stable
   per-service UTC offset inside separate Sunday and Wednesday six-hour windows
-  from the protected service identity, so services do not share one start slot.
+  from the canonical application identity, environment, declared service name,
+  and driver, so same-named services in different applications or environments
+  do not share one start slot.
   Validation includes the full window, host admission delay, and driver time
   budget when proving that the maximum interval remains shorter than the
   restore-proof maximum age;
@@ -621,6 +675,10 @@ rollback, or recovery implementation.
 - [Remote storage outage can create false confidence] → Tier derives from
   freshness and real restore proof, watchdog alerts on expiry, and retention
   never removes old verified snapshots after a failed new backup.
+- [Partial protection disablement can strand engine prerequisites] → Drive
+  disablement through a fenced, approved, crash-resumable state machine; keep
+  the working image and hooks until restart-bound prerequisites are verified
+  absent; refuse unsafe image reversion; and preserve remote recovery assets.
 - [The umbrella change is large] → Implement capability foundations first,
   graduate one driver at a time, and keep all unfinished drivers visibly
   `Run`; no task group may update current docs before its evidence gate passes.
@@ -632,16 +690,18 @@ rollback, or recovery implementation.
 2. Add active-volume state seeded from existing service volumes, with read-only
    validation and no restore cutover enabled.
 3. Add the scheduled runner with bidirectional compatibility and removal,
-   service/helper image publication and provenance, S3-compatible target
+   the repository-owned derived-image publication pipeline and provenance,
+   service/helper image delivery, S3-compatible target
    contract, direct-native and Restic-artifact repository interfaces, the
    non-graduating test driver, protection manifests, manual backup/list/status,
    and fault tests.
 4. Add isolated restore and restore drills; then add approved live cutover and
    crash recovery.
-5. Qualify the derived PostgreSQL/pgBackRest image, approved archive-mode
-   enablement, base/WAL/PITR, and update current docs only after its full
-   evidence gate. Repeat independently for MySQL XtraBackup plus binlogs and
-   MariaDB Backup plus generated binlog configuration and approved enablement.
+5. Qualify PostgreSQL patch-then-protect onboarding, the derived
+   PostgreSQL/pgBackRest image, approved archive-mode enablement and disablement,
+   base/WAL/PITR, and update current docs only after its full evidence gate.
+   Repeat independently for MySQL XtraBackup plus binlogs and MariaDB Backup
+   plus generated binlog configuration and approved enablement.
 6. Add MongoDB single-node replica-set creation, explicit standalone conversion,
    PBM base backups, and oplog PITR, then qualify MongoDB protection.
 7. Qualify ClickHouse native backup and encryption, Redis sealed native backup
@@ -659,13 +719,15 @@ rollback, or recovery implementation.
    deletes backup repositories, active or previous volumes, or generated
    evidence.
 
-Ownership handback is explicit: disabling schedules removes generated units but
-leaves repositories, replicas, and volumes; inspection prints redacted
-manifests and effective commands; driver-specific direct-recovery runbooks let
-the operator restore without Onebox, including Restic only where it stores the
-artifact. Deleting remote backups or previous restore volumes and dismantling a
-MinIO replica require future explicit destructive contracts and are not part
-of rollback.
+Ownership handback is explicit: removing a policy first completes any approved
+restart-bound prerequisite reversal, then removes generated units and permits
+ordinary runtime rendering. It leaves repositories, replicas, manifests,
+manifest-referenced images, and volumes intact. Inspection prints the
+disablement phase, redacted manifests, and effective commands; driver-specific
+direct-recovery runbooks let the operator restore without Onebox, including
+Restic only where it stores the artifact. Deleting remote backups or previous
+restore volumes and dismantling a MinIO replica require future explicit
+destructive contracts and are not part of rollback.
 
 ## Open Questions
 

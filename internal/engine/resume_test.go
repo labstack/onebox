@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -392,6 +393,40 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 	}
 	if !strings.Contains(seq, "docker stop -t 10 NEW1 && docker rm NEW1") {
 		t.Fatalf("abort did not sweep the interrupted snapshot's web newcomer:\n%s", seq)
+	}
+}
+
+func TestAbortLegacyPreviousSnapshotRequiresForce(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprintf("force=%v", force), func(t *testing.T) {
+			f := interruptedFake("changed=false")
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, "/releases/R0/ob.snapshot.yml") {
+					return transport.Result{Stdout: "app: sample\ncomponents: {}\n"}, true
+				}
+				return base(cmd)
+			}
+
+			var out bytes.Buffer
+			e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+			err := e.Abort(context.Background(), force)
+			if !force {
+				if err == nil || !strings.Contains(err.Error(), "re-run with --force") {
+					t.Fatalf("legacy snapshot error = %v", err)
+				}
+				if strings.Contains(strings.Join(f.Commands, "\n"), "phase\":\"abort\",\"event\":\"intent") {
+					t.Fatal("abort mutated after refusing the legacy snapshot")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("forced abort: %v\n%s", err, strings.Join(f.Commands, "\n"))
+			}
+			if !strings.Contains(out.String(), "snapshot is unusable") || !strings.Contains(out.String(), "skipping release assertions") {
+				t.Fatalf("forced fallback warnings missing: %s", out.String())
+			}
+		})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -392,6 +393,60 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 	}
 	if !strings.Contains(seq, "docker stop -t 10 NEW1 && docker rm NEW1") {
 		t.Fatalf("abort did not sweep the interrupted snapshot's web newcomer:\n%s", seq)
+	}
+}
+
+const gateClosed = "changed=unknown (no result declared — gate closed, fail-safe)"
+
+// An unreadable previous snapshot is not a gate an operator can assert past.
+// --force asserts schema compatibility for the migration gate; it cannot supply
+// the choreography of a release whose snapshot is gone — the release's Compose
+// document records images and healthchecks but not its strategies, ordering or
+// verification. Falling back to the interrupted release's choreography instead
+// would revert only the roles THIS deploy happens to declare and then report the
+// previous release as serving while the rest of it stayed down. So every case
+// refuses, and refuses before the lock is taken or the intent is journaled.
+func TestAbortRefusesUnreadablePreviousSnapshot(t *testing.T) {
+	for _, prev := range []struct {
+		name string
+		res  transport.Result
+	}{
+		{"unparseable", transport.Result{Stdout: "app: sample\ncomponents: {}\n"}},
+		{"absent", transport.Result{ExitCode: 1, Stderr: "cat: No such file or directory"}},
+	} {
+		for _, gate := range []struct {
+			name   string
+			detail string
+			force  bool
+		}{
+			{"open", "changed=false", false},
+			{"open-forced", "changed=false", true},
+			// The case where --force carries real authority: it opens the
+			// migration gate, and the abort must still stop at the snapshot.
+			{"closed-forced", gateClosed, true},
+		} {
+			t.Run(fmt.Sprintf("%s/gate=%s", prev.name, gate.name), func(t *testing.T) {
+				f := interruptedFake(gate.detail)
+				base := f.Dynamic
+				f.Dynamic = func(cmd string) (transport.Result, bool) {
+					if strings.Contains(cmd, "/releases/R0/ob.snapshot.yml") {
+						return prev.res, true
+					}
+					return base(cmd)
+				}
+
+				e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+				err := e.Abort(context.Background(), gate.force)
+				// R0 is named so this cannot pass on a refusal of R1, the
+				// interrupted release, which is read first by the same call.
+				if err == nil || !strings.Contains(err.Error(), "recovery refused: release R0") {
+					t.Fatalf("abort error = %v", err)
+				}
+				if strings.Contains(strings.Join(f.Commands, "\n"), `phase":"abort","event":"intent`) {
+					t.Fatalf("abort mutated after refusing the snapshot:\n%s", strings.Join(f.Commands, "\n"))
+				}
+			})
+		}
 	}
 }
 

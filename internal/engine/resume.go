@@ -71,6 +71,10 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 // Abort reverts an interrupted deploy to the previous release. The migration
 // gate governs abort exactly like auto-rollback: aborting
 // after a schema change is the same hazard.
+//
+// force is that gate and nothing else. A previous release whose snapshot cannot
+// be read is not a gate an operator may assert past: without it there is no
+// record of that release's choreography, so there is nothing to replay.
 func (e *Engine) Abort(ctx context.Context, force bool) error {
 	_, err := e.AbortWithJournalID(ctx, force)
 	return err
@@ -96,16 +100,10 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 		return err
 	}
 	replay := interrupted
-	legacyReplay := false
 	if s.PrevRelease != "" {
 		replay, err = e.engineFromReleaseSnapshot(ctx, s.PrevRelease)
 		if err != nil {
-			if !force {
-				return fmt.Errorf("%w; re-run with --force to use the interrupted release choreography for the legacy previous runtime", err)
-			}
-			e.warnf("previous release snapshot is unusable; using interrupted release choreography (--force): %v", err)
-			replay = interrupted
-			legacyReplay = true
+			return err
 		}
 	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
@@ -181,9 +179,7 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 	if err := interrupted.removeNewcomers(ctx, s.DeployID); err != nil {
 		return err
 	}
-	if legacyReplay {
-		e.warnf("previous release verification contract is unavailable; workload health gates passed, skipping release assertions (--force)")
-	} else if err := replay.Verify(ctx); err != nil {
+	if err := replay.Verify(ctx); err != nil {
 		return fmt.Errorf("abort verify: %w", err)
 	}
 	e.logf("aborted %s — %s serving", s.DeployID, s.PrevRelease)

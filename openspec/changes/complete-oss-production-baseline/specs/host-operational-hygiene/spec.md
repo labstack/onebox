@@ -53,6 +53,9 @@ container storage, backup staging, and restore staging where they differ.
 Warning and critical thresholds SHALL be explicit effective values. A critical
 state SHALL block deployments, backups, and restore staging that increase disk
 usage while preserving read, cleanup-plan, backup-list, and recovery commands.
+The host contract SHALL permit a distinct restore-drill staging filesystem.
+Before a drill, the selected driver SHALL publish a bounded second-copy
+footprint and Onebox SHALL compare it with effective headroom.
 
 #### Scenario: Critical disk pressure
 - **GIVEN** a relevant filesystem is below its critical threshold
@@ -63,6 +66,11 @@ usage while preserving read, cleanup-plan, backup-list, and recovery commands.
 - **GIVEN** critical disk pressure
 - **WHEN** status or audit is requested
 - **THEN** the read completes without running cleanup
+
+#### Scenario: Restore drill lacks second-copy headroom
+- **GIVEN** the bounded driver footprint exceeds headroom on the effective drill staging filesystem
+- **WHEN** the drill timer runs
+- **THEN** no restore bytes are materialized and status reports `drill_deferred_capacity`, required bytes, the selected filesystem, and safe cleanup or reconfiguration commands separately from backup integrity
 
 ### Requirement: Housekeeping is host-native and inspectable
 
@@ -93,4 +101,3 @@ identity SHALL be idempotent.
 - **GIVEN** eligible images were pruned
 - **WHEN** JSON output is requested
 - **THEN** the result identifies deleted Onebox-owned images, reclaimed bytes, and every protected root without including command noise
-

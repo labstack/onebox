@@ -7,8 +7,9 @@ Defines trustworthy, driver-native protection for Onebox-run data services, incl
 ### Requirement: Backup policy names executable protection
 
 A backup policy SHALL select a declared backup target, an exact host schedule,
-a retention policy, a restore-drill maximum age, a recovery objective, and any
-permitted interruption window. Onebox SHALL accept the policy only when the
+a retention policy, an exact restore-drill schedule, a restore-drill maximum
+age, a recovery objective, and any permitted recurring backup interruption
+window. Onebox SHALL accept the policy only when the
 installed runner has an executable driver contract for that service version,
 recovery objective, target kind, and runtime prerequisites. The author SHALL
 declare the recovery outcome and maximum tolerable data-loss window, not a
@@ -34,18 +35,51 @@ backup executable. Declaration alone SHALL NOT change a service's tier.
 - **WHEN** its policy does not explicitly permit that interruption
 - **THEN** validation fails with code `backup_interruption_not_authorized` and the service remains `Run`
 
+#### Scenario: Drill schedule cannot preserve proof
+- **GIVEN** a restore-drill schedule, jitter budget, and driver time budget whose maximum interval reaches or exceeds the restore-proof maximum age
+- **WHEN** the protection policy is validated
+- **THEN** validation fails with code `restore_drill_schedule_too_sparse` and names an acceptable maximum cadence
+
+### Requirement: Restart-bound protection enablement is separately authorized
+
+When a qualified contract requires a restart-bound runtime prerequisite,
+Onebox SHALL produce a one-time state-bound enablement plan naming the exact
+configuration delta, expected interruption, rollback action, and post-restart
+health verification. It SHALL NOT apply that delta or restart the service from
+ordinary policy convergence, a recurring interruption window, or a scheduled
+operation. Execution SHALL require a fresh strong approval delivered
+independently of model-authored text. Passing enablement evidence SHALL remain
+a prerequisite for backup execution and `Managed` graduation.
+
+#### Scenario: Enablement restart lacks approval
+- **GIVEN** PostgreSQL archive mode, MariaDB binary logging, or ClickHouse backup configuration requires a service restart
+- **WHEN** apply has no fresh approval bound to the enablement plan and live service state
+- **THEN** it refuses with code `protection_enablement_restart_not_authorized` without changing configuration or restarting the service
+
+#### Scenario: Enablement restart succeeds
+- **GIVEN** a fresh strongly approved enablement plan and unchanged live state
+- **WHEN** Onebox installs the driver-owned configuration and restarts the service
+- **THEN** it verifies service health and the effective prerequisite before recording enablement evidence
+
 ### Requirement: Backup creation is consistent, encrypted, and retry-safe
 
 Onebox SHALL create a backup through the selected driver's native consistency
-method and SHALL encrypt backup data at rest in the off-host destination. When
+method and SHALL satisfy the capability record's declared encryption mode for
+the selected recovery kind: client-side encryption, archive-password
+encryption, observed server-side encryption, or inherited replica encryption.
+The protection manifest and status SHALL identify the active mode and its
+secret-free evidence. Onebox SHALL NOT report encrypted protection when the
+driver or destination cannot prove the declared mode. When
 the native method can stream, Onebox SHALL NOT create a plaintext intermediate.
 When the native method requires a local artifact, Onebox SHALL use bounded,
 mode-restricted Onebox staging, SHALL exclude it from protection evidence, and
 SHALL remove it after verified upload or report its exact residual identity and
 cleanup command after failure. The manifest SHALL bind the application,
 environment, service, driver, service version, recovery kind, consistency
-method, target, protected resources, replay range where applicable, digest,
-and creation time. The operation SHALL serialize against service apply,
+method, target, protected resources, replay or replica range where applicable,
+encryption mode, artifact digests only when artifacts exist, and creation time.
+A replicated contract SHALL identify replica state and metadata scope without
+inventing a backup generation or artifact. The operation SHALL serialize against service apply,
 migration, restore, and incompatible backup operations. Retrying the same
 operation identity SHALL resume or return the existing terminal result and
 SHALL NOT create an untracked duplicate.
@@ -75,15 +109,23 @@ SHALL NOT create an untracked duplicate.
 - **WHEN** backup creation succeeds or fails after producing local bytes
 - **THEN** Onebox never counts those bytes as off-host protection and either removes them after verified upload or reports the restricted residual and explicit cleanup command
 
+#### Scenario: Native destination encryption is unproven
+- **GIVEN** a native-direct or replicated contract whose required encryption mode cannot be observed at the destination
+- **WHEN** backup or protection status is evaluated
+- **THEN** Onebox records `backup_encryption_unverified`, does not claim encrypted protection, and keeps the service `Run`
+
 ### Requirement: Retention never weakens the last known protection
 
 Retention SHALL operate only on verified backup generations and replay logs
 owned by the exact target, driver contract, and service. Onebox SHALL invoke
-the qualified driver's repository-aware retention semantics, SHALL preserve
+the qualified driver's declared mapping from authored minimum generations and
+recovery window to repository-aware native retention semantics, SHALL preserve
 every dependency needed to satisfy the declared recovery window, and SHALL
 apply destructive retention only after a new recoverable generation verifies.
 It SHALL refuse deletion when ownership, repository state, replay continuity,
-or the newest verified generation is ambiguous. Removing a project or policy
+the native mapping, or the newest verified generation is ambiguous. Onebox
+SHALL NOT emulate retention by directly deleting objects inside a native
+repository or replica. Removing a project or policy
 SHALL NOT delete remote backup bytes.
 
 #### Scenario: New backup fails
@@ -100,6 +142,11 @@ SHALL NOT delete remote backup bytes.
 - **GIVEN** a point-in-time policy whose archived log sequence is incomplete
 - **WHEN** retention evaluates base backups or replay logs
 - **THEN** it deletes nothing needed by the last continuous recovery window and reports code `replay_continuity_broken`
+
+#### Scenario: Retention intent cannot map to native semantics
+- **GIVEN** an authored minimum generation count or recovery window the selected driver cannot preserve through its native retention controls
+- **WHEN** protection is planned
+- **THEN** planning fails with code `backup_retention_unsupported` and performs no repository deletion
 
 ### Requirement: Restore is staged before live cutover
 
@@ -133,11 +180,16 @@ as permission to destroy either copy.
 
 ### Requirement: Restore drills produce fresh proof
 
-A restore drill SHALL execute the same decrypt, download, restore, startup, and
-driver-verification path as a real restore without changing the live service.
-Its evidence SHALL identify the backup, runner, service version, validation
-method, result, and completion time. Merely checking object existence or a
-repository checksum SHALL NOT count as a restore drill.
+A restore drill SHALL execute the same materialize, start, and driver-verify
+path that the qualified recovery-kind contract uses for a real restore without
+changing the live service; no applicable step may be substituted or skipped.
+Artifact contracts therefore exercise decrypt and download, native-direct
+contracts exercise their server-side restore, and replicated contracts recover
+from the independent replica plus declared metadata.
+Its evidence SHALL identify the selected artifact, native recovery point, or
+replica observation as applicable, plus the runner, exact service image digest,
+validation method, result, and completion time. Merely checking object
+existence or a repository checksum SHALL NOT count as a restore drill.
 
 #### Scenario: Scheduled restore drill passes
 - **GIVEN** a service requires a restore drill within a maximum age
@@ -148,6 +200,11 @@ repository checksum SHALL NOT count as a restore drill.
 - **GIVEN** the last passing restore drill exceeds its maximum age
 - **WHEN** status, doctor, or the watchdog evaluates protection
 - **THEN** the service is reported as not currently managed and the output names `ob restore test` as the resolving command
+
+#### Scenario: Drill is deferred for capacity
+- **GIVEN** the selected driver has declared its bounded drill footprint and neither the default nor authored staging filesystem has sufficient headroom
+- **WHEN** a scheduled restore drill begins
+- **THEN** it records `drill_deferred_capacity` with required bytes and safe capacity remedies, does not classify the backup as corrupt, and does not extend prior proof expiry
 
 ### Requirement: Recovery claims follow the native service envelope
 
@@ -160,10 +217,14 @@ verified physical base and continuous binary-log replay under their separate
 version and storage-engine contracts. MongoDB SHALL qualify online snapshot or
 point-in-time recovery only as a healthy replica set with continuous oplog
 evidence. ClickHouse SHALL use its consistent native backup and restore path.
-Redis and Valkey SHALL use their separately qualified immutable RDB snapshot
-paths. Meilisearch SHALL use its native snapshot or portable-dump path according
-to the recovery objective. NATS JetStream SHALL protect stream and consumer
-state through native stream or account snapshots. RabbitMQ SHALL NOT claim
+Redis SHALL use a separately qualified sealed native BASE/INCR/manifest path or
+an explicitly qualified immutable-RDB fallback whose restore prevents AOF from
+taking precedence. Valkey SHALL use its separately qualified immutable RDB
+snapshot path with the same AOF-precedence safety property. Meilisearch SHALL
+use its native snapshot path; portable dumps are upgrade evidence only and
+SHALL NOT satisfy backup-tier evidence. NATS JetStream SHALL protect stream and
+consumer state through authenticated native stream or account snapshots and a
+qualified external helper health probe. RabbitMQ SHALL NOT claim
 message recovery from a live data-directory copy or a definitions-only export.
 MinIO SHALL NOT claim protection unless its replica is independent, versioned,
 complete for the declared metadata scope, and recovery-tested. No driver SHALL
@@ -177,7 +238,7 @@ fall back to a generic live-volume archive.
 #### Scenario: Redis-compatible snapshot is verified
 - **GIVEN** a Redis or Valkey service with a snapshot policy
 - **WHEN** a backup is created and restore-tested
-- **THEN** evidence identifies the immutable RDB generation, driver identity, key-count verification, and the snapshot recovery point
+- **THEN** evidence identifies the sealed Redis backup set or immutable RDB as applicable, driver identity, AOF-safe load procedure, key-count verification, and the snapshot recovery point
 
 #### Scenario: RabbitMQ definitions are insufficient
 - **GIVEN** a RabbitMQ service for which only definitions were exported
@@ -191,8 +252,10 @@ fall back to a generic live-volume archive.
 
 ### Requirement: Service tier follows observed evidence
 
-A service SHALL report `Managed` only while its image is pinned, resource
-policy is effective, driver health is verified, declared protection objective
+A service SHALL report `Managed` only while its service runtime uses the exact
+immutable image digest recorded at apply and retained by its protection
+manifests, resource policy is effective, driver health is verified through the
+qualified in-container or digest-pinned external probe, declared protection objective
 is currently satisfied, backup or replication schedule is installed, the
 latest recoverable point is within policy, and restore-drill proof is fresh. A
 qualified driver missing any evidence SHALL report `Run` with the missing
@@ -207,6 +270,11 @@ the tier cannot imply point-in-time or zero-data-loss behavior it does not have.
 - **WHEN** service status is rendered
 - **THEN** the service reports `Managed` and identifies the evidence without exposing secrets
 
+#### Scenario: Service image tag moved
+- **GIVEN** a catalogue tag now resolves differently from the immutable service digest recorded for the protected runtime
+- **WHEN** service status or restore compatibility is evaluated
+- **THEN** Onebox uses and reports the recorded digest, refuses an unavailable digest with `service_image_digest_unavailable`, and never treats the mutable tag as equivalent evidence
+
 #### Scenario: Backup is stale
 - **GIVEN** a previously managed service whose latest verified backup exceeds policy
 - **WHEN** status is read
@@ -216,6 +284,11 @@ the tier cannot imply point-in-time or zero-data-loss behavior it does not have.
 - **GIVEN** a MongoDB service without replica-set evidence
 - **WHEN** protection status is evaluated
 - **THEN** it remains `Run` and online oplog-consistent protection is unavailable
+
+#### Scenario: External driver health probe is unavailable
+- **GIVEN** a driver such as NATS whose qualified health mechanism uses a pinned external helper
+- **WHEN** helper provenance, credentials, or a passing bounded probe is absent
+- **THEN** the service remains `Run` and status identifies the missing health evidence
 
 #### Scenario: Managed snapshot does not imply point-in-time recovery
 - **GIVEN** a managed service qualified only for snapshot recovery

@@ -16,7 +16,9 @@ The contract SHALL accept a backup policy only when it selects a declared
 target and the service driver has an executable protection contract. A backup
 declaration SHALL NOT itself establish protection or the `Managed` tier.
 Durable services without current backup and restore-drill evidence SHALL remain
-valid but SHALL be reported as unprotected `Run` services.
+valid but SHALL be reported as unprotected `Run` services. Durable workload
+volumes remain outside this change's protection contract and SHALL continue to
+be reported individually as unbacked rather than disappearing from diagnostics.
 
 #### Scenario: Executable backup declaration
 - **WHEN** a qualified service declares a valid target, schedule, retention, and restore-drill policy
@@ -27,8 +29,8 @@ valid but SHALL be reported as unprotected `Run` services.
 - **THEN** validation fails because Onebox could not perform the declared protection
 
 #### Scenario: Unprotected durable data is reported
-- **WHEN** diagnostics run against a durable service without current protection evidence
-- **THEN** the service is reported as unprotected and `Run`, with the command that establishes or inspects protection
+- **WHEN** diagnostics run against a durable service without current protection evidence or a workload whose persistence mode is durable
+- **THEN** each service is reported as unprotected and `Run`, each durable workload is reported as unbacked, and output names the applicable inspection or protection command without implying workload-volume backup
 
 #### Scenario: A scalar service declaration is sufficient
 - **WHEN** a project declares `services: {postgres: 17}`
@@ -63,7 +65,7 @@ repository prefix, or storage deployment.
 - **THEN** validation fails with a typed error directing the author to a trusted secret entry
 
 #### Scenario: Independent MinIO replica target
-- **WHEN** a MinIO replication target declares a distinct deployment identity, versioning requirement, TLS endpoint, and trusted administrative credential reference
+- **WHEN** a MinIO replication target declares an operator-provisioned second deployment outside the protected host, a distinct deployment identity, versioning requirement, TLS endpoint, and trusted administrative credential reference
 - **THEN** it validates without provisioning the remote deployment or exposing its credentials
 
 #### Scenario: Target aliases the protected service
@@ -73,8 +75,10 @@ repository prefix, or storage deployment.
 ### Requirement: Recovery intent is separate from backup tooling
 
 A service protection policy SHALL declare a closed recovery kind, maximum data
-loss, restore-proof age, retention intent, and whether service interruption is
-permitted. It SHALL NOT select a backup executable, helper image, command, or
+loss, exact restore-drill schedule, restore-proof age, minimum recoverable
+generations and recovery window, optional restore-staging filesystem, and
+whether recurring backup interruption is permitted. It SHALL NOT select a
+backup executable, helper image, command, or
 repository layout. Onebox SHALL derive those implementation details from the
 driver, service version, objective, and target, and canonical output SHALL show
 the resulting recovery envelope and its origin.
@@ -91,10 +95,15 @@ the resulting recovery envelope and its origin.
 - **WHEN** a service can protect all durable state only through a stopped-service backup and the policy omits interruption permission
 - **THEN** validation fails with `backup_interruption_not_authorized`
 
+#### Scenario: Policy attempts to authorize an enablement restart
+- **WHEN** a project tries to treat recurring interruption permission as authorization for a restart-bound protection prerequisite
+- **THEN** validation fails because the restart requires a separate state-bound plan and strong approval
+
 ### Requirement: Protection defaults and overrides preserve intent
 
-Backup schedule, retention, target, recovery objective, permitted interruption,
-and restore-drill policy SHALL expose their effective origins. Environment
+Backup schedule, native-mappable retention intent, target, recovery objective,
+permitted recurring interruption, restore staging, and restore-drill schedule
+and maximum age SHALL expose their effective origins. Environment
 overrides MAY tune schedule and retention but SHALL NOT silently change the
 protected service, driver, recovery kind, interruption permission, repository
 identity, or persistence ownership.

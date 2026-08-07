@@ -65,6 +65,8 @@ rendering. A new lifecycle capability record is attached per driver and names:
 - supported recovery kinds (`snapshot`, `pitr`, `cold`, `replicated`) and
   backup format schemas;
 - pinned helper image and compatible service-version range;
+- service-image delivery class (`upstream-digest`, `derived-image`, or
+  `external-helper`), its pinned upstream base, build provenance, and SBOM;
 - native consistency, log-archive or replication, restore, startup, and
   verification operations;
 - whether online backup is supported, expected interruption, achievable RPO,
@@ -72,6 +74,8 @@ rendering. A new lifecycle capability record is attached per driver and names:
 - whether the engine writes directly to its repository or emits an artifact
   for the common encrypted artifact transport;
 - the resources and credential slots required by each operation;
+- the encryption mode, native-retention mapping, service-image digest, and any
+  one-time enablement restart required by the contract;
 - explicit graduation evidence.
 
 Every durable catalogue entry has a record, but a driver/version/objective
@@ -79,6 +83,23 @@ combination not yet qualified remains `Run`. There is no default protection
 implementation and no automatic fallback to volume copying. This keeps adding
 a runnable service cheap while making the stronger `Managed` claim deliberately
 expensive and independently testable.
+
+Tools invoked by a process inside a service container are delivered in that
+service runtime. PostgreSQL therefore uses a Onebox-built
+PostgreSQL-plus-pgBackRest image derived reproducibly from the catalogue's
+pinned upstream PostgreSQL digest. The build publishes an immutable digest,
+SBOM, source/base provenance, and compatibility record; restore retains and
+uses that exact digest. Tools that can safely operate from a helper container,
+including XtraBackup and MariaDB Backup, remain separately pinned helpers with
+contract-specific read/write data-volume mounts, database sockets or network
+access, credentials, UID/GID compatibility, and explicit prepare/restore
+ownership. ClickHouse configuration is a generated, digest-bound mount read by
+the service rather than an untracked host edit.
+
+An internal non-graduating test driver implements every lifecycle seam before
+the first production driver. It is unavailable in project schema, status, and
+documentation and can never report `Managed`; it exists only so repository,
+manifest, restore, cutover, and drill foundations are independently testable.
 
 Alternative considered: back up every Docker volume with one archive command.
 Rejected because a readable archive of live database files is not necessarily
@@ -90,8 +111,9 @@ The protection pipeline has two independently versioned interfaces:
 
 1. A driver contract creates a consistent recoverable generation, log segment,
    stream snapshot, or replica and knows how to restore and verify it.
-2. A repository contract stores driver output off host with authenticated
-   identity, encryption at rest, integrity, retry, retention, and listing.
+2. A repository contract stores or identifies driver output off host with
+   authenticated identity, an explicit encryption mode, integrity, retry,
+   retention, and listing or replica observation.
 
 Drivers with a native remote repository use it directly: pgBackRest,
 Percona Backup for MongoDB, ClickHouse `BACKUP`/`RESTORE`, and MinIO replication
@@ -112,6 +134,15 @@ MinIO replication additionally requires a distinct remote deployment identity;
 Onebox refuses a destination resolving to the protected MinIO instance, its
 host, or its data volume.
 
+Encryption is capability data, not a uniform verb. Each driver/target record
+chooses and proves one of `client-side`, `archive-password`,
+`server-side-sse`, or `replica-inherited`. Status and manifests name the active
+mode and its evidence. ClickHouse native S3 protection qualifies only when its
+selected archive-password or target SSE contract is observed; MinIO
+replication records inherited source/target encryption and KMS compatibility
+without claiming Onebox re-encrypted replicated objects. A contract whose
+declared encryption policy cannot be proven remains `Run`.
+
 When an engine can stream, the pipeline never creates a plaintext intermediate.
 When a native API can only materialize a file, it writes to a mode-0700,
 operation-scoped, capacity-bounded staging directory. The directory is not
@@ -119,11 +150,15 @@ protection evidence, is removed after verified upload, and remains named in the
 journal with an explicit cleanup command after failure. Onebox does not invent
 its own encryption envelope or multipart protocol.
 
-Every generation gets a sealed secret-free Onebox manifest containing schema,
+Every recoverable point gets a sealed secret-free Onebox protection manifest
+containing schema,
 app/environment/service identity, driver and service image digest, recovery
 kind, native method and helper provenance, protected resources, repository
-identity, native backup or replica identity, base and replay range when
-applicable, artifact digests, size, operation, interruption, and timestamps.
+identity, encryption mode, native backup or replica identity, base and replay
+range when applicable, artifact digests and size only when artifacts exist,
+operation, interruption, and timestamps. A `replicated` record carries replica
+identity, observation range, lag, version/delete coverage, and metadata scope;
+it does not invent a backup generation, artifact digest, or size.
 Native repository metadata remains authoritative for restore; the manifest
 binds that metadata into Onebox's evidence and ownership model.
 
@@ -147,8 +182,15 @@ approval. It is an execution artifact, not another adapter or resident agent.
 
 The runner enforces lock, fence, journal, retry identity, helper provenance,
 and redaction exactly as a CLI-triggered operation. Updating Onebox regenerates
-the envelope and runner provenance; a runner whose supported schema does not
-include the envelope refuses with an upgrade/apply command.
+the envelope and runner provenance. The CLI verifies the installed runner's
+digest and signed or transparency-verifiable publication provenance before
+use. Compatibility is bidirectional: the envelope declares the minimum and
+maximum runner protocol, while the runner declares the CLI/envelope protocols
+it accepts. Either an older CLI facing a newer incompatible runner or a newer
+CLI facing an older incompatible runner refuses without mutation and names the
+matching upgrade/apply command. `ob destroy` removes unreferenced runners,
+envelopes, and units from the Onebox-owned layout while preserving repositories,
+replicas, manifests, and service data.
 
 Alternative considered: generate shell scripts containing backup logic.
 Rejected because locking, failure classification, redaction, retry, and
@@ -183,13 +225,28 @@ identity resumes a supported partial transfer or returns the existing terminal
 result. A new schedule occurrence receives a new identity and first reconciles
 any prior incomplete occurrence.
 
+Protection enablement is separate from recurring backup interruption. A
+contract that must enable `archive_mode`, binary logging, a named collection,
+or another restart-bound prerequisite emits a one-time state-bound enablement
+plan that names the configuration delta, expected outage, rollback, and health
+checks. Apply refuses with `protection_enablement_restart_not_authorized` until
+a fresh strong approval arrives independently of model text. The approved
+operation writes the generated configuration, deliberately restarts and
+verifies the service, and records prerequisite evidence. A policy's recurring
+interruption permission cannot authorize this restart, and the scheduled
+runner can never perform it implicitly. MariaDB receives a driver-owned
+`log_bin` configuration because its project settings surface cannot enable
+binary logging; PostgreSQL archive settings and ClickHouse named collections
+use the same planned-enablement contract where their effective runtime changes.
+
 ### 5. Derive service tier from evidence, never configuration
 
 `Run`, `Managed`, and `External` are output states, not author-set fields.
 
 - `Run`: Onebox runs the service, but at least one managed-tier requirement is
   missing, stale, failed, unsupported, or unverifiable.
-- `Managed`: the driver is qualified; image and resources are effective;
+- `Managed`: the driver is qualified; the service image has been resolved to
+  an immutable digest and that exact digest is effective; resources are effective;
   driver health passes; the installed schedule or replication contract matches
   the declaration; the latest recoverable point satisfies the authored RPO;
   replay continuity or replica completeness passes where applicable; and
@@ -201,6 +258,12 @@ Status carries each contributing fact, its source, observation time, expiry,
 and resolving command. A previously managed service immediately degrades to
 `Run` when evidence expires; historical proof remains visible but cannot be
 mistaken for current protection.
+
+Driver health may be an in-container health check or a bounded, digest-pinned
+driver helper probe when the upstream image intentionally contains no shell.
+The lifecycle record names which mechanism qualifies. NATS uses the pinned NATS
+CLI with generated least-privilege account credentials; absence of that probe
+or credential evidence keeps it `Run` rather than creating a health exception.
 
 Tier and recovery envelope are separate. `Managed` is accompanied by
 `snapshot`, `pitr`, `cold`, or `replicated`, the observed recovery point/window,
@@ -217,13 +280,20 @@ Their initial contracts are deliberately different:
 
 - **PostgreSQL:** pgBackRest owns encrypted full/differential/incremental base
   backups, S3-compatible repository metadata, WAL archive push/get, retention,
-  restore, and PITR. Onebox generates the stanza and PostgreSQL archive/restore
-  configuration, checks WAL continuity, and verifies the recovered cluster.
+  restore, and PITR. Onebox publishes a reproducible derived image containing
+  PostgreSQL and the compatible pgBackRest binary over the exact pinned
+  upstream PostgreSQL base digest, then generates the stanza and
+  PostgreSQL archive/restore configuration inside that runtime. Enabling
+  `archive_mode` is a planned, strongly approved one-time restart. Onebox
+  checks WAL continuity and verifies the recovered cluster.
   pgBackRest documents repository encryption, S3-compatible storage, WAL
   archiving, retention, restore, and PITR:
   https://pgbackrest.org/user-guide.html
 - **MySQL:** a pinned Percona XtraBackup helper creates and prepares a physical
   backup for separately listed compatible MySQL versions and storage engines.
+  The helper mounts the exact service data volume with contract-bound access,
+  uses generated credentials and compatible UID/GID ownership, and never scans
+  arbitrary Docker volumes.
   A short-lived scheduled archiver forces rotation as needed, uploads closed
   binary logs, and proves a gap-free sequence from the base position. Restore
   prepares an empty exact-compatible volume and replays logs to the requested
@@ -235,7 +305,10 @@ Their initial contracts are deliberately different:
 - **MariaDB:** a separately pinned `mariadb-backup` helper creates and prepares
   physical full/incremental generations, records binary-log coordinates, and
   uses a MariaDB-specific closed-binlog archive/replay path. It never inherits
-  MySQL qualification merely because both use port 3306. MariaDB documents the
+  MySQL qualification merely because both use port 3306. Onebox generates the
+  driver-owned `log_bin` configuration and requires an approved one-time
+  enablement restart before PITR can qualify; the helper receives only the
+  exact data volume, credentials, and ownership mapping. MariaDB documents the
   hot physical backup, prepare, restore, incremental, and binlog-coordinate
   contracts:
   https://mariadb.com/docs/server/server-usage/backup-and-restore/mariadb-backup/
@@ -251,19 +324,30 @@ Their initial contracts are deliberately different:
   S3-compatible target through generated named collections, using versioned
   full or incremental generations. Onebox monitors `system.backups`, restores
   into an empty exact-compatible service, and verifies databases, tables,
-  parts, counts, and declared queries. ClickHouse documents native S3,
+  parts, counts, and declared queries. The named collection is a digest-bound
+  generated service configuration; a required restart uses the one-time
+  enablement plan. Qualification records either archive-password or target SSE
+  evidence rather than assuming native S3 writes are encrypted. ClickHouse
+  documents native S3,
   incremental, asynchronous, and password-protected backup behavior:
   https://clickhouse.com/docs/concepts/features/backup-restore/overview
-- **Redis:** the driver requests and waits for an immutable RDB generation,
-  records persistence state and key counts, and sends the RDB plus required
-  generated configuration through the encrypted artifact repository. AOF is
-  local durability, not the backup artifact. Restore boots an exact-compatible
-  empty service from the RDB and verifies load and key counts. Redis documents
-  the atomic RDB publication and safe live copying contract:
+- **Redis:** qualified Redis versions with native sealed backup support use its
+  BASE/INCR/manifest contract and restore with the matching `preload-file`
+  mechanism, making the seal boundary the observed recovery point. A separately
+  qualified older-version fallback requests an immutable RDB and sends it
+  through encrypted artifact storage. That fallback restores in two phases:
+  first boot with AOF loading disabled and no prior append directory, verify the
+  RDB dataset, then enable AOF and wait for a successful rewrite before the
+  restore can be cut over. An existing or empty AOF is never allowed to take
+  precedence over the restored RDB. Versions outside either tested matrix stay
+  `Run`. Redis documents its persistence behavior at:
   https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/
 - **Valkey:** the contract is independently versioned but likewise uses its
   native remote RDB snapshot path and verifies server identity before restore;
   Redis/Valkey file compatibility is never assumed across unlisted versions.
+  Restore uses the same explicit AOF-disabled first boot, RDB verification,
+  AOF enablement, and completed rewrite gate, adapted and tested against the
+  Valkey command/runtime contract.
   Valkey documents immutable RDB backup and `valkey-cli --rdb`:
   https://valkey.io/topics/persistence/
 - **Meilisearch:** exact-version native snapshots provide routine disaster
@@ -275,21 +359,30 @@ Their initial contracts are deliberately different:
   https://www.meilisearch.com/docs/resources/self_hosting/data_backup/overview
 - **NATS JetStream:** a pinned NATS CLI creates an account snapshot including
   file-backed streams, stream configuration, durable consumers, state, and
-  messages; memory-only streams fail protection preflight. Restore targets an
-  empty isolated server/account and verifies stream and consumer state. NATS
+  messages; memory-only streams fail protection preflight. Newly created NATS
+  runtimes use generated least-privilege account credentials, and the same
+  pinned CLI provides the external driver health probe because the service
+  image carries no shell. Existing unauthenticated runtimes remain `Run` until
+  a state-bound, strongly approved conversion updates both server and projected
+  workload credentials and verifies reconnection. Restore targets an empty
+  isolated server/account and verifies stream and consumer state. NATS
   documents native account and stream backup/restore:
   https://docs.nats.io/running-a-nats-service/nats_admin/jetstream_admin/disaster_recovery
 - **RabbitMQ:** a live definitions export protects topology only and never
   graduates the service. Complete single-node protection requires an explicitly
-  permitted interruption: export definitions, stop the exact-version/node-name
-  broker, archive its full data directory and required generated identity
-  material, restart and verify, then restore-drill that same cold path in
+  permitted interruption. The driver pins a stable generated
+  `RABBITMQ_NODENAME`, treats it and the Erlang cookie as protected identity,
+  and records both identity references in every manifest. The cold path exports
+  definitions, stops the exact-version/node-name broker, archives its full data
+  directory and required generated identity material, restarts and verifies it,
+  then restore-drills that same cold path in
   isolation. RabbitMQ explicitly discourages copying message data from a live
   node and binds disk restore to node identity:
   https://www.rabbitmq.com/docs/backup
 - **MinIO:** ordinary volume copying and mirroring are insufficient. The
-  qualified contract configures versioned replication to an independently
-  identified MinIO deployment, exports bucket/IAM metadata needed by the
+  qualified contract requires an operator-provisioned second MinIO deployment
+  outside the protected host and configures versioned replication to that
+  independently operated target. It exports bucket/IAM metadata needed by the
   declared scope, checks lag and failures, and exercises recovery into an
   isolated service. Onebox does not provision the remote deployment and does
   not claim transparent failover. MinIO documents replication as its BC/DR
@@ -304,7 +397,9 @@ requires an injected replay-gap suite. RabbitMQ additionally requires stopped-
 node interruption tests; MinIO additionally requires delete/version recovery,
 metadata recovery, independence, and replication-lag tests. Only then may the
 capability catalogue and current documentation name that exact envelope
-`Managed`.
+`Managed`. A tested direct-recovery and ownership-handback runbook for the
+driver's exact helper/image/repository contract is part of that gate, not
+post-graduation documentation cleanup.
 
 ### 7. Restore through active-volume indirection
 
@@ -316,8 +411,11 @@ is copied or renamed.
 
 Restore creates an operation-named volume, asks the native driver to materialize
 the selected snapshot, replay point, cold generation, or replica recovery into
-it, starts an isolated Compose project using the exact recorded service image
-digest and identity prerequisites, and runs driver verification. `restore_test`
+it, starts an isolated Compose project using the immutable service image digest
+resolved and recorded when the protected runtime was applied, and recreates
+identity prerequisites. A mutable catalogue tag is never restore evidence; the
+digest is a pruning root for as long as any manifest or staged restore depends
+on it. The temporary service then runs driver verification. `restore_test`
 stops there and removes its temporary resources only after evidence is durable;
 a failed drill is retained for explicit inspection/cleanup.
 
@@ -333,6 +431,13 @@ honest recovery choices. Force cannot delete or bypass either volume.
 Retention of pre-restore volumes is independent of remote backup retention.
 No automatic task deletes one in this change; a future explicit prune contract
 must prove it is not active or the last recovery choice.
+
+Once a protection policy or manifest binds a service identity, its declared
+name is immutable. Renaming is refused with
+`protected_service_identity_changed` and the affected manifests because
+RabbitMQ node identity, volume selection, repository prefixes, and isolated
+restore identities derive from it. A future explicit migration contract may
+move that identity; remove-and-redeclare is not treated as a rename.
 
 ### 8. Make defaults and origins explicit
 
@@ -352,9 +457,21 @@ Defaults are additive `onebox.run/v1` values:
   an RPO or interruption contract;
 - daily backup at 02:00 UTC only when protection is explicitly enabled without
   a schedule;
-- seven daily, four weekly, and six monthly recoverable base generations, with
-  replay logs retained for every still-declared continuous recovery window;
+- seven recoverable base generations and at least seven days of continuous
+  replay where the selected recovery kind supports it. Each lifecycle record
+  maps that intent to native semantics: artifact repositories keep the last
+  seven owned generations; pgBackRest derives full/differential/archive counts;
+  PBM derives supported count/age rules; ClickHouse retains seven recoverable
+  chain heads with all ancestors; snapshot drivers retain seven owned native
+  generations; and replicated MinIO proves remote version/lifecycle coverage
+  without Onebox deleting replica objects. Planning refuses any mapping that
+  cannot preserve the stated minimum and never emulates native retention by
+  deleting objects inside a native repository;
 - restore proof expires after seven days;
+- restore drills run by default at 03:00 UTC every Sunday and Wednesday, with
+  bounded jitter. Validation requires the maximum possible installed cadence,
+  jitter, and driver time budget to be shorter than the restore-proof maximum
+  age;
 - generated container logs use the Docker `local` driver with 20 MiB per file
   and five files where no author policy exists;
 - disk warning is the stricter of 10% free or 5 GiB; critical is the stricter
@@ -374,8 +491,13 @@ unreachable from all roots. It never calls `docker system prune`, never deletes
 volumes as housekeeping, and recomputes the graph after cancellation or retry.
 
 Disk checks cover every distinct filesystem backing the app base, Docker data
-root, and restore staging. Critical pressure blocks space-increasing mutations
-but leaves reads, planning, audit, recovery, and bounded cleanup available.
+root, backup staging, and restore/drill staging. The host contract may select a
+separate restore/drill staging filesystem. Each driver estimates and caps its
+second-copy footprint before a drill. Insufficient headroom records
+`drill_deferred_capacity` with the required bytes and resolving commands rather
+than misreporting a corrupt backup; if proof later expires, tier still honestly
+falls to `Run`. Critical pressure blocks space-increasing mutations but leaves
+reads, planning, audit, recovery, and bounded cleanup available.
 
 ### 10. Reuse the scheduled runner for continuous assurance
 
@@ -383,8 +505,9 @@ An assurance envelope runs read-only checks for workload/service health, disk,
 certificate runway, backup age, restore-proof age, and generated unit state.
 Evidence is written atomically with start/finish state and expiry. Notifications
 are emitted on state transition and a bounded reminder interval through the
-existing webhook contract; webhook failure is recorded separately from the
-observed health state.
+existing webhook contract; the default unchanged-failure reminder is 24 hours
+and may be authored explicitly. Webhook failure is recorded separately from
+the observed health state.
 
 The check process has no converge methods in its operation graph. Status and
 doctor read evidence but never trigger a check. This preserves the invariant
@@ -424,6 +547,10 @@ rollback, or recovery implementation.
   every manifest, test the oldest supported format, and publish direct recovery
   procedures for each qualified contract. Restic receives the same treatment
   only for artifact-producing drivers.
+- [Derived service images add a supply-chain responsibility] → Build from exact
+  upstream digests in a reproducible official workflow, publish source/base
+  provenance and SBOMs, verify the resulting digest before apply and restore,
+  and retain every digest referenced by recovery evidence.
 - [A scheduled executable appears agent-like] → Keep it short-lived, schema
   restricted, non-listening, least-privileged, and built from the canonical Go
   service; document that no daemon or inbound control plane exists.
@@ -431,6 +558,10 @@ rollback, or recovery implementation.
   Enforce per-driver CPU, memory, I/O, staging, and throughput budgets; expose
   duration/size evidence; schedule full generations off peak; and refuse when
   disk or copy-on-write headroom is insufficient.
+- [A restore drill needs a second dataset copy on one host] → Estimate and cap
+  each driver's drill footprint, permit a distinct staging filesystem, report
+  capacity deferral separately from restore failure, and keep expiry/tier
+  reporting honest until the operator supplies headroom.
 - [Restore volume indirection complicates existing stable naming] → Seed the
   pointer from the current volume without renaming, preserve logical names in
   user output, and fault-test every state transition before enabling cutover.
@@ -463,18 +594,23 @@ rollback, or recovery implementation.
    and inert status reporting while all services remain `Run`.
 2. Add active-volume state seeded from existing service volumes, with read-only
    validation and no restore cutover enabled.
-3. Add the scheduled runner, S3-compatible target contract, direct-native and
-   Restic-artifact repository interfaces, backup manifests, manual
-   backup/list/status, and fault tests.
+3. Add the scheduled runner with bidirectional compatibility and removal,
+   service/helper image publication and provenance, S3-compatible target
+   contract, direct-native and Restic-artifact repository interfaces, the
+   non-graduating test driver, protection manifests, manual backup/list/status,
+   and fault tests.
 4. Add isolated restore and restore drills; then add approved live cutover and
    crash recovery.
-5. Qualify PostgreSQL pgBackRest base/WAL/PITR and update current docs only
-   after its full evidence gate. Repeat independently for MySQL XtraBackup plus
-   binlogs and MariaDB Backup plus binlogs.
+5. Qualify the derived PostgreSQL/pgBackRest image, approved archive-mode
+   enablement, base/WAL/PITR, and update current docs only after its full
+   evidence gate. Repeat independently for MySQL XtraBackup plus binlogs and
+   MariaDB Backup plus generated binlog configuration and approved enablement.
 6. Add MongoDB single-node replica-set creation, explicit standalone conversion,
    PBM base backups, and oplog PITR, then qualify MongoDB protection.
-7. Qualify ClickHouse native backup, Redis and Valkey RDB, Meilisearch snapshot,
-   and NATS account snapshot independently.
+7. Qualify ClickHouse native backup and encryption, Redis sealed native backup
+   or its separately gated RDB fallback, Valkey's safe two-phase RDB restore,
+   Meilisearch snapshot, and authenticated NATS account snapshot/health
+   independently.
 8. Add RabbitMQ's explicit cold contract and MinIO's independent versioned
    replication contract, keeping each `Run` until its special evidence passes.
 9. Add log rotation, disk gates, image reachability pruning, assurance timers,
@@ -496,9 +632,6 @@ of rollback.
 
 ## Open Questions
 
-- The exact OCI publication location for `ob-scheduled-runner` and qualified
-  helper images can be selected during packaging without changing their pinned
-  provenance or behavioral contracts.
-- Default reminder cadence for unchanged watchdog failures can be tuned from
-  operational testing without changing the transition, redaction, or expiry
-  requirements.
+- The exact OCI publication location for `ob-scheduled-runner`, derived service
+  images, and qualified helper images can be selected during packaging without
+  changing their pinned provenance or behavioral contracts.

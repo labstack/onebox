@@ -16,6 +16,13 @@ the `Run` tier.
   service driver selects its native consistency and restore engine. Backup
   artifacts and evidence bind the application, environment, service, driver,
   version, recovery kind, method, destination, and exact protected resources.
+- Resolve every managed service runtime to an immutable image digest and ship
+  digest-pinned Onebox service/helper artifacts where native recovery tooling
+  must execute inside or against that runtime. PostgreSQL uses a derived
+  PostgreSQL-plus-pgBackRest image built from a pinned upstream base; physical
+  MySQL/MariaDB helpers receive only their contract-bound data and credential
+  mounts. Every derived artifact carries reproducible-build provenance and is
+  retained as a restore dependency.
 - Add safe restore choreography that restores into an isolated volume, verifies
   it with an exact-compatible temporary service, requires a plan-bound strong
   approval for live cutover, preserves the prior volume, and never treats a
@@ -27,9 +34,19 @@ the `Run` tier.
   qualification gate. A driver graduates only after its supported-version,
   consistency, empty-target restore, isolated restore drill, cancellation,
   stale-evidence, and crash-recovery suites pass. Conditional contracts remain
-  `Run` until their prerequisites are met: MongoDB needs a replica set;
-  RabbitMQ message protection needs an authorized stopped-node window; MinIO
-  needs an independent versioned replication target and recovery proof.
+  `Run` until their prerequisites are met. Newly created MongoDB services
+  become authenticated single-node replica sets with idempotent initialization,
+  PRIMARY health, and replica-set connection projection; existing standalone
+  volumes require an explicit state-bound conversion. RabbitMQ gets a stable
+  protected node identity and message protection needs an authorized
+  stopped-node window; newly created NATS services get generated account
+  credentials and a pinned external CLI health probe, while existing
+  unauthenticated runtimes require an explicit state-bound conversion. MinIO
+  needs an operator-provisioned, independently operated, versioned second
+  MinIO deployment outside the protected host plus recovery proof. Enabling
+  PostgreSQL/MariaDB/ClickHouse protection may require a separately planned,
+  strongly approved one-time service restart; it is never hidden inside
+  ordinary schedule convergence.
 - Add rollback-aware image pruning, managed container-log rotation, disk
   thresholds, scheduled housekeeping, and status/doctor evidence for each.
 - Add a host-native local watchdog for workload/service health, disk pressure,
@@ -126,15 +143,20 @@ Explicit non-goals:
 - Adds canonical Go service operations and CLI groups for backup and restore;
   the CLI remains the only adapter and all lifecycle decisions remain in the
   shared service and execution engine.
-- Adds target-side service protection state, generated systemd units, temporary
+- Adds a short-lived target-side scheduled-runner artifact, sealed operation
+  envelopes, service protection state, generated systemd units, temporary
   restore projects/volumes, and rollback points under the existing Onebox-owned
-  layout.
+  layout. Runner installation, bidirectional compatibility, provenance, and
+  removal become owned lifecycle behavior.
 - Adds a pinned driver-native helper matrix—pgBackRest, Percona XtraBackup,
   MariaDB Backup, Percona Backup for MongoDB, and native ClickHouse,
   Redis/Valkey, RabbitMQ, MinIO, Meilisearch, and NATS tools—plus Restic only
   where a native driver emits an artifact rather than owning an off-host
-  repository. Plaintext data and credentials may not enter plans, logs,
-  journals, structured output, or model-visible arguments.
+  repository. It also adds derived service-image build, publication, SBOM,
+  digest, and provenance verification for tools such as pgBackRest that must
+  be present inside the service container. Plaintext data and credentials may
+  not enter plans, logs, journals, structured output, or model-visible
+  arguments.
 - Adds fault-oriented integration coverage for interrupted streams, partial
   uploads, unavailable storage, overlapping deploys, stale locks, expired
   approvals, corrupted artifacts, incompatible versions, failed verification,

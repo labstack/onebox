@@ -119,6 +119,13 @@ func (r *Resolved) Canonical() ([]byte, error) {
 	// show.
 	restoreDeclaredEmpty(generic, r.Spec)
 	restoreDeclaredEmptyScopes(generic, r.Spec)
+	if r.canonicalFacts != nil {
+		facts, err := canonicalFactsGeneric(*r.canonicalFacts)
+		if err != nil {
+			return nil, err
+		}
+		generic["effective"] = facts
+	}
 	origins := r.Spec.originOf()
 	for path, o := range r.Origins {
 		// An override is more specific than anything derived from the file, and

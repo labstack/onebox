@@ -265,7 +265,7 @@ func (p *Spec) serviceHasHealth(name string) bool {
 
 // renderService generates one service's Compose document. It is its own
 // project, so it survives every release of the application beside it.
-func (p *Spec) renderService(n Names, name string, s Service) ([]byte, error) {
+func (p *Spec) renderService(n Names, name string, s Service, selectedImage string) ([]byte, error) {
 	key, d, ok := driverOf(name, s)
 	if !ok {
 		return nil, errf("unknown_service_driver", "services."+name, "", strings.Join([]string{
@@ -274,7 +274,10 @@ func (p *Spec) renderService(n Names, name string, s Service) ([]byte, error) {
 		}, "\n"), key, strings.Join(DriverNames(), ", "))
 	}
 
-	image := d.image + ":" + versionString(s.Version)
+	image := selectedImage
+	if image == "" {
+		image = d.image + ":" + versionString(s.Version)
+	}
 	if err := checkImageRef("services."+name+".version", image); err != nil {
 		return nil, err
 	}

@@ -214,7 +214,7 @@ func validateWorkload(w Workload, path string) error {
 		if r.Domain == "" {
 			return errf("project_invalid", rp+".domain", "", "a route must name a domain")
 		}
-		if err := gUrlPath.check(rp+".path", r.Path); err != nil {
+		if err := gURLPath.check(rp+".path", r.Path); err != nil {
 			return err
 		}
 		if err := checkPort(rp+".port", r.Port); err != nil {
@@ -357,7 +357,7 @@ func validateHealth(h *Health, path string) error {
 	if h == nil {
 		return nil
 	}
-	if err := gUrlPath.checkOptional(path+".http", h.HTTP); err != nil {
+	if err := gURLPath.checkOptional(path+".http", h.HTTP); err != nil {
 		return err
 	}
 	if h.Port != 0 {
@@ -472,7 +472,7 @@ func validateVerification(v Verification, path string) error {
 			"a url or migration check does not run inside a workload")
 	}
 
-	if err := gUrlPath.checkOptional(path+".http", v.HTTP); err != nil {
+	if err := gURLPath.checkOptional(path+".http", v.HTTP); err != nil {
 		return err
 	}
 	if v.URL != "" {

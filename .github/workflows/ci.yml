@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # `npm ci` runs install scripts from the whole Astro dependency tree.
+      # Nothing here pushes, so the job token does not need to survive checkout.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # The documentation site is part of the gate: `just check` builds it, and
+      # the build is what enforces the agent-facing invariants — llms.txt fails
+      # on a documentation section it would omit, and check-tables.mjs fails on a
+      # table that would ship outside its scroll container.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          install-mode: binary
+          args: --help
+
+      - name: Install site dependencies
+        run: npm ci --prefix site
+
+      - name: Verify repository
+        run: just ci
+
+      # A green run should leave the tree exactly as it was found. The generated
+      # reference pages are committed, so a regeneration nobody committed means
+      # the tree disagrees with the binary that just built it.
+      #
+      # `git status --porcelain`, not `git diff`: a new registry block generates a
+      # new page, and an untracked file is invisible to `git diff`. The check
+      # would have missed the case most likely to occur.
+      - name: Fail on an uncommitted change
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The working tree changed during verification:" >&2
+            git status --porcelain >&2
+            git --no-pager diff >&2
+            exit 1
+          fi
+
+  e2e:
+    name: End-to-end (Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Kept out of the Check job so that starting containers, pulling images and
+    # waiting on health checks never delays the answer to "does this compile,
+    # lint and pass unit tests". The suite also fails for reasons Check cannot —
+    # a daemon that is wedged rather than code that is wrong.
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+
+      - name: Confirm the Docker daemon is usable
+        run: docker version
+
+      - name: Run the end-to-end suite
+        run: just e2e

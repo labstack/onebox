@@ -44,8 +44,10 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	if os.Getenv("OB_E2E") != "1" {
 		t.Skip("set OB_E2E=1 (requires local docker)")
 	}
+	// Opting in is a promise that Docker is here. Skipping past a broken daemon
+	// once OB_E2E=1 is set turns a gate into a green tick for work nobody did.
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skip("docker not available")
+		t.Fatalf("OB_E2E=1 was set but docker is not usable: %v", err)
 	}
 	dir, err := filepath.Abs("testdata/app")
 	if err != nil {
@@ -84,7 +86,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 			return err
 		}
 		staging := t.TempDir()
-		if err := release.Stage(staging, rendered.Bytes, []byte("snapshot")); err != nil {
+		if err := release.Stage(staging, rendered.Bytes, releaseSnapshot(t, dir, "ob.yml", base)); err != nil {
 			return err
 		}
 		e := engine.New(resolved, p, tr, engine.Options{Out: os.Stderr, Environment: "production"})

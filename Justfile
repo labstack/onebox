@@ -35,8 +35,76 @@ vet:
 fmt:
     go fmt ./...
 
-# Run all non-mutating checks.
-check: test vet
+# ---------- Verification ----------
+
+# Local pre-commit gate. It contacts no target and writes nothing to the tree.
+#
+# Not hermetic in the stronger sense: `_mod-tidy` needs the module cache warm
+# (or the network), and `site-build` needs `site/node_modules` — run
+# `just site-install` once on a fresh clone.
+check: _mod-tidy _fmt-check vet test docs-generate-check diagrams-check site-build
+    @echo "All checks passed"
+
+# CI adds the pinned lint, vulnerability and workflow passes to the local gate.
+#
+# They are separate from `check` because each needs a tool the repository does
+# not vendor; a contributor without them should still be able to run `just check`
+# and get a truthful answer about their change.
+ci: check lint vuln workflow-check
+    @echo "CI checks passed"
+
+[private]
+_mod-tidy:
+    go mod tidy -diff
+
+# gofmt reports "nothing to do" and "I could not parse that file" the same way
+# on stdout — the parse error goes to stderr and the listing comes back empty.
+# Collapsing the two meant a file that does not compile passed this check, so the
+# tool's exit status is read separately from its output.
+[private]
+_fmt-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! unformatted="$(gofmt -l .)"; then
+      echo "gofmt could not read the tree (see the errors above)" >&2
+      exit 1
+    fi
+    if [[ -n "$unformatted" ]]; then
+      echo "Unformatted files:" >&2
+      echo "$unformatted" >&2
+      exit 1
+    fi
+
+# Static analysis beyond `go vet`, configured in .golangci.yml. The config
+# records which linters are held back and why, so the gate is green from the
+# first run and a failure means the change in front of you.
+lint:
+    # `run` ignores an unknown config key in silence, so a typo would delete the
+    # block it governs and leave the gate green. Only `config verify` is strict.
+    golangci-lint config verify
+    golangci-lint run ./...
+
+# Scan reachable code against the official vulnerability database.
+vuln:
+    govulncheck ./...
+
+# Validate GitHub Actions YAML and the shell embedded in it.
+workflow-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # actionlint does not warn when it cannot find shellcheck — it silently stops
+    # checking the shell inside `run:` blocks, which is half of what this recipe
+    # claims to do.
+    command -v shellcheck >/dev/null || {
+      echo "shellcheck is not installed; actionlint would skip every run: block" >&2
+      exit 1
+    }
+    actionlint
+
+# The Docker end-to-end suite. Opt-in locally because it needs a working daemon;
+# CI runs it as its own job so a slow suite never hides a fast failure.
+e2e:
+    OB_E2E=1 go test ./e2e/ -count=1 -timeout 20m
 
 # Regenerate the parts of the documentation site that are derived from Go.
 #
@@ -62,7 +130,11 @@ site: docs-generate
     cd site && npm run dev
 
 # Build the documentation site into site/dist.
-site-build: docs-generate
+#
+# Depends on the *checking* recipe, not the writing one: `check` is a gate, and a
+# gate that rewrites the tree it is inspecting cannot tell you whether the tree
+# was already right. Use `just site` for the writing path during development.
+site-build: docs-generate-check
     cd site && npm run build
 
 # Strictly validate canonical specs and every active OpenSpec change.

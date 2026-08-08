@@ -1,0 +1,88 @@
+---
+title: Roll back a release
+description: Rollback, resume and abort — three different operations with three different guarantees.
+summary: When to use rollback, resume and abort, what each guarantees, and why a data effect can make a rollback refuse.
+sidebar:
+  order: 5
+read_when:
+  - "A deploy failed or was interrupted"
+  - "Deciding between resume, abort and rollback"
+  - "Understanding why a rollback was refused"
+---
+
+Three commands, three different situations. Choosing the wrong one is the usual
+way an incident gets worse.
+
+| Situation | Command | What it does |
+| --- | --- | --- |
+| A deploy was interrupted and you want to finish it | `ob resume` | Continues from durable phase state |
+| A deploy was interrupted and you want it undone | `ob abort` | Reverts the interrupted deploy |
+| A deploy completed but the release is bad | `ob rollback` | Activates the previous release |
+
+Start by asking the target, not your memory:
+
+```sh
+ob status --output json
+```
+
+`ob status` exits non-zero on divergence, so it is safe to use as a gate in a
+script.
+
+## Rollback activates the previous release
+
+```sh
+ob rollback
+```
+
+`deployment.retain_releases` (default `5`) decides how many completed release
+directories stay available. Rollback re-points `current` at one of them.
+
+## What rollback does not do
+
+:::danger[Application rollback is not data recovery]
+Application rollback, data recovery, and reversal of an external side effect are
+different operations with different guarantees. Onebox classifies the risk and
+**refuses** when evidence or a driver contract is insufficient.
+
+A force flag cannot turn an unsupported operation into a safe one.
+:::
+
+Concretely:
+
+- **Supporting services are not rolled back.** A service runs in its own Compose
+  project and outlives every release, so no deploy and no rollback stops it or
+  removes its volume. That protects your data; it also means a schema migration
+  is still applied after you roll the application back.
+- **A job with `data_effect: migration` or `destructive` constrains the gate.**
+  That is what the field is for.
+- **A job whose result evidence is missing becomes `changed=unknown`** and halts
+  before workload replacement rather than proceeding on an assumption.
+
+## Resume and abort work from durable state
+
+Both read the append-only journal and the durable phase markers written during
+the deploy. They choose only recovery paths the journal can prove are safe; when
+safety cannot be proven, they stop and expose honest recovery choices rather than
+guessing.
+
+```sh
+ob resume --output ndjson
+ob abort  --output ndjson
+```
+
+## Recovery onto another host is a different workflow
+
+Rolling deployment can avoid interruption while the host is healthy. It cannot
+make a failed host available. Recovery onto another host is a distinct,
+evidence-backed workflow — not failover, and not something rollback reaches.
+
+## Inspecting what happened
+
+```sh
+ob audit          # human table of recorded operations
+ob logs           # the current log stream
+ob status --output json
+```
+
+The journal is append-only, so the record of a failed operation survives the
+operation that replaced it.

@@ -239,16 +239,24 @@ func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
 	}
 }
 
+// The schema is only useful to an author if the guide tells them the URL to
+// point their editor at. A published identity nobody is told about helps no one.
 func TestPublishedSchemaURLIsUsedByTheHumanGuide(t *testing.T) {
 	if !strings.HasPrefix(SchemaID, "https://raw.githubusercontent.com/labstack/onebox/main/") {
 		t.Fatalf("schema identity must be a retrievable main-branch URL, got %q", SchemaID)
 	}
-	guide, err := os.ReadFile(filepath.Join("..", "..", "docs", "schema-v1.md"))
-	if err != nil {
-		t.Fatal(err)
+	guides := []string{
+		"site/src/content/docs/start/reading-it-back.mdx",
+		"site/src/content/docs/reference/project-file.mdx",
 	}
-	if !strings.Contains(string(guide), SchemaID) {
-		t.Fatalf("docs/schema-v1.md does not reference the published schema %q", SchemaID)
+	for _, guide := range guides {
+		body, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(guide)))
+		if err != nil {
+			t.Fatalf("%s must exist: %v", guide, err)
+		}
+		if !strings.Contains(string(body), SchemaID) {
+			t.Fatalf("%s does not tell an author the published schema URL %q", guide, SchemaID)
+		}
 	}
 }
 

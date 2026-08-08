@@ -1,0 +1,29 @@
+---
+import Default from "@astrojs/starlight/components/Head.astro";
+import { getCollection } from "astro:content";
+
+// Every documentation page advertises its Markdown alternate in the head, so an
+// agent that reads the head never has to parse the rendered body.
+//
+// Only pages that are actually in the collection get the link. Starlight's 404
+// is rendered by the same layout but has no entry, so it was advertising a
+// `/404.md` that nothing generates — a dead link in the one place an agent looks
+// when it is already lost.
+const docs = await getCollection("docs");
+const ids = new Set(docs.map((entry) => entry.id));
+
+const id = Astro.locals.starlightRoute.entry.id;
+const markdownHref = ids.has(id)
+  ? new URL(`/${id}.md`, Astro.site ?? Astro.url).href
+  : null;
+---
+
+<Default><slot /></Default>
+{
+  markdownHref && (
+    <>
+      <link rel="alternate" type="text/markdown" href={markdownHref} />
+      <meta name="ob:markdown" content={markdownHref} />
+    </>
+  )
+}

@@ -1,0 +1,72 @@
+---
+title: Schedule a job
+description: Host timers that survive a reboot, and the cron forms Onebox refuses.
+summary: How to declare a scheduled job, why it runs from a host timer rather than a Onebox process, and which cron expressions are refused at load.
+sidebar:
+  order: 4
+read_when:
+  - "Adding a nightly or recurring task"
+  - "Understanding why a cron expression was refused"
+  - "Working out how a scheduled job resolves secrets with no Onebox process running"
+---
+
+```yaml
+workloads:
+  nightly-dump:
+    role: job
+    image: postgres:17
+    command: ["sh", "-c", "pg_dump \"$POSTGRES_URL\" | gzip > /backups/$(date -u +%F).sql.gz"]
+    data_effect: none
+    needs: [postgres]
+    volumes: [{name: backups, path: /backups}]
+    schedule: {cron: "0 2 * * *", timezone: Europe/Berlin}
+```
+
+## It becomes a host timer
+
+A `schedule` is translated into a timer on the host. It fires **without any
+Onebox process running** and survives a reboot. There is no daemon, no listening
+port, and nothing to keep alive.
+
+That design decision has a visible consequence elsewhere: encrypted environment
+entries are decrypted into the release when it is staged and *stay* there,
+because a timer firing at 02:00 must resolve the values the deploy resolved.
+
+## Cron is translated exactly, or refused
+
+```
+0 2 * * *      ✓  every day at 02:00
+0 2 * * 1      ✓  every Monday at 02:00
+0 2 1 * 1      ✗  schedule_untranslatable
+```
+
+The last one declares a day-of-month **and** a day-of-week. Cron treats that as
+"either matches" — it fires on the 1st and on every Monday. Onebox refuses it at
+load rather than running on days nobody chose.
+
+`timezone` takes an IANA zone name and defaults to `UTC`.
+
+## Jobs still declare a data effect
+
+`data_effect` is required on every job, scheduled or not. A nightly report is
+`none`; a nightly prune is `destructive`. The rollback and abort gates read it,
+and a job that lies about it defeats them.
+
+## Running one by hand
+
+```sh
+ob exec <workload> -- <command>
+```
+
+:::caution[`ob exec` is outside the safety regime]
+It runs outside the journal, and nothing it changes belongs to any release. It is
+the one command whose effect on the target Onebox cannot describe in advance.
+:::
+
+For a job that is part of a release rather than a schedule, use `run:`:
+
+```yaml
+run: pre_release    # or post_release, or manual (the default)
+```
+
+See [`workloads`](/reference/fields/workloads) for every field.

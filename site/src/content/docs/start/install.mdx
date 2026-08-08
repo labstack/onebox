@@ -1,0 +1,75 @@
+---
+title: Install
+description: Build the ob binary, confirm which runner will execute plans, and check the local safety setup.
+summary: Build or install the ob binary, then verify with ob version and ob doctor which runner will execute plans.
+sidebar:
+  order: 2
+read_when:
+  - "Setting up Onebox on a new machine"
+  - "Diagnosing a version or runner-compatibility refusal"
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+<Steps>
+
+1. **Build the binary into `~/.local/bin`.**
+
+   ```sh
+   just build
+   ```
+
+   `just install` is an alias for the same target. Ensure `~/.local/bin` is on
+   `PATH`, or set `OB_BIN_DIR` to another destination. Run `just --list` to see
+   the available build, test, formatting and check targets.
+
+2. **Confirm which runner will execute plans.**
+
+   ```sh
+   ob version
+   ```
+
+   Releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`; the sequence
+   increases for each release in a UTC calendar month. Checkout builds use
+   Git-derived provenance and stay visibly distinct from a release.
+
+3. **Check the local safety setup.**
+
+   ```sh
+   ob doctor
+   ```
+
+   `ob doctor` reports whether the runner selected by `PATH` satisfies the
+   environment's `minimum_onebox_version` and `minimum_plan_schema`, and names
+   every workload and service holding durable data that has no backup.
+
+</Steps>
+
+Both commands support `--json`.
+
+:::note[Why a checkout build can be refused]
+When an environment sets `minimum_onebox_version`, commit-derived and dirty
+checkout builds **fail closed** — they are not released runners. That is
+deliberate: an environment that pins a minimum is asking for a runner whose
+identity can be checked, and a dirty working tree has none.
+:::
+
+## What the host needs
+
+A Linux server you can reach over SSH, with a container runtime. There is no
+Onebox agent to install on it — the CLI connects over SSH, and scheduled work
+runs from host timers rather than a resident process.
+
+`ob bootstrap` prepares the host. It is the one command that contacts and
+changes a target before any application exists.
+
+## Releasing (maintainers)
+
+```sh
+just release
+```
+
+Requires a clean, checked, up-to-date `main`. It atomically publishes a
+metadata-only fast-forward release commit plus its tag to `origin`, so the
+release identity needs permission to fast-forward `main`. A branch policy that
+refuses the update aborts the publication without leaving a tag behind.

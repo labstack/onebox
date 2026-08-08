@@ -1,0 +1,90 @@
+---
+title: Shipped vs proposed
+description: What the current binary does, what the schema accepts but cannot execute, and what is only declared intent.
+summary: The honest inventory — every capability marked shipped, schema-only, or intent-only, with what each means for someone relying on it.
+sidebar:
+  order: 1
+read_when:
+  - "Deciding whether to rely on a capability"
+  - "Reconciling what the editor autocompletes with what the engine does"
+  - "Explaining to someone what Onebox does not do yet"
+---
+
+Documentation says what is true today. Direction lives in the product statement,
+proposals live in OpenSpec changes, and neither is presented as a capability.
+
+This page is the reconciliation. Three states:
+
+| State | Means |
+| --- | --- |
+| **Shipped** | The current binary does this. |
+| **Schema only** | The loader validates it and it is in the published JSON Schema, so your editor completes it — but the behaviour is an open proposal. Declaring it changes nothing on the target. |
+| **Intent only** | Validated and carried into plans, but the local engine runs nothing continuous for it. |
+
+## Shipped
+
+- A stable, explicit `onebox.run/v1` project schema. Future v1 evolution is
+  additive.
+- Compose generation and validation, SSH transport with known-host checking,
+  state-bound plans, image pinning, rendered diffs.
+- Health-gated rolling or recreate deployments, traffic drain, verification,
+  versioned releases, retention, rollback.
+- Locks, fencing, append-only journals, resume, abort, migration gates, status,
+  audit, SOPS secrets, supporting services, proxy operations, notifications.
+- A canonical, versioned operation graph and one shared Go service for
+  observation, proposals, execution, structured events and operational memory.
+  The CLI is an adapter over it.
+- Eleven supporting-service drivers, each running with a durable volume, a health
+  check, a target-generated credential, and projected connection details.
+- Plan/status drift observation and plan-bound migration **backup evidence
+  validation**.
+
+## Schema only
+
+:::caution[Your editor is ahead of the engine here]
+These three blocks are published in the JSON Schema and accepted by `ob validate`.
+Nothing behind them executes.
+:::
+
+| Block | Reality today |
+| --- | --- |
+| [`backup_targets`](/reference/fields/backup_targets) | Declaring a target creates no repository and no schedule. |
+| [`services.<name>.protection`](/reference/fields/services) | Declaring recovery intent establishes no protection. No backup is taken, no drill is run, and no service reports `Managed`. |
+| [`external_services`](/reference/fields/external_services) | Accepted and canonicalised; the lifecycle refusals and health probes are not wired. |
+
+The [lifecycle failure codes](/reference/errors#lifecycle-failure-codes) are
+defined and drift-tested in the binary, but most of the operations that raise
+them are not yet executable.
+
+## Intent only
+
+[`observability`](/reference/fields/observability) — `logs`, `metrics` and
+`alerts` declare desired capability. The values are visible to validation and
+planning, but the local engine does not run continuous collectors or alert
+managers, and status reports them as *declared* rather than managed.
+
+## Not owned at all
+
+**Backups.** Onebox does not take them. `ob doctor` reports the absence for every
+workload and service holding durable data, because silence there would read as
+approval.
+
+**Restore proof.** No drill is run, and no service can currently prove a backup
+would restore.
+
+**Log rotation.** Container logs are not bounded by Onebox today.
+
+**High availability.** Rolling deployment can avoid interruption while the host
+is healthy; it cannot make a failed host available. Recovery onto another host is
+a distinct, evidence-backed workflow, not failover.
+
+## Why the distinction is published
+
+> A product direction that reads as a capability list is how an operator ends up
+> believing their database is backed up by something that has never taken a
+> backup.
+
+A capability ships only when its requirements and design are approved, its task
+checklist is implemented, its tests pass, current documentation is updated from
+proposed to implemented, and its OpenSpec change strict-validates and is
+archived. Until then it appears here, in this column, and not in the other one.

@@ -1,0 +1,94 @@
+---
+title: Evidence, not declaration
+description: Why a field in a file is never allowed to assert that something is true on the host.
+summary: The principle that separates what you declared from what is observed — and how it shapes approval, tiers, drift, and structured output.
+sidebar:
+  order: 2
+read_when:
+  - "Understanding why an approval is separate from a plan"
+  - "Understanding why declaring protection would not establish it"
+  - "Designing something that has to report status honestly"
+---
+
+A configuration file records what you **want**. It cannot record what is **true**.
+Most tools blur that line, and the blur is where operators get hurt: a field
+called `backup: true` reads as a fact about the host when it is only a sentence
+in a file.
+
+Onebox keeps the two apart everywhere.
+
+## Approval is not model intent
+
+> A statement that the user approved is data, not authority.
+
+Consequential execution requires a capability bound to the exact sealed plan,
+actor, target, observed state, expiry and allowed attempt — and delivered **out
+of band**, so the actor requesting a change cannot mint the capability
+authorising it.
+
+This is why `ob plan` and `ob approve` are separate commands producing separate
+artifacts. Collapsing them would mean the thing asking for permission also grants
+it, which is not permission.
+
+Secrets follow the same rule: they enter through a trusted local or encrypted
+flow, never through ordinary model-visible arguments.
+
+## Declaration is not protection
+
+The proposed protection layer applies the principle to data recovery. A service
+would report `Managed` only while, **all at once**:
+
+- the recorded immutable image digest is effective
+- resource policy is effective
+- driver health verifies through its qualified probe
+- the declared protection objective is currently satisfied
+- the backup schedule is installed
+- the latest recoverable point is within policy
+- replay continuity passes where applicable
+- restore-drill proof is fresh
+
+Any one of those expiring returns the service to `Run` immediately. Historical
+proof stays visible but cannot be mistaken for current protection.
+
+That is a deliberately expensive bar. A cheaper one — trusting the policy block —
+would produce a green tier for a service whose backups have been failing for a
+month.
+
+:::note[Tier and envelope are separate]
+`Managed` would always be accompanied by the recovery kind — `snapshot`, `pitr`
+or `cold` — plus the observed recovery point and measured restore time. Otherwise
+"managed Redis" reads as point-in-time recovery it does not have.
+:::
+
+## Observation cannot mutate
+
+Read commands do not repair, converge, prune or create. `ob status` and
+`ob doctor` read evidence; they never trigger the check that produces it.
+
+In the proposed assurance layer this is structural rather than promised: the
+check process has no converge methods in its operation graph at all.
+
+## Origins are published
+
+`ob canonical` annotates every value you did not write — `# default`,
+`# shorthand`, `# override`. The same idea appears in structured output, which
+labels authored, default, environment-override, observed and derived values.
+
+Knowing that `retain_releases: 5` was Onebox's choice rather than yours is the
+difference between reviewing a configuration and reading one.
+
+## Drift fails closed
+
+A target-side artifact that differs from what the plan bound is a typed drift
+error **before** mutation, not a silent reconciliation. The plan expires after
+fifteen minutes for the same reason: an approval bound to observed state is
+worthless once that state may have moved.
+
+## What this costs
+
+Honest evidence produces worse-looking status pages. A service that oscillates
+between `Managed` and `Run` because a drill keeps being deferred for disk space
+looks broken, where a tool that trusted the declaration would look fine.
+
+The alternative is worse. A green light that does not depend on anything being
+true is not a green light.

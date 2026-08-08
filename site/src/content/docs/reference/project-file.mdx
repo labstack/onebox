@@ -1,0 +1,116 @@
+---
+title: Project file
+description: The shape of ob.yml — required keys, shorthand forms, and where each block lives.
+summary: Overview of the onebox.run/v1 project file — the block map, every scalar shorthand, and the two environment-value precedence rules.
+sidebar:
+  order: 1
+read_when:
+  - "Starting a new project file"
+  - "Looking up which scalar shorthand forms are accepted"
+  - "Working out which block a field belongs to"
+---
+
+`onebox.run/v1` is the contract for one application on one host. It goes in
+`ob.yml` at the root of your repository.
+
+Only `api_version` and `environments` are required — plus at least one workload,
+from a `workloads` block or the top-level shorthand.
+
+Start with the schema reference so your editor can help while you type:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
+api_version: onebox.run/v1
+```
+
+`ob schema --to onebox.schema.json` writes a local copy, and `ob init` puts the
+published reference on the first line of a scaffolded project.
+
+## The block map
+
+| Block | What it says | Fields |
+| --- | --- | --- |
+| `app` | The application's name. Every derived name carries it. | [Top level](/reference/fields/top-level) |
+| `environments` | Where it runs, and the policy that governs deploying there. | [environments](/reference/fields/environments) |
+| `workloads` | The containers that are yours. | [workloads](/reference/fields/workloads) |
+| `services` | The supporting services Onebox runs for you. | [services](/reference/fields/services) |
+| `deployment` | Release order, retention, migration policy. | [deployment](/reference/fields/deployment) |
+| `proxy` | Who runs the proxy and what routes. | [proxy](/reference/fields/proxy) |
+| `runtime` | Environment files and preflight assertions. | [runtime](/reference/fields/runtime) |
+| `hooks` | Commands at lifecycle seams. | [hooks](/reference/fields/hooks) |
+| `verification` | What must be true for a release to activate. | [verification](/reference/fields/verification) |
+| `registries` `notifications` `observability` | Named maps. | [registries](/reference/fields/registries) · [notifications](/reference/fields/notifications) · [observability](/reference/fields/observability) |
+
+Any mapping also accepts `x-` keys. They are carried nowhere and never change the
+generated runtime.
+
+## Shorthand
+
+A scalar form, once accepted, is accepted **permanently**. These are contract,
+not convenience that might be withdrawn.
+
+| Written as | Means |
+| --- | --- |
+| `image: nginx` | `image: {reference: nginx}` |
+| `health: /healthz` | `health: {http: /healthz}` |
+| `server: root@203.0.113.10` | `server: {user: root, host: 203.0.113.10}` |
+| `needs: [postgres]` | `needs: [{name: postgres}]` |
+| `services: {postgres: 17}` | `services: {postgres: {version: 17}}` |
+| `env_files: [.env]` | `env_files: [{file: .env}]` |
+| `hooks: {post_deploy: "echo hi"}` | `hooks: {post_deploy: {run: "echo hi"}}` |
+| `build: .` | `build: {context: .}` |
+
+### Top-level workload shorthand
+
+A single-workload project may write the workload's own fields at the top level
+instead of a `workloads` block: `build`, `image`, `compose`, `domain`, `port`,
+`health`, `routes`.
+
+Mixing the two is `shorthand_and_workloads` — it would be ambiguous which
+workload the top-level fields describe. Shorthand also needs `app` to attach the
+workload to (`app_required`).
+
+## Environment values: two rules
+
+**Which list a workload resolves.** Exactly one, from the most specific
+declaration present — override, then workload, then environment, then project.
+Lists replace rather than extend.
+
+**What wins inside the container.** Lowest first: a `compose:` workload's own
+`env_file`; the resolved `env_files` entries in order; managed-service connection
+files; the service's `environment`.
+
+Full explanation, including why level four outranks the rest:
+[Handle secrets](/guides/handle-secrets).
+
+## What Onebox generates
+
+**Names** — `shop_web`, `shop_web_2`, `ob_shop_postgres`,
+`ob_shop_postgres_data`, `ob_shop` (the service network), `ob-ingress`. These are
+contract: once a volume exists its name cannot change without moving data. A
+foreign resource already holding a derived name is refused, not adopted.
+
+**Layout** — `/var/lib/ob/<app>/releases/<id>`, plus `current`, `journal`, and
+`services`. Configurable per environment with `base_path`.
+
+**The proxy** — if anything is routed, Onebox runs Traefik and writes its static
+configuration. Declare `proxy.config` to own that configuration instead.
+
+## Evolution
+
+`api_version: onebox.run/v1` is stable. Within it:
+
+- A field is **added**, never repurposed.
+- A scalar form once accepted is accepted **permanently**.
+- A default may be added; an existing default's value **does not change**.
+- A constraint is **not tightened** against a project that already loads.
+
+The JSON Schema published by `ob schema` is generated from the same declarations
+the loader enforces and is checked against the conformance corpus.
+
+:::caution[One breaking change already happened]
+`onebox.run/v1` was redefined in place rather than superseded by a v2. A project
+written against the earlier contract — which classified a Compose file *you*
+wrote — does not load, and must be authored fresh. Compose used to be an input
+Onebox read; it is now an artifact Onebox generates.
+:::

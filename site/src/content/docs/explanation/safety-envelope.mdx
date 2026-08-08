@@ -1,0 +1,99 @@
+---
+title: The safety envelope
+description: Locks, fencing, journals, drift, expiry — the machinery that makes an interrupted operation recoverable.
+summary: "How Onebox makes execution resumable and reversible: application and host locks, fencing epochs, append-only journals, state-bound plans, and what each protects against."
+sidebar:
+  order: 5
+read_when:
+  - "Understanding what happens when a deploy is interrupted"
+  - "Evaluating whether Onebox is safe to run from CI or an agent"
+  - "Working out why a plan expired or a state binding went stale"
+---
+
+Onebox is agentless: no resident daemon and no listening control port runs on the
+target. Everything below is achieved with short-lived processes, durable state,
+and files on the host.
+
+## The pieces
+
+**Locks.** An application lock, and a host lock above it. Operations that would
+interfere serialize rather than race.
+
+**Fencing epochs.** A stale process that wakes up after losing its lock cannot
+act: its epoch no longer matches. This is what makes "the CLI lost the
+connection" survivable rather than dangerous.
+
+**Append-only journals.** Every operation records ordered steps with deterministic
+identities. The record of a failed operation survives the operation that replaced
+it, which is what lets `ob resume` and `ob abort` choose only paths the journal
+can prove safe.
+
+**State-bound plans.** A plan binds the exact config, Compose, host state, images
+and payloads it was created against. It expires after fifteen minutes, and any
+drift or local payload change requires a new one.
+
+**Digest-bound approvals.** A grant covers one exact plan, target, input set,
+risk classification, operator and expiry. A changed or expired plan needs a new
+grant.
+
+**Drift detection.** A target-side artifact differing from what the plan bound is
+a typed error **before** mutation, not a silent reconciliation.
+
+## Why plans expire
+
+An approval says: *this exact change, against this exact observed state, is
+authorised*. The moment the observed state may have moved, the approval is
+describing something that no longer exists.
+
+Fifteen minutes is short enough that "the plan I approved" and "the state on the
+host" are still the same claim. Longer, and approval quietly degrades into
+permission to do something nobody looked at.
+
+## Retry is safe by construction
+
+Mutations are idempotent under retry. Retrying with the same operation identity
+resumes or returns the existing terminal result rather than creating an untracked
+duplicate.
+
+That property is why the CLI is usable from CI and from an agent: a lost
+connection is an inconvenience, not an incident. A retry first inspects the
+operation identity and uses resume or status behaviour; it never blindly starts a
+second deploy.
+
+## What the envelope does not cover
+
+:::danger[Bounded claims]
+Onebox does **not** claim universal reversibility, high availability, or
+protection from an adversarial infrastructure provider.
+:::
+
+- **A customer with root can bypass Onebox.** The envelope constrains Onebox's
+  own operations, not the machine.
+- **A compromised host can lie about its own evidence.** Everything here assumes
+  the host reports honestly about itself.
+- **Rolling deployment cannot make a failed host available.** It avoids
+  interruption while the box is healthy. That is all it claims.
+- **Arbitrary external side effects are not reversible.** An email sent by a
+  migration stays sent.
+
+## `ob exec` is deliberately outside it
+
+```sh
+ob exec <workload> -- <command>
+```
+
+It runs outside the journal and the safety regime, and nothing it changes belongs
+to any release. Every other command states up front whether it contacts the
+target and whether it changes anything; `ob exec` is the one row without a
+definite answer, and that is the point rather than an omission.
+
+## Reading the envelope from outside
+
+```sh
+ob status --output json   # non-zero on divergence
+ob audit                  # recorded operations
+ob doctor --output json   # local safety setup and runner compatibility
+```
+
+None of these mutate. Observation cannot converge — see
+[Evidence, not declaration](/explanation/evidence-not-declaration).

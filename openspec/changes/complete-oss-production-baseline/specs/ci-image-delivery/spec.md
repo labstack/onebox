@@ -68,4 +68,3 @@ with consumers SHALL receive a new schema version.
 - **GIVEN** a completed plan-only or deployment workflow
 - **WHEN** a downstream job reads its result
 - **THEN** it can branch on schema version and terminal code without parsing human logs
-

@@ -100,6 +100,21 @@ var (
 
 	gPlanSchema = grammar{"plan schema", regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v[1-9][0-9]*((alpha|beta)[1-9][0-9]*)?$`),
 		"a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2"}
+
+	gFailureDomain = grammar{"failure-domain identity", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`),
+		"a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens"}
+
+	gBucket = grammar{"bucket name", regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`),
+		"a lower-case S3-compatible bucket name between 3 and 63 characters"}
+
+	gObjectPrefix = grammar{"object prefix", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$`),
+		"a relative object prefix with no empty leading component or shell metacharacter"}
+
+	gS3Region = grammar{"S3 region", regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`),
+		"a lower-case S3-compatible region of letters, digits and hyphens"}
+
+	gProtectionOwner = grammar{"protection owner", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$`),
+		"a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens"}
 )
 
 // enums are the closed value sets, each with the field it belongs to.
@@ -124,9 +139,14 @@ var (
 	// rendered a filename, and staged nothing, failing on the target with a
 	// name the author never wrote. Accepting a value no code can honour is not
 	// generosity.
-	eSecretProvider = []string{"sops"}
-	eRole           = []string{RoleApplication, RoleWorker, RoleDaemon, RoleJob}
-	eConnectionPart = []string{"url", "host", "port", "user", "password", "database"}
+	eSecretProvider    = []string{"sops"}
+	eRole              = []string{RoleApplication, RoleWorker, RoleDaemon, RoleJob}
+	eConnectionPart    = []string{"url", "host", "port", "user", "password", "database"}
+	eBackupTargetKind  = []string{"s3-compatible"}
+	eBackupTLS         = []string{"required", "insecure"}
+	eRecoveryKind      = []string{"snapshot", "pitr", "cold"}
+	eEncryptionMode    = []string{"client-side", "archive-password", "server-side-sse"}
+	eExternalProbeKind = []string{"driver-health"}
 )
 
 // reservedAppNames are the identities the host layout already uses. An

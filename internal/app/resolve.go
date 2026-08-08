@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 )
 
 // Resolution applies one environment's overrides to the project. Everything
@@ -28,7 +29,7 @@ var (
 		"env_files": true,
 	}
 	overridableService = map[string]bool{
-		"resources": true, "settings": true,
+		"resources": true, "settings": true, "protection": true,
 	}
 )
 
@@ -36,9 +37,16 @@ var (
 type Origin string
 
 const (
-	OriginOverride Origin = "override"
-	OriginExplicit Origin = "explicit"
-	OriginDefault  Origin = "default"
+	OriginAuthored            Origin = "authored"
+	OriginDefault             Origin = "default"
+	OriginEnvironmentOverride Origin = "environment-override"
+	OriginObserved            Origin = "observed"
+	OriginDerived             Origin = "derived"
+
+	// Compatibility names retain the Go API while the public values use the
+	// vocabulary exposed by canonical output.
+	OriginExplicit = OriginAuthored
+	OriginOverride = OriginEnvironmentOverride
 )
 
 // Resolved is a project with one environment's overrides applied.
@@ -51,6 +59,9 @@ type Resolved struct {
 	// Origins records the paths an override changed, so a reader can tell a
 	// staging value from a project-level one without diffing two files.
 	Origins map[string]Origin
+
+	canonicalFacts *CanonicalFacts
+	serviceRuntime map[string]ServiceRuntimeState
 }
 
 // Resolve applies the named environment's overrides and returns a copy. The
@@ -93,15 +104,29 @@ func (p *Spec) Resolve(env string) (*Resolved, error) {
 
 	for _, name := range sortedKeys(e.Overrides.Services) {
 		patch := e.Overrides.Services[name]
+		authoredPatch := patch
 		s, ok := clone.Services[name]
 		if !ok {
 			return nil, errf("override_unknown_service",
 				"environments."+env+".overrides.services."+name, "",
 				"environment %q overrides service %q, which the project does not declare", env, name)
 		}
+		patch, err = prepareServiceOverride("environments."+env+".overrides.services."+name, s, patch)
+		if err != nil {
+			return nil, err
+		}
 		merged, err := applyPatch("services."+name, s, patch, overridableService, out.Origins)
 		if err != nil {
 			return nil, err
+		}
+		if _, protected := authoredPatch["protection"]; protected {
+			prefix := "services." + name + ".protection"
+			for originPath := range out.Origins {
+				if originPath == prefix || strings.HasPrefix(originPath, prefix+".") {
+					delete(out.Origins, originPath)
+				}
+			}
+			markOverrideLeaves(prefix, authoredPatch["protection"], out.Origins)
 		}
 		clone.Services[name] = merged
 	}
@@ -128,7 +153,7 @@ func (p *Spec) Resolve(env string) (*Resolved, error) {
 func overrideError(env string, err error) error {
 	var e *Error
 	if errors.As(err, &e) {
-		return errf(e.Code, "environments."+env+".overrides."+e.Path, "",
+		return errf(e.Code, "environments."+env+".overrides."+e.Path, e.Next,
 			"%s (the project is valid; this comes from %q's overrides)", e.Message, env)
 	}
 	return err
@@ -172,7 +197,7 @@ func applyPatch[T any](path string, target T, patch map[string]any, allowed map[
 		default:
 			raw[key] = value
 		}
-		origins[path+"."+key] = OriginOverride
+		markOverrideValue(path+"."+key, value, origins)
 	}
 
 	var out T
@@ -181,6 +206,28 @@ func applyPatch[T any](path string, target T, patch map[string]any, allowed map[
 			"override produced a value the contract does not accept: %v", firstLine(err.Error()))
 	}
 	return out, nil
+}
+
+func markOverrideValue(path string, value any, origins map[string]Origin) {
+	origins[path] = OriginEnvironmentOverride
+	mapping, ok := value.(map[string]any)
+	if !ok || len(mapping) == 0 {
+		return
+	}
+	for _, key := range sortedKeys(mapping) {
+		markOverrideValue(path+"."+key, mapping[key], origins)
+	}
+}
+
+func markOverrideLeaves(path string, value any, origins map[string]Origin) {
+	mapping, ok := value.(map[string]any)
+	if !ok || len(mapping) == 0 {
+		origins[path] = OriginEnvironmentOverride
+		return
+	}
+	for _, key := range sortedKeys(mapping) {
+		markOverrideLeaves(path+"."+key, mapping[key], origins)
+	}
 }
 
 // mergeMapping merges one level, with a null member removing that member. One

@@ -118,6 +118,183 @@
       "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
       "type": "string"
     },
+    "backup_targets": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "bucket": {
+            "description": "Existing destination bucket used by this target. Expects a lower-case S3-compatible bucket name between 3 and 63 characters.",
+            "examples": [
+              "onebox-backups"
+            ],
+            "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+            "type": "string"
+          },
+          "credentials": {
+            "additionalProperties": false,
+            "description": "Trusted encrypted-file entries containing destination credentials; values never appear in the project.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "access_key_entry": {
+                "description": "Variable name containing the destination access key. Expects a variable name of letters, digits and underscores, not starting with a digit.",
+                "examples": [
+                  "BACKUP_ACCESS_KEY_ID"
+                ],
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "file": {
+                "description": "Repository-relative encrypted credential file staged through the trusted secret flow. Expects a path inside the repository, with no control character or shell metacharacter.",
+                "examples": [
+                  "secrets/backup.env"
+                ],
+                "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                "type": "string"
+              },
+              "provider": {
+                "default": "sops",
+                "description": "Trusted secret provider. Only sops is currently executable.",
+                "enum": [
+                  "sops"
+                ],
+                "type": "string"
+              },
+              "secret_key_entry": {
+                "description": "Variable name containing the destination secret key. Expects a variable name of letters, digits and underscores, not starting with a digit.",
+                "examples": [
+                  "BACKUP_SECRET_ACCESS_KEY"
+                ],
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "session_token_entry": {
+                "description": "Optional variable name containing a temporary destination session token. Expects a variable name of letters, digits and underscores, not starting with a digit.",
+                "examples": [
+                  "BACKUP_SESSION_TOKEN"
+                ],
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "encryption": {
+            "additionalProperties": false,
+            "description": "Required encryption mode for each recovery kind this target may store.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "cold": {
+                "description": "Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse.",
+                "enum": [
+                  "client-side",
+                  "archive-password",
+                  "server-side-sse"
+                ],
+                "type": "string"
+              },
+              "pitr": {
+                "description": "Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse.",
+                "enum": [
+                  "client-side",
+                  "archive-password",
+                  "server-side-sse"
+                ],
+                "type": "string"
+              },
+              "snapshot": {
+                "description": "Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse.",
+                "enum": [
+                  "client-side",
+                  "archive-password",
+                  "server-side-sse"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "endpoint": {
+            "description": "Destination API endpoint. HTTPS is required unless tls is explicitly insecure. Expects an http or https URL.",
+            "examples": [
+              "https://objects.example.com"
+            ],
+            "pattern": "^https?://",
+            "type": "string"
+          },
+          "failure_domain": {
+            "additionalProperties": false,
+            "description": "Operator-declared identity used to prove the destination does not share the protected host.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "host": {
+                "description": "Destination host identity used to refuse a target on the protected host. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens.",
+                "examples": [
+                  "backup-01.example.net"
+                ],
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$",
+                "type": "string"
+              },
+              "identity": {
+                "description": "Stable operator-owned failure-domain identity, distinct from the protected host. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens.",
+                "examples": [
+                  "provider-a/us-east-1/account-42"
+                ],
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "kind": {
+            "description": "Destination kind. Only s3-compatible is supported.",
+            "enum": [
+              "s3-compatible"
+            ],
+            "examples": [
+              "s3-compatible"
+            ],
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Non-secret object prefix reserved for Onebox protection data. Expects a relative object prefix with no empty leading component or shell metacharacter.",
+            "examples": [
+              "production/shop"
+            ],
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$",
+            "type": "string"
+          },
+          "region": {
+            "description": "S3-compatible region when the endpoint requires one. Expects a lower-case S3-compatible region of letters, digits and hyphens.",
+            "examples": [
+              "us-east-1"
+            ],
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          },
+          "tls": {
+            "default": "required",
+            "description": "TLS verification policy: required or insecure.",
+            "enum": [
+              "required",
+              "insecure"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "User-owned off-host repositories available to service protection policies.",
+      "type": "object"
+    },
     "base_path": {
       "default": "/var/lib/ob",
       "description": "Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter.",
@@ -416,6 +593,128 @@
       },
       "description": "Named deployment targets and the policy applied to each target.",
       "minProperties": 1,
+      "type": "object"
+    },
+    "external_services": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "connection": {
+            "additionalProperties": false,
+            "description": "Trusted connection source and driver-shaped entry mapping.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "entries": {
+                "additionalProperties": {
+                  "description": "Expects a variable name of letters, digits and underscores, not starting with a digit.",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                  "type": "string"
+                },
+                "description": "Maps driver connection parts such as host, port, user, password, database, or url to variable names in the trusted source.",
+                "type": "object"
+              },
+              "source": {
+                "additionalProperties": false,
+                "description": "Trusted encrypted file containing the connection values.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "file": {
+                    "description": "Repository-relative encrypted environment file staged through the trusted secret flow. Expects a path inside the repository, with no control character or shell metacharacter.",
+                    "examples": [
+                      "secrets/production-db.env"
+                    ],
+                    "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                    "type": "string"
+                  },
+                  "provider": {
+                    "default": "sops",
+                    "description": "Trusted secret provider. Only sops is currently executable.",
+                    "enum": [
+                      "sops"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "driver": {
+            "description": "Built-in connection shape used to validate and project this dependency.",
+            "enum": [
+              "clickhouse",
+              "mariadb",
+              "meilisearch",
+              "minio",
+              "mongodb",
+              "mysql",
+              "nats",
+              "postgres",
+              "rabbitmq",
+              "redis",
+              "valkey"
+            ],
+            "examples": [
+              "postgres"
+            ],
+            "type": "string"
+          },
+          "probe": {
+            "additionalProperties": false,
+            "description": "Optional bounded read-only health observation; it never creates or repairs provider resources.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "kind": {
+                "default": "driver-health",
+                "description": "Read-only observation kind: driver-health.",
+                "enum": [
+                  "driver-health"
+                ],
+                "type": "string"
+              },
+              "max_age": {
+                "default": "5m",
+                "description": "Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "5m"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                "type": "string"
+              },
+              "timeout": {
+                "default": "5s",
+                "description": "Maximum duration of one read-only probe. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "5s"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "protection_owner": {
+            "description": "Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens.",
+            "examples": [
+              "platform-team/rds"
+            ],
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and protection remain external.",
       "type": "object"
     },
     "health": {
@@ -958,6 +1257,158 @@
                       "ephemeral",
                       "external"
                     ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "protection": {
+                "additionalProperties": false,
+                "description": "Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "allow_backup_interruption": {
+                    "default": false,
+                    "description": "Whether recurring backup operations may use the driver-declared stopped-service window.",
+                    "type": "boolean"
+                  },
+                  "maximum_data_loss": {
+                    "description": "Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "15m"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  },
+                  "recovery_kind": {
+                    "description": "Required recovery envelope: snapshot, pitr, or cold.",
+                    "enum": [
+                      "snapshot",
+                      "pitr",
+                      "cold"
+                    ],
+                    "examples": [
+                      "pitr"
+                    ],
+                    "type": "string"
+                  },
+                  "restore_drill": {
+                    "additionalProperties": false,
+                    "description": "Exact isolated restore-test schedule, proof age, and optional staging filesystem.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "proof_max_age": {
+                        "default": "7d",
+                        "description": "Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                        "examples": [
+                          "7d"
+                        ],
+                        "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                        "type": "string"
+                      },
+                      "schedule": {
+                        "additionalProperties": false,
+                        "description": "Exact recurring isolated restore-test schedule.",
+                        "patternProperties": {
+                          "^x-": {}
+                        },
+                        "properties": {
+                          "cron": {
+                            "description": "Five-field cron schedule translated to a host timer. Expects five cron fields.",
+                            "examples": [
+                              "0 2 * * *"
+                            ],
+                            "pattern": "^[-0-9*/,A-Za-z ]+$",
+                            "type": "string"
+                          },
+                          "timezone": {
+                            "default": "UTC",
+                            "description": "IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin.",
+                            "examples": [
+                              "Europe/Berlin"
+                            ],
+                            "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "staging_filesystem": {
+                        "description": "Absolute filesystem path used for isolated restore materialization instead of the host default. Expects an absolute path with no control character or shell metacharacter.",
+                        "examples": [
+                          "/srv/onebox-restore"
+                        ],
+                        "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "description": "Portable minimum recovery history that the selected native driver must be able to preserve.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "minimum_generations": {
+                        "default": 7,
+                        "description": "Minimum number of independently recoverable base generations to retain.",
+                        "examples": [
+                          7
+                        ],
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "recovery_window": {
+                        "default": "7d",
+                        "description": "Minimum continuous recovery history the native retention mapping must preserve. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                        "examples": [
+                          "7d"
+                        ],
+                        "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "schedule": {
+                    "additionalProperties": false,
+                    "description": "Exact recurring base-backup schedule.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "cron": {
+                        "description": "Five-field cron schedule translated to a host timer. Expects five cron fields.",
+                        "examples": [
+                          "0 2 * * *"
+                        ],
+                        "pattern": "^[-0-9*/,A-Za-z ]+$",
+                        "type": "string"
+                      },
+                      "timezone": {
+                        "default": "UTC",
+                        "description": "IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin.",
+                        "examples": [
+                          "Europe/Berlin"
+                        ],
+                        "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "target": {
+                    "description": "Name of a project-level backup target. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
+                    "examples": [
+                      "offsite"
+                    ],
+                    "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
                     "type": "string"
                   }
                 },

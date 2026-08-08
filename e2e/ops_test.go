@@ -30,13 +30,29 @@ func gate(t *testing.T) {
 	if os.Getenv("OB_E2E") != "1" {
 		t.Skip("set OB_E2E=1 (requires local docker)")
 	}
+	// Opting in is a promise that Docker is here. Skipping past a broken daemon
+	// once OB_E2E=1 is set turns a gate into a green tick for work nobody did.
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skip("docker not available")
+		t.Fatalf("OB_E2E=1 was set but docker is not usable: %v", err)
 	}
 }
 
 // buildDeploy loads config+compose fresh (env-sensitive) and returns an
 // engine plus a staged release ready for Deploy.
+// releaseSnapshot is what `ob resume` reloads to replay an interrupted release,
+// so it has to be the project as this test actually configured it — the project
+// file plus the base path the fixture overrides in Go. Staging a placeholder
+// meant recovery refused every interrupted release as unparseable, and staging
+// the file alone left it pointing at the default /var/lib/ob.
+func releaseSnapshot(t *testing.T, dir, cfgFile, base string) []byte {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(dir, cfgFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(body, []byte("\nbase_path: "+base+"\n")...)
+}
+
 func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engine, string, string) {
 	t.Helper()
 	t.Setenv("APP_VERSION", version)
@@ -65,7 +81,7 @@ func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engi
 	if _, err := compose.StagePayload(p, staging); err != nil {
 		t.Fatal(err)
 	}
-	if err := release.Stage(staging, rendered.Bytes, []byte("snapshot")); err != nil {
+	if err := release.Stage(staging, rendered.Bytes, releaseSnapshot(t, dir, cfgFile, base)); err != nil {
 		t.Fatal(err)
 	}
 	e := engine.New(resolved, p, transport.NewLocal(), engine.Options{Out: os.Stderr, Environment: "production"})

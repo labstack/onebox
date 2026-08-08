@@ -1,0 +1,78 @@
+version: "2"
+
+# The gate is green from the first run, and says what it is not yet checking.
+#
+# A linter switched on over a pile of pre-existing findings is a linter someone
+# turns off. Everything enabled here passes today, so a failure means the change
+# in front of you — which is the only way a gate stays trusted.
+#
+# Where something is held back, this file names it and gives the command that
+# reproduces it. It deliberately does not quote counts: the first version of this
+# file did, and the number was wrong on the day it was written.
+
+linters:
+  default: standard
+
+  disable:
+    # Held back: helpers that exist without a caller.
+    #
+    #   golangci-lint run --enable-only unused ./...
+    #
+    # Most are status-output sanitisation in internal/onebox/status.go — written
+    # against a status shape the engine does not yet emit — plus two recovery-kind
+    # helpers in internal/app/service_lifecycle.go. Deleting them is a judgement
+    # about whether that work is still coming, which is not this gate's call.
+    - unused
+
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # QF* are refactoring suggestions, not defects. Listed in code order:
+        # QF1001 rewrites boolean expressions by De Morgan's law, QF1003 converts
+        # if/else chains to tagged switches, and QF1008 strips embedded-field
+        # selectors — QF1008 is by far the most numerous. They are opinions about
+        # style this repository has not adopted, and enforcing them would churn
+        # code that reads fine.
+        #
+        #   golangci-lint run --enable-only staticcheck ./...
+        - -QF1001
+        - -QF1003
+        - -QF1008
+    govet:
+      disable:
+        # `inline` reports call sites of symbols whose author marked them with a
+        # //go:fix inline directive. The single finding here is reflect.Ptr, the
+        # deprecated alias for reflect.Pointer, in internal/app/shape.go. Worth
+        # fixing on its own; not worth blocking every build until someone does.
+        - inline
+
+  exclusions:
+    generated: lax
+    # These presets do the heaviest lifting in this file — they are what makes
+    # errcheck enforceable at all, suppressing the conventional unchecked calls
+    # (deferred Close, fmt.Fprint* to a buffer) that would otherwise bury the
+    # real ones. Removing them turns errcheck from zero findings into over a
+    # hundred, none of them new.
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+    rules:
+      # errcheck is enabled for production code, where an ignored error is the
+      # opposite of the typed, visible failures this product promises. Test code
+      # is excluded: every finding there is setup scaffolding — os.WriteFile into
+      # a temp dir, io.Copy in a fixture — where a failure surfaces as the test
+      # failing anyway.
+      - path: (_test\.go|^e2e/)
+        linters: [errcheck]
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  # Zero means "no cap", not "tolerate none": report every finding rather than
+  # truncating the list at golangci-lint's default of 50.
+  max-issues-per-linter: 0
+  max-same-issues: 0

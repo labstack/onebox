@@ -190,7 +190,7 @@ func validateJobResult(document jobResultDocument) error {
 		return errors.New("job result changed disagrees with provider revision evidence")
 	}
 	if document.Provider == "atlas" && !revisionListPrefix(document.BeforeRevisions, document.AfterRevisions) {
-		return errors.New("Atlas after_revisions must extend before_revisions without rewriting history")
+		return errors.New(`"atlas" after_revisions must extend before_revisions without rewriting history`)
 	}
 	return nil
 }

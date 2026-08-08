@@ -64,7 +64,7 @@ var (
 	gAbsPath = grammar{"absolute path", regexp.MustCompile("^/[^\\x00-\\x1f'\"$`\\\\]*$"),
 		"an absolute path with no control character or shell metacharacter"}
 
-	gUrlPath = grammar{"url path", regexp.MustCompile("^/[^\\x00-\\x1f'\"$` \\\\]*$"),
+	gURLPath = grammar{"url path", regexp.MustCompile("^/[^\\x00-\\x1f'\"$` \\\\]*$"),
 		"a path beginning with /"}
 
 	// A registry reference. The registry library owns this grammar; keeping its

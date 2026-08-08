@@ -637,7 +637,7 @@ func replayArchiveSchedule(policy app.ProtectionPolicy) app.Schedule {
 	if minutes < 1 {
 		minutes = 1
 	}
-	cron := "* * * * *"
+	var cron string
 	switch {
 	case minutes < 60:
 		cron = fmt.Sprintf("*/%d * * * *", minutes)

@@ -62,4 +62,3 @@ create, store, restore, or claim the external provider's backup.
 - **GIVEN** a migration affects an external durable service
 - **WHEN** a matching fresh evidence receipt is supplied
 - **THEN** the plan may proceed while status continues to identify protection as externally owned
-

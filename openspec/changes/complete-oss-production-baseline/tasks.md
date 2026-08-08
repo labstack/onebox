@@ -188,7 +188,7 @@
 ## 20. External-service connections
 
 - [ ] 20.1 Normalize external-service declarations into canonical driver-shaped connection metadata and the derived `External` tier; add canonicalization and run/external ownership-conflict tests.
-- [ ] 20.2 Resolve workload `needs` entries across run and external services, projecting only requested parts from trusted staged secret files and generating no external service runtime; add runtime golden and plaintext-leak tests.
+- [x] 20.2 Resolve workload `needs` entries across run and external services, projecting only requested parts from trusted staged secret files and generating no external service runtime; add runtime golden and plaintext-leak tests.
 - [ ] 20.3 Implement optional read-only external health probes with bounded age and plan binding; add healthy, permission-denied, unreachable, changed-after-plan, and `external_service_state_stale` tests proving no corrective mutation occurs.
 - [ ] 20.4 Refuse apply, backup, restore, upgrade, rotation, and destroy against external dependencies with `external_service_not_owned`, preserving the declared owner in secret-free output; add command matrix tests.
 - [ ] 20.5 Validate fresh plan-bound external backup evidence or an independently authorized override for migration policy without creating, storing, restoring, or claiming provider backups; add stale, mismatched, missing, and accepted receipt tests.

@@ -77,3 +77,43 @@ func TestProtectionCredentialErrorsDoNotEchoValues(t *testing.T) {
 		t.Fatalf("credential error leaked value: %v", err)
 	}
 }
+
+func TestProtectionCredentialGrammarAcceptsLowercaseEnvironmentNames(t *testing.T) {
+	fake := &transport.Fake{}
+	engine := protectionLockTestEngine(fake)
+	engine.fenceVal = "deploy-1 1"
+	engine.protectionLockVals = map[string]string{"database": "service-lock"}
+	engine.protectionFenceVals = map[string]string{"database": "backup-1 1"}
+	if _, err := engine.InstallProtectionCredentialFile(
+		context.Background(), "database", "offsite", []string{"aws_access_key"}, []byte("aws_access_key=value\n"),
+	); err != nil {
+		t.Fatalf("lowercase schema-valid credential entry was rejected: %v", err)
+	}
+}
+
+func TestProtectionCredentialInstallFailureCleansRemotePlaintextStaging(t *testing.T) {
+	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "cp ") && strings.Contains(command, ".credential-staging-") {
+			return transport.Result{ExitCode: 1}, true
+		}
+		return transport.Result{}, false
+	}}
+	engine := protectionLockTestEngine(fake)
+	engine.fenceVal = "deploy-1 1"
+	engine.protectionLockVals = map[string]string{"database": "service-lock"}
+	engine.protectionFenceVals = map[string]string{"database": "backup-1 1"}
+	if _, err := engine.InstallProtectionCredentialFile(
+		context.Background(), "database", "offsite", []string{"REQUIRED_ENTRY"}, []byte("REQUIRED_ENTRY=value\n"),
+	); err == nil {
+		t.Fatal("failed target install was accepted")
+	}
+	foundCleanup := false
+	for _, command := range fake.Commands {
+		if strings.HasPrefix(command, "rm -rf ") && strings.Contains(command, ".credential-staging-") && strings.Contains(command, ".tmp") {
+			foundCleanup = true
+		}
+	}
+	if !foundCleanup {
+		t.Fatalf("remote plaintext staging was not cleaned: %#v", fake.Commands)
+	}
+}

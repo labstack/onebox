@@ -118,8 +118,12 @@ func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
 	if err := checkEnum(path+".recovery_kind", policy.RecoveryKind, eRecoveryKind); err != nil {
 		return err
 	}
-	if _, err := positiveDuration(policy.MaximumDataLoss); err != nil {
+	maximumDataLoss, err := positiveDuration(policy.MaximumDataLoss)
+	if err != nil {
 		return errf("project_invalid", path+".maximum_data_loss", "ob validate", "maximum_data_loss must be a positive duration: %v", err)
+	}
+	if maximumDataLoss < time.Minute {
+		return errf("recovery_objective_unsupported", path+".maximum_data_loss", "ob validate", "maximum_data_loss must be at least one minute because the host scheduler has one-minute resolution")
 	}
 	if err := validateSchedule(&policy.Schedule, path+".schedule"); err != nil {
 		return err
@@ -137,7 +141,11 @@ func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
 	if err != nil {
 		return errf("project_invalid", path+".restore_drill.proof_max_age", "ob validate", "proof_max_age must be a positive duration: %v", err)
 	}
-	if gap, exact := maximumCronGap(policy.RestoreDrill.Schedule.Cron); exact && gap >= proofAge {
+	gap, exact := maximumCronGap(policy.RestoreDrill.Schedule.Cron)
+	if !exact {
+		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against proof_max_age; use a daily or weekday-based schedule")
+	}
+	if gap >= proofAge {
 		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds proof_max_age %s; use a more frequent schedule", gap, proofAge)
 	}
 	if err := gAbsPath.checkOptional(path+".restore_drill.staging_filesystem", policy.RestoreDrill.StagingFilesystem); err != nil {
@@ -223,12 +231,12 @@ func maximumCronGap(expression string) (time.Duration, bool) {
 	}
 	dayOfMonth, month, dayOfWeek := fields[2], fields[3], fields[4]
 	if month != "*" {
-		return 366 * 24 * time.Hour, true
+		return 0, false
 	}
 	if dayOfMonth != "*" {
-		return 31 * 24 * time.Hour, true
+		return 0, false
 	}
-	if dayOfWeek == "*" || strings.Contains(dayOfWeek, "*") {
+	if dayOfWeek == "*" {
 		return 24 * time.Hour, true
 	}
 	days, ok := cronWeekdays(dayOfWeek)
@@ -263,20 +271,66 @@ func cronWeekdays(value string) ([]int, bool) {
 	names := map[string]int{"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6}
 	var out []int
 	for _, part := range strings.Split(strings.ToUpper(value), ",") {
-		if day, ok := names[part]; ok {
-			out = append(out, day)
+		if strings.Contains(part, "/") {
+			base, stepText, ok := strings.Cut(part, "/")
+			step, err := strconv.Atoi(stepText)
+			if !ok || err != nil || step <= 0 || step > 7 {
+				return nil, false
+			}
+			start, end := 0, 7
+			if base != "*" {
+				bounds := strings.Split(base, "-")
+				if len(bounds) != 2 {
+					return nil, false
+				}
+				var valid bool
+				start, valid = cronWeekday(bounds[0], names)
+				if !valid {
+					return nil, false
+				}
+				end, valid = cronWeekday(bounds[1], names)
+				if !valid || end < start {
+					return nil, false
+				}
+			}
+			for day := start; day <= end; day += step {
+				out = append(out, day%7)
+			}
 			continue
 		}
-		n, err := strconv.Atoi(part)
-		if err != nil || n < 0 || n > 7 {
+		if strings.Contains(part, "-") {
+			bounds := strings.Split(part, "-")
+			if len(bounds) != 2 {
+				return nil, false
+			}
+			start, ok := cronWeekday(bounds[0], names)
+			if !ok {
+				return nil, false
+			}
+			end, ok := cronWeekday(bounds[1], names)
+			if !ok || end < start {
+				return nil, false
+			}
+			for day := start; day <= end; day++ {
+				out = append(out, day%7)
+			}
+			continue
+		}
+		day, ok := cronWeekday(part, names)
+		if !ok {
 			return nil, false
 		}
-		if n == 7 {
-			n = 0
-		}
-		out = append(out, n)
+		out = append(out, day%7)
 	}
 	return out, true
+}
+
+func cronWeekday(value string, names map[string]int) (int, bool) {
+	if day, ok := names[value]; ok {
+		return day, true
+	}
+	day, err := strconv.Atoi(value)
+	return day, err == nil && day >= 0 && day <= 7
 }
 
 func sameHost(a, b string) bool {

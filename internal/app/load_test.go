@@ -89,6 +89,15 @@ func conformanceCases() []conformanceCase {
 		{"bind mount volume", wl("w: {image: nginx, volumes: [{source: ./data, target: /data}]}"), true},
 		{"published udp port", wl("w: {image: nginx, ports: [{host: 8555, container: 8555, protocol: udp}]}"), true},
 		{"service scalar", min + "services: {postgres: 18}\n", true},
+		{"service protection policy", validProtectionProject, true},
+		{"external service connection", validExternalServiceProject, true},
+		{"protection inline secret", strings.Replace(validProtectionProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext\n", 1), false},
+		{"protection authored tool", strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: pgbackrest\n", 1), false},
+		{"protection self target", strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
+		{"protection unsupported objective", strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
+		{"protection unsupported retention", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {minimum_generations: 0, recovery_window: 7d}\n", 1), false},
+		{"protection sparse drill", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, proof_max_age: 7d}\n", 1), false},
+		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
 		{"no environments", "api_version: onebox.run/v1\napp: a\nenvironments: {}\nimage: nginx\n", false},

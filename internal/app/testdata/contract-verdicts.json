@@ -90,6 +90,16 @@
     "digest": "9a25e5e99e9f1eb1cc71d17a0c8a13089938ddfadd052499097277b5dd7fcfe3"
   },
   {
+    "case": "conformance/external lifecycle field",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
+    "case": "conformance/external service connection",
+    "loads": true,
+    "digest": "6a5f26a10eb914e99aa12a6ea86d0f7ccb780c50ba3e8710cb7a2dc59d0dbfc9"
+  },
+  {
     "case": "conformance/hook with local",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
@@ -175,9 +185,39 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/protection authored tool",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
+    "case": "conformance/protection inline secret",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
     "case": "conformance/protection is no longer a field",
     "loads": false,
     "code": "unknown_field"
+  },
+  {
+    "case": "conformance/protection self target",
+    "loads": false,
+    "code": "backup_target_not_independent"
+  },
+  {
+    "case": "conformance/protection sparse drill",
+    "loads": false,
+    "code": "restore_drill_schedule_too_sparse"
+  },
+  {
+    "case": "conformance/protection unsupported objective",
+    "loads": false,
+    "code": "recovery_objective_unsupported"
+  },
+  {
+    "case": "conformance/protection unsupported retention",
+    "loads": false,
+    "code": "backup_retention_unsupported"
   },
   {
     "case": "conformance/proxy kind none with a route",
@@ -213,6 +253,11 @@
     "case": "conformance/scheduled job",
     "loads": true,
     "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
+  },
+  {
+    "case": "conformance/service protection policy",
+    "loads": true,
+    "digest": "235dcc9445a139b939e7a13950f90e69cd5bf67621cc9f4588f04ec2a013af5c postgres=dcf7ad0369d27a1f"
   },
   {
     "case": "conformance/service scalar",

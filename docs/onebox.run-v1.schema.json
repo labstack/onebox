@@ -292,7 +292,7 @@
         },
         "type": "object"
       },
-      "description": "User-owned off-host repositories and independently operated replication destinations available to service protection policies.",
+      "description": "User-owned off-host repositories available to service protection policies.",
       "type": "object"
     },
     "base_path": {

@@ -238,9 +238,13 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 	// bind mounts copy the whole project, so the generated files are written
 	// afterwards and cannot be replaced by stale files from the source tree.
 	entries := encryptedEntries(lp.resolved)
+	externalProjections := externalConnectionProjections(lp.resolved)
 	projected := map[string]bool{}
 	for _, entry := range entries {
 		projected[entry.StagedPath()] = true
+	}
+	for _, projection := range externalProjections {
+		projected[projection.Path] = true
 	}
 	rendered, err := lp.resolved.Render(environment, releaseID, images)
 	if err != nil {
@@ -269,11 +273,42 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 			return fail(err)
 		}
 	}
+	decryptedSources := map[string][]byte{}
+	for _, projection := range externalProjections {
+		cacheKey := projection.Source.Provider + "\x00" + projection.Source.File
+		source, ok := decryptedSources[cacheKey]
+		if !ok {
+			source, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), projection.Source.File)
+			if err != nil {
+				return fail(err)
+			}
+			decryptedSources[cacheKey] = source
+		}
+		envBytes, err := secrets.ProjectEnvironment(source, projection.Entries)
+		if err != nil {
+			return fail(fmt.Errorf("project external connection %s: %w", projection.Path, err))
+		}
+		secretPath := filepath.Join(staging, projection.Path)
+		if err := os.Remove(secretPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fail(err)
+		}
+		if err := os.WriteFile(secretPath, envBytes, 0o600); err != nil {
+			return fail(err)
+		}
+	}
 	body := compose.RewriteSources(rendered.Bytes, rewrites)
 	if err := release.Stage(staging, body, lp.configBytes); err != nil {
 		return fail(err)
 	}
 	return staging, cleanup, nil
+}
+
+func externalConnectionProjections(r *app.Resolved) []app.ExternalConnectionProjection {
+	var out []app.ExternalConnectionProjection
+	for _, workloadName := range sortedNames(r.Workloads) {
+		out = append(out, r.Spec.ExternalConnectionProjections(workloadName, r.Workloads[workloadName])...)
+	}
+	return out
 }
 
 func managedProxyNetwork(cfg *app.Resolved) string {

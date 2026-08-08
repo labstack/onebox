@@ -227,3 +227,73 @@ func TestEncryptedEntriesCoversEveryWorkload(t *testing.T) {
 		}
 	}
 }
+
+func TestExternalServiceConnectionIsProjectedLeastPrivilegeIntoRelease(t *testing.T) {
+	fakeSops(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := "DATABASE_URL=\"postgres://user:p$a#s@db/app\"\nUNRELATED=must-not-reach-workload\n"
+	if err := os.WriteFile(filepath.Join(dir, "secrets", "database.env"), []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project := `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web:
+    image: nginx
+    needs:
+      - name: database
+        condition: healthy
+        env: {APP_DATABASE_URL: url}
+external_services:
+  database:
+    driver: postgres
+    connection:
+      source: {file: secrets/database.env, provider: sops}
+      entries: {url: DATABASE_URL}
+    protection_owner: platform-team/rds
+    probe: {}
+`
+	configPath := filepath.Join(dir, "ob.yml")
+	if err := os.WriteFile(configPath, []byte(project), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lp, err := loadProjectAt(context.Background(), configPath, "production", false, app.Images{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", app.Images{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	projectionPath := ".ob-external-database_web.env"
+	projected, err := os.ReadFile(filepath.Join(staging, projectionPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(projected) != "APP_DATABASE_URL=\"postgres://user:p$a#s@db/app\"\n" {
+		t.Fatalf("external projection = %q", projected)
+	}
+	info, err := os.Stat(filepath.Join(staging, projectionPath))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("external projection mode = %v, err=%v", info.Mode().Perm(), err)
+	}
+	runtime, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(runtime), projectionPath) {
+		t.Fatal("generated runtime does not reference external projection")
+	}
+	if strings.Contains(string(runtime), "postgres://") || strings.Contains(string(runtime), "must-not-reach-workload") {
+		t.Fatal("external credential value leaked into generated runtime")
+	}
+	if strings.Contains(string(runtime), "depends_on:\n      database:") {
+		t.Fatal("external service was emitted as a nonexistent Compose dependency")
+	}
+}

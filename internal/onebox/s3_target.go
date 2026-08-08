@@ -210,6 +210,10 @@ func (target S3TargetAdapter) Probe(ctx context.Context, protected ProtectedFail
 	if target.declaredSelfTarget(protected) {
 		return S3TargetProbeEvidence{}, lifecycleFailure("backup_target_not_independent")
 	}
+	_, protectedAddresses, err := canonicalProbeAddresses(protected.Addresses)
+	if err != nil || len(protectedAddresses) == 0 {
+		return S3TargetProbeEvidence{}, lifecycleFailure("backup_target_not_independent")
+	}
 	credential, err := InspectS3CredentialFile(target.Credentials.File)
 	if err != nil || credential.Mode != 0o600 || !credential.Regular || credential.Symlink {
 		return S3TargetProbeEvidence{}, lifecycleFailure("backup_target_unauthorized")
@@ -249,7 +253,7 @@ func (target S3TargetAdapter) validateObservation(
 		return S3TargetProbeEvidence{}, lifecycleFailure("backup_target_not_independent")
 	}
 	_, protectedAddresses, err := canonicalProbeAddresses(protected.Addresses)
-	if err != nil || addressesOverlap(parsedAddresses, protectedAddresses) ||
+	if err != nil || len(protectedAddresses) == 0 || addressesOverlap(parsedAddresses, protectedAddresses) ||
 		observation.FailureDomainIdentity != target.FailureDomain.Identity || !observation.OffHost {
 		return S3TargetProbeEvidence{}, lifecycleFailure("backup_target_not_independent")
 	}

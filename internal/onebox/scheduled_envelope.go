@@ -127,6 +127,43 @@ func NewScheduledOperationEnvelope(input ScheduledEnvelopeInput) (ScheduledOpera
 	return envelope, nil
 }
 
+// MaterializeScheduledOccurrence derives a fresh, sealed execution envelope
+// from the durable schedule template installed beside a systemd timer. The
+// template binds operation shape, artifacts, state, and the width of its
+// timing window; every firing gets a distinct operation and retry identity so
+// terminal-result deduplication applies only to that occurrence.
+func MaterializeScheduledOccurrence(template ScheduledOperationEnvelope, now time.Time, entropy io.Reader) (ScheduledOperationEnvelope, error) {
+	if err := template.Validate(); err != nil {
+		return ScheduledOperationEnvelope{}, err
+	}
+	if entropy == nil {
+		return ScheduledOperationEnvelope{}, errors.New("scheduled occurrence entropy is unavailable")
+	}
+	nonce := make([]byte, 16)
+	if _, err := io.ReadFull(entropy, nonce); err != nil {
+		return ScheduledOperationEnvelope{}, errors.New("create scheduled occurrence identity")
+	}
+	scheduledFor, _ := time.Parse(time.RFC3339Nano, template.Timing.ScheduledFor)
+	notBefore, _ := time.Parse(time.RFC3339Nano, template.Timing.NotBefore)
+	expiresAt, _ := time.Parse(time.RFC3339Nano, template.Timing.ExpiresAt)
+	now = now.UTC()
+	identityInput := append([]byte(template.EnvelopeDigest+"\x00"+now.Format(time.RFC3339Nano)+"\x00"), nonce...)
+	sum := sha256.Sum256(identityInput)
+	identity := hex.EncodeToString(sum[:16])
+
+	occurrence := template
+	occurrence.OperationID = "scheduled-" + identity
+	occurrence.Timing.ScheduledFor = now.Format(time.RFC3339Nano)
+	occurrence.Timing.NotBefore = now.Add(-scheduledFor.Sub(notBefore)).Format(time.RFC3339Nano)
+	occurrence.Timing.ExpiresAt = now.Add(expiresAt.Sub(scheduledFor)).Format(time.RFC3339Nano)
+	occurrence.Timing.RetryIdentity = "occurrence-" + identity
+	occurrence.EnvelopeDigest = ""
+	if err := occurrence.Seal(); err != nil {
+		return ScheduledOperationEnvelope{}, err
+	}
+	return occurrence, nil
+}
+
 func (envelope *ScheduledOperationEnvelope) Seal() error {
 	if envelope == nil {
 		return errors.New("scheduled operation envelope is nil")
@@ -386,19 +423,9 @@ func LoadScheduledOperationEnvelope(path string) (ScheduledOperationEnvelope, er
 }
 
 func ReadScheduledStateDigest(path string) (string, error) {
-	encoded, err := os.ReadFile(path)
+	state, err := LoadProtectionLifecycleState(path)
 	if err != nil {
 		return "", err
-	}
-	var state struct {
-		StateDigest string `json:"state_digest"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	if err := decoder.Decode(&state); err != nil {
-		return "", err
-	}
-	if !lifecycleGraphDigest.MatchString(state.StateDigest) {
-		return "", errors.New("scheduled state file has no valid state_digest")
 	}
 	return state.StateDigest, nil
 }

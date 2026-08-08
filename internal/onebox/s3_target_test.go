@@ -159,6 +159,24 @@ func TestS3TargetAdapterRejectsResolvedHostAlias(t *testing.T) {
 	}
 }
 
+func TestS3TargetAdapterRequiresProtectedAddressesBeforeProbe(t *testing.T) {
+	credentialFile, _ := testS3CredentialFile(t, 0o600)
+	target, err := NewS3TargetAdapter("offsite", "pitr", credentialFile, testS3Target())
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	_, err = target.Probe(context.Background(), ProtectedFailureDomain{
+		Identity: "onebox-host/shop", Host: "app.example.net",
+	}, S3TargetProbeFunc(func(context.Context, S3TargetAdapter) (S3TargetProbeObservation, error) {
+		called = true
+		return successfulS3Observation(), nil
+	}))
+	if lifecycleFailureCode(t, err) != "backup_target_not_independent" || called {
+		t.Fatalf("missing protected addresses error/called = %v/%v", err, called)
+	}
+}
+
 func TestS3TargetAdapterRequiresPrivateCredentialFile(t *testing.T) {
 	credentialFile, _ := testS3CredentialFile(t, 0o644)
 	target, err := NewS3TargetAdapter("offsite", "pitr", credentialFile, testS3Target())
@@ -166,7 +184,9 @@ func TestS3TargetAdapterRequiresPrivateCredentialFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	_, err = target.Probe(context.Background(), ProtectedFailureDomain{Identity: "onebox-host/shop", Host: "app.example.net"},
+	_, err = target.Probe(context.Background(), ProtectedFailureDomain{
+		Identity: "onebox-host/shop", Host: "app.example.net", Addresses: []string{"203.0.113.10"},
+	},
 		S3TargetProbeFunc(func(context.Context, S3TargetAdapter) (S3TargetProbeObservation, error) {
 			called = true
 			return successfulS3Observation(), nil
@@ -182,7 +202,9 @@ func TestS3TargetAdapterRedactsProbeFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = target.Probe(context.Background(), ProtectedFailureDomain{Identity: "onebox-host/shop", Host: "app.example.net"},
+	_, err = target.Probe(context.Background(), ProtectedFailureDomain{
+		Identity: "onebox-host/shop", Host: "app.example.net", Addresses: []string{"203.0.113.10"},
+	},
 		S3TargetProbeFunc(func(context.Context, S3TargetAdapter) (S3TargetProbeObservation, error) {
 			return S3TargetProbeObservation{}, errors.New("provider response included " + secret)
 		}))
@@ -208,7 +230,9 @@ func TestLocalTestRepositoryNeverCountsAsOffHostProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = target.Probe(context.Background(), ProtectedFailureDomain{Identity: "onebox-host/shop", Host: "app.example.net"}, localTestRepository{})
+	_, err = target.Probe(context.Background(), ProtectedFailureDomain{
+		Identity: "onebox-host/shop", Host: "app.example.net", Addresses: []string{"203.0.113.10"},
+	}, localTestRepository{})
 	if lifecycleFailureCode(t, err) != "backup_target_not_independent" {
 		t.Fatalf("local repository error = %v", err)
 	}

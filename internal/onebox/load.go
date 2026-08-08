@@ -2,17 +2,18 @@ package onebox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	ctypes "github.com/compose-spec/compose-go/v2/types"
 
-	"errors"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
-	"strings"
+	"github.com/labstack/onebox/internal/engine"
 )
 
 // Loading changed shape with the declarative contract. There is no longer a
@@ -47,7 +48,7 @@ type loadedProject struct {
 // whose images are not built yet still has a shape worth reporting. Every
 // execution path passes false and fails closed on an unresolved image.
 func (s *Service) loadProject(ctx context.Context, lenient bool) (*loadedProject, error) {
-	return loadProjectAt(ctx, s.configPath, s.environment, lenient, s.images)
+	return s.loadObservedProject(ctx, lenient, s.images, false)
 }
 
 // loadProjectWith loads against a specific image map.
@@ -69,7 +70,90 @@ func (s *Service) loadProjectWith(ctx context.Context, lenient bool, images app.
 	if len(merged) == 0 {
 		merged = nil
 	}
-	return loadProjectRestricted(ctx, s.configPath, s.environment, lenient, merged, true)
+	return s.loadObservedProject(ctx, lenient, merged, true)
+}
+
+// loadObservedProject resolves authoring input, observes durable service state
+// on the target, and only then renders. This ordering is a safety boundary: a
+// protected service must never briefly become a mutable tag merely because
+// rendering happened before lifecycle state was loaded.
+func (s *Service) loadObservedProject(ctx context.Context, lenient bool, images app.Images, onlyBuilt bool) (*loadedProject, error) {
+	lp, renderImages, err := resolveProjectRestricted(s.configPath, s.environment, images, onlyBuilt)
+	if err != nil {
+		return nil, err
+	}
+	states, err := s.observeServiceRuntimeStates(ctx, lp.resolved)
+	if err != nil {
+		return nil, err
+	}
+	if len(states) > 0 {
+		lp.resolved, err = lp.resolved.WithServiceRuntimeStates(states)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := renderLoadedProject(ctx, lp, s.environment, lenient, renderImages); err != nil {
+		return nil, err
+	}
+	return lp, nil
+}
+
+func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app.Resolved) (map[string]app.ServiceRuntimeState, error) {
+	if resolved == nil || len(resolved.Services) == 0 {
+		return nil, nil
+	}
+	environment, err := resolved.Environment(resolved.Env)
+	if err != nil {
+		return nil, err
+	}
+	target, err := s.connect(ctx, environment.Target())
+	if err != nil {
+		return nil, fmt.Errorf("observe service lifecycle state: %w", err)
+	}
+	defer target.Close()
+
+	names := resolved.NamesFor(resolved.Env)
+	states := map[string]app.ServiceRuntimeState{}
+	for _, service := range sortedNames(resolved.Services) {
+		statePath := names.ProtectionLifecycleStateFile(service)
+		result, err := target.Run(ctx, "if [ -f "+quote(statePath)+" ]; then printf 'present\\n'; cat "+quote(statePath)+"; elif [ -e "+quote(statePath)+" ]; then printf 'invalid\\n'; else printf 'missing\\n'; fi")
+		if err != nil {
+			return nil, fmt.Errorf("observe service %s lifecycle state: %w", service, err)
+		}
+		if result.ExitCode != 0 {
+			return nil, fmt.Errorf("observe service %s lifecycle state failed", service)
+		}
+		marker, encoded, _ := strings.Cut(result.Stdout, "\n")
+		switch marker {
+		case "", "missing":
+			continue
+		case "invalid":
+			return nil, fmt.Errorf("service %s lifecycle state path is not a regular file", service)
+		case "present":
+		default:
+			return nil, fmt.Errorf("service %s lifecycle state observation is invalid", service)
+		}
+		state, err := DecodeProtectionLifecycleState([]byte(encoded))
+		if err != nil {
+			return nil, fmt.Errorf("service %s lifecycle state: %w", service, err)
+		}
+		if state.Application != names.App || state.Environment != resolved.Env || state.Service != service {
+			return nil, fmt.Errorf("service %s lifecycle state belongs to a different protected identity", service)
+		}
+		runtime := state.RuntimeState()
+		if runtime.ServiceImage != "" {
+			runtime.DigestAvailable, err = engine.ServiceImageDigestAvailable(ctx, target, runtime.ServiceImage)
+			if err != nil {
+				return nil, fmt.Errorf("observe service %s registry image: %w", service, err)
+			}
+			runtime.CacheVerified, err = engine.ExactServiceImageCached(ctx, target, runtime.ServiceImage)
+			if err != nil {
+				return nil, fmt.Errorf("observe service %s cached image: %w", service, err)
+			}
+		}
+		states[service] = runtime
+	}
+	return states, nil
 }
 
 func loadProjectAt(ctx context.Context, configPath, environment string, lenient bool, images app.Images) (*loadedProject, error) {
@@ -85,17 +169,28 @@ func loadProjectAt(ctx context.Context, configPath, environment string, lenient 
 // plan. Only a build-sourced workload needs an image to render at all, and for
 // that workload the plan's entry is the same reference the render already used.
 func loadProjectRestricted(ctx context.Context, configPath, environment string, lenient bool, images app.Images, onlyBuilt bool) (*loadedProject, error) {
+	lp, renderImages, err := resolveProjectRestricted(configPath, environment, images, onlyBuilt)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderLoadedProject(ctx, lp, environment, lenient, renderImages); err != nil {
+		return nil, err
+	}
+	return lp, nil
+}
+
+func resolveProjectRestricted(configPath, environment string, images app.Images, onlyBuilt bool) (*loadedProject, app.Images, error) {
 	absConfig, err := filepath.Abs(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("resolve config path: %w", err)
+		return nil, nil, fmt.Errorf("resolve config path: %w", err)
 	}
 	cfgBytes, err := os.ReadFile(absConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	spec, err := app.LoadBytes(cfgBytes, absConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	spec.Dir = filepath.Dir(absConfig)
 
@@ -114,9 +209,14 @@ func loadProjectRestricted(ctx context.Context, configPath, environment string, 
 
 	resolved, err := spec.Resolve(environment)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	return &loadedProject{spec: spec, resolved: resolved, configPath: absConfig, configBytes: cfgBytes}, images, nil
+}
 
+func renderLoadedProject(ctx context.Context, lp *loadedProject, environment string, lenient bool, images app.Images) error {
+	resolved, spec := lp.resolved, lp.spec
+	var err error
 	var rendered *app.Rendered
 	if lenient {
 		rendered, err = resolved.RenderForInspection(environment, images)
@@ -124,30 +224,27 @@ func loadProjectRestricted(ctx context.Context, configPath, environment string, 
 		rendered, err = resolved.Render(environment, "", images)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	interpolation, err := resolved.Spec.InterpolationEnv()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	p, err := compose.LoadBytes(ctx, rendered.Bytes, resolved.NamesFor(environment).ComposeProject(), spec.Dir, interpolation)
 	if err != nil {
 		var interpolation *compose.InterpolationError
 		if errors.As(err, &interpolation) {
 			if hidden := resolved.Spec.EncryptedDocumentEntries(); len(hidden) > 0 {
-				return nil, fmt.Errorf("%w\n  the encrypted %s may supply it, and this command decrypts nothing — plan the deploy, which decrypts as it stages",
+				return fmt.Errorf("%w\n  the encrypted %s may supply it, and this command decrypts nothing — plan the deploy, which decrypts as it stages",
 					err, strings.Join(hidden, ", "))
 			}
-			return nil, err
+			return err
 		}
-		return nil, fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
+		return fmt.Errorf("the generated runtime did not parse as Compose — this is an Onebox bug: %w", err)
 	}
-
-	return &loadedProject{
-		spec: spec, resolved: resolved, compose: p, unresolved: rendered.Unresolved,
-		configPath: absConfig, configBytes: cfgBytes, composeBytes: rendered.Bytes,
-	}, nil
+	lp.compose, lp.unresolved, lp.composeBytes = p, rendered.Unresolved, rendered.Bytes
+	return nil
 }
 
 // durableVolumeNames is the set of managed volumes a workload keeps across

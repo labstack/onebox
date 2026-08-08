@@ -158,6 +158,16 @@ func TestProtectionIntentRefusals(t *testing.T) {
 			code: "restore_drill_schedule_too_sparse",
 		},
 		{
+			name: "stepped weekday drill too sparse",
+			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        proof_max_age: 36h\n", 1),
+			code: "restore_drill_schedule_too_sparse",
+		},
+		{
+			name: "sub-minute replay objective",
+			yaml: strings.Replace(validProtectionProject, "maximum_data_loss: 15m", "maximum_data_loss: 30s", 1),
+			code: "recovery_objective_unsupported",
+		},
+		{
 			name: "unsupported retention",
 			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {minimum_generations: 0, recovery_window: 7d}\n", 1),
 			code: "backup_retention_unsupported",

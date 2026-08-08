@@ -459,6 +459,15 @@ func crossFieldRules(p *Spec) error {
 						"workload %q needs %q, which is neither a workload, a run service, nor an external service", name, n.Name)
 				}
 			}
+			if isExternal {
+				external := p.ExternalServices[n.Name]
+				for variable, part := range n.Env {
+					if external.Connection.Entries[part] == "" {
+						return errf("project_invalid", path+".needs", "ob validate",
+							"workload %q maps %s from external service %q, but its trusted connection source declares no %q entry", name, variable, n.Name, part)
+					}
+				}
+			}
 
 			// Resolve the condition against what the dependency can actually
 			// offer. Asking to wait for health from something with no health

@@ -30,6 +30,21 @@ func TestRenderContextHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestProjectEnvironmentEmitsOnlyMappedEntriesWithoutReencodingValues(t *testing.T) {
+	source := []byte("DATABASE_URL=\"postgres://user:p$a#s@db/app\"\nUNRELATED=must-not-leak\n")
+	got, err := ProjectEnvironment(source, map[string]string{"APP_DATABASE_URL": "DATABASE_URL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "APP_DATABASE_URL=\"postgres://user:p$a#s@db/app\"\n"
+	if string(got) != want {
+		t.Fatalf("projection = %q, want %q", got, want)
+	}
+	if _, err := ProjectEnvironment(source, map[string]string{"MISSING": "NO_SUCH_ENTRY"}); err == nil {
+		t.Fatal("missing trusted entry was silently projected")
+	}
+}
+
 func TestRenderSortedEnv(t *testing.T) {
 	stubSops(t, "ZKEY: last\nDATABASE_URL: postgres://u:p@h/db\nDEBUG: false\n")
 	b, err := Render(t.TempDir(), "secrets.enc.yaml")

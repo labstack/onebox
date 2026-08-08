@@ -107,6 +107,13 @@ func (n Names) ActiveVolumeFile(service string) string {
 	return path.Join(n.AppDir(), "protection", "state", service+".active-volume.json")
 }
 
+// ProtectionLifecycleStateFile is the durable target-side source used before
+// rendering a managed service. It is separate from active-volume selection:
+// one binds lifecycle/image policy, the other binds the physical data volume.
+func (n Names) ProtectionLifecycleStateFile(service string) string {
+	return path.Join(n.AppDir(), "protection", "state", service+".lifecycle.json")
+}
+
 func (n Names) ProtectionRunnerPath(digest string) string {
 	digest = strings.TrimPrefix(digest, "sha256:")
 	return path.Join(n.AppDir(), "protection", "runners", digest, "ob-scheduled-runner")

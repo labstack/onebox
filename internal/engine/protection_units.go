@@ -133,13 +133,25 @@ func ReconcileProtectionUnits(ctx context.Context, target ProtectionUnitTarget, 
 		return ProtectionUnitConvergence{}, err
 	}
 	observedByName := make(map[string]ObservedProtectionUnit, len(observed))
+	foreignByName := make(map[string]ObservedProtectionUnit)
 	result := ProtectionUnitConvergence{}
 	for _, unit := range observed {
 		if unit.Application != application || unit.Environment != environment || unit.Service != service {
 			result.Preserved = append(result.Preserved, unit.Name)
+			foreignByName[unit.Name] = unit
 			continue
 		}
 		observedByName[unit.Name] = unit
+	}
+	// Ownership is checked before the first mutation. A unit whose filename is
+	// ours but whose embedded ownership metadata is not must never be replaced:
+	// systemd filenames are host-global, and installing here would overwrite a
+	// foreign operator's unit before convergence had a chance to report it.
+	for _, unit := range desired.Units {
+		if _, collision := foreignByName[unit.Name]; collision {
+			sort.Strings(result.Preserved)
+			return result, fmt.Errorf("protection unit %q collides with a foreign-owned unit", unit.Name)
+		}
 	}
 	wanted := make(map[string]GeneratedProtectionUnit, len(desired.Units))
 	changed := false
@@ -209,6 +221,10 @@ func newGeneratedProtectionUnit(name, kind string, input ProtectionUnitInput, co
 }
 
 func renderProtectionServiceUnit(input ProtectionUnitInput, schedule ProtectionUnitSchedule) []byte {
+	writePaths := []string{
+		"-" + systemdQuote(input.Names.AppDir()+"/journal"),
+		"-" + systemdQuote(input.Names.AppDir()+"/protection"),
+	}
 	return []byte(strings.Join([]string{
 		"[Unit]",
 		"Description=Onebox " + schedule.Kind + " for " + input.Application + "/" + input.Environment + "/" + input.Service,
@@ -226,9 +242,14 @@ func renderProtectionServiceUnit(input ProtectionUnitInput, schedule ProtectionU
 		"PrivateTmp=true",
 		"ProtectSystem=strict",
 		"ProtectHome=true",
-		"ExecStart=" + schedule.RunnerPath + " run " + schedule.EnvelopePath,
+		"ReadWritePaths=" + strings.Join(writePaths, " "),
+		"ExecStart=" + systemdQuote(schedule.RunnerPath) + " run " + systemdQuote(schedule.EnvelopePath),
 		"",
 	}, "\n"))
+}
+
+func systemdQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, "%", "%%") + `"`
 }
 
 func renderProtectionTimerUnit(input ProtectionUnitInput, schedule ProtectionUnitSchedule, calendar string) []byte {

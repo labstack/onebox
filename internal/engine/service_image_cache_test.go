@@ -8,7 +8,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-func TestExactServiceImageCachedRequiresMatchingDockerContentID(t *testing.T) {
+func TestExactServiceImageCachedRequiresMatchingRepositoryDigest(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	image := "postgres@" + digest
 	for _, test := range []struct {
@@ -16,8 +16,11 @@ func TestExactServiceImageCachedRequiresMatchingDockerContentID(t *testing.T) {
 		result transport.Result
 		want   bool
 	}{
-		{"exact", transport.Result{Stdout: digest + "\n"}, true},
-		{"wrong-content", transport.Result{Stdout: "sha256:" + strings.Repeat("b", 64) + "\n"}, false},
+		{"exact", transport.Result{Stdout: `["docker.io/library/postgres@` + digest + `"]` + "\n"}, true},
+		{"one-of-several", transport.Result{Stdout: `["mirror.example/postgres@sha256:` + strings.Repeat("b", 64) + `","docker.io/library/postgres@` + digest + `"]`}, true},
+		{"wrong-manifest", transport.Result{Stdout: `["docker.io/library/postgres@sha256:` + strings.Repeat("b", 64) + `"]` + "\n"}, false},
+		{"wrong-repository", transport.Result{Stdout: `["registry.example/other@` + digest + `"]` + "\n"}, false},
+		{"configuration-id-only", transport.Result{Stdout: `"` + digest + `"` + "\n"}, false},
 		{"missing", transport.Result{ExitCode: 1}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -29,8 +32,11 @@ func TestExactServiceImageCachedRequiresMatchingDockerContentID(t *testing.T) {
 			}}
 			engine := protectionLockTestEngine(fake)
 			got, err := engine.ExactServiceImageCached(context.Background(), image)
-			if err != nil {
+			if err != nil && test.name != "configuration-id-only" {
 				t.Fatal(err)
+			}
+			if test.name == "configuration-id-only" && err == nil {
+				t.Fatal("configuration ID was accepted as RepoDigests metadata")
 			}
 			if got != test.want {
 				t.Fatalf("cache result = %v, want %v", got, test.want)

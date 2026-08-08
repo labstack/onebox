@@ -36,7 +36,7 @@ type Spec struct {
 	Workloads        map[string]Workload        `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
 	Services         map[string]Service         `json:"services,omitempty" description:"Supporting services managed outside application releases, such as databases and caches."`
 	ExternalServices map[string]ExternalService `json:"external_services,omitempty" description:"Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and protection remain external."`
-	BackupTargets    map[string]BackupTarget    `json:"backup_targets,omitempty" description:"User-owned off-host repositories and independently operated replication destinations available to service protection policies."`
+	BackupTargets    map[string]BackupTarget    `json:"backup_targets,omitempty" description:"User-owned off-host repositories available to service protection policies."`
 
 	Deployment Deployment `json:"deployment" description:"Release ordering, retention, and migration behavior."`
 	Runtime    *Runtime   `json:"runtime,omitempty" description:"Project-wide environment files and local preflight requirements."`

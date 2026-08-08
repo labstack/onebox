@@ -97,7 +97,7 @@
   {
     "case": "conformance/external service connection",
     "loads": true,
-    "digest": "unparseable:compose parse: service \"web\" depends on undefined service \"database\": invalid compose project"
+    "digest": "6a5f26a10eb914e99aa12a6ea86d0f7ccb780c50ba3e8710cb7a2dc59d0dbfc9"
   },
   {
     "case": "conformance/hook with local",

@@ -39,7 +39,7 @@ func pendingProtectionState(t *testing.T) (ProtectionLifecycleState, ProtectionD
 		t.Fatal(err)
 	}
 	image := "ghcr.io/labstack/onebox-postgres-pgbackrest@sha256:" + strings.Repeat("a", 64)
-	enabled, err := EnableProtection(initial, protectionStateProjection(), image, "enable-op", 2)
+	enabled, err := EnableProtection(initial, protectionStateProjection(), image, "enable-op", true, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +72,9 @@ func TestProtectionDisableRequiresStrongApprovalAndKeepsStorageSchedules(t *test
 	for _, schedule := range pending.Schedules {
 		if schedule.Kind == "restore-drill" && schedule.Active {
 			t.Fatal("restore drill remained active during disable-pending")
+		}
+		if schedule.Kind == "replay-archive" && schedule.Schedule.Cron != "*/5 * * * *" {
+			t.Fatalf("replay archive schedule = %q, want cadence bounded by 5m RPO", schedule.Schedule.Cron)
 		}
 	}
 }
@@ -244,4 +247,21 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestRuntimeStateDoesNotInferImageEvidenceFromReference(t *testing.T) {
+	state, err := NewProtectionLifecycleState("example", "production", "database", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.State = ProtectionDisabled
+	state.Phase = ProtectionPhaseIdle
+	state.ServiceImage = "postgres@sha256:" + strings.Repeat("a", 64)
+	if err := state.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	runtime := state.RuntimeState()
+	if runtime.PublicationVerified || runtime.DigestAvailable || runtime.CacheVerified {
+		t.Fatalf("runtime inferred evidence from an image string: %#v", runtime)
+	}
 }

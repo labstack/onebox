@@ -1,11 +1,13 @@
 package onebox
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -50,23 +52,24 @@ type ProtectionScheduleState struct {
 }
 
 type ProtectionLifecycleState struct {
-	SchemaVersion         string                             `json:"schema_version"`
-	Application           string                             `json:"application"`
-	Environment           string                             `json:"environment"`
-	Service               string                             `json:"service"`
-	State                 ProtectionState                    `json:"state"`
-	Phase                 ProtectionDisablePhase             `json:"phase"`
-	Epoch                 int                                `json:"epoch"`
-	OperationID           string                             `json:"operation_id,omitempty"`
-	DisablePlanDigest     string                             `json:"disable_plan_digest,omitempty"`
-	RequestedAt           string                             `json:"requested_at,omitempty"`
-	ActionDeadline        string                             `json:"action_deadline,omitempty"`
-	ServiceImage          string                             `json:"service_image,omitempty"`
-	PrerequisiteEffective bool                               `json:"prerequisite_effective"`
-	LocalSupportInstalled bool                               `json:"local_support_installed"`
-	LastEffective         *app.ProtectionEffectiveProjection `json:"last_effective,omitempty"`
-	Schedules             []ProtectionScheduleState          `json:"schedules,omitempty"`
-	StateDigest           string                             `json:"state_digest"`
+	SchemaVersion                   string                             `json:"schema_version"`
+	Application                     string                             `json:"application"`
+	Environment                     string                             `json:"environment"`
+	Service                         string                             `json:"service"`
+	State                           ProtectionState                    `json:"state"`
+	Phase                           ProtectionDisablePhase             `json:"phase"`
+	Epoch                           int                                `json:"epoch"`
+	OperationID                     string                             `json:"operation_id,omitempty"`
+	DisablePlanDigest               string                             `json:"disable_plan_digest,omitempty"`
+	RequestedAt                     string                             `json:"requested_at,omitempty"`
+	ActionDeadline                  string                             `json:"action_deadline,omitempty"`
+	ServiceImage                    string                             `json:"service_image,omitempty"`
+	ServiceImagePublicationVerified bool                               `json:"service_image_publication_verified,omitempty"`
+	PrerequisiteEffective           bool                               `json:"prerequisite_effective"`
+	LocalSupportInstalled           bool                               `json:"local_support_installed"`
+	LastEffective                   *app.ProtectionEffectiveProjection `json:"last_effective,omitempty"`
+	Schedules                       []ProtectionScheduleState          `json:"schedules,omitempty"`
+	StateDigest                     string                             `json:"state_digest"`
 }
 
 type ProtectionDisableStep struct {
@@ -120,20 +123,21 @@ func NewProtectionLifecycleState(application, environment, service string, epoch
 	return state, nil
 }
 
-func EnableProtection(current ProtectionLifecycleState, projection app.ProtectionEffectiveProjection, serviceImage, operationID string, nextEpoch int) (ProtectionLifecycleState, error) {
+func EnableProtection(current ProtectionLifecycleState, projection app.ProtectionEffectiveProjection, serviceImage, operationID string, publicationVerified bool, nextEpoch int) (ProtectionLifecycleState, error) {
 	if err := current.Validate(); err != nil {
 		return ProtectionLifecycleState{}, err
 	}
 	if current.State != ProtectionNeverEnabled && current.State != ProtectionDisabled {
 		return ProtectionLifecycleState{}, fmt.Errorf("cannot enable protection from %q", current.State)
 	}
-	if !safeLifecycleMetadata(operationID) || !protectedRuntimeImage.MatchString(serviceImage) || nextEpoch <= current.Epoch {
+	if !safeLifecycleMetadata(operationID) || !protectedRuntimeImage.MatchString(serviceImage) || !publicationVerified || nextEpoch <= current.Epoch {
 		return ProtectionLifecycleState{}, errors.New("protection enablement operation, image, or fencing epoch is invalid")
 	}
 	next := current
 	next.State, next.Phase, next.Epoch = ProtectionEnabled, ProtectionPhaseIdle, nextEpoch
 	next.OperationID, next.DisablePlanDigest, next.RequestedAt, next.ActionDeadline = "", "", "", ""
 	next.ServiceImage, next.PrerequisiteEffective, next.LocalSupportInstalled = serviceImage, true, true
+	next.ServiceImagePublicationVerified = publicationVerified
 	next.LastEffective = cloneProtectionProjection(&projection)
 	next.Schedules = effectiveProtectionSchedules(projection, true)
 	if err := next.Seal(); err != nil {
@@ -311,8 +315,8 @@ func (state ProtectionLifecycleState) ValidateRuntimeImage(candidate string) err
 func (state ProtectionLifecycleState) RuntimeState() app.ServiceRuntimeState {
 	return app.ServiceRuntimeState{
 		ProtectionState: string(state.State), ServiceImage: state.ServiceImage,
-		PublicationVerified: state.ServiceImage != "", DigestAvailable: state.ServiceImage != "",
-		LastEffective: cloneProtectionProjection(state.LastEffective),
+		PublicationVerified: state.ServiceImagePublicationVerified,
+		LastEffective:       cloneProtectionProjection(state.LastEffective),
 	}
 }
 
@@ -411,8 +415,8 @@ func (state ProtectionLifecycleState) validateContent() error {
 		return errors.New("protected service image must be digest-pinned")
 	}
 	if state.State == ProtectionEnabled || state.State == ProtectionDisablePending {
-		if state.LastEffective == nil || state.ServiceImage == "" {
-			return errors.New("active protection state requires last-effective intent and a service image")
+		if state.LastEffective == nil || state.ServiceImage == "" || !state.ServiceImagePublicationVerified {
+			return errors.New("active protection state requires last-effective intent and a provenance-verified service image")
 		}
 	}
 	if state.State == ProtectionDisablePending {
@@ -540,6 +544,28 @@ func LoadProtectionLifecycleState(path string) (ProtectionLifecycleState, error)
 	return state, nil
 }
 
+// DecodeProtectionLifecycleState validates target-observed state without
+// accepting unknown fields or trailing JSON that were not covered by its seal.
+func DecodeProtectionLifecycleState(encoded []byte) (ProtectionLifecycleState, error) {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	var state ProtectionLifecycleState
+	if err := decoder.Decode(&state); err != nil {
+		return ProtectionLifecycleState{}, fmt.Errorf("decode protection lifecycle state: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return ProtectionLifecycleState{}, errors.New("decode protection lifecycle state: multiple JSON values")
+		}
+		return ProtectionLifecycleState{}, fmt.Errorf("decode protection lifecycle state: %w", err)
+	}
+	if err := state.Validate(); err != nil {
+		return ProtectionLifecycleState{}, fmt.Errorf("validate protection lifecycle state: %w", err)
+	}
+	return state, nil
+}
+
 func validateProtectionDisableAuthority(state ProtectionLifecycleState, plan ProtectionDisablePlan, authorization ProtectionDisableAuthorization) error {
 	if !authorization.Strong || authorization.OperationID != plan.OperationID || authorization.PlanDigest != plan.PlanDigest || authorization.StateDigest != plan.StateDigest {
 		failure, _ := NewLifecycleFailure("protection_disablement_not_authorized")
@@ -596,10 +622,32 @@ func effectiveProtectionSchedules(projection app.ProtectionEffectiveProjection, 
 		{Kind: "restore-drill", Schedule: projection.Policy.RestoreDrill.Schedule, Active: drillsActive},
 	}
 	if projection.Policy.RecoveryKind == "pitr" {
-		schedules = append(schedules, ProtectionScheduleState{Kind: "replay-archive", Schedule: projection.Policy.Schedule, Active: true})
+		schedules = append(schedules, ProtectionScheduleState{Kind: "replay-archive", Schedule: replayArchiveSchedule(projection.Policy), Active: true})
 	}
 	sort.Slice(schedules, func(i, j int) bool { return schedules[i].Kind < schedules[j].Kind })
 	return schedules
+}
+
+func replayArchiveSchedule(policy app.ProtectionPolicy) app.Schedule {
+	duration, ok := app.ParseDuration(policy.MaximumDataLoss)
+	if !ok || duration <= 0 {
+		return policy.Schedule
+	}
+	minutes := int(duration / time.Minute)
+	if minutes < 1 {
+		minutes = 1
+	}
+	cron := "* * * * *"
+	switch {
+	case minutes < 60:
+		cron = fmt.Sprintf("*/%d * * * *", minutes)
+	case minutes < 24*60:
+		hours := minutes / 60
+		cron = fmt.Sprintf("0 */%d * * *", hours)
+	default:
+		cron = "0 0 * * *"
+	}
+	return app.Schedule{Cron: cron, Timezone: policy.Schedule.Timezone}
 }
 
 func inactiveProtectionSchedules(schedules []ProtectionScheduleState) []ProtectionScheduleState {

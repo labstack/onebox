@@ -153,7 +153,8 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		err = e.ProxyApply(ctx, operationID, request.Force)
 	case KindSecretsPush:
 		entries := encryptedEntries(lp.resolved)
-		if len(entries) == 0 {
+		externalProjections := externalConnectionProjections(lp.resolved)
+		if len(entries) == 0 && len(externalProjections) == 0 {
 			err = errors.New("no encrypted env_files entry declared")
 			break
 		}
@@ -172,6 +173,26 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, entry.StagedPath(), envBytes)
 			if err != nil {
 				break
+			}
+		}
+		decryptedSources := map[string][]byte{}
+		for _, projection := range externalProjections {
+			if err != nil {
+				break
+			}
+			cacheKey := projection.Source.Provider + "\x00" + projection.Source.File
+			source, ok := decryptedSources[cacheKey]
+			if !ok {
+				source, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), projection.Source.File)
+				if err != nil {
+					break
+				}
+				decryptedSources[cacheKey] = source
+			}
+			var envBytes []byte
+			envBytes, err = secrets.ProjectEnvironment(source, projection.Entries)
+			if err == nil {
+				result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, projection.Path, envBytes)
 			}
 		}
 	case KindDestroy:

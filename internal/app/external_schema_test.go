@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const validExternalServiceProject = `api_version: onebox.run/v1
 app: shop
@@ -90,4 +93,10 @@ external_services:
 			}
 		})
 	}
+}
+
+func TestExternalNeedMustMapADeclaredTrustedEntry(t *testing.T) {
+	project := strings.Replace(validExternalServiceProject, "env: {DATABASE_URL: url}", "env: {DATABASE_HOST: host}", 1)
+	_, err := LoadBytes([]byte(project), "ob.yml")
+	assertAppErrorCode(t, err, "project_invalid")
 }

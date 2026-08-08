@@ -2,6 +2,7 @@ package onebox
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/labstack/onebox/internal/app"
@@ -10,7 +11,7 @@ import (
 func protectedIdentityConfig(serviceName string, withPolicy bool) *app.Resolved {
 	service := app.Service{Driver: "postgres", Version: 17, Volumes: []string{"data"}}
 	if withPolicy {
-		service.Protection = &app.ProtectionPolicy{Target: "offsite"}
+		service.Protection = &app.ProtectionPolicy{Target: "offsite", RecoveryKind: "pitr"}
 	}
 	return &app.Resolved{
 		Spec: &app.Spec{Name: "example", BasePath: "/var/lib/ob", Services: map[string]app.Service{serviceName: service}},
@@ -33,6 +34,11 @@ func TestProtectedServiceIdentityBindsEveryGeneratedName(t *testing.T) {
 	}
 	if len(record.Timers) != 4 {
 		t.Fatalf("protected timers = %#v", record.Timers)
+	}
+	for _, timer := range record.Timers {
+		if !strings.HasPrefix(timer, "ob-example-production-database-") {
+			t.Fatalf("timer is not environment-scoped: %q", timer)
+		}
 	}
 }
 

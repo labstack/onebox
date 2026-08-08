@@ -108,7 +108,11 @@ func TestGenerateProtectionUnitsUsesExactScheduleAndRestrictedRunner(t *testing.
 			timer = string(unit.Content)
 		}
 	}
-	for _, required := range []string{"User=onebox", "Group=onebox", "NoNewPrivileges=true", "ProtectSystem=strict", "ob-scheduled-runner run", "X-Onebox-Environment=production"} {
+	for _, required := range []string{
+		"User=onebox", "Group=onebox", "NoNewPrivileges=true", "ProtectSystem=strict",
+		`ReadWritePaths=-"/var/lib/onebox/example/journal" -"/var/lib/onebox/example/protection"`,
+		`ob-scheduled-runner" run "`, "X-Onebox-Environment=production",
+	} {
 		if !strings.Contains(service, required) {
 			t.Errorf("service unit missing %q:\n%s", required, service)
 		}
@@ -207,6 +211,27 @@ func TestProtectionUnitInspectionPreservesForeignAndRemovalIsScoped(t *testing.T
 	}
 	if _, ok := systemd.units["ob-example-production-database-foreign.timer"]; !ok {
 		t.Fatal("scoped protection removal deleted a foreign unit")
+	}
+}
+
+func TestProtectionUnitConvergenceRefusesExactForeignCollisionBeforeMutation(t *testing.T) {
+	desired, err := GenerateProtectionUnits(protectionUnitInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	collision := desired.Units[0].Name
+	systemd := &memoryProtectionSystemd{units: map[string]ObservedProtectionUnit{
+		collision: {Name: collision, Application: "other", Environment: "production", Service: "database"},
+	}}
+	result, err := ReconcileProtectionUnits(context.Background(), systemd, desired, "example", "production", "database")
+	if err == nil || !strings.Contains(err.Error(), "foreign-owned") {
+		t.Fatalf("collision error = %v", err)
+	}
+	if !reflect.DeepEqual(result.Preserved, []string{collision}) {
+		t.Fatalf("preserved = %#v", result.Preserved)
+	}
+	if systemd.writes != 0 || systemd.enables != 0 || systemd.removes != 0 || systemd.reloads != 0 {
+		t.Fatalf("collision mutated systemd: %#v", systemd)
 	}
 }
 

@@ -49,11 +49,13 @@ func NewProtectedServiceIdentity(cfg *app.Resolved, serviceName string, manifest
 		driver = serviceName
 	}
 	names := cfg.NamesFor(cfg.Env)
-	timers := []string{
-		names.ProtectionTimer(serviceName, "assurance"),
-		names.ProtectionTimer(serviceName, "backup"),
-		names.ProtectionTimer(serviceName, "drill"),
-		names.ProtectionTimer(serviceName, "housekeeping"),
+	var timers []string
+	// Bind the complete service schedule namespace, including replay archival
+	// when the current policy does not use it. The identity must remain stable
+	// after policy removal so it can still inspect and remove units created by
+	// the last effective policy.
+	for _, kind := range []string{"backup-create", "backup-prune", "replay-archive", "restore-drill"} {
+		timers = append(timers, names.ProtectionTimerForEnvironment(cfg.Env, serviceName, kind))
 	}
 	sort.Strings(timers)
 	record := ProtectedServiceIdentity{
@@ -103,8 +105,8 @@ func (record ProtectedServiceIdentity) validateContent() error {
 	if record.StatePath == "" || record.StatePath[0] != '/' {
 		return errors.New("protected service identity state path must be absolute")
 	}
-	if len(record.Timers) == 0 || !sort.StringsAreSorted(record.Timers) {
-		return errors.New("protected service identity timers must be non-empty and sorted")
+	if !sort.StringsAreSorted(record.Timers) {
+		return errors.New("protected service identity timers must be sorted")
 	}
 	for index, timer := range record.Timers {
 		if !safeLifecycleMetadata(timer) || index > 0 && timer == record.Timers[index-1] {

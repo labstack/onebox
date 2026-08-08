@@ -1,0 +1,54 @@
+version: "2"
+
+# The gate is green from the first run, and says what it is not yet checking.
+#
+# A linter switched on over a pile of pre-existing findings is a linter someone
+# turns off. Everything enabled here passes today, so a failure means the change
+# in front of you — which is the only way a gate stays trusted. The two held back
+# are recorded with their counts rather than quietly omitted, so they read as
+# work outstanding instead of a decision nobody made.
+
+linters:
+  default: standard
+
+  disable:
+    # 39 findings, almost all unchecked Close/Write on defer paths. Worth doing:
+    # this codebase cares about failures being typed and visible, and an ignored
+    # error is the opposite of that. Enable once they are triaged.
+    - errcheck
+    # 22 findings, mostly helpers written ahead of the protection work they
+    # belong to. Deleting them is right when that lands; deleting them now would
+    # remove context from an open change.
+    - unused
+
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # QF* are refactoring suggestions, not defects: embedded-field selectors,
+        # De Morgan rewrites, tagged switches. They are opinions about style this
+        # repository has not adopted, and enforcing them would churn code that
+        # reads fine.
+        - -QF1001
+        - -QF1003
+        - -QF1008
+    govet:
+      # `inline` reports that a constant could be inlined. That is a stylistic
+      # preference, not a correctness signal.
+      disable:
+        - inline
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

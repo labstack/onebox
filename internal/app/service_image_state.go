@@ -37,14 +37,14 @@ type ServiceImageSelection struct {
 	Origin         Origin
 }
 
-func (resolved *Resolved) WithServiceRuntimeStates(states map[string]ServiceRuntimeState) (*Resolved, error) {
-	if resolved == nil {
-		return nil, errors.New("resolved project is nil")
+func (r *Resolved) WithServiceRuntimeStates(states map[string]ServiceRuntimeState) (*Resolved, error) {
+	if r == nil {
+		return nil, errors.New("r project is nil")
 	}
-	copy := *resolved
+	copy := *r
 	copy.serviceRuntime = make(map[string]ServiceRuntimeState, len(states))
 	for service, state := range states {
-		if _, ok := resolved.Services[service]; !ok {
+		if _, ok := r.Services[service]; !ok {
 			return nil, errf("project_invalid", "services."+service, "ob status --output json", "service runtime state names an undeclared service")
 		}
 		state.ManifestRootImages = append([]string(nil), state.ManifestRootImages...)
@@ -91,8 +91,8 @@ func (state ServiceRuntimeState) validate(service string) error {
 	return nil
 }
 
-func (resolved *Resolved) selectServiceImage(serviceName, tagImage string) (ServiceImageSelection, error) {
-	state, observed := resolved.serviceRuntime[serviceName]
+func (r *Resolved) selectServiceImage(serviceName, tagImage string) (ServiceImageSelection, error) {
+	state, observed := r.serviceRuntime[serviceName]
 	if !observed || state.ProtectionState == "never-enabled" || state.ProtectionState == "disabled" {
 		return ServiceImageSelection{Image: tagImage, Origin: OriginAuthored}, nil
 	}
@@ -130,8 +130,8 @@ func (resolved *Resolved) selectServiceImage(serviceName, tagImage string) (Serv
 
 // ServiceImageForRuntime exposes the same selection used by generation so
 // planners, cache checks, and pruning all retain identical immutable roots.
-func (resolved *Resolved) ServiceImageForRuntime(serviceName string) (ServiceImageSelection, error) {
-	service, ok := resolved.Services[serviceName]
+func (r *Resolved) ServiceImageForRuntime(serviceName string) (ServiceImageSelection, error) {
+	service, ok := r.Services[serviceName]
 	if !ok {
 		return ServiceImageSelection{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
 	}
@@ -143,7 +143,7 @@ func (resolved *Resolved) ServiceImageForRuntime(serviceName string) (ServiceIma
 	if !ok {
 		return ServiceImageSelection{}, errf("unknown_service_driver", "services."+serviceName, "ob validate", "no managed driver named %q", driverName)
 	}
-	return resolved.selectServiceImage(serviceName, driver.image+":"+versionString(service.Version))
+	return r.selectServiceImage(serviceName, driver.image+":"+versionString(service.Version))
 }
 
 func validatePinnedServiceImage(image string) error {

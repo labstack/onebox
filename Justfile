@@ -35,8 +35,53 @@ vet:
 fmt:
     go fmt ./...
 
-# Run all non-mutating checks.
-check: test vet
+# ---------- Verification ----------
+
+# Local pre-commit gate. Everything here is hermetic: no network, no target.
+check: _mod-tidy _fmt-check vet test docs-generate-check site-build
+    @echo "All checks passed"
+
+# CI adds the pinned lint, vulnerability and workflow passes to the local gate.
+#
+# They are separate from `check` because each needs a tool the repository does
+# not vendor; a contributor without them should still be able to run `just check`
+# and get a truthful answer about their change.
+ci: check lint vuln workflow-check
+    @echo "CI checks passed"
+
+[private]
+_mod-tidy:
+    go mod tidy -diff
+
+[private]
+_fmt-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    unformatted="$(gofmt -l . | grep -v '^site/' || true)"
+    if [[ -n "$unformatted" ]]; then
+      echo "Unformatted files:" >&2
+      echo "$unformatted" >&2
+      exit 1
+    fi
+
+# Static analysis beyond `go vet`, configured in .golangci.yml. The config
+# records which linters are held back and why, so the gate is green from the
+# first run and a failure means the change in front of you.
+lint:
+    golangci-lint run ./...
+
+# Scan reachable code against the official vulnerability database.
+vuln:
+    govulncheck ./...
+
+# Validate GitHub Actions YAML and the shell embedded in it.
+workflow-check:
+    actionlint
+
+# The Docker end-to-end suite. Opt-in locally because it needs a working daemon;
+# CI runs it as its own job so a slow suite never hides a fast failure.
+e2e:
+    OB_E2E=1 go test ./e2e/ -timeout 20m
 
 # Regenerate the parts of the documentation site that are derived from Go.
 #

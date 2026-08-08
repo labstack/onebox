@@ -73,16 +73,10 @@ func TestSecretsPushStopsWhenJournalStartFails(t *testing.T) {
 }
 
 func TestSecretsPushNoopOnMatch(t *testing.T) {
-	// sha256("KEY=same\n")
-	const h = "1c9f79ee3d19a731d0a1a301a1a175467bcb99a8ea4b09b8b25e00b46a5a1a75"
-	f := opsFake(h)
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	// compute actual hash instead of hardcoding
-	_ = h
 	env := []byte("KEY=same\n")
 	// prime fake with the real hash of env
 	f2 := opsFake(HashBytesHex(env))
-	e = New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e := New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", env); err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +189,6 @@ func TestDestroyDeregistersFromProxy(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/proxy/apps/sample'") {
 		t.Fatalf("destroy must deregister the app from the shared proxy:\n%s", seq)
-	}
-	if strings.Contains(seq, "docker compose -p ob-proxy") && strings.Contains(seq, "down") && strings.Contains(seq, "ob-proxy") == strings.Contains(seq, "-p ob-proxy' down") {
-		// guard below asserts precisely
 	}
 	if strings.Contains(seq, "-p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
 		t.Fatalf("without --proxy the shared proxy must survive:\n%s", seq)

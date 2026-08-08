@@ -35,11 +35,11 @@ type ProtectionArtifactDrift struct {
 	ObservedDigest string `json:"observed_digest,omitempty"`
 }
 
-func (resolved *Resolved) GenerateProtectionArtifacts(serviceName string) (ProtectionArtifactSet, error) {
-	if resolved == nil || resolved.Spec == nil {
-		return ProtectionArtifactSet{}, errors.New("resolved project is nil")
+func (r *Resolved) GenerateProtectionArtifacts(serviceName string) (ProtectionArtifactSet, error) {
+	if r == nil || r.Spec == nil {
+		return ProtectionArtifactSet{}, errors.New("r project is nil")
 	}
-	service, ok := resolved.Services[serviceName]
+	service, ok := r.Services[serviceName]
 	if !ok {
 		return ProtectionArtifactSet{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
 	}
@@ -48,11 +48,11 @@ func (resolved *Resolved) GenerateProtectionArtifacts(serviceName string) (Prote
 		driverName = serviceName
 	}
 	capability, ok := lifecycleCapabilityFor(driverName)
-	if !ok || !capability.ProtectionQualified(resolved.DeclaredVersion(serviceName)) {
+	if !ok || !capability.ProtectionQualified(r.DeclaredVersion(serviceName)) {
 		return ProtectionArtifactSet{}, errf("backup_driver_unsupported", "services."+serviceName+".protection", "ob validate", "service has no qualified protection artifact contract")
 	}
 	record := capability.Record()
-	projection, source, err := resolved.effectiveProtectionProjection(serviceName, service)
+	projection, source, err := r.effectiveProtectionProjection(serviceName, service)
 	if err != nil {
 		return ProtectionArtifactSet{}, err
 	}
@@ -62,10 +62,10 @@ func (resolved *Resolved) GenerateProtectionArtifacts(serviceName string) (Prote
 	if err := validateBackupTarget(projection.Target, "backup_targets."+projection.Policy.Target); err != nil {
 		return ProtectionArtifactSet{}, err
 	}
-	if !capability.SupportsRecoveryKind(resolved.DeclaredVersion(serviceName), projection.Policy.RecoveryKind) {
+	if !capability.SupportsRecoveryKind(r.DeclaredVersion(serviceName), projection.Policy.RecoveryKind) {
 		return ProtectionArtifactSet{}, errf("backup_driver_unsupported", "services."+serviceName+".protection.recovery_kind", "ob validate", "driver does not support the retained recovery kind")
 	}
-	names := resolved.NamesFor(resolved.Env)
+	names := r.NamesFor(r.Env)
 	base := path.Join(names.AppDir(), "protection", "artifacts", serviceName)
 	credentialPath := names.ProtectionCredentialFile(serviceName, projection.Policy.Target)
 	credentialEntries := []string{projection.Target.Credentials.AccessKeyEntry, projection.Target.Credentials.SecretKeyEntry}
@@ -156,8 +156,8 @@ func requiresReplayArtifact(recoveryKind string) bool {
 	return recoveryKind == "pitr"
 }
 
-func (resolved *Resolved) effectiveProtectionProjection(serviceName string, service Service) (ProtectionEffectiveProjection, string, error) {
-	if state, ok := resolved.serviceRuntime[serviceName]; ok && state.ProtectionState == "disable-pending" {
+func (r *Resolved) effectiveProtectionProjection(serviceName string, service Service) (ProtectionEffectiveProjection, string, error) {
+	if state, ok := r.serviceRuntime[serviceName]; ok && state.ProtectionState == "disable-pending" {
 		if state.LastEffective == nil {
 			return ProtectionEffectiveProjection{}, "", errf("protection_image_revert_unsafe", "services."+serviceName, "ob protection disable --output ndjson", "disable-pending state has no durable last-effective protection projection")
 		}
@@ -166,7 +166,7 @@ func (resolved *Resolved) effectiveProtectionProjection(serviceName string, serv
 	if service.Protection == nil {
 		return ProtectionEffectiveProjection{}, "", errf("project_invalid", "services."+serviceName+".protection", "ob validate", "service has no protection intent or retained projection")
 	}
-	target, ok := resolved.BackupTargets[service.Protection.Target]
+	target, ok := r.BackupTargets[service.Protection.Target]
 	if !ok {
 		return ProtectionEffectiveProjection{}, "", errf("backup_target_unknown", "services."+serviceName+".protection.target", "ob validate", "protection target is not declared")
 	}

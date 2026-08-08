@@ -2,6 +2,7 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import { rehypeTableWrap } from "./src/plugins/rehype-table-wrap.mjs";
+import { oneboxCodeDark, oneboxCodeLight } from "./src/styles/code-theme.mjs";
 
 // The site URL is what makes llms.txt and the Markdown alternates absolute.
 // An agent that resolves a relative link against the wrong origin fetches
@@ -32,6 +33,13 @@ export default defineConfig({
       editLink: {
         baseUrl:
           "https://github.com/labstack/onebox/edit/main/site/",
+      },
+      // Expressive Code's syntax palette is independent of Starlight's grey
+      // tokens, so without naming themes here the code blocks keep GitHub's
+      // colours inside a themed frame.
+      expressiveCode: {
+        themes: [oneboxCodeDark, oneboxCodeLight],
+        styleOverrides: { borderColor: "var(--sl-color-gray-5)" },
       },
       customCss: ["./src/styles/onebox.css"],
       components: {

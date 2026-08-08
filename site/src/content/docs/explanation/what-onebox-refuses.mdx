@@ -1,0 +1,95 @@
+---
+title: What Onebox refuses
+description: The refusals worth knowing, and the principle behind all of them.
+summary: Onebox fails at load rather than silently weakening a declaration. The pattern, the refusals most likely to surprise you, and why force cannot override them.
+sidebar:
+  order: 4
+read_when:
+  - "A command refused and the reason is not obvious"
+  - "Deciding whether a refusal is a bug or a design decision"
+---
+
+The pattern is one sentence:
+
+> A declaration Onebox cannot honour fails at load, rather than becoming
+> something weaker that looks like it worked.
+
+Every refusal below follows from it. The full list is the
+[error code catalogue](/reference/errors), generated from the binary.
+
+## The ones most likely to surprise you
+
+**`strategy_ungated`** — asking for `strategy: rolling` without a health check.
+A rolling release stands the newcomer up and waits for it to report healthy;
+with nothing to wait for, "rolling" would silently mean "recreate with extra
+steps". So it is refused rather than downgraded.
+
+**`schedule_untranslatable`** — a cron expression whose meaning the host's
+scheduler cannot preserve. A day-of-month *and* a day-of-week together is the
+usual case: cron treats it as "either matches", so `0 2 1 * 1` fires on the 1st
+**and** every Monday. Refused at load rather than running on days nobody chose.
+
+**`unknown_service_driver`** — a driver outside the closed set of eleven.
+Inventing an image from a name produces a container that starts and stores
+nothing durable, which is worse than an error.
+
+**`connection_variable_claimed`** — an authored value claiming a name a
+managed-service connection supplies. The credential is generated on the target
+and exists nowhere else; ordering could not protect it, so validation does.
+
+**`route_collision`** — two workloads claiming the same entrypoint, protocol,
+domain and path. The proxy would accept both and route to one, and nothing would
+say which.
+
+**`stateful_replicas`** — a workload keeping durable state asking for more than
+one replica.
+
+**`override_not_permitted`** — an environment override touching `image`,
+`build`, `compose`, `command`, `data_effect`, `volumes` or `persistence`. An
+override may change *how much* runs, never *what* runs: a staging environment
+that can swap the image is a different application wearing the same name.
+
+**`service_settings_unsupported`** — a setting declared for a driver with no
+mechanism to read it. Silently ignoring it would leave you believing it applied.
+
+## Where a refusal is about safety, not tidiness
+
+Application rollback, data recovery, and reversal of an external side effect are
+different operations with different guarantees. Onebox classifies the risk and
+refuses when evidence or a driver contract is insufficient.
+
+:::danger[Force cannot make an unsupported operation safe]
+A force flag changes what you are permitted to attempt. It does not change what
+the engine can prove. Where safety cannot be proven, the operation stops and
+exposes honest recovery choices instead of proceeding.
+:::
+
+A missing or invalid job result from a migration becomes `changed=unknown` and
+halts **before** workload replacement, unless a strong or break-glass grant
+authorized that exact plan. The unknown is treated as the dangerous case, because
+it is.
+
+## Refusals carry the way out
+
+Every failure carries a typed code, the path that produced it, and where possible
+the line and the command that resolves it.
+
+```
+✗ ob: "replicaz" is not a field of this contract (line 10); did you mean "replicas"?
+  at: workloads.web.replicaz
+  code: unknown_field
+```
+
+The lifecycle failure contract goes further: each code carries a **safe resolving
+command**, validated to start with `ob ` and to contain no credential material.
+An agent can branch on the code and run the next command without a human
+translating anything.
+
+## Codes are promises
+
+> A code names a kind of failure that will keep meaning the same thing across
+> releases.
+
+Adding one is a deliberate act. A test refuses any code the loader emits that is
+not enumerated, and any enumerated code that nothing emits — so the catalogue
+cannot drift in either direction. Branch on the code, never on the sentence.

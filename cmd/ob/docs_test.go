@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,19 +11,48 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Every command appears in the CLI reference, and every command explains
-// itself.
-//
-// Documentation drifts by addition, not by editing: someone adds a verb, the
-// page keeps describing the ones that were there before, and nothing says the
-// page is now incomplete. An agent reading it then believes it has the whole
-// surface. This is the check that says so.
-func TestEveryCommandIsDocumented(t *testing.T) {
-	page, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
+const cliReferencePage = "site/src/content/docs/reference/cli.mdx"
+
+const policiesPage = "site/src/content/docs/reference/policies.mdx"
+
+// readDocsPage reads a documentation page from the site. The remediation hint
+// belongs at the call site: only some of these pages are generated, and telling
+// someone to regenerate an authored page sends them somewhere with no answer.
+func readDocsPage(t *testing.T, page, hint string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(page)))
 	if err != nil {
-		t.Fatalf("the CLI reference must exist: %v", err)
+		t.Fatalf("%s must exist — %s: %v", page, hint, err)
 	}
-	reference := string(page)
+	return string(body)
+}
+
+func sectionOf(t *testing.T, page, start, end string) string {
+	t.Helper()
+	from := strings.Index(page, start)
+	if from < 0 {
+		t.Fatalf("%q not found in the page; the section was renamed and this test now proves nothing", start)
+	}
+	rest := page[from:]
+	if to := strings.Index(rest, end); to >= 0 {
+		return rest[:to]
+	}
+	t.Fatalf("%q not found after %q", end, start)
+	return ""
+}
+
+// Every command reaches the CLI reference.
+//
+// The page is generated from this binary, so it cannot describe a command that
+// does not exist; this is the other direction. Documentation drifts by addition:
+// someone adds a verb, the page keeps describing the ones that came before, and
+// nothing says it is now incomplete.
+//
+// A failure here usually means `just docs-generate` has not been run. It can
+// also mean the renderer cannot reach the command — it recurses, so that would
+// be a generator defect rather than a stale file.
+func TestEveryCommandIsDocumented(t *testing.T) {
+	reference := readDocsPage(t, cliReferencePage, "run `just docs-generate`")
 
 	var walk func(*cobra.Command, string)
 	walk = func(c *cobra.Command, prefix string) {
@@ -33,8 +63,10 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 			if name == "completion" || name == "help" {
 				continue
 			}
-			if !strings.Contains(reference, "`ob "+full+"`") {
-				t.Errorf("`ob %s` is not mentioned in docs/cli.md", full)
+			// The generated page gives each command its own heading.
+			if !strings.Contains(reference, "\n## ob "+full+"\n") &&
+				!strings.Contains(reference, "\n### ob "+full+"\n") {
+				t.Errorf("`ob %s` has no section in %s — run `just docs-generate`", full, cliReferencePage)
 			}
 			if sub.Long == "" && sub.HasSubCommands() {
 				t.Errorf("`ob %s` groups other commands but does not explain what they share", full)
@@ -78,14 +110,34 @@ func TestEveryFlagAndAliasIsUsable(t *testing.T) {
 	walk(newRootCmd())
 }
 
+// The structured-output matrix is authored rather than generated, because which
+// commands carry machine output — and under which schema identity — is a promise
+// to an agent, not a fact derivable from the command tree. This keeps the
+// promise honest.
+//
+// It reads the matrix section rather than the whole page. Searching the page for
+// a command name let ordinary prose stand in for the row: `ob doctor` and
+// `ob validate` are named elsewhere on the page, so either could have been
+// deleted from the matrix with this test still green.
 func TestStructuredOutputMatrixIsDocumented(t *testing.T) {
-	page, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
-	if err != nil {
-		t.Fatal(err)
+	page := readDocsPage(t, policiesPage, "it is authored, not generated")
+	// Only the list itself, not the paragraph after it: that sentence names
+	// `ob version` for its `--json` report, which is a different contract.
+	matrix := sectionOf(t, page, "### Commands that accept", "Anything not listed")
+
+	documented := map[string]bool{}
+	for _, command := range regexp.MustCompile("`(ob [a-z-]+(?: [a-z-]+)*)`").FindAllStringSubmatch(matrix, -1) {
+		documented[command[1]] = true
 	}
+
 	for command := range structuredOutputCommands {
-		if !strings.Contains(string(page), "`"+command+"`") {
-			t.Errorf("structured command %q is absent from docs/cli.md", command)
+		if !documented[command] {
+			t.Errorf("%q carries structured output but is absent from the matrix in %s", command, policiesPage)
+		}
+	}
+	for command := range documented {
+		if !structuredOutputCommands[command] {
+			t.Errorf("the matrix in %s lists %q, which does not carry structured output", policiesPage, command)
 		}
 	}
 	for _, version := range []string{
@@ -99,8 +151,8 @@ func TestStructuredOutputMatrixIsDocumented(t *testing.T) {
 		doctorReportSchemaVersion,
 		versionReportSchemaVersion,
 	} {
-		if !strings.Contains(string(page), version) {
-			t.Errorf("structured schema %q is absent from docs/cli.md", version)
+		if !strings.Contains(page, version) {
+			t.Errorf("structured schema %q is absent from %s", version, policiesPage)
 		}
 	}
 }

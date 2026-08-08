@@ -1,0 +1,147 @@
+---
+title: Add a database
+description: Declare a supporting service and wire its connection into a workload.
+summary: How to add Postgres, Redis or another built-in driver, wire the connection into your application's own variable names, and decide when to use a daemon workload instead.
+sidebar:
+  order: 1
+read_when:
+  - "Adding a database, cache or queue to a project"
+  - "Renaming connection variables for an application that expects its own names"
+  - "Deciding between a managed service and a daemon workload"
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Declare it
+
+```yaml
+services:
+  postgres: 17
+```
+
+That is sufficient. Onebox runs the image, a durable volume, a health check, a
+credential generated on the target, and the connection details your application
+reads. You supply no password, no port, and no data path.
+
+The service's name is its driver unless `driver` says otherwise, so a second
+Postgres is:
+
+```yaml
+services:
+  postgres: 17
+  events: {driver: postgres, version: 17}
+  cache:  {driver: redis, version: "7.4"}
+```
+
+Eleven drivers are supported: `postgres`, `mysql`, `mariadb`, `redis`, `valkey`,
+`mongodb`, `rabbitmq`, `minio`, `meilisearch`, `clickhouse`, `nats`. Anything
+else is refused with `unknown_service_driver` — guessing an image from a name
+produces a container that starts and stores nothing durable.
+
+## Wire the connection
+
+A workload that declares `needs` receives `<SERVICE>_URL` and its parts:
+`_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_DATABASE`.
+
+<Tabs>
+<TabItem label="Default variable names">
+
+```yaml
+workloads:
+  web:
+    role: application
+    image: ghcr.io/acme/shop:1.4.0
+    needs:
+      - {name: postgres, condition: healthy}
+services:
+  postgres: 17
+```
+
+</TabItem>
+<TabItem label="Your application's names">
+
+```yaml
+workloads:
+  n8n:
+    role: application
+    image: docker.n8n.io/n8nio/n8n:1.70.0
+    needs:
+      - name: postgres
+        env:
+          DB_POSTGRESDB_HOST:     host
+          DB_POSTGRESDB_USER:     user
+          DB_POSTGRESDB_PASSWORD: password
+services:
+  postgres: 16
+```
+
+</TabItem>
+</Tabs>
+
+The right-hand side is a connection part: `url`, `host`, `port`, `user`,
+`password`, `database`. A part the driver does not have — a database on a cache —
+is omitted rather than written empty.
+
+`needs` also decides release order when `deployment.order` is absent.
+
+## Three properties that always hold
+
+- **A service outlives every release.** It runs in its own Compose project, so no
+  deploy and no rollback can stop it or remove its volume.
+- **Its credential is generated on the target, once.** Not in your project, not
+  in the generated runtime, not in the digest. Never rotated by a re-apply.
+- **Its version binds into the release digest**, so a database upgrade under an
+  untouched application cannot pass unnoticed.
+
+## Reaching a pooler or a read replica
+
+Connections own the credential, not the endpoint. Map only the parts you want and
+author the host yourself:
+
+```yaml
+needs:
+  - name: postgres
+    env:
+      DB_USER:     user
+      DB_PASSWORD: password
+env:
+  DB_HOST: pgbouncer.internal
+```
+
+An application that reads a single connection URL cannot do this, because the URL
+carries the credential and the credential never travels.
+
+:::caution[Shadowing a connection variable is refused]
+Claiming a name a managed-service connection supplies fails with
+`connection_variable_claimed`, naming both the variable and the service. The
+credential exists nowhere else, so nothing authored may claim its name — ordering
+cannot protect it, so validation does.
+:::
+
+## When to use a daemon workload instead
+
+| | `services` | `daemon` workload |
+| --- | --- | --- |
+| Image | Onebox picks it from driver + version | You name it |
+| Credential | Generated on the target, once | Yours to supply |
+| Release coupling | **Outlives every release** | Recreated on deploy |
+| Connection wiring | Automatic via `needs` | You wire it |
+| Available for | 11 drivers only | Anything containerised |
+
+Use a daemon when you need something outside the driver set, or a topology the
+driver does not provide.
+
+:::caution[MongoDB runs standalone, not a replica set]
+Change streams and multi-document transactions need a replica set. An application
+using either will connect, authenticate, and *then* fail — in its own logs, not
+in anything Onebox says. If you need one, run a `daemon` workload you own.
+:::
+
+:::danger[Onebox does not take backups]
+`ob doctor` reports every workload and service holding durable data as unbacked,
+because silence there would read as approval. Until the
+[protection layer](/status/capabilities) ships, backing up a declared service is
+your responsibility — a `job` workload on a `schedule` is the usual answer.
+:::
+
+Full field list: [`services`](/reference/fields/services).

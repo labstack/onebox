@@ -1,0 +1,74 @@
+---
+title: Adopt an existing Compose file
+description: "The compose: escape hatch, and the six things it refuses."
+summary: "How to adopt a container Onebox cannot describe, using compose: path#service, and which Compose constructs are refused because they contradict something Onebox owns."
+sidebar:
+  order: 6
+read_when:
+  - "Migrating an existing docker-compose.yml to Onebox"
+  - "Running a container whose shape the project schema cannot express"
+  - "Diagnosing a compose_* refusal"
+---
+
+Start with the scaffolder:
+
+```sh
+ob init
+```
+
+It reads the Compose file you already have and writes an `ob.yml` that describes
+the same application in Onebox's terms. Review it — component types, persistence
+semantics, readiness, job data effects, and the environment target — before
+running a plan.
+
+## When the model does not fit
+
+Some containers cannot be described by the project schema. Adopt them verbatim:
+
+```yaml
+workloads:
+  legacy:
+    role: daemon
+    compose: docker-compose.yml#legacy
+```
+
+The named service is copied verbatim with Onebox's overlay applied. This is the
+escape hatch, and it is deliberate — Onebox can operate any containerised
+application inside its envelope when health, rollout, persistence and job
+semantics are declared honestly, and `compose:` covers the rest.
+
+## Six refusals, and why
+
+Each of these contradicts something Onebox owns, so it fails at load rather than
+producing a runtime that disagrees with itself.
+
+| Code | The referenced service… |
+| --- | --- |
+| `compose_extends` | uses `extends`, which hides what actually runs |
+| `compose_container_name` | fixes its container name, which Onebox derives and owns |
+| `compose_network_mode` | sets `network_mode`, conflicting with the network it must attach |
+| `compose_ob_label` | carries a label in a namespace Onebox generates into |
+| `compose_traefik_label` | carries routing labels while also declaring a route |
+| `compose_ingress_attached` | already attaches the ingress network |
+
+Plus the structural ones: `compose_ref_malformed` (not `path#service`),
+`compose_file_unreadable`, `compose_file_unparsable`, `compose_service_missing`.
+
+## An adopted workload is not a second-class one
+
+A workload's source never changes what it receives. An application adopted
+through `compose:` resolves exactly what an application declared inline resolves
+— the same environment file precedence, the same connection wiring, the same
+release behaviour.
+
+The one difference is precedence *inside* the container: the referenced Compose
+service's own `env_file` sits at the bottom of the stack, below the resolved
+`env_files` entries. See [Handle secrets](/guides/handle-secrets).
+
+## Migrating away from adoption
+
+Adoption is a resting place, not a destination. When you can describe the
+workload in the schema, do — you get health-gated rollout, typed routing, derived
+names and drift detection that a verbatim copy cannot give you.
+
+If you want to go the other way entirely, see [Eject](/guides/eject).

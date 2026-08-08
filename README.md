@@ -27,11 +27,23 @@ an artifact Onebox generates, digest-bound into the plan, printable with
 `ob preview`, and permanently ejectable with `ob eject`. `ob init` scaffolds a
 project from an existing Compose file to start from.
 
-Start with the [command reference](docs/cli.md) to operate it, or the
-[project file guide](docs/schema-v1.md) to write one. The [documentation
-map](docs/README.md) says which documents are authoritative and distinguishes
-shipped behaviour from proposals; [product direction](docs/product.md) gives
-the boundaries.
+## Documentation
+
+The full documentation lives in [`site/`](site) and is published as the
+documentation website. Build it with `just site-build`, or serve it locally with
+`just site`.
+
+- **Start here** — [your first deploy](site/src/content/docs/start/first-deploy.mdx)
+- **Reference** — the [project file](site/src/content/docs/reference/project-file.mdx),
+  every [field](site/src/content/docs/reference/fields/), every
+  [CLI command](site/src/content/docs/reference/cli.mdx), and every
+  [error code](site/src/content/docs/reference/errors.mdx). The field, CLI and
+  error pages are generated from the binary by `cmd/ob-docgen`, so they cannot
+  describe something the loader does not accept.
+- **Shipped vs proposed** — [what the binary does today](site/src/content/docs/status/capabilities.mdx),
+  and what the schema accepts but cannot yet execute.
+- **Direction** — [product direction](docs/product.md) gives the boundaries;
+  the [documentation map](docs/README.md) says which documents are authoritative.
 
 ## What exists today
 
@@ -139,8 +151,9 @@ payload change requires a new plan.
 
 `ob init` is a starting point, not permission to deploy. Review component
 types, persistence semantics, readiness, job data effects, and the environment
-target before running a plan. The [schema guide](docs/schema-v1.md) documents
-the accepted fields and representative examples.
+target before running a plan. The
+[project file reference](site/src/content/docs/reference/project-file.mdx)
+documents the accepted fields and representative examples.
 
 ## Execution contracts
 

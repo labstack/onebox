@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+# Every page is also served as clean Markdown at <path>.md, and llms.txt is a
+# map of the whole site with a one-line summary per page.
+Sitemap: https://onebox.run/sitemap-index.xml

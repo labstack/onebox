@@ -38,6 +38,9 @@ func validateBackupTarget(target BackupTarget, path string) error {
 	if err := gObjectPrefix.checkOptional(path+".prefix", target.Prefix); err != nil {
 		return err
 	}
+	if err := gS3Region.checkOptional(path+".region", target.Region); err != nil {
+		return err
+	}
 	if err := validateTargetEncryption(target.Encryption, path+".encryption"); err != nil {
 		return err
 	}
@@ -71,6 +74,24 @@ func validateBackupTarget(target BackupTarget, path string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateBackupTarget keeps lifecycle adapters on the same closed target
+// contract as project loading. Adapters receive already-resolved values, but
+// revalidate at their trust boundary rather than assuming every caller loaded
+// a complete project first.
+func ValidateBackupTarget(name string, target BackupTarget) error {
+	if err := gIdent.check("backup_targets."+name, name); err != nil {
+		return err
+	}
+	return validateBackupTarget(target, "backup_targets."+name)
+}
+
+// BackupTargetEncryptionMode returns the authored mode for one recovery kind.
+// An empty result is deliberately not a default: the lifecycle adapter must
+// refuse protection whose encryption evidence cannot be established.
+func BackupTargetEncryptionMode(target BackupTarget, recoveryKind string) string {
+	return encryptionFor(target.Encryption, recoveryKind)
 }
 
 func validateBackupEndpoint(endpoint, tls, path string) error {

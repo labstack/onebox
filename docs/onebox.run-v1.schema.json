@@ -299,10 +299,11 @@
             "type": "string"
           },
           "region": {
-            "description": "S3-compatible region when the endpoint requires one.",
+            "description": "S3-compatible region when the endpoint requires one. Expects a lower-case S3-compatible region of letters, digits and hyphens.",
             "examples": [
               "us-east-1"
             ],
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
             "type": "string"
           },
           "tls": {

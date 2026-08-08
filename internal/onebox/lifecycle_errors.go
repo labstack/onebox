@@ -30,6 +30,7 @@ var lifecycleFailureDefinitions = map[string]lifecycleFailureDefinition{
 	"backup_retention_unsupported":                 {"the declared recovery history cannot map to qualified native retention semantics", "ob validate --output json"},
 	"backup_stale":                                 {"the latest recoverable point is older than policy permits", "ob backup create --output ndjson"},
 	"backup_target_not_independent":                {"the backup or replication target shares the protected failure domain", "ob backup target inspect --output json"},
+	"backup_target_unauthorized":                   {"the backup target credentials are unavailable, unsafe, or unauthorized", "ob backup target inspect --output json"},
 	"backup_target_unknown":                        {"the protection policy selects no declared backup target", "ob validate --output json"},
 	"backup_target_unreachable":                    {"the selected backup target cannot be reached", "ob backup target inspect --output json"},
 	"disk_pressure_critical":                       {"a relevant filesystem lacks safe headroom for a space-increasing mutation", "ob hygiene status --output json"},

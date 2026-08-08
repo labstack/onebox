@@ -1,42 +1,64 @@
-/* Onebox docs theme.
+/* Onebox docs theme — Terminal.
  *
- * Graphite ground with a signal-amber accent — the colour of a caution lamp on
- * hardware, chosen because this product's distinguishing behaviour is telling
- * you when something falls outside its guarantees. Starlight's own tokens are
- * overridden rather than fought with, so component updates keep working.
+ * Phosphor green on near-black, monospace throughout. The CLI is the product —
+ * "point an agent at the `ob` binary the way you would point it at `gh`" — and
+ * this is the one palette that says so before a word is read.
+ *
+ * Green is used sparingly and never decoratively: links, the active page, and a
+ * defaulted value in a field table. It deliberately does NOT tint the caution
+ * asides, which keep Starlight's own semantic colours, because a page that is
+ * green everywhere cannot use green to mean anything.
+ *
+ * Starlight's tokens are overridden rather than fought with, so component
+ * updates keep working.
  */
 
 :root {
-  --sl-font: "Iowan Old Style", "Source Serif 4", Charter, Georgia, serif;
-  --sl-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  /* Mono is the body face, not just the code face. Prose in mono runs wider and
+     reads slower than a proportional face, so the measure is held tighter and
+     the leading opened up below to pay some of that back. */
+  --sl-font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+  --sl-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
 
-  /* Dark theme (Starlight's default state). */
-  --sl-color-accent-low: #32270f;
-  --sl-color-accent: #a9700f;
-  --sl-color-accent-high: #e7bb7c;
+  /* Dark (Starlight's default state). */
+  --sl-color-accent-low: #17300f;
+  --sl-color-accent: #4f9a3c;
+  --sl-color-accent-high: #8fd67a;
   --sl-color-white: #ffffff;
-  --sl-color-gray-1: #e9ebe8;
-  --sl-color-gray-2: #c1c6c9;
-  --sl-color-gray-3: #97a0aa;
-  --sl-color-gray-4: #57606a;
-  --sl-color-gray-5: #2b3036;
-  --sl-color-gray-6: #1c2025;
-  --sl-color-black: #14171a;
+  --sl-color-gray-1: #e2ece0;
+  --sl-color-gray-2: #b9c7b4;
+  --sl-color-gray-3: #87957f;
+  --sl-color-gray-4: #4c5748;
+  --sl-color-gray-5: #22291f;
+  --sl-color-gray-6: #141814;
+  --sl-color-black: #0d100d;
 }
 
 :root[data-theme="light"] {
-  --sl-color-accent-low: #f1e2ca;
-  --sl-color-accent: #96570a;
-  --sl-color-accent-high: #52340c;
-  --sl-color-white: #16181b;
-  --sl-color-gray-1: #22262a;
-  --sl-color-gray-2: #3a4147;
-  --sl-color-gray-3: #5e6771;
-  --sl-color-gray-4: #8a929b;
-  --sl-color-gray-5: #d2d6d0;
-  --sl-color-gray-6: #e9ece7;
-  --sl-color-gray-7: #f3f5f1;
-  --sl-color-black: #f7f8f5;
+  --sl-color-accent-low: #d8e8d0;
+  --sl-color-accent: #2f6b22;
+  --sl-color-accent-high: #1a3d13;
+  --sl-color-white: #12160f;
+  --sl-color-gray-1: #1b2018;
+  --sl-color-gray-2: #353d33;
+  --sl-color-gray-3: #5b6656;
+  --sl-color-gray-4: #8a9484;
+  --sl-color-gray-5: #ccd4c6;
+  --sl-color-gray-6: #e8ece4;
+  --sl-color-gray-7: #f1f4ee;
+  --sl-color-black: #f6f8f4;
+}
+
+/* Monospace prose is wider per character and tires the eye faster, so the two
+   things that buy it back are more leading and a shorter line. Both are cheap
+   here because the reference is mostly tables, which are unaffected. */
+.sl-markdown-content {
+  line-height: 1.72;
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+  max-width: 72ch;
 }
 
 /* Headings and field names read as machine identifiers; prose reads as prose.

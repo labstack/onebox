@@ -1,13 +1,41 @@
 package onebox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestRecurringScheduleMaterializesFreshOccurrenceEnvelope(t *testing.T) {
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	template, _ := scheduledEnvelopeFixture(t)
+	first, err := MaterializeScheduledOccurrence(template, now.Add(24*time.Hour), bytes.NewReader(bytes.Repeat([]byte{1}, 16)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := MaterializeScheduledOccurrence(template, now.Add(48*time.Hour), bytes.NewReader(bytes.Repeat([]byte{2}, 16)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.OperationID == template.OperationID || second.OperationID == template.OperationID || first.OperationID == second.OperationID {
+		t.Fatalf("occurrence identities were reused: template=%q first=%q second=%q", template.OperationID, first.OperationID, second.OperationID)
+	}
+	if first.Timing.RetryIdentity == second.Timing.RetryIdentity || first.EnvelopeDigest == second.EnvelopeDigest {
+		t.Fatal("separate timer firings reused retry identity or sealed envelope")
+	}
+	if err := first.ValidateForRunner(CurrentScheduledRunnerCompatibility(), first.State.Digest, now.Add(24*time.Hour)); err != nil {
+		t.Fatalf("first occurrence was not fresh: %v", err)
+	}
+	if err := second.ValidateForRunner(CurrentScheduledRunnerCompatibility(), second.State.Digest, now.Add(48*time.Hour)); err != nil {
+		t.Fatalf("second occurrence was not fresh: %v", err)
+	}
+}
 
 func scheduledEnvelopeFixture(t *testing.T) (ScheduledOperationEnvelope, time.Time) {
 	t.Helper()
@@ -125,10 +153,12 @@ func TestScheduledEnvelopeRejectsNonScheduledOperation(t *testing.T) {
 type recordingScheduledExecutor struct {
 	executions []ScheduledLifecycleExecution
 	err        error
+	deadline   time.Time
 }
 
-func (executor *recordingScheduledExecutor) ExecuteScheduledLifecycle(_ context.Context, execution ScheduledLifecycleExecution) error {
+func (executor *recordingScheduledExecutor) ExecuteScheduledLifecycle(ctx context.Context, execution ScheduledLifecycleExecution) error {
 	executor.executions = append(executor.executions, execution)
+	executor.deadline, _ = ctx.Deadline()
 	return executor.err
 }
 
@@ -150,5 +180,42 @@ func TestScheduledRunnerUsesCanonicalScheduledGraphOnce(t *testing.T) {
 	}
 	if len(executor.executions) != 1 || len(executor.executions[0].Steps) == 0 || executor.executions[0].Steps[0].Kind != StepProtectionLock {
 		t.Fatalf("scheduled executions = %#v", executor.executions)
+	}
+	if want := now.Add(10 * time.Minute); !executor.deadline.Equal(want) {
+		t.Fatalf("scheduled deadline = %s, want %s", executor.deadline, want)
+	}
+}
+
+func TestReadScheduledStateDigestValidatesWholeState(t *testing.T) {
+	state, err := NewProtectionLifecycleState("example", "production", "database", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := SaveProtectionLifecycleState(path, state); err != nil {
+		t.Fatal(err)
+	}
+	if digest, err := ReadScheduledStateDigest(path); err != nil || digest != state.StateDigest {
+		t.Fatalf("read state digest = %q, %v", digest, err)
+	}
+
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tampered map[string]any
+	if err := json.Unmarshal(encoded, &tampered); err != nil {
+		t.Fatal(err)
+	}
+	tampered["service"] = "other"
+	encoded, err = json.Marshal(tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadScheduledStateDigest(path); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("tampered state error = %v", err)
 	}
 }

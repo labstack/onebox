@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -27,7 +28,7 @@ func executeEnvelope(ctx context.Context, path string) error {
 	}
 	service := onebox.New(onebox.Options{ScheduledLifecycleExecutor: unavailableScheduledExecutor{}})
 	runner := onebox.ScheduledRunner{Executor: service}
-	return runner.Execute(ctx, envelope)
+	return runner.ExecuteRecurring(ctx, envelope, rand.Reader)
 }
 
 func newRootCmd(runEnvelope func(context.Context, string) error) *cobra.Command {

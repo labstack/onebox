@@ -11,9 +11,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
-var protectionCredentialEntry = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
+var protectionCredentialEntry = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
 // InstallProtectionCredentialFile moves already-resolved credential material
 // through a private upload into its target-side mode-0600 file. Secret bytes
@@ -55,6 +56,15 @@ func (e *Engine) InstallProtectionCredentialFile(ctx context.Context, service, t
 	if err := e.T.Upload(ctx, localStaging, remoteStaging); err != nil {
 		return "", errors.New("upload private protection credential staging")
 	}
+	// Cleanup cannot use ProtectionMutate: a failed/fenced install is exactly
+	// when that guard may refuse the command. The paths are deterministic,
+	// narrowly scoped staging artifacts, and best-effort removal must run even
+	// after cancellation so plaintext is not stranded on the host.
+	defer func() {
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = e.T.Run(cleanupContext, "rm -rf "+q(remoteStaging)+"; rm -f "+q(destination+".tmp"))
+	}()
 	install := "mkdir -p " + q(names.ProtectionSecretDir()) +
 		" && chmod 700 " + q(names.ProtectionSecretDir()) +
 		" && cp " + q(remoteStaging+"/"+stagedName) + " " + q(destination+".tmp") +

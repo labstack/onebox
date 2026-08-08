@@ -21,7 +21,6 @@ const (
 	ProtectionResourceEnvelope ProtectionResourceKind = "envelope"
 	ProtectionResourceRunner   ProtectionResourceKind = "runner"
 	ProtectionRemoteBackup     ProtectionResourceKind = "remote-backup"
-	ProtectionRemoteReplica    ProtectionResourceKind = "remote-replica"
 	ProtectionManifest         ProtectionResourceKind = "manifest"
 	ProtectionManifestImage    ProtectionResourceKind = "manifest-image"
 	ProtectionServiceVolume    ProtectionResourceKind = "service-volume"
@@ -277,7 +276,7 @@ func (resource ProtectionResource) validate() error {
 	}
 	switch resource.Kind {
 	case ProtectionResourceUnit, ProtectionResourceHook, ProtectionResourceConfig, ProtectionResourceEnvelope,
-		ProtectionResourceRunner, ProtectionRemoteBackup, ProtectionRemoteReplica, ProtectionManifest,
+		ProtectionResourceRunner, ProtectionRemoteBackup, ProtectionManifest,
 		ProtectionManifestImage, ProtectionServiceVolume, ProtectionPreviousVolume:
 		return nil
 	default:
@@ -287,7 +286,7 @@ func (resource ProtectionResource) validate() error {
 
 func protectionResourceAlwaysPreserved(kind ProtectionResourceKind) bool {
 	switch kind {
-	case ProtectionRemoteBackup, ProtectionRemoteReplica, ProtectionManifest, ProtectionManifestImage,
+	case ProtectionRemoteBackup, ProtectionManifest, ProtectionManifestImage,
 		ProtectionServiceVolume, ProtectionPreviousVolume:
 		return true
 	default:

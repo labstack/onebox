@@ -331,6 +331,9 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 			if _, isService := p.Services[need.Name]; isService {
 				continue
 			}
+			if _, isExternal := p.ExternalServices[need.Name]; isExternal {
+				continue
+			}
 			dep[need.Name] = map[string]any{"condition": composeCondition(need.Condition)}
 		}
 		if len(dep) > 0 {
@@ -791,6 +794,41 @@ func (p *Spec) serviceClientFiles(n Names, name string, w Workload) []string {
 			out = append(out, n.ServiceAliasFile(need.Name, name))
 		}
 	}
+	for _, projection := range p.ExternalConnectionProjections(name, w) {
+		out = append(out, projection.Path)
+	}
+	return out
+}
+
+// ExternalConnectionProjection describes one least-privilege env file staged
+// for a workload. Entries map destination variables to keys in the trusted
+// source; values never enter the application model or generated runtime.
+type ExternalConnectionProjection struct {
+	Path    string
+	Source  ExternalConnectionSource
+	Entries map[string]string
+}
+
+// ExternalConnectionProjections returns only explicitly requested connection
+// parts. External services have no target-side container or generated client
+// file, so their trusted source is projected into a release-local private file.
+func (p *Spec) ExternalConnectionProjections(workloadName string, w Workload) []ExternalConnectionProjection {
+	var out []ExternalConnectionProjection
+	for _, need := range w.Needs {
+		external, ok := p.ExternalServices[need.Name]
+		if !ok || len(need.Env) == 0 {
+			continue
+		}
+		entries := make(map[string]string, len(need.Env))
+		for destination, part := range need.Env {
+			entries[destination] = external.Connection.Entries[part]
+		}
+		out = append(out, ExternalConnectionProjection{
+			Path:    ".ob-external-" + need.Name + "_" + workloadName + ".env",
+			Source:  external.Connection.Source,
+			Entries: entries,
+		})
+	}
 	return out
 }
 
@@ -853,6 +891,12 @@ func (p *Spec) projectedEnvFiles(n Names, name string, w Workload) []string {
 func (p *Spec) connectionVars(name string, w Workload) map[string]string {
 	out := map[string]string{}
 	for _, need := range w.Needs {
+		if _, external := p.ExternalServices[need.Name]; external {
+			for variable := range need.Env {
+				out[variable] = need.Name
+			}
+			continue
+		}
 		if _, ok := p.Services[need.Name]; !ok {
 			continue
 		}

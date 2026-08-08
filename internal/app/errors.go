@@ -45,7 +45,7 @@ var errorCodes = map[string]string{
 	"unknown_environment":                  "an environment the project does not declare",
 	"backup_driver_unsupported":            "a runnable service driver has no qualified executable protection contract",
 	"backup_target_unknown":                "a protection policy selects no declared backup target",
-	"backup_target_not_independent":        "a backup or replication target shares the protected failure domain",
+	"backup_target_not_independent":        "a backup target shares the protected failure domain",
 	"backup_encryption_unverified":         "the selected target cannot prove the encryption mode required by the recovery kind",
 	"backup_retention_unsupported":         "the declared recovery history cannot map to supported retention semantics",
 	"backup_interruption_not_authorized":   "the selected recovery contract needs a recurring stopped-service window the author did not permit",

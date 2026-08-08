@@ -407,6 +407,7 @@ var schemaConstraints = []struct {
 	{[]string{"backup_targets", "*", "endpoint"}, pattern(gHTTPURL)},
 	{[]string{"backup_targets", "*", "bucket"}, pattern(gBucket)},
 	{[]string{"backup_targets", "*", "prefix"}, pattern(gObjectPrefix)},
+	{[]string{"backup_targets", "*", "region"}, pattern(gS3Region)},
 	{[]string{"backup_targets", "*", "tls"}, enum(eBackupTLS)},
 	{[]string{"backup_targets", "*", "failure_domain", "identity"}, pattern(gFailureDomain)},
 	{[]string{"backup_targets", "*", "failure_domain", "host"}, pattern(gFailureDomain)},

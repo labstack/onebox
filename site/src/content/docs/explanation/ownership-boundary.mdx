@@ -1,0 +1,78 @@
+---
+title: The ownership boundary
+description: Why one sentence about ownership drives every other decision in the product.
+summary: The organising principle — you own your application containers, Onebox owns everything else — and the three design consequences that follow from it.
+sidebar:
+  order: 1
+read_when:
+  - "Understanding why the project file declares intent rather than describing containers"
+  - "Explaining the product's design rationale"
+---
+
+> You own your application containers. Onebox owns everything else on the box.
+
+Host provisioning, the container runtime, the proxy, TLS, networks, release
+staging, supporting data services, backups, restore proof, pruning and log
+rotation are not your application, and therefore not your problem.
+
+That sentence is the **direction**, not an inventory. What is owned today is
+listed on [Shipped vs proposed](/status/capabilities), and the gap between the
+two is stated rather than blurred.
+
+## Three consequences
+
+This is the organising principle behind everything else.
+
+**It is why the project file declares intent rather than describing containers.**
+If Onebox owns the runtime, then describing the runtime is Onebox's job, and
+asking you to do it as well would mean two descriptions that can disagree.
+
+**It is why Compose became a generated artifact.** Compose was once an input
+Onebox read. Under this boundary, reading a file you wrote would mean you own the
+runtime and Onebox merely operates it — which is the opposite arrangement. See
+[Why Compose is generated](/explanation/generated-compose).
+
+**It is why a database is something you select rather than something you
+configure.** `services: {postgres: 17}` is sufficient because the image, port,
+data path, health check and credential all sit on Onebox's side of the line.
+
+## The boundary cuts both ways
+
+If Onebox owns the proxy, TLS and the shared network, it must also own admitting
+that it does not own backups. A boundary that only ever expands is a marketing
+claim, not an engineering one.
+
+So `ob doctor` reports the absence of backups for every workload and service
+holding durable data — not as a warning that something is misconfigured, but
+because silence there would read as approval.
+
+:::caution[The failure this prevents]
+A product description that reads as a capability list is how an operator ends up
+believing their database is backed up by something that has never taken a backup.
+:::
+
+## Where the line is not
+
+Onebox owns the box, not the world:
+
+- A customer with root can still bypass it.
+- A compromised host can lie about its own evidence.
+- Onebox does not claim universal reversibility, high availability, or
+  protection from an adversarial infrastructure provider.
+
+Those are limits of the arrangement, not gaps in it.
+
+## Supporting services and guarantee levels
+
+Breadth and honesty are reconciled by making the guarantee level part of the
+contract and visible wherever the service appears. A service is either
+user-authored or Onebox-managed, never both.
+
+Today every durable driver runs at the **Run** level: pinned, persisted,
+health-gated, capped, observed, never recreated by an application rollback — and
+carrying no backup contract, which it states plainly.
+
+The proposed **Managed** level would add a real recovery contract, and a driver
+would reach it only after its restore drill passes. That ordering is the point:
+a declaration is never presented as proof that protection is running. See
+[Evidence, not declaration](/explanation/evidence-not-declaration).

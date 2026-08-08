@@ -1,0 +1,138 @@
+/* Onebox docs theme.
+ *
+ * Graphite ground with a signal-amber accent — the colour of a caution lamp on
+ * hardware, chosen because this product's distinguishing behaviour is telling
+ * you when something falls outside its guarantees. Starlight's own tokens are
+ * overridden rather than fought with, so component updates keep working.
+ */
+
+:root {
+  --sl-font: "Iowan Old Style", "Source Serif 4", Charter, Georgia, serif;
+  --sl-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* Dark theme (Starlight's default state). */
+  --sl-color-accent-low: #32270f;
+  --sl-color-accent: #a9700f;
+  --sl-color-accent-high: #e7bb7c;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e9ebe8;
+  --sl-color-gray-2: #c1c6c9;
+  --sl-color-gray-3: #97a0aa;
+  --sl-color-gray-4: #57606a;
+  --sl-color-gray-5: #2b3036;
+  --sl-color-gray-6: #1c2025;
+  --sl-color-black: #14171a;
+
+  --ob-refuse: #d8877a;
+  --ob-refuse-bg: #2d1b18;
+  --ob-propose: #8eb3cc;
+  --ob-propose-bg: #1a2832;
+  --ob-good: #86b294;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #f1e2ca;
+  --sl-color-accent: #96570a;
+  --sl-color-accent-high: #52340c;
+  --sl-color-white: #16181b;
+  --sl-color-gray-1: #22262a;
+  --sl-color-gray-2: #3a4147;
+  --sl-color-gray-3: #5e6771;
+  --sl-color-gray-4: #8a929b;
+  --sl-color-gray-5: #d2d6d0;
+  --sl-color-gray-6: #e9ece7;
+  --sl-color-gray-7: #f3f5f1;
+  --sl-color-black: #f7f8f5;
+
+  --ob-refuse: #92372a;
+  --ob-refuse-bg: #f0deda;
+  --ob-propose: #395d76;
+  --ob-propose-bg: #dee7ee;
+  --ob-good: #3d6146;
+}
+
+/* Headings and field names read as machine identifiers; prose reads as prose.
+   The mono/serif contrast is what makes a dense field table scannable.
+   The page title sits outside .sl-markdown-content, so it is named separately
+   rather than assumed to be inside it. */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.content-panel h1,
+h1#_top {
+  font-family: var(--sl-font-mono);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.sl-markdown-content table {
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.sl-markdown-content th {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+  font-weight: 650;
+}
+
+.sl-markdown-content td:first-child code {
+  white-space: nowrap;
+}
+
+/* Wide reference tables scroll inside their own box; the page never does.
+   The wrapper is focusable so the overflow is reachable by keyboard, which is
+   the accessibility requirement that comes with any scroll container. */
+.sl-markdown-content .table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 1rem 0;
+}
+
+.sl-markdown-content .table-wrap:focus-visible {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
+}
+
+/* Without a minimum, a four-column reference table compresses to fit a phone
+   and every column becomes a ribbon of wrapped text. The minimum makes it
+   overflow instead, which is what the scroll container is there to absorb. */
+.sl-markdown-content .table-wrap > table {
+  min-width: 34rem;
+}
+
+/* Status chips. These are generated onto pages from frontmatter, so a page
+   cannot silently claim a status the capability catalogue does not support. */
+.ob-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  font-family: var(--sl-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 0.2em 0.6em;
+  border: 1px solid currentColor;
+  margin-bottom: 1rem;
+}
+
+.ob-status[data-status="schema-only"] {
+  color: var(--ob-propose);
+  background: var(--ob-propose-bg);
+}
+
+.ob-status[data-status="intent-only"] {
+  color: var(--sl-color-accent);
+  background: var(--sl-color-accent-low);
+}
+
+.ob-generated {
+  font-family: var(--sl-font-mono);
+  font-size: 0.72rem;
+  color: var(--sl-color-gray-3);
+  border-left: 2px solid var(--sl-color-gray-5);
+  padding-left: 0.8em;
+  margin-bottom: 1.5rem;
+}

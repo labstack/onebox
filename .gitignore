@@ -1,4 +1,5 @@
 /ob
+/ob-docgen
 /bin/
 .serena/
 .codegraph/
@@ -12,3 +13,11 @@
 
 # Browser-session diagnostics from local tooling.
 .playwright-mcp/
+
+# Documentation site build output and dependencies. The generated reference
+# pages under site/src/content/docs/reference/ are NOT ignored: they are
+# committed so a reader of the repository sees the same reference a reader of
+# the site does, and so `just docs-generate-check` can prove they are current.
+/site/node_modules/
+/site/dist/
+/site/.astro/

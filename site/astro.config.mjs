@@ -1,0 +1,98 @@
+// @ts-check
+import { defineConfig } from "astro/config";
+import starlight from "@astrojs/starlight";
+import { rehypeTableWrap } from "./src/plugins/rehype-table-wrap.mjs";
+
+// The site URL is what makes llms.txt and the Markdown alternates absolute.
+// An agent that resolves a relative link against the wrong origin fetches
+// nothing, so this is set rather than inferred.
+const SITE = process.env.SITE_URL ?? "https://onebox.run";
+
+export default defineConfig({
+  site: SITE,
+  trailingSlash: "never",
+  build: { format: "file" },
+  markdown: { rehypePlugins: [rehypeTableWrap] },
+  integrations: [
+    starlight({
+      title: "Onebox",
+      // Without this the landing page, whose own title is also "Onebox",
+      // renders as "Onebox | Onebox".
+      titleDelimiter: "·",
+      description:
+        "Production operations for an application intentionally running on one server.",
+      tagline: "One application. One box. Evidence-backed operations.",
+      social: [
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/labstack/onebox",
+        },
+      ],
+      editLink: {
+        baseUrl:
+          "https://github.com/labstack/onebox/edit/main/site/",
+      },
+      customCss: ["./src/styles/onebox.css"],
+      components: {
+        // Advertises the Markdown alternate for the current page, so an agent
+        // that reads the HTML head never has to parse the HTML body.
+        Head: "./src/components/Head.astro",
+      },
+      lastUpdated: true,
+      pagination: true,
+      favicon: "/favicon.svg",
+      sidebar: [
+        {
+          label: "Start here",
+          items: [
+            { label: "What Onebox is", slug: "start/what-onebox-is" },
+            { label: "Install", slug: "start/install" },
+            { label: "Your first deploy", slug: "start/first-deploy" },
+            { label: "Reading the file back", slug: "start/reading-it-back" },
+          ],
+        },
+        {
+          label: "Guides",
+          items: [
+            { label: "Add a database", slug: "guides/add-a-database" },
+            { label: "Handle secrets", slug: "guides/handle-secrets" },
+            { label: "Run migrations safely", slug: "guides/run-migrations" },
+            { label: "Schedule a job", slug: "guides/schedule-a-job" },
+            { label: "Roll back a release", slug: "guides/roll-back" },
+            { label: "Adopt an existing Compose file", slug: "guides/adopt-compose" },
+            { label: "Eject", slug: "guides/eject" },
+          ],
+        },
+        {
+          label: "Reference",
+          items: [
+            { label: "Project file", slug: "reference/project-file" },
+            {
+              label: "Project file fields",
+              items: [{ autogenerate: { directory: "reference/fields" } }],
+            },
+            { label: "CLI commands", slug: "reference/cli" },
+            { label: "Error codes", slug: "reference/errors" },
+            { label: "Service drivers", slug: "reference/drivers" },
+            { label: "Policies", slug: "reference/policies" },
+          ],
+        },
+        {
+          label: "Explanation",
+          items: [
+            { label: "The ownership boundary", slug: "explanation/ownership-boundary" },
+            { label: "Evidence, not declaration", slug: "explanation/evidence-not-declaration" },
+            { label: "Why Compose is generated", slug: "explanation/generated-compose" },
+            { label: "What Onebox refuses", slug: "explanation/what-onebox-refuses" },
+            { label: "The safety envelope", slug: "explanation/safety-envelope" },
+          ],
+        },
+        {
+          label: "Status",
+          items: [{ label: "Shipped vs proposed", slug: "status/capabilities" }],
+        },
+      ],
+    }),
+  ],
+});

@@ -1,0 +1,14 @@
+---
+import Default from "@astrojs/starlight/components/Head.astro";
+
+// Every page advertises its Markdown alternate in the head and, via the
+// adapter-independent static build, at `<path>.md`. An agent that reads the
+// head never has to parse the rendered HTML to get clean source.
+const { id } = Astro.locals.starlightRoute.entry;
+const slug = id === "index" || id === "" ? "index" : id;
+const markdownHref = new URL(`/${slug}.md`, Astro.site ?? Astro.url).href;
+---
+
+<Default><slot /></Default>
+<link rel="alternate" type="text/markdown" href={markdownHref} />
+<meta name="ob:markdown" content={markdownHref} />

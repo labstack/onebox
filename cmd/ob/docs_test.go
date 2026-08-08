@@ -10,19 +10,29 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Every command appears in the CLI reference, and every command explains
-// itself.
+// The CLI reference is generated from this binary by cmd/ob-docgen, so its
+// pages cannot describe a command that does not exist. This is the other
+// direction: that no command exists without reaching the page.
 //
 // Documentation drifts by addition, not by editing: someone adds a verb, the
 // page keeps describing the ones that were there before, and nothing says the
 // page is now incomplete. An agent reading it then believes it has the whole
-// surface. This is the check that says so.
-func TestEveryCommandIsDocumented(t *testing.T) {
-	page, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
+// surface. A failure here means `just docs-generate` has not been run.
+const cliReferencePage = "site/src/content/docs/reference/cli.mdx"
+
+const policiesPage = "site/src/content/docs/reference/policies.mdx"
+
+func readDocsPage(t *testing.T, page string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(page)))
 	if err != nil {
-		t.Fatalf("the CLI reference must exist: %v", err)
+		t.Fatalf("%s must exist — run `just docs-generate`: %v", page, err)
 	}
-	reference := string(page)
+	return string(body)
+}
+
+func TestEveryCommandIsDocumented(t *testing.T) {
+	reference := readDocsPage(t, cliReferencePage)
 
 	var walk func(*cobra.Command, string)
 	walk = func(c *cobra.Command, prefix string) {
@@ -33,8 +43,10 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 			if name == "completion" || name == "help" {
 				continue
 			}
-			if !strings.Contains(reference, "`ob "+full+"`") {
-				t.Errorf("`ob %s` is not mentioned in docs/cli.md", full)
+			// The generated page gives each command its own heading.
+			if !strings.Contains(reference, "\n## ob "+full+"\n") &&
+				!strings.Contains(reference, "\n### ob "+full+"\n") {
+				t.Errorf("`ob %s` has no section in %s — run `just docs-generate`", full, cliReferencePage)
 			}
 			if sub.Long == "" && sub.HasSubCommands() {
 				t.Errorf("`ob %s` groups other commands but does not explain what they share", full)
@@ -78,14 +90,15 @@ func TestEveryFlagAndAliasIsUsable(t *testing.T) {
 	walk(newRootCmd())
 }
 
+// The structured-output matrix is authored rather than generated, because
+// which commands carry machine output — and under which schema identity — is a
+// promise to an agent, not a fact derivable from the command tree. This keeps
+// the promise honest.
 func TestStructuredOutputMatrixIsDocumented(t *testing.T) {
-	page, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	page := readDocsPage(t, policiesPage)
 	for command := range structuredOutputCommands {
-		if !strings.Contains(string(page), "`"+command+"`") {
-			t.Errorf("structured command %q is absent from docs/cli.md", command)
+		if !strings.Contains(page, "`"+command+"`") {
+			t.Errorf("structured command %q is absent from %s", command, policiesPage)
 		}
 	}
 	for _, version := range []string{
@@ -99,8 +112,8 @@ func TestStructuredOutputMatrixIsDocumented(t *testing.T) {
 		doctorReportSchemaVersion,
 		versionReportSchemaVersion,
 	} {
-		if !strings.Contains(string(page), version) {
-			t.Errorf("structured schema %q is absent from docs/cli.md", version)
+		if !strings.Contains(page, version) {
+			t.Errorf("structured schema %q is absent from %s", version, policiesPage)
 		}
 	}
 }

@@ -1,0 +1,98 @@
+---
+title: Onebox
+description: Production operations for an application intentionally running on one server.
+summary: Landing page. What Onebox is, who it is for, and the fastest path into it.
+template: splash
+hero:
+  tagline: |
+    Production operations for an application intentionally running on one server.
+    Keep the economic and cognitive simplicity of a single box while making
+    deployments inspectable, resumable, and recoverable.
+  actions:
+    - text: Your first deploy
+      link: /start/first-deploy
+      icon: right-arrow
+    - text: Project file reference
+      link: /reference/project-file
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/labstack/onebox
+      icon: external
+      variant: minimal
+read_when:
+  - "Meeting Onebox for the first time"
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## The contract
+
+> Bring an application repository, one Linux server, secrets, intent, and
+> approval. Get structured observation, constrained change proposals, and
+> evidence-backed execution within a declared safety envelope.
+
+You describe what your application **is** in `ob.yml`. Onebox derives the Compose
+runtime, the container and volume names, the routing, the health gating, the
+proxy, and the supporting services. It connects over SSH — there is no deployment
+agent to install on the host.
+
+<CardGrid stagger>
+  <Card title="Compose is generated" icon="seti:docker">
+    Not an input you write. Print it with `ob preview`, hand it over permanently
+    with `ob eject`. The escape hatch is real and it is one command.
+  </Card>
+  <Card title="Approval is not intent" icon="approve-check">
+    A statement that the user approved is data, not authority. Execution requires
+    a capability bound to the exact sealed plan, actor, target, observed state
+    and expiry.
+  </Card>
+  <Card title="Refuses rather than guesses" icon="warning">
+    `strategy: rolling` with no health check fails at load. A cron expression
+    whose meaning cannot be preserved fails at load. A driver Onebox cannot run
+    is refused, not invented.
+  </Card>
+  <Card title="Built to be driven by an agent" icon="rocket">
+    Every command carries `--output json|ndjson`, errors are typed and carry the
+    command that resolves them, and mutations are idempotent under retry.
+  </Card>
+</CardGrid>
+
+## The smallest complete project
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
+api_version: onebox.run/v1
+app: shop
+environments:
+  production:
+    server: root@203.0.113.10
+image: ghcr.io/acme/shop:1.4.0
+domain: shop.example.com
+port: 3000
+```
+
+That is a complete project. It derives one application workload, its container
+name, the Traefik router and service, TLS, the release layout under
+`/var/lib/ob/shop`, and a retention policy — and `ob canonical` prints every one
+of those decisions with `# default` beside it.
+
+## What Onebox is not
+
+A cluster manager, a Kubernetes replacement, a PaaS, or a hosting provider. Not
+multi-host, not multi-region, not a way to run several independent applications
+side by side on one host. Not a generic Docker dashboard or remote shell. Not a
+guarantee of availability after losing the only host.
+
+Rolling deployment can avoid interruption while the host is healthy. It cannot
+make a failed host available.
+
+## Two things it does not do today
+
+**Onebox does not take backups.** `ob doctor` says so for every workload and
+service holding durable data, because silence there would read as approval.
+
+**`mongodb` runs a standalone server, not a replica set.** An application needing
+change streams or multi-document transactions will connect, authenticate, and
+then fail — in its own logs, not in anything Onebox says.
+
+See [Shipped vs proposed](/status/capabilities) for the full picture.

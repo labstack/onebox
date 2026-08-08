@@ -1,0 +1,76 @@
+---
+title: What Onebox is
+description: The ownership boundary, the scope, and who this is for.
+summary: What Onebox owns on the box, what stays yours, and the scope it deliberately refuses. Read before deciding whether it fits.
+sidebar:
+  order: 1
+read_when:
+  - "Deciding whether Onebox fits a project"
+  - "Explaining to someone else what Onebox does and does not own"
+---
+
+Onebox is the production-operations layer for an application intentionally
+running on one server. It supplies typed perception, bounded intent, durable
+state, exact approval, and a fenced execution engine — so that releasing,
+recovering, and maintaining that application is something a person or an agent
+can do without assembling it from shell scripts.
+
+## The ownership boundary
+
+> You own your application containers. Onebox owns everything else on the box.
+
+Host provisioning, the container runtime, the proxy, TLS, networks, release
+staging, supporting data services, and scheduled jobs are not your application,
+and therefore not your problem.
+
+That sentence is the **direction**, not an inventory. Owned today:
+
+- host bootstrap and the container runtime check
+- the proxy and its TLS
+- the shared network
+- release staging and retention
+- supporting data services and their credentials
+- scheduled jobs
+
+**Not owned today: backups, restore proof, and log rotation.** Onebox says so
+rather than implying otherwise.
+
+:::caution[Why the distinction matters]
+A product description that reads as a capability list is how an operator ends up
+believing their database is backed up by something that has never taken a backup.
+:::
+
+## Scope
+
+One application per environment, on one active production host. That application
+may have as many workloads as it needs — a server, workers, jobs, databases,
+caches, a proxy — but the unit Onebox owns is the application, and a host runs
+one of them.
+
+Onebox is **not**:
+
+- a cluster manager, Kubernetes replacement, PaaS, or hosting provider
+- a multi-host or multi-region orchestrator
+- a way to run several independent applications side by side on one host
+- a generic Docker dashboard, terminal, or remote shell
+- a universal infrastructure-as-code language
+- a guarantee of availability after losing the only host
+- a guarantee that arbitrary migrations or external effects can be undone
+
+## The interface is the CLI
+
+The CLI is the product interface, for people and for agents. It is not a fallback
+or a transitional path.
+
+Onebox served an MCP surface once and no longer does. It was read-only, so every
+mutation went through the CLI anyway, and an agent able to run `ob deploy` in a
+shell was never constrained by a read-only tool list. The boundary it appeared to
+provide did not exist. Point an agent at the `ob` binary the way you would point
+it at `git` or `gh`.
+
+## Where to go next
+
+- [Install](/start/install), then [your first deploy](/start/first-deploy).
+- [The ownership boundary](/explanation/ownership-boundary) explains why this
+  framing drives the rest of the design.
+- [Shipped vs proposed](/status/capabilities) is the honest inventory.

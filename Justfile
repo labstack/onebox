@@ -38,8 +38,35 @@ fmt:
 # Run all non-mutating checks.
 check: test vet
 
+# Regenerate the parts of the documentation site that are derived from Go.
+#
+# The project-file field reference, the error-code catalogue and the CLI
+# reference are all enumerated in the binary already. Writing them again by hand
+# would create a second source that can disagree with the first, so this command
+# is their only writer. The CLI reference is read out of the binary this recipe
+# just built, named explicitly rather than resolved from PATH — otherwise an
+# older `ob` installed elsewhere documents a tree it did not come from.
+docs-generate: build
+    go run ./cmd/ob-docgen --ob "${OB_BIN_DIR:-$HOME/.local/bin}/ob"
+
+# Fail when a generated documentation page is behind the binary.
+docs-generate-check: build
+    go run ./cmd/ob-docgen --check --ob "${OB_BIN_DIR:-$HOME/.local/bin}/ob"
+
+# Install the documentation site's dependencies.
+site-install:
+    cd site && npm install --no-audit --no-fund
+
+# Serve the documentation site locally with live reload.
+site: docs-generate
+    cd site && npm run dev
+
+# Build the documentation site into site/dist.
+site-build: docs-generate
+    cd site && npm run build
+
 # Strictly validate canonical specs and every active OpenSpec change.
-docs-check: diagrams-check
+docs-check: diagrams-check docs-generate-check
     npx --yes @fission-ai/openspec@{{ openspec_version }} validate --all --strict --no-interactive
 
 # Render every openspec .d2 source to the .svg committed beside it, and record

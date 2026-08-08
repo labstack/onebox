@@ -1,0 +1,65 @@
+---
+title: Eject
+description: Hand the generated runtime over permanently, as ordinary Compose.
+summary: How ob eject works, what it writes, what it leaves behind, and why the exit exists as a first-class command.
+sidebar:
+  order: 7
+read_when:
+  - "Leaving Onebox, or evaluating the cost of doing so"
+  - "Wanting to see the real Compose without the Onebox overlay"
+---
+
+```sh
+ob eject
+```
+
+It writes the generated runtime into your repository and hands it over
+permanently. The overlay is stripped, so the file is ordinary Compose — not
+Compose with Onebox labels you would then have to unpick — and your workloads are
+repointed at it with your comments intact.
+
+## Why the exit is a command
+
+A tool that generates your runtime is asking for trust in proportion to how hard
+it is to leave. Making the exit a first-class, tested command is how that trust
+is earned rather than requested.
+
+It also means you can inspect the real thing at any time without committing to
+anything:
+
+```sh
+ob preview          # print the generated runtime, change nothing
+ob eject            # write it out and hand it over
+```
+
+## What ejection does not touch
+
+- **Your data.** Service volumes and workload volumes stay exactly where they
+  are.
+- **The host layout.** Releases, the journal, and supporting services under
+  `/var/lib/ob/<app>` remain until you remove them.
+- **Foreign resources.** Anything Onebox does not own evidence for is left alone.
+
+## Refusals
+
+| Code | Means |
+| --- | --- |
+| `eject_destination_exists` | The destination already exists |
+| `eject_nothing_to_do` | Every workload already references a Compose file |
+| `eject_failed` | The runtime could not be handed over |
+
+## After ejecting
+
+You own the Compose file, the container names, the routing labels, and the
+lifecycle. Onebox's release staging, journal, drift detection, approval gating
+and rollback no longer apply to those workloads — that is the trade you have
+chosen, and it is the same trade you would have had if you had never adopted
+Onebox at all.
+
+If you want to tear the application down instead of handing it over:
+
+```sh
+ob destroy
+```
+
+`ob destroy` keeps volumes unless you explicitly ask otherwise.

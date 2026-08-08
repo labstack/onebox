@@ -1,0 +1,140 @@
+---
+title: Your first deploy
+description: From an existing Compose file to a released application, in one pass.
+summary: The full path — scaffold ob.yml, inspect what Onebox understood, plan, approve, deploy — with the plan and approval artifacts explained.
+sidebar:
+  order: 3
+read_when:
+  - "Deploying with Onebox for the first time"
+  - "Understanding what a plan and an approval actually are"
+---
+
+import { Steps, FileTree } from '@astrojs/starlight/components';
+
+This is the whole path, once. Every command below either states that it contacts
+nothing, or is explicit about what it changes.
+
+<Steps>
+
+1. **Scaffold a project from the Compose file you already have.**
+
+   ```sh
+   ob init
+   ```
+
+   This writes `ob.yml` and puts the published schema reference on its first
+   line, so your editor offers completion, hover documentation and inline errors
+   that match what `ob validate` will say.
+
+   :::caution
+   `ob init` is a starting point, not permission to deploy. Review component
+   types, persistence semantics, readiness, job data effects, and the environment
+   target before running a plan.
+   :::
+
+2. **Check the contract. Nothing is contacted.**
+
+   ```sh
+   ob validate
+   ```
+
+   Every failure carries a typed code, the path that produced it, and where
+   possible the line and the command that resolves it:
+
+   ```
+   ✗ ob: "replicaz" is not a field of this contract (line 10); did you mean "replicas"?
+     at: workloads.web.replicaz
+     code: unknown_field
+   ```
+
+3. **Read back what Onebox understood.**
+
+   ```sh
+   ob canonical
+   ob preview
+   ```
+
+   `ob canonical` annotates every value you did not write with `# default`,
+   `# shorthand` or `# override`. `ob preview` prints the Compose runtime it will
+   generate. Read both before the first deploy — the difference between a value
+   someone chose and one that appeared by itself is what a person checking a
+   production configuration needs to see.
+
+4. **Prepare the host.** This contacts and changes the target.
+
+   ```sh
+   ob bootstrap
+   ```
+
+5. **Review production without changing it.**
+
+   ```sh
+   ob plan --out ob-plan.json
+   ```
+
+   The plan is a mode-`0600`, digest-protected executable envelope containing the
+   typed operation graph and the exact config, Compose, host-state, image,
+   rendered-Compose and payload bindings. **It expires after 15 minutes**, and
+   any drift or local payload change requires a new plan.
+
+6. **Create a short-lived approval for that exact plan.**
+
+   ```sh
+   ob approve --plan ob-plan.json --out ob-approval.json
+   ```
+
+   The grant is mode-`0600` and digest-bound to the plan, target, inputs, risk,
+   operator and expiry. A changed or expired plan needs a new grant.
+
+7. **Deploy with both artifacts.**
+
+   ```sh
+   ob deploy --plan ob-plan.json --approval ob-approval.json
+   ```
+
+</Steps>
+
+## What you now have on the host
+
+<FileTree>
+- /var/lib/ob/shop/
+  - releases/
+    - 20260808T101500Z/ the release just deployed
+    - 20260807T093000Z/ retained for rollback
+  - current the symlink the runtime follows
+  - journal append-only operation record
+  - services/ supporting services, outside every release
+</FileTree>
+
+Container and volume names are derived and stable: `shop_web`, `shop_web_2`,
+`ob_shop_postgres`, `ob_shop_postgres_data`, `ob_shop` for the service network,
+`ob-ingress` for the shared proxy network. Once a volume exists, its name cannot
+change without moving data.
+
+## Why plan and approval are separate
+
+A statement that the user approved is data, not authority. Splitting them means
+the actor requesting a change cannot mint the capability authorising it — the
+grant is created out of band and bound to one exact sealed plan.
+
+For automation, both accept structured output:
+
+```sh
+ob plan   --output json  --out ob-plan.json
+ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
+```
+
+A JSON deploy buffers ordered operation events and its result into one envelope.
+NDJSON streams event records and a terminal result or error record. Diagnostics
+stay on stderr, so the structured stream is never polluted.
+
+## If something goes wrong
+
+```sh
+ob status     # non-zero on divergence
+ob resume     # finish an interrupted deploy
+ob abort      # revert an interrupted deploy
+ob rollback   # activate the previous release
+```
+
+See [Roll back a release](/guides/roll-back).

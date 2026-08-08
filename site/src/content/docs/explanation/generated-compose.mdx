@@ -1,0 +1,92 @@
+---
+title: Why Compose is generated
+description: The reversal that redefined onebox.run/v1, and what it bought.
+summary: Compose was once an input Onebox read; it is now an artifact Onebox generates. Why the direction was reversed, what it enables, and how you get out.
+sidebar:
+  order: 3
+read_when:
+  - "Wondering why you cannot hand Onebox a docker-compose.yml as the contract"
+  - "Migrating a project written against the earlier v1 contract"
+---
+
+`onebox.run/v1` was redefined **in place** rather than superseded by a `v2`.
+There is no migration path and none is planned: a project written against the
+earlier contract — which classified a Compose file you wrote — does not load, and
+must be authored fresh.
+
+The reversal is the point.
+
+## Before and after
+
+| | Before | Now |
+| --- | --- | --- |
+| Compose file | An input Onebox read and classified | An artifact Onebox generates |
+| Container names | Yours, and Onebox worked around them | Derived, stable, and contract |
+| Routing labels | Yours to write correctly | Generated from typed `routes` |
+| The contract | A Compose file plus annotations | A declaration of what the application *is* |
+
+## Why reading your Compose file failed
+
+Under the [ownership boundary](/explanation/ownership-boundary), Onebox owns the
+runtime. Reading a runtime you wrote inverts that: you own it, and Onebox merely
+operates something it did not design and cannot fully reason about.
+
+Concretely, it produced three problems:
+
+**Two descriptions that can disagree.** The Compose file said one thing, the
+Onebox annotations said another, and nothing arbitrated.
+
+**No derivation.** Onebox could not choose the container name, the volume name,
+the router rule or the network, because you already had. So it could not
+guarantee they were consistent, collision-free, or stable across releases.
+
+**No honest defaults.** `strategy: rolling` needs a health check to gate it. When
+the health check lives in a file Onebox merely reads, "is this rollout gated?"
+becomes a question rather than a fact.
+
+## What generation bought
+
+- **Derived, stable names.** `shop_web`, `ob_shop_postgres_data`, `ob_shop`,
+  `ob-ingress`. Once a volume exists its name cannot change without moving data,
+  and a foreign resource already holding a derived name is refused rather than
+  adopted.
+- **Digest binding.** The rendered Compose is bound into the plan, so what was
+  reviewed is what executes.
+- **Refusals that mean something.** `strategy_ungated`, `route_collision`,
+  `stateful_replicas` are all statements about the generated runtime, which is
+  the only thing that will actually run.
+- **Typed routing.** Two workloads claiming the same entrypoint, protocol, domain
+  and path is `route_collision`, rather than a proxy that accepts both and routes
+  to one with nothing saying which.
+
+## You can still see it, and still leave
+
+Generation is only acceptable because the output is inspectable and the exit is a
+command:
+
+```sh
+ob preview    # print the generated runtime, change nothing
+ob eject      # write it out and hand it over, permanently
+```
+
+`ob eject` strips the overlay, so what lands in your repository is ordinary
+Compose — not Compose carrying Onebox labels you would then have to unpick — and
+your workloads are repointed at it with your comments intact.
+
+## And the escape hatch remains
+
+A container Onebox cannot describe is adopted verbatim:
+
+```yaml
+workloads:
+  legacy:
+    role: daemon
+    compose: docker-compose.yml#legacy
+```
+
+Refusals apply only where the referenced service contradicts something Onebox
+owns — `extends`, a fixed `container_name`, `network_mode`, labels in the `ob.`
+or `traefik.` namespaces. See [Adopt an existing Compose file](/guides/adopt-compose).
+
+The result is a contract that generates by default and defers on request, rather
+than one that can only do one of the two.

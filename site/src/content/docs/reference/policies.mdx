@@ -1,0 +1,147 @@
+---
+title: Policies
+description: Versioning, runner compatibility, plan and approval schemas, and the guarantees that hold across releases.
+summary: CalVer release identity, minimum runner and plan-schema policy, the executable plan and approval contracts, and the v1 evolution guarantees.
+sidebar:
+  order: 400
+read_when:
+  - "Pinning a minimum runner version for an environment"
+  - "Understanding why a checkout build was refused"
+  - "Checking what the v1 contract guarantees across upgrades"
+---
+
+## Release identity
+
+Onebox releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`. The
+sequence increases for each release in a UTC calendar month.
+
+Checkout builds use Git-derived provenance and remain **visibly distinct** from a
+release. `ob version` reports which you have.
+
+## Runner and plan-schema policy
+
+```yaml
+environments:
+  production:
+    policy:
+      minimum_onebox_version: v2026.08.1
+      minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+```
+
+`ob doctor` reports whether the runner selected by `PATH` is compatible.
+
+:::caution[Commit-derived and dirty builds fail closed]
+When a minimum version is configured, they are refused — they are not released
+runners. An environment that pins a minimum is asking for a runner whose identity
+can be checked, and a dirty working tree has none.
+:::
+
+## The executable plan
+
+Executable plans use `onebox.run/executable-deploy-plan/v1alpha2` and include the
+planner's version, source revision, build time, dirty state, and supported
+schemas. Schema-less and unsupported plans are rejected.
+
+A plan is a mode-`0600`, digest-protected envelope containing:
+
+- the typed operation graph
+- the exact config, Compose and host-state bindings
+- image, rendered-Compose and payload bindings
+
+**It expires after 15 minutes.** Any drift or local payload change requires a new
+plan.
+
+## The approval grant
+
+`ob approve` writes a mode-`0600`, digest-bound grant covering the plan, target,
+inputs, risk, operator and expiry. A changed or expired plan needs a new grant.
+
+When approval policy is enabled, migrations and unknown data effects use the
+**strong ceremony**, where the operator types the release ID.
+
+> A statement that the user approved is data, not authority.
+
+The grant is delivered out of band precisely so that the actor requesting a
+change cannot mint the capability authorising it.
+
+## Approval policy fields
+
+| Field | Default | Effect |
+| --- | --- | --- |
+| `require_approval` | `true` | A plan-bound grant is required before mutating |
+| `allow_agent_proposals` | `true` | Recorded policy; the current CLI does not distinguish agent identity, and execution stays approval-gated regardless |
+| `require_migration_backup` | `false` | Plan-bound external backup evidence before migration risk |
+| `migration_backup_max_age` | — | Maximum age of accepted evidence |
+| `require_migration_restore_test` | `false` | Evidence must attest a restore test succeeded |
+| `migration_backup_key_material` | — | Key material whose usability the evidence must attest |
+
+## Structured output contracts
+
+Plans and status produce versioned documents. A JSON deploy buffers ordered
+operation events and its result into one envelope; NDJSON streams event records
+and a terminal result or error record. Diagnostics stay on stderr, so the
+structured stream is never polluted.
+
+New structured documents receive **new schema identities** rather than changing
+existing output shapes.
+
+### Commands that accept `--output human|json|ndjson`
+
+`ob abort` · `ob backup-evidence create` · `ob bootstrap` · `ob canonical` ·
+`ob deploy` · `ob doctor` · `ob eject` · `ob plan` · `ob preview` ·
+`ob proxy apply` · `ob resume` · `ob rollback` · `ob service apply` ·
+`ob status` · `ob validate`
+
+Anything not listed is human output only. `ob doctor` and `ob version` also
+accept `--json` for their reports.
+
+### Schema identities
+
+An agent branches on the schema version, never on the shape it happens to see.
+
+| Document | Schema identity |
+| --- | --- |
+| Validation result | `onebox.run/cli-validate/v1alpha1` |
+| Canonical project | `onebox.run/cli-canonical/v1alpha1` |
+| Generated runtime preview | `onebox.run/cli-preview/v1alpha1` |
+| Ejection result | `onebox.run/cli-eject/v1alpha1` |
+| Status snapshot | `onebox.run/status/v1alpha1` |
+| Operation envelope | `onebox.run/cli-operation/v1alpha1` |
+| Operation event record | `onebox.run/cli-record/v1alpha1` |
+| Doctor report | `onebox.run/doctor-report/v1alpha1` |
+| Version report | `onebox.run/version-report/v1alpha1` |
+| Executable deploy plan | `onebox.run/executable-deploy-plan/v1alpha2` |
+| Job result protocol | `onebox.run/job-result/v1alpha1` |
+| Migration backup facts | `onebox.run/migration-backup-facts/v1alpha1` |
+
+:::note[This table is under test]
+`cmd/ob/docs_test.go` asserts set equality in both directions: every command the
+binary gives structured output appears in the list above, every command listed
+above really has it, and every schema identity the binary emits appears in the
+table. Adding one without documenting it fails the build, and so does documenting
+one that does not exist.
+:::
+
+## The v1 evolution guarantees
+
+`api_version: onebox.run/v1` is stable. Within it:
+
+- A field is **added**, never repurposed.
+- A scalar form once accepted is accepted **permanently**.
+- A default may be added; an existing default's value **does not change**.
+- A constraint is **not tightened** against a project that already loads.
+
+The JSON Schema published by `ob schema` is generated from the same declarations
+the loader enforces and is checked against the conformance corpus, so what your
+editor tells you while you type is what `ob validate` tells you afterwards.
+
+## Safety claims are bounded
+
+Application rollback, data recovery, and reversal of an external side effect are
+different operations with different guarantees. Onebox classifies risk and
+refuses when evidence or a driver contract is insufficient. **A force flag cannot
+turn an unsupported operation into a safe one.**
+
+A customer with root can still bypass Onebox, and a compromised host can lie
+about its own evidence. Onebox does not claim universal reversibility, high
+availability, or protection from an adversarial infrastructure provider.

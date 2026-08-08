@@ -1,0 +1,137 @@
+---
+title: Run migrations safely
+description: Migration jobs, data effects, result evidence, and the backup-evidence gate.
+summary: How to declare a migration job, what data_effect controls, how job result evidence is captured and verified, and how the migration-backup policy gate works.
+sidebar:
+  order: 3
+read_when:
+  - "Adding a schema migration to a release"
+  - "Understanding why a deploy halted before workload replacement"
+  - "Configuring require_migration_backup for an environment"
+---
+
+## Declare the job
+
+```yaml
+workloads:
+  migrate:
+    role: job
+    image: ghcr.io/acme/shop:1.4.0
+    command: ["./bin/migrate"]
+    data_effect: migration
+    run: pre_release
+    needs: [{name: postgres, condition: healthy}]
+```
+
+`data_effect` is **required** on a job, and it is what the rollback and abort
+gates read:
+
+| Value | Meaning |
+| --- | --- |
+| `none` | Touches no durable data. Rollback is unconstrained. |
+| `migration` | Changes schema or data in a way a rollback may not undo. |
+| `destructive` | Removes data. |
+| `unknown` | You cannot state it. Treated as the most cautious case. |
+
+`run` decides when it happens: `manual` (default), `pre_release`, or
+`post_release`.
+
+## Report what actually happened
+
+A job can write JSON or `key=value` data to `$OB_RESULT_FILE` using the
+`onebox.run/job-result/v1alpha1` protocol. Provider-aware evidence records
+`changed`, `provider`, and ordered `before_revisions` / `after_revisions`.
+
+```sh
+#!/bin/sh
+./bin/migrate
+cat > "$OB_RESULT_FILE" <<EOF
+{"changed": true, "provider": "atlas", "after_revisions": ["202607130001"]}
+EOF
+```
+
+:::caution[A missing result is not a silent pass]
+A missing or invalid result from a migration becomes `changed=unknown` and
+**halts before workload replacement**, unless a strong or break-glass grant
+authorized that exact plan. Atlas results must extend history without rewriting
+it.
+:::
+
+## Verify the revisions
+
+```yaml
+verification:
+  - migration_revisions:
+      job: migrate
+      provider: atlas
+      applied_revisions: ["202607130001"]
+```
+
+This binds the expected provider and applied revisions to the evidence captured
+during the release, so a migration that silently applied something else fails
+verification instead of activating.
+
+## Gate on backup evidence
+
+An environment can require proof that a backup exists before a release with
+migration risk:
+
+```yaml
+environments:
+  production:
+    policy:
+      require_migration_backup: true
+      migration_backup_max_age: 24h
+      require_migration_restore_test: true
+      migration_backup_key_material: [production-kms-key]
+```
+
+:::note[This does not make Onebox take a backup]
+It requires **externally validated, secret-free facts bound to the exact plan**.
+Onebox validates the evidence; it does not create or store the backup.
+:::
+
+Seal the facts, then apply them with the plan:
+
+```sh
+ob backup-evidence create \
+  --plan ob-plan.json \
+  --manifest backup-facts.json \
+  --out ob-backup-evidence.json
+
+ob deploy \
+  --plan ob-plan.json \
+  --approval ob-approval.json \
+  --backup-evidence ob-backup-evidence.json
+```
+
+The facts manifest uses `onebox.run/migration-backup-facts/v1alpha1` and records
+artifact, integrity, restore-test and key-usability facts — never backup bytes or
+secrets.
+
+## When you have to go anyway
+
+```sh
+ob deploy --plan ob-plan.json --approval ob-approval.json \
+  --override-migration-backup "incident reason"
+```
+
+An audited override requires the exact plan's strong or break-glass grant. It is
+recorded, not silent.
+
+## Approval ceremony
+
+When approval policy is enabled, migrations and unknown data effects use the
+**strong ceremony**, where the operator types the release ID. That is the
+difference between confirming a routine deploy and confirming one that may not be
+reversible.
+
+## Release-wide policy
+
+```yaml
+deployment:
+  migration_policy: manual   # manual · auto · expand-only
+```
+
+`expand-only` is the safe default shape for zero-downtime work: additive schema
+changes deploy freely, destructive ones do not.

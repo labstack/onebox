@@ -1,0 +1,66 @@
+---
+title: Reading the file back
+description: The four commands that contact nothing, and what each one answers.
+summary: ob validate, canonical, preview and schema — what each answers, and why origin annotations matter when reviewing a production configuration.
+sidebar:
+  order: 4
+read_when:
+  - "Reviewing a project file before a deploy"
+  - "Working out where a value you did not write came from"
+---
+
+Four commands contact nothing and change nothing. Run them before you ever run
+`ob plan`.
+
+| Command | Answers |
+| --- | --- |
+| `ob validate` | Does this file satisfy the contract? |
+| `ob canonical` | What did Onebox *understand*, and where did each value come from? |
+| `ob preview` | What Compose runtime will it generate? |
+| `ob schema` | What does my editor need to help me while I type? |
+
+## `ob canonical` is the one to read in review
+
+It prints every effective value with its origin annotated:
+
+- `# default` — Onebox chose it
+- `# shorthand` — you wrote the scalar form
+- `# override` — an environment override supplied it
+
+That distinction is the point. The difference between a value someone chose and
+one that appeared by itself is exactly what a person checking a production
+configuration needs to see, and it is invisible in the file you wrote.
+
+## `ob schema` keeps your editor honest
+
+```sh
+ob schema --to onebox.schema.json
+```
+
+Or reference the published copy from the first line of the project:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
+api_version: onebox.run/v1
+```
+
+The schema is generated from the same declarations the loader enforces and is
+checked against the conformance corpus, so what your editor tells you while you
+type is what `ob validate` tells you afterwards.
+
+:::caution[One place your editor is ahead of the engine]
+The published schema includes `backup_targets`, `services.<name>.protection` and
+`external_services`. Your editor will complete them and `ob validate` accepts
+them, but the behaviour behind them is not yet executable — see
+[Shipped vs proposed](/status/capabilities).
+:::
+
+## Reading the whole command surface
+
+An operator can afford to find out by trying. An agent cannot. So every command
+states up front whether it contacts the target, whether it changes anything, and
+whether it supports machine output — see the [CLI reference](/reference/cli).
+
+The one row without a definite answer is `ob exec`, and that is the point: it
+runs outside the journal and the safety regime, and nothing it changes belongs
+to any release.

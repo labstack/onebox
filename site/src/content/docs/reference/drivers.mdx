@@ -1,0 +1,95 @@
+---
+title: Service drivers
+description: The eleven built-in supporting-service drivers and what each provides.
+summary: The closed set of eleven service drivers, what Onebox provides for each, the connection parts they expose, and the known limitations.
+sidebar:
+  order: 250
+read_when:
+  - "Choosing a supporting service driver"
+  - "Checking whether a driver exposes a particular connection part"
+  - "Finding out why a driver name was refused"
+---
+
+The driver set is **closed**. A declaration naming a driver outside it is refused
+with `unknown_service_driver`, listing the drivers Onebox can run and directing
+you to a `daemon` workload.
+
+That is deliberate: inventing an image from a name produces a container that
+starts and stores nothing durable.
+
+| Driver | Typical use | Connection parts |
+| --- | --- | --- |
+| `postgres` | Relational database | `url` `host` `port` `user` `password` `database` |
+| `mysql` | Relational database | `url` `host` `port` `user` `password` `database` |
+| `mariadb` | Relational database | `url` `host` `port` `user` `password` `database` |
+| `mongodb` | Document database | `url` `host` `port` `user` `password` `database` |
+| `clickhouse` | Analytical database | `url` `host` `port` `user` `password` `database` |
+| `redis` | Cache, queue | `url` `host` `port` `password` |
+| `valkey` | Cache, queue | `url` `host` `port` `password` |
+| `rabbitmq` | Message broker | `url` `host` `port` `user` `password` |
+| `nats` | Messaging, JetStream | `url` `host` `port` |
+| `minio` | S3-compatible object storage | `url` `host` `port` `user` `password` |
+| `meilisearch` | Search | `url` `host` `port` |
+
+A part the driver does not have — a database on a cache — is omitted rather than
+written empty.
+
+## What a declaration gets you
+
+```yaml
+services:
+  postgres: 17
+```
+
+The image, a durable volume, a health check, a credential generated on the
+target, and the connection details your application reads.
+
+- **The service outlives every release.** Its own Compose project; no deploy and
+  no rollback stops it or removes its volume.
+- **The credential is generated on the target, once.** Not in your project, the
+  generated runtime, or the digest. Never rotated by a re-apply.
+- **The version binds into the release digest**, so a database upgrade under an
+  untouched application cannot pass unnoticed.
+
+## Settings are driver-validated
+
+```yaml
+services:
+  postgres:
+    version: 17
+    settings:
+      max_connections: 200
+```
+
+A setting is applied through the mechanism its driver actually reads. One the
+driver has no way to apply is refused with `service_settings_unsupported`, rather
+than silently ignored.
+
+## Known limitations
+
+:::caution[`mongodb` runs a standalone server, not a replica set]
+Change streams and multi-document transactions need a replica set. An application
+using either will connect, authenticate, and *then* fail — Rocket.Chat reports
+`The $changeStream stage is only supported on replica sets`.
+
+Onebox does not configure a replica set, so an application that needs one wants a
+`daemon` workload it owns. This is a limitation of the driver rather than of the
+contract, and it is stated here because the failure appears in the application's
+logs rather than in anything Onebox says.
+:::
+
+:::danger[No driver is backed up]
+Onebox does not take backups. `ob doctor` reports every service holding durable
+data as unbacked. It also refuses a major version change a driver cannot perform
+in place, rather than replacing the container and leaving the data intact and
+unreachable.
+
+The proposed protection layer would change this — see
+[Shipped vs proposed](/status/capabilities).
+:::
+
+## Anything else
+
+Run it as a `daemon` workload and you own it: the image, the credential, the
+volumes, the backup. See [Add a database](/guides/add-a-database) for the
+comparison.

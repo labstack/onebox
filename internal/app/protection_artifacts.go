@@ -37,7 +37,7 @@ type ProtectionArtifactDrift struct {
 
 func (r *Resolved) GenerateProtectionArtifacts(serviceName string) (ProtectionArtifactSet, error) {
 	if r == nil || r.Spec == nil {
-		return ProtectionArtifactSet{}, errors.New("r project is nil")
+		return ProtectionArtifactSet{}, errors.New("resolved project is nil")
 	}
 	service, ok := r.Services[serviceName]
 	if !ok {

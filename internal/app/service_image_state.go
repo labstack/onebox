@@ -39,7 +39,7 @@ type ServiceImageSelection struct {
 
 func (r *Resolved) WithServiceRuntimeStates(states map[string]ServiceRuntimeState) (*Resolved, error) {
 	if r == nil {
-		return nil, errors.New("r project is nil")
+		return nil, errors.New("resolved project is nil")
 	}
 	copy := *r
 	copy.serviceRuntime = make(map[string]ServiceRuntimeState, len(states))

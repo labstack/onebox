@@ -265,13 +265,13 @@ func TestPublishedSchemaMatchesTheCheckedInCopy(t *testing.T) {
 
 // The committed pages must be what this binary would write.
 //
-// `--check` enforces the same thing, but only when someone runs the recipe. The
-// repository has no CI, and `just check` is `test vet` — so without this, the
-// whole suite can be green while every published field description is stale.
-// This puts the guarantee in `go test ./...`, where it is unavoidable.
+// `--check` enforces the same thing, but only when someone invokes it. This puts
+// the guarantee in `go test ./...`, where nobody has to remember anything.
 //
-// The CLI page needs a built `ob` and is covered by `--check` plus
-// TestEveryCommandIsDocumented in cmd/ob; everything else is pure.
+// It covers the field pages and errors.mdx — the pure ones. It does NOT cover
+// cli.mdx, which needs a built binary, the published schema under site/public,
+// or the orphan sweep; those remain `--check`'s alone, and cli.mdx is separately
+// covered by TestEveryCommandIsDocumented in cmd/ob.
 func TestCommittedPagesMatchTheGenerator(t *testing.T) {
 	schema, err := loadSchema()
 	if err != nil {

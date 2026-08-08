@@ -7,16 +7,19 @@
  * columns simply cannot be read. Wrapping moves the overflow onto an element
  * that is allowed to scroll, so the page stays put and the table does not.
  */
+// The invariant this plugin exists for is checked after the build, by
+// scripts/check-tables.mjs, not here.
+//
+// A self-count was tried and was worthless: every path that saw a table also
+// wrapped it, so the two counters could never disagree. And the failure actually
+// worth catching — Starlight taking over the markdown config so this never runs
+// — leaves both counters at zero. A plugin cannot detect that it was not
+// invoked; only something reading the output can.
 export function rehypeTableWrap() {
-  return (tree, file) => {
-    let tables = 0;
-    let wrapped = 0;
-
+  return (tree) => {
     visit(tree, (node, index, parent) => {
       if (!parent || node.tagName !== "table" || index === null) return;
-      tables += 1;
       if (parent.type === "element" && parent.properties?.className?.includes?.("table-wrap")) {
-        wrapped += 1;
         return;
       }
       parent.children[index] = {
@@ -32,18 +35,7 @@ export function rehypeTableWrap() {
         },
         children: [node],
       };
-      wrapped += 1;
     });
-
-    // Silence is the failure mode worth catching: if Starlight starts wrapping
-    // tables itself, or an upgrade takes over the markdown config, this becomes
-    // a no-op and the wide reference tables are clipped again with nothing said.
-    if (tables !== wrapped) {
-      const where = file?.path ?? "a page";
-      throw new Error(
-        `rehype-table-wrap: ${tables - wrapped} table(s) in ${where} were not wrapped; wide reference tables would be clipped`,
-      );
-    }
   };
 }
 

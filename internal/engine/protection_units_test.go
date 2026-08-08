@@ -210,11 +210,11 @@ func TestProtectionUnitInspectionPreservesForeignAndRemovalIsScoped(t *testing.T
 	}
 }
 
-func TestGenerateHostHousekeepingAssuranceAndReplicationUnits(t *testing.T) {
+func TestGenerateHostHousekeepingAndAssuranceUnits(t *testing.T) {
 	input := protectionUnitInput()
 	input.Service = "host"
 	input.Schedules = nil
-	for _, kind := range []string{"hygiene-run", "assurance-check", "replication-check"} {
+	for _, kind := range []string{"hygiene-run", "assurance-check"} {
 		input.Schedules = append(input.Schedules, ProtectionUnitSchedule{
 			Kind: kind, Active: true, Schedule: app.Schedule{Cron: "0 3 * * *", Timezone: "UTC"},
 			RunnerPath:   input.Names.ProtectionRunnerPath("sha256:" + strings.Repeat("a", 64)),
@@ -222,7 +222,7 @@ func TestGenerateHostHousekeepingAssuranceAndReplicationUnits(t *testing.T) {
 		})
 	}
 	set, err := GenerateProtectionUnits(input)
-	if err != nil || len(set.Units) != 6 {
-		t.Fatalf("host/replication units = %d, %v", len(set.Units), err)
+	if err != nil || len(set.Units) != 4 {
+		t.Fatalf("host units = %d, %v", len(set.Units), err)
 	}
 }

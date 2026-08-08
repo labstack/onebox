@@ -354,7 +354,14 @@ func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remote
 	}
 	var errb strings.Builder
 	sess.setStderr(&errb)
-	if err := sess.Start("mkdir -p " + shq(remoteDir) + " && tar -xzf - -C " + shq(remoteDir)); err != nil {
+	script, err := uploadScript(remoteDir, func(staging string) string {
+		return "tar -xzf - -C " + staging
+	})
+	if err != nil {
+		_ = pw.Close()
+		return uploadError(ctx, err)
+	}
+	if err := sess.Start(script); err != nil {
 		_ = pw.Close()
 		return uploadError(ctx, err)
 	}
@@ -393,10 +400,19 @@ func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remote
 		}
 		return nil
 	})
-	closeErr := closeUploadWriters(tw, gz, pw)
 	if walkErr != nil {
+		// Do NOT finalise the archive. tw.Close writes a valid tar EOF marker and
+		// gz.Close a valid gzip trailer, so the remote tar would see a well-formed
+		// archive of whatever arrived, exit 0, and the script would move that
+		// partial payload into place as a complete release. Closing the pipe alone
+		// truncates the stream, which is what makes the remote fail.
+		_ = pw.Close()
+		if waitErr := sess.Wait(); waitErr != nil {
+			return uploadError(ctx, fmt.Errorf("%w (remote: %s)", walkErr, strings.TrimSpace(errb.String())))
+		}
 		return uploadError(ctx, walkErr)
 	}
+	closeErr := closeUploadWriters(tw, gz, pw)
 	if closeErr != nil {
 		return uploadError(ctx, closeErr)
 	}

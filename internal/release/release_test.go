@@ -52,16 +52,73 @@ func TestPruneReturnsRemoteRemovalFailure(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R3\n"}, true
+			return transport.Result{Stdout: "releases/20260103-000000-ccc\n"}, true
 		case strings.Contains(cmd, "ls -1"):
-			return transport.Result{Stdout: "R1\nR2\nR3\n"}, true
+			return transport.Result{Stdout: "20260101-000000-aaa\n20260102-000000-bbb\n20260103-000000-ccc\n"}, true
 		case strings.Contains(cmd, "rm -rf"):
 			return transport.Result{ExitCode: 13, Stderr: "permission denied"}, true
 		}
 		return transport.Result{}, false
 	}}
 	removed, err := Prune(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath}, 2)
-	if len(removed) != 0 || err == nil || !strings.Contains(err.Error(), "prune release R1 failed (exit 13): permission denied") {
+	if len(removed) != 0 || err == nil || !strings.Contains(err.Error(), "prune release 20260101-000000-aaa failed (exit 13): permission denied") {
 		t.Fatalf("removed=%v err=%v", removed, err)
+	}
+}
+
+// Everything under the releases directory is handed to rollback by Previous and
+// counted against retention by PruneCandidates, so anything that is not a
+// release id has to be excluded rather than assumed absent. An upload staging
+// directory landing there once made rollback activate the debris.
+func TestListIgnoresEntriesThatAreNotReleaseIds(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/20260102-000000-bbb\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: strings.Join([]string{
+				"20260101-000000-aaa",
+				"20260102-000000-bbb.partial",
+				"20260102-000000-bbb",
+				".uploads",
+				"lost+found",
+			}, "\n")}, true
+		}
+		return transport.Result{}, false
+	}}
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+
+	prev, err := Previous(context.Background(), f, names)
+	if err != nil {
+		t.Fatalf("previous: %v", err)
+	}
+	if prev != "20260101-000000-aaa" {
+		t.Errorf("rollback would target %q, not the previous release", prev)
+	}
+
+	candidates, err := PruneCandidates(context.Background(), f, names, 2)
+	if err != nil {
+		t.Fatalf("prune candidates: %v", err)
+	}
+	for _, id := range candidates {
+		if !IsID(id) {
+			t.Errorf("prune would remove %q, which is not a release", id)
+		}
+	}
+	if len(candidates) != 0 {
+		t.Errorf("two real releases with retain=2 should leave nothing to prune, got %v", candidates)
+	}
+}
+
+func TestIsIDAcceptsWhatNewIDProduces(t *testing.T) {
+	for _, id := range []string{NewID(time.Now(), "abc1234"), NewID(time.Now(), ""), NewID(time.Now(), "abc1234") + "-v2"} {
+		if !IsID(id) {
+			t.Errorf("IsID rejected an id NewID produced: %q", id)
+		}
+	}
+	for _, notID := range []string{"", ".uploads", "20260101-000000-aaa.partial", "lost+found", "current"} {
+		if IsID(notID) {
+			t.Errorf("IsID accepted %q", notID)
+		}
 	}
 }

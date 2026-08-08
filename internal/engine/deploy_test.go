@@ -98,7 +98,7 @@ func happyFake() *transport.Fake {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: ""}, true
 		case strings.Contains(cmd, "ls -1"):
-			return transport.Result{Stdout: "R1\n"}, true
+			return transport.Result{Stdout: "20260101-000000-aaa111\n"}, true
 		case strings.Contains(cmd, "ob.snapshot.yml"):
 			return transport.Result{Stdout: engineProject}, true
 		}
@@ -110,7 +110,7 @@ func happyFake() *transport.Fake {
 func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -160,7 +160,7 @@ func TestDeployStopsWhenRequiredJournalEvidenceCannotBeWritten(t *testing.T) {
 		{name: "transfer result", record: `"phase":"transfer","event":"result","status":"ok"`, forbidden: "OB_RESULT_FILE", want: "journal transfer result"},
 		{name: "release intent", record: `"phase":"release","role":"web","event":"intent"`, forbidden: "--scale web=", want: "journal release web intent"},
 		{name: "release result", record: `"phase":"release","role":"web","event":"result","status":"ok"`, forbidden: "--force-recreate --timeout 30 worker", want: "journal release web result"},
-		{name: "verify result", record: `"phase":"verify","event":"result","status":"ok"`, forbidden: "ln -sfn 'releases/R1'", want: "journal verify result"},
+		{name: "verify result", record: `"phase":"verify","event":"result","status":"ok"`, forbidden: "ln -sfn 'releases/20260101-000000-aaa111'", want: "journal verify result"},
 		{name: "deploy finish", record: `"phase":"deploy","event":"finish","status":"ok"`, want: "journal deploy finish"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestDeployStopsWhenRequiredJournalEvidenceCannotBeWritten(t *testing.T) {
 				return base(cmd)
 			}
 			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-			err := e.Deploy(context.Background(), "R1", t.TempDir())
+			err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir())
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("deploy error = %v, want %q", err, tt.want)
 			}
@@ -181,7 +181,7 @@ func TestDeployStopsWhenRequiredJournalEvidenceCannotBeWritten(t *testing.T) {
 			if tt.forbidden != "" && strings.Contains(seq, tt.forbidden) {
 				t.Fatalf("deploy continued after %s journal failure:\n%s", tt.name, seq)
 			}
-			if tt.name == "deploy finish" && !strings.Contains(seq, "ln -sfn 'releases/R1'") {
+			if tt.name == "deploy finish" && !strings.Contains(seq, "ln -sfn 'releases/20260101-000000-aaa111'") {
 				t.Fatalf("finish failure must report the already-completed activation:\n%s", seq)
 			}
 		})
@@ -197,7 +197,7 @@ func TestDeployEmitsVerificationAndActivationProgress(t *testing.T) {
 			transitions = append(transitions, phase+":"+status+":"+message)
 		},
 	})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	want := []string{
@@ -216,7 +216,7 @@ func TestDeployEmitsVerificationAndActivationProgress(t *testing.T) {
 func TestDeployPhaseOrder(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v\ncommands:\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -226,7 +226,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 		"--scale web=2 web",                             // release: web rolls first (order)
 		"--force-recreate --timeout 30 worker",          // then worker recreates
 		"curl -fsS -m 5 http://172.20.0.5:7500/healthz", // verify
-		"ln -sfn 'releases/R1'",                         // finalize: activate
+		"ln -sfn 'releases/20260101-000000-aaa111'",     // finalize: activate
 	}
 	last := -1
 	for _, p := range phases {
@@ -239,7 +239,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 		}
 		last = i
 	}
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/sample/releases/R1") {
+	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/sample/releases/20260101-000000-aaa111") {
 		t.Fatalf("transfer missing: %v", f.Uploads)
 	}
 }
@@ -254,7 +254,7 @@ func TestVerifyFailureBlocksActivation(t *testing.T) {
 		return base(cmd)
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err == nil {
+	if err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir()); err == nil {
 		t.Fatal("verify failure must fail the deploy")
 	}
 	if strings.Contains(strings.Join(f.Commands, "\n"), "ln -sfn") {
@@ -267,10 +267,10 @@ func TestRollbackReplaysPreviousRelease(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "readlink") {
-			return transport.Result{Stdout: "releases/R2\n"}, true
+			return transport.Result{Stdout: "releases/20260102-000000-bbb222\n"}, true
 		}
 		if strings.Contains(cmd, "ls -1") {
-			return transport.Result{Stdout: "R1\nR2\n"}, true
+			return transport.Result{Stdout: "20260101-000000-aaa111\n20260102-000000-bbb222\n"}, true
 		}
 		return base(cmd)
 	}
@@ -279,10 +279,10 @@ func TestRollbackReplaysPreviousRelease(t *testing.T) {
 		t.Fatalf("rollback: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "releases/R1/compose.yaml") {
+	if !strings.Contains(seq, "releases/20260101-000000-aaa111/compose.yaml") {
 		t.Fatalf("rollback must target previous release dir:\n%s", seq)
 	}
-	if !strings.Contains(seq, "ln -sfn 'releases/R1'") {
+	if !strings.Contains(seq, "ln -sfn 'releases/20260101-000000-aaa111'") {
 		t.Fatalf("rollback must re-activate previous:\n%s", seq)
 	}
 }

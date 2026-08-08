@@ -34,6 +34,16 @@ func PathsFor(n app.Names) Paths {
 
 var safeSHA = regexp.MustCompile(`^[0-9a-f]{4,40}$`)
 
+// releaseID matches what NewID produces: a UTC timestamp, then a git SHA or the
+// literal "nogit", optionally followed by a caller's own suffix. No dot — that
+// is what keeps a `<id>.partial` staging directory from reading as a release.
+var releaseID = regexp.MustCompile(`^\d{8}-\d{6}-[0-9a-zA-Z_-]+$`)
+
+// IsID reports whether a directory name is a release id. Anything under the
+// releases directory that is not one is something else's, and must not be
+// rolled back to or counted against retention.
+func IsID(name string) bool { return releaseID.MatchString(name) }
+
 // NewID builds a lexically time-ordered release id. An unsafe SHA component
 // is replaced, never interpolated (command-injection rule).
 func NewID(now time.Time, gitSHA string) string {
@@ -90,9 +100,16 @@ func list(ctx context.Context, t transport.Transport, n app.Names) ([]string, er
 	}
 	var ids []string
 	for _, l := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			ids = append(ids, l)
+		l = strings.TrimSpace(l)
+		// Every entry here is treated as a release id — it is handed to
+		// `ob rollback` by Previous and counted against retention by
+		// PruneCandidates — so anything that is not one has to be excluded
+		// rather than assumed absent. Uploads stage outside this directory for
+		// the same reason; this is the guard that does not depend on that.
+		if l == "" || !IsID(l) {
+			continue
 		}
+		ids = append(ids, l)
 	}
 	sort.Strings(ids) // ids are lexically time-ordered by construction
 	return ids, nil

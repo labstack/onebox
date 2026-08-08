@@ -36,7 +36,7 @@
 
 ## 5. Repository, manifest, and backup core
 
-- [ ] 5.1 Implement the closed S3-compatible target adapter for endpoint, bucket, prefix, region, TLS policy, per-kind encryption mode/evidence, failure-domain identity, and trusted mode-0600 credential file, plus a test-only local repository that explicitly reports non-off-host protection; add validation, self-target, alias, unproven-encryption, and target-probe tests.
+- [x] 5.1 Implement the closed S3-compatible target adapter for endpoint, bucket, prefix, region, TLS policy, per-kind encryption mode/evidence, failure-domain identity, and trusted mode-0600 credential file, plus a test-only local repository that explicitly reports non-off-host protection; add validation, self-target, alias, unproven-encryption, and target-probe tests.
 - [ ] 5.2 Define repository interfaces for native-direct engines, encrypted Restic artifact storage, and independently operated MinIO replication without forcing generation/list/download semantics onto replication; add contract tests for identity, health, retry, per-kind encryption, native retention ownership, replica observation, and read-only inspection using the test driver before production-driver gates.
 - [ ] 5.3 Package and verify the pinned Restic artifact helper, enforce its repository/runner compatibility, and prove only artifact-producing driver contracts can select it; add incompatible-helper, digest-mismatch, and accidental-database-engine selection tests.
 - [ ] 5.4 Implement streaming artifact ingestion without a plaintext intermediate and restricted operation-scoped staging for native APIs that require files; test successful cleanup, residual reporting, capacity bounds, cancellation, target loss, helper crash, and retry/resume.

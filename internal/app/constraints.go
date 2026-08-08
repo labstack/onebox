@@ -110,6 +110,9 @@ var (
 	gObjectPrefix = grammar{"object prefix", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$`),
 		"a relative object prefix with no empty leading component or shell metacharacter"}
 
+	gS3Region = grammar{"S3 region", regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`),
+		"a lower-case S3-compatible region of letters, digits and hyphens"}
+
 	gProtectionOwner = grammar{"protection owner", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$`),
 		"a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens"}
 )

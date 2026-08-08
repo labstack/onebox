@@ -85,7 +85,7 @@ func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
 	}
 	out := string(body)
 
-	if !strings.Contains(out, "replicas: 3 # override") {
+	if !strings.Contains(out, "replicas: 3 # environment-override") {
 		t.Errorf("the override should be marked\n%s", out)
 	}
 	if !strings.Contains(out, "# default") || !strings.Contains(out, "# shorthand") {
@@ -95,6 +95,117 @@ func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
 		if strings.HasPrefix(strings.TrimSpace(line), "app: ledger") && strings.Contains(line, "#") {
 			t.Errorf("an explicit value should carry no annotation: %q", line)
 		}
+	}
+}
+
+func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
+	project := strings.Replace(validProtectionProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
+    overrides:
+      services:
+        postgres:
+          protection:
+            retention: {minimum_generations: 10}
+`, 1)
+	spec, err := LoadBytes([]byte(project), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	origins := map[string]Origin{}
+	for _, row := range resolved.OriginTable() {
+		origins[row[0]] = Origin(row[1])
+	}
+	for path, want := range map[string]Origin{
+		"services.postgres.protection.recovery_kind":                 OriginAuthored,
+		"services.postgres.protection.schedule.cron":                 OriginDefault,
+		"services.postgres.protection.retention.minimum_generations": OriginEnvironmentOverride,
+	} {
+		if got := origins[path]; got != want {
+			t.Errorf("%s origin = %q, want %q", path, got, want)
+		}
+	}
+
+	fact := func(value string, origin Origin) CanonicalFact {
+		return CanonicalFact{Value: value, Origin: origin}
+	}
+	facts := CanonicalFacts{
+		Hygiene: CanonicalHygieneFacts{
+			LoggingDriver: fact("local", OriginDefault), LoggingMaxSize: fact("20MB", OriginDefault), LoggingMaxFiles: fact("5", OriginDefault),
+		},
+		Services: map[string]CanonicalServiceFacts{
+			"postgres": {
+				ProtectionState:        fact("enabled", OriginDerived),
+				Tier:                   fact("Managed", OriginDerived),
+				RecoveryKind:           fact("pitr", OriginDerived),
+				ServiceImageDigest:     fact("sha256:"+strings.Repeat("a", 64), OriginObserved),
+				EncryptionMode:         fact("client-side", OriginDerived),
+				ObservedRPO:            fact("4m", OriginObserved),
+				ObservedRecoveryWindow: fact("7d", OriginObserved),
+				ExpectedInterruption:   fact("none", OriginDerived),
+				DrillCapacityState:     fact("admitted", OriginObserved),
+				Prerequisites:          []CanonicalPrerequisiteFact{{Code: "archive-mode", State: "met", Origin: OriginObserved}},
+			},
+		},
+	}
+	body, err := resolved.WithCanonicalFacts(facts).Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(body)
+	for _, golden := range []string{
+		"recovery_kind: pitr",
+		"minimum_generations: 10 # environment-override",
+		"logging_max_size:",
+		"value: 20MB",
+		"origin: default",
+		"value: Managed",
+		"origin: derived",
+		"service_image_digest:",
+		"origin: observed",
+		"observed_rpo:",
+		"observed_recovery_window:",
+		"expected_interruption:",
+		"drill_capacity_state:",
+		"code: archive-mode",
+	} {
+		if !strings.Contains(out, golden) {
+			t.Errorf("canonical output lacks %q\n%s", golden, out)
+		}
+	}
+}
+
+func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testing.T) {
+	spec, err := LoadBytes([]byte(validProtectionProject), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canary := "https://user:super-secret@example.invalid/image"
+	fact := func(value string, origin Origin) CanonicalFact { return CanonicalFact{Value: value, Origin: origin} }
+	_, err = resolved.WithCanonicalFacts(CanonicalFacts{
+		Hygiene: CanonicalHygieneFacts{
+			LoggingDriver: fact("local", OriginDefault), LoggingMaxSize: fact("20MB", OriginDefault), LoggingMaxFiles: fact("5", OriginDefault),
+		},
+		Services: map[string]CanonicalServiceFacts{
+			"postgres": {
+				ProtectionState: fact("enabled", OriginDerived), Tier: fact("Managed", OriginDerived), RecoveryKind: fact("pitr", OriginDerived),
+				ServiceImageDigest: fact(canary, OriginObserved), EncryptionMode: fact("client-side", OriginDerived),
+				ObservedRPO: fact("4m", OriginObserved), ObservedRecoveryWindow: fact("7d", OriginObserved),
+				ExpectedInterruption: fact("none", OriginDerived), DrillCapacityState: fact("available", OriginObserved),
+			},
+		},
+	}).Canonical()
+	if err == nil {
+		t.Fatal("unsafe observed image identity was accepted")
+	}
+	if strings.Contains(err.Error(), canary) || strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("unsafe value was reflected in the error: %v", err)
 	}
 }
 

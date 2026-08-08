@@ -150,11 +150,80 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 
 	for name := range p.Services {
 		s := p.Services[name]
+		path := "services." + name
 		if s.Persistence != nil && s.Persistence.Mode == "" {
 			s.Persistence.Mode = "durable"
-			mark("services." + name + ".persistence.mode")
+			mark(path + ".persistence.mode")
+		}
+		if s.Protection != nil {
+			if s.Protection.Schedule.Cron == "" {
+				s.Protection.Schedule.Cron = "0 2 * * *"
+				mark(path + ".protection.schedule.cron")
+			}
+			if s.Protection.Schedule.Timezone == "" {
+				s.Protection.Schedule.Timezone = "UTC"
+				mark(path + ".protection.schedule.timezone")
+			}
+			if s.Protection.Retention.MinimumGenerations == 0 && !stated(raw, path+".protection.retention.minimum_generations") {
+				s.Protection.Retention.MinimumGenerations = 7
+				mark(path + ".protection.retention.minimum_generations")
+			}
+			if s.Protection.Retention.RecoveryWindow == "" {
+				s.Protection.Retention.RecoveryWindow = "7d"
+				mark(path + ".protection.retention.recovery_window")
+			}
+			if s.Protection.RestoreDrill.Schedule.Cron == "" {
+				s.Protection.RestoreDrill.Schedule.Cron = "0 3 * * 0,3"
+				mark(path + ".protection.restore_drill.schedule.cron")
+			}
+			if s.Protection.RestoreDrill.Schedule.Timezone == "" {
+				s.Protection.RestoreDrill.Schedule.Timezone = "UTC"
+				mark(path + ".protection.restore_drill.schedule.timezone")
+			}
+			if s.Protection.RestoreDrill.ProofMaxAge == "" {
+				s.Protection.RestoreDrill.ProofMaxAge = "7d"
+				mark(path + ".protection.restore_drill.proof_max_age")
+			}
 		}
 		p.Services[name] = s
+	}
+
+	for name := range p.BackupTargets {
+		target := p.BackupTargets[name]
+		path := "backup_targets." + name
+		if target.TLS == "" {
+			target.TLS = "required"
+			mark(path + ".tls")
+		}
+		if target.Credentials.Provider == "" {
+			target.Credentials.Provider = "sops"
+			mark(path + ".credentials.provider")
+		}
+		p.BackupTargets[name] = target
+	}
+
+	for name := range p.ExternalServices {
+		external := p.ExternalServices[name]
+		path := "external_services." + name
+		if external.Connection.Source.Provider == "" {
+			external.Connection.Source.Provider = "sops"
+			mark(path + ".connection.source.provider")
+		}
+		if external.Probe != nil {
+			if external.Probe.Kind == "" {
+				external.Probe.Kind = "driver-health"
+				mark(path + ".probe.kind")
+			}
+			if external.Probe.Timeout == "" {
+				external.Probe.Timeout = "5s"
+				mark(path + ".probe.timeout")
+			}
+			if external.Probe.MaxAge == "" {
+				external.Probe.MaxAge = "5m"
+				mark(path + ".probe.max_age")
+			}
+		}
+		p.ExternalServices[name] = external
 	}
 
 	for name := range p.Notifications {

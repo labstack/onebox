@@ -452,10 +452,20 @@ func crossFieldRules(p *Spec) error {
 
 		for i, n := range w.Needs {
 			dep, isWorkload := p.Workloads[n.Name]
+			_, isExternal := p.ExternalServices[n.Name]
 			if !isWorkload {
-				if _, isService := p.Services[n.Name]; !isService {
+				if _, isService := p.Services[n.Name]; !isService && !isExternal {
 					return errf("unknown_prerequisite", path+".needs", "",
-						"workload %q needs %q, which is neither a workload nor a service", name, n.Name)
+						"workload %q needs %q, which is neither a workload, a run service, nor an external service", name, n.Name)
+				}
+			}
+			if isExternal {
+				external := p.ExternalServices[n.Name]
+				for variable, part := range n.Env {
+					if external.Connection.Entries[part] == "" {
+						return errf("project_invalid", path+".needs", "ob validate",
+							"workload %q maps %s from external service %q, but its trusted connection source declares no %q entry", name, variable, n.Name, part)
+					}
 				}
 			}
 
@@ -468,7 +478,9 @@ func crossFieldRules(p *Spec) error {
 			// cannot report health — nats carries no shell to run one — is
 			// refused here rather than hanging on the target.
 			hasHealth := isWorkload && dep.Health != nil
-			if !isWorkload {
+			if isExternal {
+				hasHealth = p.ExternalServices[n.Name].Probe != nil
+			} else if !isWorkload {
 				hasHealth = p.serviceHasHealth(n.Name)
 			}
 			// A Compose-referenced dependency may declare a health check in the
@@ -513,6 +525,10 @@ func crossFieldRules(p *Spec) error {
 			return errf("identifier_collision", "services."+name, "",
 				"%q names both a workload and a service; their derived volume names would collide", name)
 		}
+		if external, clash := p.ExternalServices[name]; clash {
+			return errf("identifier_collision", "external_services."+name, "",
+				"%q is declared as both a Onebox-run service and an external service owned by %q", name, external.ProtectionOwner)
+		}
 		svc := p.Services[name]
 		key, d, known := driverOf(name, svc)
 		if !known {
@@ -521,6 +537,9 @@ func crossFieldRules(p *Spec) error {
 					"To run something else, declare it as a daemon workload — you own the image and the settings then.",
 				key, strings.Join(DriverNames(), ", "))
 		}
+		if err := validateProtectionSelection(p, name, key, svc); err != nil {
+			return err
+		}
 		// Materialise the durable volume in the project rather than only in the
 		// generated runtime, so the canonical form, the preflight collision
 		// check and the renderer all name the same volume.
@@ -528,6 +547,12 @@ func crossFieldRules(p *Spec) error {
 			svc.Volumes = []string{"data"}
 			p.Services[name] = svc
 			p.derivedPaths["services."+name+".volumes"] = OriginDefault
+		}
+	}
+	for _, name := range sortedKeys(p.ExternalServices) {
+		if _, clash := p.Workloads[name]; clash {
+			return errf("identifier_collision", "external_services."+name, "",
+				"%q names both a workload and an external service; dependency ownership would be ambiguous", name)
 		}
 	}
 

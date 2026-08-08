@@ -107,7 +107,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	report.Checks = append(report.Checks, collisionChecks(p.All(r.Env), owned)...)
+	report.Checks = append(report.Checks, collisionChecks(p.Name, p.All(r.Env), owned)...)
 
 	// 4. The ingress network, which the proxy owns and this project only joins.
 	if p.Proxy.Kind != "none" && p.routesAnywhere() {
@@ -172,7 +172,7 @@ func ownedNames(ctx context.Context, run Runner, app string) (map[string]string,
 	return owned, nil
 }
 
-func collisionChecks(derived []string, owned map[string]string) []Check {
+func collisionChecks(application string, derived []string, owned map[string]string) []Check {
 	var conflicts []string
 	for _, name := range derived {
 		owner, exists := owned[name]
@@ -181,6 +181,8 @@ func collisionChecks(derived []string, owned map[string]string) []Check {
 		}
 		if owner == "" {
 			conflicts = append(conflicts, fmt.Sprintf("%s (held by a resource Onebox does not own)", name))
+		} else if owner != application {
+			conflicts = append(conflicts, fmt.Sprintf("%s (owned by application %s)", name, owner))
 		}
 		// A name held by this application is a previous release, not a conflict.
 	}

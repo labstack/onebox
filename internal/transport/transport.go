@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"strings"
 
 	"github.com/labstack/onebox/internal/shellquote"
@@ -97,7 +98,13 @@ func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error 
 // reported every failed copy as a successful upload — a full disk, an unwritable
 // parent, and a killed shell all returned nil.
 func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
-	res, err := l.Run(ctx, "mkdir -p "+shq(remoteDir)+" && cp -a "+shq(localDir)+"/. "+shq(remoteDir)+"/")
+	script, err := uploadScript(remoteDir, func(staging string) string {
+		return "cp -a " + shq(localDir) + "/. " + staging + "/"
+	})
+	if err != nil {
+		return err
+	}
+	res, err := l.Run(ctx, script)
 	if err != nil {
 		return err
 	}
@@ -125,4 +132,64 @@ func (l *Local) Close() error    { return nil }
 // shq single-quotes a shell argument.
 func shq(s string) string {
 	return shellquote.Quote(s)
+}
+
+// stagingRoot is where a transfer lands before it is visible under its real
+// name. It is a sibling of the application directory, deliberately NOT beside
+// the destination.
+//
+// A first attempt at this put staging at `<remoteDir>.partial`, which for a
+// release meant inside `releases/`. That directory is enumerated with `ls -1`
+// and every entry is taken to be a release id, so the debris became a release:
+// `Previous()` handed it to `ob rollback`, and retention counted it and evicted
+// a real release to keep it. Debris belongs outside any namespace something
+// else enumerates.
+const stagingRoot = ".uploads"
+
+func stagingPath(remoteDir string) string {
+	return path.Join(path.Dir(remoteDir), stagingRoot, path.Base(remoteDir))
+}
+
+// uploadScript wraps a transfer so an interrupted one cannot be mistaken for a
+// finished one.
+//
+// Writing straight into the destination leaves a directory that exists and is
+// incomplete, which nothing downstream can distinguish from a complete one — and
+// `ob resume` decides whether a transfer finished by testing that the directory
+// exists. Staging elsewhere and moving into place means the destination appears
+// whole or not at all.
+//
+// The destination is never deleted. An earlier version ran `rm -rf <target>`
+// before the move so it could replace an existing directory, which opened a
+// window where the previous release was gone and the new one not yet installed —
+// a worse state than either. Every caller uploads to a path that is unique per
+// operation, so a destination that already exists means something is wrong;
+// `mv` fails and says so rather than destroying what is there.
+func uploadScript(remoteDir string, transfer func(quotedStaging string) string) (string, error) {
+	// This helper exists to be safe, so it validates rather than trusting its
+	// caller two packages away. Cleaning first removes the trailing slash that
+	// would otherwise make staging a child of the target.
+	remoteDir = path.Clean(remoteDir)
+	if !path.IsAbs(remoteDir) {
+		return "", fmt.Errorf("upload destination %q is not absolute", remoteDir)
+	}
+	if path.Dir(remoteDir) == remoteDir {
+		return "", fmt.Errorf("upload destination %q is a filesystem root", remoteDir)
+	}
+
+	staging := shq(stagingPath(remoteDir))
+	target := shq(remoteDir)
+	// `mv a b` where b is an existing directory moves a *inside* b rather than
+	// failing, which would bury the payload one level down and report success.
+	// `mv -T` says what is meant but is GNU-only, so the guard is explicit.
+	guard := "if [ -e " + target + " ]; then echo 'upload destination already exists: " +
+		"refusing to replace it' >&2; exit 1; fi"
+	return guard +
+		" && mkdir -p " + shq(path.Dir(stagingPath(remoteDir))) +
+		" && rm -rf " + staging +
+		" && mkdir -p " + staging +
+		" && " + transfer(staging) +
+		" && mkdir -p " + shq(path.Dir(remoteDir)) +
+		" && if [ -e " + target + " ]; then echo 'upload destination appeared during transfer' >&2; exit 1; fi" +
+		" && mv " + staging + " " + target, nil
 }

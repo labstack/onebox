@@ -4,21 +4,35 @@
  * "point an agent at the `ob` binary the way you would point it at `gh`" — and
  * this is the one palette that says so before a word is read.
  *
- * Green is used sparingly and never decoratively: links, the active page, and a
- * defaulted value in a field table. It deliberately does NOT tint the caution
- * asides, which keep Starlight's own semantic colours, because a page that is
- * green everywhere cannot use green to mean anything.
+ * Where the accent lands, in full: links, the active sidebar and table-of-
+ * contents entries, the site wordmark, the header's GitHub icon, the landing
+ * page's primary action, and the focus ring on a scrollable table. That last
+ * group is Starlight's own doing rather than a choice made here — worth knowing
+ * before anyone claims the accent is reserved for meaning, which an earlier
+ * version of this comment did.
+ *
+ * What it deliberately does NOT tint is the asides. Those keep Starlight's
+ * semantic amber, blue and red, because the caution marking a block the loader
+ * accepts but cannot execute has to read as a warning, not as more site chrome.
+ *
+ * One hazard that follows: Starlight's `:::tip` green is close to this accent,
+ * so a tip aside would put "green means interactive" in direct conflict. There
+ * are none in the content today.
  *
  * Starlight's tokens are overridden rather than fought with, so component
  * updates keep working.
  */
 
 :root {
-  /* Mono is the body face, not just the code face. Prose in mono runs wider and
-     reads slower than a proportional face, so the measure is held tighter and
-     the leading opened up below to pay some of that back. */
+  /* Mono is the body face, not just the code face. One declaration, referenced
+     twice, so the two cannot drift into being different faces by accident. */
   --sl-font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
-  --sl-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+  --sl-font-mono: var(--sl-font);
+
+  /* The neutrals carry a slight green bias so the accent sits in the same
+     family. Only the saturated accent is load-bearing; a "corrected" true grey
+     would undo a deliberate choice. Starlight's light palette inverts these
+     names — `white` holds a near-black — which is its convention, not ours. */
 
   /* Dark (Starlight's default state). */
   --sl-color-accent-low: #17300f;
@@ -49,28 +63,35 @@
   --sl-color-black: #f6f8f4;
 }
 
-/* Monospace prose is wider per character and tires the eye faster, so the two
-   things that buy it back are more leading and a shorter line. Both are cheap
-   here because the reference is mostly tables, which are unaffected. */
-.sl-markdown-content {
-  line-height: 1.72;
-}
-
+/* Monospace runs wider per character and tires the eye faster, so prose gets
+   more leading than Starlight's 1.75 default — genuinely more; an earlier
+   version of this file set 1.72 while claiming to open it.
+   Scoped to prose rather than set on the column, because line-height inherits:
+   on the container it stretched every table cell too, and the reference is
+   mostly tables. */
 .sl-markdown-content p,
 .sl-markdown-content li {
-  max-width: 72ch;
+  line-height: 1.85;
 }
 
-/* Headings and field names read as machine identifiers; prose reads as prose.
-   The mono/serif contrast is what makes a dense field table scannable.
-   The page title sits outside .sl-markdown-content, so it is named separately
-   rather than assumed to be inside it. */
+/* Mono costs table height on its own — the same rows run about 15% taller than
+   a proportional face, most gaining a third line. Pulling the leading in inside
+   cells buys back most of that without touching prose. */
+.sl-markdown-content td,
+.sl-markdown-content th {
+  line-height: 1.45;
+}
+
+/* With one face everywhere, weight and tracking are what separate a heading
+   from the prose beneath it: 500 rather than bold, pulled slightly tighter, so
+   it reads as a label rather than as shouting. The page title sits outside
+   .sl-markdown-content, so it is named separately rather than assumed to be
+   inside it. */
 .sl-markdown-content h1,
 .sl-markdown-content h2,
 .sl-markdown-content h3,
 .content-panel h1,
 h1#_top {
-  font-family: var(--sl-font-mono);
   font-weight: 500;
   letter-spacing: -0.015em;
 }
@@ -118,3 +139,33 @@ h1#_top {
    which Starlight already styles. A chip component was described here and never
    built; the rules are gone rather than left as documentation of machinery that
    does not exist. */
+
+/* Print.
+ *
+ * Starlight ships a print stylesheet that forces the light palette, but both it
+ * and these tokens are unlayered, and the built HTML links it first — so source
+ * order hands the win to this file and the override never fires. A reader with
+ * dark mode on was printing 1.77:1 grey on white paper.
+ *
+ * Wrapping the tokens in a layer would fix the ordering and lose the theme:
+ * Starlight's own defaults are unlayered too, so they would then win. Restating
+ * the light palette here is the version that only affects print.
+ */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --sl-color-accent-low: #d8e8d0;
+    --sl-color-accent: #2f6b22;
+    --sl-color-accent-high: #1a3d13;
+    --sl-color-white: #12160f;
+    --sl-color-gray-1: #1b2018;
+    --sl-color-gray-2: #353d33;
+    --sl-color-gray-3: #5b6656;
+    --sl-color-gray-4: #8a9484;
+    --sl-color-gray-5: #ccd4c6;
+    --sl-color-gray-6: #e8ece4;
+    --sl-color-gray-7: #f1f4ee;
+    --sl-color-black: #ffffff;
+  }
+}

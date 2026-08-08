@@ -115,9 +115,11 @@ An agent branches on the schema version, never on the shape it happens to see.
 | Migration backup facts | `onebox.run/migration-backup-facts/v1alpha1` |
 
 :::note[This table is under test]
-`cmd/ob/docs_test.go` asserts that every command with structured output, and
-every schema identity the binary emits, appears on this page. A new one that is
-not documented here fails the build.
+`cmd/ob/docs_test.go` asserts set equality in both directions: every command the
+binary gives structured output appears in the list above, every command listed
+above really has it, and every schema identity the binary emits appears in the
+table. Adding one without documenting it fails the build, and so does documenting
+one that does not exist.
 :::
 
 ## The v1 evolution guarantees

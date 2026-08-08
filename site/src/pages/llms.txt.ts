@@ -8,9 +8,15 @@ import { getCollection } from "astro:content";
 // So every entry carries the author's own one-line summary, and the sections
 // that are not yet executable say so in the index rather than in the page the
 // agent may never open.
-const ORDER = ["start", "guides", "reference", "explanation", "status"];
+//
+// The landing page is its own group: splitting on the first path segment gives
+// it "index", which an ORDER list of directory names does not contain, so it was
+// dropped from an index whose own heading promises every page.
+const ROOT = "index";
+const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status"];
 
 const GROUP_TITLES: Record<string, string> = {
+  [ROOT]: "Overview",
   start: "Start here",
   guides: "Guides",
   reference: "Reference",
@@ -18,7 +24,12 @@ const GROUP_TITLES: Record<string, string> = {
   status: "Status",
 };
 
-const STATUS_NOTE: Record<string, string> = {
+// Keyed by the status union rather than by string, so adding a fourth status is
+// a compile error here instead of a page quietly advertised to an agent without
+// its honesty marker.
+type PageStatus = "shipped" | "schema-only" | "intent-only";
+
+const STATUS_NOTE: Record<Exclude<PageStatus, "shipped">, string> = {
   "schema-only":
     " [SCHEMA ONLY: the loader validates this and it is published in the JSON Schema, but the behaviour is not yet executable]",
   "intent-only":
@@ -37,10 +48,10 @@ export const GET: APIRoute = async ({ site }) => {
     "runtime, names, routing, health gating, the proxy, and supporting services.",
     "It connects over SSH. There is no deployment agent on the host.",
     "",
-    "> Use this file as a map of the Onebox documentation. Fetch any page as clean",
+    "> Use this file as a map of the Onebox documentation. Fetch any page as",
     "> Markdown by appending `.md` to its URL. The CLI is the interface for people",
-    "> and agents alike: every command carries `--output json|ndjson`, errors are",
-    "> typed, and mutations are idempotent under retry.",
+    "> and agents alike: the operational commands carry `--output json|ndjson`,",
+    "> errors are typed, and mutations are idempotent under retry.",
     "",
     "## Agent Resources",
     "",
@@ -51,17 +62,44 @@ export const GET: APIRoute = async ({ site }) => {
     "",
     "## Operating Onebox from an agent",
     "",
-    "- Read-only and safe at any time: `ob validate`, `ob canonical`, `ob preview`, `ob schema`, `ob status`, `ob doctor`, `ob audit`, `ob logs`, `ob plan`.",
+    "- Structured output (`--output human|json|ndjson`) is carried by these commands only: `ob abort`, `ob backup-evidence create`, `ob bootstrap`, `ob canonical`, `ob deploy`, `ob doctor`, `ob eject`, `ob plan`, `ob preview`, `ob proxy apply`, `ob resume`, `ob rollback`, `ob service apply`, `ob status`, `ob validate`. Elsewhere the flag is refused.",
+    "- Read-only and safe at any time: `ob validate`, `ob canonical`, `ob preview`, `ob schema`, `ob status`, `ob doctor`, `ob audit`, `ob logs`, `ob plan`, `ob preflight`.",
     "- Mutating and approval-gated: `ob deploy`, `ob rollback`, `ob resume`, `ob abort`, `ob bootstrap`, `ob destroy`, `ob service apply`, `ob proxy apply`, `ob secrets push`.",
+    "- `ob exec` sits outside the journal and the safety regime; nothing it changes belongs to a release.",
     "- `ob approve` writes a grant bound to one exact plan. An agent cannot mint the capability that authorises its own change.",
-    "- A failure carries a stable `code`, the path that produced it, and the command that resolves it. Branch on the code, not the sentence.",
+    "- A failure carries a stable `code`, the path that produced it, and the command that resolves it. Branch on the code, not the sentence. The full catalogue is at `/reference/errors.md`.",
+    "",
+    "See `/reference/policies.md` for the schema identity of every structured document.",
     "",
   ];
 
+  // Silently dropping a section is how a whole directory of documentation
+  // becomes invisible to every agent while the site builds clean and the
+  // sidebar still shows it. Fail the build instead.
+  const groups = new Set(docs.map((doc) => doc.id.split("/")[0] ?? ROOT));
+  const unlisted = [...groups].filter((group) => !ORDER.includes(group));
+  if (unlisted.length > 0) {
+    throw new Error(
+      `llms.txt would omit these documentation sections: ${unlisted.join(", ")}. ` +
+        `Add them to ORDER and GROUP_TITLES in src/pages/llms.txt.ts.`,
+    );
+  }
+
+  const unsummarised = docs.filter(
+    (doc) => !doc.data.summary && !doc.data.description,
+  );
+  if (unsummarised.length > 0) {
+    throw new Error(
+      `these pages would be indexed with no summary, which is the one thing an ` +
+        `agent needs to decide whether to fetch them: ${unsummarised
+          .map((doc) => doc.id || "index")
+          .join(", ")}`,
+    );
+  }
+
   const byGroup = new Map<string, typeof docs>();
   for (const doc of docs) {
-    const group = doc.id.split("/")[0] ?? "";
-    if (!ORDER.includes(group)) continue;
+    const group = doc.id.split("/")[0] ?? ROOT;
     const bucket = byGroup.get(group) ?? [];
     bucket.push(doc);
     byGroup.set(group, bucket);
@@ -76,10 +114,11 @@ export const GET: APIRoute = async ({ site }) => {
     lines.push(`## ${GROUP_TITLES[group] ?? group}`, "");
     for (const entry of entries) {
       const title = entry.data.title;
-      const summary =
-        entry.data.summary ?? entry.data.description ?? "No summary available.";
-      const note = STATUS_NOTE[entry.data.status] ?? "";
-      lines.push(`- [${title}](${origin}/${entry.id}.md): ${summary}${note}`);
+      const summary = entry.data.summary ?? entry.data.description;
+      const status = entry.data.status as PageStatus;
+      const note = status === "shipped" ? "" : STATUS_NOTE[status];
+      const path = entry.id;
+      lines.push(`- [${title}](${origin}/${path}.md): ${summary}${note}`);
 
       for (const when of entry.data.read_when ?? []) {
         lines.push(`  - Read when: ${when}`);

@@ -15,7 +15,7 @@ the repository rather than to a reader.
 | Was | Now |
 |---|---|
 | `docs/cli.md` | `/reference/cli` — generated from the binary by `cmd/ob-docgen` |
-| `docs/schema-v1.md` | `/reference/project-file` and the fourteen generated field pages under `/reference/fields/` |
+| `docs/schema-v1.md` | `/reference/project-file` and the generated field pages under `/reference/fields/` |
 | The authority map that used to live here | `/status/capabilities` — every capability marked shipped, schema-only, or intent-only |
 
 ## Which documents are authoritative
@@ -25,8 +25,10 @@ Documentation says what is true **today**. Direction lives in
 [active OpenSpec changes](../openspec/changes/), and neither is presented as a
 capability.
 
-The site marks three states, and a page cannot claim one the binary does not
-support:
+The site marks three states. The vocabulary is closed — the content schema
+rejects a fourth at build time, and the generator's registry is checked against
+the same list — but the marking itself is authored, so it is a claim a reviewer
+should check rather than one the build can prove:
 
 - **Shipped** — the current binary does this.
 - **Schema only** — the loader validates it and it is published in the JSON

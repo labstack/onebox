@@ -25,13 +25,13 @@ cannot drift from what `ob validate` accepts.
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `<name>.build` `*` | string | — | Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path. |
+| `<name>.build` | object | — | Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path. |
 | `<name>.build.args` | map | — | Build arguments supplied by the external build system. |
 | `<name>.build.context` | string | — | Repository-relative build context. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.build.dockerfile` | string | — | Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.build.platform` | string | — | Target image platform for the external build. |
 | `<name>.build.target` | string | — | Named Dockerfile stage to build. |
-| `<name>.command` | string | — | Container command as a shell string or argument list. Also accepts a command line or argument list. |
+| `<name>.command` | list | — | Container command as a shell string or argument list. Also accepts a command line or argument list. |
 | `<name>.compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
 | `<name>.data_effect` | `none` · `migration` · `destructive` · `unknown` | — | Job data impact used by rollback and abort gates. |
 | `<name>.domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
@@ -39,13 +39,13 @@ cannot drift from what `ob validate` accepts.
 | `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.drain.signal` | string | `TERM` | Signal sent to begin graceful shutdown. Expects a signal name such as TERM or QUIT. |
 | `<name>.drain.wait` | string | — | Time allowed for the proxy to stop routing before shutdown begins. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.entrypoint` | string | — | Container entrypoint as a string or argument list. Also accepts an entrypoint or argument list. |
+| `<name>.entrypoint` | list | — | Container entrypoint as a string or argument list. Also accepts an entrypoint or argument list. |
 | `<name>.env` | map | — | Literal container environment values. Managed-service credential variables cannot be overridden. |
 | `<name>.env_files` | list | — | Workload-specific ordered environment-file list. Replaces broader defaults when present. |
 | `<name>.env_files[].file` `*` | string | — | Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.env_files[].provider` | `sops` | — | Decryptor used before staging the file. The supported encrypted provider is sops. |
 | `<name>.extra_hosts` | list | — | Additional host-to-address entries added to the container. |
-| `<name>.health` | string | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
+| `<name>.health` | object | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
 | `<name>.health.exec` | — | — | Health command as a shell string or direct argument list. |
 | `<name>.health.http` | string | — | HTTP path probed inside the container. Expects a path beginning with /. |
 | `<name>.health.interval` | string | — | Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d. |
@@ -55,7 +55,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.health.tcp` | boolean | `false` | Probe the configured port by opening a TCP connection. |
 | `<name>.health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.hostname` | string | — | Hostname assigned inside the workload container. |
-| `<name>.image` | string | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
+| `<name>.image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
 | `<name>.image.platform` | string | — | Platform selected when the image is multi-platform. |
 | `<name>.image.pull` | `always` · `missing` · `never` | `missing` | Image pull policy: missing, always, or never. |
 | `<name>.image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
@@ -100,10 +100,10 @@ cannot drift from what `ob validate` accepts.
 | `<name>.user` | string | — | User or UID used to run the container process. |
 | `<name>.volumes` | list | — | Managed named volumes or repository bind mounts. |
 | `<name>.volumes[].mode` | `rw` · `ro` | `rw` | Mount access mode: rw or ro. |
-| `<name>.volumes[].name` `*` | string | — | Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
-| `<name>.volumes[].path` `*` | string | — | Absolute container path where a named volume is mounted. Expects an absolute path with no control character or shell metacharacter. |
+| `<name>.volumes[].name` | string | — | Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
+| `<name>.volumes[].path` | string | — | Absolute container path where a named volume is mounted. Expects an absolute path with no control character or shell metacharacter. |
 | `<name>.volumes[].source` | string | — | Repository-relative source path of a bind mount. |
 | `<name>.volumes[].target` | string | — | Absolute container destination of a bind mount. Expects an absolute path with no control character or shell metacharacter. |
 | `<name>.working_dir` | string | — | Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter. |
 
-`*` marks a required field.
+`*` marks a field that is required within its own object.

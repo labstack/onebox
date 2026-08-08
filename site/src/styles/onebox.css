@@ -22,12 +22,6 @@
   --sl-color-gray-5: #2b3036;
   --sl-color-gray-6: #1c2025;
   --sl-color-black: #14171a;
-
-  --ob-refuse: #d8877a;
-  --ob-refuse-bg: #2d1b18;
-  --ob-propose: #8eb3cc;
-  --ob-propose-bg: #1a2832;
-  --ob-good: #86b294;
 }
 
 :root[data-theme="light"] {
@@ -43,12 +37,6 @@
   --sl-color-gray-6: #e9ece7;
   --sl-color-gray-7: #f3f5f1;
   --sl-color-black: #f7f8f5;
-
-  --ob-refuse: #92372a;
-  --ob-refuse-bg: #f0deda;
-  --ob-propose: #395d76;
-  --ob-propose-bg: #dee7ee;
-  --ob-good: #3d6146;
 }
 
 /* Headings and field names read as machine identifiers; prose reads as prose.
@@ -103,36 +91,8 @@ h1#_top {
   min-width: 34rem;
 }
 
-/* Status chips. These are generated onto pages from frontmatter, so a page
-   cannot silently claim a status the capability catalogue does not support. */
-.ob-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45em;
-  font-family: var(--sl-font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  padding: 0.2em 0.6em;
-  border: 1px solid currentColor;
-  margin-bottom: 1rem;
-}
-
-.ob-status[data-status="schema-only"] {
-  color: var(--ob-propose);
-  background: var(--ob-propose-bg);
-}
-
-.ob-status[data-status="intent-only"] {
-  color: var(--sl-color-accent);
-  background: var(--sl-color-accent-low);
-}
-
-.ob-generated {
-  font-family: var(--sl-font-mono);
-  font-size: 0.72rem;
-  color: var(--sl-color-gray-3);
-  border-left: 2px solid var(--sl-color-gray-5);
-  padding-left: 0.8em;
-  margin-bottom: 1.5rem;
-}
+/* The shipped-versus-proposed distinction reaches a reader through the
+   `:::caution` / `:::note` asides the generator writes from a page's `status`,
+   which Starlight already styles. A chip component was described here and never
+   built; the rules are gone rather than left as documentation of machinery that
+   does not exist. */

@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`api_version` · `app` · `base_path` · `build` · `compose` · `domain` · `health` · `image` · `port` · `routes`
+`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `path` · `platform` · `port` · `protocol` · `pull` · `reference` · `registry` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
 
 ## Reference
 
@@ -27,12 +27,36 @@ cannot drift from what `ob validate` accepts.
 | `api_version` `*` | string | — | Project contract version. Must be onebox.run/v1. |
 | `app` | string | — | Stable application name used in generated container, volume, network, and host paths. The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin "ob-" or be a name the host layout reserves. |
 | `base_path` | string | `/var/lib/ob` | Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter. |
-| `build` | string | — | Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path. |
+| `build` | object | — | Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path. |
+| `build.args` | map | — | Build arguments supplied by the external build system. |
+| `build.context` | string | — | Repository-relative build context. Expects a path inside the repository, with no control character or shell metacharacter. |
+| `build.dockerfile` | string | — | Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter. |
+| `build.platform` | string | — | Target image platform for the external build. |
+| `build.target` | string | — | Named Dockerfile stage to build. |
 | `compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
 | `domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
-| `health` | string | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
-| `image` | string | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
+| `health` | object | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
+| `health.exec` | — | — | Health command as a shell string or direct argument list. |
+| `health.http` | string | — | HTTP path probed inside the container. Expects a path beginning with /. |
+| `health.interval` | string | — | Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `health.port` | integer | — | Container port probed by HTTP or TCP health checks. |
+| `health.retries` | integer | — | Consecutive failed probes before the container is unhealthy. |
+| `health.start_period` | string | — | Startup grace period before failed probes count. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `health.tcp` | boolean | `false` | Probe the configured port by opening a TCP connection. |
+| `health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
+| `image.platform` | string | — | Platform selected when the image is multi-platform. |
+| `image.pull` | `always` · `missing` · `never` | `missing` | Image pull policy: missing, always, or never. |
+| `image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
+| `image.registry` | string | — | Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login. |
 | `port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
 | `routes` | list | — | Ingress routes exposed by this workload. |
+| `routes[].domain` | string | — | DNS name matched by the proxy. |
+| `routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
+| `routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |
+| `routes[].port` | integer | — | Container port receiving routed traffic. |
+| `routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |
+| `routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme: http, https, h2c, tcp, or udp. |
+| `routes[].tls` | `terminate` · `passthrough` · `none` | `terminate` | TLS handling: terminate, passthrough, or none. |
 
-`*` marks a required field.
+`*` marks a field that is required within its own object.

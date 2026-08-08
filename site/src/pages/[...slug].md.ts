@@ -1,5 +1,6 @@
 import type { APIRoute, GetStaticPaths } from "astro";
-import { getCollection } from "astro:content";
+import { getCollection, type CollectionEntry } from "astro:content";
+import { toPlainMarkdown } from "../lib/markdown";
 
 // Clean Markdown for every page, at `<path>.md`.
 //
@@ -10,15 +11,15 @@ import { getCollection } from "astro:content";
 export const getStaticPaths: GetStaticPaths = async () => {
   const docs = await getCollection("docs");
   return docs.map((entry) => ({
-    // The landing page's id is empty, which would produce `/.md`. It is named
-    // explicitly so every page has a Markdown alternate at a real path.
-    params: { slug: entry.id === "" ? "index" : entry.id },
+    // The landing page's id is already "index", so no path needs inventing here;
+    // every page has a Markdown alternate at a real path.
+    params: { slug: entry.id },
     props: { entry },
   }));
 };
 
 export const GET: APIRoute = ({ props }) => {
-  const { entry } = props as { entry: any };
+  const { entry } = props as { entry: CollectionEntry<"docs"> };
   const data = entry.data;
 
   const front: string[] = ["---", `title: ${JSON.stringify(data.title)}`];
@@ -34,7 +35,16 @@ export const GET: APIRoute = ({ props }) => {
   }
   front.push("---", "");
 
-  return new Response(front.join("\n") + (entry.body ?? ""), {
+  // A body that failed to load would otherwise be served as a valid 200 with
+  // frontmatter and nothing else, which an agent cannot tell from a short page.
+  const body = toPlainMarkdown(entry.body ?? "");
+  if (!body.trim()) {
+    throw new Error(
+      `${entry.id || "index"} has no body: its .md alternate would serve frontmatter only`,
+    );
+  }
+
+  return new Response(front.join("\n") + body, {
     headers: { "Content-Type": "text/markdown; charset=utf-8" },
   });
 };

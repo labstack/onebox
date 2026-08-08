@@ -96,7 +96,7 @@ SHALL record its request time and a 24-hour action deadline and SHALL report its
 age, continued storage activity, and exact resolving approval/apply command.
 After that deadline it SHALL report `protection_disablement_overdue` without
 implicitly approving or executing the reversal. Disablement SHALL NOT delete
-remote backups, replicas, manifests, previous volumes, or manifest-referenced
+remote backups, manifests, previous volumes, or manifest-referenced
 images.
 
 #### Scenario: Disablement restart lacks approval
@@ -129,7 +129,7 @@ images.
 Onebox SHALL create a backup through the selected driver's native consistency
 method and SHALL satisfy the capability record's declared encryption mode for
 the selected recovery kind: client-side encryption, archive-password
-encryption, observed server-side encryption, or inherited replica encryption.
+encryption, or observed server-side encryption.
 The protection manifest and status SHALL identify the active mode and its
 secret-free evidence. Onebox SHALL NOT report encrypted protection when the
 driver or destination cannot prove the declared mode. When
@@ -139,10 +139,9 @@ mode-restricted Onebox staging, SHALL exclude it from protection evidence, and
 SHALL remove it after verified upload or report its exact residual identity and
 cleanup command after failure. The manifest SHALL bind the application,
 environment, service, driver, service version, recovery kind, consistency
-method, target, protected resources, replay or replica range where applicable,
+method, target, protected resources, replay range where applicable,
 encryption mode, artifact digests only when artifacts exist, and creation time.
-A replicated contract SHALL identify replica state and metadata scope without
-inventing a backup generation or artifact. The operation SHALL serialize against service apply,
+The operation SHALL serialize against service apply,
 migration, restore, and incompatible backup operations. Retrying the same
 operation identity SHALL resume or return the existing terminal result and
 SHALL NOT create an untracked duplicate.
@@ -173,7 +172,7 @@ SHALL NOT create an untracked duplicate.
 - **THEN** Onebox never counts those bytes as off-host protection and either removes them after verified upload or reports the restricted residual and explicit cleanup command
 
 #### Scenario: Native destination encryption is unproven
-- **GIVEN** a native-direct or replicated contract whose required encryption mode cannot be observed at the destination
+- **GIVEN** a native-direct contract whose required encryption mode cannot be observed at the destination
 - **WHEN** backup or protection status is evaluated
 - **THEN** Onebox records `backup_encryption_unverified`, does not claim encrypted protection, and keeps the service `Run`
 
@@ -188,7 +187,7 @@ apply destructive retention only after a new recoverable generation verifies.
 It SHALL refuse deletion when ownership, repository state, replay continuity,
 the native mapping, or the newest verified generation is ambiguous. Onebox
 SHALL NOT emulate retention by directly deleting objects inside a native
-repository or replica. Removing a project or policy
+repository. Removing a project or policy
 SHALL NOT delete remote backup bytes.
 
 #### Scenario: New backup fails
@@ -247,10 +246,9 @@ A restore drill SHALL execute the same materialize, start, and driver-verify
 path that the qualified recovery-kind contract uses for a real restore without
 changing the live service; no applicable step may be substituted or skipped.
 Artifact contracts therefore exercise decrypt and download, native-direct
-contracts exercise their server-side restore, and replicated contracts recover
-from the independent replica plus declared metadata.
-Its evidence SHALL identify the selected artifact, native recovery point, or
-replica observation as applicable, plus the runner, exact service image digest,
+contracts exercise their server-side restore.
+Its evidence SHALL identify the selected artifact or native recovery point as
+applicable, plus the runner, exact service image digest,
 validation method, result, and completion time. Merely checking object
 existence or a repository checksum SHALL NOT count as a restore drill.
 
@@ -289,8 +287,9 @@ SHALL NOT satisfy backup-tier evidence. NATS JetStream SHALL protect stream and
 consumer state through authenticated native stream or account snapshots and a
 qualified external helper health probe. RabbitMQ SHALL NOT claim
 message recovery from a live data-directory copy or a definitions-only export.
-MinIO SHALL NOT claim protection unless its replica is independent, versioned,
-complete for the declared metadata scope, and recovery-tested. No driver SHALL
+MinIO SHALL qualify only a stopped-service cold artifact containing its data
+and required configuration, restored into an empty exact-compatible single
+node and recovery-tested. No driver SHALL
 fall back to a generic live-volume archive.
 
 #### Scenario: Point-in-time claim has continuous evidence
@@ -309,9 +308,9 @@ fall back to a generic live-volume archive.
 - **THEN** topology protection is reported separately, message recovery remains unproven, and the service remains `Run`
 
 #### Scenario: MinIO target shares the failure domain
-- **GIVEN** a MinIO service whose proposed replica resolves to the same host, data volume, or storage deployment
+- **GIVEN** a MinIO service whose backup target resolves to the protected host or MinIO endpoint
 - **WHEN** its protection policy is planned
-- **THEN** planning fails with code `backup_target_not_independent` and never reports replicated protection
+- **THEN** planning fails with code `backup_target_not_independent` and never reports off-host protection
 
 ### Requirement: Service tier follows observed evidence
 
@@ -319,7 +318,7 @@ A service SHALL report `Managed` only while its service runtime uses the exact
 immutable image digest recorded at apply and retained by its protection
 manifests, resource policy is effective, driver health is verified through the
 qualified in-container or digest-pinned external probe, declared protection
-objective is currently satisfied, backup or replication schedule is installed, the
+objective is currently satisfied, the backup schedule is installed, the
 latest recoverable point is within policy, and restore-drill proof is fresh. A
 qualified driver missing any evidence SHALL report `Run` with the missing
 evidence. Graduation SHALL be independent for PostgreSQL, MySQL, MariaDB,

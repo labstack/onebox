@@ -43,7 +43,7 @@ the `Run` tier.
   approval for live cutover, preserves the prior volume, and never treats a
   failed restore as permission to destroy either copy.
 - Introduce explicit `Run` and `Managed` service-tier reporting plus the actual
-  recovery envelope (`snapshot`, `pitr`, `cold`, or `replicated`). Every current
+  recovery envelope (`snapshot`, `pitr`, or `cold`). Every current
   durable driver—PostgreSQL, MySQL, MariaDB, MongoDB, ClickHouse, Redis, Valkey,
   RabbitMQ, MinIO, Meilisearch, and NATS JetStream—gets an independent native
   qualification gate. A driver graduates only after its supported-version,
@@ -57,8 +57,8 @@ the `Run` tier.
   stopped-node window; newly created NATS services get generated account
   credentials and a pinned external CLI health probe, while existing
   unauthenticated runtimes require an explicit state-bound conversion. MinIO
-  needs an operator-provisioned, independently operated, versioned second
-  MinIO deployment outside the protected host plus recovery proof. Enabling
+  remains single-node and requires an approved stopped-service cold backup to
+  off-host S3-compatible storage plus recovery proof. Enabling
   PostgreSQL/MariaDB/ClickHouse protection may require a separately planned,
   strongly approved one-time service restart; it is never hidden inside
   ordinary schedule convergence.
@@ -120,10 +120,9 @@ Explicit non-goals:
   appropriate for every service. Restic is limited to encrypted transport and
   retention for driver-produced artifacts; it is not a database consistency
   engine.
-- No claim of hot RabbitMQ message backup, no MinIO replication back into the
-  source deployment or its host, and no `Managed` graduation from definitions,
-  object mirroring, checksums, or replication status without an actual recovery
-  drill.
+- No claim of hot RabbitMQ or MinIO backup, no multi-node or replicated service
+  topology, and no `Managed` graduation from definitions, object mirroring, or
+  checksums without an actual recovery drill.
 - No cloud database provisioning or provider-specific AWS, GCP, Azure, Atlas,
   Neon, Supabase, or Upstash lifecycle behavior. The first backup destination
   contract is portable S3-compatible object storage.

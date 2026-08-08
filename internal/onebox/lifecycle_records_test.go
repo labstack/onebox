@@ -9,7 +9,7 @@ import (
 func TestLifecycleRecordKindsEncodeCompatibly(t *testing.T) {
 	kinds := []LifecycleKind{
 		LifecycleProtectionEnable, LifecycleProtectionDisable,
-		LifecycleBackupCreate, LifecycleReplayArchive, LifecycleReplicationCheck,
+		LifecycleBackupCreate, LifecycleReplayArchive,
 		LifecycleRestorePrepare, LifecycleRestoreCutover, LifecycleRestoreAbort,
 		LifecycleRestoreTest, LifecycleHygieneRun, LifecycleAssuranceCheck,
 	}
@@ -133,7 +133,7 @@ func validLifecycleResultRecord(kind LifecycleKind, service string) LifecycleRec
 		},
 	}
 	switch kind {
-	case LifecycleBackupCreate, LifecycleReplayArchive, LifecycleReplicationCheck,
+	case LifecycleBackupCreate, LifecycleReplayArchive,
 		LifecycleRestorePrepare, LifecycleRestoreCutover, LifecycleRestoreAbort, LifecycleRestoreTest:
 		record.Result.NativeEvidence = validNativeEvidence()
 		record.Result.Recovery = validRecoveryEnvelope()

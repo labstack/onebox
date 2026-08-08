@@ -420,7 +420,6 @@ var schemaConstraints = []struct {
 	{[]string{"backup_targets", "*", "encryption", "snapshot"}, enum(eEncryptionMode)},
 	{[]string{"backup_targets", "*", "encryption", "pitr"}, enum(eEncryptionMode)},
 	{[]string{"backup_targets", "*", "encryption", "cold"}, enum(eEncryptionMode)},
-	{[]string{"backup_targets", "*", "encryption", "replicated"}, enum(eEncryptionMode)},
 
 	{[]string{"external_services", "*", "driver"}, enum(DriverNames())},
 	{[]string{"external_services", "*", "connection", "source", "file"}, pattern(gRepoPath)},

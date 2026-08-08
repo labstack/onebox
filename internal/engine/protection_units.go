@@ -75,7 +75,7 @@ type ProtectionUnitConvergence struct {
 
 var protectionUnitKinds = map[string]bool{
 	"backup-create": true, "backup-prune": true, "replay-archive": true,
-	"replication-check": true, "restore-drill": true, "hygiene-run": true, "assurance-check": true,
+	"restore-drill": true, "hygiene-run": true, "assurance-check": true,
 }
 
 func GenerateProtectionUnits(input ProtectionUnitInput) (ProtectionUnitSet, error) {

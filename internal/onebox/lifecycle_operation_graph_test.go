@@ -13,7 +13,6 @@ var allLifecycleOperationKinds = []OperationKind{
 	KindBackupCreate,
 	KindBackupPrune,
 	KindReplayArchive,
-	KindReplicationCheck,
 	KindRestoreTest,
 	KindRestorePrepare,
 	KindRestoreCutover,
@@ -80,7 +79,7 @@ func TestLifecycleOperationSchemaDispatchesEveryCanonicalKind(t *testing.T) {
 func TestScheduledRunnerHasClosedLifecycleAllowlist(t *testing.T) {
 	allowed := map[OperationKind]bool{
 		KindBackupCreate: true, KindBackupPrune: true, KindReplayArchive: true,
-		KindReplicationCheck: true, KindRestoreTest: true, KindHygieneRun: true,
+		KindRestoreTest: true, KindHygieneRun: true,
 		KindAssuranceCheck: true,
 	}
 	for _, kind := range allLifecycleOperationKinds {

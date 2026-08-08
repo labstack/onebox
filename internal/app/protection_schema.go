@@ -24,9 +24,6 @@ func validateBackupTarget(target BackupTarget, path string) error {
 	if err := gFailureDomain.checkOptional(path+".failure_domain.host", target.FailureDomain.Host); err != nil {
 		return err
 	}
-	if err := gFailureDomain.checkOptional(path+".failure_domain.deployment", target.FailureDomain.Deployment); err != nil {
-		return err
-	}
 	if err := validateCredentialReference(target.Credentials, path+".credentials"); err != nil {
 		return err
 	}
@@ -42,33 +39,8 @@ func validateBackupTarget(target BackupTarget, path string) error {
 		return err
 	}
 
-	switch target.Kind {
-	case "s3-compatible":
-		if target.Bucket == "" {
-			return errf("project_invalid", path+".bucket", "ob validate", "an S3-compatible target must name an existing bucket")
-		}
-		if target.OperatorProvisioned || target.Versioning || target.FailureDomain.Deployment != "" {
-			return errf("project_invalid", path, "ob validate", "operator_provisioned, versioning, and failure_domain.deployment belong only to a MinIO replication target")
-		}
-		if target.Encryption.Replicated != "" {
-			return errf("project_invalid", path+".encryption.replicated", "ob validate", "an S3-compatible repository cannot claim inherited replica encryption")
-		}
-	case "minio-replication":
-		if !target.OperatorProvisioned {
-			return errf("backup_target_not_independent", path+".operator_provisioned", "ob validate", "a MinIO replication target must be provisioned and operated independently before Onebox may use it")
-		}
-		if !target.Versioning {
-			return errf("backup_target_not_independent", path+".versioning", "ob validate", "a MinIO replication target must have versioning enabled")
-		}
-		if target.FailureDomain.Host == "" || target.FailureDomain.Deployment == "" {
-			return errf("backup_target_not_independent", path+".failure_domain", "ob validate", "a MinIO replication target must name its independent host and deployment identities")
-		}
-		if target.Encryption.Replicated != "replica-inherited" {
-			return errf("backup_encryption_unverified", path+".encryption.replicated", "ob validate", "a MinIO replication target must declare replica-inherited encryption evidence")
-		}
-		if target.Encryption.Snapshot != "" || target.Encryption.PITR != "" || target.Encryption.Cold != "" {
-			return errf("project_invalid", path+".encryption", "ob validate", "a MinIO replication target accepts only replicated encryption policy")
-		}
+	if target.Bucket == "" {
+		return errf("project_invalid", path+".bucket", "ob validate", "an S3-compatible target must name an existing bucket")
 	}
 	return nil
 }
@@ -107,10 +79,9 @@ func validateCredentialReference(ref CredentialReference, path string) error {
 
 func validateTargetEncryption(encryption TargetEncryption, path string) error {
 	for field, value := range map[string]string{
-		"snapshot":   encryption.Snapshot,
-		"pitr":       encryption.PITR,
-		"cold":       encryption.Cold,
-		"replicated": encryption.Replicated,
+		"snapshot": encryption.Snapshot,
+		"pitr":     encryption.PITR,
+		"cold":     encryption.Cold,
 	} {
 		if err := checkEnum(path+"."+field, value, eEncryptionMode); err != nil {
 			return err
@@ -176,11 +147,7 @@ func validateProtectionSelection(p *Spec, serviceName, driverName string, servic
 	if policy.RecoveryKind == "cold" && !policy.AllowBackupInterruption {
 		return errf("backup_interruption_not_authorized", path+".allow_backup_interruption", "ob validate", "driver %q requires an explicitly permitted recurring stopped-service backup window", driverName)
 	}
-	if policy.RecoveryKind == "replicated" {
-		if target.Kind != "minio-replication" {
-			return errf("recovery_objective_unsupported", path+".target", "ob validate", "replicated recovery requires a minio-replication target")
-		}
-	} else if target.Kind != "s3-compatible" {
+	if target.Kind != "s3-compatible" {
 		return errf("recovery_objective_unsupported", path+".target", "ob validate", "%s recovery requires an s3-compatible repository target", policy.RecoveryKind)
 	}
 	if mode := encryptionFor(target.Encryption, policy.RecoveryKind); mode == "" {
@@ -189,14 +156,8 @@ func validateProtectionSelection(p *Spec, serviceName, driverName string, servic
 
 	for _, envName := range sortedKeys(p.Environments) {
 		host := p.Environments[envName].Server.Host
-		if sameHost(host, target.FailureDomain.Host) || sameEndpointHost(host, target.Endpoint) && target.Kind == "minio-replication" {
+		if sameHost(host, target.FailureDomain.Host) || sameEndpointHost(host, target.Endpoint) {
 			return errf("backup_target_not_independent", "backup_targets."+policy.Target+".failure_domain", "ob validate", "target %q resolves to protected host %q in environment %q", policy.Target, host, envName)
-		}
-	}
-	if driverName == "minio" {
-		generatedDeployment := p.Name + "-" + serviceName
-		if target.FailureDomain.Deployment == serviceName || target.FailureDomain.Deployment == generatedDeployment {
-			return errf("backup_target_not_independent", "backup_targets."+policy.Target+".failure_domain.deployment", "ob validate", "target %q names the protected MinIO deployment", policy.Target)
 		}
 	}
 	return nil
@@ -210,8 +171,6 @@ func encryptionFor(encryption TargetEncryption, recoveryKind string) string {
 		return encryption.PITR
 	case "cold":
 		return encryption.Cold
-	case "replicated":
-		return encryption.Replicated
 	default:
 		return ""
 	}

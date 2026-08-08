@@ -598,9 +598,6 @@ func effectiveProtectionSchedules(projection app.ProtectionEffectiveProjection, 
 	if projection.Policy.RecoveryKind == "pitr" {
 		schedules = append(schedules, ProtectionScheduleState{Kind: "replay-archive", Schedule: projection.Policy.Schedule, Active: true})
 	}
-	if projection.Policy.RecoveryKind == "replicated" {
-		schedules = append(schedules, ProtectionScheduleState{Kind: "replication-check", Schedule: projection.Policy.Schedule, Active: true})
-	}
 	sort.Slice(schedules, func(i, j int) bool { return schedules[i].Kind < schedules[j].Kind })
 	return schedules
 }

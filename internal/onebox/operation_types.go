@@ -38,7 +38,6 @@ const (
 	KindBackupCreate      OperationKind = "backup_create"
 	KindBackupPrune       OperationKind = "backup_prune"
 	KindReplayArchive     OperationKind = "replay_archive"
-	KindReplicationCheck  OperationKind = "replication_check"
 	KindRestoreTest       OperationKind = "restore_test"
 	KindRestorePrepare    OperationKind = "restore_prepare"
 	KindRestoreCutover    OperationKind = "restore_cutover"
@@ -474,7 +473,7 @@ func validOperationKind(kind OperationKind) bool {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap,
 		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy,
 		KindServiceImagePatch, KindProtectionEnable, KindProtectionDisable,
-		KindBackupCreate, KindBackupPrune, KindReplayArchive, KindReplicationCheck,
+		KindBackupCreate, KindBackupPrune, KindReplayArchive,
 		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,
 		KindHygieneRun, KindAssuranceCheck:
 		return true

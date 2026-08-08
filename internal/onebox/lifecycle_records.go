@@ -24,7 +24,6 @@ const (
 	LifecycleBackupCreate      LifecycleKind = "backup_create"
 	LifecycleBackupPrune       LifecycleKind = "backup_prune"
 	LifecycleReplayArchive     LifecycleKind = "replay_archive"
-	LifecycleReplicationCheck  LifecycleKind = "replication_check"
 	LifecycleRestorePrepare    LifecycleKind = "restore_prepare"
 	LifecycleRestoreCutover    LifecycleKind = "restore_cutover"
 	LifecycleRestoreAbort      LifecycleKind = "restore_abort"
@@ -91,7 +90,6 @@ type NativeEvidenceIdentity struct {
 	GenerationID  string `json:"generation_id,omitempty"`
 	ReplayStart   string `json:"replay_start,omitempty"`
 	ReplayEnd     string `json:"replay_end,omitempty"`
-	ReplicaID     string `json:"replica_id,omitempty"`
 	ObservationID string `json:"observation_id,omitempty"`
 }
 
@@ -316,7 +314,7 @@ func (identity NativeEvidenceIdentity) validate() error {
 	if !safeLifecycleMetadata(identity.Driver) || !safeLifecycleMetadata(identity.Method) {
 		return errors.New("native evidence driver and method are required safe metadata")
 	}
-	for _, value := range []string{identity.RepositoryID, identity.GenerationID, identity.ReplayStart, identity.ReplayEnd, identity.ReplicaID, identity.ObservationID} {
+	for _, value := range []string{identity.RepositoryID, identity.GenerationID, identity.ReplayStart, identity.ReplayEnd, identity.ObservationID} {
 		if value != "" && !safeLifecycleMetadata(value) {
 			return errors.New("native evidence identity contains unsafe metadata")
 		}
@@ -325,10 +323,10 @@ func (identity NativeEvidenceIdentity) validate() error {
 }
 
 func (recovery RecoveryEnvelope) validate() error {
-	if !oneOf(recovery.Kind, "snapshot", "pitr", "cold", "replicated") {
+	if !oneOf(recovery.Kind, "snapshot", "pitr", "cold") {
 		return errors.New("recovery kind is invalid")
 	}
-	if !oneOf(recovery.EncryptionMode, "client-side", "archive-password", "server-side-sse", "replica-inherited") {
+	if !oneOf(recovery.EncryptionMode, "client-side", "archive-password", "server-side-sse") {
 		return errors.New("recovery encryption_mode is invalid")
 	}
 	if recovery.ExpectedInterruption == "" {

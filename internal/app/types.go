@@ -238,27 +238,23 @@ type Service struct {
 	Protection  *ProtectionPolicy `json:"protection,omitempty" description:"Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection."`
 }
 
-// BackupTarget is a closed destination declaration. Kind-specific validation
-// keeps an S3 repository distinct from an independently operated MinIO
-// replication deployment; neither shape accepts inline credentials.
+// BackupTarget is a closed S3-compatible destination declaration. It accepts
+// credential references only, never inline values.
 type BackupTarget struct {
-	Kind                string              `json:"kind" description:"Destination kind: s3-compatible or minio-replication." example:"s3-compatible"`
-	Endpoint            string              `json:"endpoint" description:"Destination API endpoint. HTTPS is required unless tls is explicitly insecure." example:"https://objects.example.com"`
-	Bucket              string              `json:"bucket,omitempty" description:"Existing destination bucket used by this target." example:"onebox-backups"`
-	Prefix              string              `json:"prefix,omitempty" description:"Non-secret object prefix reserved for Onebox protection data." example:"production/shop"`
-	Region              string              `json:"region,omitempty" description:"S3-compatible region when the endpoint requires one." example:"us-east-1"`
-	TLS                 string              `json:"tls" description:"TLS verification policy: required or insecure." default:"required"`
-	FailureDomain       FailureDomain       `json:"failure_domain" description:"Operator-declared identity used to prove the destination does not share the protected host or deployment."`
-	Credentials         CredentialReference `json:"credentials" description:"Trusted encrypted-file entries containing destination credentials; values never appear in the project."`
-	Encryption          TargetEncryption    `json:"encryption" description:"Required encryption mode for each recovery kind this target may store."`
-	OperatorProvisioned bool                `json:"operator_provisioned,omitempty" description:"Confirms that a MinIO replication destination already exists and is independently operated; Onebox never provisions it."`
-	Versioning          bool                `json:"versioning,omitempty" description:"Confirms that the independent MinIO replication destination has object versioning enabled."`
+	Kind          string              `json:"kind" description:"Destination kind. Only s3-compatible is supported." example:"s3-compatible"`
+	Endpoint      string              `json:"endpoint" description:"Destination API endpoint. HTTPS is required unless tls is explicitly insecure." example:"https://objects.example.com"`
+	Bucket        string              `json:"bucket,omitempty" description:"Existing destination bucket used by this target." example:"onebox-backups"`
+	Prefix        string              `json:"prefix,omitempty" description:"Non-secret object prefix reserved for Onebox protection data." example:"production/shop"`
+	Region        string              `json:"region,omitempty" description:"S3-compatible region when the endpoint requires one." example:"us-east-1"`
+	TLS           string              `json:"tls" description:"TLS verification policy: required or insecure." default:"required"`
+	FailureDomain FailureDomain       `json:"failure_domain" description:"Operator-declared identity used to prove the destination does not share the protected host."`
+	Credentials   CredentialReference `json:"credentials" description:"Trusted encrypted-file entries containing destination credentials; values never appear in the project."`
+	Encryption    TargetEncryption    `json:"encryption" description:"Required encryption mode for each recovery kind this target may store."`
 }
 
 type FailureDomain struct {
-	Identity   string `json:"identity" description:"Stable operator-owned failure-domain identity, distinct from the protected deployment." example:"provider-a/us-east-1/account-42"`
-	Host       string `json:"host,omitempty" description:"Destination host identity used to refuse a target on the protected host." example:"backup-01.example.net"`
-	Deployment string `json:"deployment,omitempty" description:"Independent storage deployment identity, required for MinIO replication." example:"minio-dr-west"`
+	Identity string `json:"identity" description:"Stable operator-owned failure-domain identity, distinct from the protected host." example:"provider-a/us-east-1/account-42"`
+	Host     string `json:"host,omitempty" description:"Destination host identity used to refuse a target on the protected host." example:"backup-01.example.net"`
 }
 
 // CredentialReference names entries in a trusted SOPS file. Entry names are
@@ -273,18 +269,17 @@ type CredentialReference struct {
 }
 
 type TargetEncryption struct {
-	Snapshot   string `json:"snapshot,omitempty" description:"Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse."`
-	PITR       string `json:"pitr,omitempty" description:"Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse."`
-	Cold       string `json:"cold,omitempty" description:"Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse."`
-	Replicated string `json:"replicated,omitempty" description:"Encryption mode required for replicated recovery: replica-inherited."`
+	Snapshot string `json:"snapshot,omitempty" description:"Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse."`
+	PITR     string `json:"pitr,omitempty" description:"Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse."`
+	Cold     string `json:"cold,omitempty" description:"Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse."`
 }
 
 type ProtectionPolicy struct {
 	Target                  string              `json:"target" description:"Name of a project-level backup target." example:"offsite"`
-	RecoveryKind            string              `json:"recovery_kind" description:"Required recovery envelope: snapshot, pitr, cold, or replicated." example:"pitr"`
+	RecoveryKind            string              `json:"recovery_kind" description:"Required recovery envelope: snapshot, pitr, or cold." example:"pitr"`
 	MaximumDataLoss         string              `json:"maximum_data_loss" description:"Maximum tolerable interval between the latest recoverable point and failure." example:"15m"`
 	AllowBackupInterruption bool                `json:"allow_backup_interruption" description:"Whether recurring backup operations may use the driver-declared stopped-service window." default:"false"`
-	Schedule                Schedule            `json:"schedule" description:"Exact recurring base-backup or replication-check schedule."`
+	Schedule                Schedule            `json:"schedule" description:"Exact recurring base-backup schedule."`
 	Retention               ProtectionRetention `json:"retention" description:"Portable minimum recovery history that the selected native driver must be able to preserve."`
 	RestoreDrill            RestoreDrillPolicy  `json:"restore_drill" description:"Exact isolated restore-test schedule, proof age, and optional staging filesystem."`
 }

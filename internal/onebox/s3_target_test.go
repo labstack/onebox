@@ -118,11 +118,8 @@ func TestS3TargetAdapterRejectsInvalidAndUnprovenConfiguration(t *testing.T) {
 
 	wrongKind := testS3Target()
 	wrongKind.Kind = "minio-replication"
-	wrongKind.OperatorProvisioned, wrongKind.Versioning = true, true
-	wrongKind.FailureDomain.Deployment = "remote-minio"
-	wrongKind.Encryption = app.TargetEncryption{Replicated: "replica-inherited"}
-	if _, err := NewS3TargetAdapter("offsite", "replicated", credentialFile, wrongKind); err == nil {
-		t.Fatal("MinIO replication target was accepted by S3 adapter")
+	if _, err := NewS3TargetAdapter("offsite", "pitr", credentialFile, wrongKind); err == nil {
+		t.Fatal("removed replication target was accepted by S3 adapter")
 	}
 }
 

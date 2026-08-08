@@ -195,8 +195,7 @@
                 "enum": [
                   "client-side",
                   "archive-password",
-                  "server-side-sse",
-                  "replica-inherited"
+                  "server-side-sse"
                 ],
                 "type": "string"
               },
@@ -205,18 +204,7 @@
                 "enum": [
                   "client-side",
                   "archive-password",
-                  "server-side-sse",
-                  "replica-inherited"
-                ],
-                "type": "string"
-              },
-              "replicated": {
-                "description": "Encryption mode required for replicated recovery: replica-inherited.",
-                "enum": [
-                  "client-side",
-                  "archive-password",
-                  "server-side-sse",
-                  "replica-inherited"
+                  "server-side-sse"
                 ],
                 "type": "string"
               },
@@ -225,8 +213,7 @@
                 "enum": [
                   "client-side",
                   "archive-password",
-                  "server-side-sse",
-                  "replica-inherited"
+                  "server-side-sse"
                 ],
                 "type": "string"
               }
@@ -243,19 +230,11 @@
           },
           "failure_domain": {
             "additionalProperties": false,
-            "description": "Operator-declared identity used to prove the destination does not share the protected host or deployment.",
+            "description": "Operator-declared identity used to prove the destination does not share the protected host.",
             "patternProperties": {
               "^x-": {}
             },
             "properties": {
-              "deployment": {
-                "description": "Independent storage deployment identity, required for MinIO replication. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens.",
-                "examples": [
-                  "minio-dr-west"
-                ],
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$",
-                "type": "string"
-              },
               "host": {
                 "description": "Destination host identity used to refuse a target on the protected host. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens.",
                 "examples": [
@@ -265,7 +244,7 @@
                 "type": "string"
               },
               "identity": {
-                "description": "Stable operator-owned failure-domain identity, distinct from the protected deployment. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens.",
+                "description": "Stable operator-owned failure-domain identity, distinct from the protected host. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens.",
                 "examples": [
                   "provider-a/us-east-1/account-42"
                 ],
@@ -276,19 +255,14 @@
             "type": "object"
           },
           "kind": {
-            "description": "Destination kind: s3-compatible or minio-replication.",
+            "description": "Destination kind. Only s3-compatible is supported.",
             "enum": [
-              "s3-compatible",
-              "minio-replication"
+              "s3-compatible"
             ],
             "examples": [
               "s3-compatible"
             ],
             "type": "string"
-          },
-          "operator_provisioned": {
-            "description": "Confirms that a MinIO replication destination already exists and is independently operated; Onebox never provisions it.",
-            "type": "boolean"
           },
           "prefix": {
             "description": "Non-secret object prefix reserved for Onebox protection data. Expects a relative object prefix with no empty leading component or shell metacharacter.",
@@ -314,10 +288,6 @@
               "insecure"
             ],
             "type": "string"
-          },
-          "versioning": {
-            "description": "Confirms that the independent MinIO replication destination has object versioning enabled.",
-            "type": "boolean"
           }
         },
         "type": "object"
@@ -1313,12 +1283,11 @@
                     "type": "string"
                   },
                   "recovery_kind": {
-                    "description": "Required recovery envelope: snapshot, pitr, cold, or replicated.",
+                    "description": "Required recovery envelope: snapshot, pitr, or cold.",
                     "enum": [
                       "snapshot",
                       "pitr",
-                      "cold",
-                      "replicated"
+                      "cold"
                     ],
                     "examples": [
                       "pitr"
@@ -1409,7 +1378,7 @@
                   },
                   "schedule": {
                     "additionalProperties": false,
-                    "description": "Exact recurring base-backup or replication-check schedule.",
+                    "description": "Exact recurring base-backup schedule.",
                     "patternProperties": {
                       "^x-": {}
                     },

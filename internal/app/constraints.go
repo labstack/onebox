@@ -142,10 +142,10 @@ var (
 	eSecretProvider    = []string{"sops"}
 	eRole              = []string{RoleApplication, RoleWorker, RoleDaemon, RoleJob}
 	eConnectionPart    = []string{"url", "host", "port", "user", "password", "database"}
-	eBackupTargetKind  = []string{"s3-compatible", "minio-replication"}
+	eBackupTargetKind  = []string{"s3-compatible"}
 	eBackupTLS         = []string{"required", "insecure"}
-	eRecoveryKind      = []string{"snapshot", "pitr", "cold", "replicated"}
-	eEncryptionMode    = []string{"client-side", "archive-password", "server-side-sse", "replica-inherited"}
+	eRecoveryKind      = []string{"snapshot", "pitr", "cold"}
+	eEncryptionMode    = []string{"client-side", "archive-password", "server-side-sse"}
 	eExternalProbeKind = []string{"driver-health"}
 )
 

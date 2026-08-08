@@ -55,11 +55,11 @@ func buildLifecycleCapabilities() map[string]lifecycleCapability {
 			[]string{"RABBITMQ_DEFAULT_PASS", "RABBITMQ_ERLANG_COOKIE", "RESTIC_PASSWORD"}, []string{"data-volume", "node-name", "erlang-cookie"},
 			lifecycleOperations{Backup: "rabbitmq-cold", Restore: "rabbitmq-restore", Verify: "rabbitmq-verify"}),
 		"minio": lifecycleRecord(
-			"minio", true, "replicated", deliveryUpstreamDigest, repositoryReplicated, "replica-inherited", "replicated", "5m",
-			"^RELEASE[.][0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9-]+Z$", artifact("minio/minio", "minio", 'f'), nil,
-			[]lifecyclePrecondition{{Code: "independent-replica", Consistency: "versioned-replication", Topology: "independent-deployment"}},
-			[]string{"MINIO_ROOT_PASSWORD", "MINIO_REPLICA_CREDENTIAL"}, []string{"data-volume", "bucket-metadata", "iam-metadata"},
-			lifecycleOperations{Backup: "minio-replicate", Restore: "minio-recover", Verify: "minio-verify"}),
+			"minio", true, "cold", deliveryExternalHelper, repositoryArtifact, "client-side", "artifact", "24h",
+			"^RELEASE[.][0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9-]+Z$", artifact("minio/minio", "minio", 'f'), helperArtifact("restic/restic", "restic", '0'),
+			[]lifecyclePrecondition{{Code: "stopped-service", Consistency: "cold-data-store", Topology: "single-node"}},
+			[]string{"MINIO_ROOT_PASSWORD", "RESTIC_PASSWORD"}, []string{"data-volume", "minio-configuration"},
+			lifecycleOperations{Backup: "minio-cold", Restore: "minio-restore", Verify: "minio-verify"}),
 		"meilisearch": lifecycleRecord(
 			"meilisearch", false, "snapshot", deliveryExternalHelper, repositoryArtifact, "client-side", "snapshot", "24h",
 			"^1([.][0-9]+)*$", artifact("getmeili/meilisearch", "meilisearch", '0'), helperArtifact("restic/restic", "restic", '1'),

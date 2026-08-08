@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"sort"
+	"strings"
 )
 
 // Derived names are contract. Once a volume exists its name can never change
@@ -92,6 +93,36 @@ func (n Names) ServiceSecretFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".secret.env")
 }
 
+// ProtectionSecretDir contains lifecycle-only mode-0600 credential files on
+// the target. Plans and units refer to these paths and named entries only.
+func (n Names) ProtectionSecretDir() string {
+	return path.Join(n.AppDir(), "protection", "secrets")
+}
+
+func (n Names) ProtectionCredentialFile(service, target string) string {
+	return path.Join(n.ProtectionSecretDir(), service+"-"+target+".env")
+}
+
+func (n Names) ActiveVolumeFile(service string) string {
+	return path.Join(n.AppDir(), "protection", "state", service+".active-volume.json")
+}
+
+// ProtectionLifecycleStateFile is the durable target-side source used before
+// rendering a managed service. It is separate from active-volume selection:
+// one binds lifecycle/image policy, the other binds the physical data volume.
+func (n Names) ProtectionLifecycleStateFile(service string) string {
+	return path.Join(n.AppDir(), "protection", "state", service+".lifecycle.json")
+}
+
+func (n Names) ProtectionRunnerPath(digest string) string {
+	digest = strings.TrimPrefix(digest, "sha256:")
+	return path.Join(n.AppDir(), "protection", "runners", digest, "ob-scheduled-runner")
+}
+
+func (n Names) ProtectionEnvelopePath(service, operation string) string {
+	return path.Join(n.AppDir(), "protection", "envelopes", service+"-"+operation+".json")
+}
+
 // ServiceVersionFile records the version that last ran successfully. The
 // running container's image is not the same fact: after a refused or failed
 // upgrade the image may be a version that never opened the data directory, and
@@ -124,6 +155,30 @@ func (n Names) WorkloadVolume(workload, volume string) string {
 
 func (n Names) ServiceVolume(service, volume string) string {
 	return join("ob", n.App, service, volume)
+}
+
+func (n Names) ProtectionRestoreProject(service string) string {
+	return join("ob", n.App, service, "restore")
+}
+
+func (n Names) ProtectionRestoreContainer(service string) string {
+	return join(n.App, service, "restore")
+}
+
+func (n Names) ProtectionRestoreNetwork(service string) string {
+	return join("ob", n.App, service, "restore-net")
+}
+
+func (n Names) ProtectionRestoreVolume(service string) string {
+	return join("ob", n.App, service, "restore-stage")
+}
+
+func (n Names) ProtectionTimer(service, operation string) string {
+	return "ob-" + n.App + "-" + service + "-" + operation + ".timer"
+}
+
+func (n Names) ProtectionTimerForEnvironment(environment, service, operation string) string {
+	return "ob-" + n.App + "-" + environment + "-" + service + "-" + operation + ".timer"
 }
 
 // Container is the stable name of a workload's container. Container names are
@@ -208,6 +263,14 @@ func (p *Spec) All(env string) []string {
 		out = append(out, n.ServiceProject(s), n.ServiceContainer(s))
 		for _, v := range p.Services[s].Volumes {
 			out = append(out, n.ServiceVolume(s, v))
+		}
+		if p.Services[s].Protection != nil {
+			out = append(out,
+				n.ProtectionRestoreProject(s),
+				n.ProtectionRestoreContainer(s),
+				n.ProtectionRestoreNetwork(s),
+				n.ProtectionRestoreVolume(s),
+			)
 		}
 	}
 	sort.Strings(out)

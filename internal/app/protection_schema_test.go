@@ -61,28 +61,33 @@ func TestProtectionIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 	}
 }
 
-func TestIndependentMinIOReplicationIntentLoads(t *testing.T) {
+func TestSingleNodeMinIOColdIntentLoads(t *testing.T) {
 	project := `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: deploy@app.example.net}}
 workloads: {web: {image: nginx:1}}
 backup_targets:
-  replica:
-    kind: minio-replication
-    endpoint: https://minio-dr.example.net
-    bucket: onebox-replica
-    failure_domain: {identity: provider-b/region-2, host: minio-dr.example.net, deployment: minio-dr-west}
-    credentials: {file: secrets/replica.env, provider: sops, access_key_entry: MINIO_ACCESS, secret_key_entry: MINIO_SECRET}
-    encryption: {replicated: replica-inherited}
-    operator_provisioned: true
-    versioning: true
+  offsite:
+    kind: s3-compatible
+    endpoint: https://objects.example.net
+    bucket: onebox-backups
+    failure_domain: {identity: provider-b/region-2, host: objects.example.net}
+    credentials: {file: secrets/backup.env, provider: sops, access_key_entry: BACKUP_ACCESS, secret_key_entry: BACKUP_SECRET}
+    encryption: {cold: client-side}
 services:
   minio:
     version: RELEASE.2026-07-31T00-00-00Z
-    protection: {target: replica, recovery_kind: replicated, maximum_data_loss: 5m}
+    protection: {target: offsite, recovery_kind: cold, maximum_data_loss: 24h, allow_backup_interruption: true}
 `
 	if _, err := LoadBytes([]byte(project), "ob.yml"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReplicationIntentIsRejected(t *testing.T) {
+	project := strings.ReplaceAll(validProtectionProject, "kind: s3-compatible", "kind: minio-replication")
+	if _, err := LoadBytes([]byte(project), "ob.yml"); err == nil {
+		t.Fatal("removed replication target was accepted")
 	}
 }
 

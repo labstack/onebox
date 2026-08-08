@@ -32,7 +32,6 @@ var lifecycleOperationRegistry = map[OperationKind]LifecycleOperationSchema{
 	KindBackupCreate:      scheduledLifecycleSchema(KindBackupCreate, LifecycleBackupCreate, RiskModerate, ReversibilityConditional, ApprovalStanding),
 	KindBackupPrune:       scheduledLifecycleSchema(KindBackupPrune, LifecycleBackupPrune, RiskHigh, ReversibilityIrreversible, ApprovalStanding),
 	KindReplayArchive:     archiveLifecycleSchema(KindReplayArchive, LifecycleReplayArchive, RiskLow, ReversibilityReversible, ApprovalStanding),
-	KindReplicationCheck:  scheduledLifecycleSchema(KindReplicationCheck, LifecycleReplicationCheck, RiskLow, ReversibilityReversible, ApprovalNone),
 	KindRestoreTest:       scheduledLifecycleSchema(KindRestoreTest, LifecycleRestoreTest, RiskModerate, ReversibilityConditional, ApprovalStanding),
 	KindRestorePrepare:    lifecycleSchema(KindRestorePrepare, LifecycleRestorePrepare, RiskHigh, ReversibilityConditional, ApprovalStrong),
 	KindRestoreCutover:    lifecycleSchema(KindRestoreCutover, LifecycleRestoreCutover, RiskCritical, ReversibilityConditional, ApprovalStrong),
@@ -161,8 +160,8 @@ func (envelope RestrictedArchiveEnvelope) OperationGraph() ([]OperationStep, err
 }
 
 func validateLifecycleOperationRegistry() error {
-	if len(lifecycleOperationRegistry) != 13 {
-		return fmt.Errorf("lifecycle operation registry has %d schemas, want 13", len(lifecycleOperationRegistry))
+	if len(lifecycleOperationRegistry) != 12 {
+		return fmt.Errorf("lifecycle operation registry has %d schemas, want 12", len(lifecycleOperationRegistry))
 	}
 	if len(lifecycleEventRegistry) != len(lifecycleOperationRegistry)+1 {
 		return errors.New("structured lifecycle event registry is incomplete or ambiguous")

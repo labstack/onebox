@@ -124,7 +124,7 @@ the live volume and configuration identity, a fresh pre-patch recovery point,
 and the driver continuity marker. Across the service restart it SHALL keep every
 effective prerequisite, credential, hook, and schedule unchanged. It SHALL
 verify service health, the driver compatibility matrix, effective protection
-configuration, repository or replica readability, and driver-native continuity
+configuration, repository readability, and driver-native continuity
 before committing the candidate digest. It SHALL retain every previous digest
 referenced by a protection manifest and SHALL roll back safely or stop with
 explicit recovery choices when verification fails.
@@ -270,4 +270,4 @@ units SHALL remain untouched.
 
 #### Scenario: Application is destroyed
 - **WHEN** an authorized destroy removes the last reference to a scheduled runner or protection envelope
-- **THEN** Onebox removes those owned executable artifacts while preserving remote repositories, replicas, handback manifests, and service data according to the destroy contract
+- **THEN** Onebox removes those owned executable artifacts while preserving remote repositories, handback manifests, and service data according to the destroy contract

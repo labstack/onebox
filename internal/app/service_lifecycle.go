@@ -20,7 +20,6 @@ type repositoryOwnership string
 const (
 	repositoryNativeDirect repositoryOwnership = "native-direct"
 	repositoryArtifact     repositoryOwnership = "artifact"
-	repositoryReplicated   repositoryOwnership = "replicated"
 )
 
 // lifecycleCapability is deliberately separate from the runtime driver. A
@@ -144,7 +143,7 @@ func (record lifecycleCapabilityRecord) validate() error {
 			return fmt.Errorf("lifecycle driver %q has invalid version range", record.driver)
 		}
 	}
-	if record.repository != repositoryNativeDirect && record.repository != repositoryArtifact && record.repository != repositoryReplicated {
+	if record.repository != repositoryNativeDirect && record.repository != repositoryArtifact {
 		return fmt.Errorf("lifecycle driver %q has invalid repository ownership", record.driver)
 	}
 	for kind := range record.recoveryKinds {
@@ -155,7 +154,7 @@ func (record lifecycleCapabilityRecord) validate() error {
 			return fmt.Errorf("lifecycle driver %q has no valid encryption mode for %q", record.driver, kind)
 		}
 	}
-	if !contains([]string{"pgbackrest", "pbm", "clickhouse-chain", "artifact", "snapshot", "replicated"}, record.retentionMapping) {
+	if !contains([]string{"pgbackrest", "pbm", "clickhouse-chain", "artifact", "snapshot"}, record.retentionMapping) {
 		return fmt.Errorf("lifecycle driver %q has invalid native retention mapping", record.driver)
 	}
 	if _, err := positiveDuration(record.achievableRPO); err != nil {

@@ -48,7 +48,7 @@ be reported individually as unbacked rather than disappearing from diagnostics.
 
 ### Requirement: Backup targets are closed and secret-referential
 
-A backup target SHALL declare a supported off-host storage or replication kind,
+A backup target SHALL declare supported off-host S3-compatible storage,
 a non-secret destination, a failure-domain identity, an encryption policy, and
 a trusted credential-file reference. Destination identifiers, schedules,
 durations, retention counts, and target names SHALL use closed grammars.
@@ -64,13 +64,9 @@ repository prefix, or storage deployment.
 - **WHEN** a target declares an access key or secret value inline
 - **THEN** validation fails with a typed error directing the author to a trusted secret entry
 
-#### Scenario: Independent MinIO replica target
-- **WHEN** a MinIO replication target declares an operator-provisioned second deployment outside the protected host, a distinct deployment identity, versioning requirement, TLS endpoint, and trusted administrative credential reference
-- **THEN** it validates without provisioning the remote deployment or exposing its credentials
-
 #### Scenario: Target aliases the protected service
 - **WHEN** a target's declared or observed failure domain aliases the protected service or its host
-- **THEN** planning fails with `backup_target_not_independent` before backup or replication configuration changes
+- **THEN** planning fails with `backup_target_not_independent` before backup configuration changes
 
 ### Requirement: Recovery intent is separate from backup tooling
 

@@ -45,12 +45,18 @@ fmt:
 check: _mod-tidy _fmt-check vet test docs-generate-check diagrams-check site-build
     @echo "All checks passed"
 
-# CI adds the pinned lint, vulnerability and workflow passes to the local gate.
+# Strict OpenSpec validation. Separate from `check` because it shells to npx,
+# which needs the network on a cold cache; CI runs it as part of `ci`.
+openspec-check:
+    npx --yes @fission-ai/openspec@{{ openspec_version }} validate --all --strict --no-interactive
+
+# CI adds the pinned lint, vulnerability, workflow and spec passes to the local
+# gate.
 #
 # They are separate from `check` because each needs a tool the repository does
 # not vendor; a contributor without them should still be able to run `just check`
 # and get a truthful answer about their change.
-ci: check lint vuln workflow-check
+ci: check lint vuln workflow-check openspec-check
     @echo "CI checks passed"
 
 [private]
@@ -138,8 +144,7 @@ site-build: docs-generate-check
     cd site && npm run build
 
 # Strictly validate canonical specs and every active OpenSpec change.
-docs-check: diagrams-check docs-generate-check
-    npx --yes @fission-ai/openspec@{{ openspec_version }} validate --all --strict --no-interactive
+docs-check: diagrams-check docs-generate-check openspec-check
 
 # Render every openspec .d2 source to the .svg committed beside it, and record
 # each source's hash so drift is detectable without d2 installed.

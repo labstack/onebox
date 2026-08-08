@@ -17,6 +17,7 @@ func TestEveryDeltaSpecFailureHasASecretFreeResolvingContract(t *testing.T) {
 		"backup_retention_unsupported",
 		"backup_stale",
 		"backup_target_not_independent",
+		"backup_target_unauthorized",
 		"backup_target_unknown",
 		"backup_target_unreachable",
 		"disk_pressure_critical",

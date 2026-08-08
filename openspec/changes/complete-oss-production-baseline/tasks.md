@@ -36,7 +36,7 @@
 
 ## 5. Repository, manifest, and backup core
 
-- [ ] 5.1 Implement the closed S3-compatible target adapter for endpoint, bucket, prefix, region, TLS policy, per-kind encryption mode/evidence, failure-domain identity, and trusted mode-0600 credential file, plus a test-only local repository that explicitly reports non-off-host protection; add validation, self-target, alias, unproven-encryption, and target-probe tests.
+- [x] 5.1 Implement the closed S3-compatible target adapter for endpoint, bucket, prefix, region, TLS policy, per-kind encryption mode/evidence, failure-domain identity, and trusted mode-0600 credential file, plus a test-only local repository that explicitly reports non-off-host protection; add validation, self-target, alias, unproven-encryption, and target-probe tests.
 - [ ] 5.2 Define minimal repository interfaces for native-direct engines and encrypted Restic artifact storage; add contract tests for identity, health, retry, per-kind encryption, native retention ownership, and read-only inspection using the test driver before production-driver gates.
 - [ ] 5.3 Package and verify the pinned Restic artifact helper, enforce its repository/runner compatibility, and prove only artifact-producing driver contracts can select it; add incompatible-helper, digest-mismatch, and accidental-database-engine selection tests.
 - [ ] 5.4 Implement streaming artifact ingestion without a plaintext intermediate and restricted operation-scoped staging for native APIs that require files; test successful cleanup, residual reporting, capacity bounds, cancellation, target loss, helper crash, and retry/resume.
@@ -188,7 +188,7 @@
 ## 20. External-service connections
 
 - [ ] 20.1 Normalize external-service declarations into canonical driver-shaped connection metadata and the derived `External` tier; add canonicalization and run/external ownership-conflict tests.
-- [ ] 20.2 Resolve workload `needs` entries across run and external services, projecting only requested parts from trusted staged secret files and generating no external service runtime; add runtime golden and plaintext-leak tests.
+- [x] 20.2 Resolve workload `needs` entries across run and external services, projecting only requested parts from trusted staged secret files and generating no external service runtime; add runtime golden and plaintext-leak tests.
 - [ ] 20.3 Implement optional read-only external health probes with bounded age and plan binding; add healthy, permission-denied, unreachable, changed-after-plan, and `external_service_state_stale` tests proving no corrective mutation occurs.
 - [ ] 20.4 Refuse apply, backup, restore, upgrade, rotation, and destroy against external dependencies with `external_service_not_owned`, preserving the declared owner in secret-free output; add command matrix tests.
 - [ ] 20.5 Validate fresh plan-bound external backup evidence or an independently authorized override for migration policy without creating, storing, restoring, or claiming provider backups; add stale, mismatched, missing, and accepted receipt tests.

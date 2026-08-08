@@ -8,6 +8,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -91,6 +92,48 @@ func renderDecrypted(sopsFile string, out []byte) ([]byte, error) {
 		}
 	}
 	return []byte(b.String()), nil
+}
+
+// ProjectEnvironment emits only mapped keys from an already-rendered dotenv
+// payload. It preserves each raw right-hand side byte-for-byte, avoiding a
+// parse/re-encode cycle that could expand dollars or alter quoting in secrets.
+func ProjectEnvironment(source []byte, entries map[string]string) ([]byte, error) {
+	if len(entries) == 0 {
+		return nil, errors.New("external connection projection has no entries")
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(source), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		candidate := strings.TrimLeft(line, " \t")
+		if candidate == "" || strings.HasPrefix(candidate, "#") {
+			continue
+		}
+		candidate = strings.TrimPrefix(candidate, "export ")
+		key, value, ok := strings.Cut(candidate, "=")
+		key = strings.TrimSpace(key)
+		if !ok || !keyRe.MatchString(key) {
+			return nil, errors.New("trusted external connection is not a valid environment file")
+		}
+		values[key] = value
+	}
+	destinations := make([]string, 0, len(entries))
+	for destination := range entries {
+		if !keyRe.MatchString(destination) {
+			return nil, fmt.Errorf("external connection destination %q is not a valid env var name", destination)
+		}
+		destinations = append(destinations, destination)
+	}
+	sort.Strings(destinations)
+	var projected strings.Builder
+	for _, destination := range destinations {
+		sourceKey := entries[destination]
+		value, ok := values[sourceKey]
+		if !ok {
+			return nil, fmt.Errorf("trusted external connection is missing required entry %s", sourceKey)
+		}
+		fmt.Fprintf(&projected, "%s=%s\n", destination, value)
+	}
+	return []byte(projected.String()), nil
 }
 
 // quoteEnvString emits a Compose dotenv value without changing its bytes when

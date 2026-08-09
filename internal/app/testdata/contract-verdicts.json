@@ -15,6 +15,11 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/alerts without logs",
+    "loads": true,
+    "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
+  },
+  {
     "case": "conformance/app starting ob-",
     "loads": false,
     "code": "project_invalid"
@@ -25,7 +30,7 @@
     "code": "project_invalid"
   },
   {
-    "case": "conformance/application with run",
+    "case": "conformance/application with when",
     "loads": false,
     "code": "project_invalid"
   },
@@ -100,6 +105,21 @@
     "digest": "6a5f26a10eb914e99aa12a6ea86d0f7ccb780c50ba3e8710cb7a2dc59d0dbfc9"
   },
   {
+    "case": "conformance/hook naming a declared job",
+    "loads": true,
+    "digest": "c2f3297325f024100b235a642cd05b17f154ff00c5da60c1ab545a149298681f"
+  },
+  {
+    "case": "conformance/hook naming an unlisted seam",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/hook naming neither",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/hook with local",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
@@ -135,6 +155,16 @@
     "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
   },
   {
+    "case": "conformance/log retention as an integer",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/log retention without alerts",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/migration_policy expand-only",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
@@ -168,6 +198,16 @@
     "case": "conformance/non-calver minimum version",
     "loads": false,
     "code": "project_invalid"
+  },
+  {
+    "case": "conformance/notification on an unknown event",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/notification with no events",
+    "loads": true,
+    "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
   },
   {
     "case": "conformance/one-char identifier",
@@ -263,6 +303,16 @@
     "case": "conformance/service scalar",
     "loads": true,
     "digest": "37ef191260abddc6f674ea8bed3bb82970358f8395df2d5a7f5b9b5142268b47 postgres=b81a1e3ee9c0bed9"
+  },
+  {
+    "case": "conformance/settings key that is a real driver flag",
+    "loads": true,
+    "digest": "37ef191260abddc6f674ea8bed3bb82970358f8395df2d5a7f5b9b5142268b47 redis=8ca845747bf4f77f"
+  },
+  {
+    "case": "conformance/settings key with a shell metacharacter",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/shorthand and workloads together",

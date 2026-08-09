@@ -52,7 +52,7 @@ func sealedTestDeployPlan(t *testing.T, createdAt, expiresAt time.Time) DeployPl
 		Binding: OperationBinding{
 			Application:       artifact.App,
 			Environment:       artifact.Env,
-			Target:            "deploy@example.invalid",
+			Server:            "deploy@example.invalid",
 			ConfigDigest:      artifact.ConfigHash,
 			ComposeDigest:     "sha256:compose",
 			StateDigest:       stateDigest,

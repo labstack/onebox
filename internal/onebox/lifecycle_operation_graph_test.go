@@ -47,7 +47,7 @@ func TestLifecycleOperationSchemaDispatchesEveryCanonicalKind(t *testing.T) {
 				Reversibility: schema.Reversibility,
 				Approval:      schema.Approval,
 				Binding: OperationBinding{
-					Application: "example", Environment: "production", Target: "host",
+					Application: "example", Environment: "production", Server: "host",
 					ConfigDigest: "config", ComposeDigest: "compose", StateDigest: "state",
 				},
 				Steps: steps,

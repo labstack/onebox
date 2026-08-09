@@ -113,7 +113,7 @@ const (
 type OperationBinding struct {
 	Application   string `json:"application"`
 	Environment   string `json:"environment"`
-	Target        string `json:"target"`
+	Server        string `json:"server"`
 	ConfigDigest  string `json:"config_digest"`
 	ComposeDigest string `json:"compose_digest"`
 	StateDigest   string `json:"state_digest"`
@@ -381,7 +381,7 @@ func (b OperationBinding) validate() error {
 	}{
 		{"application", b.Application},
 		{"environment", b.Environment},
-		{"target", b.Target},
+		{"target", b.Server},
 		{"config_digest", b.ConfigDigest},
 		{"compose_digest", b.ComposeDigest},
 		{"state_digest", b.StateDigest},

@@ -99,7 +99,7 @@ func TestBackupEvidenceReceiptIsStrictFreshAndPlanBound(t *testing.T) {
 
 	t.Run("resealed target mismatch", func(t *testing.T) {
 		mismatch := receipt
-		mismatch.Target = "deploy@other.example.test"
+		mismatch.Server = "deploy@other.example.test"
 		if err := mismatch.Seal(); err != nil {
 			t.Fatal(err)
 		}

@@ -127,7 +127,7 @@ declares a route. Without it, converting a running data service forces a choice
 between calling it an application, which changes what is injected into it, and
 calling it a job, which is false.
 
-`run`, `schedule`, and `data_effect` SHALL apply only to the `job` role.
+`when`, `schedule`, and `data_effect` SHALL apply only to the `job` role.
 `data_effect` SHALL be required for a job because its effect on data cannot be
 inferred.
 
@@ -153,7 +153,7 @@ journal.
 - **THEN** the project validates and Onebox owns the schedule, with runs recorded like any other operation
 
 #### Scenario: Job field on a non-job workload
-- **WHEN** an application or worker declares `run` or `data_effect`
+- **WHEN** an application or worker declares `when` or `data_effect`
 - **THEN** validation fails naming the field and the role
 
 ### Requirement: The contract grows additively under a stable identity

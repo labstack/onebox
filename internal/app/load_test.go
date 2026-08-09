@@ -38,7 +38,7 @@ func conformanceCases() []conformanceCase {
 		{"job with data_effect", wl("j: {image: nginx, role: job, data_effect: none}"), true},
 		{"job data_effect unknown", wl("j: {image: nginx, role: job, data_effect: unknown}"), true},
 		{"application with data_effect", wl("w: {image: nginx, data_effect: none}"), false},
-		{"application with run", wl("w: {image: nginx, when: manual}"), false},
+		{"application with when", wl("w: {image: nginx, when: manual}"), false},
 		{"worker with schedule", wl("w: {image: nginx, role: worker, schedule: {cron: \"0 3 * * *\"}}"), false},
 		{"scheduled job", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\"}}"), true},
 		{"daemon role", wl("db: {image: postgres:16, role: daemon}"), true},
@@ -53,6 +53,26 @@ func conformanceCases() []conformanceCase {
 		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: 0.0.1-m0}}}\n", false},
 		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
+		// A hook key is a lifecycle seam OR a declared job name. Both halves need
+		// a case: an unlisted seam loads and never fires, and refusing a job name
+		// would break the per-job command override the engine reads.
+		{"hook naming an unlisted seam", min + "hooks: {pre_deploy: {run: scripts/backup.sh}}\n", false},
+		{"hook naming a declared job", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
+		{"hook naming neither", min + "hooks: {typo_hook: {run: scripts/x.sh}}\n", false},
+		// observability sub-blocks are independent; each must be checked without
+		// the other present.
+		{"log retention without alerts", min + "observability: {logs: {retention: bogus}}\n", false},
+		{"alerts without logs", min + "observability: {alerts: {unhealthy_after: 5m}}\n", true},
+		{"log retention as an integer", min + "observability: {logs: {retention: 30}}\n", false},
+		// A settings key is interpolated into a generated shell command without
+		// quoting, so the grammar is the only thing between a project file and
+		// a root shell on the server.
+		{"settings key with a shell metacharacter", min + "services: {redis: {version: \"7\", settings: {\"x; touch /tmp/p\": 1}}}\n", false},
+		{"settings key that is a real driver flag", min + "services: {redis: {version: \"7\", settings: {maxmemory-policy: allkeys-lru}}}\n", true},
+		// notify.Send fires only on an outcome it recognises, so an unlisted
+		// event is a webhook that reads as configured and never calls.
+		{"notification on an unknown event", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", on: [deployed]}}\n", false},
+		{"notification with no events", min + "notifications: {ops: {webhook: \"https://h.example.com/x\"}}\n", true},
 		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		// A closed value set is only closed if a value outside it is refused,

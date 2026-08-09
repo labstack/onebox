@@ -41,7 +41,7 @@ type Check struct {
 // Report is the outcome of asking all of them.
 type Report struct {
 	Env    string  `json:"environment"`
-	Target string  `json:"target,omitempty"`
+	Server string  `json:"server,omitempty"`
 	Checks []Check `json:"checks"`
 }
 

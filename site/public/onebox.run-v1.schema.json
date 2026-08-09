@@ -2074,15 +2074,19 @@
             },
             "properties": {
               "driver": {
-                "description": "Container runtime logging driver.",
+                "description": "Container runtime logging driver. Expects a log driver name such as local, json-file or an org/plugin:tag.",
                 "examples": [
                   "local"
                 ],
+                "pattern": "^[a-z0-9][a-z0-9_.-]*(/[a-z0-9][a-z0-9_.-]*)?(:[A-Za-z0-9_.-]+)?$",
                 "type": "string"
               },
               "options": {
                 "additionalProperties": {},
                 "description": "Driver-specific logging options passed to the container runtime.",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_.-]*$"
+                },
                 "type": "object"
               }
             },

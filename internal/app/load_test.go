@@ -73,6 +73,12 @@ func conformanceCases() []conformanceCase {
 		// event is a webhook that reads as configured and never calls.
 		{"notification on an unknown event", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", on: [deployed]}}\n", false},
 		{"notification with no events", min + "notifications: {ops: {webhook: \"https://h.example.com/x\"}}\n", true},
+		// logging lands verbatim in the generated runtime, so an unchecked value
+		// fails at container create on the server, after validate/preview/plan
+		// all reported the project fine.
+		{"log option with a shell metacharacter", wl("w: {image: nginx, logging: {options: {\"x; touch /tmp/q\": \"1\"}}}"), false},
+		{"log driver with a space", wl("w: {image: nginx, logging: {driver: \"not a driver\"}}"), false},
+		{"a plugin log driver", wl("w: {image: nginx, logging: {driver: \"myorg/fluent:1.2\", options: {max-size: 10m}}}"), true},
 		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		// A closed value set is only closed if a value outside it is refused,

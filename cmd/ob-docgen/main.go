@@ -821,7 +821,7 @@ func jsonString(s string) string {
 func renderErrorPage() string {
 	var buf bytes.Buffer
 
-	summary := "Every typed failure code Onebox can emit: the loader's validation codes and the lifecycle failure contract, each with its meaning and resolving command."
+	summary := "Every typed failure code in the contract: the loader's validation codes, all of which are reachable, and the lifecycle failure contract, where a row marked reserved is one no path raises yet."
 
 	fmt.Fprintln(&buf, "---")
 	fmt.Fprintln(&buf, `title: Error codes`)
@@ -863,15 +863,18 @@ func renderErrorPage() string {
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, ":::caution[Belongs to the proposed protection layer]")
 	fmt.Fprintln(&buf, "These codes are defined and drift-tested in the binary, but the operations that")
-	fmt.Fprintln(&buf, "raise most of them are not yet executable.")
+	fmt.Fprintln(&buf, "raise most of them are not yet executable. A row marked **reserved** is one no")
+	fmt.Fprintln(&buf, "path raises today: the code is fixed so it stays stable when the capability")
+	fmt.Fprintln(&buf, "lands, but you cannot cause it. The set is computed from the source, not")
+	fmt.Fprintln(&buf, "maintained by hand.")
 	fmt.Fprintln(&buf, ":::")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "The failure contract shared by plans, event streams, terminal results, status and")
 	fmt.Fprintln(&buf, "doctor. Each carries a stable code and a safe resolving command; diagnostic")
 	fmt.Fprintln(&buf, "detail stays in restricted local evidence, never in the public record.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "| Code | Means | Resolving command |")
-	fmt.Fprintln(&buf, "| --- | --- | --- |")
+	fmt.Fprintln(&buf, "| Code | Reachable | Means | Resolving command |")
+	fmt.Fprintln(&buf, "| --- | --- | --- | --- |")
 	for _, code := range onebox.LifecycleFailureCodes() {
 		// A code that will not resolve is a defect in the contract, not a row to
 		// drop: a shorter table is one nobody can tell is incomplete.
@@ -879,7 +882,11 @@ func renderErrorPage() string {
 		if err != nil {
 			panic(fmt.Sprintf("lifecycle code %q does not resolve: %v", code, err))
 		}
-		fmt.Fprintf(&buf, "| `%s` | %s | `%s` |\n", code, escapeCell(failure.Message), failure.Next)
+		reach := "yes"
+		if onebox.LifecycleFailureReserved(code) {
+			reach = "reserved"
+		}
+		fmt.Fprintf(&buf, "| `%s` | %s | %s | `%s` |\n", code, reach, escapeCell(failure.Message), failure.Next)
 	}
 
 	return buf.String()

@@ -300,7 +300,7 @@ var blocks = []block{
 		Summary:  "Who owns the ingress proxy, which image runs it, and how TLS is resolved.",
 		ReadWhen: []string{"Taking over the Traefik configuration, or turning routing off entirely"}},
 	{Key: "hooks", Title: "hooks", Order: 80, Status: statusShipped,
-		Summary:  "Commands run at lifecycle seams: pre_deploy, post_deploy, pre_rollback, post_rollback.",
+		Summary:  "Commands run at a lifecycle seam — bootstrap, pre_release, post_release, post_deploy — or keyed by a job name to replace that job's command.",
 		ReadWhen: []string{"Running a command around a deploy or a rollback"}},
 	{Key: "registries", Title: "registries", Order: 90, Status: statusShipped,
 		Summary:  "Named container registries and the local environment variables holding their credentials.",
@@ -924,15 +924,17 @@ func renderCLIPage(obBin string) (string, error) {
 	// actually asking when they pick between them.
 	fmt.Fprintln(&buf, "## Which command changes nothing")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "Five commands are read-only. They differ by what they read, not by how far they go.")
+	fmt.Fprintln(&buf, "Many commands change nothing — `status`, `logs`, `audit`, `schema`, `version` and `canonical` all")
+	fmt.Fprintln(&buf, "just report. These five are the ones that get confused with each other, because each one")
+	fmt.Fprintln(&buf, "answers \"would this deploy work?\" from a different place.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "| Command | Reads | Contacts the server |")
 	fmt.Fprintln(&buf, "| --- | --- | --- |")
 	fmt.Fprintln(&buf, "| `ob validate` | the project file | no |")
 	fmt.Fprintln(&buf, "| `ob preview` | the runtime it would generate | no |")
-	fmt.Fprintln(&buf, "| `ob doctor` | this runner, and the environment's policy | yes |")
+	fmt.Fprintln(&buf, "| `ob doctor` | this runner, its local SSH agent, and the environment's policy | no |")
 	fmt.Fprintln(&buf, "| `ob preflight` | the server's readiness to accept a deploy | yes |")
-	fmt.Fprintln(&buf, "| `ob plan` | both, and writes a plan artifact | yes |")
+	fmt.Fprintln(&buf, "| `ob plan` | the project, the server, and writes a plan artifact | yes |")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "`ob plan` is the only one of the five that writes a file, and it writes it locally.")
 	fmt.Fprintln(&buf)

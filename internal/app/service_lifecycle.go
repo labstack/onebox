@@ -157,7 +157,7 @@ func (record lifecycleCapabilityRecord) validate() error {
 	if !contains([]string{"pgbackrest", "pbm", "clickhouse-chain", "artifact", "snapshot"}, record.retentionMapping) {
 		return fmt.Errorf("lifecycle driver %q has invalid native retention mapping", record.driver)
 	}
-	if _, err := positiveDuration(record.achievableRPO); err != nil {
+	if _, err := PositiveDuration(record.achievableRPO); err != nil {
 		return fmt.Errorf("lifecycle driver %q has invalid achievable RPO", record.driver)
 	}
 	if len(record.preconditions) == 0 {

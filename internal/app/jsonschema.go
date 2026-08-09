@@ -454,6 +454,8 @@ var schemaConstraints = []struct {
 	{[]string{"verifications", "items", "status_codes", "items"}, map[string]any{"minimum": 100, "maximum": 599}},
 	{[]string{"observability", "alerts", "unhealthy_after"}, pattern(gDur)},
 	{[]string{"observability", "logs", "retention"}, pattern(gDur)},
+	{[]string{"notifications", "*", "on", "items"}, enum(eNotifyEvent)},
+	{[]string{"services", "*", "settings"}, propertyNames(gSettingKey)},
 }
 
 // applyRoleRules expresses what belongs to which role, and what a project must
@@ -544,6 +546,12 @@ func appNameConstraint() map[string]any {
 
 func pattern(g grammar) map[string]any {
 	return map[string]any{"pattern": g.pattern.String(), "description": "Expects " + g.means + "."}
+}
+
+// propertyNames constrains a free-form map's KEYS, which is where a shell
+// metacharacter would otherwise reach a generated command.
+func propertyNames(g grammar) map[string]any {
+	return map[string]any{"propertyNames": map[string]any{"pattern": g.pattern.String()}}
 }
 
 func enum(values []string) map[string]any {

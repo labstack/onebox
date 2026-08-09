@@ -18,15 +18,17 @@ Generated from the binary, so it cannot describe a flag the CLI does not have.
 
 ## Which command changes nothing
 
-Five commands are read-only. They differ by what they read, not by how far they go.
+Many commands change nothing — `status`, `logs`, `audit`, `schema`, `version` and `canonical` all
+just report. These five are the ones that get confused with each other, because each one
+answers "would this deploy work?" from a different place.
 
 | Command | Reads | Contacts the server |
 | --- | --- | --- |
 | `ob validate` | the project file | no |
 | `ob preview` | the runtime it would generate | no |
-| `ob doctor` | this runner, and the environment's policy | yes |
+| `ob doctor` | this runner, its local SSH agent, and the environment's policy | no |
 | `ob preflight` | the server's readiness to accept a deploy | yes |
-| `ob plan` | both, and writes a plan artifact | yes |
+| `ob plan` | the project, the server, and writes a plan artifact | yes |
 
 `ob plan` is the only one of the five that writes a file, and it writes it locally.
 
@@ -724,7 +726,7 @@ Usage:
   ob service [command]
 
 Available Commands:
-  apply       planned service convergence — diff shown, destructive mounts refused without --force
+  apply       planned service convergence — diff shown, destructive mounts refused without --allow-destructive-mounts
 
 Flags:
       --allow-destructive-mounts   proceed past destructive mount changes

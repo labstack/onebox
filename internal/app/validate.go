@@ -89,10 +89,24 @@ func validateTopLevel(p *Spec) error {
 		if err := checkEnum("notifications."+name+".format", p.Notifications[name].Format, eNotifyFormat); err != nil {
 			return err
 		}
+		// notify.Send fires only on an outcome it recognises, so an unlisted
+		// event is a webhook that never calls — the block reads as configured
+		// and does nothing.
+		for i, event := range p.Notifications[name].On {
+			if err := checkEnum(indexed("notifications."+name+".on", i), event, eNotifyEvent); err != nil {
+				return err
+			}
+		}
 	}
 	for _, name := range sortedKeys(p.Hooks) {
-		if err := checkEnum("hooks."+name, name, eHookSeam); err != nil {
-			return err
+		// A hook key is either a lifecycle seam the engine invokes, or the name
+		// of a declared job — `hooks: {migrate: {run: ...}}` replaces the command
+		// used to run the `migrate` job (engine/gate.go, engine/plan.go). Both
+		// are real; anything else is a typo that would load and never fire.
+		if !isHookSeam(name) && !p.Workloads[name].IsJob() {
+			return errf("project_invalid", "hooks."+name, "",
+				"%q is neither a lifecycle seam (%s) nor a declared job",
+				name, strings.Join(eHookSeam, ", "))
 		}
 		if p.Hooks[name].Run == "" {
 			return errf("project_invalid", "hooks."+name, "", "a hook must declare a command to run")
@@ -118,12 +132,18 @@ func validateTopLevel(p *Spec) error {
 			return err
 		}
 	}
-	if p.Observability != nil && p.Observability.Alerts != nil {
-		if err := gDur.checkOptional("observability.logs.retention", p.Observability.Logs.Retention); err != nil {
-			return err
+	if p.Observability != nil {
+		// Each sub-block is optional and independent. Checking one behind the
+		// other's nil guard both skipped the check and dereferenced a nil.
+		if p.Observability.Logs != nil {
+			if err := gDur.checkOptional("observability.logs.retention", p.Observability.Logs.Retention); err != nil {
+				return err
+			}
 		}
-		if err := gDur.checkOptional("observability.alerts.unhealthy_after", p.Observability.Alerts.UnhealthyAfter); err != nil {
-			return err
+		if p.Observability.Alerts != nil {
+			if err := gDur.checkOptional("observability.alerts.unhealthy_after", p.Observability.Alerts.UnhealthyAfter); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -394,6 +414,14 @@ func validateService(s Service, path string) error {
 	}
 	for i, v := range s.Volumes {
 		if err := gIdent.check(indexed(path+".volumes", i), v); err != nil {
+			return err
+		}
+	}
+	// Settings keys are interpolated into a generated shell command without
+	// quoting, so an unchecked key is a command-injection path from a project
+	// file to a root shell on the server.
+	for _, key := range sortedKeys(s.Settings) {
+		if err := gSettingKey.check(path+".settings."+key, key); err != nil {
 			return err
 		}
 	}

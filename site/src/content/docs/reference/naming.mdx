@@ -10,29 +10,36 @@ read_when:
   - "Wondering why two similar things are named differently"
 ---
 
-These are descriptive, not aspirational: each one already holds across the
-surface. They are written down so the next addition has an answer before anyone
-has to review it.
+These describe what the surface already does, so a new field or flag has an
+answer before anyone has to review it. Where a rule has known exceptions they
+are named inline — a rule with a hidden exception is worse than no rule.
 
 ## The project file
 
-**Casing.** Every field is `snake_case`. No abbreviations that are not universal
-— `tls` is the only shortened token in the contract. Not `cfg`, not `dir`, not
-`max`.
+**Casing.** Every field is `snake_case`. Abbreviations are admitted only where
+the short form is the name people use: protocol and format tokens (`tls`,
+`http`, `tcp`, `udp`, `url`), `env`, `cron`, `args`, `config`, and the recovery
+term `pitr`. Invented shortenings are not — no `cfg`, no `dir`, no `max`.
 
 **Number follows shape.** A field holding a map of things is plural; a field
-holding one object is singular.
+holding one object is singular. The exceptions are mass nouns, where the plural
+names a single settings object rather than a collection — `resources`,
+`credentials`, `overrides`, `logs`, `metrics`, `alerts` — and `env`, which is a
+map named for the thing it configures.
 
 | Plural | Singular |
 | --- | --- |
 | `workloads` `services` `registries` `environments` `hooks` `notifications` `backup_targets` `external_services` | `runtime` `deployment` `proxy` `observability` |
 
 Arrays are plural too: `routes`, `env_files`, `volumes`, `published_ports`,
-`needs`, `verifications`, `env_checks`.
+`needs`, `verifications`, `env_checks`. Four are not, because the singular reads
+as the thing being stated rather than a list: `order`, `on`, `require`,
+`present`.
 
 **Booleans announce their direction.** A boolean that grants permission is
 `allow_*`; one that imposes a requirement is `require_*`. A boolean describing
-state is a bare adjective.
+state is a bare adjective, or the name of the thing it switches on
+(`health.tcp`).
 
 ```yaml
 allow_agent_proposals: true      # grants
@@ -47,8 +54,10 @@ duration is an integer.
 ## Commands
 
 **A command is an imperative verb, or a noun that prints.** Nothing in between.
+The split is grammatical, not about mutation — `preview` and `validate` are
+imperative verbs that change nothing.
 
-| Verbs — change something | Nouns — print and change nothing |
+| Verbs — you tell it to act | Nouns — you ask it for a fact |
 | --- | --- |
 | `deploy` `rollback` `abort` `resume` `approve` `bootstrap` `destroy` `eject` `exec` `init` `plan` `preview` `validate` | `status` `logs` `audit` `doctor` `schema` `version` `preflight` `canonical` |
 
@@ -67,13 +76,14 @@ that produces it, the flag that consumes it, and its default filename.
 | `ob backup-evidence create` | `--backup-evidence` | `ob-backup-evidence.json` |
 
 **The bypass gets harder as the blast radius grows.** `ob deploy` takes `-y` to
-skip its prompt. `ob destroy` requires the application name typed back and has
-no bypass flag at all — it cannot be scripted.
+skip its prompt. `ob destroy` has no flag that skips its confirmation: the
+application name must be typed back. (It reads that from stdin, so it can still
+be piped — the point is that no flag turns it off.)
 
 ## Flags
 
-**Shape carries meaning.** Three forms, three behaviours, and they do not
-overlap:
+**Shape carries meaning** for flags that change what a command includes or
+prints. Three forms, three behaviours:
 
 | Form | Means | Example |
 | --- | --- | --- |
@@ -81,17 +91,25 @@ overlap:
 | `-only` suffix | print this **instead** of the default output | `--digest-only` `--origins-only` |
 | adjective or `no-` prefix | modify how the command runs | `--raw` `--overwrite` `--redeploy` `--no-rollback` |
 
-`--force` means exactly one thing everywhere: break a held lock, printing the
-holder first. A flag that proceeds past a refusal which could lose data says so
-in its own name — `--break-migration-gate`, `--allow-destructive-mounts`.
+`--force` means break a held lock, printing the holder first. A flag that
+proceeds past a refusal which could lose data says so in its own name —
+`--break-migration-gate`, `--allow-destructive-mounts`.
+
+One exception, and it should not survive: on `ob proxy apply` and `ob bootstrap`,
+`--force` *also* overrides a cross-app proxy config conflict, which is not a lock
+at all. That second meaning needs its own flag.
 
 **`--out` is where output goes.** Not `--to`, not `--file`. Machine-readable
 output is the global `--output`, never a per-command `--json`.
 
 ## Error codes
 
-`<subject>_<condition>`, `snake_case`, no abbreviations, so every code for one
-subsystem sorts together.
+`<subject>_<condition>`, `snake_case`, so codes for one subsystem sort together.
+
+The lifecycle contract follows this. The loader's own codes largely predate it
+and several are condition-first — `unknown_field`, `no_environment`,
+`unknown_service_driver` — so the environment codes do not sort together today.
+New codes should be subject-first.
 
 ```
 backup_target_unreachable
@@ -107,7 +125,7 @@ are pinned:
 
 | Word | Means | Never means |
 | --- | --- | --- |
-| **server** | the machine you deploy to | a registry host, a backup repository |
+| **server** | the machine you deploy to, in the project file and in every artifact | a backup repository |
 | **target** | a backup destination — `backup_targets`, `protection.target` | the machine you deploy to |
 | **workload** | a container Onebox runs from your declaration | a supporting service, a Compose service |
 
@@ -120,6 +138,7 @@ Where a word arrives from Docker or Compose it keeps Docker's meaning, even when
 that collides with a word above. Users arrive already knowing these, and
 renaming them would cost more than the collision does.
 
-`build.target` is a Dockerfile stage, not a backup destination. `init`, `tty`,
-`stdin_open`, `working_dir`, `cpus`, `extra_hosts` and `platform` all mean what
-they mean in Compose.
+`build.target` is a Dockerfile stage, not a backup destination.
+`registries.<name>.server` is a registry hostname, from `docker login <server>`.
+`init`, `tty`, `stdin_open`, `working_dir`, `cpus`, `extra_hosts` and `platform`
+all mean what they mean in Compose.

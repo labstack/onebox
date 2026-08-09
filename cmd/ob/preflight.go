@@ -53,7 +53,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return explain(err)
 			}
-			report.Target = addr
+			report.Server = addr
 
 			out := cmd.OutOrStdout()
 			if g.Output == "json" {
@@ -78,7 +78,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 
 func writeReport(cmd *cobra.Command, r *app.Report) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "%s  environment %s\n\n", r.Target, r.Env)
+	fmt.Fprintf(out, "%s  environment %s\n\n", r.Server, r.Env)
 	for _, c := range r.Checks {
 		mark := "ok  "
 		if !c.OK {

@@ -76,6 +76,8 @@ var beyondJSONSchema = map[string]string{
 	"absolute env_file":                "a path that resolves inside the repository after joining",
 	"absolute compose ref":             "a path that resolves inside the repository after joining",
 	"protection self target":           "a target and environment host are declared in separate objects",
+	"hook naming an unlisted seam":     "a hook key is a seam or a declared job, and the job list is a separate object",
+	"hook naming neither":              "a hook key is a seam or a declared job, and the job list is a separate object",
 	"protection unsupported objective": "a recovery kind is qualified by the selected service driver",
 	"protection sparse drill":          "cron cadence must be compared with restore proof age",
 

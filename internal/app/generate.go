@@ -426,8 +426,9 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 //
 // The role gate governs only the default. It admits the workload roles that are
 // the application's own and excludes a `daemon`, whose configuration is its
-// own — but a daemon that declares a list receives exactly it, because the gate
-// never reaches an explicit declaration.
+// own: projecting the application's secrets into a database or a cron runner is
+// the failure this gate prevents. A daemon that declares a list still receives
+// exactly it, because the gate never reaches an explicit declaration.
 //
 // What it does not consult is the workload's source. An application adopted
 // from a Compose file resolves what an application declared inline resolves;

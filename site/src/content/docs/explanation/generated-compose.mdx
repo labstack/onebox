@@ -20,12 +20,12 @@ operates something it did not design and cannot fully reason about.
 
 Concretely, that costs three things:
 
-**Two descriptions that can disagree.** The Compose file says one thing, the
-Onebox annotations say another, and nothing arbitrates.
+**Two descriptions that can disagree.** The Compose file would say one thing,
+the Onebox annotations another, and nothing would arbitrate.
 
-**No derivation.** Onebox cannot choose the container name, the volume name, the
-router rule or the network, because you already have. So it cannot guarantee
-they are consistent, collision-free, or stable across releases.
+**No derivation.** Onebox could not choose the container name, the volume name,
+the router rule or the network, because you already would have. So it could not
+guarantee they are consistent, collision-free, or stable across releases.
 
 **No honest defaults.** `strategy: rolling` needs a health check to gate it. When
 the health check lives in a file Onebox merely reads, "is this rollout gated?"

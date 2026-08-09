@@ -335,7 +335,3 @@ func (w Workload) ProbePort() int {
 	}
 	return 0
 }
-
-// PersistenceInferred reports whether a workload's persistence block was
-// derived from its volumes rather than authored, so a report can say which.
-func (p *Spec) PersistenceInferred(workload string) bool { return p.inferredDurable[workload] }

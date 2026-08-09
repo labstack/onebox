@@ -515,9 +515,13 @@ func applyRoleRules(doc map[string]any) {
 		// to discover it at plan time.
 		map[string]any{
 			"if": map[string]any{
+				// `persistence: {}` is durable too — mode defaults to it — so the
+				// rule must fire on an absent mode as well as an explicit one.
 				"properties": map[string]any{"persistence": map[string]any{
-					"properties": map[string]any{"mode": map[string]any{"const": "durable"}},
-					"required":   []any{"mode"},
+					"anyOf": []any{
+						map[string]any{"properties": map[string]any{"mode": map[string]any{"const": "durable"}}, "required": []any{"mode"}},
+						map[string]any{"not": map[string]any{"required": []any{"mode"}}},
+					},
 				}},
 				"required": []any{"persistence"},
 			},

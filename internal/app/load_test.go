@@ -88,6 +88,7 @@ func conformanceCases() []conformanceCase {
 		// Inference must not tighten a refusal against a project that loads.
 		{"inferred durability does not refuse replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}"), true},
 		{"declared durability still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {mode: durable}, replicas: 3}"), false},
+		{"persistence block with no mode still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {}, replicas: 3}"), false},
 		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		// A closed value set is only closed if a value outside it is refused,

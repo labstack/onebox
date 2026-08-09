@@ -244,3 +244,31 @@ services: {postgres: 17}
 		t.Fatalf("the refusal must name the field: %v", err)
 	}
 }
+
+// A project that loads must resolve.
+//
+// An earlier attempt at inferring durability materialised `persistence` into the
+// document and carried the "this was inferred" exemption as in-memory state.
+// deepCopy round-trips through JSON, so Resolve re-ran the cross-field rules
+// against a clone that had the block but not the exemption: any project with a
+// named volume, replicas and ANY environment override was refused at resolve
+// time — blamed on a `replicas` override nobody wrote. The inference is a
+// derived read now, and the document is never edited.
+func TestAProjectThatLoadsAlsoResolves(t *testing.T) {
+	yaml := `api_version: onebox.run/v1
+app: a
+environments:
+  production:
+    server: root@1.2.3.4
+    overrides: {workloads: {w: {resources: {memory: 512MB}}}}
+workloads:
+  w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}
+`
+	p, err := LoadBytes([]byte(yaml), "ob.yml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, err := p.Resolve("production"); err != nil {
+		t.Fatalf("resolve refused a project that loaded: %v", err)
+	}
+}

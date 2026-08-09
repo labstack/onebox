@@ -263,7 +263,7 @@ func (p *Spec) Environment(name string) (Environment, error) {
 
 // Target is the SSH destination for this environment, in the form the
 // transport accepts.
-func (e Environment) Target() string {
+func (e Environment) Destination() string {
 	host := e.Server.Host
 	// Bracketed so an IPv6 literal's own colons are not read as the port
 	// separator. Without the port the transport silently uses 22, and a host

@@ -512,8 +512,8 @@ func uploadCause(ctx context.Context, err error) error {
 	return err
 }
 
-func (s *SSH) Host() string    { return s.host }
-func (s *SSH) Target() string  { return s.target }
-func (s *SSH) SSHUser() string { return s.user }
-func (s *SSH) SSHPort() string { return s.port }
-func (s *SSH) Close() error    { return s.client.Close() }
+func (s *SSH) Host() string        { return s.host }
+func (s *SSH) Destination() string { return s.target }
+func (s *SSH) SSHUser() string     { return s.user }
+func (s *SSH) SSHPort() string     { return s.port }
+func (s *SSH) Close() error        { return s.client.Close() }

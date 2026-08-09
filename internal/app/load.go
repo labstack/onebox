@@ -433,7 +433,11 @@ func crossFieldRules(p *Spec) error {
 				"workload %q asks for a rolling release but declares no health check, so nothing says when the "+
 					"newcomer is ready to take traffic. Declare health:, or use strategy: recreate", name)
 		}
-		if w.Replicas > 1 && w.Persistence != nil && w.Persistence.Mode == "durable" {
+		// Inferred durability deliberately does not fire this: the contract
+		// promises a constraint is not tightened against a project that already
+		// loads. A workload with volumes and replicas still gets a warning from
+		// `ob doctor`, which is the right place for a hazard nobody declared.
+		if w.Replicas > 1 && !p.inferredDurable[name] && w.Persistence != nil && w.Persistence.Mode == "durable" {
 			return errf("stateful_replicas", path+".replicas", "",
 				"workload %q keeps durable state and asks for %d replicas; they would all mount the same volume. "+
 					"Run one instance, or declare the workload without durable persistence if its data is not state",

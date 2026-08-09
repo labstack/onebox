@@ -56,6 +56,12 @@ type Spec struct {
 	// rawExpanded is the authored input after shorthand expansion, kept so a
 	// value's origin can be reported without threading a marker through every
 	// field of the model.
+	// inferredDurable names the workloads whose persistence was inferred from
+	// their named volumes rather than authored. The inference makes onebox
+	// notice the data; it must not make a refusal fire on a project that
+	// loads today, so stateful_replicas still requires an explicit block.
+	inferredDurable map[string]bool
+
 	rawExpanded map[string]any
 
 	// derivedPaths marks canonical paths the author did not write where they

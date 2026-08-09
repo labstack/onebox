@@ -79,6 +79,15 @@ func conformanceCases() []conformanceCase {
 		{"log option with a shell metacharacter", wl("w: {image: nginx, logging: {options: {\"x; touch /tmp/q\": \"1\"}}}"), false},
 		{"log driver with a space", wl("w: {image: nginx, logging: {driver: \"not a driver\"}}"), false},
 		{"a plugin log driver", wl("w: {image: nginx, logging: {driver: \"myorg/fluent:1.2\", options: {max-size: 10m}}}"), true},
+		// The contract publishes persistence.mode defaulting to durable. That
+		// default was unreachable while the block was absent, so a workload with
+		// a managed volume read as holding nothing — and doctor, the backup gate
+		// and the protection gate each guessed the same wrong way.
+		{"volumes without persistence still load", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
+		{"a bind mount is not durable", wl("w: {image: nginx, volumes: [{source: ./cfg, path: /etc/app}], replicas: 3}"), true},
+		// Inference must not tighten a refusal against a project that loads.
+		{"inferred durability does not refuse replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}"), true},
+		{"declared durability still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {mode: durable}, replicas: 3}"), false},
 		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		// A closed value set is only closed if a value outside it is refused,

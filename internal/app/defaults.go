@@ -54,6 +54,14 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			e.Policy.AllowAgentProposals = true
 			mark(path + ".policy.allow_agent_proposals")
 		}
+		// Enabling the backup requirement made this field mandatory, and its
+		// absence produced an untyped complaint about an empty duration for a
+		// field the author had never heard of. A default is the answer the
+		// evolution rules already allow.
+		if e.Policy.RequireMigrationBackup && e.Policy.MigrationBackupMaximumAge == "" {
+			e.Policy.MigrationBackupMaximumAge = "24h"
+			mark(path + ".policy.migration_backup_maximum_age")
+		}
 		p.Environments[name] = e
 	}
 
@@ -140,6 +148,17 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				w.PublishedPorts[i].Protocol = "tcp"
 				mark(pp + ".protocol")
 			}
+		}
+		// The contract says mode defaults to durable. That default was
+		// unreachable while the block itself was absent, so a workload with a
+		// managed volume was read as holding nothing. Materialise it, and mark
+		// it, so `ob canonical` shows the inference rather than hiding it.
+		if w.Persistence == nil && w.HoldsDurableData() {
+			w.Persistence = &Persistence{}
+			if p.inferredDurable == nil {
+				p.inferredDurable = map[string]bool{}
+			}
+			p.inferredDurable[name] = true
 		}
 		if w.Persistence != nil && w.Persistence.Mode == "" {
 			w.Persistence.Mode = "durable"

@@ -413,11 +413,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	return escapeDollars(svc).(map[string]any), namedVolumes, carried, nil
 }
 
-// envFilesFor applies the workload's own list, falling back to the project-wide
-// list for applications and workers only. A daemon never receives project-wide
-// files: it is a database or a cron runner, not the application, and projecting
-// the application's secrets into it was the failure this rule exists to prevent.
-// envFilesFor resolves one workload's list.
+// EnvFilesFor resolves one workload's environment-file list.
 //
 // Most specific wins: the workload's own declaration, else the environment's
 // default, else the project's. An environment override has already been applied
@@ -425,12 +421,14 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 //
 // A declared empty list is not an absent one. `nil` means the workload said
 // nothing and takes the next default; a non-nil empty list means it declared
-// that it receives none, which was previously inexpressible.
+// that it receives none. The distinction is why the field is a nilable slice
+// and why nothing normalises `nil` to `[]`.
 //
 // The role gate governs only the default. It admits the workload roles that are
 // the application's own and excludes a `daemon`, whose configuration is its
-// own — but a daemon that declares a list receives exactly it, because the gate
-// never reaches an explicit declaration.
+// own: projecting the application's secrets into a database or a cron runner is
+// the failure this gate prevents. A daemon that declares a list still receives
+// exactly it, because the gate never reaches an explicit declaration.
 //
 // What it does not consult is the workload's source. An application adopted
 // from a Compose file resolves what an application declared inline resolves;

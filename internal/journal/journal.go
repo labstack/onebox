@@ -220,18 +220,18 @@ func List(ctx context.Context, t transport.Transport, n app.Names) ([]string, er
 const journalMarker = "@@ob-journal@@"
 
 // Journals returns every deploy's records keyed by id, plus the ids oldest
-// first, in a SINGLE round trip. FindIncomplete previously ran one `cat` per
-// journal (O(deploys) round trips against a high-latency host, paid in full
-// whenever no deploy is incomplete); a per-file marker lets one command carry
-// them all while parsing/Summarize stays here, unchanged. (Audit still reads
-// per-file — it is not on the status hot path.)
+// first, in a SINGLE round trip. FindIncomplete is the caller that needs this
+// shape: one `cat` per journal would cost O(deploys) round trips against a
+// high-latency host, paid in full even when no deploy is incomplete. A per-file
+// marker lets one command carry them all while parsing and Summarize stay here.
+// (Audit reads per-file — it is not on the status hot path.)
 func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string, map[string][]Record, error) {
 	// A missing journal directory is a valid never-deployed state. Existing but
 	// unreadable directories/files fail so status cannot report false completeness.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
-	// that record's line would swallow the following file's marker; each
-	// a torn write must not corrupt recovery).
+	// that record's line would swallow the following file's marker, losing an
+	// entire deploy's records to one torn write.
 	cmd := "if [ -d " + q(dir(n)) + " ]; then cd " + q(dir(n)) + " || exit; " +
 		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
 		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ]; then exit 2; fi"

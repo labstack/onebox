@@ -1001,8 +1001,8 @@ func help(bin string, args ...string) (string, error) {
 // A help text with no command section at all returns an error rather than an
 // empty list. The two are indistinguishable to the caller otherwise, and the
 // difference is "this is a leaf command" versus "cobra's template changed and
-// the entire reference is about to be published empty". Blank lines no longer
-// end the scan, because command groups are separated by them.
+// the entire reference is about to be published empty". Blank lines do not end
+// the scan, because command groups are separated by them.
 func subcommands(helpText string) ([]string, error) {
 	var out []string
 	seen := map[string]bool{}

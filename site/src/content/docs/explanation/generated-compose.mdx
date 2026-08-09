@@ -1,50 +1,37 @@
 ---
 title: Why Compose is generated
-description: The reversal that redefined onebox.run/v1, and what it bought.
-summary: Compose was once an input Onebox read; it is now an artifact Onebox generates. Why the direction was reversed, what it enables, and how you get out.
+description: Why the runtime is derived from your declaration rather than read from a file you wrote.
+summary: Compose is an artifact Onebox generates, not an input it reads. What that buys, and how you get out.
 sidebar:
   order: 3
 read_when:
   - "Wondering why you cannot hand Onebox a docker-compose.yml as the contract"
-  - "Migrating a project written against the earlier v1 contract"
 ---
 
-`onebox.run/v1` was redefined **in place** rather than superseded by a `v2`.
-There is no migration path and none is planned: a project written against the
-earlier contract — which classified a Compose file you wrote — does not load, and
-must be authored fresh.
+Onebox does not read a Compose file you wrote. The contract is a declaration of
+what the application *is*; the Compose file, the container names and the routing
+labels are all derived from it.
 
-The reversal is the point.
-
-## Before and after
-
-| | Before | Now |
-| --- | --- | --- |
-| Compose file | An input Onebox read and classified | An artifact Onebox generates |
-| Container names | Yours, and Onebox worked around them | Derived, stable, and contract |
-| Routing labels | Yours to write correctly | Generated from typed `routes` |
-| The contract | A Compose file plus annotations | A declaration of what the application *is* |
-
-## Why reading your Compose file failed
+## Why the runtime is not yours to hand over
 
 Under the [ownership boundary](/explanation/ownership-boundary), Onebox owns the
 runtime. Reading a runtime you wrote inverts that: you own it, and Onebox merely
 operates something it did not design and cannot fully reason about.
 
-Concretely, it produced three problems:
+Concretely, that costs three things:
 
-**Two descriptions that can disagree.** The Compose file said one thing, the
-Onebox annotations said another, and nothing arbitrated.
+**Two descriptions that can disagree.** The Compose file would say one thing,
+the Onebox annotations another, and nothing would arbitrate.
 
 **No derivation.** Onebox could not choose the container name, the volume name,
-the router rule or the network, because you already had. So it could not
-guarantee they were consistent, collision-free, or stable across releases.
+the router rule or the network, because you already would have. So it could not
+guarantee they are consistent, collision-free, or stable across releases.
 
 **No honest defaults.** `strategy: rolling` needs a health check to gate it. When
 the health check lives in a file Onebox merely reads, "is this rollout gated?"
 becomes a question rather than a fact.
 
-## What generation bought
+## What generation buys
 
 - **Derived, stable names.** `shop_web`, `ob_shop_postgres_data`, `ob_shop`,
   `ob-ingress`. Once a volume exists its name cannot change without moving data,

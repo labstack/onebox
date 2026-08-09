@@ -94,9 +94,9 @@ func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error 
 // Upload copies a staged directory onto the target.
 //
 // Run reports a command that ran and failed through Result.ExitCode, reserving
-// err for a process that could not be started at all. Reading only err therefore
-// reported every failed copy as a successful upload — a full disk, an unwritable
-// parent, and a killed shell all returned nil.
+// err for a process that could not be started at all. Both have to be read: a
+// full disk, an unwritable parent and a killed shell all leave err nil and say
+// so only in ExitCode.
 func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
 	script, err := uploadScript(remoteDir, func(staging string) string {
 		return "cp -a " + shq(localDir) + "/. " + staging + "/"
@@ -135,19 +135,14 @@ func shq(s string) string {
 }
 
 // stagingRoot is the directory a transfer lands in before it is visible under
-// its real name. It is a hidden directory beside the destination — NOT outside
-// the destination's parent, which an earlier version of this comment claimed.
+// its real name. It is a hidden directory beside the destination: for a release
+// that means `releases/.uploads/<id>`, inside the very directory `release.list`
+// enumerates with `ls -1`.
 //
-// For a release that means `releases/.uploads/<id>`, i.e. inside the very
-// directory `release.list` enumerates with `ls -1`. Two things keep it from
-// being read as a release, and both are load-bearing: `ls -1` does not list
-// dot-entries, and `release.IsID` rejects the leading dot. Staging is not
-// somewhere nothing looks; it is somewhere two specific filters exclude.
-//
-// A first attempt put staging at `<remoteDir>.partial`, which had neither
-// protection: the debris was a plain entry in `releases/`, so `Previous()`
-// handed it to `ob rollback` and retention counted it and evicted a real
-// release to keep it.
+// Two independent filters keep it from being read as a release id: `ls -1`
+// does not list dot-entries, and `release.IsID` accepts only a timestamped id.
+// Staging is not somewhere nothing looks; it is somewhere two specific filters
+// exclude, and dropping the dot would leave only one of them.
 const stagingRoot = ".uploads"
 
 func stagingPath(remoteDir string) string {
@@ -168,18 +163,17 @@ const uploadSentinel = ".ob-upload-complete"
 // exists. Staging elsewhere and moving into place means the destination appears
 // whole or not at all.
 //
-// The destination is never deleted. An earlier version ran `rm -rf <target>`
-// before the move so it could replace an existing directory, which opened a
-// window where the previous release was gone and the new one not yet installed —
+// The destination is never deleted. Clearing it before the move would open a
+// window where the previous release is gone and the new one not yet installed —
 // a worse state than either. Every caller uploads to a path that is unique per
 // operation, so a destination that already exists means something is wrong;
 // `mv` fails and says so rather than destroying what is there.
 //
 // Staging is removed when the script exits or is signalled. It has to be
-// removed here rather than
-// by the caller, because this is the only place that knows the staging path:
-// the secrets, protection-credential and proxy uploads all clean up the
-// *destination* they asked for, so anything left beside it survives them.
+// removed here rather than by the caller, because this is the only place that
+// knows the staging path: the secrets, protection-credential and proxy uploads
+// all clean up the *destination* they asked for, so anything left beside it
+// survives them.
 // Their payloads are plaintext — an app's .env, a protection credentials.env —
 // and the leaf name carries an epoch or a fence token that changes every run,
 // so a leak is never overwritten by the next attempt.
@@ -214,11 +208,11 @@ func uploadScript(remoteDir string, transfer func(quotedStaging string) string) 
 		// The handler is quoted twice on purpose. `staging` is already
 		// single-quoted for the shell that reads this script; wrapping it in a
 		// second pair of literal quotes would close that quoting rather than nest
-		// it, leaving the path bare — a destination holding `;` then ran as a
-		// command on the target host, and one merely holding a space produced
-		// `trap: invalid signal specification` and installed no handler at all.
-		// shq applied to the whole handler escapes the inner quotes so the string
-		// survives to the shell that evaluates it when the trap fires.
+		// it, leaving the path bare — a destination holding `;` would then run as
+		// a command on the target host, and one merely holding a space would
+		// produce `trap: invalid signal specification` and install no handler at
+		// all. shq applied to the whole handler escapes the inner quotes so the
+		// string survives to the shell that evaluates it when the trap fires.
 		//
 		// EXIT alone does not cover a killed shell: cancelling closes the SSH
 		// connection, sshd sends SIGHUP, and an untrapped signal skips the EXIT

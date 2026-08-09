@@ -62,11 +62,10 @@ Onebox is **not**:
 The CLI is the product interface, for people and for agents. It is not a fallback
 or a transitional path.
 
-Onebox served an MCP surface once and no longer does. It was read-only, so every
-mutation went through the CLI anyway, and an agent able to run `ob deploy` in a
-shell was never constrained by a read-only tool list. The boundary it appeared to
-provide did not exist. Point an agent at the `ob` binary the way you would point
-it at `git` or `gh`.
+There is no MCP surface. A read-only tool list constrains nothing when every
+mutation goes through the CLI anyway and the agent can run `ob deploy` in a
+shell — the boundary it appears to provide does not exist. Point an agent at the
+`ob` binary the way you would point it at `git` or `gh`.
 
 ## Where to go next
 

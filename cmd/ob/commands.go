@@ -651,7 +651,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 	}
 	plannedNoOp := pl.plan.NoOp && !redeploy
 	if !plannedNoOp && pl.plan.MigrationBackup != nil {
-		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan`, create a receipt with `ob evidence create`, then use `ob deploy --plan PLAN --backup-evidence RECEIPT --approval APPROVAL` (or the audited override flags)")
+		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan`, create a receipt with `ob backup-evidence create`, then use `ob deploy --plan PLAN --backup-evidence RECEIPT --approval APPROVAL` (or the audited override flags)")
 	}
 	approval, err := loadApproval(approvalFile)
 	if err != nil {

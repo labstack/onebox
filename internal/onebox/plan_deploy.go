@@ -217,10 +217,10 @@ func readLiveComposeState(ctx context.Context, e *engine.Engine, currentRelease 
 // any decrypted secrets, and the files a workload's env_files and bind mounts
 // reference.
 //
-// The injection steps this used to perform — env files, the proxy network,
-// secrets env — are gone. Generation emits all three from the declaration, so
-// there is nothing left to patch into a document afterwards, and no second
-// place where the runtime can differ from what `ob preview` showed.
+// Nothing is injected here — not env files, not the proxy network, not secrets
+// env. Generation emits all three from the declaration, so there is nothing to
+// patch into a document afterwards, and no second place where the runtime can
+// differ from what `ob preview` showed.
 func stageExecution(ctx context.Context, lp *loadedProject, environment, releaseID string, images app.Images) (string, func(), error) {
 	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.Name)
 	if err != nil {

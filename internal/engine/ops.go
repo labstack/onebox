@@ -230,9 +230,9 @@ func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer
 }
 
 // resolveService maps a name the operator typed to a Compose service. A
-// workload's name IS its service name now, so the old indirection is gone; what
-// remains is the check that the name means something, and a pass-through for a
-// service that only the rendered runtime knows about.
+// workload's name IS its service name, so there is no indirection to undo: this
+// checks the name means something, and passes through a service that only the
+// rendered runtime knows about.
 func (e *Engine) resolveService(name string) (string, error) {
 	if name == "" {
 		return "", nil

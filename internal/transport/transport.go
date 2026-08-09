@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
@@ -89,9 +90,30 @@ func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error 
 	return c.Run()
 }
 
+// Upload copies a staged directory onto the target.
+//
+// Run reports a command that ran and failed through Result.ExitCode, reserving
+// err for a process that could not be started at all. Reading only err therefore
+// reported every failed copy as a successful upload — a full disk, an unwritable
+// parent, and a killed shell all returned nil.
 func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
-	_, err := l.Run(ctx, "mkdir -p "+shq(remoteDir)+" && cp -a "+shq(localDir)+"/. "+shq(remoteDir)+"/")
-	return err
+	res, err := l.Run(ctx, "mkdir -p "+shq(remoteDir)+" && cp -a "+shq(localDir)+"/. "+shq(remoteDir)+"/")
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		// A cancelled context kills the shell, which arrives here as exit -1
+		// with no useful status of its own; the context error says more.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		detail := strings.TrimSpace(res.Stderr)
+		if detail == "" {
+			detail = strings.TrimSpace(res.Stdout)
+		}
+		return fmt.Errorf("upload %s to %s: exit %d: %s", localDir, remoteDir, res.ExitCode, detail)
+	}
+	return nil
 }
 
 func (l *Local) Host() string    { return "local" }

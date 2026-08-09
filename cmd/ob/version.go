@@ -28,18 +28,16 @@ func currentVersionReport() versionReport {
 	}
 }
 
-func addVersionCommand(root *cobra.Command) {
-	var jsonOutput bool
+func addVersionCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "print version and build provenance",
 		Long:  "Print the version and build provenance of this binary.\n\nEnvironment policy can require a released runner, so a commit-derived or\ndirty build is reported as such rather than as a version.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return writeVersion(cmd.OutOrStdout(), currentVersionReport(), jsonOutput)
+			return writeVersion(cmd.OutOrStdout(), currentVersionReport(), g.Output == "json")
 		},
 	}
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print version and build provenance as JSON")
 	root.AddCommand(cmd)
 }
 

@@ -110,7 +110,7 @@ ob version
 ob doctor
 ```
 
-Both commands also support `--json`.
+Both commands also take `--output json`.
 
 From a repository with a working Compose file, scaffold and inspect `ob.yml`:
 
@@ -145,7 +145,7 @@ typed operation graph and exact config, Compose, host-state, image, rendered
 Compose, and payload bindings. It expires after 15 minutes; any drift or local
 payload change requires a new plan.
 
-`ob init` is a starting point, not permission to deploy. Review component
+`ob init` is a starting point, not permission to deploy. Review workload
 types, persistence semantics, readiness, job data effects, and the environment
 target before running a plan. The
 [project file reference](site/src/content/docs/reference/project-file.mdx)
@@ -185,7 +185,7 @@ key-material names. Seal externally validated, secret-free facts into a
 plan-bound receipt and apply it with the plan:
 
 ```sh
-ob backup-evidence create --plan ob-plan.json --manifest backup-facts.json --out ob-backup-evidence.json
+ob evidence create --plan ob-plan.json --manifest backup-facts.json --out ob-backup-evidence.json
 ob deploy --plan ob-plan.json --approval ob-approval.json --backup-evidence ob-backup-evidence.json
 ```
 
@@ -210,7 +210,7 @@ headers, and scalar JSON values. Migration verification can bind the expected
 provider and applied revisions to the captured job-result evidence:
 
 ```yaml
-verification:
+verifications:
   - url: https://app.example.com/healthz
     status_codes: [200]
     required_headers:

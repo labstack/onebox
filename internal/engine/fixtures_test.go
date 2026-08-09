@@ -35,7 +35,7 @@ workloads:
     role: job
     image: ghcr.io/x/app:v2
     command: migrate
-    run: pre_release
+    when: pre_release
     data_effect: unknown
 services:
   postgres:
@@ -43,7 +43,7 @@ services:
     version: 17
 deployment:
   order: [web, worker]
-verification:
+verifications:
   - workload: web
     http: /healthz
 `

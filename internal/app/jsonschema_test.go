@@ -82,8 +82,8 @@ var beyondJSONSchema = map[string]string{
 	// Exclusivity within one object that a schema could express, and does not
 	// here because the resulting document would be harder to read than the
 	// rule it encodes.
-	"verification url with exec":          "a verification is exactly one kind",
-	"verification workload without probe": "an http or exec check names the workload it runs in",
+	"verifications url with exec":          "a verification is exactly one kind",
+	"verifications workload without probe": "an http or exec check names the workload it runs in",
 }
 
 func TestPublishedSchemaMatchesTheLoader(t *testing.T) {
@@ -235,7 +235,7 @@ func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
 		t.Fatalf("read published schema: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --to docs/onebox.run-v1.schema.json`", path)
+		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out docs/onebox.run-v1.schema.json`", path)
 	}
 }
 

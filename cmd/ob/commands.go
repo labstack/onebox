@@ -81,7 +81,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolv
 func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "validate",
-		Short: "validate schema, components, and rollability — no side effects",
+		Short: "validate schema, workloads, and rollability — no side effects",
 		Long:  "Load the project, expand shorthand, apply defaults and the environment's\noverrides, and check every rule the contract states.\n\nContacts nothing and writes nothing. A failure names the field, the line and\nthe constraint; `ob canonical` shows what was understood.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _, err := loadAll(cmd.Context(), g)
@@ -213,7 +213,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, Force: g.Force}, "abort")
 		},
 	}
-	abortCmd.Flags().BoolVar(&g.Force, "force", false, "abort past a closed migration gate (you assert schema compatibility)")
+	abortCmd.Flags().BoolVar(&g.Force, "break-migration-gate", false, "abort past a closed migration gate (you assert schema compatibility)")
 	root.AddCommand(abortCmd)
 
 	root.AddCommand(&cobra.Command{
@@ -361,7 +361,7 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 	}
 	if plan.MigrationBackup != nil {
 		u.Println(fmt.Sprintf("  migration_backup=max_age:%s restore_test:%t resources:%d keys:%d",
-			plan.MigrationBackup.MaxAge, plan.MigrationBackup.RequireRestoreTest,
+			plan.MigrationBackup.MaximumAge, plan.MigrationBackup.RequireRestoreTest,
 			len(plan.MigrationBackup.Resources), len(plan.MigrationBackup.RequiredKeyMaterial)))
 	}
 	fmt.Fprintln(out)
@@ -651,7 +651,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 	}
 	plannedNoOp := pl.plan.NoOp && !redeploy
 	if !plannedNoOp && pl.plan.MigrationBackup != nil {
-		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan`, create a receipt with `ob backup-evidence create`, then use `ob deploy --plan PLAN --backup-evidence RECEIPT --approval APPROVAL` (or the audited override flags)")
+		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan`, create a receipt with `ob evidence create`, then use `ob deploy --plan PLAN --backup-evidence RECEIPT --approval APPROVAL` (or the audited override flags)")
 	}
 	approval, err := loadApproval(approvalFile)
 	if err != nil {

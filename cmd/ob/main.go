@@ -48,7 +48,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVarP(&g.Env, "env", "e", "production", "environment name")
 	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "ob.yml", "path to ob.yml")
 	root.PersistentFlags().StringVar(&g.Output, "output", "human", "output mode for supported commands: human|json|ndjson (see the CLI reference)")
-	addVersionCommand(root)
+	addVersionCommand(root, g)
 	addDoctorCommand(root, g)
 	addBackupEvidenceCommand(root, g)
 	addCommands(root, g)

@@ -127,7 +127,7 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	c.Env = append(os.Environ(),
 		"OB_APP="+e.Spec.Name,
 		"OB_HOST="+e.T.Host(),
-		"OB_TARGET="+e.T.Target(), // OpenSSH user@host (IPv6 unbracketed)
+		"OB_SERVER="+e.T.Destination(), // OpenSSH user@host (IPv6 unbracketed)
 		"OB_SSH_USER="+e.T.SSHUser(),
 		"OB_SSH_PORT="+e.T.SSHPort(),
 		"OB_RELEASE_DIR="+remoteReleaseDir,

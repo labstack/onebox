@@ -97,7 +97,7 @@ func TestTargetCarriesTheDeclaredPort(t *testing.T) {
 		"ipv6 no port":   {Server{User: "root", Host: "2a01:4ff::1"}, "root@2a01:4ff::1"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := (Environment{Server: tc.server}).Target(); got != tc.want {
+			if got := (Environment{Server: tc.server}).Destination(); got != tc.want {
 				t.Errorf("Target() = %q, want %q", got, tc.want)
 			}
 		})

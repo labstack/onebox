@@ -406,6 +406,10 @@ Names a workload or a supporting service. What the command does is not
 Onebox's business: this is an escape hatch, outside the journal and the
 safety regime, and nothing it changes is part of any release.
 
+Arguments are passed as a literal vector, so a shell metacharacter is not
+interpreted: write `ob exec web -- sh -c 'a && b'` rather than passing the
+pipeline as one word.
+
 Usage:
   ob exec <workload|service> -- <command...> [flags]
 

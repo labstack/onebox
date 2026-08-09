@@ -339,6 +339,34 @@ func uploadWithClient(ctx context.Context, client uploadClient, localDir, remote
 	return uploadWithSession(ctx, sess, localDir, remoteDir)
 }
 
+// uploadDrainTimeout bounds how long an aborted upload waits for the remote to
+// report what it did. The wait exists to collect the remote's stderr, which is
+// worth a pause but never worth hanging the CLI. A var so the test that proves
+// the wait is bounded does not have to take this long to run.
+var uploadDrainTimeout = 30 * time.Second
+
+// tarTransfer is the receiving half of an SSH upload: it extracts the streamed
+// archive into staging and refuses to hand back a payload the sender did not
+// finish.
+//
+// The remote cannot tell a truncated archive from a complete one on its own.
+// `tar` rejects a stream that stops mid-entry, because the gzip trailer is then
+// missing — but an archive of *zero* bytes is not malformed. bsdtar/libarchive
+// exits 0 on empty stdin (measured; GNU tar exits 2 and busybox 1), and
+// gzip.Writer emits its header only on the first Write, so a walk that fails
+// before the first entry sends nothing at all. Those two combined extracted
+// nothing, exited 0, and published an empty directory as a complete release.
+// The sentinel is written last, so its presence is the sender's statement that
+// the walk finished, and it does not depend on which tar the host ships.
+func tarTransfer(staging string) string {
+	// staging arrives shell-quoted and uploadSentinel is a fixed literal with no
+	// metacharacters, so concatenating outside the quotes is safe.
+	marker := staging + "/" + uploadSentinel
+	return "tar -xzf - -C " + staging +
+		" && { [ -f " + marker + " ] || { echo 'upload payload is incomplete: the archive was truncated' >&2; exit 1; }; }" +
+		" && rm -f " + marker
+}
+
 // uploadWithSession streams the archive after uploadWithClient has installed
 // the connection-level cancellation guard.
 func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remoteDir string) error {
@@ -354,9 +382,7 @@ func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remote
 	}
 	var errb strings.Builder
 	sess.setStderr(&errb)
-	script, err := uploadScript(remoteDir, func(staging string) string {
-		return "tar -xzf - -C " + staging
-	})
+	script, err := uploadScript(remoteDir, tarTransfer)
 	if err != nil {
 		_ = pw.Close()
 		return uploadError(ctx, err)
@@ -401,16 +427,37 @@ func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remote
 		return nil
 	})
 	if walkErr != nil {
-		// Do NOT finalise the archive. tw.Close writes a valid tar EOF marker and
-		// gz.Close a valid gzip trailer, so the remote tar would see a well-formed
-		// archive of whatever arrived, exit 0, and the script would move that
-		// partial payload into place as a complete release. Closing the pipe alone
-		// truncates the stream, which is what makes the remote fail.
+		// Do NOT finalise the archive, and do NOT write the sentinel. tw.Close
+		// writes a valid tar EOF marker and gz.Close a valid gzip trailer, so the
+		// remote tar would see a well-formed archive of whatever arrived and exit
+		// 0. Truncating is what makes the remote fail for a non-empty stream; the
+		// missing sentinel is what makes it fail for an empty one.
 		_ = pw.Close()
-		if waitErr := sess.Wait(); waitErr != nil {
-			return uploadError(ctx, fmt.Errorf("%w (remote: %s)", walkErr, strings.TrimSpace(errb.String())))
+		waitDone := make(chan error, 1)
+		go func() { waitDone <- sess.Wait() }()
+		select {
+		case waitErr := <-waitDone:
+			if waitErr != nil {
+				return uploadCause(ctx, fmt.Errorf("%w (remote: %s)", walkErr, strings.TrimSpace(errb.String())))
+			}
+			// The remote exited 0 on a stream that was deliberately truncated. The
+			// sentinel check should make this unreachable; if it happens anyway the
+			// destination may hold a partial payload, and `ob resume` reads a
+			// directory that exists as a finished transfer.
+			return uploadCause(ctx, fmt.Errorf("%w — the remote reported success for a transfer that did not finish; "+
+				"%s may hold an incomplete payload and must be removed before retrying", walkErr, remoteDir))
+		case <-time.After(uploadDrainTimeout):
+			// Only a context cancellation closes the connection, and walkErr is
+			// usually not a context error, so without this the CLI waits on a
+			// wedged peer forever with nothing printed.
+			return uploadCause(ctx, fmt.Errorf("%w — the remote did not report a result within %s, so the state of %s is unknown",
+				walkErr, uploadDrainTimeout, remoteDir))
 		}
-		return uploadError(ctx, walkErr)
+	}
+	// Written last so the remote can distinguish a complete payload from a
+	// truncated one; the receiving script deletes it before the move.
+	if err := tw.WriteHeader(&tar.Header{Name: uploadSentinel, Mode: 0o600, Typeflag: tar.TypeReg}); err != nil {
+		return uploadError(ctx, err)
 	}
 	closeErr := closeUploadWriters(tw, gz, pw)
 	if closeErr != nil {
@@ -447,6 +494,19 @@ func closeUploadWriters(tw *tar.Writer, gz *gzip.Writer, pw io.WriteCloser) erro
 func uploadError(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
+	}
+	return err
+}
+
+// uploadCause keeps both facts. uploadError answers "was this a cancellation?"
+// by discarding what actually failed, which is right where the cause is a
+// symptom of the cancellation and wrong where it is not: a file the walk could
+// not read reports itself as context.Canceled the moment the operator presses
+// Ctrl-C, and the reason for the failed deploy is gone. Joining keeps
+// errors.Is(err, context.Canceled) true and still names the cause.
+func uploadCause(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return errors.Join(err, ctxErr)
 	}
 	return err
 }

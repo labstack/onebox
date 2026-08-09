@@ -134,21 +134,30 @@ func shq(s string) string {
 	return shellquote.Quote(s)
 }
 
-// stagingRoot is where a transfer lands before it is visible under its real
-// name. It is a sibling of the application directory, deliberately NOT beside
-// the destination.
+// stagingRoot is the directory a transfer lands in before it is visible under
+// its real name. It is a hidden directory beside the destination — NOT outside
+// the destination's parent, which an earlier version of this comment claimed.
 //
-// A first attempt at this put staging at `<remoteDir>.partial`, which for a
-// release meant inside `releases/`. That directory is enumerated with `ls -1`
-// and every entry is taken to be a release id, so the debris became a release:
-// `Previous()` handed it to `ob rollback`, and retention counted it and evicted
-// a real release to keep it. Debris belongs outside any namespace something
-// else enumerates.
+// For a release that means `releases/.uploads/<id>`, i.e. inside the very
+// directory `release.list` enumerates with `ls -1`. Two things keep it from
+// being read as a release, and both are load-bearing: `ls -1` does not list
+// dot-entries, and `release.IsID` rejects the leading dot. Staging is not
+// somewhere nothing looks; it is somewhere two specific filters exclude.
+//
+// A first attempt put staging at `<remoteDir>.partial`, which had neither
+// protection: the debris was a plain entry in `releases/`, so `Previous()`
+// handed it to `ob rollback` and retention counted it and evicted a real
+// release to keep it.
 const stagingRoot = ".uploads"
 
 func stagingPath(remoteDir string) string {
 	return path.Join(path.Dir(remoteDir), stagingRoot, path.Base(remoteDir))
 }
+
+// uploadSentinel is written as the final archive entry by transports that
+// stream, so the receiver can tell a complete payload from a truncated one.
+// See uploadScript.
+const uploadSentinel = ".ob-upload-complete"
 
 // uploadScript wraps a transfer so an interrupted one cannot be mistaken for a
 // finished one.
@@ -165,6 +174,14 @@ func stagingPath(remoteDir string) string {
 // a worse state than either. Every caller uploads to a path that is unique per
 // operation, so a destination that already exists means something is wrong;
 // `mv` fails and says so rather than destroying what is there.
+//
+// Staging is removed on every exit path. It has to be removed here rather than
+// by the caller, because this is the only place that knows the staging path:
+// the secrets, protection-credential and proxy uploads all clean up the
+// *destination* they asked for, so anything left beside it survives them.
+// Their payloads are plaintext — an app's .env, a protection credentials.env —
+// and the leaf name carries an epoch or a fence token that changes every run,
+// so a leak is never overwritten by the next attempt.
 func uploadScript(remoteDir string, transfer func(quotedStaging string) string) (string, error) {
 	// This helper exists to be safe, so it validates rather than trusting its
 	// caller two packages away. Cleaning first removes the trailing slash that
@@ -182,14 +199,22 @@ func uploadScript(remoteDir string, transfer func(quotedStaging string) string) 
 	// `mv a b` where b is an existing directory moves a *inside* b rather than
 	// failing, which would bury the payload one level down and report success.
 	// `mv -T` says what is meant but is GNU-only, so the guard is explicit.
-	guard := "if [ -e " + target + " ]; then echo 'upload destination already exists: " +
-		"refusing to replace it' >&2; exit 1; fi"
-	return guard +
-		" && mkdir -p " + shq(path.Dir(stagingPath(remoteDir))) +
-		" && rm -rf " + staging +
-		" && mkdir -p " + staging +
-		" && " + transfer(staging) +
-		" && mkdir -p " + shq(path.Dir(remoteDir)) +
-		" && if [ -e " + target + " ]; then echo 'upload destination appeared during transfer' >&2; exit 1; fi" +
-		" && mv " + staging + " " + target, nil
+	//
+	// Checking again after the transfer narrows the window but does not close
+	// it: a destination created between the second check and the `mv` still
+	// gets the payload nested inside it. What actually prevents that is the
+	// host lock — one operation per app — plus destinations that are unique per
+	// operation. This is a guard against a stale directory, not against a
+	// concurrent writer.
+	return strings.Join([]string{
+		"if [ -e " + target + " ]; then echo 'upload destination already exists: refusing to replace it' >&2; exit 1; fi",
+		"rm -rf " + staging + " || exit 1",
+		"mkdir -p " + staging + " || exit 1",
+		"trap 'rm -rf " + staging + "' EXIT",
+		transfer(staging) + " || exit 1",
+		"mkdir -p " + shq(path.Dir(remoteDir)) + " || exit 1",
+		"if [ -e " + target + " ]; then echo 'upload destination appeared during transfer' >&2; exit 1; fi",
+		"mv " + staging + " " + target + " || exit 1",
+		"trap - EXIT",
+	}, "\n"), nil
 }

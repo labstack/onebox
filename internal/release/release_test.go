@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -96,7 +97,7 @@ func TestListIgnoresEntriesThatAreNotReleaseIds(t *testing.T) {
 		t.Errorf("rollback would target %q, not the previous release", prev)
 	}
 
-	candidates, err := PruneCandidates(context.Background(), f, names, 2)
+	candidates, unrecognized, err := PruneCandidates(context.Background(), f, names, 2)
 	if err != nil {
 		t.Fatalf("prune candidates: %v", err)
 	}
@@ -107,6 +108,36 @@ func TestListIgnoresEntriesThatAreNotReleaseIds(t *testing.T) {
 	}
 	if len(candidates) != 0 {
 		t.Errorf("two real releases with retain=2 should leave nothing to prune, got %v", candidates)
+	}
+	// The three non-releases are excluded from rollback and retention, which is
+	// the safe direction — but they still occupy the directory retention is
+	// enforced over, so they have to be reported rather than silently dropped.
+	want := []string{"20260102-000000-bbb.partial", ".uploads", "lost+found"}
+	if !slices.Equal(unrecognized, want) {
+		t.Errorf("unrecognised entries = %v, want %v", unrecognized, want)
+	}
+}
+
+// A real release that IsID rejected would be invisible: on the host but absent
+// from rollback and from retention. That is the dangerous direction, so the
+// error has to distinguish it from a genuinely empty releases directory.
+func TestPreviousNamesTheEntriesItRefusedToRecognise(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/20260102-000000-bbb\n"}, true
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: "20260102-000000-bbb\nnot-a-release-id\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+
+	_, err := Previous(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
+	if err == nil {
+		t.Fatal("previous succeeded with only one release")
+	}
+	if !strings.Contains(err.Error(), "not-a-release-id") {
+		t.Errorf("error does not name the entry that was skipped: %v", err)
 	}
 }
 

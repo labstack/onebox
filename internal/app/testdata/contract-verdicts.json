@@ -5,6 +5,11 @@
     "code": "unknown_field"
   },
   {
+    "case": "conformance/a plugin log driver",
+    "loads": true,
+    "digest": "288c7699e676ca18be4d0e354786bb0d54278f1d68e48a68ef33b3fc7e0e0b01"
+  },
+  {
     "case": "conformance/absolute compose ref",
     "loads": false,
     "code": "project_invalid"
@@ -153,6 +158,16 @@
     "case": "conformance/job with data_effect",
     "loads": true,
     "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
+  },
+  {
+    "case": "conformance/log driver with a space",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/log option with a shell metacharacter",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/log retention as an integer",

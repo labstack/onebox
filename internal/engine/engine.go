@@ -75,8 +75,8 @@ type Options struct {
 
 type Engine struct {
 	// Spec is what the author declared; Compose is what Compose parsed from
-	// the rendered runtime. Keeping both named for their source is why this
-	// package no longer says "project" for two different things.
+	// the rendered runtime. Both are named for their source so that "project"
+	// never stands for two different things in this package.
 	Spec    *app.Resolved
 	Compose *ctypes.Project
 	T       transport.Transport

@@ -27,8 +27,8 @@ import (
 
 // loadAll reads the project, resolves it for the selected environment, and
 // parses the runtime it generates. There is no user-authored Compose file to
-// find any more: the declaration is the source, and what used to be inference
-// is now something the author states.
+// find: the declaration is the source, and the author states what would
+// otherwise have to be inferred.
 func loadAll(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
 	return loadAllWith(ctx, g, false)
 }

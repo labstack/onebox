@@ -367,7 +367,7 @@ type MigrationRevs struct {
 
 type Notification struct {
 	Webhook string   `json:"webhook" description:"HTTP endpoint that receives operation notifications." example:"https://hooks.example.com/onebox"`
-	On      []string `json:"on,omitempty" description:"Operation outcomes that trigger this notification."`
+	On      []string `json:"on,omitempty" description:"Operation outcomes that trigger this notification." default:"success, failure"`
 	Format  string   `json:"format" description:"Notification payload format." default:"text"`
 }
 

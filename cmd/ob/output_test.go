@@ -140,7 +140,7 @@ func TestStructuredDeployRequiresApprovalArtifactWithoutPrompting(t *testing.T) 
 		CreatedAt: createdAt.Format(time.RFC3339Nano), ExpiresAt: createdAt.Add(15 * time.Minute).Format(time.RFC3339Nano),
 		Risk: onebox.RiskModerate, Reversibility: onebox.ReversibilityReversible, Approval: onebox.ApprovalOneTime,
 		Binding: onebox.OperationBinding{
-			Application: artifact.App, Environment: artifact.Env, Target: "deploy@example.invalid",
+			Application: artifact.App, Environment: artifact.Env, Server: "deploy@example.invalid",
 			ConfigDigest: artifact.ConfigHash, ComposeDigest: "sha256:compose",
 			StateDigest: engine.HashBytes(encodedArtifact), PayloadDigest: "payload-digest",
 			LiveComposeDigest: "sha256:live-compose", LivePayloadDigest: "live-payload",

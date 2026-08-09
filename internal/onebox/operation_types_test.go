@@ -29,7 +29,7 @@ func TestOperationPlanDigestRoundTripAndTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := strings.Replace(string(encoded), `"target": "deploy@example.test"`, `"target": "attacker@example.test"`, 1)
+	tampered := strings.Replace(string(encoded), `"server": "deploy@example.test"`, `"server": "attacker@example.test"`, 1)
 	if tampered == string(encoded) {
 		t.Fatal("test did not alter encoded plan")
 	}
@@ -168,7 +168,7 @@ func validOperationPlan(t *testing.T) OperationPlan {
 		Binding: OperationBinding{
 			Application:   "example",
 			Environment:   "production",
-			Target:        "deploy@example.test",
+			Server:        "deploy@example.test",
 			ConfigDigest:  "sha256:config",
 			ComposeDigest: "sha256:compose",
 			StateDigest:   "sha256:state",

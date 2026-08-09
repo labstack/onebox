@@ -220,7 +220,7 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			}
 			if external.Probe.MaximumAge == "" {
 				external.Probe.MaximumAge = "5m"
-				mark(path + ".probe.max_age")
+				mark(path + ".probe.maximum_age")
 			}
 		}
 		p.ExternalServices[name] = external
@@ -231,6 +231,12 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		if n.Format == "" {
 			n.Format = "text"
 			mark("notifications." + name + ".format")
+		}
+		// A webhook with no events declared matched no outcome and never
+		// fired, which reads as configured and does nothing.
+		if n.On == nil {
+			n.On = append([]string(nil), eNotifyEvent...)
+			mark("notifications." + name + ".on")
 		}
 		p.Notifications[name] = n
 	}

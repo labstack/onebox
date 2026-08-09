@@ -360,7 +360,7 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 		u.Println("  " + step.ID + detail)
 	}
 	if plan.MigrationBackup != nil {
-		u.Println(fmt.Sprintf("  migration_backup=max_age:%s restore_test:%t resources:%d keys:%d",
+		u.Println(fmt.Sprintf("  migration_backup=maximum_age:%s restore_test:%t resources:%d keys:%d",
 			plan.MigrationBackup.MaximumAge, plan.MigrationBackup.RequireRestoreTest,
 			len(plan.MigrationBackup.Resources), len(plan.MigrationBackup.RequiredKeyMaterial)))
 	}
@@ -741,7 +741,7 @@ func renderApprovalSummary(cmd *cobra.Command, plan *onebox.DeployPlan) {
 	fmt.Fprintf(cmd.OutOrStdout(), "\nApprove exact plan:\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  release: %s\n", plan.Operation.ReleaseID)
 	fmt.Fprintf(cmd.OutOrStdout(), "  digest:  %s\n", plan.PlanDigest)
-	fmt.Fprintf(cmd.OutOrStdout(), "  target:  %s (%s/%s)\n", binding.Target, binding.Application, binding.Environment)
+	fmt.Fprintf(cmd.OutOrStdout(), "  target:  %s (%s/%s)\n", binding.Server, binding.Application, binding.Environment)
 	fmt.Fprintf(cmd.OutOrStdout(), "  risk:    %s (%s)\n", plan.Operation.Risk, plan.Operation.Approval)
 	fmt.Fprintf(cmd.OutOrStdout(), "  expires: %s\n", plan.Operation.ExpiresAt)
 }

@@ -112,7 +112,7 @@ type doctorProtectionsReport struct {
 
 type doctorProtectionCheck struct {
 	Status    doctorStatus `json:"status"`
-	Component string       `json:"component"`
+	Workload  string       `json:"workload"`
 	Mechanism string       `json:"mechanism"`
 	Available bool         `json:"available"`
 	Message   string       `json:"message"`
@@ -489,13 +489,13 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 			continue
 		}
 		report.Checks = append(report.Checks, doctorProtectionCheck{
-			Status: doctorWarning, Component: name, Mechanism: "backup", Available: false,
+			Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
 			Message: "holds durable data and Onebox takes no backups; copy it off this host yourself",
 		})
 	}
 	for _, name := range cfg.ServiceNames() {
 		report.Checks = append(report.Checks, doctorProtectionCheck{
-			Status: doctorWarning, Component: name, Mechanism: "backup", Available: false,
+			Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
 			Message: "managed service data lives only on this host; Onebox takes no backups yet",
 		})
 	}
@@ -506,7 +506,7 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 		}
 		_, sourceErr := deps.stat(source)
 		sopsPath, sopsErr := deps.lookPath("sops")
-		check := doctorProtectionCheck{Component: "", Mechanism: "sops_secrets"}
+		check := doctorProtectionCheck{Workload: "", Mechanism: "sops_secrets"}
 		switch {
 		case sourceErr != nil:
 			check.Status = doctorFail
@@ -523,14 +523,14 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	}
 
 	if cfg.Runtime != nil && len(cfg.Runtime.EnvChecks) > 0 {
-		check := doctorProtectionCheck{Mechanism: "runtime_preflight"}
+		check := doctorProtectionCheck{Mechanism: "runtime_env_checks"}
 		if err := cfg.RunPreflight(filepath.Dir(configPath)); err != nil {
 			check.Status = doctorFail
 			check.Message = err.Error()
 		} else {
 			check.Status = doctorPass
 			check.Available = true
-			check.Message = "all declared local preflight files and keys are available"
+			check.Message = "all declared local environment-check files and keys are available"
 		}
 		report.Checks = append(report.Checks, check)
 	}
@@ -607,8 +607,8 @@ func formatDoctorReport(report doctorReport) string {
 	fmt.Fprintf(&out, "%s protections: %s\n", doctorStatusLabel(report.Protections.Status), report.Protections.Message)
 	for _, check := range report.Protections.Checks {
 		name := check.Mechanism
-		if check.Component != "" {
-			name = check.Component + "/" + name
+		if check.Workload != "" {
+			name = check.Workload + "/" + name
 		}
 		fmt.Fprintf(&out, "  %s %s: %s\n", doctorStatusLabel(check.Status), name, check.Message)
 	}

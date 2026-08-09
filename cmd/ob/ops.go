@@ -25,7 +25,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Args: cobra.NoArgs, RunE: showCommandHelp}
 	serviceCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
-		Short: "planned service convergence — diff shown, destructive mounts refused without --force",
+		Short: "planned service convergence — diff shown, destructive mounts refused without --allow-destructive-mounts",
 		Long:  "Converge the supporting services to what the project declares.\n\nEach runs in its own Compose project, so this never touches a release and a\nrelease never touches it. A change a driver can apply in place is applied; a\nmajor version change it cannot — a data directory the new version could not\nopen — is refused with what to do instead, rather than replacing the\ncontainer and leaving the data intact and unreachable.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{

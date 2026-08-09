@@ -271,7 +271,7 @@ type EventSink func(OperationEvent)
 type ExecutionBinding struct {
 	Application   string `json:"application"`
 	Environment   string `json:"environment"`
-	Target        string `json:"target"`
+	Server        string `json:"server"`
 	ConfigDigest  string `json:"config_digest"`
 	ComposeDigest string `json:"compose_digest"`
 }

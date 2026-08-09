@@ -33,7 +33,7 @@ type ApprovalGrant struct {
 	OperationDigest string        `json:"operation_digest"`
 	Application     string        `json:"application"`
 	Environment     string        `json:"environment"`
-	Target          string        `json:"target"`
+	Server          string        `json:"server"`
 	ConfigDigest    string        `json:"config_digest"`
 	ComposeDigest   string        `json:"compose_digest"`
 	StateDigest     string        `json:"state_digest"`
@@ -76,7 +76,7 @@ func NewApprovalGrant(plan *DeployPlan, approvedBy string, now time.Time) (Appro
 		OperationDigest: plan.Operation.PlanDigest,
 		Application:     binding.Application,
 		Environment:     binding.Environment,
-		Target:          binding.Target,
+		Server:          binding.Server,
 		ConfigDigest:    binding.ConfigDigest,
 		ComposeDigest:   binding.ComposeDigest,
 		StateDigest:     binding.StateDigest,
@@ -113,7 +113,7 @@ func (a ApprovalGrant) canonicalJSON() ([]byte, error) {
 		OperationDigest string        `json:"operation_digest"`
 		Application     string        `json:"application"`
 		Environment     string        `json:"environment"`
-		Target          string        `json:"target"`
+		Server          string        `json:"server"`
 		ConfigDigest    string        `json:"config_digest"`
 		ComposeDigest   string        `json:"compose_digest"`
 		StateDigest     string        `json:"state_digest"`
@@ -127,7 +127,7 @@ func (a ApprovalGrant) canonicalJSON() ([]byte, error) {
 		Source          string        `json:"source"`
 	}{
 		a.SchemaVersion, a.PlanDigest, a.OperationDigest,
-		a.Application, a.Environment, a.Target,
+		a.Application, a.Environment, a.Server,
 		a.ConfigDigest, a.ComposeDigest, a.StateDigest, a.PayloadDigest,
 		a.LiveStateDigest, a.Risk, a.Approval, a.ApprovedBy,
 		a.ApprovedAt, a.ExpiresAt, a.Source,
@@ -154,7 +154,7 @@ func (a ApprovalGrant) validateContent() error {
 		{"operation_digest", a.OperationDigest},
 		{"application", a.Application},
 		{"environment", a.Environment},
-		{"target", a.Target},
+		{"target", a.Server},
 		{"config_digest", a.ConfigDigest},
 		{"compose_digest", a.ComposeDigest},
 		{"state_digest", a.StateDigest},
@@ -246,7 +246,7 @@ func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 		OperationDigest: plan.Operation.PlanDigest,
 		Application:     binding.Application,
 		Environment:     binding.Environment,
-		Target:          binding.Target,
+		Server:          binding.Server,
 		ConfigDigest:    binding.ConfigDigest,
 		ComposeDigest:   binding.ComposeDigest,
 		StateDigest:     binding.StateDigest,
@@ -262,7 +262,7 @@ func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 	}{
 		{"application", a.Application, want.Application},
 		{"environment", a.Environment, want.Environment},
-		{"target", a.Target, want.Target},
+		{"target", a.Server, want.Server},
 		{"risk", a.Risk, want.Risk},
 		{"approval class", a.Approval, want.Approval},
 		{"config digest", a.ConfigDigest, want.ConfigDigest},

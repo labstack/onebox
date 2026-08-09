@@ -212,10 +212,9 @@ func TestBindMountsNeedNoDefinition(t *testing.T) {
 
 // A declared health check reaches a Compose-referenced service.
 //
-// It did not, and the silence was the problem: the workload declared `health:`,
-// generation dropped it, and the rollout then refused to roll a workload whose
-// author had declared exactly the thing rolling needs. The whole Docker-gated
-// end-to-end suite failed on this, and had been skipping.
+// Silence is the failure mode: if generation drops a declared `health:`, the
+// rollout refuses to roll a workload whose author declared exactly the thing
+// rolling needs, and nothing says why.
 func TestADeclaredHealthCheckReachesAReferencedService(t *testing.T) {
 	dir := t.TempDir()
 	ref := filepath.Join(dir, "docker-compose.yaml")

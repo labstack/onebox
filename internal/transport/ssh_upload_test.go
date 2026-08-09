@@ -202,7 +202,7 @@ func (s *wedgedSession) Close() error                       { return nil }
 // A walk failure is usually not a cancellation — an unreadable file is the
 // common case — so nothing closes the connection, and only uploadDrainTimeout
 // bounds the wait for the remote's answer. Unbounded, the CLI hangs with
-// nothing printed and the operator's eventual Ctrl-C is reported as the cause.
+// nothing printed until the operator gives up.
 func TestAnAbortedUploadDoesNotWaitOnAWedgedRemoteForever(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root; a mode-000 file is still readable")

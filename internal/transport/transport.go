@@ -139,11 +139,10 @@ func shq(s string) string {
 // that means `releases/.uploads/<id>`, inside the very directory `release.list`
 // enumerates with `ls -1`.
 //
-// Two things keep it from being read as a release id, and both are
-// load-bearing: `ls -1` does not list dot-entries, and `release.IsID` rejects
-// the leading dot. Staging is not somewhere nothing looks; it is somewhere two
-// specific filters exclude. A staging name without the leading dot would be
-// handed to `ob rollback` by `Previous()` and counted against retention.
+// Two independent filters keep it from being read as a release id: `ls -1`
+// does not list dot-entries, and `release.IsID` accepts only a timestamped id.
+// Staging is not somewhere nothing looks; it is somewhere two specific filters
+// exclude, and dropping the dot would leave only one of them.
 const stagingRoot = ".uploads"
 
 func stagingPath(remoteDir string) string {
@@ -172,9 +171,9 @@ const uploadSentinel = ".ob-upload-complete"
 //
 // Staging is removed when the script exits or is signalled. It has to be
 // removed here rather than by the caller, because this is the only place that
-// knows the staging path:
-// the secrets, protection-credential and proxy uploads all clean up the
-// *destination* they asked for, so anything left beside it survives them.
+// knows the staging path: the secrets, protection-credential and proxy uploads
+// all clean up the *destination* they asked for, so anything left beside it
+// survives them.
 // Their payloads are plaintext — an app's .env, a protection credentials.env —
 // and the leaf name carries an epoch or a fence token that changes every run,
 // so a leak is never overwritten by the next attempt.

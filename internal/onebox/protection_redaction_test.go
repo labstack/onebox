@@ -52,7 +52,7 @@ func TestProtectionPublicSurfacesHaveNoCredentialOrDatabaseContentFields(t *test
 	manifestJSON, err := json.Marshal(BackupEvidenceReceipt{
 		SchemaVersion: BackupEvidenceReceiptSchemaVersion,
 		PlanDigest:    "sha256:plan", OperationDigest: "sha256:operation",
-		Application: "example", Environment: "production", Target: "offsite",
+		Application: "example", Environment: "production", Server: "offsite",
 		RecordedBy: "operator", RecordedAt: "2026-08-07T12:00:00Z", EvidenceDigest: "sha256:evidence",
 	})
 	if err != nil {

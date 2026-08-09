@@ -20,7 +20,7 @@ services:
 ```
 
 That is sufficient. Onebox runs the image, a durable volume, a health check, a
-credential generated on the target, and the connection details your application
+credential generated on the server, and the connection details your application
 reads. You supply no password, no port, and no data path.
 
 The service's name is its driver unless `driver` says otherwise, so a second
@@ -88,7 +88,7 @@ is omitted rather than written empty.
 
 - **A service outlives every release.** It runs in its own Compose project, so no
   deploy and no rollback can stop it or remove its volume.
-- **Its credential is generated on the target, once.** Not in your project, not
+- **Its credential is generated on the server, once.** Not in your project, not
   in the generated runtime, not in the digest. Never rotated by a re-apply.
 - **Its version binds into the release digest**, so a database upgrade under an
   untouched application cannot pass unnoticed.
@@ -123,7 +123,7 @@ cannot protect it, so validation does.
 | | `services` | `daemon` workload |
 | --- | --- | --- |
 | Image | Onebox picks it from driver + version | You name it |
-| Credential | Generated on the target, once | Yours to supply |
+| Credential | Generated on the server, once | Yours to supply |
 | Release coupling | **Outlives every release** | Recreated on deploy |
 | Connection wiring | Automatic via `needs` | You wire it |
 | Available for | 11 drivers only | Anything containerised |

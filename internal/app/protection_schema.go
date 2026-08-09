@@ -118,7 +118,7 @@ func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
 	if err := checkEnum(path+".recovery_kind", policy.RecoveryKind, eRecoveryKind); err != nil {
 		return err
 	}
-	maximumDataLoss, err := positiveDuration(policy.MaximumDataLoss)
+	maximumDataLoss, err := PositiveDuration(policy.MaximumDataLoss)
 	if err != nil {
 		return errf("project_invalid", path+".maximum_data_loss", "ob validate", "maximum_data_loss must be a positive duration: %v", err)
 	}
@@ -131,22 +131,22 @@ func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
 	if policy.Retention.MinimumGenerations <= 0 {
 		return errf("backup_retention_unsupported", path+".retention.minimum_generations", "ob validate", "minimum_generations must be a positive whole number")
 	}
-	if _, err := positiveDuration(policy.Retention.RecoveryWindow); err != nil {
+	if _, err := PositiveDuration(policy.Retention.RecoveryWindow); err != nil {
 		return errf("backup_retention_unsupported", path+".retention.recovery_window", "ob validate", "recovery_window must be a positive duration: %v", err)
 	}
 	if err := validateSchedule(&policy.RestoreDrill.Schedule, path+".restore_drill.schedule"); err != nil {
 		return err
 	}
-	proofAge, err := positiveDuration(policy.RestoreDrill.ProofMaxAge)
+	proofAge, err := PositiveDuration(policy.RestoreDrill.ProofMaximumAge)
 	if err != nil {
-		return errf("project_invalid", path+".restore_drill.proof_max_age", "ob validate", "proof_max_age must be a positive duration: %v", err)
+		return errf("project_invalid", path+".restore_drill.proof_maximum_age", "ob validate", "proof_maximum_age must be a positive duration: %v", err)
 	}
 	gap, exact := maximumCronGap(policy.RestoreDrill.Schedule.Cron)
 	if !exact {
-		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against proof_max_age; use a daily or weekday-based schedule")
+		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against proof_maximum_age; use a daily or weekday-based schedule")
 	}
 	if gap >= proofAge {
-		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds proof_max_age %s; use a more frequent schedule", gap, proofAge)
+		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds proof_maximum_age %s; use a more frequent schedule", gap, proofAge)
 	}
 	if err := gAbsPath.checkOptional(path+".restore_drill.staging_filesystem", policy.RestoreDrill.StagingFilesystem); err != nil {
 		return err
@@ -205,7 +205,11 @@ func encryptionFor(encryption TargetEncryption, recoveryKind string) string {
 	}
 }
 
-func positiveDuration(value string) (time.Duration, error) {
+// PositiveDuration parses the contract's duration grammar, which admits a `d`
+// suffix that time.ParseDuration does not. Anything reading a duration the
+// loader accepted must use this, or it will refuse `14d` — a value gDur allows
+// and the reference documents.
+func PositiveDuration(value string) (time.Duration, error) {
 	if strings.HasSuffix(value, "d") && !strings.ContainsAny(strings.TrimSuffix(value, "d"), ".+-") {
 		days, err := strconv.ParseInt(strings.TrimSuffix(value, "d"), 10, 32)
 		if err != nil || days <= 0 {

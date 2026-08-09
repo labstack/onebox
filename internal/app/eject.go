@@ -225,7 +225,7 @@ func repointProject(path, dest string, names []string) error {
 	// error. What stays is what still has meaning — the role, the routing the
 	// overlay derives, and the intent fields.
 	inert := []string{
-		"image", "build", "command", "env", "env_files", "volumes", "ports",
+		"image", "build", "command", "env", "env_files", "volumes", "published_ports",
 		"health", "drain", "resources", "entrypoint", "user", "hostname",
 		"working_dir", "init", "tty", "stdin_open", "extra_hosts", "labels",
 		"logging", "persistence",

@@ -11,7 +11,7 @@ workloads:
     domain: frigate.example.com
     port: 8971
     drain: {grace: 30s}
-    ports:
+    published_ports:
       - {host: 8971, container: 8971}
       - {host: 8554, container: 8554}
       - {host: 8555, container: 8555, protocol: tcp}

@@ -1,7 +1,7 @@
 ---
 title: "hooks"
-description: "Commands run at lifecycle seams: pre_deploy, post_deploy, pre_rollback, post_rollback."
-summary: "Commands run at lifecycle seams: pre_deploy, post_deploy, pre_rollback, post_rollback."
+description: "Commands run at a lifecycle seam — bootstrap, pre_release, post_release, post_deploy — or keyed by a job name to replace that job's command."
+summary: "Commands run at a lifecycle seam — bootstrap, pre_release, post_release, post_deploy — or keyed by a job name to replace that job's command."
 status: shipped
 generated: true
 sidebar:
@@ -23,5 +23,5 @@ cannot drift from what `ob validate` accepts.
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `<name>.local` | boolean | `false` | Run on the operator machine instead of the target host. |
+| `<name>.local` | boolean | `false` | Run on the operator machine instead of the server. |
 | `<name>.run` | string | — | Command executed at the lifecycle seam. |

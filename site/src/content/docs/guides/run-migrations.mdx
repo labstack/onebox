@@ -19,7 +19,7 @@ workloads:
     image: ghcr.io/acme/shop:1.4.0
     command: ["./bin/migrate"]
     data_effect: migration
-    run: pre_release
+    when: pre_release
     needs: [{name: postgres, condition: healthy}]
 ```
 
@@ -33,7 +33,7 @@ gates read:
 | `destructive` | Removes data. |
 | `unknown` | You cannot state it. Treated as the most cautious case. |
 
-`run` decides when it happens: `manual` (default), `pre_release`, or
+`when` decides when it happens: `manual` (default), `pre_release`, or
 `post_release`.
 
 ## Report what actually happened
@@ -60,7 +60,7 @@ it.
 ## Verify the revisions
 
 ```yaml
-verification:
+verifications:
   - migration_revisions:
       job: migrate
       provider: atlas
@@ -81,7 +81,7 @@ environments:
   production:
     policy:
       require_migration_backup: true
-      migration_backup_max_age: 24h
+      migration_backup_maximum_age: 24h
       require_migration_restore_test: true
       migration_backup_key_material: [production-kms-key]
 ```

@@ -39,9 +39,9 @@ workloads:
 deployment: {order: [site, app, demo], retain_releases: 5}
 proxy: {managed: true, config: traefik}
 runtime:
-  preflight:
+  env_checks:
     - {file: fanout/.env, require: [FANOUT_SECRET]}
     - {file: traefik/.env, require: [CF_DNS_API_TOKEN]}
-verification:
+verifications:
   - {url: "https://fanout.run/"}
   - {url: "https://fanout.labstack.com/healthz"}

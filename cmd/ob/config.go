@@ -35,7 +35,7 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 			}
 			out := cmd.OutOrStdout()
 
-			// One envelope whether or not --origins is given: the flag chooses
+			// One envelope whether or not --origins-only is given: the flag chooses
 			// what a human is shown, and a consumer of the structured form
 			// should not have to run the command twice to get both halves.
 			if isStructuredOutput(g) {
@@ -78,6 +78,6 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&origins, "origins", false, "list every value's origin instead of the document")
+	cmd.Flags().BoolVar(&origins, "origins-only", false, "list every value's origin instead of the document")
 	root.AddCommand(cmd)
 }

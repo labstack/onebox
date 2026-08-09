@@ -105,9 +105,30 @@ ob deploy \
   --backup-evidence ob-backup-evidence.json
 ```
 
-The facts manifest uses `onebox.run/migration-backup-facts/v1alpha1` and records
-artifact, integrity, restore-test and key-usability facts — never backup bytes or
-secrets.
+### The facts manifest
+
+It is the only artifact here you author yourself — the plan, the grant and the
+receipt are all produced by `ob` — so start from a skeleton with your plan's
+resources already filled in:
+
+```sh
+ob backup-evidence template --plan ob-plan.json > backup-facts.json
+```
+
+It uses `onebox.run/migration-backup-facts/v1alpha1` and records artifact,
+integrity, restore-test and key-usability facts — never backup bytes or secrets.
+
+| Field | What it holds |
+| --- | --- |
+| `schema_version` | `onebox.run/migration-backup-facts/v1alpha1` |
+| `resources[].resource` | copied from the plan's `migration_backup.resources` |
+| `resources[].backup_id` | your backup system's identifier for the artifact |
+| `resources[].created_at` | RFC 3339 time the backup was taken |
+| `resources[].integrity` | `artifact_digest`, `method`, `validated_at` |
+| `resources[].restore_test` | `state` is `passed` or `not_tested`. `passed` **requires** `method`, `tested_at` and a lowercase `sha256:` `validation_digest`; `not_tested` refuses all three |
+| `key_material[]` | one per entry in the plan's `required_key_material`: `name`, `backup_id`, `created_at`, `integrity`, and `usability` (`method`, `validated_at`, `validation_digest`) |
+
+Unknown fields are refused, so a typo is named rather than ignored.
 
 ## When you have to go anyway
 

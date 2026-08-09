@@ -433,6 +433,9 @@ func crossFieldRules(p *Spec) error {
 				"workload %q asks for a rolling release but declares no health check, so nothing says when the "+
 					"newcomer is ready to take traffic. Declare health:, or use strategy: recreate", name)
 		}
+		// Keyed on the authored block, not on HoldsDurableData: inferring
+		// durability must not tighten a refusal against a project that already
+		// loads. `ob doctor` reports the hazard instead.
 		if w.Replicas > 1 && w.Persistence != nil && w.Persistence.Mode == "durable" {
 			return errf("stateful_replicas", path+".replicas", "",
 				"workload %q keeps durable state and asks for %d replicas; they would all mount the same volume. "+

@@ -1,5 +1,10 @@
 [
   {
+    "case": "conformance/a bind mount is not durable",
+    "loads": true,
+    "digest": "9153d2cdebfe7fa9fb99aca9c8e43ee29c0caa01c5c6b2f21e7669f322607693"
+  },
+  {
     "case": "conformance/a near-miss field name",
     "loads": false,
     "code": "unknown_field"
@@ -63,6 +68,11 @@
     "case": "conformance/daemon role",
     "loads": true,
     "digest": "215a0ae8accd2f64f6ec5cd12b6a93ba5a63a6edeb2d2333bf5a79d7f1250680"
+  },
+  {
+    "case": "conformance/declared durability still refuses replicas",
+    "loads": false,
+    "code": "stateful_replicas"
   },
   {
     "case": "conformance/domain and routes together",
@@ -143,6 +153,11 @@
     "case": "conformance/incomplete plan schema",
     "loads": false,
     "code": "project_invalid"
+  },
+  {
+    "case": "conformance/inferred durability does not refuse replicas",
+    "loads": true,
+    "digest": "7772a6933822463c53f1e568b0d9c3287d6abbe53d11c166dc7f67588839957b"
   },
   {
     "case": "conformance/job data_effect unknown",
@@ -228,6 +243,11 @@
     "case": "conformance/one-char identifier",
     "loads": true,
     "digest": "5ac4d1f97c5a8fc93a3ebab678f6196fd68051d6f5eae0df66aaaa49d19687c6"
+  },
+  {
+    "case": "conformance/persistence block with no mode still refuses replicas",
+    "loads": false,
+    "code": "stateful_replicas"
   },
   {
     "case": "conformance/persistence external",
@@ -423,6 +443,11 @@
     "case": "conformance/volume scalar without a path",
     "loads": false,
     "code": "project_invalid"
+  },
+  {
+    "case": "conformance/volumes without persistence still load",
+    "loads": true,
+    "digest": "a42e5587db73041bb0ef4c563ae6ea4f8eaaf390afbfe79daefcc4cb06a2b135"
   },
   {
     "case": "conformance/worker with schedule",

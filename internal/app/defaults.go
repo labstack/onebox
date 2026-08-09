@@ -54,6 +54,14 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			e.Policy.AllowAgentProposals = true
 			mark(path + ".policy.allow_agent_proposals")
 		}
+		// Enabling the backup requirement made this field mandatory, and its
+		// absence produced an untyped complaint about an empty duration for a
+		// field the author had never heard of. A default is the answer the
+		// evolution rules already allow.
+		if e.Policy.RequireMigrationBackup && e.Policy.MigrationBackupMaximumAge == "" {
+			e.Policy.MigrationBackupMaximumAge = "24h"
+			mark(path + ".policy.migration_backup_maximum_age")
+		}
 		p.Environments[name] = e
 	}
 

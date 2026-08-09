@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -55,21 +56,52 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	if !policy.RequireMigrationBackup || !hasMigrationStep(steps) {
 		return nil, nil
 	}
-	resources := make([]MigrationBackupResource, 0, len(cfg.Workloads))
-	for name, component := range cfg.Workloads {
-		if component.Persistence == nil || component.Persistence.Mode == "ephemeral" {
+	resources := make([]MigrationBackupResource, 0, len(cfg.Workloads)+len(cfg.Services))
+	for name, workload := range cfg.Workloads {
+		// Declared: anything but ephemeral counts, which keeps `external` a
+		// resource the operator is asked to cover. Undeclared: a managed volume
+		// is durable, which is the inference doctor and this gate now share.
+		mode := "durable"
+		if workload.Persistence != nil {
+			mode = workload.Persistence.Mode
+			if mode == "ephemeral" {
+				continue
+			}
+		} else if !workload.HoldsDurableData() {
 			continue
 		}
-		volumes := durableVolumeNames(component)
+		volumes := durableVolumeNames(workload)
 		sort.Strings(volumes)
 		resources = append(resources, MigrationBackupResource{
-			Component: name, Service: name, Type: component.Role,
-			Persistence: component.Persistence.Mode, Volumes: volumes,
+			Component: name, Service: name, Type: workload.Role,
+			Persistence: mode, Volumes: volumes,
+		})
+	}
+	// A managed service is the usual place the data actually lives, and onebox
+	// runs it and names its volume. Counting only workloads left the standard
+	// shape — replicated stateless application plus a managed database — unable
+	// to satisfy the gate at all: the requirement wanted a durable workload,
+	// stateful_replicas refuses a durable workload with replicas, and the
+	// service counted for nothing.
+	for _, name := range cfg.ServiceNames() {
+		service := cfg.Services[name]
+		mode := "durable"
+		if service.Persistence != nil {
+			mode = service.Persistence.Mode
+		}
+		if mode == "ephemeral" {
+			continue
+		}
+		volumes := append([]string(nil), service.Volumes...)
+		sort.Strings(volumes)
+		resources = append(resources, MigrationBackupResource{
+			Component: name, Service: name, Type: "service",
+			Persistence: mode, Volumes: volumes,
 		})
 	}
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Component < resources[j].Component })
 	if len(resources) == 0 {
-		return nil, errors.New("migration backup policy is enabled but no durable or external component resource is declared")
+		return nil, errors.New("migration backup policy is enabled but nothing holds data to back up: no workload has a managed volume or declares durable or external persistence, and no supporting service is declared")
 	}
 	keyMaterial := append([]string(nil), policy.MigrationBackupKeyMaterial...)
 	sort.Strings(keyMaterial)
@@ -434,6 +466,21 @@ func (r BackupEvidenceReceipt) Validate() error {
 	return nil
 }
 
+// keyMaterialSatisfies compares contents, not representation.
+//
+// reflect.DeepEqual treats an empty slice and a nil slice as different. A
+// policy requiring no key material leaves the requirement nil while a receipt
+// with none carries a zero-length slice, so the default configuration refused
+// every receipt `ob backup-evidence create` produced and the gate could not be
+// satisfied at all.
+func keyMaterialSatisfies(supplied []MigrationBackupKeyMaterialEvidence, required []string) bool {
+	names := make([]string, 0, len(supplied))
+	for i := range supplied {
+		names = append(names, supplied[i].Name)
+	}
+	return slices.Equal(names, required)
+}
+
 func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 	if plan == nil {
 		return errors.New("backup evidence has no executable plan")
@@ -468,11 +515,7 @@ func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) 
 	if !reflect.DeepEqual(resourceIdentities, requirement.Resources) {
 		return errors.New("backup evidence resources do not match the executable plan")
 	}
-	keyNames := make([]string, len(r.KeyMaterial))
-	for i := range r.KeyMaterial {
-		keyNames[i] = r.KeyMaterial[i].Name
-	}
-	if !reflect.DeepEqual(keyNames, requirement.RequiredKeyMaterial) {
+	if !keyMaterialSatisfies(r.KeyMaterial, requirement.RequiredKeyMaterial) {
 		return errors.New("backup evidence key material does not match the executable plan")
 	}
 	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)

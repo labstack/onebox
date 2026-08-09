@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -182,5 +183,97 @@ func TestUploadCancellationInterruptsSessionCreation(t *testing.T) {
 	cancel()
 	if err := awaitUploadResult(t, done); !errors.Is(err, context.Canceled) {
 		t.Fatalf("upload error = %v, want context cancellation", err)
+	}
+}
+
+// wedgedSession models a peer that accepts the stream and then never reports a
+// result. Wait blocks until the test releases it.
+type wedgedSession struct {
+	stdin    io.WriteCloser
+	waitDone chan error
+}
+
+func (s *wedgedSession) StdinPipe() (io.WriteCloser, error) { return s.stdin, nil }
+func (s *wedgedSession) Start(string) error                 { return nil }
+func (s *wedgedSession) setStderr(io.Writer)                {}
+func (s *wedgedSession) Wait() error                        { return <-s.waitDone }
+func (s *wedgedSession) Close() error                       { return nil }
+
+// A walk failure is usually not a cancellation — an unreadable file is the
+// common case — so nothing closes the connection and nothing bounds the wait for
+// the remote's answer. Before this the CLI hung with nothing printed, and the
+// operator's eventual Ctrl-C was reported as the cause of the failure.
+func TestAnAbortedUploadDoesNotWaitOnAWedgedRemoteForever(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; a mode-000 file is still readable")
+	}
+	defer func(d time.Duration) { uploadDrainTimeout = d }(uploadDrainTimeout)
+	uploadDrainTimeout = 50 * time.Millisecond
+
+	localDir := t.TempDir()
+	secret := filepath.Join(localDir, "unreadable")
+	if err := os.WriteFile(secret, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(secret, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(secret, 0o600) })
+
+	sess := &wedgedSession{stdin: discardWriteCloser{Writer: io.Discard}, waitDone: make(chan error)}
+	t.Cleanup(func() { close(sess.waitDone) })
+
+	done := make(chan error, 1)
+	go func() {
+		done <- uploadWithSession(context.Background(), sess, localDir, "/var/lib/ob/shop/releases/20260808-120000-abc")
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("upload reported success for a source it could not read")
+		}
+		if !strings.Contains(err.Error(), "did not report a result") {
+			t.Errorf("error does not say the remote never answered: %v", err)
+		}
+		if !strings.Contains(err.Error(), "permission denied") {
+			t.Errorf("error lost the cause of the failure: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("upload hung waiting for a wedged remote")
+	}
+}
+
+// A remote that exits 0 on a stream we deliberately truncated is a
+// contradiction, not a success: it means something was moved into place. The
+// sentinel should make this unreachable, so the message has to say the
+// destination is suspect rather than report only the local error.
+func TestAnAbortedUploadReportsAPossiblyPublishedDestination(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; a mode-000 file is still readable")
+	}
+	localDir := t.TempDir()
+	secret := filepath.Join(localDir, "unreadable")
+	if err := os.WriteFile(secret, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(secret, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(secret, 0o600) })
+
+	waitDone := make(chan error, 1)
+	waitDone <- nil
+	sess := &wedgedSession{stdin: discardWriteCloser{Writer: io.Discard}, waitDone: waitDone}
+
+	const dest = "/var/lib/ob/shop/releases/20260808-120000-abc"
+	err := uploadWithSession(context.Background(), sess, localDir, dest)
+	if err == nil {
+		t.Fatal("upload reported success")
+	}
+	if !strings.Contains(err.Error(), dest) {
+		t.Errorf("error does not name the destination that may hold a partial payload: %v", err)
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("error lost the cause of the failure: %v", err)
 	}
 }

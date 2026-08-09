@@ -93,26 +93,38 @@ func Current(ctx context.Context, t transport.Transport, n app.Names) (string, e
 	return filepath.Base(link), nil
 }
 
-func list(ctx context.Context, t transport.Transport, n app.Names) ([]string, error) {
+// list returns the release ids under the releases directory, and separately the
+// entries it refused to treat as ids.
+//
+// Skipping is reported rather than swallowed because the two failure directions
+// are not equally visible. Admitting a non-release is loud — rollback lands on
+// junk. Rejecting a real release is silent: the directory is on the host, the
+// operator can see it with `ls`, and ob simply behaves as though it were not
+// there. Callers must be able to say which happened.
+func list(ctx context.Context, t transport.Transport, n app.Names) (ids, skipped []string, err error) {
 	res, err := t.Run(ctx, "ls -1 "+q(PathsFor(n).Releases)+" 2>/dev/null || true")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var ids []string
 	for _, l := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
 		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
 		// Every entry here is treated as a release id — it is handed to
 		// `ob rollback` by Previous and counted against retention by
 		// PruneCandidates — so anything that is not one has to be excluded
-		// rather than assumed absent. Uploads stage outside this directory for
-		// the same reason; this is the guard that does not depend on that.
-		if l == "" || !IsID(l) {
+		// rather than assumed absent. Upload staging is a dot-directory in here,
+		// which `ls -1` already hides; this is the guard that does not depend on
+		// that.
+		if !IsID(l) {
+			skipped = append(skipped, l)
 			continue
 		}
 		ids = append(ids, l)
 	}
 	sort.Strings(ids) // ids are lexically time-ordered by construction
-	return ids, nil
+	return ids, skipped, nil
 }
 
 func Previous(ctx context.Context, t transport.Transport, n app.Names) (string, error) {
@@ -120,7 +132,7 @@ func Previous(ctx context.Context, t transport.Transport, n app.Names) (string, 
 	if err != nil {
 		return "", err
 	}
-	ids, err := list(ctx, t, n)
+	ids, skipped, err := list(ctx, t, n)
 	if err != nil {
 		return "", err
 	}
@@ -128,6 +140,14 @@ func Previous(ctx context.Context, t transport.Transport, n app.Names) (string, 
 		if id == cur && i > 0 {
 			return ids[i-1], nil
 		}
+	}
+	// Report the entries that were filtered out. Without them this message
+	// states a directory listing that contradicts what `ls` shows on the host —
+	// confident, specific and wrong — and gives the operator no way to tell a
+	// genuinely absent release from one ob declined to recognise.
+	if len(skipped) > 0 {
+		return "", fmt.Errorf("no previous release (current=%q, releases=%v); %d entr(ies) under %s were not "+
+			"recognised as release ids and were ignored: %v", cur, ids, len(skipped), PathsFor(n).Releases, skipped)
 	}
 	return "", fmt.Errorf("no previous release (current=%q, releases=%v)", cur, ids)
 }
@@ -144,30 +164,35 @@ func Activate(ctx context.Context, t transport.Transport, n app.Names, id string
 	return nil
 }
 
-// PruneCandidates returns releases beyond retain, never the current target.
-// Removal is the caller's job (the engine fences it). Images are deliberately
-// NOT pruned, because rollback never pulls.
-func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, retain int) ([]string, error) {
-	ids, err := list(ctx, t, n)
+// PruneCandidates returns releases beyond retain, never the current target,
+// along with the entries it did not recognise as release ids. Removal is the
+// caller's job (the engine fences it). Images are deliberately NOT pruned,
+// because rollback never pulls.
+//
+// Unrecognised entries are returned rather than dropped because retention is
+// enforced over a directory they still occupy: they are neither counted against
+// retain nor removed, so a directory ob claims to be keeping at N entries can
+// grow without bound and report nothing.
+func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, retain int) (victims, unrecognized []string, err error) {
+	ids, skipped, err := list(ctx, t, n)
 	if err != nil || len(ids) <= retain {
-		return nil, err
+		return nil, skipped, err
 	}
 	cur, err := Current(ctx, t, n)
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
-	var victims []string
 	for _, id := range ids[:len(ids)-retain] {
 		if id != cur {
 			victims = append(victims, id)
 		}
 	}
-	return victims, nil
+	return victims, skipped, nil
 }
 
 // Prune removes releases beyond retain, never the current target.
 func Prune(ctx context.Context, t transport.Transport, n app.Names, retain int) ([]string, error) {
-	victims, err := PruneCandidates(ctx, t, n, retain)
+	victims, _, err := PruneCandidates(ctx, t, n, retain)
 	if err != nil {
 		return nil, err
 	}

@@ -354,9 +354,16 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 // pruneRetention removes releases beyond retain and journals beyond twice
 // that window because a journal outlives its release.
 func (e *Engine) pruneRetention(ctx context.Context) error {
-	victims, err := release.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases)
+	victims, unrecognized, err := release.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases)
 	if err != nil {
 		return err
+	}
+	// Not fatal — they are excluded from rollback and from retention, which is
+	// the safe direction. But they occupy the directory retention is being
+	// enforced over, and nothing else will ever mention them.
+	if len(unrecognized) > 0 {
+		e.warnf("%d entr(ies) under %s are not release ids and were left in place: %v",
+			len(unrecognized), release.PathsFor(e.names()).Releases, unrecognized)
 	}
 	for _, id := range victims {
 		if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {

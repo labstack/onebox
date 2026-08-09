@@ -108,9 +108,8 @@ configuration. Declare `proxy.config` to own that configuration instead.
 The JSON Schema published by `ob schema` is generated from the same declarations
 the loader enforces and is checked against the conformance corpus.
 
-:::caution[One breaking change already happened]
-`onebox.run/v1` was redefined in place rather than superseded by a v2. A project
-written against the earlier contract — which classified a Compose file *you*
-wrote — does not load, and must be authored fresh. Compose used to be an input
-Onebox read; it is now an artifact Onebox generates.
+:::caution[Compose is an output, not an input]
+A project that hands Onebox a Compose file *you* wrote does not load. Compose is
+an artifact Onebox generates from the declaration, so the runtime is derived
+rather than classified. See [Why Compose is generated](/explanation/generated-compose).
 :::

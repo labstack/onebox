@@ -208,10 +208,10 @@ workloads:
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Assert the list, not substrings of it. The first version of this test
-	// checked `strings.Contains(body, ".env")`, which "own.env" satisfies — so
-	// deleting the entire projection left it green. A test for a projection has
-	// to look at what was projected, in order.
+	// Assert the list, not substrings of it. `strings.Contains(body, ".env")`
+	// is satisfied by "own.env", so deleting the entire projection would leave
+	// it green. A test for a projection has to look at what was projected, in
+	// order.
 	legacy := composeServiceEnvFiles(t, rendered.Bytes, "legacy")
 	if len(legacy) != 2 || legacy[0] != "own.env" || legacy[1] != ".env" {
 		t.Fatalf("env_file = %v, want the referenced entry first then the projection", legacy)
@@ -475,8 +475,7 @@ port: 3000
 health: {http: /healthz, port: 3000}
 `, map[string]string{"s.enc": "A=1\n"})
 	// Through the function the callers use. `Load` does not reach it, so a test
-	// that only loads proves nothing about it — which is how the first version
-	// of this test passed while the behaviour it named was broken.
+	// that only loads would pass while the behaviour this names is broken.
 	r := resolvedFor(t, path, "production")
 	values, err := r.Spec.InterpolationEnv()
 	if err != nil {

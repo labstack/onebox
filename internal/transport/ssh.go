@@ -354,10 +354,10 @@ var uploadDrainTimeout = 30 * time.Second
 // missing — but an archive of *zero* bytes is not malformed. bsdtar/libarchive
 // exits 0 on empty stdin (measured; GNU tar exits 2 and busybox 1), and
 // gzip.Writer emits its header only on the first Write, so a walk that fails
-// before the first entry sends nothing at all. Those two combined extracted
-// nothing, exited 0, and published an empty directory as a complete release.
-// The sentinel is written last, so its presence is the sender's statement that
-// the walk finished, and it does not depend on which tar the host ships.
+// before the first entry sends nothing at all. Without a sentinel that pair
+// extracts nothing, exits 0, and publishes an empty directory as a complete
+// release. The sentinel is written last, so its presence is the sender's
+// statement that the walk finished, and it holds whichever tar the host ships.
 func tarTransfer(staging string) string {
 	// staging arrives shell-quoted and uploadSentinel is a fixed literal with no
 	// metacharacters, so concatenating outside the quotes is safe.
@@ -448,7 +448,7 @@ func uploadWithSession(ctx context.Context, sess uploadSession, localDir, remote
 				"%s may hold an incomplete payload and must be removed before retrying", walkErr, remoteDir))
 		case <-time.After(uploadDrainTimeout):
 			// Only a context cancellation closes the connection, and walkErr is
-			// usually not a context error, so without this the CLI waits on a
+			// usually not a context error, so without this the CLI would wait on a
 			// wedged peer forever with nothing printed.
 			return uploadCause(ctx, fmt.Errorf("%w — the remote did not report a result within %s, so the state of %s is unknown",
 				walkErr, uploadDrainTimeout, remoteDir))
@@ -500,9 +500,9 @@ func uploadError(ctx context.Context, err error) error {
 
 // uploadCause keeps both facts. uploadError answers "was this a cancellation?"
 // by discarding what actually failed, which is right where the cause is a
-// symptom of the cancellation and wrong where it is not: a file the walk could
-// not read reports itself as context.Canceled the moment the operator presses
-// Ctrl-C, and the reason for the failed deploy is gone. Joining keeps
+// symptom of the cancellation and wrong where it is not: a file the walk cannot
+// read would report itself as context.Canceled the moment the operator presses
+// Ctrl-C, losing the reason for the failed deploy. Joining keeps
 // errors.Is(err, context.Canceled) true and still names the cause.
 func uploadCause(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {

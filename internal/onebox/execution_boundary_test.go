@@ -929,9 +929,8 @@ func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
 func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
 	// Both forms of what a build can produce. The tagged one is the case that
 	// matters: pinning turns it into a digest *after* the render, so a reload
-	// that used the pin would bind a different document than the plan did.
-	// The first version of this test used only a digest and proved nothing
-	// about that.
+	// that used the pin would bind a different document than the plan did. A
+	// digest alone proves nothing about that.
 	for _, built := range []string{
 		"ghcr.io/example/app:ci-1234",
 		"ghcr.io/example/app@sha256:" + strings.Repeat("ab", 32),

@@ -127,14 +127,11 @@ func (r *Resolved) Canonical() ([]byte, error) {
 		generic["effective"] = facts
 	}
 	origins := r.Spec.originOf()
+	// An override is more specific than anything derived from the file, but it
+	// is only more specific about the leaves it set. Origins already carries
+	// those exactly; expanding to the whole patched subtree labelled untouched
+	// siblings as overridden.
 	for path, o := range r.Origins {
-		// An override is more specific than anything derived from the file, and
-		// it applies to the whole subtree it patched.
-		for leaf := range origins {
-			if leaf == path || strings.HasPrefix(leaf, path+".") {
-				origins[leaf] = o
-			}
-		}
 		origins[path] = o
 	}
 

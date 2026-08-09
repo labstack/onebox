@@ -453,6 +453,8 @@ var schemaConstraints = []struct {
 	{[]string{"observability", "logs", "retention"}, pattern(gDur)},
 	{[]string{"notifications", "*", "on", "items"}, enum(eNotifyEvent)},
 	{[]string{"services", "*", "settings"}, propertyNames(gSettingKey)},
+	{[]string{"workloads", "*", "logging", "driver"}, pattern(gLogDriver)},
+	{[]string{"workloads", "*", "logging", "options"}, propertyNames(gLogOption)},
 }
 
 // applyRoleRules expresses what belongs to which role, and what a project must

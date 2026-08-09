@@ -584,6 +584,17 @@ func typeOf(node map[string]any) string {
 	switch t := node["type"].(type) {
 	case string:
 		if t == "array" {
+			// A list whose items are a closed set is worth naming: the page
+			// otherwise says "list" for a field where only two values load.
+			if items, ok := collapse(node)["items"].(map[string]any); ok {
+				if values := enumOf(collapse(items)); len(values) > 0 {
+					quoted := make([]string, 0, len(values))
+					for _, v := range values {
+						quoted = append(quoted, "`"+v+"`")
+					}
+					return "list of " + strings.Join(quoted, " · ")
+				}
+			}
 			return "list"
 		}
 		if t == "object" {

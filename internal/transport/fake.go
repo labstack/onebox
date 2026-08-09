@@ -98,7 +98,7 @@ func (f *Fake) Host() string {
 	return f.HostName
 }
 
-func (f *Fake) Target() string {
+func (f *Fake) Destination() string {
 	if f.TargetName != "" {
 		return f.TargetName
 	}

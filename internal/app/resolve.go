@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -126,7 +128,7 @@ func (p *Spec) Resolve(env string) (*Resolved, error) {
 					delete(out.Origins, originPath)
 				}
 			}
-			markOverrideLeaves(prefix, authoredPatch["protection"], out.Origins)
+			markOverrideValue(prefix, authoredPatch["protection"], out.Origins)
 		}
 		clone.Services[name] = merged
 	}
@@ -208,25 +210,33 @@ func applyPatch[T any](path string, target T, patch map[string]any, allowed map[
 	return out, nil
 }
 
+// markOverrideValue records the leaves an override actually set.
+//
+// Marking the block instead, and expanding that to every leaf beneath it when
+// printing, annotated values the override never touched: an override of
+// `resources: {memory: 1GB}` made `ob canonical` label a sibling `cpus` the
+// project declared as an environment override. The one command whose job is to
+// say where a value came from must not guess.
 func markOverrideValue(path string, value any, origins map[string]Origin) {
-	origins[path] = OriginEnvironmentOverride
-	mapping, ok := value.(map[string]any)
-	if !ok || len(mapping) == 0 {
-		return
-	}
-	for _, key := range sortedKeys(mapping) {
-		markOverrideValue(path+"."+key, mapping[key], origins)
-	}
-}
-
-func markOverrideLeaves(path string, value any, origins map[string]Origin) {
-	mapping, ok := value.(map[string]any)
-	if !ok || len(mapping) == 0 {
+	switch v := value.(type) {
+	case map[string]any:
+		if len(v) == 0 {
+			origins[path] = OriginEnvironmentOverride
+			return
+		}
+		for _, key := range sortedKeys(v) {
+			markOverrideValue(path+"."+key, v[key], origins)
+		}
+	case []any:
+		if len(v) == 0 {
+			origins[path] = OriginEnvironmentOverride
+			return
+		}
+		for i, item := range v {
+			markOverrideValue(fmt.Sprintf("%s[%d]", path, i), item, origins)
+		}
+	default:
 		origins[path] = OriginEnvironmentOverride
-		return
-	}
-	for _, key := range sortedKeys(mapping) {
-		markOverrideLeaves(path+"."+key, mapping[key], origins)
 	}
 }
 
@@ -317,12 +327,21 @@ func toGeneric(v any) (map[string]any, error) {
 	return out, nil
 }
 
+// fromGeneric decodes the merged document back into the typed value, refusing a
+// key the contract does not define.
+//
+// Plain Unmarshal discards unknown fields, and the permitted-key check above
+// only guards the top level of a patch. A nested typo — `resources: {memroy:
+// 4GB}` — passed `ob validate` and resolved to the project's own value, so the
+// environment silently ran unoverridden.
 func fromGeneric(m map[string]any, out any) error {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(b, out)
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(out)
 }
 
 func joinSorted(set map[string]bool) string {

@@ -63,7 +63,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.init` | boolean | — | Run a minimal init process as PID 1 inside the container. |
 | `<name>.labels` | map | — | Additional container labels outside namespaces reserved by Onebox and the proxy. |
 | `<name>.logging` | object | — | Container logging driver and driver-specific options. |
-| `<name>.logging.driver` | string | — | Container runtime logging driver. |
+| `<name>.logging.driver` | string | — | Container runtime logging driver. Expects a log driver name such as local, json-file or an org/plugin:tag. |
 | `<name>.logging.options` | map | — | Driver-specific logging options passed to the container runtime. |
 | `<name>.needs` | list | — | Workload or supporting-service prerequisites and optional connection-variable mappings. |
 | `<name>.needs[].condition` | `started` · `healthy` · `completed` | — | Prerequisite condition: started or healthy. |

@@ -122,11 +122,21 @@ func TestOriginsRecordOverrides(t *testing.T) {
 	if o["workloads.web.replicas"] != OriginOverride {
 		t.Errorf("replicas origin = %q", o["workloads.web.replicas"])
 	}
-	if o["services.postgres.resources"] != OriginOverride {
-		t.Errorf("service resources origin = %q", o["services.postgres.resources"])
+	if o["services.postgres.resources.memory"] != OriginOverride {
+		t.Errorf("service memory origin = %q", o["services.postgres.resources.memory"])
 	}
 	if _, recorded := o["workloads.web.image"]; recorded {
 		t.Error("an untouched field should not be recorded as overridden")
+	}
+	// The override sets memory and says nothing about cpus. Recording the block
+	// and expanding it while printing made `ob canonical` label the project's
+	// own cpus an environment override — the one command that exists to say
+	// where a value came from, saying the wrong thing.
+	if _, recorded := o["services.postgres.resources.cpus"]; recorded {
+		t.Error("a sibling the override did not set is recorded as overridden")
+	}
+	if _, recorded := o["workloads.web.resources.cpus"]; recorded {
+		t.Error("a sibling the override did not set is recorded as overridden")
 	}
 }
 

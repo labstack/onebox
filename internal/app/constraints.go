@@ -80,6 +80,15 @@ var (
 	gSettingKey = grammar{"driver setting", regexp.MustCompile(`^[a-z][a-z0-9_-]*$`),
 		"a lowercase setting name such as appendonly, maxmemory-policy or shared_buffers"}
 
+	// Docker admits plugin log drivers with arbitrary names, so this cannot be
+	// an enum without refusing a legitimate one. A grammar still catches the
+	// typo and the metacharacter, which is what reaches the generated runtime.
+	gLogDriver = grammar{"log driver", regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*(/[a-z0-9][a-z0-9_.-]*)?(:[A-Za-z0-9_.-]+)?$`),
+		"a log driver name such as local, json-file or an org/plugin:tag"}
+
+	gLogOption = grammar{"log option", regexp.MustCompile(`^[a-z][a-z0-9_.-]*$`),
+		"a lowercase log option name such as max-size or max-file"}
+
 	gEnvName = grammar{"environment variable", regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`),
 		"a variable name of letters, digits and underscores, not starting with a digit"}
 

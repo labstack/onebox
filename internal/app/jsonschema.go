@@ -333,12 +333,12 @@ var schemaConstraints = []struct {
 	{[]string{"environments", "*", "base_path"}, pattern(gAbsPath)},
 	{[]string{"environments", "*", "policy", "minimum_onebox_version"}, pattern(gCalVer)},
 	{[]string{"environments", "*", "policy", "minimum_plan_schema"}, pattern(gPlanSchema)},
-	{[]string{"environments", "*", "policy", "migration_backup_max_age"}, pattern(gDur)},
+	{[]string{"environments", "*", "policy", "migration_backup_maximum_age"}, pattern(gDur)},
 
 	{[]string{"workloads", "*", "role"}, enum(eRole)},
 	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1}},
 	{[]string{"workloads", "*", "strategy"}, enum(eStrategy)},
-	{[]string{"workloads", "*", "run"}, enum(eJobRun)},
+	{[]string{"workloads", "*", "when"}, enum(eJobWhen)},
 	{[]string{"workloads", "*", "data_effect"}, enum(eDataEffect)},
 	{[]string{"workloads", "*", "compose"}, pattern(gComposeRef)},
 	{[]string{"workloads", "*", "port"}, portBounds()},
@@ -368,19 +368,19 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "routes", "items", "tls"}, enum(eRouteTLS)},
 	{[]string{"workloads", "*", "volumes", "items", "name"}, pattern(gIdent)},
 	{[]string{"workloads", "*", "volumes", "items", "path"}, pattern(gAbsPath)},
-	{[]string{"workloads", "*", "volumes", "items", "target"}, pattern(gAbsPath)},
+
 	{[]string{"workloads", "*", "volumes", "items", "mode"}, enum(eMountMode)},
 	// A named volume says where it mounts, or it is a bind pair. Either way
 	// something has to say where it lands in the container.
 	{[]string{"workloads", "*", "volumes", "items"}, map[string]any{
 		"anyOf": []any{
 			map[string]any{"required": []any{"name", "path"}},
-			map[string]any{"required": []any{"source", "target"}},
+			map[string]any{"required": []any{"source", "path"}},
 		},
 	}},
-	{[]string{"workloads", "*", "ports", "items", "host"}, portBounds()},
-	{[]string{"workloads", "*", "ports", "items", "container"}, portBounds()},
-	{[]string{"workloads", "*", "ports", "items", "protocol"}, enum(ePortProtocol)},
+	{[]string{"workloads", "*", "published_ports", "items", "host"}, portBounds()},
+	{[]string{"workloads", "*", "published_ports", "items", "container"}, portBounds()},
+	{[]string{"workloads", "*", "published_ports", "items", "protocol"}, enum(ePortProtocol)},
 	{[]string{"workloads", "*", "needs", "items", "name"}, pattern(gIdent)},
 	{[]string{"workloads", "*", "needs", "items", "condition"}, enum(eNeedCondition)},
 	{[]string{"workloads", "*", "schedule", "cron"}, pattern(gCron)},
@@ -400,7 +400,7 @@ var schemaConstraints = []struct {
 	{[]string{"services", "*", "protection", "retention", "recovery_window"}, pattern(gDur)},
 	{[]string{"services", "*", "protection", "restore_drill", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"services", "*", "protection", "restore_drill", "schedule", "timezone"}, pattern(gTZ)},
-	{[]string{"services", "*", "protection", "restore_drill", "proof_max_age"}, pattern(gDur)},
+	{[]string{"services", "*", "protection", "restore_drill", "proof_maximum_age"}, pattern(gDur)},
 	{[]string{"services", "*", "protection", "restore_drill", "staging_filesystem"}, pattern(gAbsPath)},
 
 	{[]string{"backup_targets", "*", "kind"}, enum(eBackupTargetKind)},
@@ -428,7 +428,7 @@ var schemaConstraints = []struct {
 	{[]string{"external_services", "*", "protection_owner"}, pattern(gProtectionOwner)},
 	{[]string{"external_services", "*", "probe", "kind"}, enum(eExternalProbeKind)},
 	{[]string{"external_services", "*", "probe", "timeout"}, pattern(gDur)},
-	{[]string{"external_services", "*", "probe", "max_age"}, pattern(gDur)},
+	{[]string{"external_services", "*", "probe", "maximum_age"}, pattern(gDur)},
 
 	{[]string{"proxy", "kind"}, enum(eProxyKind)},
 	{[]string{"proxy", "image"}, pattern(gImageRef)},
@@ -447,12 +447,13 @@ var schemaConstraints = []struct {
 	{[]string{"environments", "*", "env_files", "items", "file"}, pattern(gRepoPath)},
 	{[]string{"environments", "*", "env_files", "items", "provider"}, enum(eSecretProvider)},
 	{[]string{"environments", "*", "env_files", "items"}, map[string]any{"required": []any{"file"}}},
-	{[]string{"runtime", "preflight", "items", "file"}, pattern(gRepoPath)},
-	{[]string{"verification", "items", "http"}, pattern(gURLPath)},
-	{[]string{"verification", "items", "url"}, pattern(gHTTPURL)},
-	{[]string{"verification", "items", "port"}, portBounds()},
-	{[]string{"verification", "items", "status_codes", "items"}, map[string]any{"minimum": 100, "maximum": 599}},
+	{[]string{"runtime", "env_checks", "items", "file"}, pattern(gRepoPath)},
+	{[]string{"verifications", "items", "http"}, pattern(gURLPath)},
+	{[]string{"verifications", "items", "url"}, pattern(gHTTPURL)},
+	{[]string{"verifications", "items", "port"}, portBounds()},
+	{[]string{"verifications", "items", "status_codes", "items"}, map[string]any{"minimum": 100, "maximum": 599}},
 	{[]string{"observability", "alerts", "unhealthy_after"}, pattern(gDur)},
+	{[]string{"observability", "logs", "retention"}, pattern(gDur)},
 }
 
 // applyRoleRules expresses what belongs to which role, and what a project must
@@ -488,7 +489,7 @@ func applyRoleRules(doc map[string]any) {
 		map[string]any{"anyOf": anyRequired(sources)},
 	}
 
-	jobOnly := []any{"run", "data_effect", "schedule"}
+	jobOnly := []any{"when", "data_effect", "schedule"}
 	workload["allOf"] = []any{
 		// Exactly one source. A workload with none cannot run and a workload
 		// with two does not say which image it is.

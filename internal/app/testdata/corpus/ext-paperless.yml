@@ -12,7 +12,7 @@ workloads:
     # check and for start where it does not. gotenberg and tika declare none.
     needs: [db, broker, gotenberg, tika]
     env_files: [docker-compose.env]
-    ports: [{host: 8000, container: 8000}]
+    published_ports: [{host: 8000, container: 8000}]
     volumes:
       - {name: data, path: /usr/src/paperless/data}
       - {name: media, path: /usr/src/paperless/media}

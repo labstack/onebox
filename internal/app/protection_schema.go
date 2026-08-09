@@ -137,16 +137,16 @@ func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
 	if err := validateSchedule(&policy.RestoreDrill.Schedule, path+".restore_drill.schedule"); err != nil {
 		return err
 	}
-	proofAge, err := positiveDuration(policy.RestoreDrill.ProofMaxAge)
+	proofAge, err := positiveDuration(policy.RestoreDrill.ProofMaximumAge)
 	if err != nil {
-		return errf("project_invalid", path+".restore_drill.proof_max_age", "ob validate", "proof_max_age must be a positive duration: %v", err)
+		return errf("project_invalid", path+".restore_drill.proof_maximum_age", "ob validate", "proof_maximum_age must be a positive duration: %v", err)
 	}
 	gap, exact := maximumCronGap(policy.RestoreDrill.Schedule.Cron)
 	if !exact {
-		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against proof_max_age; use a daily or weekday-based schedule")
+		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against proof_maximum_age; use a daily or weekday-based schedule")
 	}
 	if gap >= proofAge {
-		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds proof_max_age %s; use a more frequent schedule", gap, proofAge)
+		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds proof_maximum_age %s; use a more frequent schedule", gap, proofAge)
 	}
 	if err := gAbsPath.checkOptional(path+".restore_drill.staging_filesystem", policy.RestoreDrill.StagingFilesystem); err != nil {
 		return err

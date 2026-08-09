@@ -24,7 +24,7 @@ func migrationBackupEngineConfig() *app.Resolved {
 	cfg.Workloads["worker"] = worker
 	environment := cfg.Environments["production"]
 	environment.Policy.RequireMigrationBackup = true
-	environment.Policy.MigrationBackupMaxAge = "24h"
+	environment.Policy.MigrationBackupMaximumAge = "24h"
 	cfg.Environments["production"] = environment
 	return cfg
 }

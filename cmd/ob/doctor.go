@@ -147,7 +147,6 @@ func defaultDoctorDependencies() doctorDependencies {
 }
 
 func addDoctorCommand(root *cobra.Command, g *globalFlags) {
-	var jsonOutput bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check local runner provenance and deployment safety capabilities",
@@ -155,11 +154,7 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())
-			mode := g.Output
-			if jsonOutput {
-				mode = "json"
-			}
-			if err := writeDoctorReport(cmd.OutOrStdout(), report, mode); err != nil {
+			if err := writeDoctorReport(cmd.OutOrStdout(), report, g.Output); err != nil {
 				return err
 			}
 			if report.Status == doctorFail {
@@ -168,7 +163,6 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print the doctor report as JSON")
 	root.AddCommand(cmd)
 }
 
@@ -528,7 +522,7 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 		report.Checks = append(report.Checks, check)
 	}
 
-	if cfg.Runtime != nil && len(cfg.Runtime.Preflight) > 0 {
+	if cfg.Runtime != nil && len(cfg.Runtime.EnvChecks) > 0 {
 		check := doctorProtectionCheck{Mechanism: "runtime_preflight"}
 		if err := cfg.RunPreflight(filepath.Dir(configPath)); err != nil {
 			check.Status = doctorFail

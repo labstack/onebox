@@ -18,7 +18,7 @@ func protectionStateProjection() app.ProtectionEffectiveProjection {
 			Schedule:  app.Schedule{Cron: "17 */6 * * *", Timezone: "UTC"},
 			Retention: app.ProtectionRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
 			RestoreDrill: app.RestoreDrillPolicy{
-				Schedule: app.Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"}, ProofMaxAge: "7d",
+				Schedule: app.Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"}, ProofMaximumAge: "7d",
 			},
 		},
 		Target: app.BackupTarget{

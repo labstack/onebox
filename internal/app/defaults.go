@@ -91,9 +91,9 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			w.Drain.Signal = "TERM"
 			mark(path + ".drain.signal")
 		}
-		if w.IsJob() && w.Run == "" {
-			w.Run = "manual"
-			mark(path + ".run")
+		if w.IsJob() && w.When == "" {
+			w.When = "manual"
+			mark(path + ".when")
 		}
 		if w.Schedule != nil && w.Schedule.Timezone == "" {
 			w.Schedule.Timezone = "UTC"
@@ -128,16 +128,16 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				mark(indexed(path+".volumes", i) + ".mode")
 			}
 		}
-		for i := range w.Ports {
-			pp := indexed(path+".ports", i)
+		for i := range w.PublishedPorts {
+			pp := indexed(path+".published_ports", i)
 			// Bound to loopback unless stated. A published port on every
 			// interface is how a database ends up on the internet.
-			if w.Ports[i].Bind == "" {
-				w.Ports[i].Bind = "127.0.0.1"
+			if w.PublishedPorts[i].Bind == "" {
+				w.PublishedPorts[i].Bind = "127.0.0.1"
 				mark(pp + ".bind")
 			}
-			if w.Ports[i].Protocol == "" {
-				w.Ports[i].Protocol = "tcp"
+			if w.PublishedPorts[i].Protocol == "" {
+				w.PublishedPorts[i].Protocol = "tcp"
 				mark(pp + ".protocol")
 			}
 		}
@@ -180,9 +180,9 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				s.Protection.RestoreDrill.Schedule.Timezone = "UTC"
 				mark(path + ".protection.restore_drill.schedule.timezone")
 			}
-			if s.Protection.RestoreDrill.ProofMaxAge == "" {
-				s.Protection.RestoreDrill.ProofMaxAge = "7d"
-				mark(path + ".protection.restore_drill.proof_max_age")
+			if s.Protection.RestoreDrill.ProofMaximumAge == "" {
+				s.Protection.RestoreDrill.ProofMaximumAge = "7d"
+				mark(path + ".protection.restore_drill.proof_maximum_age")
 			}
 		}
 		p.Services[name] = s
@@ -218,8 +218,8 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				external.Probe.Timeout = "5s"
 				mark(path + ".probe.timeout")
 			}
-			if external.Probe.MaxAge == "" {
-				external.Probe.MaxAge = "5m"
+			if external.Probe.MaximumAge == "" {
+				external.Probe.MaximumAge = "5m"
 				mark(path + ".probe.max_age")
 			}
 		}

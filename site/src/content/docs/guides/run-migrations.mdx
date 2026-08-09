@@ -1,6 +1,6 @@
 ---
 title: Run migrations safely
-description: Migration jobs, data effects, result evidence, and the backup-evidence gate.
+description: Migration jobs, data effects, result evidence, and the evidence gate.
 summary: How to declare a migration job, what data_effect controls, how job result evidence is captured and verified, and how the migration-backup policy gate works.
 sidebar:
   order: 3
@@ -19,7 +19,7 @@ workloads:
     image: ghcr.io/acme/shop:1.4.0
     command: ["./bin/migrate"]
     data_effect: migration
-    run: pre_release
+    when: pre_release
     needs: [{name: postgres, condition: healthy}]
 ```
 
@@ -60,7 +60,7 @@ it.
 ## Verify the revisions
 
 ```yaml
-verification:
+verifications:
   - migration_revisions:
       job: migrate
       provider: atlas
@@ -81,7 +81,7 @@ environments:
   production:
     policy:
       require_migration_backup: true
-      migration_backup_max_age: 24h
+      migration_backup_maximum_age: 24h
       require_migration_restore_test: true
       migration_backup_key_material: [production-kms-key]
 ```
@@ -94,7 +94,7 @@ Onebox validates the evidence; it does not create or store the backup.
 Seal the facts, then apply them with the plan:
 
 ```sh
-ob backup-evidence create \
+ob evidence create \
   --plan ob-plan.json \
   --manifest backup-facts.json \
   --out ob-backup-evidence.json

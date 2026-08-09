@@ -293,7 +293,7 @@ var blocks = []block{
 	{Key: "deployment", Title: "deployment", Order: 50, Status: statusShipped,
 		Summary:  "Release ordering, how many releases are retained for rollback, and the migration policy.",
 		ReadWhen: []string{"Changing release order, retention or migration gating"}},
-	{Key: "verification", Title: "verification", Order: 60, Status: statusShipped,
+	{Key: "verifications", Title: "verifications", Order: 60, Status: statusShipped,
 		Summary:  "What must be true before a release becomes current: external URLs, in-workload checks, or migration revision evidence.",
 		ReadWhen: []string{"Gating release activation on a health endpoint or a smoke test"}},
 	{Key: "proxy", Title: "proxy", Order: 70, Status: statusShipped,
@@ -917,6 +917,24 @@ func renderCLIPage(obBin string) (string, error) {
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "Generated from the binary, so it cannot describe a flag the CLI does not have.")
 	fmt.Fprintln(&buf, "`ob <command> --help` is the same text.")
+	fmt.Fprintln(&buf)
+
+	// Five commands change nothing, and their names do not say how they differ.
+	// The axis is what each one reads, which is the question an operator is
+	// actually asking when they pick between them.
+	fmt.Fprintln(&buf, "## Which command changes nothing")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Five commands are read-only. They differ by what they read, not by how far they go.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "| Command | Reads | Contacts the target |")
+	fmt.Fprintln(&buf, "| --- | --- | --- |")
+	fmt.Fprintln(&buf, "| `ob validate` | the project file | no |")
+	fmt.Fprintln(&buf, "| `ob preview` | the runtime it would generate | no |")
+	fmt.Fprintln(&buf, "| `ob doctor` | this runner, and the environment's policy | yes |")
+	fmt.Fprintln(&buf, "| `ob preflight` | the host's readiness to accept a deploy | yes |")
+	fmt.Fprintln(&buf, "| `ob plan` | both, and writes a plan artifact | yes |")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "`ob plan` is the only one of the five that writes a file, and it writes it locally.")
 	fmt.Fprintln(&buf)
 
 	fmt.Fprintln(&buf, "## ob")

@@ -60,7 +60,7 @@ func addEjectCommand(root *cobra.Command, g *globalFlags) {
 	// Empty by default so the package can pick a name that does not collide
 	// with a Compose file the project already references. A flag default here
 	// would defeat that and refuse a perfectly ordinary ejection.
-	cmd.Flags().StringVar(&dest, "to", "", "repository path to write the runtime to (default: a free name beside the project)")
+	cmd.Flags().StringVarP(&dest, "out", "o", "", "repository path to write the runtime to (default: a free name beside the project)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace an existing file at the destination")
 	cmd.Flags().StringArrayVar(&imageFlags, "image", nil, "resolved image as workload=reference (repeatable)")
 	root.AddCommand(cmd)

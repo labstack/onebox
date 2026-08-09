@@ -16,6 +16,20 @@ read_when:
 Generated from the binary, so it cannot describe a flag the CLI does not have.
 `ob <command> --help` is the same text.
 
+## Which command changes nothing
+
+Five commands are read-only. They differ by what they read, not by how far they go.
+
+| Command | Reads | Contacts the target |
+| --- | --- | --- |
+| `ob validate` | the project file | no |
+| `ob preview` | the runtime it would generate | no |
+| `ob doctor` | this runner, and the environment's policy | yes |
+| `ob preflight` | the host's readiness to accept a deploy | yes |
+| `ob plan` | both, and writes a plan artifact | yes |
+
+`ob plan` is the only one of the five that writes a file, and it writes it locally.
+
 ## ob
 
 ```
@@ -30,33 +44,33 @@ Usage:
   ob [command]
 
 Available Commands:
-  abort           revert an interrupted deploy to the previous release (migration-gated)
-  approve         create a short-lived approval bound to one exact executable plan
-  audit           who deployed what, when, from which SHA — incl. failed runs
-  backup-evidence create plan-bound attestations about externally validated backups
-  bootstrap       first contact: host setup, registry login, and supporting/data services
-  canonical       print the canonical form Onebox understood, with where each value came from
-  completion      Generate the autocompletion script for the specified shell
-  deploy          show the plan, confirm, and release with health-gated zero downtime
-  destroy         tear the app down (typed confirmation; volumes kept unless --volumes)
-  doctor          check local runner provenance and deployment safety capabilities
-  eject           write the generated runtime into the repository and hand it over for good
-  exec            run a command inside a workload or service container
-  help            Help about any command
-  init            scaffold ob.yml from the compose file + rollability doctor
-  logs            compose logs from the current release
-  plan            refresh → rendered diff + pinned images + command list → plan artifact
-  preflight       ask the target whether this project could be deployed (changes nothing)
-  preview         render the runtime the declarative contract generates (no target, no changes)
-  proxy           manage the host-scoped proxy (proxy.managed: true)
-  resume          continue an interrupted deploy from the journal (fences the old runner)
-  rollback        re-release the previous release dir (pinned local image)
-  schema          print the JSON Schema for the project file, for editors
-  secrets         SOPS-encrypted secrets
-  service         manage supporting and data services
-  status          recorded versus actual state per workload and service
-  validate        validate schema, components, and rollability — no side effects
-  version         print version and build provenance
+  abort       revert an interrupted deploy to the previous release (migration-gated)
+  approve     create a short-lived approval bound to one exact executable plan
+  audit       who deployed what, when, from which SHA — incl. failed runs
+  bootstrap   first contact: host setup, registry login, and supporting/data services
+  canonical   print the canonical form Onebox understood, with where each value came from
+  completion  Generate the autocompletion script for the specified shell
+  deploy      show the plan, confirm, and release with health-gated zero downtime
+  destroy     tear the app down (typed confirmation; volumes kept unless --volumes)
+  doctor      check local runner provenance and deployment safety capabilities
+  eject       write the generated runtime into the repository and hand it over for good
+  evidence    create plan-bound attestations about externally validated backups
+  exec        run a command inside a workload or service container
+  help        Help about any command
+  init        scaffold ob.yml from the compose file + rollability doctor
+  logs        compose logs from the current release
+  plan        refresh → rendered diff + pinned images + command list → plan artifact
+  preflight   ask the target whether this project could be deployed (changes nothing)
+  preview     render the runtime the declarative contract generates (no target, no changes)
+  proxy       manage the host-scoped proxy (proxy.managed: true)
+  resume      continue an interrupted deploy from the journal (fences the old runner)
+  rollback    re-release the previous release dir (pinned local image)
+  schema      print the JSON Schema for the project file, for editors
+  secrets     SOPS-encrypted secrets
+  service     manage supporting and data services
+  status      recorded versus actual state per workload and service
+  validate    validate schema, workloads, and rollability — no side effects
+  version     print version and build provenance
 
 Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -82,8 +96,8 @@ Usage:
   ob abort [flags]
 
 Flags:
-      --force   abort past a closed migration gate (you assert schema compatibility)
-  -h, --help    help for abort
+      --break-migration-gate   abort past a closed migration gate (you assert schema compatibility)
+  -h, --help                   help for abort
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -133,62 +147,6 @@ Usage:
 Flags:
   -n, --count int   journals to show (default 10)
   -h, --help        help for audit
-
-Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
-  -e, --env string      environment name (default "production")
-      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
-  -v, --verbose         print every remote command
-```
-
-## ob backup-evidence
-
-```
-Seal externally validated facts about a backup into a receipt bound to one
-plan.
-
-For environments whose policy requires backup evidence before a migration.
-The receipt records artifact, integrity, restore-test and key-usability
-facts — never backup bytes and never secrets. Onebox does not take the
-backup; it records that something else did, and refuses to be the thing that
-claims one exists.
-
-Usage:
-  ob backup-evidence [flags]
-  ob backup-evidence [command]
-
-Available Commands:
-  create      seal validation facts into a migration backup evidence receipt
-
-Flags:
-  -h, --help   help for backup-evidence
-
-Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
-  -e, --env string      environment name (default "production")
-      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
-  -v, --verbose         print every remote command
-
-Use "ob backup-evidence [command] --help" for more information about a command.
-```
-
-### ob backup-evidence create
-
-```
-Seal a facts manifest into a receipt bound to one exact plan.
-
-The manifest records artifact, integrity, restore-test and key-usability
-facts about a backup something else took — never backup bytes and never
-secrets. Onebox does not take the backup and will not claim one exists.
-
-Usage:
-  ob backup-evidence create [flags]
-
-Flags:
-  -h, --help              help for create
-      --manifest string   JSON facts manifest from external backup validation
-  -o, --out string        receipt output path (default "ob-backup-evidence.json")
-      --plan string       executable plan containing the backup requirement
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -321,7 +279,6 @@ Usage:
 
 Flags:
   -h, --help   help for doctor
-      --json   print the doctor report as JSON
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -347,8 +304,64 @@ Usage:
 Flags:
   -h, --help                help for eject
       --image stringArray   resolved image as workload=reference (repeatable)
+  -o, --out string          repository path to write the runtime to (default: a free name beside the project)
       --overwrite           replace an existing file at the destination
-      --to string           repository path to write the runtime to (default: a free name beside the project)
+
+Global Flags:
+  -c, --config string   path to ob.yml (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+## ob evidence
+
+```
+Seal externally validated facts about a backup into a receipt bound to one
+plan.
+
+For environments whose policy requires backup evidence before a migration.
+The receipt records artifact, integrity, restore-test and key-usability
+facts — never backup bytes and never secrets. Onebox does not take the
+backup; it records that something else did, and refuses to be the thing that
+claims one exists.
+
+Usage:
+  ob evidence [flags]
+  ob evidence [command]
+
+Available Commands:
+  create      seal validation facts into a migration backup evidence receipt
+
+Flags:
+  -h, --help   help for evidence
+
+Global Flags:
+  -c, --config string   path to ob.yml (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+
+Use "ob evidence [command] --help" for more information about a command.
+```
+
+### ob evidence create
+
+```
+Seal a facts manifest into a receipt bound to one exact plan.
+
+The manifest records artifact, integrity, restore-test and key-usability
+facts about a backup something else took — never backup bytes and never
+secrets. Onebox does not take the backup and will not claim one exists.
+
+Usage:
+  ob evidence create [flags]
+
+Flags:
+  -h, --help              help for create
+      --manifest string   JSON facts manifest from external backup validation
+  -o, --out string        receipt output path (default "ob-backup-evidence.json")
+      --plan string       executable plan containing the backup requirement
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -367,7 +380,7 @@ Onebox's business: this is an escape hatch, outside the journal and the
 safety regime, and nothing it changes is part of any release.
 
 Usage:
-  ob exec <component|service> -- <command...> [flags]
+  ob exec <workload|service> -- <command...> [flags]
 
 Flags:
   -h, --help   help for exec
@@ -409,7 +422,7 @@ Stream logs from the current release.
 Names a workload or service, or omits it for all of them. Reads only.
 
 Usage:
-  ob logs [component|service] [flags]
+  ob logs [workload|service] [flags]
 
 Flags:
   -f, --follow     stream
@@ -515,7 +528,7 @@ Available Commands:
   apply       converge the shared proxy — diff shown; unchanged config never touches the container (ACME-safe)
 
 Flags:
-      --force   break the host lock / override a cross-app config conflict
+      --force   break the held host lock (prints the holder first); also overrides a cross-app config conflict
   -h, --help    help for proxy
 
 Global Flags:
@@ -545,7 +558,7 @@ Flags:
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
   -e, --env string      environment name (default "production")
-      --force           break the host lock / override a cross-app config conflict
+      --force           break the held host lock (prints the holder first); also overrides a cross-app config conflict
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
 ```
@@ -613,8 +626,8 @@ Usage:
   ob schema [flags]
 
 Flags:
-  -h, --help        help for schema
-      --to string   write to this path instead of standard output
+  -h, --help         help for schema
+  -o, --out string   write to this path instead of standard output
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -714,8 +727,8 @@ Available Commands:
   apply       planned service convergence — diff shown, destructive mounts refused without --force
 
 Flags:
-      --force   proceed past destructive mount changes
-  -h, --help    help for service
+      --allow-destructive-mounts   proceed past destructive mount changes
+  -h, --help                       help for service
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")
@@ -744,11 +757,11 @@ Flags:
   -h, --help   help for apply
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
-  -e, --env string      environment name (default "production")
-      --force           proceed past destructive mount changes
-      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
-  -v, --verbose         print every remote command
+      --allow-destructive-mounts   proceed past destructive mount changes
+  -c, --config string              path to ob.yml (default "ob.yml")
+  -e, --env string                 environment name (default "production")
+      --output string              output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose                    print every remote command
 ```
 
 ## ob status
@@ -809,7 +822,6 @@ Usage:
 
 Flags:
   -h, --help   help for version
-      --json   print version and build provenance as JSON
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")

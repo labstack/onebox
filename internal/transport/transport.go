@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"strings"
 
 	"github.com/labstack/onebox/internal/shellquote"
@@ -97,7 +98,13 @@ func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error 
 // reported every failed copy as a successful upload — a full disk, an unwritable
 // parent, and a killed shell all returned nil.
 func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
-	res, err := l.Run(ctx, "mkdir -p "+shq(remoteDir)+" && cp -a "+shq(localDir)+"/. "+shq(remoteDir)+"/")
+	script, err := uploadScript(remoteDir, func(staging string) string {
+		return "cp -a " + shq(localDir) + "/. " + staging + "/"
+	})
+	if err != nil {
+		return err
+	}
+	res, err := l.Run(ctx, script)
 	if err != nil {
 		return err
 	}
@@ -125,4 +132,103 @@ func (l *Local) Close() error    { return nil }
 // shq single-quotes a shell argument.
 func shq(s string) string {
 	return shellquote.Quote(s)
+}
+
+// stagingRoot is the directory a transfer lands in before it is visible under
+// its real name. It is a hidden directory beside the destination — NOT outside
+// the destination's parent, which an earlier version of this comment claimed.
+//
+// For a release that means `releases/.uploads/<id>`, i.e. inside the very
+// directory `release.list` enumerates with `ls -1`. Two things keep it from
+// being read as a release, and both are load-bearing: `ls -1` does not list
+// dot-entries, and `release.IsID` rejects the leading dot. Staging is not
+// somewhere nothing looks; it is somewhere two specific filters exclude.
+//
+// A first attempt put staging at `<remoteDir>.partial`, which had neither
+// protection: the debris was a plain entry in `releases/`, so `Previous()`
+// handed it to `ob rollback` and retention counted it and evicted a real
+// release to keep it.
+const stagingRoot = ".uploads"
+
+func stagingPath(remoteDir string) string {
+	return path.Join(path.Dir(remoteDir), stagingRoot, path.Base(remoteDir))
+}
+
+// uploadSentinel is written as the final archive entry by transports that
+// stream, so the receiver can tell a complete payload from a truncated one.
+// See uploadScript.
+const uploadSentinel = ".ob-upload-complete"
+
+// uploadScript wraps a transfer so an interrupted one cannot be mistaken for a
+// finished one.
+//
+// Writing straight into the destination leaves a directory that exists and is
+// incomplete, which nothing downstream can distinguish from a complete one — and
+// `ob resume` decides whether a transfer finished by testing that the directory
+// exists. Staging elsewhere and moving into place means the destination appears
+// whole or not at all.
+//
+// The destination is never deleted. An earlier version ran `rm -rf <target>`
+// before the move so it could replace an existing directory, which opened a
+// window where the previous release was gone and the new one not yet installed —
+// a worse state than either. Every caller uploads to a path that is unique per
+// operation, so a destination that already exists means something is wrong;
+// `mv` fails and says so rather than destroying what is there.
+//
+// Staging is removed when the script exits or is signalled. It has to be
+// removed here rather than
+// by the caller, because this is the only place that knows the staging path:
+// the secrets, protection-credential and proxy uploads all clean up the
+// *destination* they asked for, so anything left beside it survives them.
+// Their payloads are plaintext — an app's .env, a protection credentials.env —
+// and the leaf name carries an epoch or a fence token that changes every run,
+// so a leak is never overwritten by the next attempt.
+func uploadScript(remoteDir string, transfer func(quotedStaging string) string) (string, error) {
+	// This helper exists to be safe, so it validates rather than trusting its
+	// caller two packages away. Cleaning first removes the trailing slash that
+	// would otherwise make staging a child of the target.
+	remoteDir = path.Clean(remoteDir)
+	if !path.IsAbs(remoteDir) {
+		return "", fmt.Errorf("upload destination %q is not absolute", remoteDir)
+	}
+	if path.Dir(remoteDir) == remoteDir {
+		return "", fmt.Errorf("upload destination %q is a filesystem root", remoteDir)
+	}
+
+	staging := shq(stagingPath(remoteDir))
+	target := shq(remoteDir)
+	// `mv a b` where b is an existing directory moves a *inside* b rather than
+	// failing, which would bury the payload one level down and report success.
+	// `mv -T` says what is meant but is GNU-only, so the guard is explicit.
+	//
+	// Checking again after the transfer narrows the window but does not close
+	// it: a destination created between the second check and the `mv` still
+	// gets the payload nested inside it. What actually prevents that is the
+	// host lock — one operation per app — plus destinations that are unique per
+	// operation. This is a guard against a stale directory, not against a
+	// concurrent writer.
+	return strings.Join([]string{
+		"if [ -e " + target + " ]; then echo 'upload destination already exists: refusing to replace it' >&2; exit 1; fi",
+		"rm -rf " + staging + " || exit 1",
+		"mkdir -p " + staging + " || exit 1",
+		// The handler is quoted twice on purpose. `staging` is already
+		// single-quoted for the shell that reads this script; wrapping it in a
+		// second pair of literal quotes would close that quoting rather than nest
+		// it, leaving the path bare — a destination holding `;` then ran as a
+		// command on the target host, and one merely holding a space produced
+		// `trap: invalid signal specification` and installed no handler at all.
+		// shq applied to the whole handler escapes the inner quotes so the string
+		// survives to the shell that evaluates it when the trap fires.
+		//
+		// EXIT alone does not cover a killed shell: cancelling closes the SSH
+		// connection, sshd sends SIGHUP, and an untrapped signal skips the EXIT
+		// handler — which is exactly the interrupted transfer whose payload most
+		// needs removing.
+		"trap " + shq("rm -rf "+staging) + " EXIT HUP INT TERM",
+		transfer(staging) + " || exit 1",
+		"mkdir -p " + shq(path.Dir(remoteDir)) + " || exit 1",
+		"if [ -e " + target + " ]; then echo 'upload destination appeared during transfer' >&2; exit 1; fi",
+		"mv " + staging + " " + target + " || exit 1",
+		"trap - EXIT",
+	}, "\n"), nil
 }

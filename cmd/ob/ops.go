@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/onebox"
+	"github.com/labstack/onebox/internal/shellquote"
 )
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
@@ -177,7 +178,16 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer cleanup()
-			return e.ExecIn(cmd.Context(), args[0], strings.Join(args[1:], " "), cmd.OutOrStdout())
+			// Quote each argument rather than flattening argv into one string:
+			// the remote side runs the result through `sh -c`, so an unquoted
+			// join let the shell re-split it. `sh -c 'echo one; echo two'`
+			// arrived as `sh -c echo one; echo two`, which ran `echo` with no
+			// arguments and made "one" the shell's $0.
+			quoted := make([]string, 0, len(args)-1)
+			for _, arg := range args[1:] {
+				quoted = append(quoted, shellquote.Quote(arg))
+			}
+			return e.ExecIn(cmd.Context(), args[0], strings.Join(quoted, " "), cmd.OutOrStdout())
 		},
 	})
 }

@@ -2,13 +2,13 @@
 // compose v2 uses — so the supported dialect is exactly what Compose accepts;
 // Onebox does not reimplement the Compose specification.
 //
-// What it parses is now Onebox's own generated runtime rather than a file the
-// user wrote. The engine works in services and images, and parsing our own
-// output is the cheapest way to keep one definition of what a service is. The
-// inference that used to live here — guess which service is the application,
-// which is a database, what order they start in — is gone: the project states
-// all of it, and a guess that disagrees with the author is worse than a
-// question.
+// What it parses is Onebox's own generated runtime, not a file the user wrote.
+// The engine works in services and images, and parsing our own output is the
+// cheapest way to keep one definition of what a service is.
+//
+// It infers nothing — not which service is the application, which is a
+// database, nor what order they start in. The project states all of it, because
+// a guess that disagrees with the author is worse than a question.
 package compose
 
 import (

@@ -425,7 +425,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 //
 // A declared empty list is not an absent one. `nil` means the workload said
 // nothing and takes the next default; a non-nil empty list means it declared
-// that it receives none, which was previously inexpressible.
+// that it receives none. The distinction is why the field is a pointer.
 //
 // The role gate governs only the default. It admits the workload roles that are
 // the application's own and excludes a `daemon`, whose configuration is its

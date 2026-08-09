@@ -22,11 +22,11 @@ type Paths struct{ Base, Releases, Current string }
 
 // PathsFor resolves the remote layout from the project's own names.
 //
-// There used to be a second authority here that read only the app name and an
-// environment variable, so locks, fences, journals, releases and secret pushes
-// could operate in a different tree from the one preflight validated and
-// generation wrote — any time a project or environment declared `base_path`.
-// One authority: whatever `NamesFor(environment)` resolved.
+// Whatever `NamesFor(environment)` resolved is the single authority. Any second
+// path source — an app name plus an environment variable, say — lets locks,
+// fences, journals, releases and secret pushes operate in a different tree from
+// the one preflight validated and generation wrote, for any project or
+// environment declaring `base_path`.
 func PathsFor(n app.Names) Paths {
 	base := n.AppDir()
 	return Paths{Base: base, Releases: base + "/releases", Current: base + "/current"}

@@ -13,13 +13,8 @@ import (
 )
 
 // Staging lands inside the destination's directory, so what keeps it from being
-// read as a release is that the entry it adds there is hidden.
-//
-// An earlier version of this test asserted the opposite — that staging was
-// outside `releases/` — with `HasPrefix(...) && !Contains(staging, stagingRoot)`.
-// stagingPath always joins stagingRoot in, so that condition was false for every
-// possible input and the assertion could never run. The property below is the
-// one that actually holds, and it fails if stagingRoot loses its leading dot.
+// read as a release is that the entry it adds there is hidden. This fails if
+// stagingRoot loses its leading dot.
 func TestStagingAddsOnlyAHiddenEntryToTheDestinationsDirectory(t *testing.T) {
 	dest := "/var/lib/ob/shop/releases/20260808-120000-abc"
 	staging := stagingPath(dest)
@@ -139,8 +134,8 @@ func TestStagingIsDistinctPerDestination(t *testing.T) {
 }
 
 // A destination that already exists means something is wrong. The upload must
-// say so rather than replacing it — an earlier version removed it first, which
-// left a window with the previous release gone and the new one not installed.
+// say so rather than replacing it: clearing it first would leave a window with
+// the previous release gone and the new one not installed.
 func TestUploadRefusesAnExistingDestination(t *testing.T) {
 	source := t.TempDir()
 	writeFile(t, filepath.Join(source, "compose.yaml"), "new\n")
@@ -176,8 +171,8 @@ func TestUploadScriptRefusesDangerousDestinations(t *testing.T) {
 	}
 }
 
-// A trailing slash previously made staging a child of the target, so removing
-// the target destroyed the payload too. Cleaning first is what prevents it.
+// A trailing slash would make staging a child of the target, so removing the
+// target would destroy the payload too. Cleaning the path first prevents it.
 func TestUploadScriptCleansItsDestination(t *testing.T) {
 	withSlash, err := uploadScript("/var/lib/ob/shop/releases/r1/", func(s string) string { return "true" })
 	if err != nil {
@@ -192,12 +187,11 @@ func TestUploadScriptCleansItsDestination(t *testing.T) {
 	}
 }
 
-// Grepping the script for metacharacters missed the one line that got the
-// quoting wrong, because `path.Dir`/`path.Base` never reproduce the literal the
-// grep looked for. Running the script is what catches it: a destination holding
-// `;` escaped its quotes in the trap handler and executed on the target host.
-// app.gAbsPath permits both `;` and spaces in base_path, so this is reachable
-// from a project file.
+// Asserting on the script's text cannot catch a quoting bug, because the
+// metacharacters to grep for are ones `path.Dir`/`path.Base` never reproduce.
+// Running it can: a destination holding `;` that escapes its quotes executes on
+// the target host. app.gAbsPath permits both `;` and spaces in base_path, so
+// this is reachable from a project file.
 func TestUploadScriptDoesNotExecuteAHostileDestination(t *testing.T) {
 	root := t.TempDir()
 	canary := filepath.Join(root, "pwned")

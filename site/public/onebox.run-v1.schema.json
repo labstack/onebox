@@ -505,6 +505,7 @@
                 "type": "array"
               },
               "migration_backup_maximum_age": {
+                "default": "24h",
                 "description": "Maximum age of backup evidence accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
                   "24h"
@@ -1679,13 +1680,24 @@
             "if": {
               "properties": {
                 "persistence": {
-                  "properties": {
-                    "mode": {
-                      "const": "durable"
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "mode": {
+                          "const": "durable"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    {
+                      "not": {
+                        "required": [
+                          "mode"
+                        ]
+                      }
                     }
-                  },
-                  "required": [
-                    "mode"
                   ]
                 }
               },

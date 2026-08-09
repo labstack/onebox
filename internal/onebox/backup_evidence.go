@@ -58,15 +58,20 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	}
 	resources := make([]MigrationBackupResource, 0, len(cfg.Workloads)+len(cfg.Services))
 	for name, workload := range cfg.Workloads {
-		if !workload.HoldsDurableData() {
+		// Declared: anything but ephemeral counts, which keeps `external` a
+		// resource the operator is asked to cover. Undeclared: a managed volume
+		// is durable, which is the inference doctor and this gate now share.
+		mode := "durable"
+		if workload.Persistence != nil {
+			mode = workload.Persistence.Mode
+			if mode == "ephemeral" {
+				continue
+			}
+		} else if !workload.HoldsDurableData() {
 			continue
 		}
 		volumes := durableVolumeNames(workload)
 		sort.Strings(volumes)
-		mode := "durable"
-		if workload.Persistence != nil {
-			mode = workload.Persistence.Mode
-		}
 		resources = append(resources, MigrationBackupResource{
 			Component: name, Service: name, Type: workload.Role,
 			Persistence: mode, Volumes: volumes,
@@ -96,7 +101,7 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	}
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Component < resources[j].Component })
 	if len(resources) == 0 {
-		return nil, errors.New("migration backup policy is enabled but nothing declares durable data: no workload has a managed volume and no supporting service is declared")
+		return nil, errors.New("migration backup policy is enabled but nothing holds data to back up: no workload has a managed volume or declares durable or external persistence, and no supporting service is declared")
 	}
 	keyMaterial := append([]string(nil), policy.MigrationBackupKeyMaterial...)
 	sort.Strings(keyMaterial)

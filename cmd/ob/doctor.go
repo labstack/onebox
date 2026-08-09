@@ -488,14 +488,16 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 		w := cfg.Workloads[name]
 		if w.HoldsDurableData() {
 			message := "holds durable data and Onebox takes no backups; copy it off this host yourself"
-			if w.Persistence == nil || cfg.PersistenceInferred(name) {
+			switch {
+			case w.Replicas > 1:
+				// Do not suggest declaring durable here: the loader refuses a
+				// declared-durable workload with replicas, so following that
+				// advice would turn a project that loads into one that does not.
+				message += ". It also asks for " + strconv.Itoa(w.Replicas) +
+					" replicas, which would all mount the same volume — run one instance, " +
+					"then declare persistence: {mode: durable} to state what it holds"
+			case w.Persistence == nil:
 				message += ". Declare persistence: {mode: durable} to state this, or mode: ephemeral if the volume is not state"
-			}
-			// Replicas sharing one volume is a real hazard, but refusing it at
-			// load would tighten a constraint on a project that already loads.
-			// Saying so here is the honest middle.
-			if w.Replicas > 1 {
-				message += ". It also asks for " + strconv.Itoa(w.Replicas) + " replicas, which would all mount the same volume"
 			}
 			report.Checks = append(report.Checks, doctorProtectionCheck{
 				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,

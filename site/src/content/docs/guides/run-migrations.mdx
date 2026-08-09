@@ -125,7 +125,7 @@ integrity, restore-test and key-usability facts — never backup bytes or secret
 | `resources[].backup_id` | your backup system's identifier for the artifact |
 | `resources[].created_at` | RFC 3339 time the backup was taken |
 | `resources[].integrity` | `artifact_digest`, `method`, `validated_at` |
-| `resources[].restore_test` | `state` is `passed` or `not_tested`; `method`, `tested_at`, `validation_digest` optional |
+| `resources[].restore_test` | `state` is `passed` or `not_tested`. `passed` **requires** `method`, `tested_at` and a lowercase `sha256:` `validation_digest`; `not_tested` refuses all three |
 | `key_material[]` | one per entry in the plan's `required_key_material`: `name`, `backup_id`, `created_at`, `integrity`, and `usability` (`method`, `validated_at`, `validation_digest`) |
 
 Unknown fields are refused, so a typo is named rather than ignored.

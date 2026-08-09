@@ -109,7 +109,7 @@ workloads:
   postgres: { role: daemon, image: postgres:17, persistence: { mode: durable } }
 deployment: { order: [web] }
 runtime:
-  preflight:
+  env_checks:
     - { file: secrets.env, require: [MISSING_KEY] }
 `
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {

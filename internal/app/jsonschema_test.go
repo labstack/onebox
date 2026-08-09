@@ -70,20 +70,19 @@ var beyondJSONSchema = map[string]string{
 
 	// Facts about values that only resolution knows.
 	"unknown prerequisite":             "a prerequisite must name something the project declares",
-	"healthy condition without health": "a wait for health needs a health check to wait on",
-	"derived name too long":            "the length of a name Onebox derives, not one written here",
-	"unknown service driver":           "a driver Onebox has an implementation for",
 	"absolute env_file":                "a path that resolves inside the repository after joining",
 	"absolute compose ref":             "a path that resolves inside the repository after joining",
 	"protection self target":           "a target and environment host are declared in separate objects",
+	"hook naming an unlisted seam":     "a hook key is a seam or a declared job, and the job list is a separate object",
+	"hook naming neither":              "a hook key is a seam or a declared job, and the job list is a separate object",
 	"protection unsupported objective": "a recovery kind is qualified by the selected service driver",
 	"protection sparse drill":          "cron cadence must be compared with restore proof age",
 
 	// Exclusivity within one object that a schema could express, and does not
 	// here because the resulting document would be harder to read than the
 	// rule it encodes.
-	"verification url with exec":          "a verification is exactly one kind",
-	"verification workload without probe": "an http or exec check names the workload it runs in",
+	"verifications url with exec":          "a verification is exactly one kind",
+	"verifications workload without probe": "an http or exec check names the workload it runs in",
 }
 
 func TestPublishedSchemaMatchesTheLoader(t *testing.T) {
@@ -235,7 +234,7 @@ func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
 		t.Fatalf("read published schema: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --to docs/onebox.run-v1.schema.json`", path)
+		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out docs/onebox.run-v1.schema.json`", path)
 	}
 }
 
@@ -263,4 +262,24 @@ func TestPublishedSchemaURLIsUsedByTheHumanGuide(t *testing.T) {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+// An exemption for a case that no longer exists is an exemption nobody can see
+// is dead.
+//
+// beyondJSONSchema excuses a conformance case from the schema/loader agreement
+// check, keyed by the case name. A key naming a case that was renamed or removed
+// silently excuses nothing, and three had rotted that way — so the map claimed
+// to be a considered list of what JSON Schema cannot express while carrying
+// entries that expressed nothing at all.
+func TestEveryJSONSchemaExemptionNamesARealCase(t *testing.T) {
+	cases := map[string]bool{}
+	for _, c := range conformanceCases() {
+		cases[c.name] = true
+	}
+	for name := range beyondJSONSchema {
+		if !cases[name] {
+			t.Errorf("%q is exempted from the schema check but is not a conformance case", name)
+		}
+	}
 }

@@ -14,10 +14,10 @@ workloads:
     domain: auth.example.com
     port: 9000
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    ports: [{host: 9000, container: 9000}]
+    published_ports: [{host: 9000, container: 9000}]
     volumes:
-      - {source: /srv/authentik/media, target: /media}
-      - {source: /srv/authentik/templates, target: /templates, mode: ro}
+      - {source: /srv/authentik/media, path: /media}
+      - {source: /srv/authentik/templates, path: /templates, mode: ro}
     env: &authentik_env
       AUTHENTIK_SECRET_KEY: replace-me-with-a-real-secret
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
@@ -28,8 +28,8 @@ workloads:
     command: [worker]
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
     volumes:
-      - {source: /srv/authentik/media, target: /media}
-      - {source: /srv/authentik/certs, target: /certs}
+      - {source: /srv/authentik/media, path: /media}
+      - {source: /srv/authentik/certs, path: /certs}
     env: *authentik_env
 services:
   postgres: "16"

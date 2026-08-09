@@ -47,7 +47,7 @@ workloads:
     role: job
     image: nginx:1.27
     data_effect: migration
-    run: pre_release
+    when: pre_release
 services:
   postgres: 16
 `

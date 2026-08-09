@@ -25,7 +25,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Args: cobra.NoArgs, RunE: showCommandHelp}
 	serviceCmd.AddCommand(&cobra.Command{
 		Use:   "apply",
-		Short: "planned service convergence — diff shown, destructive mounts refused without --force",
+		Short: "planned service convergence — diff shown, destructive mounts refused without --allow-destructive-mounts",
 		Long:  "Converge the supporting services to what the project declares.\n\nEach runs in its own Compose project, so this never touches a release and a\nrelease never touches it. A change a driver can apply in place is applied; a\nmajor version change it cannot — a data directory the new version could not\nopen — is refused with what to do instead, rather than replacing the\ncontainer and leaving the data intact and unreachable.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
@@ -33,7 +33,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			}, "service apply")
 		},
 	})
-	serviceCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "proceed past destructive mount changes")
+	serviceCmd.PersistentFlags().BoolVar(&g.Force, "allow-destructive-mounts", false, "proceed past destructive mount changes")
 	root.AddCommand(serviceCmd)
 
 	// proxy apply — converge the HOST-scoped managed proxy (shared by every
@@ -54,7 +54,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			}, "proxy apply")
 		},
 	})
-	proxyCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "break the host lock / override a cross-app config conflict")
+	proxyCmd.PersistentFlags().BoolVar(&g.Force, "force", false, "break the held host lock (prints the holder first); also overrides a cross-app config conflict")
 	root.AddCommand(proxyCmd)
 
 	// secrets edit | push
@@ -136,7 +136,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	var follow bool
 	var tail int
 	logsCmd := &cobra.Command{
-		Use:   "logs [component|service]",
+		Use:   "logs [workload|service]",
 		Short: "compose logs from the current release",
 		Long:  "Stream logs from the current release.\n\nNames a workload or service, or omits it for all of them. Reads only.",
 		Args:  cobra.MaximumNArgs(1),
@@ -163,7 +163,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 
 	// exec
 	root.AddCommand(&cobra.Command{
-		Use:   "exec <component|service> -- <command...>",
+		Use:   "exec <workload|service> -- <command...>",
 		Short: "run a command inside a workload or service container",
 		Long:  "Run a command inside a running container.\n\nNames a workload or a supporting service. What the command does is not\nOnebox's business: this is an escape hatch, outside the journal and the\nsafety regime, and nothing it changes is part of any release.",
 		Args:  cobra.MinimumNArgs(2),

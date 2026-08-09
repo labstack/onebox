@@ -9,7 +9,7 @@ workloads:
     domain: git.example.com
     port: 3000
     needs: [db]
-    ports: [{host: 2222, container: 22}]
+    published_ports: [{host: 2222, container: 22}]
     env:
       USER_UID: "1000"
       USER_GID: "1000"

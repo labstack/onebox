@@ -45,7 +45,7 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 </Steps>
 
-Both commands support `--json`.
+Both commands take `--output json`.
 
 :::note[Why a checkout build can be refused]
 When an environment sets `minimum_onebox_version`, commit-derived and dirty
@@ -61,7 +61,7 @@ Onebox agent to install on it — the CLI connects over SSH, and scheduled work
 runs from host timers rather than a resident process.
 
 `ob bootstrap` prepares the host. It is the one command that contacts and
-changes a target before any application exists.
+changes a server before any application exists.
 
 ## Releasing (maintainers)
 

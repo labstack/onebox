@@ -89,8 +89,25 @@ func validateTopLevel(p *Spec) error {
 		if err := checkEnum("notifications."+name+".format", p.Notifications[name].Format, eNotifyFormat); err != nil {
 			return err
 		}
+		// notify.Send fires only on an outcome it recognises, so an unlisted
+		// event is a webhook that never calls — the block reads as configured
+		// and does nothing.
+		for i, event := range p.Notifications[name].On {
+			if err := checkEnum(indexed("notifications."+name+".on", i), event, eNotifyEvent); err != nil {
+				return err
+			}
+		}
 	}
 	for _, name := range sortedKeys(p.Hooks) {
+		// A hook key is either a lifecycle seam the engine invokes, or the name
+		// of a declared job — `hooks: {migrate: {run: ...}}` replaces the command
+		// used to run the `migrate` job (engine/gate.go, engine/plan.go). Both
+		// are real; anything else is a typo that would load and never fire.
+		if !isHookSeam(name) && !p.Workloads[name].IsJob() {
+			return errf("project_invalid", "hooks."+name, "",
+				"%q is neither a lifecycle seam (%s) nor a declared job",
+				name, strings.Join(eHookSeam, ", "))
+		}
 		if p.Hooks[name].Run == "" {
 			return errf("project_invalid", "hooks."+name, "", "a hook must declare a command to run")
 		}
@@ -99,25 +116,34 @@ func validateTopLevel(p *Spec) error {
 		if err := validateEnvFiles(p.Runtime.EnvFiles, "runtime.env_files"); err != nil {
 			return err
 		}
-		for i, c := range p.Runtime.Preflight {
-			if err := gRepoPath.check(indexed("runtime.preflight", i)+".file", c.File); err != nil {
+		for i, c := range p.Runtime.EnvChecks {
+			if err := gRepoPath.check(indexed("runtime.env_checks", i)+".file", c.File); err != nil {
 				return err
 			}
 			for _, k := range append(append([]string{}, c.Require...), c.Present...) {
-				if err := gEnvName.check(indexed("runtime.preflight", i), k); err != nil {
+				if err := gEnvName.check(indexed("runtime.env_checks", i), k); err != nil {
 					return err
 				}
 			}
 		}
 	}
-	for i, v := range p.Verification {
-		if err := validateVerification(v, indexed("verification", i)); err != nil {
+	for i, v := range p.Verifications {
+		if err := validateVerification(v, indexed("verifications", i)); err != nil {
 			return err
 		}
 	}
-	if p.Observability != nil && p.Observability.Alerts != nil {
-		if err := gDur.checkOptional("observability.alerts.unhealthy_after", p.Observability.Alerts.UnhealthyAfter); err != nil {
-			return err
+	if p.Observability != nil {
+		// Each sub-block is optional and independent. Checking one behind the
+		// other's nil guard both skipped the check and dereferenced a nil.
+		if p.Observability.Logs != nil {
+			if err := gDur.checkOptional("observability.logs.retention", p.Observability.Logs.Retention); err != nil {
+				return err
+			}
+		}
+		if p.Observability.Alerts != nil {
+			if err := gDur.checkOptional("observability.alerts.unhealthy_after", p.Observability.Alerts.UnhealthyAfter); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -156,7 +182,7 @@ func validateEnvironment(e Environment, path string) error {
 	if err := validateEnvFiles(e.EnvFiles, path+".env_files"); err != nil {
 		return err
 	}
-	if err := gDur.checkOptional(path+".policy.migration_backup_max_age", e.Policy.MigrationBackupMaxAge); err != nil {
+	if err := gDur.checkOptional(path+".policy.migration_backup_maximum_age", e.Policy.MigrationBackupMaximumAge); err != nil {
 		return err
 	}
 	if err := gPlanSchema.checkOptional(path+".policy.minimum_plan_schema", e.Policy.MinimumPlanSchema); err != nil {
@@ -269,7 +295,7 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 		if v.IsBind() {
-			if err := gAbsPath.check(vp+".target", v.Target); err != nil {
+			if err := gAbsPath.check(vp+".path", v.Path); err != nil {
 				return err
 			}
 		} else {
@@ -277,9 +303,9 @@ func validateWorkload(w Workload, path string) error {
 				return err
 			}
 			// A workload's named volume must say where it mounts. Without a
-			// path there is nothing to mount it at, and generation emitted
-			// `name:` with an empty target — a runtime the container engine
-			// refuses to parse, discovered at deploy rather than at load.
+			// path there is nothing to mount it at, and generation would emit
+			// `name:` with an empty destination — a runtime the container
+			// engine refuses to parse, discovered at deploy rather than load.
 			if v.Path == "" {
 				return errf("project_invalid", vp+".path", "",
 					"volume %q does not say where it mounts; give it a path", v.Name)
@@ -289,8 +315,8 @@ func validateWorkload(w Workload, path string) error {
 			}
 		}
 	}
-	for i, port := range w.Ports {
-		pp := indexed(path+".ports", i)
+	for i, port := range w.PublishedPorts {
+		pp := indexed(path+".published_ports", i)
 		if err := checkPort(pp+".host", port.Host); err != nil {
 			return err
 		}
@@ -333,7 +359,7 @@ func validateWorkload(w Workload, path string) error {
 		}
 	}
 	if w.IsJob() {
-		if err := checkEnum(path+".run", w.Run, eJobRun); err != nil {
+		if err := checkEnum(path+".when", w.When, eJobWhen); err != nil {
 			return err
 		}
 		if err := checkEnum(path+".data_effect", w.DataEffect, eDataEffect); err != nil {
@@ -346,9 +372,9 @@ func validateWorkload(w Workload, path string) error {
 		if err := validateSchedule(w.Schedule, path+".schedule"); err != nil {
 			return err
 		}
-	} else if w.Run != "" || w.DataEffect != "" || w.Schedule != nil {
+	} else if w.When != "" || w.DataEffect != "" || w.Schedule != nil {
 		return errf("project_invalid", path, "",
-			"run, data_effect and schedule belong to a job; this workload's role is %q", w.Role)
+			"when, data_effect and schedule belong to a job; this workload's role is %q", w.Role)
 	}
 	return nil
 }
@@ -388,6 +414,14 @@ func validateService(s Service, path string) error {
 	}
 	for i, v := range s.Volumes {
 		if err := gIdent.check(indexed(path+".volumes", i), v); err != nil {
+			return err
+		}
+	}
+	// Settings keys are interpolated into a generated shell command without
+	// quoting, so an unchecked key is a command-injection path from a project
+	// file to a root shell on the server.
+	for _, key := range sortedKeys(s.Settings) {
+		if err := gSettingKey.check(path+".settings."+key, key); err != nil {
 			return err
 		}
 	}

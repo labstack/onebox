@@ -46,6 +46,6 @@ func addSchemaCommand(root *cobra.Command, _ *globalFlags) {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&to, "to", "", "write to this path instead of standard output")
+	cmd.Flags().StringVarP(&to, "out", "o", "", "write to this path instead of standard output")
 	root.AddCommand(cmd)
 }

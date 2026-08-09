@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_backup_interruption` · `cpus` · `cron` · `driver` · `maximum_data_loss` · `memory` · `minimum_generations` · `mode` · `persistence` · `proof_max_age` · `protection` · `recovery_kind` · `recovery_window` · `resources` · `restore_drill` · `retention` · `schedule` · `settings` · `staging_filesystem` · `target` · `timezone` · `version` · `volumes`
+`allow_backup_interruption` · `cpus` · `cron` · `driver` · `maximum_data_loss` · `memory` · `minimum_generations` · `mode` · `persistence` · `proof_maximum_age` · `protection` · `recovery_kind` · `recovery_window` · `resources` · `restore_drill` · `retention` · `schedule` · `settings` · `staging_filesystem` · `target` · `timezone` · `version` · `volumes`
 
 ## Reference
 
@@ -32,7 +32,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.protection.maximum_data_loss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.protection.recovery_kind` | `snapshot` · `pitr` · `cold` | — | Required recovery envelope: snapshot, pitr, or cold. |
 | `<name>.protection.restore_drill` | object | — | Exact isolated restore-test schedule, proof age, and optional staging filesystem. |
-| `<name>.protection.restore_drill.proof_max_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.protection.restore_drill.proof_maximum_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.protection.restore_drill.schedule` | object | — | Exact recurring isolated restore-test schedule. |
 | `<name>.protection.restore_drill.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
 | `<name>.protection.restore_drill.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |

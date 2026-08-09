@@ -10,7 +10,7 @@ workloads:
     domain: git.example.com
     port: 3000
     health: {http: /api/healthz, port: 3000, interval: 5s, start_period: 20s, within: 240s}
-    ports: [{host: 222, container: 22, bind: "0.0.0.0"}]
+    published_ports: [{host: 222, container: 22, bind: "0.0.0.0"}]
     volumes: [{name: data, path: /data}]
     env:
       GITEA__database__DB_TYPE: postgres

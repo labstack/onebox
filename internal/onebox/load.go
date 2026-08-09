@@ -105,7 +105,7 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.connect(ctx, environment.Target())
+	target, err := s.connect(ctx, environment.Destination())
 	if err != nil {
 		return nil, fmt.Errorf("observe service lifecycle state: %w", err)
 	}

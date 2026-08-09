@@ -188,8 +188,8 @@ func TestUnreachableTargetIsAnError(t *testing.T) {
 	r, _ := p.Resolve("production")
 	_, err = r.Preflight(context.Background(), &fakeRunner{fail: true})
 	var e *Error
-	if !asError(err, &e) || e.Code != "target_unreachable" {
-		t.Fatalf("got %v, want target_unreachable", err)
+	if !asError(err, &e) || e.Code != "server_unreachable" {
+		t.Fatalf("got %v, want server_unreachable", err)
 	}
 }
 
@@ -275,7 +275,7 @@ environments:
   production: {server: root@203.0.113.10}
 runtime:
   env_files: [.env.base, .env.production]
-  preflight:
+  env_checks:
     - file: .env.production
       require: [API_TOKEN]
 image: nginx

@@ -133,7 +133,7 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	if err != nil {
 		return nil, nil, "", err
 	}
-	target := env.Target()
+	target := env.Destination()
 	t, err := s.connect(ctx, target)
 	if err != nil {
 		return nil, nil, "", err

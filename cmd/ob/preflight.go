@@ -17,8 +17,8 @@ import (
 func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "preflight",
-		Short: "ask the target whether this project could be deployed (changes nothing)",
-		Long: "Render the project locally, then ask the target what would stand in the way:\n" +
+		Short: "ask the server whether this project could be deployed (changes nothing)",
+		Long: "Render the project locally, then ask the server what would stand in the way:\n" +
 			"a missing container runtime, a base path this account cannot write, a derived\n" +
 			"name already held by something Onebox does not own, a missing ingress network.\n\n" +
 			"Every problem is reported at once rather than the first one, and nothing is\n" +
@@ -41,7 +41,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 			// User dropped a declared port and connected to 22 instead — a
 			// silent success against the wrong server, which is worse than
 			// any failure this command reports.
-			addr := env.Target()
+			addr := env.Destination()
 
 			t, err := transport.NewSSHContext(cmd.Context(), addr)
 			if err != nil {
@@ -53,7 +53,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 			if err != nil {
 				return explain(err)
 			}
-			report.Target = addr
+			report.Server = addr
 
 			out := cmd.OutOrStdout()
 			if g.Output == "json" {
@@ -78,7 +78,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 
 func writeReport(cmd *cobra.Command, r *app.Report) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "%s  environment %s\n\n", r.Target, r.Env)
+	fmt.Fprintf(out, "%s  environment %s\n\n", r.Server, r.Env)
 	for _, c := range r.Checks {
 		mark := "ok  "
 		if !c.OK {

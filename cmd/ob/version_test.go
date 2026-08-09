@@ -24,7 +24,7 @@ func executeRoot(t *testing.T, args ...string) string {
 }
 
 func TestVersionJSON(t *testing.T) {
-	out := executeRoot(t, "version", "--json")
+	out := executeRoot(t, "--output", "json", "version")
 	var got versionReport
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("decode version JSON: %v\n%s", err, out)

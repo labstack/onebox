@@ -504,7 +504,7 @@
                 },
                 "type": "array"
               },
-              "migration_backup_max_age": {
+              "migration_backup_maximum_age": {
                 "description": "Maximum age of backup evidence accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
                   "24h"
@@ -553,7 +553,7 @@
               },
               {
                 "additionalProperties": false,
-                "description": "SSH target, written as user@host or as an object with host, user, and port.",
+                "description": "SSH server, written as user@host or as an object with host, user, and port.",
                 "examples": [
                   "root@203.0.113.10"
                 ],
@@ -586,12 +586,12 @@
                 "type": "object"
               }
             ],
-            "description": "SSH target, written as user@host or as an object with host, user, and port. Also accepts user@host."
+            "description": "SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host."
           }
         },
         "type": "object"
       },
-      "description": "Named deployment targets and the policy applied to each target.",
+      "description": "Named environments, each naming the server it deploys to and the policy applied to it.",
       "minProperties": 1,
       "type": "object"
     },
@@ -682,7 +682,7 @@
                 ],
                 "type": "string"
               },
-              "max_age": {
+              "maximum_age": {
                 "default": "5m",
                 "description": "Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
@@ -805,7 +805,7 @@
             "properties": {
               "local": {
                 "default": false,
-                "description": "Run on the operator machine instead of the target host.",
+                "description": "Run on the operator machine instead of the server.",
                 "type": "boolean"
               },
               "run": {
@@ -821,7 +821,7 @@
         ],
         "description": "Also accepts the command to run."
       },
-      "description": "Named lifecycle commands, including pre_deploy, post_deploy, pre_rollback, and post_rollback.",
+      "description": "Lifecycle commands keyed by seam: bootstrap, pre_release, post_release, or post_deploy.",
       "type": "object"
     },
     "image": {
@@ -893,8 +893,13 @@
             "type": "string"
           },
           "on": {
+            "default": "success, failure",
             "description": "Operation outcomes that trigger this notification.",
             "items": {
+              "enum": [
+                "success",
+                "failure"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -949,12 +954,13 @@
               "description": "Declare that log collection is desired.",
               "type": "boolean"
             },
-            "retention_days": {
-              "description": "Desired log-retention period in days.",
+            "retention": {
+              "description": "Desired log-retention period. Expects a duration such as 30s, 5m, 1h30m or 14d.",
               "examples": [
-                30
+                "30d"
               ],
-              "type": "integer"
+              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+              "type": "string"
             }
           },
           "type": "object"
@@ -1133,11 +1139,46 @@
     },
     "runtime": {
       "additionalProperties": false,
-      "description": "Project-wide environment files and local preflight requirements.",
+      "description": "Project-wide environment files and local environment-file requirements.",
       "patternProperties": {
         "^x-": {}
       },
       "properties": {
+        "env_checks": {
+          "description": "Local environment-file assertions checked before planning or deploying.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "file": {
+                "description": "Repository-relative dotenv file whose declared keys are checked. Expects a path inside the repository, with no control character or shell metacharacter.",
+                "examples": [
+                  ".env.production"
+                ],
+                "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
+                "type": "string"
+              },
+              "present": {
+                "description": "Environment keys that must be declared but may be empty.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "require": {
+                "description": "Environment keys that must be declared with non-empty values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
         "env_files": {
           "description": "Project-wide ordered environment-file list for application, worker, and job workloads.",
           "items": {
@@ -1177,41 +1218,6 @@
               }
             ],
             "description": "Also accepts a path to an environment file."
-          },
-          "type": "array"
-        },
-        "preflight": {
-          "description": "Local environment-file assertions checked before planning or deploying.",
-          "items": {
-            "additionalProperties": false,
-            "patternProperties": {
-              "^x-": {}
-            },
-            "properties": {
-              "file": {
-                "description": "Repository-relative dotenv file whose declared keys are checked. Expects a path inside the repository, with no control character or shell metacharacter.",
-                "examples": [
-                  ".env.production"
-                ],
-                "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
-                "type": "string"
-              },
-              "present": {
-                "description": "Environment keys that must be declared but may be empty.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "require": {
-                "description": "Environment keys that must be declared with non-empty values.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "type": "object"
           },
           "type": "array"
         }
@@ -1301,7 +1307,7 @@
                       "^x-": {}
                     },
                     "properties": {
-                      "proof_max_age": {
+                      "proof_maximum_age": {
                         "default": "7d",
                         "description": "Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                         "examples": [
@@ -1443,6 +1449,9 @@
               "settings": {
                 "additionalProperties": {},
                 "description": "Driver-specific settings validated by the selected service driver.",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_-]*$"
+                },
                 "type": "object"
               },
               "version": {
@@ -1469,7 +1478,7 @@
       "description": "Supporting services managed outside application releases, such as databases and caches.",
       "type": "object"
     },
-    "verification": {
+    "verifications": {
       "description": "Checks that must pass before a release becomes current unless marked advisory.",
       "items": {
         "additionalProperties": false,
@@ -1672,7 +1681,7 @@
                 "anyOf": [
                   {
                     "required": [
-                      "run"
+                      "when"
                     ]
                   },
                   {
@@ -2150,7 +2159,7 @@
             "minimum": 1,
             "type": "integer"
           },
-          "ports": {
+          "published_ports": {
             "description": "Host ports published outside the proxy. They bind to loopback by default.",
             "items": {
               "additionalProperties": false,
@@ -2312,16 +2321,6 @@
             },
             "type": "array"
           },
-          "run": {
-            "default": "manual",
-            "description": "When a job runs: manual, pre_release, or post_release.",
-            "enum": [
-              "pre_release",
-              "post_release",
-              "manual"
-            ],
-            "type": "string"
-          },
           "schedule": {
             "additionalProperties": false,
             "description": "Host-resident recurring schedule for a job.",
@@ -2383,7 +2382,7 @@
                 {
                   "required": [
                     "source",
-                    "target"
+                    "path"
                   ]
                 }
               ],
@@ -2409,7 +2408,7 @@
                   "type": "string"
                 },
                 "path": {
-                  "description": "Absolute container path where a named volume is mounted. Expects an absolute path with no control character or shell metacharacter.",
+                  "description": "Absolute container path where the volume or bind mount is attached. Expects an absolute path with no control character or shell metacharacter.",
                   "examples": [
                     "/var/lib/app"
                   ],
@@ -2422,19 +2421,21 @@
                     "./config"
                   ],
                   "type": "string"
-                },
-                "target": {
-                  "description": "Absolute container destination of a bind mount. Expects an absolute path with no control character or shell metacharacter.",
-                  "examples": [
-                    "/etc/app"
-                  ],
-                  "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
-                  "type": "string"
                 }
               },
               "type": "object"
             },
             "type": "array"
+          },
+          "when": {
+            "default": "manual",
+            "description": "When a job runs: manual, pre_release, or post_release.",
+            "enum": [
+              "pre_release",
+              "post_release",
+              "manual"
+            ],
+            "type": "string"
           },
           "working_dir": {
             "description": "Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter.",

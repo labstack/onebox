@@ -18,7 +18,7 @@ This page is the reconciliation. Three states:
 | State | Means |
 | --- | --- |
 | **Shipped** | The current binary does this. |
-| **Schema only** | The loader validates it and it is in the published JSON Schema, so your editor completes it — but the behaviour is an open proposal. Declaring it changes nothing on the target. |
+| **Schema only** | The loader validates it and it is in the published JSON Schema, so your editor completes it — but the behaviour is an open proposal. Declaring it changes nothing on the server. |
 | **Intent only** | Validated and carried into plans, but the local engine runs nothing continuous for it. |
 
 ## Shipped
@@ -35,7 +35,7 @@ This page is the reconciliation. Three states:
   observation, proposals, execution, structured events and operational memory.
   The CLI is an adapter over it.
 - Eleven supporting-service drivers, each running with a durable volume, a health
-  check, a target-generated credential, and projected connection details.
+  check, a server-generated credential, and projected connection details.
 - Plan/status drift observation and plan-bound migration **backup evidence
   validation**.
 

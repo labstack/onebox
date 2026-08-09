@@ -285,7 +285,7 @@ var blocks = []block{
 			"Working out which fields an environment override may change",
 		}},
 	{Key: "runtime", Title: "runtime", Order: 40, Status: statusShipped,
-		Summary: "Project-wide environment files and the local preflight assertions checked before a target is contacted.",
+		Summary: "Project-wide environment files and the local environment-file assertions checked before the server is contacted.",
 		ReadWhen: []string{
 			"Wiring up environment files or SOPS-encrypted entries",
 			"Requiring keys to be present before a deploy is attempted",
@@ -293,14 +293,14 @@ var blocks = []block{
 	{Key: "deployment", Title: "deployment", Order: 50, Status: statusShipped,
 		Summary:  "Release ordering, how many releases are retained for rollback, and the migration policy.",
 		ReadWhen: []string{"Changing release order, retention or migration gating"}},
-	{Key: "verification", Title: "verification", Order: 60, Status: statusShipped,
+	{Key: "verifications", Title: "verifications", Order: 60, Status: statusShipped,
 		Summary:  "What must be true before a release becomes current: external URLs, in-workload checks, or migration revision evidence.",
 		ReadWhen: []string{"Gating release activation on a health endpoint or a smoke test"}},
 	{Key: "proxy", Title: "proxy", Order: 70, Status: statusShipped,
 		Summary:  "Who owns the ingress proxy, which image runs it, and how TLS is resolved.",
 		ReadWhen: []string{"Taking over the Traefik configuration, or turning routing off entirely"}},
 	{Key: "hooks", Title: "hooks", Order: 80, Status: statusShipped,
-		Summary:  "Commands run at lifecycle seams: pre_deploy, post_deploy, pre_rollback, post_rollback.",
+		Summary:  "Commands run at a lifecycle seam — bootstrap, pre_release, post_release, post_deploy — or keyed by a job name to replace that job's command.",
 		ReadWhen: []string{"Running a command around a deploy or a rollback"}},
 	{Key: "registries", Title: "registries", Order: 90, Status: statusShipped,
 		Summary:  "Named container registries and the local environment variables holding their credentials.",
@@ -584,6 +584,17 @@ func typeOf(node map[string]any) string {
 	switch t := node["type"].(type) {
 	case string:
 		if t == "array" {
+			// A list whose items are a closed set is worth naming: the page
+			// otherwise says "list" for a field where only two values load.
+			if items, ok := collapse(node)["items"].(map[string]any); ok {
+				if values := enumOf(collapse(items)); len(values) > 0 {
+					quoted := make([]string, 0, len(values))
+					for _, v := range values {
+						quoted = append(quoted, "`"+v+"`")
+					}
+					return "list of " + strings.Join(quoted, " · ")
+				}
+			}
 			return "list"
 		}
 		if t == "object" {
@@ -910,13 +921,33 @@ func renderCLIPage(obBin string) (string, error) {
 	fmt.Fprintln(&buf, "sidebar:\n  order: 200")
 	fmt.Fprintln(&buf, "read_when:")
 	fmt.Fprintln(&buf, `  - "Looking up what a command does, or which flags it takes"`)
-	fmt.Fprintln(&buf, `  - "Deciding whether a command contacts the target or changes it"`)
+	fmt.Fprintln(&buf, `  - "Deciding whether a command contacts the server or changes it"`)
 	fmt.Fprintln(&buf, "---")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, generatedMarker)
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "Generated from the binary, so it cannot describe a flag the CLI does not have.")
 	fmt.Fprintln(&buf, "`ob <command> --help` is the same text.")
+	fmt.Fprintln(&buf)
+
+	// Five commands change nothing, and their names do not say how they differ.
+	// The axis is what each one reads, which is the question an operator is
+	// actually asking when they pick between them.
+	fmt.Fprintln(&buf, "## Which command changes nothing")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Many commands change nothing — `status`, `logs`, `audit`, `schema`, `version` and `canonical` all")
+	fmt.Fprintln(&buf, "just report. These five are the ones that get confused with each other, because each one")
+	fmt.Fprintln(&buf, "answers \"would this deploy work?\" from a different place.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "| Command | Reads | Contacts the server |")
+	fmt.Fprintln(&buf, "| --- | --- | --- |")
+	fmt.Fprintln(&buf, "| `ob validate` | the project file | no |")
+	fmt.Fprintln(&buf, "| `ob preview` | the runtime it would generate | no |")
+	fmt.Fprintln(&buf, "| `ob doctor` | this runner, its local SSH agent, and the environment's policy | no |")
+	fmt.Fprintln(&buf, "| `ob preflight` | the server's readiness to accept a deploy | yes |")
+	fmt.Fprintln(&buf, "| `ob plan` | the project, the server, and writes a plan artifact | yes |")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "`ob plan` is the only one of the five that writes a file, and it writes it locally.")
 	fmt.Fprintln(&buf)
 
 	fmt.Fprintln(&buf, "## ob")

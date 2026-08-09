@@ -88,7 +88,7 @@ external_services:
 			if external.Connection.Source.Provider != "sops" || external.Connection.Entries["url"] != "DATABASE_URL" {
 				t.Fatalf("trusted connection = %#v", external.Connection)
 			}
-			if external.Probe == nil || external.Probe.Kind != "driver-health" || external.Probe.Timeout != "5s" || external.Probe.MaxAge != "5m" {
+			if external.Probe == nil || external.Probe.Kind != "driver-health" || external.Probe.Timeout != "5s" || external.Probe.MaximumAge != "5m" {
 				t.Fatalf("read-only probe defaults = %#v", external.Probe)
 			}
 		})

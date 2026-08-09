@@ -128,7 +128,7 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 	cmd.Flags().StringVar(&release, "release", "", "release identity to stamp (default \"preview\")")
 	cmd.Flags().StringArrayVar(&imageFlags, "image", nil,
 		"resolved image for a build-sourced workload, as workload=reference (repeatable)")
-	cmd.Flags().BoolVar(&digestOnly, "digest", false, "print only the content digest")
+	cmd.Flags().BoolVar(&digestOnly, "digest-only", false, "print the content digest and nothing else")
 	cmd.Flags().BoolVar(&showRaw, "raw", false, "do not redact environment values")
 	root.AddCommand(cmd)
 }

@@ -73,6 +73,13 @@ var (
 	gImageRef = grammar{"image reference", imageref.Pattern,
 		"a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…"}
 
+	// A settings key is interpolated into a generated shell command (redis
+	// becomes `--<key> <value>`) and upper-cased into an environment variable
+	// name for other drivers. Neither path quotes the key, so the grammar is
+	// what keeps a `;` out of a command that runs as root on the server.
+	gSettingKey = grammar{"driver setting", regexp.MustCompile(`^[a-z][a-z0-9_-]*$`),
+		"a lowercase setting name such as appendonly, maxmemory-policy or shared_buffers"}
+
 	gEnvName = grammar{"environment variable", regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`),
 		"a variable name of letters, digits and underscores, not starting with a digit"}
 
@@ -119,19 +126,24 @@ var (
 
 // enums are the closed value sets, each with the field it belongs to.
 var (
-	eImagePull       = []string{"always", "missing", "never"}
-	eRouteProtocol   = []string{"http", "tcp"}
-	eRouteScheme     = []string{"http", "https", "h2c"}
-	eRouteTLS        = []string{"terminate", "passthrough", "none"}
-	eMountMode       = []string{"rw", "ro"}
-	ePersistence     = []string{"durable", "ephemeral", "external"}
-	eNeedCondition   = []string{"started", "healthy", "completed"}
-	ePortProtocol    = []string{"tcp", "udp"}
-	eStrategy        = []string{"rolling", "recreate"}
-	eJobRun          = []string{"pre_release", "post_release", "manual"}
+	eImagePull     = []string{"always", "missing", "never"}
+	eRouteProtocol = []string{"http", "tcp"}
+	eRouteScheme   = []string{"http", "https", "h2c"}
+	eRouteTLS      = []string{"terminate", "passthrough", "none"}
+	eMountMode     = []string{"rw", "ro"}
+	ePersistence   = []string{"durable", "ephemeral", "external"}
+	eNeedCondition = []string{"started", "healthy", "completed"}
+	ePortProtocol  = []string{"tcp", "udp"}
+	eStrategy      = []string{"rolling", "recreate"}
+	eJobWhen       = []string{"pre_release", "post_release", "manual"}
+	// The seams the engine actually invokes. An unlisted name loads fine and
+	// never runs, so the set is closed: a hook that silently does not fire is
+	// worse than one refused at load.
+	eHookSeam        = []string{"bootstrap", "pre_release", "post_release", "post_deploy"}
 	eDataEffect      = []string{"none", "migration", "destructive", "unknown"}
 	eMigrationPolicy = []string{"manual", "auto", "expand-only"}
 	eNotifyFormat    = []string{"text", "json"}
+	eNotifyEvent     = []string{"success", "failure"}
 	eProxyKind       = []string{"traefik-docker", "none"}
 	// One provider, because one is implemented. The withdrawn `secrets` block
 	// accepted `age` and nothing ever decrypted it — every path shells out to
@@ -240,4 +252,15 @@ func quoteAll(in []string) []string {
 		out[i] = fmt.Sprintf("%q", s)
 	}
 	return out
+}
+
+// isHookSeam reports whether a hook key names a seam the engine invokes. The
+// other legal key is a declared job name; see validateProject.
+func isHookSeam(name string) bool {
+	for _, seam := range eHookSeam {
+		if seam == name {
+			return true
+		}
+	}
+	return false
 }

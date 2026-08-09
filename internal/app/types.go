@@ -32,22 +32,22 @@ type Spec struct {
 	// then writes `.App.App`. The authored key is still `app:`.
 	Name             string                     `json:"app" description:"Stable application name used in generated container, volume, network, and host paths." example:"shop"`
 	BasePath         string                     `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/ob" example:"/srv/ob"`
-	Environments     map[string]Environment     `json:"environments" description:"Named deployment targets and the policy applied to each target."`
+	Environments     map[string]Environment     `json:"environments" description:"Named environments, each naming the server it deploys to and the policy applied to it."`
 	Workloads        map[string]Workload        `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
 	Services         map[string]Service         `json:"services,omitempty" description:"Supporting services managed outside application releases, such as databases and caches."`
 	ExternalServices map[string]ExternalService `json:"external_services,omitempty" description:"Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and protection remain external."`
 	BackupTargets    map[string]BackupTarget    `json:"backup_targets,omitempty" description:"User-owned off-host repositories available to service protection policies."`
 
 	Deployment Deployment `json:"deployment" description:"Release ordering, retention, and migration behavior."`
-	Runtime    *Runtime   `json:"runtime,omitempty" description:"Project-wide environment files and local preflight requirements."`
+	Runtime    *Runtime   `json:"runtime,omitempty" description:"Project-wide environment files and local environment-file requirements."`
 
 	// envDefault is the selected environment's list, carried onto the resolved
 	// clone so generation resolves without having to know which environment it
 	// is rendering. Unexported: it is not a field of the contract, and the
 	// closedness check reads the contract's fields from these tags.
 	envDefault    []EnvFile
-	Hooks         map[string]Command      `json:"hooks,omitempty" description:"Named lifecycle commands, including pre_deploy, post_deploy, pre_rollback, and post_rollback."`
-	Verification  []Verification          `json:"verification,omitempty" description:"Checks that must pass before a release becomes current unless marked advisory."`
+	Hooks         map[string]Command      `json:"hooks,omitempty" description:"Lifecycle commands keyed by seam: bootstrap, pre_release, post_release, or post_deploy."`
+	Verifications []Verification          `json:"verifications,omitempty" description:"Checks that must pass before a release becomes current unless marked advisory."`
 	Notifications map[string]Notification `json:"notifications,omitempty" description:"Named webhooks that receive selected operation outcomes."`
 	Registries    map[string]Registry     `json:"registries,omitempty" description:"Named container registries and the environment variables holding their credentials."`
 	Proxy         Proxy                   `json:"proxy" description:"Ownership and configuration of the host ingress proxy."`
@@ -64,7 +64,7 @@ type Spec struct {
 }
 
 type Environment struct {
-	Server   Server `json:"server" description:"SSH target, written as user@host or as an object with host, user, and port." example:"root@203.0.113.10"`
+	Server   Server `json:"server" description:"SSH server, written as user@host or as an object with host, user, and port." example:"root@203.0.113.10"`
 	BasePath string `json:"base_path,omitempty" description:"Environment-specific replacement for the project base_path." example:"/srv/ob"`
 	// EnvFiles is this environment's default list. It sits on the environment
 	// rather than in an environment-scoped `runtime` block for the same reason
@@ -89,7 +89,7 @@ type Policy struct {
 	MinimumOneboxVersion        string   `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.08.1"`
 	MinimumPlanSchema           string   `json:"minimum_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
 	RequireMigrationBackup      bool     `json:"require_migration_backup" description:"Require plan-bound external backup evidence before a release with migration risk." default:"false"`
-	MigrationBackupMaxAge       string   `json:"migration_backup_max_age,omitempty" description:"Maximum age of backup evidence accepted for a migration." example:"24h"`
+	MigrationBackupMaximumAge   string   `json:"migration_backup_maximum_age,omitempty" description:"Maximum age of backup evidence accepted for a migration." example:"24h"`
 	RequireMigrationRestoreTest bool     `json:"require_migration_restore_test" description:"Require the backup evidence to attest that a restore test succeeded." default:"false"`
 	MigrationBackupKeyMaterial  []string `json:"migration_backup_key_material,omitempty" description:"Names of key material whose usability must be attested in migration backup evidence."`
 }
@@ -112,15 +112,15 @@ type Workload struct {
 	Port   int     `json:"port,omitempty" description:"Container port used with domain shorthand and as the default HTTP health port." example:"3000"`
 	Routes []Route `json:"routes,omitempty" description:"Ingress routes exposed by this workload."`
 
-	Health      *Health         `json:"health,omitempty" description:"Readiness check used to gate rolling replacement."`
-	Drain       *Drain          `json:"drain,omitempty" description:"Signal and timing used to remove a container from traffic before stopping it."`
-	Resources   *Resources      `json:"resources,omitempty" description:"Container memory and CPU limits."`
-	Env         map[string]any  `json:"env,omitempty" description:"Literal container environment values. Managed-service credential variables cannot be overridden."`
-	EnvFiles    []EnvFile       `json:"env_files,omitempty" description:"Workload-specific ordered environment-file list. Replaces broader defaults when present."`
-	Volumes     []Volume        `json:"volumes,omitempty" description:"Managed named volumes or repository bind mounts."`
-	Ports       []PublishedPort `json:"ports,omitempty" description:"Host ports published outside the proxy. They bind to loopback by default."`
-	Persistence *Persistence    `json:"persistence,omitempty" description:"Declares whether this workload holds data that must outlive releases."`
-	Needs       []Need          `json:"needs,omitempty" description:"Workload or supporting-service prerequisites and optional connection-variable mappings."`
+	Health         *Health         `json:"health,omitempty" description:"Readiness check used to gate rolling replacement."`
+	Drain          *Drain          `json:"drain,omitempty" description:"Signal and timing used to remove a container from traffic before stopping it."`
+	Resources      *Resources      `json:"resources,omitempty" description:"Container memory and CPU limits."`
+	Env            map[string]any  `json:"env,omitempty" description:"Literal container environment values. Managed-service credential variables cannot be overridden."`
+	EnvFiles       []EnvFile       `json:"env_files,omitempty" description:"Workload-specific ordered environment-file list. Replaces broader defaults when present."`
+	Volumes        []Volume        `json:"volumes,omitempty" description:"Managed named volumes or repository bind mounts."`
+	PublishedPorts []PublishedPort `json:"published_ports,omitempty" description:"Host ports published outside the proxy. They bind to loopback by default."`
+	Persistence    *Persistence    `json:"persistence,omitempty" description:"Declares whether this workload holds data that must outlive releases."`
+	Needs          []Need          `json:"needs,omitempty" description:"Workload or supporting-service prerequisites and optional connection-variable mappings."`
 
 	Entrypoint any            `json:"entrypoint,omitempty" description:"Container entrypoint as a string or argument list."`
 	User       string         `json:"user,omitempty" description:"User or UID used to run the container process."`
@@ -134,7 +134,7 @@ type Workload struct {
 	Logging    *Logging       `json:"logging,omitempty" description:"Container logging driver and driver-specific options."`
 
 	// Job only.
-	Run        string    `json:"run,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
+	When       string    `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
 	DataEffect string    `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
 	Schedule   *Schedule `json:"schedule,omitempty" description:"Host-resident recurring schedule for a job."`
 }
@@ -196,10 +196,10 @@ type Resources struct {
 // Volume is a managed named volume or a bind mount. Exactly one form is set.
 type Volume struct {
 	Name   string `json:"name,omitempty" description:"Stable logical name of a Onebox-managed volume." example:"data"`
-	Path   string `json:"path,omitempty" description:"Absolute container path where a named volume is mounted." example:"/var/lib/app"`
+	Path   string `json:"path,omitempty" description:"Absolute container path where the volume or bind mount is attached." example:"/var/lib/app"`
 	Source string `json:"source,omitempty" description:"Repository-relative source path of a bind mount." example:"./config"`
-	Target string `json:"target,omitempty" description:"Absolute container destination of a bind mount." example:"/etc/app"`
-	Mode   string `json:"mode" description:"Mount access mode: rw or ro." default:"rw"`
+
+	Mode string `json:"mode" description:"Mount access mode: rw or ro." default:"rw"`
 }
 
 func (v Volume) IsBind() bool { return v.Source != "" }
@@ -291,7 +291,7 @@ type ProtectionRetention struct {
 
 type RestoreDrillPolicy struct {
 	Schedule          Schedule `json:"schedule" description:"Exact recurring isolated restore-test schedule."`
-	ProofMaxAge       string   `json:"proof_max_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
+	ProofMaximumAge   string   `json:"proof_maximum_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
 	StagingFilesystem string   `json:"staging_filesystem,omitempty" description:"Absolute filesystem path used for isolated restore materialization instead of the host default." example:"/srv/onebox-restore"`
 }
 
@@ -313,9 +313,9 @@ type ExternalConnectionSource struct {
 }
 
 type ExternalReadOnlyProbe struct {
-	Kind    string `json:"kind" description:"Read-only observation kind: driver-health." default:"driver-health"`
-	Timeout string `json:"timeout" description:"Maximum duration of one read-only probe." default:"5s" example:"5s"`
-	MaxAge  string `json:"max_age" description:"Maximum age of a probe observation bound into a plan." default:"5m" example:"5m"`
+	Kind       string `json:"kind" description:"Read-only observation kind: driver-health." default:"driver-health"`
+	Timeout    string `json:"timeout" description:"Maximum duration of one read-only probe." default:"5s" example:"5s"`
+	MaximumAge string `json:"maximum_age" description:"Maximum age of a probe observation bound into a plan." default:"5m" example:"5m"`
 }
 
 type Deployment struct {
@@ -325,11 +325,11 @@ type Deployment struct {
 }
 
 type Runtime struct {
-	EnvFiles  []EnvFile   `json:"env_files,omitempty" description:"Project-wide ordered environment-file list for application, worker, and job workloads."`
-	Preflight []Preflight `json:"preflight,omitempty" description:"Local environment-file assertions checked before planning or deploying."`
+	EnvFiles  []EnvFile  `json:"env_files,omitempty" description:"Project-wide ordered environment-file list for application, worker, and job workloads."`
+	EnvChecks []EnvCheck `json:"env_checks,omitempty" description:"Local environment-file assertions checked before planning or deploying."`
 }
 
-type Preflight struct {
+type EnvCheck struct {
 	File    string   `json:"file" description:"Repository-relative dotenv file whose declared keys are checked." example:".env.production"`
 	Require []string `json:"require,omitempty" description:"Environment keys that must be declared with non-empty values."`
 	Present []string `json:"present,omitempty" description:"Environment keys that must be declared but may be empty."`
@@ -337,7 +337,7 @@ type Preflight struct {
 
 type Command struct {
 	Run   string `json:"run" description:"Command executed at the lifecycle seam." example:"./scripts/notify.sh"`
-	Local bool   `json:"local" description:"Run on the operator machine instead of the target host." default:"false"`
+	Local bool   `json:"local" description:"Run on the operator machine instead of the server." default:"false"`
 }
 
 type Verification struct {
@@ -367,7 +367,7 @@ type MigrationRevs struct {
 
 type Notification struct {
 	Webhook string   `json:"webhook" description:"HTTP endpoint that receives operation notifications." example:"https://hooks.example.com/onebox"`
-	On      []string `json:"on,omitempty" description:"Operation outcomes that trigger this notification."`
+	On      []string `json:"on,omitempty" description:"Operation outcomes that trigger this notification." default:"success, failure"`
 	Format  string   `json:"format" description:"Notification payload format." default:"text"`
 }
 
@@ -434,8 +434,8 @@ type Observability struct {
 }
 
 type LogSettings struct {
-	Enabled       bool `json:"enabled" description:"Declare that log collection is desired." default:"false"`
-	RetentionDays int  `json:"retention_days,omitempty" description:"Desired log-retention period in days." example:"30"`
+	Enabled   bool   `json:"enabled" description:"Declare that log collection is desired." default:"false"`
+	Retention string `json:"retention,omitempty" description:"Desired log-retention period." example:"30d"`
 }
 
 type MetricSettings struct {

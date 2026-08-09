@@ -57,7 +57,7 @@ the checking.
 
 The contract SHALL distinguish three kinds of path, because a single rule cannot
 govern them. A **repository path** — Compose references, environment files,
-preflight files, proxy configuration, secret files, build contexts, the ejection
+environment-check files, proxy configuration, secret files, build contexts, the ejection
 destination — SHALL resolve relative to the directory containing the project
 file regardless of the working directory, and SHALL be refused if it is absolute
 or resolves outside the repository root, including through a symbolic link. A
@@ -127,7 +127,7 @@ declares a route. Without it, converting a running data service forces a choice
 between calling it an application, which changes what is injected into it, and
 calling it a job, which is false.
 
-`run`, `schedule`, and `data_effect` SHALL apply only to the `job` role.
+`when`, `schedule`, and `data_effect` SHALL apply only to the `job` role.
 `data_effect` SHALL be required for a job because its effect on data cannot be
 inferred.
 
@@ -153,7 +153,7 @@ journal.
 - **THEN** the project validates and Onebox owns the schedule, with runs recorded like any other operation
 
 #### Scenario: Job field on a non-job workload
-- **WHEN** an application or worker declares `run` or `data_effect`
+- **WHEN** an application or worker declares `when` or `data_effect`
 - **THEN** validation fails naming the field and the role
 
 ### Requirement: The contract grows additively under a stable identity
@@ -423,7 +423,7 @@ and the same entries supply the value again on the target.
 - **THEN** validation fails and names the file
 
 #### Scenario: Required key absent
-- **WHEN** a preflight check requires a key that is absent or empty
+- **WHEN** an environment check requires a key that is absent or empty
 - **THEN** validation fails and names the key and the file
 
 #### Scenario: Interpolation resolves from the project-wide list

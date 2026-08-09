@@ -71,7 +71,7 @@ func addBackupEvidenceCommand(root *cobra.Command, g *globalFlags) {
 				manifest.Resources = append(manifest.Resources, onebox.MigrationBackupResourceEvidence{
 					Resource: resource, BackupID: "REPLACE-with-your-backup-id", CreatedAt: "REPLACE-with-RFC3339-time",
 					Integrity:   onebox.BackupIntegrityEvidence{ArtifactDigest: "sha256:REPLACE", Method: "sha256", ValidatedAt: "REPLACE-with-RFC3339-time"},
-					RestoreTest: onebox.BackupRestoreTestEvidence{State: "not_tested"},
+					RestoreTest: restoreTestSkeleton(plan.MigrationBackup.RequireRestoreTest),
 				})
 			}
 			for _, name := range plan.MigrationBackup.RequiredKeyMaterial {
@@ -116,6 +116,20 @@ func runBackupEvidenceCreate(cmd *cobra.Command, g *globalFlags, planPath, manif
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "backup evidence written to %s (%s)\n", outPath, receipt.EvidenceDigest)
 	return nil
+}
+
+// restoreTestSkeleton matches what the plan will accept. A policy requiring a
+// passed restore test refuses a "not_tested" receipt, and `passed` needs method,
+// tested_at and validation_digest — so emitting the wrong one reinstates the
+// discover-by-refusal loop this command exists to end.
+func restoreTestSkeleton(required bool) onebox.BackupRestoreTestEvidence {
+	if !required {
+		return onebox.BackupRestoreTestEvidence{State: "not_tested"}
+	}
+	return onebox.BackupRestoreTestEvidence{
+		State: "passed", Method: "REPLACE-how-you-restored-and-checked-it",
+		TestedAt: "REPLACE-with-RFC3339-time", ValidationDigest: "sha256:REPLACE",
+	}
 }
 
 func loadBackupFactsManifest(path string) (backupFactsManifest, error) {

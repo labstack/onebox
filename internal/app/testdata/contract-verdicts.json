@@ -245,6 +245,11 @@
     "digest": "5ac4d1f97c5a8fc93a3ebab678f6196fd68051d6f5eae0df66aaaa49d19687c6"
   },
   {
+    "case": "conformance/persistence block with no mode still refuses replicas",
+    "loads": false,
+    "code": "stateful_replicas"
+  },
+  {
     "case": "conformance/persistence external",
     "loads": true,
     "digest": "b9d10fff3e5a558e178a95969ef02e7bb9a88e667344d3771f2fd0dbcdec9029"

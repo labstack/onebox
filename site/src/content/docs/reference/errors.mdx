@@ -85,13 +85,13 @@ command.
 | `schema_identity_missing` | the project declares no api_version |
 | `schema_identity_unsupported` | the project declares an api_version this binary does not speak |
 | `secrets_withdrawn` | the withdrawn secrets block; environment files carry encrypted entries now |
+| `server_unreachable` | the server could not be reached |
 | `service_image_digest_unavailable` | the immutable service image is unavailable from registry and exact cache |
 | `service_image_patch_disable_pending` | protected image refresh is refused while disablement is pending |
 | `service_settings_unsupported` | a setting was declared for a driver with no way to apply it |
 | `shorthand_and_workloads` | top-level shorthand cannot be combined with a workloads block |
 | `stateful_replicas` | a workload keeping durable state asks for more than one replica |
 | `strategy_ungated` | a rolling release is asked for by a workload with no health check to gate it |
-| `target_unreachable` | the target could not be reached |
 | `unknown_environment` | an environment the project does not declare |
 | `unknown_field` | a field the contract does not define |
 | `unknown_prerequisite` | a prerequisite names something the project does not declare |

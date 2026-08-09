@@ -32,7 +32,7 @@ type Spec struct {
 	// then writes `.App.App`. The authored key is still `app:`.
 	Name             string                     `json:"app" description:"Stable application name used in generated container, volume, network, and host paths." example:"shop"`
 	BasePath         string                     `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/ob" example:"/srv/ob"`
-	Environments     map[string]Environment     `json:"environments" description:"Named deployment targets and the policy applied to each target."`
+	Environments     map[string]Environment     `json:"environments" description:"Named environments, each naming the server it deploys to and the policy applied to it."`
 	Workloads        map[string]Workload        `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
 	Services         map[string]Service         `json:"services,omitempty" description:"Supporting services managed outside application releases, such as databases and caches."`
 	ExternalServices map[string]ExternalService `json:"external_services,omitempty" description:"Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and protection remain external."`
@@ -64,7 +64,7 @@ type Spec struct {
 }
 
 type Environment struct {
-	Server   Server `json:"server" description:"SSH target, written as user@host or as an object with host, user, and port." example:"root@203.0.113.10"`
+	Server   Server `json:"server" description:"SSH server, written as user@host or as an object with host, user, and port." example:"root@203.0.113.10"`
 	BasePath string `json:"base_path,omitempty" description:"Environment-specific replacement for the project base_path." example:"/srv/ob"`
 	// EnvFiles is this environment's default list. It sits on the environment
 	// rather than in an environment-scoped `runtime` block for the same reason
@@ -337,7 +337,7 @@ type EnvCheck struct {
 
 type Command struct {
 	Run   string `json:"run" description:"Command executed at the lifecycle seam." example:"./scripts/notify.sh"`
-	Local bool   `json:"local" description:"Run on the operator machine instead of the target host." default:"false"`
+	Local bool   `json:"local" description:"Run on the operator machine instead of the server." default:"false"`
 }
 
 type Verification struct {

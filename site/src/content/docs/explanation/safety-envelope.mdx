@@ -11,7 +11,7 @@ read_when:
 ---
 
 Onebox is agentless: no resident daemon and no listening control port runs on the
-target. Everything below is achieved with short-lived processes, durable state,
+server. Everything below is achieved with short-lived processes, durable state,
 and files on the host.
 
 ## The pieces
@@ -32,11 +32,11 @@ can prove safe.
 and payloads it was created against. It expires after fifteen minutes, and any
 drift or local payload change requires a new one.
 
-**Digest-bound approvals.** A grant covers one exact plan, target, input set,
+**Digest-bound approvals.** A grant covers one exact plan, server, input set,
 risk classification, operator and expiry. A changed or expired plan needs a new
 grant.
 
-**Drift detection.** A target-side artifact differing from what the plan bound is
+**Drift detection.** A server-side artifact differing from what the plan bound is
 a typed error **before** mutation, not a silent reconciliation.
 
 ## Why plans expire
@@ -84,7 +84,7 @@ ob exec <workload> -- <command>
 
 It runs outside the journal and the safety regime, and nothing it changes belongs
 to any release. Every other command states up front whether it contacts the
-target and whether it changes anything; `ob exec` is the one row without a
+server and whether it changes anything; `ob exec` is the one row without a
 definite answer, and that is the point rather than an omission.
 
 ## Reading the envelope from outside

@@ -188,7 +188,7 @@ func TestUnreachableTargetIsAnError(t *testing.T) {
 	r, _ := p.Resolve("production")
 	_, err = r.Preflight(context.Background(), &fakeRunner{fail: true})
 	var e *Error
-	if !asError(err, &e) || e.Code != "target_unreachable" {
+	if !asError(err, &e) || e.Code != "server_unreachable" {
 		t.Fatalf("got %v, want target_unreachable", err)
 	}
 }

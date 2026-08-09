@@ -113,3 +113,35 @@ func safeResolvingCommand(command string) bool {
 	}
 	return true
 }
+
+// reservedLifecycleFailures are codes the contract enumerates that no path
+// raises today. The operations behind them exist in the model — protection
+// enable and disable among them — but are wired to no CLI verb, so an operator
+// cannot reach them. They are kept so the code set is stable when those land,
+// and named here so the reference can mark them rather than presenting a
+// failure that cannot occur.
+var reservedLifecycleFailures = map[string]struct{}{
+	"assurance_stale":                              {},
+	"backup_stale":                                 {},
+	"disk_pressure_critical":                       {},
+	"drill_deferred_capacity":                      {},
+	"external_service_not_owned":                   {},
+	"external_service_state_stale":                 {},
+	"protected_service_patch_incompatible":         {},
+	"protection_enablement_restart_not_authorized": {},
+	"protection_image_update_overdue":              {},
+	"protection_prerequisite_drifted":              {},
+	"protection_service_patch_available":           {},
+	"protection_service_patch_required":            {},
+	"replay_continuity_broken":                     {},
+	"restore_state_stale":                          {},
+	"service_major_upgrade_unsupported":            {},
+}
+
+// LifecycleFailureReserved reports whether a code is enumerated but not yet
+// reachable, so the reference can mark it rather than presenting a failure an
+// operator cannot cause.
+func LifecycleFailureReserved(code string) bool {
+	_, reserved := reservedLifecycleFailures[code]
+	return reserved
+}

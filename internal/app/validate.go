@@ -289,6 +289,19 @@ func validateWorkload(w Workload, path string) error {
 	if err := validateEnvFiles(w.EnvFiles, path+".env_files"); err != nil {
 		return err
 	}
+	if w.Logging != nil {
+		// Both land verbatim in the generated runtime, so an unchecked value
+		// fails at container create on the server — after validate, preview and
+		// plan have all said the project is fine.
+		if err := gLogDriver.checkOptional(path+".logging.driver", w.Logging.Driver); err != nil {
+			return err
+		}
+		for _, key := range sortedKeys(w.Logging.Options) {
+			if err := gLogOption.check(path+".logging.options."+key, key); err != nil {
+				return err
+			}
+		}
+	}
 	for i, v := range w.Volumes {
 		vp := indexed(path+".volumes", i)
 		if err := checkEnum(vp+".mode", v.Mode, eMountMode); err != nil {

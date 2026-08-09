@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -484,14 +485,31 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	}
 	sort.Strings(componentNames)
 	for _, name := range componentNames {
-		p := cfg.Workloads[name].Persistence
-		if p == nil || p.Mode != "durable" {
-			continue
+		w := cfg.Workloads[name]
+		if w.HoldsDurableData() {
+			message := "holds durable data and Onebox takes no backups; copy it off this host yourself"
+			switch {
+			case w.Replicas > 1:
+				// Do not suggest declaring durable here: the loader refuses a
+				// declared-durable workload with replicas, so following that
+				// advice would turn a project that loads into one that does not.
+				message += ". It also asks for " + strconv.Itoa(w.Replicas) +
+					" replicas, which would all mount the same volume — run one instance, " +
+					"then declare persistence: {mode: durable} to state what it holds"
+			case w.Persistence == nil:
+				message += ". Declare persistence: {mode: durable} to state this, or mode: ephemeral if the volume is not state"
+			}
+			report.Checks = append(report.Checks, doctorProtectionCheck{
+				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
+				Message: message,
+			})
 		}
-		report.Checks = append(report.Checks, doctorProtectionCheck{
-			Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
-			Message: "holds durable data and Onebox takes no backups; copy it off this host yourself",
-		})
+		if w.HasBindMounts() {
+			report.Checks = append(report.Checks, doctorProtectionCheck{
+				Status: doctorPass, Workload: name, Mechanism: "bind_mount", Available: true,
+				Message: "mounts a host path Onebox does not own; its contents are yours to back up",
+			})
+		}
 	}
 	for _, name := range cfg.ServiceNames() {
 		report.Checks = append(report.Checks, doctorProtectionCheck{

@@ -93,7 +93,7 @@ func (e *Engine) AbortWithJournalID(ctx context.Context, force bool) (string, er
 
 func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err error) {
 	if !s.RollbackCovered && !force {
-		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --force` if you know the data is compatible", s.DeployID)
+		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", s.DeployID)
 	}
 	interrupted, err := e.engineFromReleaseSnapshot(ctx, s.DeployID)
 	if err != nil {

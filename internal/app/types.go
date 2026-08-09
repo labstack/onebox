@@ -89,7 +89,7 @@ type Policy struct {
 	MinimumOneboxVersion        string   `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.08.1"`
 	MinimumPlanSchema           string   `json:"minimum_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
 	RequireMigrationBackup      bool     `json:"require_migration_backup" description:"Require plan-bound external backup evidence before a release with migration risk." default:"false"`
-	MigrationBackupMaximumAge   string   `json:"migration_backup_maximum_age,omitempty" description:"Maximum age of backup evidence accepted for a migration." example:"24h"`
+	MigrationBackupMaximumAge   string   `json:"migration_backup_maximum_age,omitempty" description:"Maximum age of backup evidence accepted for a migration." default:"24h" example:"24h"`
 	RequireMigrationRestoreTest bool     `json:"require_migration_restore_test" description:"Require the backup evidence to attest that a restore test succeeded." default:"false"`
 	MigrationBackupKeyMaterial  []string `json:"migration_backup_key_material,omitempty" description:"Names of key material whose usability must be attested in migration backup evidence."`
 }

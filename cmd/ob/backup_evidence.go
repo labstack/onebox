@@ -48,7 +48,48 @@ func addBackupEvidenceCommand(root *cobra.Command, g *globalFlags) {
 	create.Flags().StringVarP(&outPath, "out", "o", "ob-backup-evidence.json", "receipt output path")
 	_ = create.MarkFlagRequired("plan")
 	_ = create.MarkFlagRequired("manifest")
+	var templatePlan string
+	template := &cobra.Command{
+		Use:   "template",
+		Short: "print a facts manifest skeleton for a plan's resources",
+		Long: "Print a manifest skeleton with the plan's resources already filled in.\n\n" +
+			"The manifest is the only artifact here a person has to author — the plan,\n" +
+			"the grant and the receipt are all produced by ob — so authoring it blind\n" +
+			"meant discovering its shape one refusal at a time. Fill in the digests and\n" +
+			"timestamps your backup tooling produced, then pass it to `create`.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			plan, err := onebox.LoadDeployPlan(templatePlan)
+			if err != nil {
+				return err
+			}
+			if plan.MigrationBackup == nil {
+				return errors.New("this plan carries no migration backup requirement, so no manifest is needed")
+			}
+			manifest := backupFactsManifest{SchemaVersion: backupFactsSchemaVersion}
+			for _, resource := range plan.MigrationBackup.Resources {
+				manifest.Resources = append(manifest.Resources, onebox.MigrationBackupResourceEvidence{
+					Resource: resource, BackupID: "REPLACE-with-your-backup-id", CreatedAt: "REPLACE-with-RFC3339-time",
+					Integrity:   onebox.BackupIntegrityEvidence{ArtifactDigest: "sha256:REPLACE", Method: "sha256", ValidatedAt: "REPLACE-with-RFC3339-time"},
+					RestoreTest: onebox.BackupRestoreTestEvidence{State: "not_tested"},
+				})
+			}
+			for _, name := range plan.MigrationBackup.RequiredKeyMaterial {
+				manifest.KeyMaterial = append(manifest.KeyMaterial, onebox.MigrationBackupKeyMaterialEvidence{
+					Name: name, BackupID: "REPLACE-with-your-backup-id", CreatedAt: "REPLACE-with-RFC3339-time",
+					Integrity: onebox.BackupIntegrityEvidence{ArtifactDigest: "sha256:REPLACE", Method: "sha256", ValidatedAt: "REPLACE-with-RFC3339-time"},
+					Usability: onebox.BackupKeyMaterialUsabilityEvidence{Method: "REPLACE-how-you-proved-the-key-opens-it", ValidatedAt: "REPLACE-with-RFC3339-time", ValidationDigest: "sha256:REPLACE"},
+				})
+			}
+			encoder := json.NewEncoder(cmd.OutOrStdout())
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(manifest)
+		},
+	}
+	template.Flags().StringVar(&templatePlan, "plan", "", "executable plan containing the backup requirement")
+	_ = template.MarkFlagRequired("plan")
 	group.AddCommand(create)
+	group.AddCommand(template)
 	root.AddCommand(group)
 }
 

@@ -1676,6 +1676,32 @@
             }
           },
           {
+            "if": {
+              "properties": {
+                "persistence": {
+                  "properties": {
+                    "mode": {
+                      "const": "durable"
+                    }
+                  },
+                  "required": [
+                    "mode"
+                  ]
+                }
+              },
+              "required": [
+                "persistence"
+              ]
+            },
+            "then": {
+              "properties": {
+                "replicas": {
+                  "maximum": 1
+                }
+              }
+            }
+          },
+          {
             "else": {
               "not": {
                 "anyOf": [

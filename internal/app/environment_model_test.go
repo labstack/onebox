@@ -459,10 +459,10 @@ func resolvedForErr(t *testing.T, path string) ([]byte, error) {
 // A project declaring an encrypted entry and referencing no Compose file needs
 // no interpolation, and must load.
 //
-// An earlier fix refused the whole load whenever a document-scope entry was
-// encrypted, on the reasoning that interpolation could not read it. That was
-// eager: nothing had asked for interpolation. It stopped a correct project from
-// loading, which is a worse failure than the one it was preventing.
+// Refusing the load whenever a document-scope entry is encrypted — on the
+// reasoning that interpolation cannot read it — would be eager: nothing has
+// asked for interpolation. Stopping a correct project from loading is a worse
+// failure than the one it would prevent.
 func TestAnEncryptedEntryDoesNotBlockAProjectThatNeedsNoInterpolation(t *testing.T) {
 	path := envModelProject(t, `api_version: onebox.run/v1
 app: shop

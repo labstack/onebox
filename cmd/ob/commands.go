@@ -190,7 +190,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "rollback",
 		Short: "re-release the previous release dir (pinned local image)",
-		Long:  "Re-activate the previous release from the directory still on the host.\n\nNothing is pulled and nothing is rebuilt: the previous release's images are\nalready there, which is what makes this fast and available when a registry is\nnot. Refused when a job in the current release declared a data effect that\ncannot be undone by moving a symlink.",
+		Long:  "Re-activate the previous release from the directory still on the host.\n\nNothing is pulled and nothing is rebuilt: the previous release's images are\nalready there, which is what makes this fast and available when a registry is\nnot. Refused when there is no previous release, or when its snapshot is\nunavailable or unusable. Supporting services are not rolled back, so a\nmigration a job already applied stays applied — moving the symlink does\nnot undo it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindRollback}, "rollback")
 		},

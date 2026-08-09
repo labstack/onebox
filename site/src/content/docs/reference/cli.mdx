@@ -620,8 +620,10 @@ Re-activate the previous release from the directory still on the host.
 
 Nothing is pulled and nothing is rebuilt: the previous release's images are
 already there, which is what makes this fast and available when a registry is
-not. Refused when a job in the current release declared a data effect that
-cannot be undone by moving a symlink.
+not. Refused when there is no previous release, or when its snapshot is
+unavailable or unusable. Supporting services are not rolled back, so a
+migration a job already applied stays applied — moving the symlink does
+not undo it.
 
 Usage:
   ob rollback [flags]

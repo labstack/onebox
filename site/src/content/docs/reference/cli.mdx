@@ -406,6 +406,10 @@ Names a workload or a supporting service. What the command does is not
 Onebox's business: this is an escape hatch, outside the journal and the
 safety regime, and nothing it changes is part of any release.
 
+Arguments are passed as a literal vector, so a shell metacharacter is not
+interpreted: write `ob exec web -- sh -c 'a && b'` rather than passing the
+pipeline as one word.
+
 Usage:
   ob exec <workload|service> -- <command...> [flags]
 
@@ -620,8 +624,10 @@ Re-activate the previous release from the directory still on the host.
 
 Nothing is pulled and nothing is rebuilt: the previous release's images are
 already there, which is what makes this fast and available when a registry is
-not. Refused when a job in the current release declared a data effect that
-cannot be undone by moving a symlink.
+not. Refused when there is no previous release, or when its snapshot is
+unavailable or unusable. Supporting services are not rolled back, so a
+migration a job already applied stays applied — moving the symlink does
+not undo it.
 
 Usage:
   ob rollback [flags]

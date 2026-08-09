@@ -175,6 +175,7 @@ Usage:
 
 Available Commands:
   create      seal validation facts into a migration backup evidence receipt
+  template    print a facts manifest skeleton for a plan's resources
 
 Flags:
   -h, --help   help for backup-evidence
@@ -205,6 +206,30 @@ Flags:
       --manifest string   JSON facts manifest from external backup validation
   -o, --out string        receipt output path (default "ob-backup-evidence.json")
       --plan string       executable plan containing the backup requirement
+
+Global Flags:
+  -c, --config string   path to ob.yml (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup-evidence template
+
+```
+Print a manifest skeleton with the plan's resources already filled in.
+
+The manifest is the only artifact here a person has to author — the plan,
+the grant and the receipt are all produced by ob — so authoring it blind
+meant discovering its shape one refusal at a time. Fill in the digests and
+timestamps your backup tooling produced, then pass it to `create`.
+
+Usage:
+  ob backup-evidence template [flags]
+
+Flags:
+  -h, --help          help for template
+      --plan string   executable plan containing the backup requirement
 
 Global Flags:
   -c, --config string   path to ob.yml (default "ob.yml")

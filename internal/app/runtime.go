@@ -113,6 +113,41 @@ func (w Workload) DrainSignal() string {
 // the rest and are never health-gated, because a job that stays up has failed.
 func (w Workload) IsJob() bool { return w.Role == RoleJob }
 
+// HoldsDurableData answers the question three separate places used to guess at.
+//
+// The contract publishes `persistence.mode` defaulting to durable, but the
+// block is optional, so the default was unreachable unless it was written —
+// and doctor, the migration-backup requirement and the protection gate each
+// read an absent block as "not durable". A workload with a managed named
+// volume holds data that outlives the release whether or not it says so.
+//
+// A bind mount is deliberately not durable here: onebox neither created the
+// host path nor can tell configuration from data by looking at it, so the
+// bytes are the operator's. Counting them would demand backup evidence for
+// every `./config` mount, and a warning that fires on everything is one
+// nobody reads.
+func (w Workload) HoldsDurableData() bool {
+	if w.Persistence != nil {
+		return w.Persistence.Mode == "durable"
+	}
+	for _, v := range w.Volumes {
+		if !v.IsBind() {
+			return true
+		}
+	}
+	return false
+}
+
+// HasBindMounts reports whether any volume is a host path onebox does not own.
+func (w Workload) HasBindMounts() bool {
+	for _, v := range w.Volumes {
+		if v.IsBind() {
+			return true
+		}
+	}
+	return false
+}
+
 // Role names. They are the schema's discriminator, so they are constants rather
 // than string literals scattered across the execution path.
 const (

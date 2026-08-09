@@ -27,7 +27,7 @@ type backupFactsManifest struct {
 
 func addBackupEvidenceCommand(root *cobra.Command, g *globalFlags) {
 	group := &cobra.Command{
-		Use:   "evidence",
+		Use:   "backup-evidence",
 		Short: "create plan-bound attestations about externally validated backups",
 		Long:  "Seal externally validated facts about a backup into a receipt bound to one\nplan.\n\nFor environments whose policy requires backup evidence before a migration.\nThe receipt records artifact, integrity, restore-test and key-usability\nfacts — never backup bytes and never secrets. Onebox does not take the\nbackup; it records that something else did, and refuses to be the thing that\nclaims one exists.",
 		Args:  cobra.NoArgs,

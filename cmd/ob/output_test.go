@@ -264,7 +264,7 @@ func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
 		{"service"},
 		{"proxy"},
 		{"secrets"},
-		{"evidence"},
+		{"backup-evidence"},
 	} {
 		args := append(append([]string(nil), path...), "--output", "json")
 		out, err := run(t, t.TempDir(), args...)

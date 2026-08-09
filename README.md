@@ -185,7 +185,7 @@ key-material names. Seal externally validated, secret-free facts into a
 plan-bound receipt and apply it with the plan:
 
 ```sh
-ob evidence create --plan ob-plan.json --manifest backup-facts.json --out ob-backup-evidence.json
+ob backup-evidence create --plan ob-plan.json --manifest backup-facts.json --out ob-backup-evidence.json
 ob deploy --plan ob-plan.json --approval ob-approval.json --backup-evidence ob-backup-evidence.json
 ```
 

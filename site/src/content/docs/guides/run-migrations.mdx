@@ -1,6 +1,6 @@
 ---
 title: Run migrations safely
-description: Migration jobs, data effects, result evidence, and the evidence gate.
+description: Migration jobs, data effects, result evidence, and the backup-evidence gate.
 summary: How to declare a migration job, what data_effect controls, how job result evidence is captured and verified, and how the migration-backup policy gate works.
 sidebar:
   order: 3
@@ -94,7 +94,7 @@ Onebox validates the evidence; it does not create or store the backup.
 Seal the facts, then apply them with the plan:
 
 ```sh
-ob evidence create \
+ob backup-evidence create \
   --plan ob-plan.json \
   --manifest backup-facts.json \
   --out ob-backup-evidence.json

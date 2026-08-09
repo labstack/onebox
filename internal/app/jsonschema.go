@@ -509,6 +509,20 @@ func applyRoleRules(doc map[string]any) {
 			"if":   map[string]any{"required": []any{"port"}},
 			"then": map[string]any{"required": []any{"domain"}},
 		},
+		// A workload that declares durable persistence cannot be replicated:
+		// every replica would mount the same volume. The loader refuses this,
+		// and an editor should underline it too rather than leaving the author
+		// to discover it at plan time.
+		map[string]any{
+			"if": map[string]any{
+				"properties": map[string]any{"persistence": map[string]any{
+					"properties": map[string]any{"mode": map[string]any{"const": "durable"}},
+					"required":   []any{"mode"},
+				}},
+				"required": []any{"persistence"},
+			},
+			"then": map[string]any{"properties": map[string]any{"replicas": map[string]any{"maximum": 1}}},
+		},
 		// A job declares its data effect: the one field whose absence would
 		// let an unknown migration through the rollback gate.
 		map[string]any{

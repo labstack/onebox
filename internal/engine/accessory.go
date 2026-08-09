@@ -98,11 +98,11 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 		}
 	}
 	if len(destructive) > 0 && !force {
-		return fmt.Errorf("destructive mount change(s) — data would detach:\n  %s\nre-run with --force if intended",
+		return fmt.Errorf("destructive mount change(s) — data would detach:\n  %s\nre-run with --allow-destructive-mounts if intended",
 			strings.Join(destructive, "\n  "))
 	}
 	if len(destructive) > 0 {
-		e.warnf("proceeding past %d destructive mount change(s) (--force)", len(destructive))
+		e.warnf("proceeding past %d destructive mount change(s) (--allow-destructive-mounts)", len(destructive))
 	}
 
 	// the regime: lock, fence, journal, converge
@@ -172,7 +172,7 @@ func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names, forc
 		}
 		runningVersion := applied
 		if force {
-			e.warnf("service %s: %s → %s across a major version (--force); its data directory may not open",
+			e.warnf("service %s: %s → %s across a major version (--allow-destructive-mounts); its data directory may not open",
 				name, runningVersion, declared)
 			continue
 		}

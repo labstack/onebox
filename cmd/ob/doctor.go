@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -484,14 +485,29 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	}
 	sort.Strings(componentNames)
 	for _, name := range componentNames {
-		p := cfg.Workloads[name].Persistence
-		if p == nil || p.Mode != "durable" {
-			continue
+		w := cfg.Workloads[name]
+		if w.HoldsDurableData() {
+			message := "holds durable data and Onebox takes no backups; copy it off this host yourself"
+			if w.Persistence == nil || cfg.PersistenceInferred(name) {
+				message += ". Declare persistence: {mode: durable} to state this, or mode: ephemeral if the volume is not state"
+			}
+			// Replicas sharing one volume is a real hazard, but refusing it at
+			// load would tighten a constraint on a project that already loads.
+			// Saying so here is the honest middle.
+			if w.Replicas > 1 {
+				message += ". It also asks for " + strconv.Itoa(w.Replicas) + " replicas, which would all mount the same volume"
+			}
+			report.Checks = append(report.Checks, doctorProtectionCheck{
+				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
+				Message: message,
+			})
 		}
-		report.Checks = append(report.Checks, doctorProtectionCheck{
-			Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
-			Message: "holds durable data and Onebox takes no backups; copy it off this host yourself",
-		})
+		if w.HasBindMounts() {
+			report.Checks = append(report.Checks, doctorProtectionCheck{
+				Status: doctorPass, Workload: name, Mechanism: "bind_mount", Available: true,
+				Message: "mounts a host path Onebox does not own; its contents are yours to back up",
+			})
+		}
 	}
 	for _, name := range cfg.ServiceNames() {
 		report.Checks = append(report.Checks, doctorProtectionCheck{

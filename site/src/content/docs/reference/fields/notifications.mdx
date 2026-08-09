@@ -24,5 +24,5 @@ cannot drift from what `ob validate` accepts.
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `<name>.format` | `text` · `json` | `text` | Notification payload format. |
-| `<name>.on` | list | — | Operation outcomes that trigger this notification. |
+| `<name>.on` | list of `success` · `failure` | `success, failure` | Operation outcomes that trigger this notification. |
 | `<name>.webhook` | string | — | HTTP endpoint that receives operation notifications. |

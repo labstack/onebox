@@ -893,6 +893,7 @@
             "type": "string"
           },
           "on": {
+            "default": "success, failure",
             "description": "Operation outcomes that trigger this notification.",
             "items": {
               "enum": [

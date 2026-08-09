@@ -78,6 +78,6 @@ func addConfigCommand(root *cobra.Command, g *globalFlags) {
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&origins, "origins", false, "list every value's origin instead of the document")
+	cmd.Flags().BoolVar(&origins, "origins-only", false, "list every value's origin instead of the document")
 	root.AddCommand(cmd)
 }

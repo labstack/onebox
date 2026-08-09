@@ -553,7 +553,7 @@
               },
               {
                 "additionalProperties": false,
-                "description": "SSH target, written as user@host or as an object with host, user, and port.",
+                "description": "SSH server, written as user@host or as an object with host, user, and port.",
                 "examples": [
                   "root@203.0.113.10"
                 ],
@@ -586,12 +586,12 @@
                 "type": "object"
               }
             ],
-            "description": "SSH target, written as user@host or as an object with host, user, and port. Also accepts user@host."
+            "description": "SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host."
           }
         },
         "type": "object"
       },
-      "description": "Named deployment targets and the policy applied to each target.",
+      "description": "Named environments, each naming the server it deploys to and the policy applied to it.",
       "minProperties": 1,
       "type": "object"
     },
@@ -805,7 +805,7 @@
             "properties": {
               "local": {
                 "default": false,
-                "description": "Run on the operator machine instead of the target host.",
+                "description": "Run on the operator machine instead of the server.",
                 "type": "boolean"
               },
               "run": {

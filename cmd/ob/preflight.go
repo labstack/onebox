@@ -17,8 +17,8 @@ import (
 func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "preflight",
-		Short: "ask the target whether this project could be deployed (changes nothing)",
-		Long: "Render the project locally, then ask the target what would stand in the way:\n" +
+		Short: "ask the server whether this project could be deployed (changes nothing)",
+		Long: "Render the project locally, then ask the server what would stand in the way:\n" +
 			"a missing container runtime, a base path this account cannot write, a derived\n" +
 			"name already held by something Onebox does not own, a missing ingress network.\n\n" +
 			"Every problem is reported at once rather than the first one, and nothing is\n" +

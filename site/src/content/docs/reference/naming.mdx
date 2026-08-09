@@ -1,0 +1,125 @@
+---
+title: Naming conventions
+description: The rules every command, flag, field and error code in Onebox follows.
+summary: How Onebox names things — casing, number, mood, and which words are reserved. Written down so a new field or flag has an answer before the review.
+status: shipped
+sidebar:
+  order: 210
+read_when:
+  - "Adding a field, flag, command or error code and choosing what to call it"
+  - "Wondering why two similar things are named differently"
+---
+
+These are descriptive, not aspirational: each one already holds across the
+surface. They are written down so the next addition has an answer before anyone
+has to review it.
+
+## The project file
+
+**Casing.** Every field is `snake_case`. No abbreviations that are not universal
+— `tls` is the only shortened token in the contract. Not `cfg`, not `dir`, not
+`max`.
+
+**Number follows shape.** A field holding a map of things is plural; a field
+holding one object is singular.
+
+| Plural | Singular |
+| --- | --- |
+| `workloads` `services` `registries` `environments` `hooks` `notifications` `backup_targets` `external_services` | `runtime` `deployment` `proxy` `observability` |
+
+Arrays are plural too: `routes`, `env_files`, `volumes`, `published_ports`,
+`needs`, `verifications`, `env_checks`.
+
+**Booleans announce their direction.** A boolean that grants permission is
+`allow_*`; one that imposes a requirement is `require_*`. A boolean describing
+state is a bare adjective.
+
+```yaml
+allow_agent_proposals: true      # grants
+require_migration_backup: true   # demands
+managed: false                   # state
+```
+
+**One grammar for time.** Every duration is a string with the same syntax —
+`30s`, `5m`, `1h30m`, `14d`. No field carries its unit in its name, and no
+duration is an integer.
+
+## Commands
+
+**A command is an imperative verb, or a noun that prints.** Nothing in between.
+
+| Verbs — change something | Nouns — print and change nothing |
+| --- | --- |
+| `deploy` `rollback` `abort` `resume` `approve` `bootstrap` `destroy` `eject` `exec` `init` `plan` `preview` `validate` | `status` `logs` `audit` `doctor` `schema` `version` `preflight` `canonical` |
+
+Groups that hold subcommands are nouns: `proxy`, `secrets`, `service`,
+`backup-evidence`. A group is singular when it names a subsystem
+(`ob service apply` converges the `services:` block) and plural only when its
+subcommands genuinely act on the whole set at once (`ob secrets push`).
+
+**An artifact keeps one word across all three of its surfaces** — the command
+that produces it, the flag that consumes it, and its default filename.
+
+| Command | Flag | File |
+| --- | --- | --- |
+| `ob plan` | `--plan` | `ob-plan.json` |
+| `ob approve` | `--approval` | `ob-approval.json` |
+| `ob backup-evidence create` | `--backup-evidence` | `ob-backup-evidence.json` |
+
+**The bypass gets harder as the blast radius grows.** `ob deploy` takes `-y` to
+skip its prompt. `ob destroy` requires the application name typed back and has
+no bypass flag at all — it cannot be scripted.
+
+## Flags
+
+**Shape carries meaning.** Three forms, three behaviours, and they do not
+overlap:
+
+| Form | Means | Example |
+| --- | --- | --- |
+| bare noun | **also** do this — additive, and the only additive flags are destructive | `--volumes` `--proxy` |
+| `-only` suffix | print this **instead** of the default output | `--digest-only` `--origins-only` |
+| adjective or `no-` prefix | modify how the command runs | `--raw` `--overwrite` `--redeploy` `--no-rollback` |
+
+`--force` means exactly one thing everywhere: break a held lock, printing the
+holder first. A flag that proceeds past a refusal which could lose data says so
+in its own name — `--break-migration-gate`, `--allow-destructive-mounts`.
+
+**`--out` is where output goes.** Not `--to`, not `--file`. Machine-readable
+output is the global `--output`, never a per-command `--json`.
+
+## Error codes
+
+`<subject>_<condition>`, `snake_case`, no abbreviations, so every code for one
+subsystem sorts together.
+
+```
+backup_target_unreachable
+protection_disable_pending
+restore_drill_schedule_too_sparse
+routing_incomplete
+```
+
+## Reserved words
+
+One concept, one word. These three are the ones most easily confused, so they
+are pinned:
+
+| Word | Means | Never means |
+| --- | --- | --- |
+| **server** | the machine you deploy to | a registry host, a backup repository |
+| **target** | a backup destination — `backup_targets`, `protection.target` | the machine you deploy to |
+| **workload** | a container Onebox runs from your declaration | a supporting service, a Compose service |
+
+`ob exec` and `ob logs` take a `<workload|service>` because those are two
+different declared things, not two words for one.
+
+## Inherited vocabulary is exempt
+
+Where a word arrives from Docker or Compose it keeps Docker's meaning, even when
+that collides with a word above. Users arrive already knowing these, and
+renaming them would cost more than the collision does.
+
+`build.target` is a Dockerfile stage, not a backup destination. `init`, `tty`,
+`stdin_open`, `working_dir`, `cpus`, `extra_hosts` and `platform` all mean what
+they mean in Compose.

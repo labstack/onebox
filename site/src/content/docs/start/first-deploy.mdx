@@ -29,7 +29,7 @@ nothing, or is explicit about what it changes.
    :::caution
    `ob init` is a starting point, not permission to deploy. Review workload
    types, persistence semantics, readiness, job data effects, and the environment
-   target before running a plan.
+   server before running a plan.
    :::
 
 2. **Check the contract. Nothing is contacted.**
@@ -60,7 +60,7 @@ nothing, or is explicit about what it changes.
    someone chose and one that appeared by itself is what a person checking a
    production configuration needs to see.
 
-4. **Prepare the host.** This contacts and changes the target.
+4. **Prepare the host.** This contacts and changes the server.
 
    ```sh
    ob bootstrap
@@ -83,7 +83,7 @@ nothing, or is explicit about what it changes.
    ob approve --plan ob-plan.json --out ob-approval.json
    ```
 
-   The grant is mode-`0600` and digest-bound to the plan, target, inputs, risk,
+   The grant is mode-`0600` and digest-bound to the plan, server, inputs, risk,
    operator and expiry. A changed or expired plan needs a new grant.
 
 7. **Deploy with both artifacts.**

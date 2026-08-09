@@ -45,7 +45,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.policy.require_approval` | boolean | `true` | Require a plan-bound approval grant before mutating this environment. |
 | `<name>.policy.require_migration_backup` | boolean | `false` | Require plan-bound external backup evidence before a release with migration risk. |
 | `<name>.policy.require_migration_restore_test` | boolean | `false` | Require the backup evidence to attest that a restore test succeeded. |
-| `<name>.server` | object | — | SSH target, written as user@host or as an object with host, user, and port. Also accepts user@host. |
+| `<name>.server` | object | — | SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host. |
 | `<name>.server.host` | string | — | SSH hostname or IP address. |
 | `<name>.server.port` | integer | — | SSH port. The SSH default is used when omitted. |
 | `<name>.server.user` | string | — | SSH user. The local SSH configuration supplies it when omitted. |

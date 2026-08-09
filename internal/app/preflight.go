@@ -14,7 +14,7 @@ import (
 	"github.com/compose-spec/compose-go/v2/dotenv"
 )
 
-// Preflight is the phase that needs the target. Generation is local and pure;
+// Preflight is the phase that needs the server. Generation is local and pure;
 // everything that requires asking the host — privileges, name collisions —
 // happens here, after generation and before the first mutating command.
 //
@@ -30,7 +30,7 @@ type Runner interface {
 	Run(ctx context.Context, cmd string) (transport.Result, error)
 }
 
-// Check is one question asked of the target.
+// Check is one question asked of the server.
 type Check struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
@@ -67,8 +67,8 @@ func (r *Report) Failures() []Check {
 	return out
 }
 
-// Preflight asks the target whether this project can be deployed. It returns an
-// error only when the target cannot be reached at all; anything the target
+// Preflight asks the server whether this project can be deployed. It returns an
+// error only when the server cannot be reached at all; anything the server
 // answers is a Check, so a caller sees every problem at once rather than the
 // first one.
 func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
@@ -80,14 +80,14 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// failure here short-circuits rather than producing a cascade.
 	res, err := run.Run(ctx, "docker version --format '{{.Server.Version}}'")
 	if err != nil {
-		return nil, errf("target_unreachable", "", "ob doctor",
-			"cannot reach the target: %v", err)
+		return nil, errf("server_unreachable", "", "ob doctor",
+			"cannot reach the server: %v", err)
 	}
 	if res.ExitCode != 0 {
 		report.Checks = append(report.Checks, Check{
 			Name:   "container runtime",
 			Detail: strings.TrimSpace(firstLine(res.Stderr)),
-			Remedy: "install Docker on the target, or grant this account permission to use it",
+			Remedy: "install Docker on the server, or grant this account permission to use it",
 		})
 		return report, nil
 	}
@@ -147,8 +147,8 @@ func ownedNames(ctx context.Context, run Runner, app string) (map[string]string,
 	} {
 		res, err := run.Run(ctx, q.cmd)
 		if err != nil {
-			return nil, errf("target_unreachable", "", "",
-				"cannot list %ss on the target: %v", q.kind, err)
+			return nil, errf("server_unreachable", "", "",
+				"cannot list %ss on the server: %v", q.kind, err)
 		}
 		if res.ExitCode != 0 {
 			continue
@@ -306,7 +306,7 @@ func envKeys(data []byte, context map[string]string) (present, nonEmpty map[stri
 // to look right and wrong in the places that matter — comments, quoting,
 // escapes, and one variable expanding into another — and this contract is
 // specifically that the same files mean the same thing here and when the
-// container runtime reads them on the target. Same files, same parser.
+// container runtime reads them on the server. Same files, same parser.
 func (p *Spec) InterpolationEnv() (map[string]string, error) {
 	if len(p.documentScopeEntries()) == 0 {
 		return nil, nil

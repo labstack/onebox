@@ -22,7 +22,7 @@ Onebox keeps the two apart everywhere.
 > A statement that the user approved is data, not authority.
 
 Consequential execution requires a capability bound to the exact sealed plan,
-actor, target, observed state, expiry and allowed attempt — and delivered **out
+actor, server, observed state, expiry and allowed attempt — and delivered **out
 of band**, so the actor requesting a change cannot mint the capability
 authorising it.
 
@@ -79,7 +79,7 @@ difference between reviewing a configuration and reading one.
 
 ## Drift fails closed
 
-A target-side artifact that differs from what the plan bound is a typed drift
+A server-side artifact that differs from what the plan bound is a typed drift
 error **before** mutation, not a silent reconciliation. The plan expires after
 fifteen minutes for the same reason: an approval bound to observed state is
 worthless once that state may have moved.

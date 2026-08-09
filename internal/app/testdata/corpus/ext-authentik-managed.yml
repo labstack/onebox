@@ -28,10 +28,10 @@ workloads:
     domain: auth.example.com
     port: 9000
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
+    published_ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
     volumes:
-      - {source: ./media, target: /media}
-      - {source: ./custom-templates, target: /templates, mode: ro}
+      - {source: ./media, path: /media}
+      - {source: ./custom-templates, path: /templates, mode: ro}
     health: {exec: "ak healthcheck", interval: 30s, start_period: 60s, retries: 10}
   worker:
     role: worker
@@ -39,9 +39,9 @@ workloads:
     command: [worker]
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
     volumes:
-      - {source: /var/run/docker.sock, target: /var/run/docker.sock}
-      - {source: ./media, target: /media}
-      - {source: ./certs, target: /certs}
+      - {source: /var/run/docker.sock, path: /var/run/docker.sock}
+      - {source: ./media, path: /media}
+      - {source: ./certs, path: /certs}
 services:
   postgres: "16"
   redis: "7.4"

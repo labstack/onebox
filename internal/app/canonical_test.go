@@ -225,7 +225,7 @@ workloads:
     image: nginx
     routes: [{domain: shop.example.com, port: 80}]
     volumes: [{name: data, path: /data}]
-    ports: [{host: 9000, container: 9000}]
+    published_ports: [{host: 9000, container: 9000}]
     persistence: {}
     drain: {}
   job:
@@ -253,25 +253,25 @@ runtime: {env_files: [{file: secrets.env, provider: sops}]}
 	// Each of these is a value nobody wrote and every one of them decides
 	// something about the runtime.
 	for path, want := range map[string]string{
-		"base_path":                          DefaultBasePath,
-		"deployment.retain_releases":         "5",
-		"deployment.migration_policy":        "manual",
-		"proxy.kind":                         "traefik-docker",
-		"proxy.network":                      IngressNetwork,
-		"workloads.web.replicas":             "1",
-		"workloads.web.strategy":             "rolling",
-		"workloads.web.image.pull":           "missing",
-		"workloads.web.drain.signal":         "TERM",
-		"workloads.web.routes[0].path":       "/",
-		"workloads.web.routes[0].entrypoint": "websecure",
-		"workloads.web.routes[0].tls":        "terminate",
-		"workloads.web.volumes[0].mode":      "rw",
-		"workloads.web.ports[0].bind":        "127.0.0.1",
-		"workloads.web.ports[0].protocol":    "tcp",
-		"workloads.web.persistence.mode":     "durable",
-		"workloads.job.run":                  "manual",
-		"workloads.job.schedule.timezone":    "UTC",
-		"notifications.ops.format":           "text",
+		"base_path":                                 DefaultBasePath,
+		"deployment.retain_releases":                "5",
+		"deployment.migration_policy":               "manual",
+		"proxy.kind":                                "traefik-docker",
+		"proxy.network":                             IngressNetwork,
+		"workloads.web.replicas":                    "1",
+		"workloads.web.strategy":                    "rolling",
+		"workloads.web.image.pull":                  "missing",
+		"workloads.web.drain.signal":                "TERM",
+		"workloads.web.routes[0].path":              "/",
+		"workloads.web.routes[0].entrypoint":        "websecure",
+		"workloads.web.routes[0].tls":               "terminate",
+		"workloads.web.volumes[0].mode":             "rw",
+		"workloads.web.published_ports[0].bind":     "127.0.0.1",
+		"workloads.web.published_ports[0].protocol": "tcp",
+		"workloads.web.persistence.mode":            "durable",
+		"workloads.job.when":                        "manual",
+		"workloads.job.schedule.timezone":           "UTC",
+		"notifications.ops.format":                  "text",
 	} {
 		if origins[path] != string(OriginDefault) {
 			t.Errorf("%s is %q, want %q — a default nobody can see is a default nobody can check (value should be %q)",

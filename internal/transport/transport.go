@@ -1,4 +1,4 @@
-// Package transport abstracts command execution on a deploy target.
+// Package transport abstracts command execution on a deploy server.
 //
 // Commands are shell strings by nature: SSH exec is always parsed by the
 // remote shell, and Local mirrors that for parity. The safety contract lives
@@ -39,13 +39,13 @@ type Transport interface {
 	Upload(ctx context.Context, localDir, remoteDir string) error
 	// Host is the bare hostname (for display, drift, and error context).
 	Host() string
-	// Target is the normalized OpenSSH destination (user@host). The port is
-	// separate because OpenSSH does not accept user@host:port.
-	Target() string
+	// Destination is the normalized OpenSSH destination (user@host). The port
+	// is separate because OpenSSH does not accept user@host:port.
+	Destination() string
 	// SSHUser is the resolved SSH username, exposed separately for tools whose
 	// remote-spec grammar differs across implementations (notably IPv6 rsync).
 	SSHUser() string
-	// SSHPort is the target's SSH port, or empty when SSH is not applicable.
+	// SSHPort is the server's SSH port, or empty when SSH is not applicable.
 	SSHPort() string
 	Close() error
 }
@@ -91,7 +91,7 @@ func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error 
 	return c.Run()
 }
 
-// Upload copies a staged directory onto the target.
+// Upload copies a staged directory onto the server.
 //
 // Run reports a command that ran and failed through Result.ExitCode, reserving
 // err for a process that could not be started at all. Both have to be read: a
@@ -123,11 +123,11 @@ func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
 	return nil
 }
 
-func (l *Local) Host() string    { return "local" }
-func (l *Local) Target() string  { return "local" }
-func (l *Local) SSHUser() string { return "" }
-func (l *Local) SSHPort() string { return "" }
-func (l *Local) Close() error    { return nil }
+func (l *Local) Host() string        { return "local" }
+func (l *Local) Destination() string { return "local" }
+func (l *Local) SSHUser() string     { return "" }
+func (l *Local) SSHPort() string     { return "" }
+func (l *Local) Close() error        { return nil }
 
 // shq single-quotes a shell argument.
 func shq(s string) string {
@@ -209,7 +209,7 @@ func uploadScript(remoteDir string, transfer func(quotedStaging string) string) 
 		// single-quoted for the shell that reads this script; wrapping it in a
 		// second pair of literal quotes would close that quoting rather than nest
 		// it, leaving the path bare — a destination holding `;` would then run as
-		// a command on the target host, and one merely holding a space would
+		// a command on the server, and one merely holding a space would
 		// produce `trap: invalid signal specification` and install no handler at
 		// all. shq applied to the whole handler escapes the inner quotes so the
 		// string survives to the shell that evaluates it when the trap fires.

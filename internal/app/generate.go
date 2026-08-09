@@ -299,7 +299,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	var mounts []string
 	for _, v := range w.Volumes {
 		if v.IsBind() {
-			mounts = append(mounts, mount(v.Source, v.Target, v.Mode))
+			mounts = append(mounts, mount(v.Source, v.Path, v.Mode))
 			continue
 		}
 		derived := n.WorkloadVolume(name, v.Name)
@@ -310,9 +310,9 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		svc["volumes"] = mounts
 	}
 
-	if len(w.Ports) > 0 {
+	if len(w.PublishedPorts) > 0 {
 		var ports []string
-		for _, pp := range w.Ports {
+		for _, pp := range w.PublishedPorts {
 			s := fmt.Sprintf("%s:%d:%d", pp.Bind, pp.Host, pp.Container)
 			if pp.Protocol == "udp" {
 				s += "/udp"

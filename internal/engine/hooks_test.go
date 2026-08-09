@@ -59,7 +59,7 @@ func TestAdvisoryURLCheckWarnsButPasses(t *testing.T) {
 	f := happyFake()
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Verification = append(cfg.Verification, app.Verification{URL: srv.URL, Advisory: true})
+	cfg.Verifications = append(cfg.Verifications, app.Verification{URL: srv.URL, Advisory: true})
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 	if err := e.Verify(context.Background()); err != nil {
 		t.Fatalf("advisory failure must not fail verify: %v", err)
@@ -76,7 +76,7 @@ func TestAuthoritativeURLCheckFails(t *testing.T) {
 	defer srv.Close()
 	f := happyFake()
 	cfg := testConfig()
-	cfg.Verification = append(cfg.Verification, app.Verification{URL: srv.URL, Contains: `id="root"`})
+	cfg.Verifications = append(cfg.Verifications, app.Verification{URL: srv.URL, Contains: `id="root"`})
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, HTTPTimeout: 2 * time.Second})
 	if err := e.Verify(context.Background()); err == nil {
 		t.Fatal("non-advisory url check with missing substring must fail")

@@ -59,7 +59,7 @@ documentation website. Build it with `just site-build`, or serve it locally with
   development, CI, support, and break-glass recovery.
 
 Declaring `services: {postgres: 17}` makes Onebox run it: the image, a durable
-volume, a health check, a credential generated on the target that never travels,
+volume, a health check, a credential generated on the server that never travels,
 and the connection details the application reads. Eleven drivers are supported —
 postgres, mysql, mariadb, redis, valkey, mongodb, rabbitmq, minio, meilisearch,
 clickhouse, nats. Anything else is refused rather than guessed at, because
@@ -110,7 +110,7 @@ ob version
 ob doctor
 ```
 
-Both commands also support `--json`.
+Both commands also take `--output json`.
 
 From a repository with a working Compose file, scaffold and inspect `ob.yml`:
 
@@ -145,9 +145,9 @@ typed operation graph and exact config, Compose, host-state, image, rendered
 Compose, and payload bindings. It expires after 15 minutes; any drift or local
 payload change requires a new plan.
 
-`ob init` is a starting point, not permission to deploy. Review component
+`ob init` is a starting point, not permission to deploy. Review workload
 types, persistence semantics, readiness, job data effects, and the environment
-target before running a plan. The
+server before running a plan. The
 [project file reference](site/src/content/docs/reference/project-file.mdx)
 documents the accepted fields and representative examples.
 
@@ -210,7 +210,7 @@ headers, and scalar JSON values. Migration verification can bind the expected
 provider and applied revisions to the captured job-result evidence:
 
 ```yaml
-verification:
+verifications:
   - url: https://app.example.com/healthz
     status_codes: [200]
     required_headers:

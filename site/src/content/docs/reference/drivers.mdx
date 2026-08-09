@@ -46,7 +46,7 @@ target, and the connection details your application reads.
 
 - **The service outlives every release.** Its own Compose project; no deploy and
   no rollback stops it or removes its volume.
-- **The credential is generated on the target, once.** Not in your project, the
+- **The credential is generated on the server, once.** Not in your project, the
   generated runtime, or the digest. Never rotated by a re-apply.
 - **The version binds into the release digest**, so a database upgrade under an
   untouched application cannot pass unnoticed.

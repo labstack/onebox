@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `platform` · `port` · `ports` · `protocol` · `provider` · `pull` · `reference` · `registry` · `replicas` · `resources` · `retries` · `role` · `routes` · `run` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `within` · `working_dir`
+`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `platform` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `registry` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -72,11 +72,11 @@ cannot drift from what `ob validate` accepts.
 | `<name>.persistence` | object | — | Declares whether this workload holds data that must outlive releases. |
 | `<name>.persistence.mode` | `durable` · `ephemeral` · `external` | `durable` | Data lifetime: durable, ephemeral, or external. |
 | `<name>.port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
-| `<name>.ports` | list | — | Host ports published outside the proxy. They bind to loopback by default. |
-| `<name>.ports[].bind` | string | `127.0.0.1` | Host address on which the published port listens. |
-| `<name>.ports[].container` | integer | — | Port receiving traffic inside the container. |
-| `<name>.ports[].host` | integer | — | Port exposed on the host. |
-| `<name>.ports[].protocol` | `tcp` · `udp` | `tcp` | Published transport protocol: tcp or udp. |
+| `<name>.published_ports` | list | — | Host ports published outside the proxy. They bind to loopback by default. |
+| `<name>.published_ports[].bind` | string | `127.0.0.1` | Host address on which the published port listens. |
+| `<name>.published_ports[].container` | integer | — | Port receiving traffic inside the container. |
+| `<name>.published_ports[].host` | integer | — | Port exposed on the host. |
+| `<name>.published_ports[].protocol` | `tcp` · `udp` | `tcp` | Published transport protocol: tcp or udp. |
 | `<name>.replicas` | integer | `1` | Desired number of long-running workload containers. |
 | `<name>.resources` | object | — | Container memory and CPU limits. |
 | `<name>.resources.cpus` | string | — | Container CPU limit expressed as a positive decimal count. Expects a number of CPUs such as 0.5 or 2. |
@@ -90,7 +90,6 @@ cannot drift from what `ob validate` accepts.
 | `<name>.routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |
 | `<name>.routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme: http, https, h2c, tcp, or udp. |
 | `<name>.routes[].tls` | `terminate` · `passthrough` · `none` | `terminate` | TLS handling: terminate, passthrough, or none. |
-| `<name>.run` | `pre_release` · `post_release` · `manual` | `manual` | When a job runs: manual, pre_release, or post_release. |
 | `<name>.schedule` | object | — | Host-resident recurring schedule for a job. |
 | `<name>.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
@@ -101,9 +100,9 @@ cannot drift from what `ob validate` accepts.
 | `<name>.volumes` | list | — | Managed named volumes or repository bind mounts. |
 | `<name>.volumes[].mode` | `rw` · `ro` | `rw` | Mount access mode: rw or ro. |
 | `<name>.volumes[].name` | string | — | Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
-| `<name>.volumes[].path` | string | — | Absolute container path where a named volume is mounted. Expects an absolute path with no control character or shell metacharacter. |
+| `<name>.volumes[].path` | string | — | Absolute container path where the volume or bind mount is attached. Expects an absolute path with no control character or shell metacharacter. |
 | `<name>.volumes[].source` | string | — | Repository-relative source path of a bind mount. |
-| `<name>.volumes[].target` | string | — | Absolute container destination of a bind mount. Expects an absolute path with no control character or shell metacharacter. |
+| `<name>.when` | `pre_release` · `post_release` · `manual` | `manual` | When a job runs: manual, pre_release, or post_release. |
 | `<name>.working_dir` | string | — | Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter. |
 
 `*` marks a field that is required within its own object.

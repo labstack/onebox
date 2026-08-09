@@ -51,7 +51,7 @@ func TestProtectionSecretSlotsContainReferencesOnly(t *testing.T) {
 		SchemaVersion: OperationPlanSchemaVersion, ID: "backup-1", Kind: KindBackupCreate,
 		CreatedAt: now.Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Risk: RiskModerate, Reversibility: ReversibilityConditional, Approval: ApprovalStanding,
-		Binding: OperationBinding{Application: "example", Environment: "production", Target: "host", ConfigDigest: "config", ComposeDigest: "compose", StateDigest: "state"},
+		Binding: OperationBinding{Application: "example", Environment: "production", Server: "host", ConfigDigest: "config", ComposeDigest: "compose", StateDigest: "state"},
 		Steps:   steps, SecretSlots: slots,
 	}
 	if err := plan.Seal(); err != nil {
@@ -74,7 +74,7 @@ func TestOperationPlanRejectsInlineOrRelativeSecretSlots(t *testing.T) {
 	plan.ID, plan.Kind = "backup-1", KindBackupCreate
 	plan.CreatedAt, plan.ExpiresAt = "2026-08-07T12:00:00Z", "2026-08-07T13:00:00Z"
 	plan.Risk, plan.Reversibility, plan.Approval = RiskModerate, ReversibilityConditional, ApprovalStanding
-	plan.Binding = OperationBinding{Application: "example", Environment: "production", Target: "host", ConfigDigest: "config", ComposeDigest: "compose", StateDigest: "state"}
+	plan.Binding = OperationBinding{Application: "example", Environment: "production", Server: "host", ConfigDigest: "config", ComposeDigest: "compose", StateDigest: "state"}
 	plan.Steps = []OperationStep{{ID: "preflight", Kind: StepPreflight, DataEffect: DataEffectNone}}
 	if err := plan.Validate(); err == nil {
 		t.Fatal("relative secret slot path was accepted")

@@ -123,6 +123,7 @@ var structuredOutputCommands = map[string]bool{
 	"ob service apply":          true,
 	"ob status":                 true,
 	"ob validate":               true,
+	"ob version":                true,
 }
 
 func validateOutputMode(cmd *cobra.Command, g *globalFlags) error {

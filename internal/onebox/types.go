@@ -49,7 +49,7 @@ type Observation struct {
 	Environment   string                       `json:"environment" jsonschema:"Observed Onebox environment"`
 	Policy        EnvironmentPolicyDescription `json:"policy" jsonschema:"Resolved environment policy"`
 	Observability ObservabilityDescription     `json:"observability" jsonschema:"Declared versus currently managed observability"`
-	Target        string                       `json:"target" jsonschema:"Configured SSH target identity"`
+	Server        string                       `json:"server" jsonschema:"Configured SSH server identity"`
 	CapturedAt    string                       `json:"captured_at" jsonschema:"RFC3339 timestamp at which observation began"`
 	ConfigHash    string                       `json:"config_hash" jsonschema:"SHA-256 identity of the Onebox configuration bytes"`
 	ComposeHash   string                       `json:"compose_hash" jsonschema:"SHA-256 identity of the root Compose file bytes"`
@@ -117,7 +117,7 @@ type DeploymentProposal struct {
 	Application               string                       `json:"application" jsonschema:"Resolved Onebox application name"`
 	Environment               string                       `json:"environment" jsonschema:"Target Onebox environment"`
 	Policy                    EnvironmentPolicyDescription `json:"policy" jsonschema:"Resolved target environment policy"`
-	Target                    string                       `json:"target" jsonschema:"Configured SSH target identity"`
+	Server                    string                       `json:"server" jsonschema:"Configured SSH server identity"`
 	CreatedAt                 string                       `json:"created_at" jsonschema:"RFC3339 proposal creation timestamp"`
 	ExpiresAt                 string                       `json:"expires_at" jsonschema:"RFC3339 time after which this proposal should be refreshed"`
 	GitSHA                    string                       `json:"git_sha,omitempty" jsonschema:"Local repository commit identity when available"`
@@ -143,6 +143,6 @@ type DeploymentProposal struct {
 	HookBodiesRedacted        bool                         `json:"hook_bodies_redacted" jsonschema:"Whether operator-authored command bodies were hidden"`
 	FidelityContract          string                       `json:"fidelity_contract" jsonschema:"What the current planner can and cannot promise"`
 	Risk                      RiskSummary                  `json:"risk" jsonschema:"Current risk and recovery summary"`
-	Verification              []string                     `json:"verification" jsonschema:"Redaction-safe verification summary"`
+	Verifications             []string                     `json:"verifications" jsonschema:"Redaction-safe verification summary"`
 	Warnings                  []string                     `json:"warnings,omitempty" jsonschema:"Planning limitations or unpinned image warnings"`
 }

@@ -81,7 +81,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolv
 func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "validate",
-		Short: "validate schema, components, and rollability — no side effects",
+		Short: "validate schema, workloads, and rollability — no side effects",
 		Long:  "Load the project, expand shorthand, apply defaults and the environment's\noverrides, and check every rule the contract states.\n\nContacts nothing and writes nothing. A failure names the field, the line and\nthe constraint; `ob canonical` shows what was understood.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _, err := loadAll(cmd.Context(), g)
@@ -213,7 +213,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, Force: g.Force}, "abort")
 		},
 	}
-	abortCmd.Flags().BoolVar(&g.Force, "force", false, "abort past a closed migration gate (you assert schema compatibility)")
+	abortCmd.Flags().BoolVar(&g.Force, "break-migration-gate", false, "abort past a closed migration gate (you assert schema compatibility)")
 	root.AddCommand(abortCmd)
 
 	root.AddCommand(&cobra.Command{
@@ -265,7 +265,7 @@ func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err
 	}
 	host := ""
 	if env, eerr := cfg.Environment(g.Env); eerr == nil {
-		host = env.Target()
+		host = env.Destination()
 	}
 	p := notify.Payload{
 		App: cfg.Name, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
@@ -360,8 +360,8 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 		u.Println("  " + step.ID + detail)
 	}
 	if plan.MigrationBackup != nil {
-		u.Println(fmt.Sprintf("  migration_backup=max_age:%s restore_test:%t resources:%d keys:%d",
-			plan.MigrationBackup.MaxAge, plan.MigrationBackup.RequireRestoreTest,
+		u.Println(fmt.Sprintf("  migration_backup=maximum_age:%s restore_test:%t resources:%d keys:%d",
+			plan.MigrationBackup.MaximumAge, plan.MigrationBackup.RequireRestoreTest,
 			len(plan.MigrationBackup.Resources), len(plan.MigrationBackup.RequiredKeyMaterial)))
 	}
 	fmt.Fprintln(out)
@@ -562,7 +562,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 	if err != nil {
 		return nil, nil, err
 	}
-	t, err := cliConnector(cmd.Context(), env.Target())
+	t, err := cliConnector(cmd.Context(), env.Destination())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -741,7 +741,7 @@ func renderApprovalSummary(cmd *cobra.Command, plan *onebox.DeployPlan) {
 	fmt.Fprintf(cmd.OutOrStdout(), "\nApprove exact plan:\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  release: %s\n", plan.Operation.ReleaseID)
 	fmt.Fprintf(cmd.OutOrStdout(), "  digest:  %s\n", plan.PlanDigest)
-	fmt.Fprintf(cmd.OutOrStdout(), "  target:  %s (%s/%s)\n", binding.Target, binding.Application, binding.Environment)
+	fmt.Fprintf(cmd.OutOrStdout(), "  target:  %s (%s/%s)\n", binding.Server, binding.Application, binding.Environment)
 	fmt.Fprintf(cmd.OutOrStdout(), "  risk:    %s (%s)\n", plan.Operation.Risk, plan.Operation.Approval)
 	fmt.Fprintf(cmd.OutOrStdout(), "  expires: %s\n", plan.Operation.ExpiresAt)
 }

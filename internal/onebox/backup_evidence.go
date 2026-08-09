@@ -34,7 +34,7 @@ var sha256Digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // evidence. Its presence means every pending migration step requires either a
 // matching receipt or an explicit audited override.
 type MigrationBackupRequirement struct {
-	MaxAge              string                    `json:"max_age"`
+	MaximumAge          string                    `json:"maximum_age"`
 	RequireRestoreTest  bool                      `json:"require_restore_test"`
 	Resources           []MigrationBackupResource `json:"resources"`
 	RequiredKeyMaterial []string                  `json:"required_key_material,omitempty"`
@@ -74,7 +74,7 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	keyMaterial := append([]string(nil), policy.MigrationBackupKeyMaterial...)
 	sort.Strings(keyMaterial)
 	requirement := &MigrationBackupRequirement{
-		MaxAge:              policy.MigrationBackupMaxAge,
+		MaximumAge:          policy.MigrationBackupMaximumAge,
 		RequireRestoreTest:  policy.RequireMigrationRestoreTest,
 		Resources:           resources,
 		RequiredKeyMaterial: keyMaterial,
@@ -95,9 +95,9 @@ func hasMigrationStep(steps []OperationStep) bool {
 }
 
 func (r MigrationBackupRequirement) validate() error {
-	maxAge, err := time.ParseDuration(r.MaxAge)
+	maxAge, err := app.PositiveDuration(r.MaximumAge)
 	if err != nil || maxAge <= 0 {
-		return fmt.Errorf("migration backup max_age %q must be a positive duration", r.MaxAge)
+		return fmt.Errorf("migration backup maximum_age %q must be a positive duration", r.MaximumAge)
 	}
 	if len(r.Resources) == 0 {
 		return errors.New("migration backup resources must not be empty")
@@ -194,7 +194,7 @@ type BackupEvidenceReceipt struct {
 	OperationDigest string                               `json:"operation_digest"`
 	Application     string                               `json:"application"`
 	Environment     string                               `json:"environment"`
-	Target          string                               `json:"target"`
+	Server          string                               `json:"server"`
 	RecordedBy      string                               `json:"recorded_by"`
 	RecordedAt      string                               `json:"recorded_at"`
 	Resources       []MigrationBackupResourceEvidence    `json:"resources"`
@@ -220,7 +220,7 @@ func NewBackupEvidenceReceipt(plan *DeployPlan, recordedBy string, recordedAt ti
 	receipt := BackupEvidenceReceipt{
 		SchemaVersion: BackupEvidenceReceiptSchemaVersion,
 		PlanDigest:    plan.PlanDigest, OperationDigest: plan.Operation.PlanDigest,
-		Application: binding.Application, Environment: binding.Environment, Target: binding.Target,
+		Application: binding.Application, Environment: binding.Environment, Server: binding.Server,
 		RecordedBy: strings.TrimSpace(recordedBy), RecordedAt: recordedAt.UTC().Format(time.RFC3339Nano),
 		Resources: resources, KeyMaterial: keyMaterial,
 	}
@@ -250,7 +250,7 @@ func (r BackupEvidenceReceipt) validateContent() error {
 	}
 	for name, value := range map[string]string{
 		"plan_digest": r.PlanDigest, "operation_digest": r.OperationDigest,
-		"application": r.Application, "environment": r.Environment, "target": r.Target,
+		"application": r.Application, "environment": r.Environment, "target": r.Server,
 		"recorded_by": r.RecordedBy, "recorded_at": r.RecordedAt,
 	} {
 		if strings.TrimSpace(value) == "" {
@@ -454,7 +454,7 @@ func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) 
 		{"operation digest", r.OperationDigest, plan.Operation.PlanDigest},
 		{"application", r.Application, binding.Application},
 		{"environment", r.Environment, binding.Environment},
-		{"target", r.Target, binding.Target},
+		{"target", r.Server, binding.Server},
 	}
 	for _, check := range checks {
 		if check.got != check.want {
@@ -475,7 +475,7 @@ func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) 
 	if !reflect.DeepEqual(keyNames, requirement.RequiredKeyMaterial) {
 		return errors.New("backup evidence key material does not match the executable plan")
 	}
-	maxAge, _ := time.ParseDuration(requirement.MaxAge)
+	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)
 	now = now.UTC()
 	recordedAt, _ := parseOperationTime(r.RecordedAt, "recorded_at")
 	planCreatedAt, _ := parseOperationTime(plan.Operation.CreatedAt, "plan created_at")
@@ -532,7 +532,7 @@ func validateFreshEvidenceTimes(createdValue, validatedValue, testedValue string
 
 func (r BackupEvidenceReceipt) validUntil(plan *DeployPlan) time.Time {
 	requirement := plan.MigrationBackup
-	maxAge, _ := time.ParseDuration(requirement.MaxAge)
+	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)
 	expiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
 	validUntil := expiresAt
 	for _, resource := range r.Resources {
@@ -559,7 +559,7 @@ type MigrationBackupOverride struct {
 	OperationDigest     string                    `json:"operation_digest"`
 	Application         string                    `json:"application"`
 	Environment         string                    `json:"environment"`
-	Target              string                    `json:"target"`
+	Server              string                    `json:"server"`
 	Resources           []MigrationBackupResource `json:"resources"`
 	RequiredKeyMaterial []string                  `json:"required_key_material,omitempty"`
 	Operator            string                    `json:"operator"`
@@ -583,7 +583,7 @@ func NewMigrationBackupOverride(plan *DeployPlan, operator, reason string, now t
 	override := MigrationBackupOverride{
 		SchemaVersion: MigrationBackupOverrideSchemaVersion,
 		PlanDigest:    plan.PlanDigest, OperationDigest: plan.Operation.PlanDigest,
-		Application: binding.Application, Environment: binding.Environment, Target: binding.Target,
+		Application: binding.Application, Environment: binding.Environment, Server: binding.Server,
 		Resources:           append([]MigrationBackupResource(nil), plan.MigrationBackup.Resources...),
 		RequiredKeyMaterial: append([]string(nil), plan.MigrationBackup.RequiredKeyMaterial...),
 		Operator:            strings.TrimSpace(operator), Reason: strings.TrimSpace(reason),
@@ -615,7 +615,7 @@ func (o MigrationBackupOverride) validateContent() error {
 	}
 	for name, value := range map[string]string{
 		"plan_digest": o.PlanDigest, "operation_digest": o.OperationDigest,
-		"application": o.Application, "environment": o.Environment, "target": o.Target,
+		"application": o.Application, "environment": o.Environment, "server": o.Server,
 		"operator": o.Operator, "reason": o.Reason, "created_at": o.CreatedAt, "source": o.Source,
 	} {
 		if strings.TrimSpace(value) == "" {
@@ -640,7 +640,7 @@ func (o MigrationBackupOverride) validateContent() error {
 	if _, err := parseOperationTime(o.CreatedAt, "created_at"); err != nil {
 		return err
 	}
-	requirement := MigrationBackupRequirement{MaxAge: time.Second.String(), Resources: o.Resources, RequiredKeyMaterial: o.RequiredKeyMaterial}
+	requirement := MigrationBackupRequirement{MaximumAge: time.Second.String(), Resources: o.Resources, RequiredKeyMaterial: o.RequiredKeyMaterial}
 	return requirement.validate()
 }
 
@@ -695,7 +695,7 @@ func (o MigrationBackupOverride) ValidateForPlan(plan *DeployPlan, now time.Time
 		{"operation digest", o.OperationDigest, plan.Operation.PlanDigest},
 		{"application", o.Application, binding.Application},
 		{"environment", o.Environment, binding.Environment},
-		{"target", o.Target, binding.Target},
+		{"server", o.Server, binding.Server},
 	}
 	for _, check := range checks {
 		if check.got != check.want {

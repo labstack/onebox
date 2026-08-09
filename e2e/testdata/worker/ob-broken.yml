@@ -16,5 +16,5 @@ deployment:
   order: [worker, web]
 proxy:
   managed: false
-verification:
+verifications:
   - { exec: "wget -qO- http://localhost:8080/", workload: web }

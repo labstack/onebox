@@ -36,7 +36,7 @@ func TestApprovalGrantBindsEveryExecutionAuthority(t *testing.T) {
 		mutate func(*DeployPlan)
 		want   string
 	}{
-		{"target", func(p *DeployPlan) { p.Operation.Binding.Target = "deploy@other.invalid" }, "target"},
+		{"target", func(p *DeployPlan) { p.Operation.Binding.Server = "deploy@other.invalid" }, "target"},
 		{"environment", func(p *DeployPlan) { p.Operation.Binding.Environment = "staging" }, "environment"},
 		{"observed state", func(p *DeployPlan) { p.Operation.Binding.StateDigest = "sha256:other" }, "observed state"},
 		{"risk", func(p *DeployPlan) { p.Operation.Risk = RiskHigh }, "risk"},

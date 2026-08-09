@@ -175,7 +175,7 @@ func TestVerifyURLSuccessOutputRedactsQuery(t *testing.T) {
 
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Verification = []app.Verification{{URL: srv.URL + "?token=" + querySecret}}
+	cfg.Verifications = []app.Verification{{URL: srv.URL + "?token=" + querySecret}}
 	e := New(cfg, testProject(t), happyFake(), Options{Out: &out, Sleep: noSleep})
 	if err := e.Verify(context.Background()); err != nil {
 		t.Fatal(err)
@@ -188,9 +188,9 @@ func TestVerifyURLSuccessOutputRedactsQuery(t *testing.T) {
 func TestVerifyMigrationRevisionsMatchesBoundProviderEvidence(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads = map[string]app.Workload{
-		"migrate": {Role: app.RoleJob, Run: "pre_release", DataEffect: "migration"},
+		"migrate": {Role: app.RoleJob, When: "pre_release", DataEffect: "migration"},
 	}
-	cfg.Verification = []app.Verification{{MigrationRevisions: &app.MigrationRevs{
+	cfg.Verifications = []app.Verification{{MigrationRevisions: &app.MigrationRevs{
 		Job: "migrate", Provider: "atlas", AppliedRevisions: []string{"r1", "r2"},
 	}}}
 	e := New(cfg, testProject(t), happyFake(), Options{Out: io.Discard, Sleep: noSleep})

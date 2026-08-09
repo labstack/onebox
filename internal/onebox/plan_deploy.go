@@ -148,7 +148,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		Reversibility: reversibility,
 		Approval:      approval,
 		Binding: OperationBinding{
-			Application: lp.resolved.Name, Environment: s.environment, Target: target,
+			Application: lp.resolved.Name, Environment: s.environment, Server: target,
 			ConfigDigest: configDigest, ComposeDigest: engine.HashBytes(lp.composeBytes),
 			StateDigest: stateDigest, PayloadDigest: payloadDigest,
 			LiveComposeDigest: liveComposeDigest, LivePayloadDigest: livePayloadDigest,

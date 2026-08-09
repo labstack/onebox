@@ -356,8 +356,8 @@ func (s *Service) executeDeploy(
 		return false, fmt.Errorf("connect target: %w", err)
 	}
 	defer cleanup()
-	if target != binding.Target {
-		return false, fmt.Errorf("target changed from %q to %q — re-plan", binding.Target, target)
+	if target != binding.Server {
+		return false, fmt.Errorf("target changed from %q to %q — re-plan", binding.Server, target)
 	}
 	if err := verifyRemoteDeployBinding(ctx, e, plan, s.environment, lp.configBytes, lp.resolved.Name); err != nil {
 		return false, err

@@ -26,13 +26,13 @@ workloads:
 deployment: {order: [server], retain_releases: 5}
 runtime:
   env_files: [server/.env.production, server/.env.production.secrets]
-  preflight:
+  env_checks:
     - file: server/.env.production.secrets
       require: [JWT_SECRET, POSTGRES_PASSWORD]
       present: [RESEND_API_KEY, TWILIO_ACCOUNT_SID, S3_BUCKET, AWS_ACCESS_KEY_ID]
 proxy: {managed: true, config: traefik}
 hooks:
-  bootstrap: {run: 'scripts/bootstrap.sh "$OB_TARGET"', local: true}
-verification:
+  bootstrap: {run: 'scripts/bootstrap.sh "$OB_SERVER"', local: true}
+verifications:
   - {workload: server, http: /readyz, port: 7510}
   - {url: "https://goal.fit/healthz"}

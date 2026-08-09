@@ -40,11 +40,11 @@ func validateExternalService(external ExternalService, path string) error {
 		if err := checkEnum(path+".probe.kind", external.Probe.Kind, eExternalProbeKind); err != nil {
 			return err
 		}
-		if _, err := positiveDuration(external.Probe.Timeout); err != nil {
+		if _, err := PositiveDuration(external.Probe.Timeout); err != nil {
 			return errf("project_invalid", path+".probe.timeout", "ob validate", "probe timeout must be a positive duration: %v", err)
 		}
-		if _, err := positiveDuration(external.Probe.MaxAge); err != nil {
-			return errf("project_invalid", path+".probe.max_age", "ob validate", "probe max_age must be a positive duration: %v", err)
+		if _, err := PositiveDuration(external.Probe.MaximumAge); err != nil {
+			return errf("project_invalid", path+".probe.maximum_age", "ob validate", "probe maximum_age must be a positive duration: %v", err)
 		}
 	}
 	return nil

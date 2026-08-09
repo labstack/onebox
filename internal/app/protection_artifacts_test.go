@@ -12,8 +12,8 @@ func protectionArtifactFixture() (*Resolved, ProtectionPolicy, BackupTarget) {
 		Schedule:  Schedule{Cron: "17 */6 * * *", Timezone: "UTC"},
 		Retention: ProtectionRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
 		RestoreDrill: RestoreDrillPolicy{
-			Schedule:    Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"},
-			ProofMaxAge: "7d", StagingFilesystem: "/srv/onebox-restore",
+			Schedule:        Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"},
+			ProofMaximumAge: "7d", StagingFilesystem: "/srv/onebox-restore",
 		},
 	}
 	target := BackupTarget{

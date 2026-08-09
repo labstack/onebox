@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, whatever it targets. Restricting this to `main` meant a
+  # PR stacked on another branch got no CI at all — which is exactly when a
+  # second opinion is most useful, since the base is itself unreviewed.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

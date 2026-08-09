@@ -16,12 +16,11 @@ import (
 	"github.com/labstack/onebox/internal/engine"
 )
 
-// Loading changed shape with the declarative contract. There is no longer a
-// user-authored Compose file to read and classify: the project declares its
-// workloads, and the runtime is generated from that declaration. What used to
-// be inference — guess which service is the app, which is a database, what
-// order they start in — is now something the author states and the loader
-// checks.
+// There is no user-authored Compose file to read and classify: the project
+// declares its workloads, and the runtime is generated from that declaration.
+// Which service is the app, which is a database, what order they start in — the
+// author states all of it and the loader checks it, rather than any of it being
+// inferred.
 //
 // The generated runtime is still parsed back into a Compose project, because
 // the execution engine works in terms of services and images and that is the

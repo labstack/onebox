@@ -841,9 +841,8 @@ func TestExecuteRejectsRelocatedBasePathBeforeMutation(t *testing.T) {
 // between planning and applying therefore changes nothing — which is stronger
 // than refusing, and is the entire reason for pinning.
 //
-// This was originally written as a drift test and passed for the wrong reason:
-// without an approval it stopped at the approval gate and proved nothing about
-// images at all.
+// The approval below is what makes this test about images: without it the run
+// stops at the approval gate and proves nothing.
 func TestAMovedTagCannotChangeWhatIsDeployed(t *testing.T) {
 	fake := serviceFake()
 	svc := newTestService(t, fake)
@@ -921,17 +920,16 @@ func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
 // A build-sourced workload can be released from a saved plan.
 //
 // Production never builds, so `build:` has no image until whatever built it
-// says what it produced. The plan records that answer. Execution used to load
-// and render the project before applying the plan's pins, so
-// `ob deploy --plan` failed with image_unresolved unless --image was supplied
-// a second time — which defeats the point of a plan being the thing that was
+// says what it produced. The plan records that answer, and execution reloads
+// with the plan's build images so the render resolves. Reloading without them
+// would fail `ob deploy --plan` with image_unresolved unless --image were
+// supplied a second time — which defeats the point of a plan being the thing
 // reviewed.
 func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
 	// Both forms of what a build can produce. The tagged one is the case that
 	// matters: pinning turns it into a digest *after* the render, so a reload
-	// that used the pin would bind a different document than the plan did.
-	// The first version of this test used only a digest and proved nothing
-	// about that.
+	// that used the pin would bind a different document than the plan did. A
+	// digest alone proves nothing about that.
 	for _, built := range []string{
 		"ghcr.io/example/app:ci-1234",
 		"ghcr.io/example/app@sha256:" + strings.Repeat("ab", 32),

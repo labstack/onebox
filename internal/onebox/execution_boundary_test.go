@@ -920,10 +920,11 @@ func TestExecuteRejectsAGenerationChangeBeforeMutation(t *testing.T) {
 // A build-sourced workload can be released from a saved plan.
 //
 // Production never builds, so `build:` has no image until whatever built it
-// says what it produced. The plan records that answer, and execution applies
-// the plan's pins before rendering. Rendering first would fail
-// `ob deploy --plan` with image_unresolved unless --image were supplied a
-// second time — which defeats the point of a plan being the thing reviewed.
+// says what it produced. The plan records that answer, and execution reloads
+// with the plan's build images so the render resolves. Reloading without them
+// would fail `ob deploy --plan` with image_unresolved unless --image were
+// supplied a second time — which defeats the point of a plan being the thing
+// reviewed.
 func TestASavedPlanCarriesTheImageForABuiltWorkload(t *testing.T) {
 	// Both forms of what a build can produce. The tagged one is the case that
 	// matters: pinning turns it into a digest *after* the render, so a reload

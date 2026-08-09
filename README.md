@@ -15,17 +15,13 @@ The product contract is:
 > approval. Get structured observation, constrained change proposals, and
 > evidence-backed execution within a declared safety envelope.
 
-## Breaking change: the project file is now the authoring contract
+## The project file is the authoring contract
 
-`onebox.run/v1` was redefined in place rather than superseded by a `v2`. There
-is no migration path and none is planned: a project written against the earlier
-contract — which classified a Compose file you wrote — does not load, and must
-be authored fresh against the current one.
-
-The reversal is the point. Compose used to be an input Onebox read. It is now
-an artifact Onebox generates, digest-bound into the plan, printable with
+A Compose file you wrote cannot be the contract. Compose is an artifact Onebox
+generates from the declaration, digest-bound into the plan, printable with
 `ob preview`, and permanently ejectable with `ob eject`. `ob init` scaffolds a
-project from an existing Compose file to start from.
+project from an existing Compose file to start from, and individual services can
+be adopted with `compose: docker-compose.yml#service`.
 
 ## Documentation
 
@@ -234,11 +230,11 @@ The CLI is the interface, for people and for agents alike. It is deterministic,
 composable in CI, easy to test, and it calls one canonical operations service
 that owns every lifecycle decision.
 
-Onebox served an MCP surface once and no longer does. It was read-only, so
-every mutation already went through the CLI, and an agent able to run `ob
-deploy` in a shell was never constrained by a read-only tool list. A second
-protocol earned no safety and cost a second contract to keep honest. Point an
-agent at the `ob` binary the way you would point it at `gh`.
+There is no MCP surface. A read-only tool list constrains nothing when every
+mutation goes through the CLI anyway and the agent can run `ob deploy` in a
+shell — a second protocol would earn no safety and cost a second contract to
+keep honest. Point an agent at the `ob` binary the way you would point it at
+`gh`.
 
 ## Scope
 

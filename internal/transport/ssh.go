@@ -357,7 +357,8 @@ var uploadDrainTimeout = 30 * time.Second
 // before the first entry sends nothing at all. Without a sentinel that pair
 // extracts nothing, exits 0, and publishes an empty directory as a complete
 // release. The sentinel is written last, so its presence is the sender's
-// statement that the walk finished, and it holds whichever tar the host ships.
+// statement that the walk finished, and it does not depend on which tar the
+// host ships.
 func tarTransfer(staging string) string {
 	// staging arrives shell-quoted and uploadSentinel is a fixed literal with no
 	// metacharacters, so concatenating outside the quotes is safe.

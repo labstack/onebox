@@ -71,7 +71,7 @@ change cannot mint the capability authorising it.
 | `require_approval` | `true` | A plan-bound grant is required before mutating |
 | `allow_agent_proposals` | `true` | Recorded policy; the current CLI does not distinguish agent identity, and execution stays approval-gated regardless |
 | `require_migration_backup` | `false` | Plan-bound external backup evidence before migration risk |
-| `migration_backup_max_age` | — | Maximum age of accepted evidence |
+| `migration_backup_maximum_age` | — | Maximum age of accepted evidence |
 | `require_migration_restore_test` | `false` | Evidence must attest a restore test succeeded |
 | `migration_backup_key_material` | — | Key material whose usability the evidence must attest |
 
@@ -87,13 +87,13 @@ existing output shapes.
 
 ### Commands that accept `--output human|json|ndjson`
 
-`ob abort` · `ob backup-evidence create` · `ob bootstrap` · `ob canonical` ·
-`ob deploy` · `ob doctor` · `ob eject` · `ob plan` · `ob preview` ·
+`ob abort` · `ob bootstrap` · `ob canonical` · `ob deploy` · `ob doctor` ·
+`ob eject` · `ob evidence create` · `ob plan` · `ob preview` ·
 `ob proxy apply` · `ob resume` · `ob rollback` · `ob service apply` ·
-`ob status` · `ob validate`
+`ob status` · `ob validate` · `ob version`
 
-Anything not listed is human output only. `ob doctor` and `ob version` also
-accept `--json` for their reports.
+Anything not listed is human output only. There is one way to ask for machine
+output: `--output`. `ob doctor` and `ob version` take it like everything else.
 
 ### Schema identities
 

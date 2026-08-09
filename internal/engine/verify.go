@@ -241,7 +241,7 @@ func scalarNumberString(value any) (string, bool) {
 // the edge, because an edge blip must not fail a healthy release. URL
 // checks go through the edge from the runner and are advisory territory.
 func (e *Engine) Verify(ctx context.Context) error {
-	for _, chk := range e.Spec.Verification {
+	for _, chk := range e.Spec.Verifications {
 		if chk.MigrationRevisions != nil {
 			assertion := chk.MigrationRevisions
 			result, ok := e.jobResults[assertion.Job]

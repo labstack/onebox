@@ -38,7 +38,7 @@ func conformanceCases() []conformanceCase {
 		{"job with data_effect", wl("j: {image: nginx, role: job, data_effect: none}"), true},
 		{"job data_effect unknown", wl("j: {image: nginx, role: job, data_effect: unknown}"), true},
 		{"application with data_effect", wl("w: {image: nginx, data_effect: none}"), false},
-		{"application with run", wl("w: {image: nginx, run: manual}"), false},
+		{"application with run", wl("w: {image: nginx, when: manual}"), false},
 		{"worker with schedule", wl("w: {image: nginx, role: worker, schedule: {cron: \"0 3 * * *\"}}"), false},
 		{"scheduled job", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\"}}"), true},
 		{"daemon role", wl("db: {image: postgres:16, role: daemon}"), true},
@@ -49,7 +49,7 @@ func conformanceCases() []conformanceCase {
 		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
 		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
 		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
-		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 14d}}}\n", true},
+		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_maximum_age: 14d}}}\n", true},
 		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: 0.0.1-m0}}}\n", false},
 		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
@@ -71,10 +71,10 @@ func conformanceCases() []conformanceCase {
 		{"unknown env file provider", min + "runtime: {env_files: [{file: s.env, provider: vault}]}\n", false},
 		{"env file entry without a file", min + "runtime: {env_files: [{provider: sops}]}\n", false},
 		{"environment-scoped env files", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
-		{"verification workload without probe", min + "verification: [{workload: ledger}]\n", false},
-		{"verification url with exec", min + "verification: [{url: \"https://x/\", exec: \"echo\"}]\n", false},
-		{"verification url contains advisory", min + "verification: [{url: \"https://x/\", contains: \"<div\", advisory: true}]\n", true},
-		{"status code 600", min + "verification: [{url: \"https://x/\", status_codes: [600]}]\n", false},
+		{"verifications workload without probe", min + "verifications: [{workload: ledger}]\n", false},
+		{"verifications url with exec", min + "verifications: [{url: \"https://x/\", exec: \"echo\"}]\n", false},
+		{"verifications url contains advisory", min + "verifications: [{url: \"https://x/\", contains: \"<div\", advisory: true}]\n", true},
+		{"status code 600", min + "verifications: [{url: \"https://x/\", status_codes: [600]}]\n", false},
 		// `kind: none` says nothing routes. A project that also declares a
 		// route is asking for something nobody would serve.
 		{"proxy kind none without a route", wl("web: {image: nginx}") + "proxy: {kind: none}\n", true},
@@ -86,8 +86,8 @@ func conformanceCases() []conformanceCase {
 		{"persistence external", wl("w: {image: nginx, persistence: {mode: external}}"), true},
 		{"volume scalar without a path", wl("w: {image: nginx, volumes: [data]}"), false},
 		{"volume scalar with a path", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
-		{"bind mount volume", wl("w: {image: nginx, volumes: [{source: ./data, target: /data}]}"), true},
-		{"published udp port", wl("w: {image: nginx, ports: [{host: 8555, container: 8555, protocol: udp}]}"), true},
+		{"bind mount volume", wl("w: {image: nginx, volumes: [{source: ./data, path: /data}]}"), true},
+		{"published udp port", wl("w: {image: nginx, published_ports: [{host: 8555, container: 8555, protocol: udp}]}"), true},
 		{"service scalar", min + "services: {postgres: 18}\n", true},
 		{"service protection policy", validProtectionProject, true},
 		{"external service connection", validExternalServiceProject, true},
@@ -96,7 +96,7 @@ func conformanceCases() []conformanceCase {
 		{"protection self target", strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
 		{"protection unsupported objective", strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
 		{"protection unsupported retention", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {minimum_generations: 0, recovery_window: 7d}\n", 1), false},
-		{"protection sparse drill", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, proof_max_age: 7d}\n", 1), false},
+		{"protection sparse drill", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, proof_maximum_age: 7d}\n", 1), false},
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
@@ -190,11 +190,11 @@ func TestNeedsGateOnHealthWhenThereIsHealthToGateOn(t *testing.T) {
 
 // TestPublishedPortBindsLoopback: exposure on every interface must be deliberate.
 func TestPublishedPortBindsLoopback(t *testing.T) {
-	p, err := LoadBytes([]byte(wl("w: {image: nginx, ports: [{host: 8000, container: 8000}]}")), "ob.yml")
+	p, err := LoadBytes([]byte(wl("w: {image: nginx, published_ports: [{host: 8000, container: 8000}]}")), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := p.Workloads["w"].Ports[0]
+	got := p.Workloads["w"].PublishedPorts[0]
 	if got.Bind != "127.0.0.1" || got.Protocol != "tcp" {
 		t.Fatalf("port = %+v, want loopback tcp", got)
 	}

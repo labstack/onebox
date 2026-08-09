@@ -130,9 +130,9 @@ func TestDoctorCommandOutputModes(t *testing.T) {
 	t.Cleanup(func() { newDoctorDependencies = previous })
 
 	for name, args := range map[string][]string{
-		"json flag": {"-c", "/project/ob.yml", "doctor", "--json"},
-		"root json": {"--output", "json", "-c", "/project/ob.yml", "doctor"},
-		"ndjson":    {"--output", "ndjson", "-c", "/project/ob.yml", "doctor"},
+		"json output": {"-c", "/project/ob.yml", "--output", "json", "doctor"},
+		"root json":   {"--output", "json", "-c", "/project/ob.yml", "doctor"},
+		"ndjson":      {"--output", "ndjson", "-c", "/project/ob.yml", "doctor"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := newRootCmd()

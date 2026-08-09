@@ -108,21 +108,22 @@ func isStructuredOutput(g *globalFlags) bool {
 }
 
 var structuredOutputCommands = map[string]bool{
-	"ob abort":                  true,
-	"ob backup-evidence create": true,
-	"ob bootstrap":              true,
-	"ob canonical":              true,
-	"ob deploy":                 true,
-	"ob doctor":                 true,
-	"ob eject":                  true,
-	"ob plan":                   true,
-	"ob preview":                true,
-	"ob proxy apply":            true,
-	"ob resume":                 true,
-	"ob rollback":               true,
-	"ob service apply":          true,
-	"ob status":                 true,
-	"ob validate":               true,
+	"ob abort":           true,
+	"ob evidence create": true,
+	"ob bootstrap":       true,
+	"ob canonical":       true,
+	"ob deploy":          true,
+	"ob doctor":          true,
+	"ob eject":           true,
+	"ob plan":            true,
+	"ob preview":         true,
+	"ob proxy apply":     true,
+	"ob resume":          true,
+	"ob rollback":        true,
+	"ob service apply":   true,
+	"ob status":          true,
+	"ob validate":        true,
+	"ob version":         true,
 }
 
 func validateOutputMode(cmd *cobra.Command, g *globalFlags) error {

@@ -36,11 +36,11 @@ func TestLoadBackupFactsManifestIsStrictAndCapped(t *testing.T) {
 
 func TestBackupEvidenceCreateCommandIsRegistered(t *testing.T) {
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"backup-evidence", "create"})
+	command, _, err := root.Find([]string{"evidence", "create"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command.CommandPath() != "ob backup-evidence create" {
+	if command.CommandPath() != "ob evidence create" {
 		t.Fatalf("command path = %q", command.CommandPath())
 	}
 	for _, name := range []string{"plan", "manifest", "out"} {

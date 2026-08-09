@@ -275,7 +275,7 @@ environments:
   production: {server: root@203.0.113.10}
 runtime:
   env_files: [.env.base, .env.production]
-  preflight:
+  env_checks:
     - file: .env.production
       require: [API_TOKEN]
 image: nginx

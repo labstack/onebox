@@ -34,7 +34,7 @@ var sha256Digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // evidence. Its presence means every pending migration step requires either a
 // matching receipt or an explicit audited override.
 type MigrationBackupRequirement struct {
-	MaxAge              string                    `json:"max_age"`
+	MaximumAge          string                    `json:"maximum_age"`
 	RequireRestoreTest  bool                      `json:"require_restore_test"`
 	Resources           []MigrationBackupResource `json:"resources"`
 	RequiredKeyMaterial []string                  `json:"required_key_material,omitempty"`
@@ -74,7 +74,7 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	keyMaterial := append([]string(nil), policy.MigrationBackupKeyMaterial...)
 	sort.Strings(keyMaterial)
 	requirement := &MigrationBackupRequirement{
-		MaxAge:              policy.MigrationBackupMaxAge,
+		MaximumAge:          policy.MigrationBackupMaximumAge,
 		RequireRestoreTest:  policy.RequireMigrationRestoreTest,
 		Resources:           resources,
 		RequiredKeyMaterial: keyMaterial,
@@ -95,9 +95,9 @@ func hasMigrationStep(steps []OperationStep) bool {
 }
 
 func (r MigrationBackupRequirement) validate() error {
-	maxAge, err := time.ParseDuration(r.MaxAge)
+	maxAge, err := time.ParseDuration(r.MaximumAge)
 	if err != nil || maxAge <= 0 {
-		return fmt.Errorf("migration backup max_age %q must be a positive duration", r.MaxAge)
+		return fmt.Errorf("migration backup maximum_age %q must be a positive duration", r.MaximumAge)
 	}
 	if len(r.Resources) == 0 {
 		return errors.New("migration backup resources must not be empty")
@@ -475,7 +475,7 @@ func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) 
 	if !reflect.DeepEqual(keyNames, requirement.RequiredKeyMaterial) {
 		return errors.New("backup evidence key material does not match the executable plan")
 	}
-	maxAge, _ := time.ParseDuration(requirement.MaxAge)
+	maxAge, _ := time.ParseDuration(requirement.MaximumAge)
 	now = now.UTC()
 	recordedAt, _ := parseOperationTime(r.RecordedAt, "recorded_at")
 	planCreatedAt, _ := parseOperationTime(plan.Operation.CreatedAt, "plan created_at")
@@ -532,7 +532,7 @@ func validateFreshEvidenceTimes(createdValue, validatedValue, testedValue string
 
 func (r BackupEvidenceReceipt) validUntil(plan *DeployPlan) time.Time {
 	requirement := plan.MigrationBackup
-	maxAge, _ := time.ParseDuration(requirement.MaxAge)
+	maxAge, _ := time.ParseDuration(requirement.MaximumAge)
 	expiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
 	validUntil := expiresAt
 	for _, resource := range r.Resources {
@@ -640,7 +640,7 @@ func (o MigrationBackupOverride) validateContent() error {
 	if _, err := parseOperationTime(o.CreatedAt, "created_at"); err != nil {
 		return err
 	}
-	requirement := MigrationBackupRequirement{MaxAge: time.Second.String(), Resources: o.Resources, RequiredKeyMaterial: o.RequiredKeyMaterial}
+	requirement := MigrationBackupRequirement{MaximumAge: time.Second.String(), Resources: o.Resources, RequiredKeyMaterial: o.RequiredKeyMaterial}
 	return requirement.validate()
 }
 

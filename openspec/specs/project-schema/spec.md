@@ -57,7 +57,7 @@ the checking.
 
 The contract SHALL distinguish three kinds of path, because a single rule cannot
 govern them. A **repository path** — Compose references, environment files,
-preflight files, proxy configuration, secret files, build contexts, the ejection
+environment-check files, proxy configuration, secret files, build contexts, the ejection
 destination — SHALL resolve relative to the directory containing the project
 file regardless of the working directory, and SHALL be refused if it is absolute
 or resolves outside the repository root, including through a symbolic link. A
@@ -423,7 +423,7 @@ and the same entries supply the value again on the target.
 - **THEN** validation fails and names the file
 
 #### Scenario: Required key absent
-- **WHEN** a preflight check requires a key that is absent or empty
+- **WHEN** an environment check requires a key that is absent or empty
 - **THEN** validation fails and names the key and the file
 
 #### Scenario: Interpolation resolves from the project-wide list

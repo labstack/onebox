@@ -23,7 +23,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`alerts` · `enabled` · `logs` · `metrics` · `retention_days` · `unhealthy_after`
+`alerts` · `enabled` · `logs` · `metrics` · `retention` · `unhealthy_after`
 
 ## Reference
 
@@ -33,6 +33,6 @@ cannot drift from what `ob validate` accepts.
 | `alerts.unhealthy_after` | string | — | Desired duration of unhealthy state before alerting. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `logs` | object | — | Declared log-retention intent. Continuous management is not currently provided. |
 | `logs.enabled` | boolean | `false` | Declare that log collection is desired. |
-| `logs.retention_days` | integer | — | Desired log-retention period in days. |
+| `logs.retention` | string | — | Desired log-retention period. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `metrics` | object | — | Declared metric-collection intent. Continuous management is not currently provided. |
 | `metrics.enabled` | boolean | `false` | Declare that metric collection is desired. |

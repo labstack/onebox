@@ -53,7 +53,7 @@ func TestProtectionIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 	if policy.Retention.MinimumGenerations != 7 || policy.Retention.RecoveryWindow != "7d" {
 		t.Fatalf("retention = %#v, want seven generations and seven days", policy.Retention)
 	}
-	if policy.RestoreDrill.Schedule.Cron != "0 3 * * 0,3" || policy.RestoreDrill.ProofMaxAge != "7d" {
+	if policy.RestoreDrill.Schedule.Cron != "0 3 * * 0,3" || policy.RestoreDrill.ProofMaximumAge != "7d" {
 		t.Fatalf("restore drill = %#v, want exact twice-weekly schedule and seven-day proof age", policy.RestoreDrill)
 	}
 	if got := p.BackupTargets["offsite"]; got.TLS != "required" || got.Credentials.Provider != "sops" {
@@ -154,12 +154,12 @@ func TestProtectionIntentRefusals(t *testing.T) {
 		},
 		{
 			name: "restore drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        proof_max_age: 7d\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        proof_maximum_age: 7d\n", 1),
 			code: "restore_drill_schedule_too_sparse",
 		},
 		{
 			name: "stepped weekday drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        proof_max_age: 36h\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        proof_maximum_age: 36h\n", 1),
 			code: "restore_drill_schedule_too_sparse",
 		},
 		{

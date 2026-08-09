@@ -223,7 +223,7 @@ func (p *Spec) RunPreflight(dir string) error {
 		return nil
 	}
 	var missing []string
-	for _, check := range p.Runtime.Preflight {
+	for _, check := range p.Runtime.EnvChecks {
 		path := check.File
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(dir, path)
@@ -253,7 +253,7 @@ func (p *Spec) RunPreflight(dir string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return errf("preflight_env_incomplete", "runtime.preflight", "",
+	return errf("preflight_env_incomplete", "runtime.env_checks", "",
 		"the environment is not ready:\n  %s", strings.Join(missing, "\n  "))
 }
 

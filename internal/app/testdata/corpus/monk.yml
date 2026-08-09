@@ -38,7 +38,7 @@ workloads:
 deployment: {order: [feed, server], retain_releases: 5}
 runtime:
   env_files: [server/.env, server/.env.production]
-  preflight:
+  env_checks:
     - {file: traefik/.env, require: [CF_DNS_API_TOKEN]}
     - file: web/.env.production
       require: [VITE_STRIPE_PUBLISHABLE_KEY, VITE_GA_MEASUREMENT_ID]
@@ -50,7 +50,7 @@ hooks:
   bootstrap: {run: 'scripts/bootstrap.sh "$OB_TARGET"', local: true}
   pre_release: {run: "cd web && bun install --frozen-lockfile && bun run build && rsync -az dist/ $OB_TARGET:/data/monk/web/", local: true}
   post_deploy: {run: "rsync -az web/dist/index.html $OB_TARGET:/data/monk/web/index.html", local: true}
-verification:
+verifications:
   - {workload: server, http: /healthz, port: 7500}
   - {url: "https://monk.trade/healthz", advisory: true}
   - {url: "https://monk.trade/", contains: 'id="root"', advisory: true}

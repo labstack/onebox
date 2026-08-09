@@ -43,7 +43,7 @@ func validateExternalService(external ExternalService, path string) error {
 		if _, err := positiveDuration(external.Probe.Timeout); err != nil {
 			return errf("project_invalid", path+".probe.timeout", "ob validate", "probe timeout must be a positive duration: %v", err)
 		}
-		if _, err := positiveDuration(external.Probe.MaxAge); err != nil {
+		if _, err := positiveDuration(external.Probe.MaximumAge); err != nil {
 			return errf("project_invalid", path+".probe.max_age", "ob validate", "probe max_age must be a positive duration: %v", err)
 		}
 	}

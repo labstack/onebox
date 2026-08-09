@@ -32,7 +32,7 @@ workloads:
         /entrypoint.sh db migrate
         printf '{"schema_version":"onebox.run/job-result/v1alpha1","changed":true}' > "$OB_RESULT_FILE"
     data_effect: migration
-    run: pre_release
+    when: pre_release
     env:
       BASE_URL: "http://stats.example.com"
       SECRET_KEY_BASE: "0123456789012345678901234567890123456789012345678901234567890123"

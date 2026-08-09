@@ -293,7 +293,7 @@ func (w Workload) ProbePort() int {
 			return r.Port
 		}
 	}
-	for _, p := range w.Ports {
+	for _, p := range w.PublishedPorts {
 		if p.Container != 0 {
 			return p.Container
 		}

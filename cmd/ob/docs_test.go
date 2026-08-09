@@ -122,7 +122,7 @@ func TestEveryFlagAndAliasIsUsable(t *testing.T) {
 func TestStructuredOutputMatrixIsDocumented(t *testing.T) {
 	page := readDocsPage(t, policiesPage, "it is authored, not generated")
 	// Only the list itself, not the paragraph after it: that sentence names
-	// `ob version` for its `--json` report, which is a different contract.
+	// `ob version`, which takes the same global `--output` as everything else.
 	matrix := sectionOf(t, page, "### Commands that accept", "Anything not listed")
 
 	documented := map[string]bool{}

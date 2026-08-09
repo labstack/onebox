@@ -335,17 +335,17 @@
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
   },
   {
-    "case": "conformance/verification url contains advisory",
+    "case": "conformance/verifications url contains advisory",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
   },
   {
-    "case": "conformance/verification url with exec",
+    "case": "conformance/verifications url with exec",
     "loads": false,
     "code": "project_invalid"
   },
   {
-    "case": "conformance/verification workload without probe",
+    "case": "conformance/verifications workload without probe",
     "loads": false,
     "code": "project_invalid"
   },

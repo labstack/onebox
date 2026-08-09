@@ -285,7 +285,7 @@ var blocks = []block{
 			"Working out which fields an environment override may change",
 		}},
 	{Key: "runtime", Title: "runtime", Order: 40, Status: statusShipped,
-		Summary: "Project-wide environment files and the local preflight assertions checked before a target is contacted.",
+		Summary: "Project-wide environment files and the local environment-file assertions checked before the server is contacted.",
 		ReadWhen: []string{
 			"Wiring up environment files or SOPS-encrypted entries",
 			"Requiring keys to be present before a deploy is attempted",
@@ -910,7 +910,7 @@ func renderCLIPage(obBin string) (string, error) {
 	fmt.Fprintln(&buf, "sidebar:\n  order: 200")
 	fmt.Fprintln(&buf, "read_when:")
 	fmt.Fprintln(&buf, `  - "Looking up what a command does, or which flags it takes"`)
-	fmt.Fprintln(&buf, `  - "Deciding whether a command contacts the target or changes it"`)
+	fmt.Fprintln(&buf, `  - "Deciding whether a command contacts the server or changes it"`)
 	fmt.Fprintln(&buf, "---")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, generatedMarker)
@@ -926,12 +926,12 @@ func renderCLIPage(obBin string) (string, error) {
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "Five commands are read-only. They differ by what they read, not by how far they go.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "| Command | Reads | Contacts the target |")
+	fmt.Fprintln(&buf, "| Command | Reads | Contacts the server |")
 	fmt.Fprintln(&buf, "| --- | --- | --- |")
 	fmt.Fprintln(&buf, "| `ob validate` | the project file | no |")
 	fmt.Fprintln(&buf, "| `ob preview` | the runtime it would generate | no |")
 	fmt.Fprintln(&buf, "| `ob doctor` | this runner, and the environment's policy | yes |")
-	fmt.Fprintln(&buf, "| `ob preflight` | the host's readiness to accept a deploy | yes |")
+	fmt.Fprintln(&buf, "| `ob preflight` | the server's readiness to accept a deploy | yes |")
 	fmt.Fprintln(&buf, "| `ob plan` | both, and writes a plan artifact | yes |")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "`ob plan` is the only one of the five that writes a file, and it writes it locally.")

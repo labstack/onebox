@@ -80,7 +80,7 @@ var errorCodes = map[string]string{
 	"compose_traefik_label":    "a referenced service carries routing labels while also declaring a route",
 	"compose_ingress_attached": "a referenced service already attaches the ingress network",
 
-	// Generation and the target.
+	// Generation and the server.
 	"env_file_unreadable":         "an environment file the project declares cannot be read",
 	"env_file_missing":            "an environment file the project declares is not on disk",
 	"health_port_unknown":         "an http health check has no port to probe and none can be derived",
@@ -88,7 +88,7 @@ var errorCodes = map[string]string{
 	"secrets_withdrawn":           "the withdrawn secrets block; environment files carry encrypted entries now",
 	"image_unresolved":            "a build-sourced workload has no resolved image for this release",
 	"render_failed":               "the runtime could not be rendered",
-	"target_unreachable":          "the target could not be reached",
+	"server_unreachable":          "the server could not be reached",
 	"preflight_env_incomplete":    "an environment file is missing keys the project requires",
 
 	// Ejection.

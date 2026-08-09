@@ -62,11 +62,11 @@ func TestPreviewAppliesEnvironmentOverrides(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "ob.yml", previewProject)
 
-	prod, err := run(t, dir, "preview", "--digest")
+	prod, err := run(t, dir, "preview", "--digest-only")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stage, err := run(t, dir, "preview", "--digest", "-e", "staging")
+	stage, err := run(t, dir, "preview", "--digest-only", "-e", "staging")
 	if err != nil {
 		t.Fatal(err)
 	}

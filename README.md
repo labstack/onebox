@@ -59,7 +59,7 @@ documentation website. Build it with `just site-build`, or serve it locally with
   development, CI, support, and break-glass recovery.
 
 Declaring `services: {postgres: 17}` makes Onebox run it: the image, a durable
-volume, a health check, a credential generated on the target that never travels,
+volume, a health check, a credential generated on the server that never travels,
 and the connection details the application reads. Eleven drivers are supported —
 postgres, mysql, mariadb, redis, valkey, mongodb, rabbitmq, minio, meilisearch,
 clickhouse, nats. Anything else is refused rather than guessed at, because
@@ -147,7 +147,7 @@ payload change requires a new plan.
 
 `ob init` is a starting point, not permission to deploy. Review workload
 types, persistence semantics, readiness, job data effects, and the environment
-target before running a plan. The
+server before running a plan. The
 [project file reference](site/src/content/docs/reference/project-file.mdx)
 documents the accepted fields and representative examples.
 

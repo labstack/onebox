@@ -192,6 +192,33 @@ func TestUploadScriptCleansItsDestination(t *testing.T) {
 	}
 }
 
+// Grepping the script for metacharacters missed the one line that got the
+// quoting wrong, because `path.Dir`/`path.Base` never reproduce the literal the
+// grep looked for. Running the script is what catches it: a destination holding
+// `;` escaped its quotes in the trap handler and executed on the target host.
+// app.gAbsPath permits both `;` and spaces in base_path, so this is reachable
+// from a project file.
+func TestUploadScriptDoesNotExecuteAHostileDestination(t *testing.T) {
+	root := t.TempDir()
+	canary := filepath.Join(root, "pwned")
+	dest := filepath.Join(root, "a b; touch "+canary, "x")
+	script, err := uploadScript(dest, func(staging string) string { return "true" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Dir = root
+	out, _ := cmd.CombinedOutput()
+	if _, err := os.Stat(canary); err == nil {
+		t.Fatalf("the destination path executed as a command: %s", out)
+	}
+	// A space alone must not break the trap either — an unparsable handler
+	// installs nothing, so staging would survive a failure.
+	if strings.Contains(string(out), "invalid signal") || strings.Contains(string(out), "not found") {
+		t.Errorf("the script mis-parsed a quoted path: %s", out)
+	}
+}
+
 func TestUploadScriptQuotesItsPaths(t *testing.T) {
 	script, err := uploadScript("/var/lib/ob/a b; rm -rf /x", func(s string) string { return "true" })
 	if err != nil {

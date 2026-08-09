@@ -175,7 +175,8 @@ const uploadSentinel = ".ob-upload-complete"
 // operation, so a destination that already exists means something is wrong;
 // `mv` fails and says so rather than destroying what is there.
 //
-// Staging is removed on every exit path. It has to be removed here rather than
+// Staging is removed when the script exits or is signalled. It has to be
+// removed here rather than
 // by the caller, because this is the only place that knows the staging path:
 // the secrets, protection-credential and proxy uploads all clean up the
 // *destination* they asked for, so anything left beside it survives them.
@@ -210,7 +211,20 @@ func uploadScript(remoteDir string, transfer func(quotedStaging string) string) 
 		"if [ -e " + target + " ]; then echo 'upload destination already exists: refusing to replace it' >&2; exit 1; fi",
 		"rm -rf " + staging + " || exit 1",
 		"mkdir -p " + staging + " || exit 1",
-		"trap 'rm -rf " + staging + "' EXIT",
+		// The handler is quoted twice on purpose. `staging` is already
+		// single-quoted for the shell that reads this script; wrapping it in a
+		// second pair of literal quotes would close that quoting rather than nest
+		// it, leaving the path bare — a destination holding `;` then ran as a
+		// command on the target host, and one merely holding a space produced
+		// `trap: invalid signal specification` and installed no handler at all.
+		// shq applied to the whole handler escapes the inner quotes so the string
+		// survives to the shell that evaluates it when the trap fires.
+		//
+		// EXIT alone does not cover a killed shell: cancelling closes the SSH
+		// connection, sshd sends SIGHUP, and an untrapped signal skips the EXIT
+		// handler — which is exactly the interrupted transfer whose payload most
+		// needs removing.
+		"trap " + shq("rm -rf "+staging) + " EXIT HUP INT TERM",
 		transfer(staging) + " || exit 1",
 		"mkdir -p " + shq(path.Dir(remoteDir)) + " || exit 1",
 		"if [ -e " + target + " ]; then echo 'upload destination appeared during transfer' >&2; exit 1; fi",

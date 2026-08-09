@@ -96,6 +96,14 @@ foreign resource already holding a derived name is refused, not adopted.
 **The proxy** — if anything is routed, Onebox runs Traefik and writes its static
 configuration. Declare `proxy.config` to own that configuration instead.
 
+:::caution[Compose is an output, not an input]
+A Compose file you wrote cannot be the contract — the declaration is, and Onebox
+generates the runtime from it. Individual services can still be adopted with
+`compose: docker-compose.yml#service`, and Onebox generates around them. See
+[Why Compose is generated](/explanation/generated-compose) and
+[Adopt an existing Compose file](/guides/adopt-compose).
+:::
+
 ## Evolution
 
 `api_version: onebox.run/v1` is stable. Within it:
@@ -107,9 +115,3 @@ configuration. Declare `proxy.config` to own that configuration instead.
 
 The JSON Schema published by `ob schema` is generated from the same declarations
 the loader enforces and is checked against the conformance corpus.
-
-:::caution[Compose is an output, not an input]
-A project that hands Onebox a Compose file *you* wrote does not load. Compose is
-an artifact Onebox generates from the declaration, so the runtime is derived
-rather than classified. See [Why Compose is generated](/explanation/generated-compose).
-:::

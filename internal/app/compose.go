@@ -36,9 +36,9 @@ type overlay struct {
 	// would outrank the connection and no ordering here could stop it.
 	ConnectionVars map[string]string
 	// Health is the workload's declared probe, applied over whatever the
-	// referenced file defines. A declared health check that did not reach the
-	// service was dropped in silence, and the rollout then refused to roll a
-	// workload whose author had declared exactly what it needed to roll on.
+	// referenced file defines. It must reach the service: a probe dropped here
+	// is dropped in silence, and the rollout then refuses to roll a workload
+	// whose author declared exactly what rolling needs.
 	Health map[string]any
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/onebox"
+	"github.com/labstack/onebox/internal/shellquote"
 )
 
 func addOpsCommands(root *cobra.Command, g *globalFlags) {
@@ -165,7 +166,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "exec <workload|service> -- <command...>",
 		Short: "run a command inside a workload or service container",
-		Long:  "Run a command inside a running container.\n\nNames a workload or a supporting service. What the command does is not\nOnebox's business: this is an escape hatch, outside the journal and the\nsafety regime, and nothing it changes is part of any release.",
+		Long:  "Run a command inside a running container.\n\nNames a workload or a supporting service. What the command does is not\nOnebox's business: this is an escape hatch, outside the journal and the\nsafety regime, and nothing it changes is part of any release.\n\nArguments are passed as a literal vector, so a shell metacharacter is not\ninterpreted: write `ob exec web -- sh -c 'a && b'` rather than passing the\npipeline as one word.",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
@@ -177,9 +178,25 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 				return err
 			}
 			defer cleanup()
-			return e.ExecIn(cmd.Context(), args[0], strings.Join(args[1:], " "), cmd.OutOrStdout())
+			return e.ExecIn(cmd.Context(), args[0], execCommand(args[1:]), cmd.OutOrStdout())
 		},
 	})
+}
+
+// execCommand rebuilds an argument vector for the single `sh -c` the remote
+// side runs it through.
+//
+// Joining argv with spaces let that shell re-split it: `ob exec web -- sh -c
+// 'echo one; echo two'` arrived as `sh -c echo one; echo two`, so echo ran with
+// no arguments and "one" became the shell's $0. Quoting each element means the
+// remote shell rebuilds exactly what was typed — and, deliberately, that a
+// single argument carrying shell metacharacters is now one literal word.
+func execCommand(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellquote.Quote(arg))
+	}
+	return strings.Join(quoted, " ")
 }
 
 // loadConfigOnly skips compose loading and inference (secrets edit needs no

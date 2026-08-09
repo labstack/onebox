@@ -566,3 +566,35 @@ services: {postgres: {version: 17, replicas: 3}}
 		t.Fatal("a service must not accept a replica count")
 	}
 }
+
+// Every spelling this contract moved away from must be refused by name.
+//
+// The renames shipped with no compatibility shim, so the promise is that an old
+// project fails loudly rather than loading with a field silently ignored. That
+// promise currently rests on the generic closed-field checker, and nothing named
+// these keys — so a change that re-added any of them, or loosened closedness on
+// one struct, would quietly restore the shim this contract says it does not have.
+func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
+	for _, c := range []struct{ name, yaml string }{
+		{"job run", wl("j: {role: job, image: nginx, data_effect: none, run: manual}")},
+		{"runtime preflight", base + "runtime: {preflight: [{file: .env, require: [A]}]}\n"},
+		{"verification", base + "verification: [{url: \"https://x/\", contains: ok}]\n"},
+		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
+		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
+		{"log retention_days", base + "observability: {logs: {retention_days: 30}}\n"},
+		{"probe max_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, max_age: 5m}}}\n"},
+		{"policy migration_backup_max_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
+		{"restore drill proof_max_age", base + "services: {postgres: {version: 18, protection: {target: t, restore_drill: {proof_max_age: 7d}}}}\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := LoadBytes([]byte(c.yaml), "ob.yml")
+			if err == nil {
+				t.Fatal("the old spelling loaded; the contract renamed it with no shim")
+			}
+			var e *Error
+			if !asError(err, &e) || e.Code != "unknown_field" {
+				t.Errorf("refused with %v, want unknown_field so the message names the key", err)
+			}
+		})
+	}
+}

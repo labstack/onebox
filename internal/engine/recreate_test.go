@@ -85,7 +85,7 @@ func TestRecreateRoleSurfacesFailedDrainSignal(t *testing.T) {
 	}
 }
 
-// A local hook must see the FULL user@host in $OB_TARGET (not the bare
+// A local hook must see the FULL user@host in $OB_SERVER (not the bare
 // hostname), so hooks can ssh/rsync the deploy host without hardcoding it.
 func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
 	f := &transport.Fake{
@@ -94,7 +94,7 @@ func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
 	}
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = app.Command{
-		Run:   `test "$OB_TARGET" = "root@2001:db8::1" && test "$OB_SSH_USER" = "root" && test "$OB_HOST" = "2001:db8::1" && test "$OB_SSH_PORT" = "2222" || { echo "got target=[$OB_TARGET] user=[$OB_SSH_USER] host=[$OB_HOST] port=[$OB_SSH_PORT]" >&2; exit 1; }`,
+		Run:   `test "$OB_SERVER" = "root@2001:db8::1" && test "$OB_SSH_USER" = "root" && test "$OB_HOST" = "2001:db8::1" && test "$OB_SSH_PORT" = "2222" || { echo "got server=[$OB_SERVER] user=[$OB_SSH_USER] host=[$OB_HOST] port=[$OB_SSH_PORT]" >&2; exit 1; }`,
 		Local: true,
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})

@@ -265,7 +265,7 @@ func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err
 	}
 	host := ""
 	if env, eerr := cfg.Environment(g.Env); eerr == nil {
-		host = env.Target()
+		host = env.Destination()
 	}
 	p := notify.Payload{
 		App: cfg.Name, Env: g.Env, Host: host, Verb: verb, DeployID: deployID,
@@ -562,7 +562,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 	if err != nil {
 		return nil, nil, err
 	}
-	t, err := cliConnector(cmd.Context(), env.Target())
+	t, err := cliConnector(cmd.Context(), env.Destination())
 	if err != nil {
 		return nil, nil, err
 	}

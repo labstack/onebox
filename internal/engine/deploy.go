@@ -177,7 +177,14 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 			res, err := e.T.Run(ctx, "test -d "+q(remoteDir))
 			if err != nil || res.ExitCode != 0 {
 				tr(err)
-				return fmt.Errorf("resume: release dir %s missing on host and no local staging", remoteDir)
+				// Uploads are atomic, so an interrupted transfer leaves nothing
+				// here at all — which is the point, but it also means resume has
+				// no payload and no way to obtain one: it never carries a local
+				// staging directory. Say what the operator has to do instead of
+				// leaving them to infer it from a missing path.
+				return fmt.Errorf("resume: release dir %s is not on the host and resume has no local staging to send. "+
+					"The transfer was interrupted before it completed, so this release cannot be resumed; "+
+					"run `ob abort` and deploy again", remoteDir)
 			}
 		} else {
 			if _, err := release.Push(ctx, e.T, localStagingDir, e.names(), releaseID); err != nil {
@@ -354,9 +361,16 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 // pruneRetention removes releases beyond retain and journals beyond twice
 // that window because a journal outlives its release.
 func (e *Engine) pruneRetention(ctx context.Context) error {
-	victims, err := release.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases)
+	victims, unrecognized, err := release.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases)
 	if err != nil {
 		return err
+	}
+	// Not fatal — they are excluded from rollback and from retention, which is
+	// the safe direction. But they occupy the directory retention is being
+	// enforced over, and nothing else will ever mention them.
+	if len(unrecognized) > 0 {
+		e.warnf("%d entr(ies) under %s are not release ids and were left in place: %v",
+			len(unrecognized), release.PathsFor(e.names()).Releases, unrecognized)
 	}
 	for _, id := range victims {
 		if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {

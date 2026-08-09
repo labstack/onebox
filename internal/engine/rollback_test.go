@@ -26,10 +26,10 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "readlink") {
-			return transport.Result{Stdout: "releases/R2\n"}, true
+			return transport.Result{Stdout: "releases/20260102-000000-bbb222\n"}, true
 		}
 		if strings.Contains(cmd, "ls -1") {
-			return transport.Result{Stdout: "R1\nR2\n"}, true
+			return transport.Result{Stdout: "20260101-000000-aaa111\n20260102-000000-bbb222\n"}, true
 		}
 		if strings.Contains(cmd, "ob.snapshot.yml") {
 			return transport.Result{Stdout: oldSnapshot}, true
@@ -66,9 +66,9 @@ func TestRollbackRefusesWithoutUsableSnapshot(t *testing.T) {
 			f.Dynamic = func(cmd string) (transport.Result, bool) {
 				switch {
 				case strings.Contains(cmd, "readlink"):
-					return transport.Result{Stdout: "releases/R2\n"}, true
+					return transport.Result{Stdout: "releases/20260102-000000-bbb222\n"}, true
 				case strings.Contains(cmd, "ls -1"):
-					return transport.Result{Stdout: "R1\nR2\n"}, true
+					return transport.Result{Stdout: "20260101-000000-aaa111\n20260102-000000-bbb222\n"}, true
 				case strings.Contains(cmd, "ob.snapshot.yml"):
 					return tt.snapshot, true
 				}
@@ -92,9 +92,9 @@ func TestRollbackReportsMissingFinishEvidence(t *testing.T) {
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R2\n"}, true
+			return transport.Result{Stdout: "releases/20260102-000000-bbb222\n"}, true
 		case strings.Contains(cmd, "ls -1"):
-			return transport.Result{Stdout: "R1\nR2\n"}, true
+			return transport.Result{Stdout: "20260101-000000-aaa111\n20260102-000000-bbb222\n"}, true
 		case strings.Contains(cmd, `"phase":"rollback","event":"finish","status":"ok"`):
 			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
 		}
@@ -105,7 +105,7 @@ func TestRollbackReportsMissingFinishEvidence(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "journal rollback finish") {
 		t.Fatalf("rollback error = %v", err)
 	}
-	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "ln -sfn 'releases/R1'") {
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "ln -sfn 'releases/20260101-000000-aaa111'") {
 		t.Fatalf("rollback must report that activation completed before evidence failed:\n%s", seq)
 	}
 }

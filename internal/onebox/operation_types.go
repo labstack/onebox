@@ -21,7 +21,11 @@ import (
 // interpreted with possibly different execution semantics.
 const OperationPlanSchemaVersion = "onebox.run/operation-plan/v1alpha1"
 
+// OperationKind identifies one closed, policy-checked operation contract.
 type OperationKind string
+
+// OperationStatus is the closed public status vocabulary for operation events
+// and terminal results.
 type OperationStatus string
 
 const (
@@ -177,7 +181,7 @@ type OperationPlan struct {
 	Steps         []OperationStep            `json:"steps"`
 	SecretSlots   []SecretSlotReference      `json:"secret_slots,omitempty"`
 	Artifacts     []OperationArtifactBinding `json:"artifacts,omitempty"`
-	PlanDigest    string                     `json:"plan_digest"`
+	PlanDigest    string                     `json:"plan_digest,omitempty"`
 }
 
 // OperationArtifactBinding binds an executable plan to one exact generated
@@ -192,35 +196,9 @@ type OperationArtifactBinding struct {
 // CanonicalJSON returns the deterministic digest input. PlanDigest is always
 // excluded, preventing a self-referential identity.
 func (p OperationPlan) CanonicalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		SchemaVersion string                     `json:"schema_version"`
-		ID            string                     `json:"id"`
-		Kind          OperationKind              `json:"kind"`
-		ReleaseID     string                     `json:"release_id,omitempty"`
-		CreatedAt     string                     `json:"created_at"`
-		ExpiresAt     string                     `json:"expires_at"`
-		Risk          RiskClass                  `json:"risk"`
-		Reversibility ReversibilityClass         `json:"reversibility"`
-		Approval      ApprovalClass              `json:"approval"`
-		Binding       OperationBinding           `json:"binding"`
-		Steps         []OperationStep            `json:"steps"`
-		SecretSlots   []SecretSlotReference      `json:"secret_slots,omitempty"`
-		Artifacts     []OperationArtifactBinding `json:"artifacts,omitempty"`
-	}{
-		SchemaVersion: p.SchemaVersion,
-		ID:            p.ID,
-		Kind:          p.Kind,
-		ReleaseID:     p.ReleaseID,
-		CreatedAt:     p.CreatedAt,
-		ExpiresAt:     p.ExpiresAt,
-		Risk:          p.Risk,
-		Reversibility: p.Reversibility,
-		Approval:      p.Approval,
-		Binding:       p.Binding,
-		Steps:         p.Steps,
-		SecretSlots:   p.SecretSlots,
-		Artifacts:     p.Artifacts,
-	})
+	copy := p
+	copy.PlanDigest = ""
+	return json.Marshal(copy)
 }
 
 func (p OperationPlan) ComputeDigest() (string, error) {

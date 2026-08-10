@@ -16,6 +16,7 @@ import (
 
 var ErrActivationCheckpointMissing = errors.New("activation checkpoint missing")
 
+// ActivationPhase identifies one durable step in release activation.
 type ActivationPhase string
 
 const (
@@ -67,9 +68,14 @@ func (checkpoint *ActivationCheckpoint) Advance(phase ActivationPhase, at time.T
 	if at.UTC().Before(previous) {
 		return fmt.Errorf("activation checkpoint timestamp moved backwards")
 	}
-	checkpoint.Phase = phase
-	checkpoint.UpdatedAt = timestamp(at)
-	return checkpoint.Validate()
+	next := *checkpoint
+	next.Phase = phase
+	next.UpdatedAt = timestamp(at)
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	*checkpoint = next
+	return nil
 }
 
 func (checkpoint ActivationCheckpoint) Validate() error {

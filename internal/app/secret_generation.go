@@ -3,12 +3,19 @@ package app
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 const SecretGenerationDirectory = ".ob-secret-generations"
+
+var opaqueSecretGeneration = regexp.MustCompile(`^sg-[0-9a-f]{24}$`)
+
+// IsSecretGeneration reports whether value is a canonical opaque Onebox
+// secret-generation identifier.
+func IsSecretGeneration(value string) bool { return opaqueSecretGeneration.MatchString(value) }
 
 // SecretGenerationPath is the release-relative path selected by a generated
 // secret runtime. Callers must first validate generation as an opaque Onebox
@@ -21,7 +28,7 @@ func SecretGenerationPath(generation, outputPath string) string {
 // for force replacement and, once verified, committed as the release runtime.
 // Only declared secret paths and their affected workloads change.
 func ApplySecretGeneration(composeBytes []byte, graph []SecretDeclaration, generation string) ([]byte, error) {
-	if strings.TrimSpace(generation) == "" || strings.ContainsAny(generation, "/\\") {
+	if !IsSecretGeneration(generation) {
 		return nil, fmt.Errorf("secret generation %q is invalid", generation)
 	}
 	var document map[string]any

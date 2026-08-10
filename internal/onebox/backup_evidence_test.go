@@ -3,6 +3,7 @@ package onebox
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -78,6 +79,72 @@ func backupReportForTest(t *testing.T, plan *DeployPlan, base time.Time) BackupR
 		t.Fatal(err)
 	}
 	return report
+}
+
+func fillBackupReportTemplate(template BackupReport, observations BackupReport) BackupReport {
+	filled := template
+	filled.ReportedBy = observations.ReportedBy
+	filled.ReportedAt = observations.ReportedAt
+	filled.Resources = append([]MigrationBackupResourceEvidence(nil), template.Resources...)
+	for index := range filled.Resources {
+		observed := observations.Resources[index]
+		filled.Resources[index].BackupID = observed.BackupID
+		filled.Resources[index].CreatedAt = observed.CreatedAt
+		filled.Resources[index].Integrity = observed.Integrity
+		if filled.Resources[index].RestoreTest.State == BackupRestoreTestPassed {
+			filled.Resources[index].RestoreTest.Method = observed.RestoreTest.Method
+			filled.Resources[index].RestoreTest.TestedAt = observed.RestoreTest.TestedAt
+			filled.Resources[index].RestoreTest.ValidationDigest = observed.RestoreTest.ValidationDigest
+		}
+	}
+	filled.KeyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), template.KeyMaterial...)
+	for index := range filled.KeyMaterial {
+		observed := observations.KeyMaterial[index]
+		filled.KeyMaterial[index].BackupID = observed.BackupID
+		filled.KeyMaterial[index].CreatedAt = observed.CreatedAt
+		filled.KeyMaterial[index].Integrity = observed.Integrity
+		filled.KeyMaterial[index].Usability = observed.Usability
+	}
+	return filled
+}
+
+func TestBackupReportTemplateRoundTripPreservesPlanSkeleton(t *testing.T) {
+	base := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
+	for _, requireRestoreTest := range []bool{true, false} {
+		t.Run(fmt.Sprintf("restore_test_%t", requireRestoreTest), func(t *testing.T) {
+			plan := backupEvidenceTestPlan(t, base)
+			plan.MigrationBackup.RequireRestoreTest = requireRestoreTest
+			if err := plan.Seal(); err != nil {
+				t.Fatal(err)
+			}
+			template, err := NewBackupReportTemplate(&plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(template.Resources) != len(plan.MigrationBackup.Resources) || len(template.KeyMaterial) != len(plan.MigrationBackup.RequiredKeyMaterial) {
+				t.Fatalf("template shape = resources:%d keys:%d", len(template.Resources), len(template.KeyMaterial))
+			}
+			if !reflect.DeepEqual(template.Resources[0].Resource, plan.MigrationBackup.Resources[0]) {
+				t.Fatalf("template changed protected resource: %#v", template.Resources[0].Resource)
+			}
+			wantRestoreState := BackupRestoreTestNotTested
+			if requireRestoreTest {
+				wantRestoreState = BackupRestoreTestPassed
+			}
+			if template.Resources[0].RestoreTest.State != wantRestoreState {
+				t.Fatalf("template restore state = %q, want %q", template.Resources[0].RestoreTest.State, wantRestoreState)
+			}
+			for index, name := range plan.MigrationBackup.RequiredKeyMaterial {
+				if template.KeyMaterial[index].Name != name {
+					t.Fatalf("template key %d = %q, want %q", index, template.KeyMaterial[index].Name, name)
+				}
+			}
+			filled := fillBackupReportTemplate(template, backupReportForTest(t, &plan, base))
+			if err := filled.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
+				t.Fatalf("filled plan-produced template is not executable: %v", err)
+			}
+		})
+	}
 }
 
 func TestBackupReportIsStrictFreshAndPlanBound(t *testing.T) {
@@ -190,11 +257,7 @@ func TestBackupReportArtifactsAreStrictAndTemplateIsProtected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filled := template
-	filled.ReportedBy = report.ReportedBy
-	filled.ReportedAt = report.ReportedAt
-	filled.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
-	filled.KeyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), report.KeyMaterial...)
+	filled := fillBackupReportTemplate(template, report)
 	if err := filled.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
 		t.Fatalf("filled plan-produced template is not executable: %v", err)
 	}

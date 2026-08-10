@@ -267,23 +267,53 @@ func TestRecoverySnapshotRejectsAnotherApplication(t *testing.T) {
 }
 
 func TestRecoveryEngineUsesSnapshotChoreography(t *testing.T) {
-	snapshot := strings.Replace(engineProject, "order: [web, worker]", "order: [worker, web]", 1)
+	snapshot := strings.Replace(engineProject, "  worker:\n", "  legacy:\n    role: worker\n    image: ghcr.io/x/legacy:v1\n    command: legacy-work\n    strategy: recreate\n  worker:\n", 1)
+	snapshot = strings.Replace(snapshot, "order: [web, worker]", "order: [legacy, worker, web]", 1)
 	target := happyFake()
+	base := target.Dynamic
 	target.Dynamic = func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "/ob.snapshot.yml") {
 			return transport.Result{Stdout: snapshot}, true
 		}
-		return transport.Result{}, false
+		if strings.Contains(command, "readlink") {
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		}
+		if strings.Contains(command, "service='legacy'") && strings.Contains(command, "ob.release=") {
+			return transport.Result{}, true
+		}
+		if strings.Contains(command, "service='legacy'") {
+			for _, recorded := range target.Commands {
+				if strings.Contains(recorded, "--force-recreate --timeout 30 legacy") {
+					return transport.Result{Stdout: "L1\n"}, true
+				}
+			}
+			return transport.Result{}, true
+		}
+		return base(command)
 	}
 	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	replay, err := engine.engineFromReleaseSnapshot(context.Background(), engineTestPreviousReleaseID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(replay.Spec.Deployment.Order, ","); got != "worker,web" {
+	if got := strings.Join(replay.Spec.Deployment.Order, ","); got != "legacy,worker,web" {
 		t.Fatalf("recovery order = %q, want deployed snapshot order", got)
 	}
 	if got := strings.Join(engine.Spec.Deployment.Order, ","); got != "web,worker" {
 		t.Fatalf("recovery mutated working-tree engine order: %q", got)
+	}
+	seedInterruptedRecoveryState(t, engine)
+	if err := engine.recoverInterrupted(context.Background(), recoveryRequest{
+		InterruptedID: engineTestDeployReleaseID,
+		PreviousID:    engineTestPreviousReleaseID,
+		TerminalState: release.StateAborted,
+		GateCovered:   true,
+		Phase:         "abort",
+		Journal:       recoveryWriter(engine),
+	}); err != nil {
+		t.Fatalf("recover with deployed snapshot: %v\n%s", err, strings.Join(target.Commands, "\n"))
+	}
+	if commands := strings.Join(target.Commands, "\n"); !strings.Contains(commands, "--force-recreate --timeout 30 legacy") {
+		t.Fatalf("recovery omitted snapshot-only role:\n%s", commands)
 	}
 }

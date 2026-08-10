@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -277,6 +278,17 @@ func (e *Engine) mutateInput(ctx context.Context, cmd, input string) (res transp
 		return res, ErrFenced
 	}
 	return res, nil
+}
+
+// mutateStream is mutate's streaming counterpart. It preserves stdout and
+// stderr separation while refusing to start the command after fence ownership
+// changes.
+func (e *Engine) mutateStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error {
+	if e.fenceVal == "" {
+		return e.T.RunStream(ctx, cmd, stdout, stderr)
+	}
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	return e.T.RunStream(ctx, guarded, stdout, stderr)
 }
 
 // mutateChecked is the default for mutations whose success is required. The

@@ -86,7 +86,7 @@ If migration or unknown-effect evidence closes the rollback gate, automatic roll
 
 `secrets push` SHALL require exact equality between the local and current-release encrypted-entry declaration graph, including path, provider, order, scope, and affected workloads. It SHALL transition between opaque secret generations through a durable checkpoint. Generated files and containers SHALL identify only the opaque generation identifier; Onebox SHALL NOT expose raw or unkeyed secret-content hashes.
 
-Once the declaration graph is proven equal, rotation SHALL derive workload topology and operational attributes from the current release snapshot rather than mutable working-tree configuration. Startup SHALL remove abandoned plaintext upload directories from interrupted pre-checkpoint attempts. Successful commit SHALL remove superseded generations before clearing the checkpoint; a cleanup failure SHALL retain typed retryable recovery state instead of reporting success.
+Once the declaration graph is proven equal, rotation SHALL derive workload topology and operational attributes from the current release snapshot rather than mutable working-tree configuration. Startup SHALL remove abandoned plaintext upload directories and any candidate generation directory that is named by neither the committed runtime nor a durable checkpoint. A checkpoint-publication failure SHALL remove the installed candidate before returning. Successful commit SHALL remove superseded generations before clearing the checkpoint; a cleanup failure SHALL retain typed retryable recovery state instead of reporting success.
 
 The terminal invariant SHALL be exactly one of: every affected staged file and live workload uses the old generation; every affected staged file and live workload uses the new generation; or the operation remains typed-incomplete with its checkpoint. Success SHALL require the all-new state, while an unchanged input SHALL return a successful no-op. Plaintext values SHALL NOT appear in plans, arguments, output, logs, journals, or evidence added by Onebox.
 
@@ -109,6 +109,10 @@ The terminal invariant SHALL be exactly one of: every affected staged file and l
 #### Scenario: Runner crashes during generation transition
 - **WHEN** the runner disconnects or crashes during prepare, replacement, verification, or commit
 - **THEN** retry resumes from the durable generation checkpoint without inventing a terminal state
+
+#### Scenario: Runner crashes before checkpoint publication
+- **WHEN** a plaintext candidate generation was installed but its checkpoint was not published
+- **THEN** the next rotation preserves the committed generation, removes the uncheckpointed candidate before comparison or replacement, and never treats the orphan as resumable state
 
 #### Scenario: Working tree changes after the current release
 - **WHEN** workload replica or operational settings differ locally while the encrypted declaration graph is unchanged

@@ -118,6 +118,9 @@ func TestLogsAndExecShapes(t *testing.T) {
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
 	}
+	if !strings.Contains(seq, `cat '/var/lib/ob/sample/fence'`) || !strings.Contains(seq, `then docker exec OLD1`) {
+		t.Fatalf("exec is not guarded by the acquired mutation fence:\n%s", seq)
+	}
 	if _, err := e.ExecInAudited(context.Background(), "exec-service", "postgres", "psql --version", "verify client version", &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +140,7 @@ func TestExecAuditPersistsDigestButNeverCommandOrOutput(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.HasPrefix(cmd, "docker exec ") {
+		if strings.Contains(cmd, "docker exec ") {
 			return transport.Result{Stdout: "passthrough-secret-value\n"}, true
 		}
 		return base(cmd)
@@ -178,7 +181,7 @@ func TestExecAuditRecordsFailureAndCancellation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			f := opsFake("x")
 			f.Err = func(cmd string) error {
-				if strings.HasPrefix(cmd, "docker exec ") {
+				if strings.Contains(cmd, "docker exec ") {
 					return test.err
 				}
 				return nil
@@ -314,5 +317,42 @@ func TestDestroyVolumesOnSweepPath(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(f2.Commands, "\n"), "docker volume") {
 		t.Fatalf("volumes must be kept without --volumes:\n%s", strings.Join(f2.Commands, "\n"))
+	}
+}
+
+func TestDestroyRefusesFailedSweepDiscovery(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		removeVolumes bool
+		failureMatch  string
+		want          string
+	}{
+		{name: "containers", failureMatch: "docker ps -aq", want: "list application containers failed"},
+		{name: "volumes", removeVolumes: true, failureMatch: "docker volume ls", want: "list application volumes failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := happyFake()
+			base := f.Dynamic
+			f.Dynamic = func(command string) (transport.Result, bool) {
+				switch {
+				case strings.Contains(command, "readlink"):
+					return transport.Result{}, true
+				case strings.Contains(command, test.failureMatch):
+					return transport.Result{ExitCode: 42, Stderr: "daemon unavailable"}, true
+				case strings.Contains(command, "docker ps -aq"):
+					return transport.Result{}, true
+				default:
+					return base(command)
+				}
+			}
+			e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
+			err := e.Destroy(context.Background(), test.removeVolumes, false)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("destroy error = %v, want %q", err, test.want)
+			}
+			if commands := strings.Join(f.Commands, "\n"); strings.Contains(commands, "rm -rf '/var/lib/ob/sample'") {
+				t.Fatalf("destroy removed state after failed discovery:\n%s", commands)
+			}
+		})
 	}
 }

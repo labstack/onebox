@@ -124,6 +124,14 @@ func (s *Service) readEntropy(buf []byte) error {
 	return err
 }
 
+func (s *Service) newSecretGeneration() (string, error) {
+	bytes := make([]byte, 12)
+	if err := s.readEntropy(bytes); err != nil {
+		return "", err
+	}
+	return "sg-" + hex.EncodeToString(bytes), nil
+}
+
 func (s *Service) engine(ctx context.Context, lp *loadedProject, environment string) (*engine.Engine, func(), string, error) {
 	return s.engineWith(ctx, lp, environment, nil)
 }
@@ -148,6 +156,9 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	engineOpts.GitSHA = gitShortSHA(ctx, filepath.Dir(lp.configPath))
 	engineOpts.Runner = s.runner
 	engineOpts.Environment = environment
+	if engineOpts.SecretGeneration == nil {
+		engineOpts.SecretGeneration = s.newSecretGeneration
+	}
 	if configure != nil {
 		configure(&engineOpts)
 	}

@@ -42,9 +42,10 @@ type Artifact struct {
 	// digest *after* the render, so re-rendering with the pins produces a
 	// different document than the one this plan bound. Execution reloads with
 	// these and applies the pins afterwards, exactly as planning did.
-	BuildImages     map[string]string `json:"build_images,omitempty"`
-	RenderedCompose string            `json:"rendered_compose"`
-	Commands        []string          `json:"commands"`
+	BuildImages      map[string]string `json:"build_images,omitempty"`
+	SecretGeneration string            `json:"secret_generation,omitempty"`
+	RenderedCompose  string            `json:"rendered_compose"`
+	Commands         []string          `json:"commands"`
 }
 
 func HashBytes(b []byte) string {
@@ -131,34 +132,95 @@ func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
 
 var digestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// PinImages resolves each role/job image tag to a registry digest (host-side
-// buildx) and rewrites the project in place. Unresolvable images stay
-// tag-bound — stated, not hidden (the fidelity contract).
+// ImageResolutionError is the stable, branchable refusal returned when a
+// release workload cannot be bound to an immutable image. ResolvingCommand is
+// deliberately an ob command rather than the failed registry probe: it is the
+// safe operator action that can make the plan executable.
+type ImageResolutionError struct {
+	Workload         string
+	Image            string
+	ResolvingCommand string
+	Detail           string
+}
+
+func (err *ImageResolutionError) Error() string {
+	message := fmt.Sprintf("image_unresolved: workload %q has no immutable runtime image", err.Workload)
+	if err.Image != "" {
+		message += fmt.Sprintf(" (input %q)", err.Image)
+	}
+	if err.Detail != "" {
+		message += ": " + err.Detail
+	}
+	return message + "; resolve it with `" + err.ResolvingCommand + "`"
+}
+
+func (err *ImageResolutionError) Code() string { return "image_unresolved" }
+
+func imageResolutionError(workload, image, detail string) *ImageResolutionError {
+	return &ImageResolutionError{
+		Workload:         workload,
+		Image:            image,
+		ResolvingCommand: "ob deploy --image " + workload + "=<digest-reference>",
+		Detail:           detail,
+	}
+}
+
+func pinnedImageDigest(image string) string {
+	_, digest, found := strings.Cut(image, "@")
+	if found && digestRe.MatchString(digest) {
+		return digest
+	}
+	return ""
+}
+
+// PinImages resolves every application-release workload image to a registry
+// digest and rewrites the parsed runtime in place. The workload set includes
+// applications, workers, daemons, jobs, and adopted Compose services. A single
+// plan resolves identical references once and fails closed if any runtime
+// service has no image or a tag cannot be resolved.
 func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 	pins := map[string]string{}
-	svcs := map[string]bool{}
+	services := make([]string, 0, len(e.Spec.Workloads))
 	for name := range e.Spec.Workloads {
-		svcs[name] = true
+		services = append(services, name)
 	}
-	for svc := range svcs {
+	sort.Strings(services)
+	resolved := map[string]string{}
+	for _, svc := range services {
 		s, ok := e.Compose.Services[svc]
-		if !ok || s.Image == "" {
+		if !ok {
+			return nil, imageResolutionError(svc, "", "the generated runtime does not contain the workload service")
+		}
+		if s.Image == "" {
+			return nil, imageResolutionError(svc, "", "the workload has only a build source and production does not build images")
+		}
+		if pinnedImageDigest(s.Image) != "" {
+			pins[svc] = s.Image
+			continue
+		}
+		if pinned := resolved[s.Image]; pinned != "" {
+			s.Image = pinned
+			e.Compose.Services[svc] = s
+			pins[svc] = pinned
 			continue
 		}
 		res, err := e.T.Run(ctx, "docker buildx imagetools inspect "+q(s.Image)+" --format '{{.Manifest.Digest}}'")
 		if err != nil {
-			return nil, err
+			return nil, imageResolutionError(svc, s.Image, err.Error())
 		}
 		digest := strings.TrimSpace(res.Stdout)
 		if res.ExitCode != 0 || !digestRe.MatchString(digest) {
-			e.warnf("%s stays unpinned (tag-bound): %s", svc, strings.TrimSpace(res.Stderr))
-			pins[svc] = s.Image
-			continue
+			detail := strings.TrimSpace(res.Stderr)
+			if detail == "" {
+				detail = fmt.Sprintf("registry inspection returned exit %d without a valid sha256 digest", res.ExitCode)
+			}
+			return nil, imageResolutionError(svc, s.Image, detail)
 		}
 		pinned, err := imageref.WithDigest(s.Image, digest)
 		if err != nil {
-			return nil, fmt.Errorf("pin image for service %q: %w", svc, err)
+			return nil, imageResolutionError(svc, s.Image, err.Error())
 		}
+		resolved[s.Image] = pinned
 		s.Image = pinned
 		e.Compose.Services[svc] = s
 		pins[svc] = pinned
@@ -255,38 +317,30 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	cc := e.composeCmd(remoteCompose)
 	var out []string
 
-	// Jobs run first, gated. A job with a same-named hook uses that command;
-	// otherwise it auto-runs `compose run --rm`.
-	steps := e.gateSteps()
-	isStep := map[string]bool{}
-	for _, job := range steps {
-		isStep[job] = true
-		cmdStr := cc + " run --rm --no-deps " + job
-		if h, ok := e.Spec.Hooks[job]; ok && h.Run != "" {
-			cmdStr = h.Run
+	appendJobs := func(steps []string) {
+		for _, job := range steps {
+			cmdStr := cc + " run --rm --no-deps " + job
+			if h, ok := e.Spec.Hooks[job]; ok && h.Run != "" {
+				cmdStr = h.Run
+			}
+			out = append(out, fmt.Sprintf("job %s (gated — changed=false keeps rollback open): %s", job, cmdStr))
 		}
-		out = append(out, fmt.Sprintf("job %s (gated — changed=false keeps rollback open): %s", job, cmdStr))
 	}
-
-	// Only the hooks a deploy actually runs belong in a deploy plan; bootstrap
-	// is a separate lifecycle (ob bootstrap), so listing it here would claim a
-	// step that never runs — a fidelity violation.
-	hooks := make([]string, 0, len(e.Spec.Hooks))
-	for name := range e.Spec.Hooks {
-		if isStep[name] || !deploySeam[name] {
-			continue // shown as a job above, or not a deploy-lifecycle hook
+	appendHook := func(name string) {
+		h, ok := e.Spec.Hooks[name]
+		if !ok || h.Run == "" {
+			return
 		}
-		hooks = append(hooks, name)
-	}
-	sort.Strings(hooks)
-	for _, name := range hooks {
-		h := e.Spec.Hooks[name]
 		where := "host"
 		if h.Local {
 			where = "local"
 		}
 		out = append(out, fmt.Sprintf("hook %s (%s, unplannable): %s", name, where, h.Run))
 	}
+
+	// The plan follows execution order. Manual jobs are intentionally absent.
+	appendJobs(e.gateSteps())
+	appendHook("pre_release")
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
 		svc := roleName
@@ -324,5 +378,8 @@ func (e *Engine) Describe(remoteCompose string) []string {
 			)
 		}
 	}
+	appendJobs(e.Spec.JobOrderFor("post_release"))
+	appendHook("post_release")
+	appendHook("post_deploy")
 	return out
 }

@@ -18,18 +18,15 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-// appNameRe mirrors config's app-name rule: registry entries under
-// _host/proxy/apps/ are app names; anything else is never interpolated back
-// into a shell command (injection rule).
+// appNameRe mirrors config's app-name rule for the host owner record.
 var appNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 // EnsureProxy converges the HOST-scoped managed proxy (design: one Traefik
-// per host, shared by every ob app on it). Idempotent and ACME-safe: an
+// per host, owned by its sole Onebox application). Idempotent and ACME-safe: an
 // unchanged proxy is never touched; a compose change recreates the container
 // (`up -d`); a config-only change uploads + restarts (static config reloads
-// only on restart). Divergent config across registered apps is a named
-// conflict, not last-writer-wins.
-func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) (err error) {
+// only on restart).
+func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock bool) (err error) {
 	if !e.Spec.Proxy.Managed {
 		return nil
 	}
@@ -57,7 +54,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) (
 	// Lock order is safe by construction: every acquirer holds either the
 	// host lock alone (proxy apply) or its OWN app lock first (bootstrap) —
 	// two apps never contend on an app lock, so no cycle exists.
-	if err := e.acquireHostLock(ctx, force); err != nil {
+	if err := e.acquireHostLock(ctx, breakLock); err != nil {
 		return err
 	}
 	defer e.releaseHostLock(ctx)
@@ -80,15 +77,10 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) (
 	}
 
 	acmeJSON := hp.Acme + "/acme.json"
-	if res, err := e.hostMutate(ctx, "mkdir -p "+q(hp.Apps)+" "+q(hp.Acme)+" && { test -f "+q(acmeJSON)+" || (touch "+q(acmeJSON)+" && chmod 600 "+q(acmeJSON)+"); }"); err != nil {
+	if res, err := e.hostMutate(ctx, "mkdir -p "+q(hp.Acme)+" && { test -f "+q(acmeJSON)+" || (touch "+q(acmeJSON)+" && chmod 600 "+q(acmeJSON)+"); }"); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("host proxy dirs: %s", res.Stderr)
-	}
-
-	// cross-app conflict check: every registered app must agree on the config
-	if err := e.proxyConflict(ctx, hp, hash, force); err != nil {
-		return err
 	}
 
 	res, err := e.T.Run(ctx, "cat "+q(hp.Hash)+" 2>/dev/null || true")
@@ -103,7 +95,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) (
 
 	if remoteHash == hash && len(ids) > 0 {
 		e.logf("proxy: unchanged and running — not touched")
-		return e.registerProxyApp(ctx, hp, hash)
+		return nil
 	}
 
 	res, err = e.T.Run(ctx, "cat "+q(hp.Compose)+" 2>/dev/null || true")
@@ -185,49 +177,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, force bool) (
 	if res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("write proxy hash: %v %s", err, res.Stderr)
 	}
-	if err := e.registerProxyApp(ctx, hp, hash); err != nil {
-		return err
-	}
 	e.logf("proxy: healthy at config %.8s", hash)
-	return nil
-}
-
-// proxyConflict enforces the host-scoped agreement rule: every app registered
-// in _host/proxy/apps/ must declare the same proxy config. A mismatch names
-// the apps and refuses (force proceeds — the operator owns the divergence).
-func (e *Engine) proxyConflict(ctx context.Context, hp proxy.Paths, hash string, force bool) error {
-	res, err := e.T.Run(ctx, "ls -1 "+q(hp.Apps)+" 2>/dev/null || true")
-	if err != nil {
-		return err
-	}
-	for _, name := range strings.Fields(res.Stdout) {
-		if name == e.Spec.Name || !appNameRe.MatchString(name) {
-			continue
-		}
-		r, err := e.T.Run(ctx, "cat "+q(hp.Apps+"/"+name)+" 2>/dev/null || true")
-		if err != nil {
-			return err
-		}
-		if other := strings.TrimSpace(r.Stdout); other != "" && other != hash {
-			if force {
-				e.warnf("proxy config diverges from app %q (%.8s vs %.8s) — proceeding (--force); redeploy %q with matching config", name, other, hash, name)
-				continue
-			}
-			return fmt.Errorf("proxy config conflict: app %q registered %.8s, this apply is %.8s — the host proxy is SHARED; align both apps' proxy.config, or --force to make %q the loser",
-				name, other, hash, e.Spec.Name)
-		}
-	}
-	return nil
-}
-
-func (e *Engine) registerProxyApp(ctx context.Context, hp proxy.Paths, hash string) error {
-	res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Apps+"/"+e.Spec.Name))
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("register app with proxy: %s", res.Stderr)
-	}
 	return nil
 }
 
@@ -239,10 +189,13 @@ func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {
 	return splitIDs(res.Stdout)
 }
 
-// ProxyApply is the CLI verb: converge the shared proxy outside any deploy.
-func (e *Engine) ProxyApply(ctx context.Context, deployID string, force bool) error {
+// ProxyApply is the CLI verb: converge the host proxy outside any deploy.
+func (e *Engine) ProxyApply(ctx context.Context, deployID string) error {
 	if !e.Spec.Proxy.Managed {
 		return fmt.Errorf("proxy is not managed (proxy.managed: true enables ob-owned Traefik)")
 	}
-	return e.EnsureProxy(ctx, deployID, force)
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
+	return e.EnsureProxy(ctx, deployID, e.Opts.ForceLock)
 }

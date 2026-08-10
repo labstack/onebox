@@ -5,7 +5,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -18,6 +20,22 @@ import (
 // exercise the unguardable path in every test.
 const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS http://127.0.0.1:80/"]`
 
+func seedStagedApplicationManifest(f *transport.Fake, releaseID string) {
+	manifest, err := release.NewManifest(releaseID, release.KindApplication, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		panic(err)
+	}
+	command, input, err := release.ManifestWrite(testConfig().NamesFor("production"), manifest)
+	if err != nil {
+		panic(err)
+	}
+	if result, runErr := f.RunInput(context.Background(), command, input); runErr != nil || result.ExitCode != 0 {
+		panic("seed staged application manifest")
+	}
+	f.Commands = nil
+	f.Inputs = nil
+}
+
 func happyFake() *transport.Fake {
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
@@ -27,13 +45,36 @@ func happyFake() *transport.Fake {
 		// server roll state, derived from history so the loop converges: NEW1
 		// appears after a scale, OLD1 disappears once removed, names track renames.
 		scaled, oldGone, drained := false, false, false
+		scaleCount, recreateCount := 0, 0
+		initialScaleCount, initialRecreateCount := 0, 0
+		seenExactReleaseQuery := false
+		newGone, workerGone := false, false
 		name := map[string]string{"OLD1": "web"}
 		for _, c := range f.Commands {
+			if strings.Contains(c, "docker ps -aq") && strings.Contains(c, "label=ob.app=") && strings.Contains(c, "label=ob.release=") {
+				seenExactReleaseQuery = true
+			}
 			if strings.Contains(c, "--scale web=") {
 				scaled = true
+				scaleCount++
+				if !seenExactReleaseQuery {
+					initialScaleCount++
+				}
+			}
+			if strings.Contains(c, "--force-recreate --timeout 30 worker") {
+				recreateCount++
+				if !seenExactReleaseQuery {
+					initialRecreateCount++
+				}
 			}
 			if strings.Contains(c, "docker rm OLD1") {
 				oldGone = true
+			}
+			if strings.Contains(c, "docker rm -f NEW1") {
+				newGone = true
+			}
+			if strings.Contains(c, "docker rm -f W1") {
+				workerGone = true
 			}
 			if strings.Contains(c, "ob-drain") {
 				drained = true
@@ -50,6 +91,8 @@ func happyFake() *transport.Fake {
 			return fs[len(fs)-1]
 		}
 		switch {
+		case strings.Contains(cmd, "/_host/owner"):
+			return transport.Result{Stdout: "sample\n"}, true
 		case strings.Contains(cmd, "docker version"):
 			return transport.Result{Stdout: "27.0.3\n"}, true
 		case strings.Contains(cmd, "compose version"):
@@ -61,7 +104,7 @@ func happyFake() *transport.Fake {
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release="):
-			if scaled {
+			if scaled && (!newGone || scaleCount > initialScaleCount) {
 				return transport.Result{Stdout: "NEW1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
@@ -70,7 +113,7 @@ func happyFake() *transport.Fake {
 			if !oldGone {
 				ids = append(ids, "OLD1")
 			}
-			if scaled {
+			if scaled && (!newGone || scaleCount > initialScaleCount) {
 				ids = append(ids, "NEW1")
 			}
 			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
@@ -88,9 +131,24 @@ func happyFake() *transport.Fake {
 			}
 			return transport.Result{Stdout: "healthy\n"}, true
 		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release="):
-			return transport.Result{Stdout: "W1\n"}, true
+			if !workerGone || recreateCount > initialRecreateCount {
+				return transport.Result{Stdout: "W1\n"}, true
+			}
+			return transport.Result{}, true
 		case strings.Contains(cmd, "service='worker'"):
-			return transport.Result{Stdout: "W1\n"}, true
+			if !workerGone || recreateCount > initialRecreateCount {
+				return transport.Result{Stdout: "W1\n"}, true
+			}
+			return transport.Result{}, true
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=ob.app=") && strings.Contains(cmd, "label=ob.release="):
+			var ids []string
+			if initialScaleCount > 0 && !newGone {
+				ids = append(ids, "NEW1")
+			}
+			if initialRecreateCount > 0 && !workerGone {
+				ids = append(ids, "W1")
+			}
+			return transport.Result{Stdout: strings.Join(ids, "\n")}, true
 		case strings.Contains(cmd, "{{.State.Status}}"):
 			return transport.Result{Stdout: "running\n"}, true
 		case strings.Contains(cmd, "IPAddress"):
@@ -101,9 +159,32 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "20260101-000000-aaa111\n"}, true
 		case strings.Contains(cmd, "ob.snapshot.yml"):
 			return transport.Result{Stdout: engineProject}, true
+		case strings.Contains(cmd, "/journal/"+engineTestPreviousReleaseID+".jsonl"):
+			return transport.Result{Stdout: `{"deploy_id":"` + engineTestPreviousReleaseID + `","phase":"activation","event":"result","status":"ok","detail":"release=` + engineTestPreviousReleaseID + `"}` + "\n"}, true
 		}
 		return transport.Result{}, false
 	}
+	// Every test starts from the current release-store contract. Seed a serving
+	// predecessor without recording setup as an operation under test.
+	manifest, err := release.NewManifest(engineTestPreviousReleaseID, release.KindApplication, time.Date(2025, 12, 31, 23, 59, 0, 0, time.UTC))
+	if err != nil {
+		panic(err)
+	}
+	if err := manifest.Transition(release.StateVerified, time.Date(2025, 12, 31, 23, 59, 1, 0, time.UTC), ""); err != nil {
+		panic(err)
+	}
+	if err := manifest.Transition(release.StateServing, time.Date(2025, 12, 31, 23, 59, 2, 0, time.UTC), ""); err != nil {
+		panic(err)
+	}
+	command, input, err := release.ManifestWrite(testConfig().NamesFor("production"), manifest)
+	if err != nil {
+		panic(err)
+	}
+	if result, runErr := f.RunInput(context.Background(), command, input); runErr != nil || result.ExitCode != 0 {
+		panic("seed serving manifest")
+	}
+	f.Commands = nil
+	f.Inputs = nil
 	return f
 }
 
@@ -264,6 +345,7 @@ func TestVerifyFailureBlocksActivation(t *testing.T) {
 
 func TestRollbackReplaysPreviousRelease(t *testing.T) {
 	f := happyFake()
+	seedRollbackState(t, f)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "readlink") {

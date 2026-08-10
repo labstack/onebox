@@ -35,7 +35,7 @@ const (
 	ContainerName = "ob-proxy"
 )
 
-// Paths is the host-scoped layout, sibling of the per-app dirs.
+// Paths is the host-scoped layout, sibling of the sole application directory.
 type Paths struct {
 	Base      string // <root>/_host
 	Lock      string // <root>/_host/lock
@@ -44,14 +44,13 @@ type Paths struct {
 	Compose   string // <root>/_host/proxy/compose.yaml
 	ConfigDir string // <root>/_host/proxy/config
 	Acme      string // <root>/_host/proxy/acme
-	Apps      string // <root>/_host/proxy/apps
 	Hash      string // <root>/_host/proxy/config.hash
+	Owner     string // <root>/_host/owner
 }
 
 // HostPaths is the host-scoped layout, resolved from the same base as
-// everything else this application writes. The proxy is shared between apps,
-// so the base has to agree with theirs — two apps disagreeing about where
-// `_host` lives would each run their own "shared" proxy.
+// everything else this application writes. The owner record prevents another
+// application identity from adopting the same host-scoped state.
 func HostPaths(n app.Names) Paths {
 	base := n.HostDir()
 	return Paths{
@@ -62,8 +61,8 @@ func HostPaths(n app.Names) Paths {
 		Compose:   base + "/proxy/compose.yaml",
 		ConfigDir: base + "/proxy/config",
 		Acme:      base + "/proxy/acme",
-		Apps:      base + "/proxy/apps",
 		Hash:      base + "/proxy/config.hash",
+		Owner:     base + "/owner",
 	}
 }
 

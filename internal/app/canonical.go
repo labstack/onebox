@@ -65,7 +65,7 @@ func walkOrigins(prefix string, canonical, raw any, derived map[string]Origin, o
 			case derived[path] != "":
 				out[path] = derived[path]
 			case present:
-				out[path] = OriginExplicit
+				out[path] = OriginAuthored
 			default:
 				out[path] = OriginDefault
 			}
@@ -93,7 +93,7 @@ func walkListOrigins(prefix string, items []any, raw any, derived map[string]Ori
 			case derived[path] != "":
 				out[path] = derived[path]
 			case rv != nil:
-				out[path] = OriginExplicit
+				out[path] = OriginAuthored
 			default:
 				out[path] = OriginDefault
 			}
@@ -166,7 +166,7 @@ func annotated(prefix string, v any, origins map[string]Origin) (*yaml.Node, err
 			if err != nil {
 				return nil, err
 			}
-			if o, ok := origins[path]; ok && o != OriginExplicit {
+			if o, ok := origins[path]; ok && o != OriginAuthored {
 				child.LineComment = string(o)
 			}
 			n.Content = append(n.Content,
@@ -184,7 +184,7 @@ func annotated(prefix string, v any, origins map[string]Origin) (*yaml.Node, err
 			if err != nil {
 				return nil, err
 			}
-			if o, ok := origins[path]; ok && o != OriginExplicit {
+			if o, ok := origins[path]; ok && o != OriginAuthored {
 				c.LineComment = string(o)
 			}
 			n.Content = append(n.Content, c)

@@ -2,9 +2,11 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -32,6 +34,7 @@ type Fake struct {
 	TargetName  string // full user@host; falls back to HostName
 	SSHUserName string
 	SSHPortName string // falls back to 22 when TargetName is set
+	state       map[string]string
 }
 
 func (f *Fake) RunInput(_ context.Context, cmd, stdin string) (Result, error) {
@@ -44,15 +47,20 @@ func (f *Fake) RunInput(_ context.Context, cmd, stdin string) (Result, error) {
 			return Result{}, err
 		}
 	}
-	return f.evalLocked(cmd), nil
+	result := f.evalLocked(cmd)
+	if result.ExitCode == 0 {
+		f.recordInputStateLocked(cmd, stdin)
+	}
+	return result, nil
 }
 
-func (f *Fake) RunStream(ctx context.Context, cmd string, out io.Writer) error {
+func (f *Fake) RunStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error {
 	res, err := f.Run(ctx, cmd)
 	if err != nil {
 		return err
 	}
-	_, _ = io.WriteString(out, res.Stdout)
+	_, _ = io.WriteString(stdout, res.Stdout)
+	_, _ = io.WriteString(stderr, res.Stderr)
 	return nil
 }
 
@@ -65,7 +73,14 @@ func (f *Fake) Run(_ context.Context, cmd string) (Result, error) {
 			return Result{}, err
 		}
 	}
-	return f.evalLocked(cmd), nil
+	result := f.evalLocked(cmd)
+	if result.ExitCode == 0 && strings.Contains(cmd, "rm -f") && strings.Contains(cmd, "/activation.json") {
+		delete(f.state, "activation")
+	}
+	if result.ExitCode == 0 && strings.Contains(cmd, "rm -f") && strings.Contains(cmd, "/secret-activation.json") {
+		delete(f.state, "secret-activation")
+	}
+	return result, nil
 }
 
 // evalLocked resolves a command's canned result. Callers hold f.mu; Dynamic
@@ -76,12 +91,67 @@ func (f *Fake) evalLocked(cmd string) Result {
 			return res
 		}
 	}
+	if strings.Contains(cmd, "/manifest.json") && strings.Contains(cmd, "mode=%s") {
+		id := releaseIDFromManifestCommand(cmd)
+		if body, ok := f.state["manifest:"+id]; ok {
+			return Result{Stdout: "mode=600\n" + body}
+		}
+		return Result{ExitCode: 3}
+	}
+	if strings.Contains(cmd, "/activation.json") && strings.Contains(cmd, "mode=%s") {
+		if body, ok := f.state["activation"]; ok {
+			return Result{Stdout: "mode=600\n" + body}
+		}
+		return Result{ExitCode: 3}
+	}
+	if strings.Contains(cmd, "/secret-activation.json") && strings.Contains(cmd, "mode=%s") {
+		if body, ok := f.state["secret-activation"]; ok {
+			return Result{Stdout: "mode=600\n" + body}
+		}
+		return Result{ExitCode: 3}
+	}
 	for _, r := range f.Script {
 		if r.Match.MatchString(cmd) {
 			return r.Result
 		}
 	}
 	return Result{ExitCode: 0}
+}
+
+func (f *Fake) recordInputStateLocked(cmd, input string) {
+	if f.state == nil {
+		f.state = map[string]string{}
+	}
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+		ID            string `json:"id"`
+		ReleaseID     string `json:"release_id"`
+	}
+	if json.Unmarshal([]byte(input), &envelope) != nil {
+		return
+	}
+	switch {
+	case envelope.SchemaVersion == "onebox.run/release-manifest/v1alpha1" && envelope.ID != "" && strings.Contains(cmd, "/manifest.json.tmp"):
+		f.state["manifest:"+envelope.ID] = input
+	case envelope.SchemaVersion == "onebox.run/activation-checkpoint/v1alpha1" && strings.Contains(cmd, "/activation.json.tmp"):
+		f.state["activation"] = input
+	case envelope.SchemaVersion == "onebox.run/secret-checkpoint/v1alpha1" && envelope.ReleaseID != "" && strings.Contains(cmd, "/secret-activation.json.tmp"):
+		f.state["secret-activation"] = input
+	}
+}
+
+func releaseIDFromManifestCommand(cmd string) string {
+	const marker = "/releases/"
+	start := strings.Index(cmd, marker)
+	if start < 0 {
+		return ""
+	}
+	rest := cmd[start+len(marker):]
+	end := strings.Index(rest, "/manifest.json")
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
 }
 
 func (f *Fake) Upload(_ context.Context, localDir, remoteDir string) error {

@@ -44,11 +44,6 @@ const (
 	OriginEnvironmentOverride Origin = "environment-override"
 	OriginObserved            Origin = "observed"
 	OriginDerived             Origin = "derived"
-
-	// Compatibility names retain the Go API while the public values use the
-	// vocabulary exposed by canonical output.
-	OriginExplicit = OriginAuthored
-	OriginOverride = OriginEnvironmentOverride
 )
 
 // Resolved is a project with one environment's overrides applied.
@@ -308,6 +303,7 @@ func (p *Spec) deepCopy() (*Spec, error) {
 		out.Environments[name] = e
 	}
 	out.Dir = p.Dir
+	out.file = p.file
 	// Without these a resolved project has no memory of what was authored, and
 	// would report every value as a default.
 	out.rawExpanded = p.rawExpanded

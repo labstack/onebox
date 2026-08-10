@@ -88,6 +88,14 @@ func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engi
 	return e, id, staging
 }
 
+func bootstrapHost(t *testing.T, dir, cfgFile, base string) {
+	t.Helper()
+	e, id, staging := buildDeploy(t, dir, cfgFile, "bootstrap", base)
+	if err := e.Bootstrap(context.Background(), id, staging); err != nil {
+		t.Fatalf("bootstrap host: %v", err)
+	}
+}
+
 func composeDown(project, dir string) {
 	cmd := exec.Command("docker", "compose", "-p", project, "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
 	cmd.Run()
@@ -116,12 +124,13 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	composeDown("obe2e", dir)
 	t.Cleanup(func() { composeDown("obe2e", dir) })
 
-	// traefik accessory up + healthy, then v1
+	// host proxy up + healthy, then v1
 	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("traefik: %v\n%s", err, out)
 	}
 	waitHealthy(t, "obe2e", "traefik", 60*time.Second)
+	bootstrapHost(t, dir, "ob.yml", base)
 	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1", base)
 	if err := e.Deploy(context.Background(), id, staging); err != nil {
 		t.Fatalf("deploy v1: %v", err)
@@ -199,6 +208,7 @@ func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 	composeDown("obworker", dir)
 	t.Cleanup(func() { composeDown("obworker", dir) })
 
+	bootstrapHost(t, dir, "ob.yml", base)
 	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1", base)
 	if err := e.Deploy(context.Background(), id, staging); err != nil {
 		t.Fatalf("deploy v1: %v", err)

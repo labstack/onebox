@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,17 +87,13 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _, err := loadAll(cmd.Context(), g)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliValidateSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			if isStructuredOutput(g) {
-				return writeCLIJSON(cmd.OutOrStdout(), cliValidateEnvelope{
-					SchemaVersion: cliValidateSchemaVersion,
-					App:           cfg.Name,
-					Environment:   g.Env,
-					Workloads:     cfg.ReleaseOrder(),
-					Jobs:          cfg.JobOrder(),
-					Services:      cfg.ServiceNames(),
-				}, g.Output == "json")
+				return writeFiniteSuccess(cmd, g, map[string]any{
+					"app": cfg.Name, "environment": g.Env,
+					"workloads": cfg.ReleaseOrder(), "jobs": cfg.JobOrder(), "services": cfg.ServiceNames(),
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ok: %s (%s, %s)\n",
 				countLabel(len(cfg.ReleaseOrder()), "workload"),
@@ -106,7 +103,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		},
 	})
 
-	var planOut string
+	var planOut, planBackupReportOut string
 	// Shared by plan and deploy: both need to know what a build produced.
 	var imageArgs []string
 	resolveImages := func() error {
@@ -126,29 +123,31 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err := resolveImages(); err != nil {
 				return err
 			}
-			return runPlan(cmd, g, planOut)
+			return runPlan(cmd, g, planOut, planBackupReportOut)
 		},
 	}
 	planCmd.Flags().StringVarP(&planOut, "out", "o", "ob-plan.json", "plan artifact path")
+	planCmd.Flags().StringVar(&planBackupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration protection is required")
 	planCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	root.AddCommand(planCmd)
 
-	var approvePlanFile, approveOut string
+	var approvePlanFile, approveBackupReportFile, approveOut string
 	approveCmd := &cobra.Command{
 		Use:   "approve",
-		Short: "create a short-lived approval bound to one exact executable plan",
-		Long:  "Create a short-lived grant bound to one exact plan.\n\nPrompts for confirmation, because approving is a human act: a routine plan\nasks yes or no, and one that touches data asks for the release identifier to\nbe typed back. There is no flag to skip it. Changing or re-planning\ninvalidates the grant. Writes only the grant file; contacts nothing.",
+		Short: "record a local human confirmation for one exact executable plan",
+		Long:  "Record a short-lived local confirmation bound to one exact plan and, when supplied, one exact backup report.\n\nPrompts for confirmation, because approving is a human act: a routine plan\nasks yes or no, and one that touches data asks for the release identifier to\nbe typed back. There is no flag to skip it. The artifact is tamper-evident but\nis not an authenticated identity-provider signature. Contacts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runApprove(cmd, approvePlanFile, approveOut)
+			return runApprove(cmd, g, approvePlanFile, approveBackupReportFile, approveOut)
 		},
 	}
 	approveCmd.Flags().StringVar(&approvePlanFile, "plan", "", "executable plan artifact to approve")
-	approveCmd.Flags().StringVarP(&approveOut, "out", "o", "ob-approval.json", "approval grant path")
+	approveCmd.Flags().StringVar(&approveBackupReportFile, "backup-report", "", "backup report to bind into this local confirmation")
+	approveCmd.Flags().StringVarP(&approveOut, "out", "o", "ob-approval.json", "local confirmation artifact path")
 	_ = approveCmd.MarkFlagRequired("plan")
 	root.AddCommand(approveCmd)
 
-	var planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason string
-	var deployYes, deployRedeploy bool
+	var planFile, approvalFile, backupReportFile, migrationBackupOverrideReason string
+	var deployYes, deployRedeploy, deployBreakLock bool
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
@@ -157,34 +156,35 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err := resolveImages(); err != nil {
 				return err
 			}
-			return runDeploy(cmd, g, planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason, deployYes, deployRedeploy)
+			return runDeploy(cmd, g, planFile, approvalFile, backupReportFile, migrationBackupOverrideReason, deployYes, deployRedeploy, deployBreakLock)
 		},
 	}
-	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; approval is separate)")
-	deployCmd.Flags().StringVar(&approvalFile, "approval", "", "apply a plan-bound approval grant")
-	deployCmd.Flags().StringVar(&backupEvidenceFile, "backup-evidence", "", "apply a plan-bound migration backup evidence receipt")
-	deployCmd.Flags().StringVar(&migrationBackupOverrideReason, "override-migration-backup", "", "audited break-glass reason for proceeding without required backup evidence (requires --approval)")
+	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; local confirmation is separate)")
+	deployCmd.Flags().StringVar(&approvalFile, "approval", "", "apply a plan-bound local confirmation artifact")
+	deployCmd.Flags().StringVar(&backupReportFile, "backup-report", "", "apply the backup report bound into the local confirmation")
+	deployCmd.Flags().StringVar(&migrationBackupOverrideReason, "override-migration-backup", "", "audited break-glass reason for proceeding without a required backup report (requires --approval)")
 	deployCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
 	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
-	deployCmd.Flags().BoolVar(&g.Force, "force", false, "break a held deploy lock (prints the holder first)")
+	deployCmd.Flags().BoolVar(&deployBreakLock, "break-lock", false, "break a stale deploy lock after inspecting its holder")
 	root.AddCommand(deployCmd)
 
+	var bootstrapBreakLock bool
 	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
 		Long:  "Prepare a host: install what the deploy needs, create the layout, log in to\nregistries, start the proxy, and start supporting services.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. It does not release the application;\n`ob deploy` does that.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindBootstrap, Force: g.Force,
+				Kind: onebox.KindBootstrap, BreakLock: bootstrapBreakLock,
 			}, "bootstrap")
 		},
 	}
 	// without this, a bootstrap killed while holding the app/host lock can
 	// only be retried after the full lock TTL: each retry mints a fresh
 	// deploy id, so the same-deploy reclaim path never fires
-	bootstrapCmd.Flags().BoolVar(&g.Force, "force", false, "break a held lock left by a crashed bootstrap (prints the holder first)")
+	bootstrapCmd.Flags().BoolVar(&bootstrapBreakLock, "break-lock", false, "break a stale bootstrap lock after inspecting its holder")
 	root.AddCommand(bootstrapCmd)
 
 	root.AddCommand(&cobra.Command{
@@ -205,15 +205,17 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		},
 	})
 
+	var abortBreakLock, abortBreakMigrationGate bool
 	abortCmd := &cobra.Command{
 		Use:   "abort",
 		Short: "revert an interrupted deploy to the previous release (migration-gated)",
 		Long:  "Revert an interrupted deploy to the release that was serving before it.\n\nGated on what the interrupted deploy already did: a migration whose effect\ncannot be reversed by re-activating a directory refuses, because reverting\nthe containers would leave them running against data they do not match.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, Force: g.Force}, "abort")
+			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, BreakLock: abortBreakLock, BreakMigrationGate: abortBreakMigrationGate}, "abort")
 		},
 	}
-	abortCmd.Flags().BoolVar(&g.Force, "break-migration-gate", false, "abort past a closed migration gate (you assert schema compatibility)")
+	abortCmd.Flags().BoolVar(&abortBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	abortCmd.Flags().BoolVar(&abortBreakMigrationGate, "break-migration-gate", false, "abort past a closed migration gate (you assert schema compatibility)")
 	root.AddCommand(abortCmd)
 
 	root.AddCommand(&cobra.Command{
@@ -233,13 +235,20 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
-				return err
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
 			if err != nil {
-				return err
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			defer cleanup()
+			if isStructuredOutput(g) {
+				records, err := e.AuditSnapshot(cmd.Context(), auditN)
+				if err != nil {
+					return writeStructuredReadFailure(cmd, g, err)
+				}
+				return writeFiniteSuccess(cmd, g, map[string]any{"records": records})
+			}
 			return e.Audit(cmd.Context(), auditN)
 		},
 	}
@@ -404,18 +413,44 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 }
 
 // runPlan writes the plan artifact for the CI/review flow.
-func runPlan(cmd *cobra.Command, g *globalFlags, outPath string) error {
+func runPlan(cmd *cobra.Command, g *globalFlags, outPath, backupReportOut string) error {
 	pl, err := buildPlan(cmd, g)
 	if err != nil {
 		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
+	var reportTemplate *onebox.BackupReport
+	if backupReportOut != "" {
+		template, templateErr := onebox.NewBackupReportTemplate(&pl.plan)
+		if templateErr != nil {
+			return writeStructuredCommandFailure(cmd, g, "backup_report_not_required", "backup report template could not be created", templateErr)
+		}
+		reportTemplate = &template
+	}
 	if err := pl.plan.Save(outPath); err != nil {
 		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
-	if isStructuredOutput(g) {
-		return writeCLIJSON(cmd.OutOrStdout(), pl.plan, g.Output == "json")
+	if reportTemplate != nil {
+		if err := reportTemplate.SaveTemplate(backupReportOut); err != nil {
+			return writeStructuredCommandFailure(cmd, g, "plan_failed", "backup report template could not be written", err)
+		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s — apply with: ob deploy --plan %s\n", outPath, outPath)
+	if isStructuredOutput(g) {
+		data := map[string]any{"plan": pl.plan, "artifact_path": outPath}
+		if reportTemplate != nil {
+			data["backup_report"] = reportTemplate
+			data["backup_report_path"] = backupReportOut
+		}
+		return writeFiniteSuccess(cmd, g, data)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s\n", outPath)
+	if reportTemplate != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "backup report template written to %s\n", backupReportOut)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "approve with: ob approve --plan %s", outPath)
+	if reportTemplate != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), " --backup-report %s", backupReportOut)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
 }
 
@@ -506,6 +541,12 @@ func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteReque
 		if outputErr := structured.finish(&result, err); outputErr != nil && err == nil {
 			return outputErr
 		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return withExitCode(err, 2)
+			}
+			return withExitCode(err, 1)
+		}
 	}
 	return err
 }
@@ -528,33 +569,29 @@ func runStatus(cmd *cobra.Command, g *globalFlags) error {
 		return writeStatusFailure(cmd, g, err)
 	}
 	snapshot = safeStatusSnapshot(snapshot)
-	envelope := cliStatusEnvelope{SchemaVersion: cliStatusSchemaVersion, Status: &snapshot}
 	if snapshot.Diverged {
-		envelope.Error = &cliPublicError{Code: "divergence_detected", Message: "recorded and observed state diverge"}
+		statusErr := errors.New("status: divergence detected")
+		publicErr := &cliPublicError{
+			Code: "divergence_detected", SafeMessage: "recorded and observed state diverge",
+			DiagnosticCommand: "ob audit --output json", Details: map[string]any{"status": snapshot},
+		}
+		if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
+			return err
+		}
+		return withExitCode(statusErr, 1)
 	}
-	if err := writeCLIJSON(cmd.OutOrStdout(), envelope, g.Output == "json"); err != nil {
-		return err
-	}
-	if snapshot.Diverged {
-		return fmt.Errorf("status: divergence detected")
-	}
-	return nil
+	return writeFiniteSuccess(cmd, g, map[string]any{"status": snapshot})
 }
 
 func writeStatusFailure(cmd *cobra.Command, g *globalFlags, statusErr error) error {
 	if !isStructuredOutput(g) {
 		return statusErr
 	}
-	if err := writeCLIJSON(cmd.OutOrStdout(), cliStatusEnvelope{
-		SchemaVersion: cliStatusSchemaVersion,
-		Error: &cliPublicError{
-			Code:    "status_failed",
-			Message: "status failed; inspect stderr for local diagnostics",
-		},
-	}, g.Output == "json"); err != nil {
+	if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil,
+		publicError(statusErr, "status_failed", "status failed; inspect stderr for local diagnostics")); err != nil {
 		return err
 	}
-	return statusErr
+	return withExitCode(statusErr, 1)
 }
 
 func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Project, u *ui.UI) (*engine.Engine, func(), error) {
@@ -574,7 +611,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 		Out:        commandOutput(cmd, g),
 		LocalDir:   filepath.Dir(g.ConfigPath),
 		NoRollback: g.NoRollback,
-		ForceLock:  g.Force,
+		ForceLock:  false,
 		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
 		ConfigHash: engine.HashBytes(cfgBytes),
 		Runner:     onebox.CurrentRunnerProvenance(),
@@ -582,24 +619,28 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 	return e, func() { _ = t.Close() }, nil
 }
 
-func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backupEvidenceFile, migrationBackupOverrideReason string, yes, redeploy bool) error {
-	if backupEvidenceFile != "" && migrationBackupOverrideReason != "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--backup-evidence and --override-migration-backup are mutually exclusive"))
+func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backupReportFile, migrationBackupOverrideReason string, yes, redeploy, breakLock bool) error {
+	if backupReportFile != "" && migrationBackupOverrideReason != "" {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--backup-report and --override-migration-backup are mutually exclusive"))
 	}
-	if planFile == "" && (backupEvidenceFile != "" || migrationBackupOverrideReason != "") {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("migration backup evidence and overrides require --plan"))
+	if planFile == "" && (backupReportFile != "" || migrationBackupOverrideReason != "") {
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("backup reports and migration overrides require --plan"))
 	}
 	if planFile == "" && approvalFile != "" {
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--approval requires --plan so the exact approved artifact is applied"))
 	}
 	if migrationBackupOverrideReason != "" && approvalFile == "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--override-migration-backup requires a strong plan-bound --approval file"))
+		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--override-migration-backup requires a plan-bound local-confirmation --approval file created with the strong ceremony"))
 	}
 	if isStructuredOutput(g) && planFile == "" {
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("structured deploy requires --plan; run `ob plan --output %s` first", g.Output))
 	}
 	if planFile != "" {
 		plan, err := onebox.LoadDeployPlan(planFile)
+		if err != nil {
+			return writeEarlyOperationFailure(cmd, g, err)
+		}
+		backupReport, err := loadBackupReport(backupReportFile)
 		if err != nil {
 			return writeEarlyOperationFailure(cmd, g, err)
 		}
@@ -610,7 +651,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		needsMutation := !plan.NoOp || redeploy
 		if isStructuredOutput(g) && approval == nil && needsMutation && plan.Operation.Approval != onebox.ApprovalNone {
 			return writeEarlyOperationFailure(cmd, g, fmt.Errorf(
-				"structured deploy requires an explicit plan-bound --approval artifact; run `ob approve --plan %s` first",
+				"structured deploy requires an explicit plan-bound local-confirmation artifact through --approval; run `ob approve --plan %s` first",
 				planFile,
 			))
 		}
@@ -618,17 +659,15 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 			renderApprovalSummary(cmd, plan)
 			if !confirmPlanApproval(cmd, plan) {
 				fmt.Fprintln(cmd.OutOrStdout(), "not approved")
-				return nil
+				return writeCancelled(cmd, g, "deploy approval cancelled")
 			}
-			grant, err := onebox.NewApprovalGrant(plan, journal.DefaultOperator(), time.Now())
+			grant, err := onebox.NewApprovalGrant(plan, backupReport, journal.DefaultOperator(), time.Now())
 			if err != nil {
 				return err
 			}
 			approval = &grant
 		}
-		backupEvidence, backupOverride, err := loadMigrationBackupAuthorization(
-			plan, approval, backupEvidenceFile, migrationBackupOverrideReason, time.Now(),
-		)
+		backupOverride, err := loadMigrationBackupOverride(plan, approval, migrationBackupOverrideReason, time.Now())
 		if err != nil {
 			return writeEarlyOperationFailure(cmd, g, err)
 		}
@@ -637,9 +676,9 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 				formatRunnerProvenance(onebox.CurrentRunnerProvenance()), plan.Operation.ReleaseID)
 		}
 		return runMutation(cmd, g, onebox.ExecuteRequest{
-			Kind: onebox.KindDeploy, Plan: plan, Approval: approval, Force: g.Force,
+			Kind: onebox.KindDeploy, Plan: plan, Approval: approval, BreakLock: breakLock,
 			NoRollback: g.NoRollback, Redeploy: redeploy,
-			BackupEvidence: backupEvidence, MigrationBackupOverride: backupOverride,
+			BackupReport: backupReport, MigrationBackupOverride: backupOverride,
 		}, "deploy")
 	}
 
@@ -651,7 +690,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 	}
 	plannedNoOp := pl.plan.NoOp && !redeploy
 	if !plannedNoOp && pl.plan.MigrationBackup != nil {
-		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan`, create a receipt with `ob backup-evidence create`, then use `ob deploy --plan PLAN --backup-evidence RECEIPT --approval APPROVAL` (or the audited override flags)")
+		return fmt.Errorf("migration backup policy requires a saved plan: run `ob plan --backup-report-out ob-backup-report.json`, fill the report, then confirm and deploy it with --backup-report (or use the audited override flags)")
 	}
 	approval, err := loadApproval(approvalFile)
 	if err != nil {
@@ -660,10 +699,10 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 	if !plannedNoOp && approval == nil && !yes {
 		if !confirmInteractiveDeploy(cmd, &pl.plan) {
 			fmt.Fprintln(cmd.OutOrStdout(), "not applied")
-			return nil
+			return writeCancelled(cmd, g, "deploy cancelled")
 		}
 		if pl.plan.Operation.Approval != onebox.ApprovalNone {
-			grant, err := onebox.NewApprovalGrant(&pl.plan, journal.DefaultOperator(), time.Now())
+			grant, err := onebox.NewApprovalGrant(&pl.plan, nil, journal.DefaultOperator(), time.Now())
 			if err != nil {
 				return err
 			}
@@ -671,7 +710,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		}
 	}
 	result, err := pl.svc.Execute(cmd.Context(), onebox.ExecuteRequest{
-		Kind: onebox.KindDeploy, Plan: &pl.plan, Approval: approval, Force: g.Force,
+		Kind: onebox.KindDeploy, Plan: &pl.plan, Approval: approval, BreakLock: breakLock,
 		NoRollback: g.NoRollback, Redeploy: redeploy,
 	})
 	if err == nil && result.NoOp {
@@ -682,30 +721,30 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 	return err
 }
 
-func loadMigrationBackupAuthorization(
+func loadMigrationBackupOverride(
 	plan *onebox.DeployPlan,
 	approval *onebox.ApprovalGrant,
-	evidencePath, overrideReason string,
+	overrideReason string,
 	now time.Time,
-) (*onebox.BackupEvidenceReceipt, *onebox.MigrationBackupOverride, error) {
-	if evidencePath != "" {
-		receipt, err := onebox.LoadBackupEvidenceReceipt(evidencePath)
-		if err != nil {
-			return nil, nil, err
-		}
-		return receipt, nil, nil
-	}
+) (*onebox.MigrationBackupOverride, error) {
 	if overrideReason == "" {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if approval == nil {
-		return nil, nil, errors.New("migration backup override requires a strong plan-bound approval")
+		return nil, errors.New("migration backup override requires a strong plan-bound local confirmation")
 	}
 	override, err := onebox.NewMigrationBackupOverride(plan, journal.DefaultOperator(), overrideReason, now)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return nil, &override, nil
+	return &override, nil
+}
+
+func loadBackupReport(path string) (*onebox.BackupReport, error) {
+	if path == "" {
+		return nil, nil
+	}
+	return onebox.LoadBackupReport(path)
 }
 
 func loadApproval(path string) (*onebox.ApprovalGrant, error) {
@@ -715,46 +754,90 @@ func loadApproval(path string) (*onebox.ApprovalGrant, error) {
 	return onebox.LoadApprovalGrant(path)
 }
 
-func runApprove(cmd *cobra.Command, planPath, outPath string) error {
-	plan, err := onebox.LoadDeployPlan(planPath)
+func runApprove(cmd *cobra.Command, g *globalFlags, planPath, backupReportPath, outPath string) error {
+	plan, err := onebox.LoadExecutablePlan(planPath)
 	if err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "approval_failed", "approval could not be created", err)
 	}
-	renderApprovalSummary(cmd, plan)
-	if !confirmPlanApproval(cmd, plan) {
-		fmt.Fprintln(cmd.OutOrStdout(), "not approved")
-		return nil
-	}
-	approval, err := onebox.NewApprovalGrant(plan, journal.DefaultOperator(), time.Now())
+	backupReport, err := loadBackupReport(backupReportPath)
 	if err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "confirmation_failed", "local confirmation could not be created", err)
+	}
+	if backupReport != nil {
+		if err := backupReport.ValidateForPlan(plan, time.Now()); err != nil {
+			return writeStructuredCommandFailure(cmd, g, "confirmation_failed", "local confirmation could not be created", err)
+		}
+	}
+	promptOut := cmd.OutOrStdout()
+	if isStructuredOutput(g) {
+		promptOut = cmd.ErrOrStderr()
+	}
+	renderApprovalSummaryTo(promptOut, plan)
+	if !confirmPlanApprovalAt(cmd, plan, promptOut) {
+		if !isStructuredOutput(g) {
+			fmt.Fprintln(cmd.OutOrStdout(), "not approved")
+		}
+		return writeCancelled(cmd, g, "approval cancelled")
+	}
+	approval, err := onebox.NewApprovalGrant(plan, backupReport, journal.DefaultOperator(), time.Now())
+	if err != nil {
+		return writeStructuredCommandFailure(cmd, g, "approval_failed", "approval could not be created", err)
 	}
 	if err := approval.Save(outPath); err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "approval_failed", "approval could not be created", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "approval written to %s — apply with: ob deploy --plan %s --approval %s\n", outPath, planPath, outPath)
+	apply := "ob deploy"
+	if plan.ExecutableOperation().Kind == onebox.KindJobRun {
+		apply = "ob job run"
+	}
+	if isStructuredOutput(g) {
+		applyCommand := fmt.Sprintf("%s --plan %s --approval %s", apply, planPath, outPath)
+		if backupReportPath != "" {
+			applyCommand += " --backup-report " + backupReportPath
+		}
+		return writeFiniteSuccess(cmd, g, map[string]any{
+			"approval": approval, "artifact_path": outPath,
+			"apply_command": applyCommand,
+		})
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "local confirmation written to %s — apply with: %s --plan %s --approval %s", outPath, apply, planPath, outPath)
+	if backupReportPath != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), " --backup-report %s", backupReportPath)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
 }
 
-func renderApprovalSummary(cmd *cobra.Command, plan *onebox.DeployPlan) {
-	binding := plan.Operation.Binding
-	fmt.Fprintf(cmd.OutOrStdout(), "\nApprove exact plan:\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "  release: %s\n", plan.Operation.ReleaseID)
-	fmt.Fprintf(cmd.OutOrStdout(), "  digest:  %s\n", plan.PlanDigest)
-	fmt.Fprintf(cmd.OutOrStdout(), "  target:  %s (%s/%s)\n", binding.Server, binding.Application, binding.Environment)
-	fmt.Fprintf(cmd.OutOrStdout(), "  risk:    %s (%s)\n", plan.Operation.Risk, plan.Operation.Approval)
-	fmt.Fprintf(cmd.OutOrStdout(), "  expires: %s\n", plan.Operation.ExpiresAt)
+func renderApprovalSummary(cmd *cobra.Command, plan onebox.ExecutablePlan) {
+	renderApprovalSummaryTo(cmd.OutOrStdout(), plan)
 }
 
-func confirmPlanApproval(cmd *cobra.Command, plan *onebox.DeployPlan) bool {
-	if plan.Operation.Approval == onebox.ApprovalNone {
+func renderApprovalSummaryTo(out io.Writer, plan onebox.ExecutablePlan) {
+	operation := plan.ExecutableOperation()
+	binding := operation.Binding
+	fmt.Fprintf(out, "\nApprove exact plan:\n")
+	fmt.Fprintf(out, "  operation: %s\n", operation.Kind)
+	fmt.Fprintf(out, "  release: %s\n", operation.ReleaseID)
+	fmt.Fprintf(out, "  digest:  %s\n", plan.ExecutablePlanDigest())
+	fmt.Fprintf(out, "  target:  %s (%s/%s)\n", binding.Server, binding.Application, binding.Environment)
+	fmt.Fprintf(out, "  risk:    %s (%s)\n", operation.Risk, operation.Approval)
+	fmt.Fprintf(out, "  expires: %s\n", operation.ExpiresAt)
+}
+
+func confirmPlanApproval(cmd *cobra.Command, plan onebox.ExecutablePlan) bool {
+	return confirmPlanApprovalAt(cmd, plan, cmd.OutOrStdout())
+}
+
+func confirmPlanApprovalAt(cmd *cobra.Command, plan onebox.ExecutablePlan, out io.Writer) bool {
+	operation := plan.ExecutableOperation()
+	if operation.Approval == onebox.ApprovalNone {
 		return true
 	}
-	if plan.Operation.Approval != onebox.ApprovalStrong && plan.Operation.Approval != onebox.ApprovalBreakGlass {
-		return confirm(cmd, "Approve this exact plan?")
+	if operation.Approval != onebox.ApprovalStrong && operation.Approval != onebox.ApprovalBreakGlass {
+		return confirmAt(cmd, out, "Approve this exact plan?")
 	}
-	want := plan.Operation.ReleaseID
-	fmt.Fprintf(cmd.OutOrStdout(), "Type release ID %s to approve: ", want)
+	want := operation.ReleaseID
+	fmt.Fprintf(out, "Type release ID %s to approve: ", want)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	return strings.TrimSpace(line) == want
 }
@@ -769,8 +852,12 @@ func confirmInteractiveDeploy(cmd *cobra.Command, plan *onebox.DeployPlan) bool 
 // confirm reads a yes/no answer; anything but y/yes (incl. EOF on a
 // non-interactive stdin) is No — deploys never proceed on ambiguity.
 func confirm(cmd *cobra.Command, prompt string) bool {
-	u := ui.New(cmd.OutOrStdout(), false)
-	fmt.Fprintf(cmd.OutOrStdout(), "%s ", u.Bold(prompt+" [y/N]"))
+	return confirmAt(cmd, cmd.OutOrStdout(), prompt)
+}
+
+func confirmAt(cmd *cobra.Command, out io.Writer, prompt string) bool {
+	u := ui.New(out, false)
+	fmt.Fprintf(out, "%s ", u.Bold(prompt+" [y/N]"))
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	switch strings.TrimSpace(strings.ToLower(line)) {
 	case "y", "yes":

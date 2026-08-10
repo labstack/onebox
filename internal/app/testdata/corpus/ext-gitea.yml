@@ -6,6 +6,7 @@ environments:
 workloads:
   server:
     role: application
+    strategy: recreate
     image: docker.gitea.com/gitea:1.27.1
     domain: git.example.com
     port: 3000

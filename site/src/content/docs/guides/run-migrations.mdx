@@ -1,6 +1,6 @@
 ---
 title: Run migrations safely
-description: Migration jobs, data effects, result evidence, and the backup-evidence gate.
+description: Migration jobs, data effects, result evidence, and the backup-report gate.
 summary: How to declare a migration job, what data_effect controls, how job result evidence is captured and verified, and how the migration-backup policy gate works.
 sidebar:
   order: 3
@@ -52,7 +52,7 @@ EOF
 
 :::caution[A missing result is not a silent pass]
 A missing or invalid result from a migration becomes `changed=unknown` and
-**halts before workload replacement**, unless a strong or break-glass grant
+**halts before workload replacement**, unless a strong or break-glass local confirmation
 authorized that exact plan. Atlas results must extend history without rewriting
 it.
 :::
@@ -71,10 +71,10 @@ This binds the expected provider and applied revisions to the evidence captured
 during the release, so a migration that silently applied something else fails
 verification instead of activating.
 
-## Gate on backup evidence
+## Gate on a backup report
 
-An environment can require proof that a backup exists before a release with
-migration risk:
+An environment can require a plan-bound report about an existing backup before
+a release with migration risk:
 
 ```yaml
 environments:
@@ -87,40 +87,45 @@ environments:
 ```
 
 :::note[This does not make Onebox take a backup]
-It requires **externally validated, secret-free facts bound to the exact plan**.
-Onebox validates the evidence; it does not create or store the backup.
+It requires a **secret-free report bound to the exact plan**. The report is an
+operator or tool assertion about observed backup results; it is not independent
+proof. Onebox validates the report contract and timing, but does not create,
+store, or independently verify the backup.
 :::
 
-Seal the facts, then apply them with the plan:
+Write the plan-bound template, fill its placeholders from real backup-system
+results, then bind that exact report into the local confirmation and execution:
 
 ```sh
-ob backup-evidence create \
+ob plan \
+  --out ob-plan.json \
+  --backup-report-out ob-backup-report.json
+
+# Fill ob-backup-report.json from the backup system's actual results.
+ob approve \
   --plan ob-plan.json \
-  --manifest backup-facts.json \
-  --out ob-backup-evidence.json
+  --backup-report ob-backup-report.json \
+  --out ob-approval.json
 
 ob deploy \
   --plan ob-plan.json \
   --approval ob-approval.json \
-  --backup-evidence ob-backup-evidence.json
+  --backup-report ob-backup-report.json
 ```
 
-### The facts manifest
+### The backup report
 
-It is the only artifact here you author yourself — the plan, the grant and the
-receipt are all produced by `ob` — so start from a skeleton with your plan's
-resources already filled in:
-
-```sh
-ob backup-evidence template --plan ob-plan.json > backup-facts.json
-```
-
-It uses `onebox.run/migration-backup-facts/v1alpha1` and records artifact,
-integrity, restore-test and key-usability facts — never backup bytes or secrets.
+The report template is projected directly from the plan, with protected
+resources already filled in and deliberately invalid `REPLACE-...` values. It
+uses `onebox.run/backup-report/v1alpha1` and records artifact, integrity,
+restore-test, and key-usability observations — never backup bytes or secrets.
 
 | Field | What it holds |
 | --- | --- |
-| `schema_version` | `onebox.run/migration-backup-facts/v1alpha1` |
+| `schema_version` | `onebox.run/backup-report/v1alpha1` |
+| `plan_digest`, `operation_digest` | exact executable-plan bindings copied by Onebox |
+| `application`, `environment`, `server` | exact execution target copied by Onebox |
+| `reported_by`, `reported_at` | bounded reporter label and RFC 3339 observation time |
 | `resources[].resource` | copied from the plan's `migration_backup.resources` |
 | `resources[].backup_id` | your backup system's identifier for the artifact |
 | `resources[].created_at` | RFC 3339 time the backup was taken |
@@ -137,8 +142,8 @@ ob deploy --plan ob-plan.json --approval ob-approval.json \
   --override-migration-backup "incident reason"
 ```
 
-An audited override requires the exact plan's strong or break-glass grant. It is
-recorded, not silent.
+An audited override requires the exact plan's strong or break-glass local
+confirmation. It is recorded, not silent.
 
 ## Approval ceremony
 

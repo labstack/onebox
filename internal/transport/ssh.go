@@ -258,7 +258,7 @@ func (s *SSH) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
 	return res, nil
 }
 
-func (s *SSH) RunStream(ctx context.Context, cmd string, out io.Writer) error {
+func (s *SSH) RunStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error {
 	if s.Logger != nil {
 		s.Logger(s.host, cmd)
 	}
@@ -267,7 +267,7 @@ func (s *SSH) RunStream(ctx context.Context, cmd string, out io.Writer) error {
 		return err
 	}
 	defer sess.Close()
-	sess.Stdout, sess.Stderr = out, out
+	sess.Stdout, sess.Stderr = stdout, stderr
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(cmd) }()
 	select {

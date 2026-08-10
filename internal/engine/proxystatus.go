@@ -21,13 +21,13 @@ type proxyRaw struct {
 	ids       []string
 	health    string // proxy container health, parsed from docker ps .Status
 	applied   string // config hash the host applied
-	apps      string // raw `ls` of the registered-apps dir
+	owner     string // sole application identity from the host owner record
 	acme      string // raw acme.json; parsed at render, and keys never leave
 	localHash string // hash of the locally staged config (computed offline)
 }
 
 // proxyReads returns the managed proxy's independent status reads as thunks for
-// gather — the host round trips (container+health, config hash, apps, acme) run
+// gather — the host round trips (container+health, config hash, owner, acme) run
 // concurrently with the app-side reads, and the local config hash is computed
 // in the same wave. Each thunk writes a distinct proxyRaw field, so they share
 // no state. Health comes from docker ps .Status, same as the app side.
@@ -53,11 +53,11 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return statusReadResult("proxy applied configuration", res, err)
 		},
 		func() error {
-			res, err := e.T.Run(ctx, "if [ -d "+q(hp.Apps)+" ]; then ls -1 "+q(hp.Apps)+"; elif [ -e "+q(hp.Apps)+" ]; then exit 2; fi")
+			res, err := e.T.Run(ctx, "if [ -r "+q(hp.Owner)+" ]; then cat "+q(hp.Owner)+"; elif [ -e "+q(hp.Owner)+" ]; then exit 2; fi")
 			if err == nil {
-				px.apps = res.Stdout
+				px.owner = strings.TrimSpace(res.Stdout)
 			}
-			return statusReadResult("proxy registered applications", res, err)
+			return statusReadResult("host owner", res, err)
 		},
 		func() error {
 			path := hp.Acme + "/acme.json"
@@ -140,11 +140,11 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		state = e.ui.Warn(fmt.Sprintf("config DRIFTED ⚠ (local %.8s ≠ applied %.8s) — `ob proxy apply`", px.localHash, px.applied))
 		diverged = true
 	}
-	apps := strings.Join(strings.Fields(px.apps), ", ")
-	if apps == "" {
-		apps = "(none)"
+	owner := px.owner
+	if owner == "" {
+		owner = "(unclaimed)"
 	}
-	fmt.Fprintf(e.Opts.Out, "proxy %-12s %-10s %s   apps: %s\n", proxy.ContainerName, health, state, apps)
+	fmt.Fprintf(e.Opts.Out, "proxy %-12s %-10s %s   owner: %s\n", proxy.ContainerName, health, state, owner)
 
 	// cert runway — the renewal loop is the proxy's one silent failure mode
 	certs, err := proxy.CertExpiries([]byte(px.acme))

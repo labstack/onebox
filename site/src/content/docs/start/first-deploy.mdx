@@ -1,7 +1,7 @@
 ---
 title: Your first deploy
 description: From an existing Compose file to a released application, in one pass.
-summary: The full path — scaffold ob.yml, inspect what Onebox understood, plan, approve, deploy — with the plan and approval artifacts explained.
+summary: The full path — scaffold ob.yml, inspect what Onebox understood, plan, approve, deploy — with the plan and local-confirmation artifacts explained.
 sidebar:
   order: 3
 read_when:
@@ -77,14 +77,15 @@ nothing, or is explicit about what it changes.
    rendered-Compose and payload bindings. **It expires after 15 minutes**, and
    any drift or local payload change requires a new plan.
 
-6. **Create a short-lived approval for that exact plan.**
+6. **Record a short-lived local confirmation for that exact plan.**
 
    ```sh
    ob approve --plan ob-plan.json --out ob-approval.json
    ```
 
-   The grant is mode-`0600` and digest-bound to the plan, server, inputs, risk,
-   operator and expiry. A changed or expired plan needs a new grant.
+   The confirmation is mode-`0600` and digest-bound to the plan, server, inputs,
+   risk, operator label, and expiry. A changed or expired plan needs a new
+   confirmation. It is tamper-evident local ceremony, not authenticated identity.
 
 7. **Deploy with both artifacts.**
 
@@ -108,14 +109,17 @@ nothing, or is explicit about what it changes.
 
 Container and volume names are derived and stable: `shop_web`, `shop_web_2`,
 `ob_shop_postgres`, `ob_shop_postgres_data`, `ob_shop` for the service network,
-`ob-ingress` for the shared proxy network. Once a volume exists, its name cannot
+`ob-ingress` for the host proxy network. Once a volume exists, its name cannot
 change without moving data.
 
-## Why plan and approval are separate
+## Why plan and local confirmation are separate
 
-A statement that the user approved is data, not authority. Splitting them means
-the actor requesting a change cannot mint the capability authorising it — the
-grant is created out of band and bound to one exact sealed plan.
+The split creates a deliberate review ceremony and binds the answer to one exact
+sealed plan. `ob approve` records a short-lived local confirmation whose digest
+detects modification; it is not authenticated identity or proof that the actor
+requesting the change was technically unable to create it. Environments that
+need independent authorization require a future external provider, not a local
+checksum artifact.
 
 For automation, both accept structured output:
 

@@ -15,6 +15,9 @@ import (
 // lock → fence → journal every phase → finish. Every mutating command is
 // fence-guarded; a zombie runner dies host-side with ErrFenced.
 func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) error {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
 	return e.deployCore(ctx, releaseID, localStagingDir, nil)
 }
 
@@ -23,6 +26,9 @@ func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) 
 // release transfer or workload mutation. This makes a no-op result an
 // authoritative point-in-time decision rather than a stale pre-lock guess.
 func (e *Engine) ValidateDeployNoOp(ctx context.Context, operationID string) error {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
 	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
 	if err != nil {
 		return err
@@ -72,6 +78,9 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 	prev, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
+		return err
+	}
+	if err := e.requireServingApplicationManifest(ctx, prev); err != nil {
 		return err
 	}
 	rollbackDebt := false
@@ -168,6 +177,7 @@ func (e *Engine) rollbackEffectDebt(ctx context.Context, current string) (bool, 
 func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, localStagingDir, prev string, done map[string]bool) error {
 	remoteDir := release.PathsFor(e.names()).Releases + "/" + releaseID
 	remoteCompose := remoteDir + "/compose.yaml"
+	var manifest release.Manifest
 
 	if done["transfer"] {
 		e.logf("transfer: already complete (resume)")
@@ -196,6 +206,15 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		if err := jw.Append(ctx, journal.Record{Phase: "transfer", Event: "result", Status: "ok"}); err != nil {
 			return fmt.Errorf("journal transfer result: %w", err)
 		}
+	}
+	var manifestErr error
+	if done["transfer"] {
+		manifest, manifestErr = e.resumeApplicationManifest(ctx, releaseID)
+	} else {
+		manifest, manifestErr = e.newApplicationManifest(ctx, releaseID)
+	}
+	if manifestErr != nil {
+		return fmt.Errorf("release manifest: %w", manifestErr)
 	}
 
 	// Before any job runs: a job can need a database as readily as an
@@ -251,6 +270,9 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 			return fmt.Errorf("journal release %s result: %w", roleName, err)
 		}
 	}
+	if err := e.runPostReleaseJobs(ctx, jw, done, remoteDir, remoteCompose); err != nil {
+		return fmt.Errorf("post-release: %w", err)
+	}
 	if err := e.runRollbackEffectHook(ctx, jw, done, "post_release", remoteDir, remoteCompose); err != nil {
 		return fmt.Errorf("post-release: %w", err)
 	}
@@ -266,6 +288,9 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
 		return fmt.Errorf("journal verify result: %w", err)
 	}
+	if manifest.State != release.StateStaged {
+		return fmt.Errorf("release %s cannot activate from manifest state %s", releaseID, manifest.State)
+	}
 	e.progress("verification", "succeeded", "")
 
 	e.progress("activation", "started", "")
@@ -277,7 +302,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		e.progress("activation", "failed", "activation evidence could not be persisted")
 		return fmt.Errorf("journal activation intent: %w", err)
 	}
-	if err := e.activate(ctx, releaseID); err != nil {
+	if err := e.activateManifest(ctx, &manifest, prev); err != nil {
 		fin(err)
 		activationErr := fmt.Errorf("finalize: %w", err)
 		journalErr := jw.Append(ctx, journal.Record{
@@ -361,24 +386,29 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 // pruneRetention removes releases beyond retain and journals beyond twice
 // that window because a journal outlives its release.
 func (e *Engine) pruneRetention(ctx context.Context) error {
-	victims, unrecognized, err := release.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases)
+	journalIDs, err := journal.List(ctx, e.T, e.names())
 	if err != nil {
 		return err
 	}
-	// Not fatal — they are excluded from rollback and from retention, which is
-	// the safe direction. But they occupy the directory retention is being
-	// enforced over, and nothing else will ever mention them.
-	if len(unrecognized) > 0 {
-		e.warnf("%d entr(ies) under %s are not release ids and were left in place: %v",
-			len(unrecognized), release.PathsFor(e.names()).Releases, unrecognized)
+	policy := release.DefaultRetentionPolicy(e.Spec.Deployment.RetainReleases, e.Opts.Now())
+	policy.EvidenceIDs = make(map[string]bool, len(journalIDs))
+	for _, id := range journalIDs {
+		policy.EvidenceIDs[id] = true
 	}
-	for _, id := range victims {
+	decision, err := release.RetentionCandidates(ctx, e.T, e.names(), policy)
+	if err != nil {
+		return err
+	}
+	if len(decision.Reported) > 0 {
+		e.warnf("%d release-store entr(ies) were preserved for inspection: %v", len(decision.Reported), decision.Reported)
+	}
+	for _, id := range decision.Victims {
 		if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
 			return err
 		}
 	}
-	if len(victims) > 0 {
-		e.logf("pruned %d old releases", len(victims))
+	if len(decision.Victims) > 0 {
+		e.logf("pruned %d expired release-store entries", len(decision.Victims))
 	}
 	jvictims, err := journal.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases*2)
 	if err != nil {
@@ -404,14 +434,33 @@ func (e *Engine) Rollback(ctx context.Context) error {
 // journal identity used for the rollback evidence. The identity is returned
 // even when execution fails after the target release has been resolved.
 func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
+	observedCurrent, err := release.Current(ctx, e.T, e.names())
+	if err != nil {
+		return "", err
+	}
+	if observedCurrent == "" {
+		return "", fmt.Errorf("no rollback target: there is no current release")
+	}
+	epoch, err := e.AcquireLock(ctx, observedCurrent, e.Opts.ForceLock)
+	if err != nil {
+		return "", err
+	}
+	defer e.ReleaseLock(ctx)
+	if err := e.WriteFence(ctx, observedCurrent, epoch); err != nil {
+		return "", err
+	}
+	current, err := release.Current(ctx, e.T, e.names())
+	if err != nil {
+		return "", err
+	}
 	prev, err := release.Previous(ctx, e.T, e.names())
 	if err != nil {
 		return "", err
 	}
-	return prev, e.rollbackTo(ctx, prev)
+	return prev, e.rollbackTo(ctx, prev, current, epoch)
 }
 
-func (e *Engine) rollbackTo(ctx context.Context, prev string) (err error) {
+func (e *Engine) rollbackTo(ctx context.Context, prev, current string, epoch int) (err error) {
 	prevDir := release.PathsFor(e.names()).Releases + "/" + prev
 	remoteCompose := prevDir + "/compose.yaml"
 
@@ -420,14 +469,6 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) (err error) {
 		return err
 	}
 
-	epoch, err := e.AcquireLock(ctx, prev, e.Opts.ForceLock)
-	if err != nil {
-		return err
-	}
-	defer e.ReleaseLock(ctx)
-	if err := e.WriteFence(ctx, prev, epoch); err != nil {
-		return err
-	}
 	replay.fenceVal = e.fenceVal
 	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "rollback", Event: "start"}); err != nil {
@@ -451,8 +492,12 @@ func (e *Engine) rollbackTo(ctx context.Context, prev string) (err error) {
 	if err := replay.Verify(ctx); err != nil {
 		return fmt.Errorf("rollback verify: %w", err)
 	}
-	if err := e.activate(ctx, prev); err != nil {
-		return err
+	target, err := release.ReadManifest(ctx, e.T, e.names(), prev)
+	if err != nil {
+		return fmt.Errorf("rollback target manifest: %w", err)
+	}
+	if err := e.reactivateManifest(ctx, &target, current); err != nil {
+		return fmt.Errorf("rollback activation: %w", err)
 	}
 	return nil
 }

@@ -28,7 +28,7 @@ func TestDeploymentGraphIsDeterministicAndOrdered(t *testing.T) {
 	wantIDs := []string{
 		"preflight", "transfer", "job:assets", "job:migrate",
 		"hook:pre_release", "release:worker", "release:web",
-		"hook:post_release", "verify", "activate", "hook:post_deploy",
+		"job:cleanup", "hook:post_release", "verify", "activate", "hook:post_deploy",
 	}
 	if got := stepIDs(first); !reflect.DeepEqual(got, wantIDs) {
 		t.Fatalf("step IDs = %v, want %v", got, wantIDs)
@@ -50,6 +50,11 @@ func TestDeploymentGraphIsDeterministicAndOrdered(t *testing.T) {
 	}
 	if first[5].Strategy != "recreate" || first[6].Strategy != "rolling" {
 		t.Fatalf("workload strategies were not preserved: %#v %#v", first[5], first[6])
+	}
+	for _, step := range first {
+		if step.ID == "job:nightly" {
+			t.Fatal("manual job entered the deploy operation graph")
+		}
 	}
 }
 
@@ -119,8 +124,10 @@ environments: {production: {server: root@h}}
 workloads:
   web:    {role: application, image: x:1, strategy: rolling, health: {http: /healthz, port: 8080}}
   worker: {role: worker, image: x:1, strategy: recreate}
-  migrate: {role: job, image: x:1, command: "echo JOB_SECRET", data_effect: migration}
-  assets:  {role: job, image: x:1, data_effect: none}
+  migrate: {role: job, image: x:1, command: "echo JOB_SECRET", when: pre_release, data_effect: migration}
+  assets:  {role: job, image: x:1, when: pre_release, data_effect: none}
+  cleanup: {role: job, image: x:1, when: post_release, data_effect: none}
+  nightly: {role: job, image: x:1, when: manual, data_effect: none, schedule: {cron: "0 2 * * *"}}
 deployment:
   order: [worker, web]
 hooks:

@@ -61,19 +61,19 @@ imperative verbs that change nothing.
 | --- | --- |
 | `deploy` `rollback` `abort` `resume` `approve` `bootstrap` `destroy` `eject` `exec` `init` `plan` `preview` `validate` | `status` `logs` `audit` `doctor` `schema` `version` `preflight` `canonical` |
 
-Groups that hold subcommands are nouns: `proxy`, `secrets`, `service`,
-`backup-evidence`. A group is singular when it names a subsystem
+Groups that hold subcommands are nouns: `job`, `proxy`, `secrets`, and
+`service`. A group is singular when it names a subsystem
 (`ob service apply` converges the `services:` block) and plural only when its
 subcommands genuinely act on the whole set at once (`ob secrets push`).
 
 **An artifact keeps one word across all three of its surfaces** — the command
 that produces it, the flag that consumes it, and its default filename.
 
-| Command | Flag | File |
+| Producer | Consumer flag | File |
 | --- | --- | --- |
 | `ob plan` | `--plan` | `ob-plan.json` |
 | `ob approve` | `--approval` | `ob-approval.json` |
-| `ob backup-evidence create` | `--backup-evidence` | `ob-backup-evidence.json` |
+| `ob plan --backup-report-out` | `--backup-report` | `ob-backup-report.json` |
 
 **The bypass gets harder as the blast radius grows.** `ob deploy` takes `-y` to
 skip its prompt. `ob destroy` has no flag that skips its confirmation: the
@@ -91,13 +91,13 @@ prints. Three forms, three behaviours:
 | `-only` suffix | print this **instead** of the default output | `--digest-only` `--origins-only` |
 | adjective or `no-` prefix | modify how the command runs | `--raw` `--overwrite` `--redeploy` `--no-rollback` |
 
-`--force` means break a held lock, printing the holder first. A flag that
-proceeds past a refusal which could lose data says so in its own name —
-`--break-migration-gate`, `--allow-destructive-mounts`.
-
-One exception, and it should not survive: on `ob proxy apply` and `ob bootstrap`,
-`--force` *also* overrides a cross-app proxy config conflict, which is not a lock
-at all. That second meaning needs its own flag.
+Overrides name the exact boundary they cross. `--break-lock` breaks only a stale
+operation or host lock after its holder is inspected.
+`--allow-destructive-mounts` permits only the mount detachments named by the
+service plan and cannot bypass an unsupported major version.
+`--break-migration-gate` applies only to abort recovery, while
+`--override-migration-backup` records the explicit reason for proceeding without
+the report policy required. There is no generic `--force` switch.
 
 **`--out` is where output goes.** Not `--to`, not `--file`. Machine-readable
 output is the global `--output`, never a per-command `--json`.

@@ -13,8 +13,8 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-// The HOST lock serializes mutations of host-shared state (the managed proxy)
-// across ALL ob apps on the box — same noclobber + TTL + holder-JSON
+// The HOST lock serializes mutations of host-scoped state (owner and proxy)
+// across runner attempts — same noclobber + TTL + holder-JSON
 // protocol as the app lock, at _host/lock. No epoch and no fence: proxy
 // converge is one short idempotent critical section, not a resumable
 // multi-phase deploy. No deadlock with app locks is possible: every acquirer
@@ -63,7 +63,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 		case force:
 			e.logf("host lock: FORCE-breaking %s (app %s, age %ds)", holder.Owner, holder.DeployID, age)
 		default:
-			return fmt.Errorf("host lock held by %s (app %s, age %ds, ttl %ds) — another app is converging the shared proxy; wait, or --force to break it",
+			return fmt.Errorf("host lock held by %s (app %s, age %ds, ttl %ds) — another runner is mutating host-scoped state; wait, or use --break-lock after inspecting it",
 				holder.Owner, holder.DeployID, age, int(e.lockTTL().Seconds()))
 		}
 		removeObserved := `if [ "$(cat ` + q(hp.Lock) + ` 2>/dev/null)" = ` + q(observed) + ` ]; then rm -f ` + q(hp.Lock) + `; else exit 75; fi`

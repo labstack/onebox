@@ -31,6 +31,7 @@ const (
 	KindProxyApply   OperationKind = "proxy_apply"
 	KindSecretsPush  OperationKind = "secrets_push"
 	KindDestroy      OperationKind = "destroy"
+	KindJobRun       OperationKind = "job_run"
 
 	KindServiceImagePatch OperationKind = "service_image_patch"
 	KindProtectionEnable  OperationKind = "protection_enable"
@@ -259,7 +260,7 @@ func (p OperationPlan) Validate() error {
 	if !validOperationKind(p.Kind) {
 		return fmt.Errorf("unknown operation kind %q", p.Kind)
 	}
-	if (p.Kind == KindDeploy || p.Kind == KindResume) && strings.TrimSpace(p.ReleaseID) == "" {
+	if (p.Kind == KindDeploy || p.Kind == KindResume || p.Kind == KindJobRun) && strings.TrimSpace(p.ReleaseID) == "" {
 		return fmt.Errorf("release_id is required for %s", p.Kind)
 	}
 	if strings.TrimSpace(p.CreatedAt) == "" {
@@ -470,7 +471,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 
 func validOperationKind(kind OperationKind) bool {
 	switch kind {
-	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap,
+	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
 		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy,
 		KindServiceImagePatch, KindProtectionEnable, KindProtectionDisable,
 		KindBackupCreate, KindBackupPrune, KindReplayArchive,

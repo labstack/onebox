@@ -42,6 +42,9 @@ func (e *Engine) Resume(ctx context.Context) error {
 // identity it operated on. The identity is returned even when execution fails
 // after the incomplete journal has been resolved.
 func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return "", err
+	}
 	s, err := e.FindIncomplete(ctx)
 	if err != nil {
 		return "", err
@@ -84,6 +87,9 @@ func (e *Engine) Abort(ctx context.Context, force bool) error {
 // identity it operated on. The identity is returned even when the abort fails
 // after the incomplete journal has been resolved.
 func (e *Engine) AbortWithJournalID(ctx context.Context, force bool) (string, error) {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return "", err
+	}
 	s, err := e.FindIncomplete(ctx)
 	if err != nil {
 		return "", err

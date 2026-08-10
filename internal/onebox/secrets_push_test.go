@@ -40,6 +40,8 @@ func pushFake() *transport.Fake {
 		HostName:   "example.invalid",
 		Dynamic: func(cmd string) (transport.Result, bool) {
 			switch {
+			case strings.Contains(cmd, "_host/owner"):
+				return transport.Result{Stdout: "shop\n"}, true
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/20260712-180000-current\n"}, true
 			case strings.Contains(cmd, "/ob.snapshot.yml"):

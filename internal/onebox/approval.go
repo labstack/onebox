@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -321,28 +319,7 @@ func (a ApprovalGrant) Save(path string) error {
 		return fmt.Errorf("encode local confirmation: %w", err)
 	}
 	encoded = append(encoded, '\n')
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create approval directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".approval-grant-*")
-	if err != nil {
-		return fmt.Errorf("create local confirmation: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("protect local confirmation: %w", err)
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write local confirmation: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close local confirmation: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := writeDurableArtifact(path, ".approval-grant-*", encoded); err != nil {
 		return fmt.Errorf("publish local confirmation: %w", err)
 	}
 	return nil

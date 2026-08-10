@@ -74,18 +74,23 @@ func TestAppendScopesAuthorizationContextToEvidenceRecords(t *testing.T) {
 	if err := w.Append(context.Background(), Record{Phase: "deploy", Event: "start"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := w.Append(context.Background(), Record{Phase: "job", Event: "start"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := w.Append(context.Background(), Record{Phase: "release", Role: "web", Event: "result", Status: "ok"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Commands) != 2 {
+	if len(f.Commands) != 3 {
 		t.Fatalf("commands = %d", len(f.Commands))
 	}
 	for _, want := range []string{"sha256:approval", "operator@example", "incident INC-42"} {
-		if !strings.Contains(f.Commands[0], want) {
-			t.Fatalf("deploy start omitted %q: %s", want, f.Commands[0])
+		for _, index := range []int{0, 1} {
+			if !strings.Contains(f.Commands[index], want) {
+				t.Fatalf("operation start omitted %q: %s", want, f.Commands[index])
+			}
 		}
-		if strings.Contains(f.Commands[1], want) {
-			t.Fatalf("release record repeated %q: %s", want, f.Commands[1])
+		if strings.Contains(f.Commands[2], want) {
+			t.Fatalf("release record repeated %q: %s", want, f.Commands[2])
 		}
 	}
 }

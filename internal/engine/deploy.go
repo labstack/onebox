@@ -53,6 +53,9 @@ func (e *Engine) ValidateDeployNoOp(ctx context.Context, operationID string) err
 // deployCore: done != nil means resume — completed steps skip; staging may be
 // empty (the release dir already lives on the host).
 func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir string, done map[string]bool) error {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
 	e.ui.Header("deploy " + releaseID)
 	t0 := time.Now()
 	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
@@ -434,6 +437,9 @@ func (e *Engine) Rollback(ctx context.Context) error {
 // journal identity used for the rollback evidence. The identity is returned
 // even when execution fails after the target release has been resolved.
 func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return "", err
+	}
 	observedCurrent, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return "", err

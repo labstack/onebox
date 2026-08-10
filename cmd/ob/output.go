@@ -117,7 +117,7 @@ func withExitCode(err error, code int) error {
 	if err == nil {
 		return nil
 	}
-	var existing interface{ ExitCode() int }
+	var existing *cliExitError
 	if errors.As(err, &existing) {
 		return err
 	}

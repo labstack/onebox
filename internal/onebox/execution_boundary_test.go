@@ -238,7 +238,7 @@ func TestSchemaLessDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
 			if len(fake.Commands) != 0 || len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {
 				t.Fatalf("schema-less plan reached a mutation path: commands=%v uploads=%v inputs=%v", fake.Commands, fake.Uploads, fake.Inputs)
 			}
-			if result.Status != "failed" {
+			if result.Status != OperationStatusError {
 				t.Fatalf("schema-less plan result status = %q, want failed", result.Status)
 			}
 		})
@@ -288,14 +288,14 @@ func TestExecuteRejectsExpiredDeployBeforeConnecting(t *testing.T) {
 	if connected {
 		t.Fatal("expired plan connected to the target")
 	}
-	if result.Status != "failed" || result.ID != plan.Operation.ID {
+	if result.Status != OperationStatusError || result.ID != plan.Operation.ID {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if len(events) != 2 {
 		t.Fatalf("events = %#v, want started then failed", events)
 	}
-	if events[0].Sequence != 1 || events[0].Phase != "operation" || events[0].Status != "started" ||
-		events[1].Sequence != 2 || events[1].Phase != "operation" || events[1].Status != "failed" {
+	if events[0].Sequence != 1 || events[0].Phase != "operation" || events[0].Status != OperationStatusRunning ||
+		events[1].Sequence != 2 || events[1].Phase != "operation" || events[1].Status != OperationStatusError {
 		t.Fatalf("unexpected event order: %#v", events)
 	}
 	for _, event := range events {
@@ -657,16 +657,16 @@ func TestExecuteNoOpEmitsOrderedEvidenceWithoutMutation(t *testing.T) {
 		t.Fatalf("no-op reached a write-capable transport operation: uploads=%v inputs=%v", fake.Uploads, fake.Inputs)
 	}
 	want := []string{
-		"operation:started",
-		"binding:started",
-		"binding:succeeded",
-		"stage:started",
-		"stage:succeeded",
+		"operation:running",
+		"binding:running",
+		"binding:success",
+		"stage:running",
+		"stage:success",
 		"operation:no_op",
 	}
 	got := make([]string, len(events))
 	for i, event := range events {
-		got[i] = event.Phase + ":" + event.Status
+		got[i] = event.Phase + ":" + string(event.Status)
 		if event.Sequence != i+1 {
 			t.Fatalf("event %d sequence = %d", i, event.Sequence)
 		}
@@ -704,7 +704,7 @@ func TestExecuteRecoveryCorrelatesOperationWithJournalEvidence(t *testing.T) {
 		t.Fatalf("operation and journal identities were not separated: %#v", result)
 	}
 	last := events[len(events)-1]
-	if last.OperationID != result.ID || last.EvidenceID != "R-INCOMPLETE" || last.Status != "failed" {
+	if last.OperationID != result.ID || last.EvidenceID != "R-INCOMPLETE" || last.Status != OperationStatusError {
 		t.Fatalf("final event cannot correlate to journal evidence: %#v", last)
 	}
 }
@@ -796,11 +796,49 @@ func TestExecuteEarlyFailureHasCorrelationIdentity(t *testing.T) {
 	if err == nil || result.ID == "" {
 		t.Fatalf("early failure lacks identity: result=%#v err=%v", result, err)
 	}
-	if len(events) != 1 || events[0].OperationID != result.ID || events[0].Status != "failed" {
+	if len(events) != 1 || events[0].OperationID != result.ID || events[0].Status != OperationStatusError {
 		t.Fatalf("early failure event identity mismatch: result=%#v events=%#v", result, events)
 	}
 	if strings.Contains(events[0].Message, "missing.yml") {
 		t.Fatalf("structured event leaked local diagnostics: %#v", events[0])
+	}
+}
+
+func TestExecuteRequestRejectsIrrelevantAuthorityAndSafetyFields(t *testing.T) {
+	deployPlan := &DeployPlan{}
+	jobPlan := &JobPlan{}
+	for _, test := range []struct {
+		name    string
+		request ExecuteRequest
+	}{
+		{name: "two plans", request: ExecuteRequest{Kind: KindDeploy, Plan: deployPlan, JobPlan: jobPlan}},
+		{name: "job plan on deploy", request: ExecuteRequest{Kind: KindDeploy, JobPlan: jobPlan}},
+		{name: "deploy plan on job", request: ExecuteRequest{Kind: KindJobRun, Plan: deployPlan}},
+		{name: "plan on unplanned operation", request: ExecuteRequest{Kind: KindRollback, Plan: deployPlan}},
+		{name: "mount authority on deploy", request: ExecuteRequest{Kind: KindDeploy, AllowDestructiveMounts: true}},
+		{name: "migration gate on rollback", request: ExecuteRequest{Kind: KindRollback, BreakMigrationGate: true}},
+		{name: "deploy controls on resume", request: ExecuteRequest{Kind: KindResume, NoRollback: true}},
+		{name: "destroy controls on bootstrap", request: ExecuteRequest{Kind: KindBootstrap, RemoveVolumes: true}},
+		{name: "approval on service apply", request: ExecuteRequest{Kind: KindServiceApply, Approval: &ApprovalGrant{}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.request.Validate(); err == nil {
+				t.Fatalf("invalid execution request was accepted: %+v", test.request)
+			}
+		})
+	}
+}
+
+func TestNormalizeOperationStatusKeepsPublicVocabularyClosed(t *testing.T) {
+	for input, want := range map[string]OperationStatus{
+		"started": OperationStatusRunning, "running": OperationStatusRunning,
+		"evidence_recorded": OperationStatusRunning, "succeeded": OperationStatusSuccess,
+		"success": OperationStatusSuccess, "failed": OperationStatusError, "error": OperationStatusError,
+		"no_op": OperationStatusNoOp, "cancelled": OperationStatusCancelled,
+	} {
+		if got := normalizeOperationStatus(input); got != want {
+			t.Fatalf("normalize %q = %q, want %q", input, got, want)
+		}
 	}
 }
 

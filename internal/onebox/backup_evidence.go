@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -482,7 +481,8 @@ func validateBoundedText(name, value string, limit int) error {
 	return nil
 }
 
-// keyMaterialSatisfies compares contents, not representation.
+// keyMaterialSatisfies normalizes nil against empty. Ordering remains bound to
+// the requirement because a report is an exact projection of its plan.
 //
 // reflect.DeepEqual treats an empty slice and a nil slice as different. A
 // policy requiring no key material leaves the requirement nil while a receipt
@@ -894,28 +894,7 @@ func saveBackupArtifact(path, prefix string, value any) error {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, prefix)
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return writeDurableArtifact(path, prefix, encoded)
 }
 
 func LoadBackupReport(path string) (*BackupReport, error) {

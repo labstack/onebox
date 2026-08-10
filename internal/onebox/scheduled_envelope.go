@@ -390,28 +390,7 @@ func SaveScheduledOperationEnvelope(path string, envelope ScheduledOperationEnve
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".scheduled-envelope-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	return writeDurableArtifact(path, ".scheduled-envelope-*", encoded)
 }
 
 func LoadScheduledOperationEnvelope(path string) (ScheduledOperationEnvelope, error) {

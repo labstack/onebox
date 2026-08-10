@@ -69,6 +69,27 @@ func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
 	if !strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
 		t.Fatalf("state dir not removed:\n%s", seq)
 	}
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+		t.Fatalf("complete teardown without a managed proxy retained host ownership:\n%s", seq)
+	}
+}
+
+func TestDestroyReleasesAppLockOnEarlyFailure(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "> '/var/lib/ob/sample/fence'") {
+			return transport.Result{ExitCode: 70, Stderr: "fence is read-only"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, false); err == nil {
+		t.Fatal("destroy succeeded after fence failure")
+	}
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/sample/lock'") {
+		t.Fatalf("destroy retained app lock after early failure:\n%s", strings.Join(f.Commands, "\n"))
+	}
 }
 
 func TestLogsAndExecShapes(t *testing.T) {
@@ -90,14 +111,14 @@ func TestLogsAndExecShapes(t *testing.T) {
 	if !strings.Contains(seq, "docker compose -p ob_sample_postgres -f '/var/lib/ob/sample/services/postgres.yaml' logs --tail 20 postgres") {
 		t.Fatalf("service logs shape wrong:\n%s", seq)
 	}
-	if err := e.ExecInAudited(context.Background(), "exec-workload", "web", "alembic current", "inspect migration state", &out, io.Discard); err != nil {
+	if _, err := e.ExecInAudited(context.Background(), "exec-workload", "web", "alembic current", "inspect migration state", &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
 	}
-	if err := e.ExecInAudited(context.Background(), "exec-service", "postgres", "psql --version", "verify client version", &out, io.Discard); err != nil {
+	if _, err := e.ExecInAudited(context.Background(), "exec-service", "postgres", "psql --version", "verify client version", &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
@@ -124,7 +145,7 @@ func TestExecAuditPersistsDigestButNeverCommandOrOutput(t *testing.T) {
 	e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
 	command := "printf command-secret-value"
 	var stdout bytes.Buffer
-	if err := e.ExecInAudited(context.Background(), "exec-redaction", "web", command, "incident 42 inspection", &stdout, io.Discard); err != nil {
+	if _, err := e.ExecInAudited(context.Background(), "exec-redaction", "web", command, "incident 42 inspection", &stdout, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if stdout.String() != "passthrough-secret-value\n" {
@@ -163,7 +184,7 @@ func TestExecAuditRecordsFailureAndCancellation(t *testing.T) {
 				return nil
 			}
 			e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
-			err := e.ExecInAudited(context.Background(), "exec-"+test.name, "web", "false secret-command", "test terminal audit", io.Discard, io.Discard)
+			_, err := e.ExecInAudited(context.Background(), "exec-"+test.name, "web", "false secret-command", "test terminal audit", io.Discard, io.Discard)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("exec error = %v", err)
 			}
@@ -184,7 +205,7 @@ func TestExecReasonRefusedBeforeTargetContact(t *testing.T) {
 	f := opsFake("x")
 	e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
 	for _, reason := range []string{"", "line one\nline two", strings.Repeat("x", maxExecReasonBytes+1)} {
-		if err := e.ExecInAudited(context.Background(), "exec-invalid", "web", "true", reason, io.Discard, io.Discard); err == nil {
+		if _, err := e.ExecInAudited(context.Background(), "exec-invalid", "web", "true", reason, io.Discard, io.Discard); err == nil {
 			t.Fatalf("reason %q accepted", reason)
 		}
 	}

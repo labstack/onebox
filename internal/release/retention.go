@@ -52,7 +52,7 @@ func DefaultRetentionPolicy(retain int, now time.Time) RetentionPolicy {
 }
 
 func RetentionCandidates(ctx context.Context, target transport.Transport, names app.Names, policy RetentionPolicy) (RetentionDecision, error) {
-	if policy.Now.IsZero() || policy.RetainApplications < 1 || policy.FailedAfter < 0 || policy.BootstrapAfter < 0 || policy.UploadAfter < 0 || policy.UnknownAfter < 0 {
+	if policy.Now.IsZero() || policy.RetainApplications < 1 || policy.FailedAfter <= 0 || policy.BootstrapAfter <= 0 || policy.UploadAfter <= 0 || policy.UnknownAfter <= 0 {
 		return RetentionDecision{}, fmt.Errorf("retention policy is invalid")
 	}
 	ids, skipped, err := list(ctx, target, names)
@@ -71,7 +71,9 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	}
 	if current != "" {
 		protected[current] = true
-		protectPredecessorChain(ctx, target, names, current, policy.RetainApplications, protected, &decision)
+		if err := protectPredecessorChain(ctx, target, names, current, policy.RetainApplications, protected); err != nil {
+			return RetentionDecision{}, fmt.Errorf("retention refused: predecessor chain evidence is unusable: %w", err)
+		}
 	}
 	checkpoint, checkpointErr := ReadActivationCheckpoint(ctx, target, names)
 	if checkpointErr == nil {
@@ -143,17 +145,17 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	return decision, nil
 }
 
-func protectPredecessorChain(ctx context.Context, target transport.Transport, names app.Names, current string, retain int, protected map[string]bool, decision *RetentionDecision) {
+func protectPredecessorChain(ctx context.Context, target transport.Transport, names app.Names, current string, retain int, protected map[string]bool) error {
 	id := current
 	for depth := 0; id != "" && depth < retain; depth++ {
 		protected[id] = true
 		manifest, err := ReadManifest(ctx, target, names, id)
 		if err != nil {
-			decision.Reported = append(decision.Reported, id)
-			return
+			return err
 		}
 		id = manifest.Predecessor
 	}
+	return nil
 }
 
 func manifestLastTransition(manifest Manifest) time.Time {

@@ -243,6 +243,11 @@ func secretGraphWorkloads(graph []app.SecretDeclaration) []string {
 
 func classifyDeployment(steps []OperationStep, currentRelease string) (RiskClass, ReversibilityClass, ApprovalClass) {
 	for _, step := range steps {
+		if step.DataEffect == DataEffectDestructive {
+			return RiskCritical, ReversibilityIrreversible, ApprovalStrong
+		}
+	}
+	for _, step := range steps {
 		if step.DataEffect == DataEffectMigration || step.DataEffect == DataEffectUnknown {
 			return RiskHigh, ReversibilityConditional, ApprovalStrong
 		}
@@ -255,7 +260,7 @@ func classifyDeployment(steps []OperationStep, currentRelease string) (RiskClass
 
 func classifyDeploymentForPolicy(steps []OperationStep, currentRelease string, approvalRequired bool) (RiskClass, ReversibilityClass, ApprovalClass) {
 	risk, reversibility, approval := classifyDeployment(steps, currentRelease)
-	if !approvalRequired {
+	if !approvalRequired && risk != RiskCritical {
 		approval = ApprovalNone
 	}
 	return risk, reversibility, approval

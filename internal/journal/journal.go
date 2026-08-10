@@ -7,6 +7,7 @@ package journal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -79,6 +80,7 @@ type Record struct {
 	Target        string `json:"target,omitempty"`
 	TargetKind    string `json:"target_kind,omitempty"`
 	CommandDigest string `json:"command_digest,omitempty"`
+	ContainerID   string `json:"container_id,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 }
 
@@ -138,7 +140,7 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	// before the first protected step remains resumable) and on the explicit
 	// migration-backup authorization decision. Avoid copying operator-provided fields onto every
 	// journal line.
-	authorizationRecord := r.Phase == "deploy" && r.Event == "start" || r.SubStep == MigrationBackupSubStep
+	authorizationRecord := (r.Phase == "deploy" || r.Phase == "job") && r.Event == "start" || r.SubStep == MigrationBackupSubStep
 	if authorizationRecord {
 		if r.ApprovalDigest == "" {
 			r.ApprovalDigest = w.ApprovalDigest
@@ -272,15 +274,45 @@ func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string
 	return ids, byID, nil
 }
 
-// PruneCandidates returns journal ids beyond the keep window, oldest first.
-// A journal outlives its release: keep is typically 2× the
-// release retention.
+// PruneCandidates returns journal ids beyond independent deploy and auxiliary
+// keep windows, oldest first. High-frequency exec/job/service activity must not
+// evict the deploy history needed for recovery and audit.
 func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, keep int) ([]string, error) {
-	ids, err := List(ctx, t, n)
-	if err != nil || len(ids) <= keep {
+	if keep < 1 {
+		return nil, errors.New("journal retention keep window must be positive")
+	}
+	ids, byID, err := Journals(ctx, t, n)
+	if err != nil {
 		return nil, err
 	}
-	return ids[:len(ids)-keep], nil
+	var deployIDs, auxiliaryIDs []string
+	for _, id := range ids {
+		records := byID[id]
+		if len(records) == 0 {
+			return nil, fmt.Errorf("journal retention refused: %s has no usable records", id)
+		}
+		deploy := false
+		for _, record := range records {
+			if record.Phase == "deploy" && record.Event == "start" {
+				deploy = true
+				break
+			}
+		}
+		if deploy {
+			deployIDs = append(deployIDs, id)
+		} else {
+			auxiliaryIDs = append(auxiliaryIDs, id)
+		}
+	}
+	var victims []string
+	if len(deployIDs) > keep {
+		victims = append(victims, deployIDs[:len(deployIDs)-keep]...)
+	}
+	if len(auxiliaryIDs) > keep {
+		victims = append(victims, auxiliaryIDs[:len(auxiliaryIDs)-keep]...)
+	}
+	sort.Strings(victims)
+	return victims, nil
 }
 
 // Summary is the journal reduced to what resume/abort/audit need.

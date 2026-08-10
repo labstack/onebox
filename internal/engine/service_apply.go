@@ -14,7 +14,7 @@ import (
 
 // ServiceApply converges the supporting services explicitly, as a planned
 // maintenance event — never mid-deploy. It shows the diff against what is
-// running, refuses destructive mount changes without force, then converges
+// running, refuses destructive mount changes without the exact opt-in flag, then converges
 // each service's own Compose project under the full lock/fence/journal regime.
 //
 // The diff is against each service's live document rather than against a

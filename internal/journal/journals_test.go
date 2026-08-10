@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -108,5 +109,35 @@ func TestJournalsNoJournalDir(t *testing.T) {
 	}
 	if len(ids) != 0 || len(byID) != 0 {
 		t.Fatalf("want empty, got ids=%v byID=%v", ids, byID)
+	}
+}
+
+func TestPruneCandidatesKeepsIndependentDeployAndAuxiliaryWindows(t *testing.T) {
+	var output strings.Builder
+	appendJournal := func(id, phase string) {
+		output.WriteString(journalMarker + id + ".jsonl\n")
+		encoded, _ := json.Marshal(Record{DeployID: id, Phase: phase, Event: "start"})
+		output.Write(encoded)
+		output.WriteString("\n")
+	}
+	appendJournal("20260801-deploy", "deploy")
+	appendJournal("20260802-job", "job")
+	appendJournal("20260803-job", "job")
+	appendJournal("20260804-deploy", "deploy")
+	appendJournal("20260805-job", "job")
+	appendJournal("20260806-deploy", "deploy")
+	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "for f in") {
+			return transport.Result{Stdout: output.String()}, true
+		}
+		return transport.Result{}, false
+	}}
+	victims, err := PruneCandidates(context.Background(), fake, app.Names{App: "sample", BasePath: app.DefaultBasePath}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"20260801-deploy", "20260802-job"}
+	if !slices.Equal(victims, want) {
+		t.Fatalf("victims = %v, want %v", victims, want)
 	}
 }

@@ -11,25 +11,25 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-func retentionManifest(t *testing.T, id, kind, state, predecessor string, at time.Time) Manifest {
+func retentionManifest(t *testing.T, id string, kind ManifestKind, state State, predecessor string, at time.Time) Manifest {
 	t.Helper()
 	manifest, err := NewManifest(id, kind, at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	switch kind + "/" + state {
-	case KindBootstrap + "/" + StateVerified:
+	switch string(kind) + "/" + string(state) {
+	case string(KindBootstrap) + "/" + string(StateVerified):
 		err = manifest.Transition(StateVerified, at, "")
-	case KindApplication + "/" + StateFailed:
+	case string(KindApplication) + "/" + string(StateFailed):
 		err = manifest.Transition(StateFailed, at, "")
-	case KindApplication + "/" + StateVerified:
+	case string(KindApplication) + "/" + string(StateVerified):
 		err = manifest.Transition(StateVerified, at, "")
-	case KindApplication + "/" + StateServing:
+	case string(KindApplication) + "/" + string(StateServing):
 		err = manifest.Transition(StateVerified, at, "")
 		if err == nil {
 			err = manifest.Transition(StateServing, at, predecessor)
 		}
-	case KindApplication + "/" + StateSuperseded:
+	case string(KindApplication) + "/" + string(StateSuperseded):
 		err = manifest.Transition(StateVerified, at, "")
 		if err == nil {
 			err = manifest.Transition(StateServing, at, predecessor)
@@ -171,6 +171,38 @@ func TestRetentionRefusesUnusableCheckpointEvidence(t *testing.T) {
 	}}
 	_, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, time.Now()))
 	if err == nil || !strings.Contains(err.Error(), "checkpoint evidence is unusable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRetentionRefusesUnusablePredecessorEvidence(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	currentID := "20260808-000000-current"
+	target := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: currentID + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
+		case strings.Contains(command, currentID+"/manifest.json"):
+			return transport.Result{ExitCode: 5, Stderr: "permission denied"}, true
+		}
+		return transport.Result{}, false
+	}}
+	decision, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, time.Now()))
+	if err == nil || !strings.Contains(err.Error(), "predecessor chain evidence is unusable") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(decision.Victims) != 0 {
+		t.Fatalf("retention selected victims after unreadable predecessor evidence: %+v", decision)
+	}
+}
+
+func TestRetentionRejectsZeroAgeWindows(t *testing.T) {
+	policy := DefaultRetentionPolicy(2, time.Now())
+	policy.FailedAfter = 0
+	_, err := RetentionCandidates(context.Background(), &transport.Fake{}, app.Names{App: "sample", BasePath: app.DefaultBasePath}, policy)
+	if err == nil || !strings.Contains(err.Error(), "policy is invalid") {
 		t.Fatalf("error = %v", err)
 	}
 }

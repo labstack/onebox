@@ -11,8 +11,8 @@ import (
 const SecretGenerationDirectory = ".ob-secret-generations"
 
 // SecretGenerationPath is the release-relative path selected by a generated
-// secret runtime. The generation is opaque; the path never incorporates
-// content-derived material.
+// secret runtime. Callers must first validate generation as an opaque Onebox
+// generation identifier; this path helper intentionally performs no parsing.
 func SecretGenerationPath(generation, outputPath string) string {
 	return path.Join(SecretGenerationDirectory, generation, outputPath)
 }

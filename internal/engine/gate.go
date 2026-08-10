@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 )
@@ -55,7 +56,7 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 	for _, job := range steps {
 		key := "job:" + job
 		if done[key] {
-			if e.jobDataEffect(job) == "none" {
+			if e.jobDataEffect(job) == app.DataEffectNone {
 				e.logf("%s: already complete (resume) — rollback-safe by data_effect=none declaration", key)
 			} else if e.gateOpen {
 				e.logf("%s: already complete (resume) — rollback-safe result recovered from journal", key)
@@ -113,7 +114,7 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 // runOneJob runs a single gate step and reports whether it declared itself
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
-	safeByDeclaration := e.jobDataEffect(job) == "none"
+	safeByDeclaration := e.jobDataEffect(job) == app.DataEffectNone
 	resultDir := remoteDir + "/.job-" + job + "-result"
 	resultFile := resultDir + "/result"
 	const containerResultFile = "/run/onebox/job-result"
@@ -206,7 +207,7 @@ func injectComposeJobResult(command, hostResultFile, containerResultFile string)
 
 func (e *Engine) unknownJobResult(job, reason string) (bool, string, error) {
 	detail := "changed=unknown (" + reason + "); " + rollbackUnavailableConsequence
-	if e.jobDataEffect(job) != "migration" {
+	if e.jobDataEffect(job) != app.DataEffectMigration {
 		return false, detail, nil
 	}
 	strongApproval := e.Opts.AllowUnknownMigration && e.Opts.ApprovalDigest != "" &&
@@ -262,11 +263,11 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	return rollbackErr
 }
 
-func (e *Engine) jobDataEffect(job string) string {
+func (e *Engine) jobDataEffect(job string) app.DataEffect {
 	if w, ok := e.Spec.Workloads[job]; ok && w.IsJob() && w.DataEffect != "" {
 		return w.DataEffect
 	}
-	return "unknown"
+	return app.DataEffectUnknown
 }
 
 func (e *Engine) jobRollbackPolicySafe(service string) bool {

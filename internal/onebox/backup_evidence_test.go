@@ -190,6 +190,14 @@ func TestBackupReportArtifactsAreStrictAndTemplateIsProtected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	filled := template
+	filled.ReportedBy = report.ReportedBy
+	filled.ReportedAt = report.ReportedAt
+	filled.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
+	filled.KeyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), report.KeyMaterial...)
+	if err := filled.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
+		t.Fatalf("filled plan-produced template is not executable: %v", err)
+	}
 	templatePath := filepath.Join(t.TempDir(), "nested", "backup-report-template.json")
 	if err := template.SaveTemplate(templatePath); err != nil {
 		t.Fatal(err)

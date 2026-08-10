@@ -68,6 +68,8 @@ func TestSecretsPushRefusesExactDeclarationGraphDriftBeforeMutation(t *testing.T
 			}
 			f := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 				switch {
+				case strings.Contains(command, "_host/owner"):
+					return transport.Result{Stdout: "shop\n"}, true
 				case strings.Contains(command, "readlink"):
 					return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
 				case strings.Contains(command, "/ob.snapshot.yml"):
@@ -93,9 +95,52 @@ func TestSecretsPushRefusesExactDeclarationGraphDriftBeforeMutation(t *testing.T
 			if drift.Code() != "secret_declaration_not_deployed" || !strings.Contains(err.Error(), "ob deploy") {
 				t.Fatalf("drift error lacks stable code or deploy guidance: %v", err)
 			}
-			if len(f.Commands) != 2 {
+			if len(f.Commands) != 3 {
 				t.Fatalf("drift performed work beyond current+snapshot reads: %#v", f.Commands)
 			}
 		})
+	}
+}
+
+func TestValidateSecretPayloadsRefusesIncompleteOrUnsafeGraphs(t *testing.T) {
+	graph := resolvedSecretGraph(t, secretGraphProject).SecretDeclarationGraph()
+	valid := make([]SecretPayload, 0, len(graph))
+	for _, declaration := range graph {
+		valid = append(valid, SecretPayload{Path: declaration.OutputPath, Bytes: []byte("value")})
+	}
+	tests := map[string][]SecretPayload{
+		"missing":   append([]SecretPayload(nil), valid[:len(valid)-1]...),
+		"duplicate": append(append([]SecretPayload(nil), valid...), valid[0]),
+		"unknown":   append(append([]SecretPayload(nil), valid...), SecretPayload{Path: ".ob-unknown", Bytes: []byte("value")}),
+		"absolute":  {{Path: "/tmp/secret", Bytes: []byte("value")}},
+		"traversal": {{Path: "../secret", Bytes: []byte("value")}},
+	}
+	for name, payloads := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := validateSecretPayloads(graph, payloads); err == nil {
+				t.Fatalf("unsafe payload graph was accepted: %#v", payloads)
+			}
+		})
+	}
+}
+
+func TestCurrentSecretEngineKeepsDeployedOperationalSettings(t *testing.T) {
+	deployed := strings.Replace(secretGraphProject, "  web:\n    image: nginx\n", "  web:\n    image: nginx\n    replicas: 3\n", 1)
+	target := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "/ob.snapshot.yml") {
+			return transport.Result{Stdout: deployed}, true
+		}
+		return transport.Result{}, false
+	}}
+	engine := New(resolvedSecretGraph(t, secretGraphProject), nil, target, Options{Environment: "production", Out: io.Discard})
+	runtimeEngine, err := engine.currentSecretEngine(context.Background(), "20260809-120000-current")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeEngine.Spec.Workloads["web"].Replicas; got != 3 {
+		t.Fatalf("rotation runtime replicas = %d, want deployed value 3", got)
+	}
+	if got := engine.Spec.Workloads["web"].Replicas; got != 1 {
+		t.Fatalf("test did not preserve distinct working-tree value: %d", got)
 	}
 }

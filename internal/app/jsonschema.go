@@ -509,6 +509,29 @@ func applyRoleRules(doc map[string]any) {
 			"if":   map[string]any{"required": []any{"port"}},
 			"then": map[string]any{"required": []any{"domain"}},
 		},
+		// A published host socket is singular, so it cannot be held by both
+		// sides of a rolling handover. Include the authored default case:
+		// application + health + no strategy is rolling after normalization.
+		map[string]any{"not": map[string]any{"allOf": []any{
+			map[string]any{"required": []any{"published_ports"}},
+			map[string]any{"anyOf": []any{
+				map[string]any{
+					"properties": map[string]any{"strategy": map[string]any{"const": "rolling"}},
+					"required":   []any{"strategy"},
+				},
+				map[string]any{"allOf": []any{
+					map[string]any{"not": map[string]any{"required": []any{"strategy"}}},
+					map[string]any{"required": []any{"health"}},
+					map[string]any{"anyOf": []any{
+						map[string]any{
+							"properties": map[string]any{"role": map[string]any{"const": RoleApplication}},
+							"required":   []any{"role"},
+						},
+						map[string]any{"not": map[string]any{"required": []any{"role"}}},
+					}},
+				}},
+			}},
+		}}},
 		// A workload that declares durable persistence cannot be replicated:
 		// every replica would mount the same volume. The loader refuses this,
 		// and an editor should underline it too rather than leaving the author

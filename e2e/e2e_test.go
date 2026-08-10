@@ -93,12 +93,13 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		return e.Deploy(ctx, id, staging)
 	}
 
-	// The accessory proxy must be running before preflight.
+	// The host proxy must be running before preflight.
 	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("start traefik: %v\n%s", err, out)
 	}
 	waitHealthy(t, "obe2e", "traefik", 60*time.Second)
+	bootstrapHost(t, dir, "ob.yml", base)
 
 	if err := deploy("v1"); err != nil {
 		t.Fatalf("deploy v1: %v", err)

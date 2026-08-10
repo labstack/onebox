@@ -33,17 +33,22 @@ func TestJSONOperationOutputIsOrderedAndRedactsErrors(t *testing.T) {
 	if strings.Contains(out.String(), "hunter2") {
 		t.Fatalf("structured output leaked detailed error: %s", out.String())
 	}
-	var envelope cliOperationEnvelope
+	var envelope struct {
+		cliEnvelope
+		Data struct {
+			Events []onebox.OperationEvent `json:"events"`
+		} `json:"data"`
+	}
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out.String())
 	}
-	if envelope.SchemaVersion != cliOperationSchemaVersion {
+	if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob" || envelope.Outcome != cliOutcomeError {
 		t.Fatalf("schema = %q", envelope.SchemaVersion)
 	}
-	if len(envelope.Events) != 2 || envelope.Events[0].Sequence != 1 || envelope.Events[1].Sequence != 2 {
-		t.Fatalf("events not sequence ordered: %+v", envelope.Events)
+	if envelope.Error == nil || envelope.Error.Details == nil {
+		t.Fatalf("error details = %+v", envelope.Error)
 	}
-	if envelope.Error == nil || envelope.Error.Code != "operation_failed" {
+	if envelope.Error.Code != "operation_failed" {
 		t.Fatalf("error = %+v", envelope.Error)
 	}
 }
@@ -60,12 +65,12 @@ func TestNDJSONOperationOutputEmitsEventsThenResult(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("got %d records:\n%s", len(lines), out.String())
 	}
-	for i, wantType := range []string{"event", "result"} {
-		var record cliOperationRecord
+	for i, wantType := range []string{"event", "terminal"} {
+		var record cliRecord
 		if err := json.Unmarshal([]byte(lines[i]), &record); err != nil {
 			t.Fatalf("decode record %d: %v", i, err)
 		}
-		if record.SchemaVersion != cliRecordSchemaVersion || record.Type != wantType {
+		if record.SchemaVersion != cliSchemaVersion || record.Kind != wantType || record.Sequence != uint64(i+1) {
 			t.Fatalf("record %d = %+v", i, record)
 		}
 	}
@@ -100,11 +105,11 @@ func TestStructuredDeployWithoutPlanReturnsMachineReadableFailure(t *testing.T) 
 	if strings.Contains(out.String(), "requires --plan") {
 		t.Fatalf("structured payload leaked detailed error: %s", out.String())
 	}
-	var envelope cliOperationEnvelope
+	var envelope cliEnvelope
 	if decodeErr := json.Unmarshal(out.Bytes(), &envelope); decodeErr != nil {
 		t.Fatalf("decode output: %v\n%s", decodeErr, out.String())
 	}
-	if envelope.SchemaVersion != cliOperationSchemaVersion || envelope.Error == nil {
+	if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob deploy" || envelope.Outcome != cliOutcomeError || envelope.Error == nil {
 		t.Fatalf("envelope = %+v", envelope)
 	}
 }
@@ -167,17 +172,17 @@ func TestStructuredDeployRequiresApprovalArtifactWithoutPrompting(t *testing.T) 
 	root.SetOut(&out)
 	root.SetArgs([]string{"deploy", "--output", "json", "--plan", planPath})
 	err = root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "requires an explicit plan-bound --approval") {
+	if err == nil || !strings.Contains(err.Error(), "requires an explicit plan-bound local-confirmation artifact") {
 		t.Fatalf("error = %v", err)
 	}
 	if strings.Contains(out.String(), "Approve exact plan") || strings.Contains(out.String(), "not approved") {
 		t.Fatalf("structured stdout contains interactive text: %s", out.String())
 	}
-	var envelope cliOperationEnvelope
+	var envelope cliEnvelope
 	if decodeErr := json.Unmarshal(out.Bytes(), &envelope); decodeErr != nil {
 		t.Fatalf("decode output: %v\n%s", decodeErr, out.String())
 	}
-	if envelope.SchemaVersion != cliOperationSchemaVersion || envelope.Error == nil {
+	if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob deploy" || envelope.Outcome != cliOutcomeError || envelope.Error == nil {
 		t.Fatalf("envelope = %+v", envelope)
 	}
 }
@@ -211,7 +216,7 @@ port: 3000
 			t.Fatalf("%s: the stream is not one JSON document: %v\n%s", verb, err, out)
 		}
 		version, _ := envelope["schema_version"].(string)
-		if !strings.HasPrefix(version, "onebox.run/cli-") {
+		if version != cliSchemaVersion {
 			t.Errorf("%s: structured output must name its schema, got %q", verb, version)
 		}
 	}
@@ -250,11 +255,14 @@ workloads:
 	}
 }
 
-func TestStructuredOutputIsRejectedWhenACommandDoesNotImplementIt(t *testing.T) {
-	if _, err := run(t, t.TempDir(), "schema", "--output", "json"); err == nil {
-		t.Fatal("schema silently accepted an output mode it does not implement")
-	} else if !strings.Contains(err.Error(), "--output json is not supported by ob schema") {
-		t.Fatalf("unexpected error: %v", err)
+func TestSchemaImplementsTheCommonJSONEnvelope(t *testing.T) {
+	out, err := run(t, t.TempDir(), "schema", "--output", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope cliEnvelope
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil || envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob schema" {
+		t.Fatalf("schema envelope = %+v, decode=%v", envelope, err)
 	}
 }
 
@@ -264,7 +272,6 @@ func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
 		{"service"},
 		{"proxy"},
 		{"secrets"},
-		{"backup-evidence"},
 	} {
 		args := append(append([]string(nil), path...), "--output", "json")
 		out, err := run(t, t.TempDir(), args...)
@@ -282,7 +289,7 @@ func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
 }
 
 func TestEjectStructuredOutputIsVersioned(t *testing.T) {
-	for _, mode := range []string{"json", "ndjson"} {
+	for _, mode := range []string{"json"} {
 		dir := t.TempDir()
 		writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
 app: shop
@@ -294,14 +301,20 @@ image: nginx
 		if err != nil {
 			t.Fatalf("%s: %v\n%s", mode, err, out)
 		}
-		var envelope cliEjectEnvelope
+		var envelope struct {
+			cliEnvelope
+			Data struct {
+				Runtime   string   `json:"runtime"`
+				Workloads []string `json:"workloads"`
+			} `json:"data"`
+		}
 		if err := json.Unmarshal([]byte(out), &envelope); err != nil {
 			t.Fatalf("%s: decode structured output: %v\n%s", mode, err, out)
 		}
-		if envelope.SchemaVersion != cliEjectSchemaVersion {
+		if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob eject" {
 			t.Errorf("%s: schema version = %q", mode, envelope.SchemaVersion)
 		}
-		if envelope.Runtime == "" || len(envelope.Workloads) != 1 || envelope.Workloads[0] != "shop" {
+		if envelope.Data.Runtime == "" || len(envelope.Data.Workloads) != 1 || envelope.Data.Workloads[0] != "shop" {
 			t.Errorf("%s: incomplete eject envelope: %+v", mode, envelope)
 		}
 	}
@@ -323,12 +336,14 @@ workloads:
 		}
 		var record struct {
 			SchemaVersion string          `json:"schema_version"`
+			Command       string          `json:"command"`
+			Outcome       string          `json:"outcome"`
 			Error         *cliPublicError `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(out), &record); err != nil {
 			t.Fatalf("%s: decode failure record: %v\n%s", verb, err, out)
 		}
-		if record.SchemaVersion == "" || record.Error == nil {
+		if record.SchemaVersion != cliSchemaVersion || record.Command != "ob "+verb || record.Outcome != cliOutcomeError || record.Error == nil {
 			t.Fatalf("%s: incomplete failure record: %+v", verb, record)
 		}
 		if record.Error.Code != "unknown_field" || record.Error.Path != "workloads.web.replicaz" {
@@ -337,5 +352,70 @@ workloads:
 		if strings.Contains(out, "did you mean") {
 			t.Errorf("%s: detailed diagnostic leaked into the structured stream: %s", verb, out)
 		}
+	}
+}
+
+func TestLeafOutputMatrixIsClosedAndHasNoAliases(t *testing.T) {
+	root := newRootCmd()
+	seen := map[string]bool{}
+	validClasses := map[string]bool{
+		cliClassFiniteEnvelope: true, cliClassFiniteStream: true,
+		cliClassOperatorPassthrough: true, cliClassTrustedEditor: true,
+	}
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		if len(cmd.Aliases) != 0 {
+			t.Errorf("%s has pre-release aliases: %v", cmd.CommandPath(), cmd.Aliases)
+		}
+		children := cmd.Commands()
+		for _, child := range children {
+			if child.Name() == "help" || child.Name() == "completion" {
+				continue
+			}
+			walk(child)
+		}
+		if cmd == root || len(children) != 0 || cmd.Name() == "help" || cmd.Name() == "completion" {
+			return
+		}
+		path := cmd.CommandPath()
+		seen[path] = true
+		class, ok := cliOutputMatrix[path]
+		if !ok {
+			t.Errorf("leaf %s has no output class", path)
+			return
+		}
+		if !validClasses[class.Class] {
+			t.Errorf("leaf %s has invalid class %q", path, class.Class)
+		}
+		if !class.JSON && !class.NDJSON {
+			t.Errorf("leaf %s has no machine output mode", path)
+		}
+	}
+	walk(root)
+	for path := range cliOutputMatrix {
+		if !seen[path] {
+			t.Errorf("output matrix contains no leaf %s", path)
+		}
+	}
+}
+
+func TestIncompatibleLeafModeReturnsTypedEnvelope(t *testing.T) {
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetArgs([]string{"--output", "json", "exec", "--reason", "test output contract", "web", "--", "true"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("exec JSON unexpectedly succeeded")
+	}
+	var envelope cliEnvelope
+	if decodeErr := json.Unmarshal(out.Bytes(), &envelope); decodeErr != nil {
+		t.Fatalf("decode refusal: %v\n%s", decodeErr, out.String())
+	}
+	if envelope.Outcome != cliOutcomeError || envelope.Error == nil || envelope.Error.Code != "output_mode_incompatible" {
+		t.Fatalf("refusal = %+v", envelope)
+	}
+	if envelope.Error.DiagnosticCommand != "ob help exec" || envelope.Error.ResolvingCommand != "" {
+		t.Fatalf("guidance = %+v", envelope.Error)
 	}
 }

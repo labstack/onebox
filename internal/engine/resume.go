@@ -23,7 +23,7 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 	}
 	for i := len(ids) - 1; i >= 0; i-- {
 		s := journal.Summarize(byID[ids[i]])
-		if s.Started && !s.Finished && !s.Aborted {
+		if s.Started && !s.Finished && !s.Aborted && !s.Recovered {
 			return s, nil
 		}
 	}
@@ -46,8 +46,8 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	e.logf("resuming %s (started %s by %s; done: transfer=%v migrate=%v)",
-		s.DeployID, s.StartedAt, s.Operator, s.Done["transfer"], s.Done["migrate"])
+	e.logf("resuming %s (started %s by %s; transfer complete=%v)",
+		s.DeployID, s.StartedAt, s.Operator, s.Done["transfer"])
 	e.gateOpen = s.GateOpen
 	e.rollbackCovered = s.RollbackCovered // preserve the interrupted deploy's effect policy
 	e.Opts.MigrationBackupWasRequired = s.MigrationBackupRequired
@@ -95,17 +95,6 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 	if !s.RollbackCovered && !force {
 		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", s.DeployID)
 	}
-	interrupted, err := e.engineFromReleaseSnapshot(ctx, s.DeployID)
-	if err != nil {
-		return err
-	}
-	replay := interrupted
-	if s.PrevRelease != "" {
-		replay, err = e.engineFromReleaseSnapshot(ctx, s.PrevRelease)
-		if err != nil {
-			return err
-		}
-	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
 	if err != nil {
 		return err
@@ -114,8 +103,6 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 	if err := e.WriteFence(ctx, s.DeployID, epoch); err != nil {
 		return err
 	}
-	interrupted.fenceVal = e.fenceVal
-	replay.fenceVal = e.fenceVal
 	jw := &journal.Writer{
 		T: e.T, Names: e.names(), DeployID: s.DeployID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner,
@@ -125,63 +112,13 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 		MigrationBackupRequired: s.MigrationBackupRequired,
 		MigrationBackup:         s.MigrationBackup,
 	}
-	if err := jw.Append(ctx, journal.Record{Phase: "abort", Event: "intent", Detail: "to=" + s.PrevRelease}); err != nil {
-		return fmt.Errorf("journal abort intent: %w", err)
-	}
-	defer func() {
-		result := journal.Record{Phase: "abort", Event: "abort", Status: "ok"}
-		if err != nil {
-			result.Status = "fail"
-			result.Detail = err.Error()
-		}
-		if journalErr := jw.Append(ctx, result); journalErr != nil {
-			err = errors.Join(err, fmt.Errorf("journal abort result: %w", journalErr))
-		}
-	}()
-
-	if s.PrevRelease == "" {
-		e.logf("abort: first deploy — removing its containers, nothing to restore")
-		if err := interrupted.removeNewcomers(ctx, s.DeployID); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// Replay the previous release through the normal choreography: RollRole
-	// adopts prev-labeled containers as no-ops and drains this deploy's
-	// newcomers as "old" — a zero-downtime abort for rolling roles. Recreate
-	// roles are skipped when they already run the previous release.
-	prevCompose := release.PathsFor(e.names()).Releases + "/" + s.PrevRelease + "/compose.yaml"
-	for _, roleName := range replay.Spec.ReleaseOrder() {
-		role := replay.Spec.Workloads[roleName]
-		if role.Mode() == "recreate" {
-			prevIDs, err := replay.newcomerIDs(ctx, roleName, s.PrevRelease)
-			if err != nil {
-				return err
-			}
-			if len(prevIDs) > 0 {
-				e.logf("abort: %s already runs %s — untouched", roleName, s.PrevRelease)
-				continue
-			}
-		}
-		e.logf("abort: reverting %s to %s", roleName, s.PrevRelease)
-		var rerr error
-		if role.Mode() == "rolling" {
-			rerr = replay.RollRole(ctx, roleName, prevCompose)
-		} else {
-			rerr = replay.RecreateRole(ctx, roleName, prevCompose)
-		}
-		if rerr != nil {
-			return fmt.Errorf("abort %s: %w — intervene manually", roleName, rerr)
-		}
-	}
-	// straggler sweep: failed-join leftovers of the aborted release
-	if err := interrupted.removeNewcomers(ctx, s.DeployID); err != nil {
-		return err
-	}
-	if err := replay.Verify(ctx); err != nil {
-		return fmt.Errorf("abort verify: %w", err)
-	}
-	e.logf("aborted %s — %s serving", s.DeployID, s.PrevRelease)
-	return nil
+	return e.recoverInterrupted(ctx, recoveryRequest{
+		InterruptedID: s.DeployID,
+		PreviousID:    s.PrevRelease,
+		TerminalState: release.StateAborted,
+		GateCovered:   s.RollbackCovered,
+		BreakGlass:    force,
+		Phase:         "abort",
+		Journal:       jw,
+	})
 }

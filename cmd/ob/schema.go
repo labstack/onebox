@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -16,7 +17,7 @@ import (
 // what `ob validate` will tell you afterwards. A published schema that
 // disagreed with the loader would be worse than none: it would teach the author
 // something untrue and they would learn to ignore it.
-func addSchemaCommand(root *cobra.Command, _ *globalFlags) {
+func addSchemaCommand(root *cobra.Command, g *globalFlags) {
 	var to string
 
 	cmd := &cobra.Command{
@@ -32,15 +33,21 @@ func addSchemaCommand(root *cobra.Command, _ *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			body, err := app.JSONSchema()
 			if err != nil {
-				return err
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			body = append(body, '\n')
+			if isStructuredOutput(g) && to == "" {
+				return writeFiniteSuccess(cmd, g, map[string]any{"schema": json.RawMessage(body)})
+			}
 			if to == "" {
 				_, err := cmd.OutOrStdout().Write(body)
 				return err
 			}
 			if err := os.WriteFile(to, body, 0o644); err != nil {
-				return fmt.Errorf("cannot write %s: %w", to, err)
+				return writeStructuredReadFailure(cmd, g, fmt.Errorf("cannot write %s: %w", to, err))
+			}
+			if isStructuredOutput(g) {
+				return writeFiniteSuccess(cmd, g, map[string]any{"schema": json.RawMessage(body), "artifact_path": to})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", to)
 			return nil

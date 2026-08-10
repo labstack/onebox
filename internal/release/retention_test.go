@@ -1,0 +1,176 @@
+package release
+
+import (
+	"context"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/transport"
+)
+
+func retentionManifest(t *testing.T, id, kind, state, predecessor string, at time.Time) Manifest {
+	t.Helper()
+	manifest, err := NewManifest(id, kind, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch kind + "/" + state {
+	case KindBootstrap + "/" + StateVerified:
+		err = manifest.Transition(StateVerified, at, "")
+	case KindApplication + "/" + StateFailed:
+		err = manifest.Transition(StateFailed, at, "")
+	case KindApplication + "/" + StateVerified:
+		err = manifest.Transition(StateVerified, at, "")
+	case KindApplication + "/" + StateServing:
+		err = manifest.Transition(StateVerified, at, "")
+		if err == nil {
+			err = manifest.Transition(StateServing, at, predecessor)
+		}
+	case KindApplication + "/" + StateSuperseded:
+		err = manifest.Transition(StateVerified, at, "")
+		if err == nil {
+			err = manifest.Transition(StateServing, at, predecessor)
+		}
+		if err == nil {
+			err = manifest.Transition(StateSuperseded, at, "")
+		}
+	default:
+		t.Fatalf("unsupported test manifest %s/%s", kind, state)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manifest
+}
+
+func writeRetentionManifest(t *testing.T, target *transport.Fake, names app.Names, manifest Manifest) {
+	t.Helper()
+	if err := WriteManifest(context.Background(), target, names, manifest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetentionProtectsCurrentChainAndCheckpointReferences(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ids := []string{
+		"20260101-000000-aaa",
+		"20260102-000000-bbb",
+		"20260103-000000-ccc",
+		"20260104-000000-ddd",
+	}
+	target := &transport.Fake{}
+	writeRetentionManifest(t, target, names, retentionManifest(t, ids[0], KindApplication, StateSuperseded, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, ids[1], KindApplication, StateSuperseded, ids[0], old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, ids[2], KindApplication, StateServing, ids[1], old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, ids[3], KindApplication, StateFailed, "", old))
+	checkpoint, err := NewActivationCheckpoint(ids[3], ids[2], ActivationPrepared, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := ActivationCheckpointWrite(names, checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + ids[2] + "\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+	policy := DefaultRetentionPolicy(2, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC))
+	decision, err := RetentionCandidates(context.Background(), target, names, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(decision.Victims, []string{ids[0]}) {
+		t.Fatalf("victims = %v", decision.Victims)
+	}
+	for _, protected := range []string{ids[1], ids[2], ids[3]} {
+		if !slices.Contains(decision.Preserve, protected) {
+			t.Errorf("checkpoint/chain release %s was not preserved: %+v", protected, decision)
+		}
+	}
+}
+
+func TestRetentionUsesSeparateAgeAndEvidenceRules(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	recent := now.Add(-24 * time.Hour)
+	currentID := "20260808-000000-current"
+	bootstrapID := "20260101-000000-bootstrap"
+	failedOldID := "20260102-000000-failed"
+	failedRecentID := "20260808-000000-failed"
+	unknownEvidenceID := "20260103-000000-evidence"
+	unknownOldID := "20260104-000000-unknown"
+	uploadOld := "20260105-000000-upload.partial"
+	uploadRecent := "20260808-120000-upload.partial"
+	entries := []string{currentID, bootstrapID, failedOldID, failedRecentID, unknownEvidenceID, unknownOldID, uploadOld, uploadRecent}
+	target := &transport.Fake{}
+	writeRetentionManifest(t, target, names, retentionManifest(t, currentID, KindApplication, StateServing, "", recent))
+	writeRetentionManifest(t, target, names, retentionManifest(t, bootstrapID, KindBootstrap, StateVerified, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, failedOldID, KindApplication, StateFailed, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, failedRecentID, KindApplication, StateFailed, "", recent))
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: strings.Join(entries, "\n") + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+	policy := DefaultRetentionPolicy(2, now)
+	policy.EvidenceIDs = map[string]bool{unknownEvidenceID: true}
+	decision, err := RetentionCandidates(context.Background(), target, names, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, victim := range []string{bootstrapID, failedOldID, unknownOldID, uploadOld} {
+		if !slices.Contains(decision.Victims, victim) {
+			t.Errorf("expired %s not collected: %+v", victim, decision)
+		}
+	}
+	for _, preserved := range []string{currentID, failedRecentID, unknownEvidenceID, uploadRecent} {
+		if !slices.Contains(decision.Preserve, preserved) {
+			t.Errorf("protected/recent %s not preserved: %+v", preserved, decision)
+		}
+	}
+}
+
+func TestRetentionRefusesUnusableCheckpointEvidence(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	target := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{}, true
+		case strings.Contains(command, "/activation.json") && strings.Contains(command, "mode=%s"):
+			return transport.Result{Stdout: "mode=600\nnot-json"}, true
+		}
+		return transport.Result{}, false
+	}}
+	_, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, time.Now()))
+	if err == nil || !strings.Contains(err.Error(), "checkpoint evidence is unusable") {
+		t.Fatalf("error = %v", err)
+	}
+}

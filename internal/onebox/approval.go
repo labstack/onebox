@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	ApprovalGrantSchemaVersion = "onebox.run/approval-grant/v1alpha1"
+	ApprovalGrantSchemaVersion = "onebox.run/local-confirmation/v1alpha1"
 	ApprovalSourceLocalCLI     = "local_cli"
 )
 
@@ -24,44 +24,43 @@ const (
 // cryptographic binding, while the projected fields make the authority being
 // granted reviewable in isolation and auditable without reopening the plan.
 //
-// A local grant proves an explicit CLI approval ceremony, not an external
-// identity-provider signature. Future approval providers can issue the same
-// bound contract with an authenticated source and signature.
+// ApprovalGrant records an explicit local CLI approval ceremony. Its digest is
+// tamper-evident plan binding, not an identity-provider signature or proof that
+// the requesting actor was unable to create it.
 type ApprovalGrant struct {
-	SchemaVersion   string        `json:"schema_version"`
-	PlanDigest      string        `json:"plan_digest"`
-	OperationDigest string        `json:"operation_digest"`
-	Application     string        `json:"application"`
-	Environment     string        `json:"environment"`
-	Server          string        `json:"server"`
-	ConfigDigest    string        `json:"config_digest"`
-	ComposeDigest   string        `json:"compose_digest"`
-	StateDigest     string        `json:"state_digest"`
-	PayloadDigest   string        `json:"payload_digest"`
-	LiveStateDigest string        `json:"live_state_digest,omitempty"`
-	Risk            RiskClass     `json:"risk"`
-	Approval        ApprovalClass `json:"approval"`
-	ApprovedBy      string        `json:"approved_by"`
-	ApprovedAt      string        `json:"approved_at"`
-	ExpiresAt       string        `json:"expires_at"`
-	Source          string        `json:"source"`
-	ApprovalDigest  string        `json:"approval_digest"`
+	SchemaVersion      string        `json:"schema_version"`
+	PlanDigest         string        `json:"plan_digest"`
+	OperationDigest    string        `json:"operation_digest"`
+	Application        string        `json:"application"`
+	Environment        string        `json:"environment"`
+	Server             string        `json:"server"`
+	ConfigDigest       string        `json:"config_digest"`
+	ComposeDigest      string        `json:"compose_digest"`
+	StateDigest        string        `json:"state_digest"`
+	PayloadDigest      string        `json:"payload_digest"`
+	LiveStateDigest    string        `json:"live_state_digest,omitempty"`
+	BackupReportDigest string        `json:"backup_report_digest,omitempty"`
+	Risk               RiskClass     `json:"risk"`
+	Approval           ApprovalClass `json:"approval"`
+	ApprovedBy         string        `json:"approved_by"`
+	ApprovedAt         string        `json:"approved_at"`
+	ExpiresAt          string        `json:"expires_at"`
+	Source             string        `json:"source"`
+	ApprovalDigest     string        `json:"approval_digest"`
 }
 
 // NewApprovalGrant seals a local approval whose lifetime never exceeds the
 // plan's own expiry. The caller is responsible for running the human approval
 // ceremony before calling this constructor.
-func NewApprovalGrant(plan *DeployPlan, approvedBy string, now time.Time) (ApprovalGrant, error) {
-	if plan == nil {
-		return ApprovalGrant{}, errors.New("approval requires an executable plan")
-	}
-	if err := plan.Validate(); err != nil {
+func NewApprovalGrant(plan ExecutablePlan, report *BackupReport, approvedBy string, now time.Time) (ApprovalGrant, error) {
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
 		return ApprovalGrant{}, fmt.Errorf("validate approval plan: %w", err)
 	}
 	if strings.TrimSpace(approvedBy) == "" {
 		return ApprovalGrant{}, errors.New("approved_by is required")
 	}
-	expiresAt, err := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
+	expiresAt, err := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
 	if err != nil {
 		return ApprovalGrant{}, err
 	}
@@ -69,25 +68,36 @@ func NewApprovalGrant(plan *DeployPlan, approvedBy string, now time.Time) (Appro
 	if !now.Before(expiresAt) {
 		return ApprovalGrant{}, fmt.Errorf("deployment plan expired at %s — re-plan", expiresAt.Format(time.RFC3339))
 	}
-	binding := plan.Operation.Binding
+	binding := view.operation.Binding
+	backupReportDigest := ""
+	if report != nil {
+		if err := report.ValidateForPlan(plan, now); err != nil {
+			return ApprovalGrant{}, fmt.Errorf("validate backup report for confirmation: %w", err)
+		}
+		backupReportDigest, err = report.ComputeDigest()
+		if err != nil {
+			return ApprovalGrant{}, err
+		}
+	}
 	grant := ApprovalGrant{
-		SchemaVersion:   ApprovalGrantSchemaVersion,
-		PlanDigest:      plan.PlanDigest,
-		OperationDigest: plan.Operation.PlanDigest,
-		Application:     binding.Application,
-		Environment:     binding.Environment,
-		Server:          binding.Server,
-		ConfigDigest:    binding.ConfigDigest,
-		ComposeDigest:   binding.ComposeDigest,
-		StateDigest:     binding.StateDigest,
-		PayloadDigest:   binding.PayloadDigest,
-		LiveStateDigest: approvalLiveStateDigest(binding),
-		Risk:            plan.Operation.Risk,
-		Approval:        plan.Operation.Approval,
-		ApprovedBy:      strings.TrimSpace(approvedBy),
-		ApprovedAt:      now.Format(time.RFC3339Nano),
-		ExpiresAt:       expiresAt.UTC().Format(time.RFC3339Nano),
-		Source:          ApprovalSourceLocalCLI,
+		SchemaVersion:      ApprovalGrantSchemaVersion,
+		PlanDigest:         view.digest,
+		OperationDigest:    view.operation.PlanDigest,
+		Application:        binding.Application,
+		Environment:        binding.Environment,
+		Server:             binding.Server,
+		ConfigDigest:       binding.ConfigDigest,
+		ComposeDigest:      binding.ComposeDigest,
+		StateDigest:        binding.StateDigest,
+		PayloadDigest:      binding.PayloadDigest,
+		LiveStateDigest:    approvalLiveStateDigest(binding),
+		BackupReportDigest: backupReportDigest,
+		Risk:               view.operation.Risk,
+		Approval:           view.operation.Approval,
+		ApprovedBy:         strings.TrimSpace(approvedBy),
+		ApprovedAt:         now.Format(time.RFC3339Nano),
+		ExpiresAt:          expiresAt.UTC().Format(time.RFC3339Nano),
+		Source:             ApprovalSourceLocalCLI,
 	}
 	if err := grant.Seal(); err != nil {
 		return ApprovalGrant{}, err
@@ -108,28 +118,29 @@ func approvalLiveStateDigest(binding OperationBinding) string {
 
 func (a ApprovalGrant) canonicalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		SchemaVersion   string        `json:"schema_version"`
-		PlanDigest      string        `json:"plan_digest"`
-		OperationDigest string        `json:"operation_digest"`
-		Application     string        `json:"application"`
-		Environment     string        `json:"environment"`
-		Server          string        `json:"server"`
-		ConfigDigest    string        `json:"config_digest"`
-		ComposeDigest   string        `json:"compose_digest"`
-		StateDigest     string        `json:"state_digest"`
-		PayloadDigest   string        `json:"payload_digest"`
-		LiveStateDigest string        `json:"live_state_digest,omitempty"`
-		Risk            RiskClass     `json:"risk"`
-		Approval        ApprovalClass `json:"approval"`
-		ApprovedBy      string        `json:"approved_by"`
-		ApprovedAt      string        `json:"approved_at"`
-		ExpiresAt       string        `json:"expires_at"`
-		Source          string        `json:"source"`
+		SchemaVersion      string        `json:"schema_version"`
+		PlanDigest         string        `json:"plan_digest"`
+		OperationDigest    string        `json:"operation_digest"`
+		Application        string        `json:"application"`
+		Environment        string        `json:"environment"`
+		Server             string        `json:"server"`
+		ConfigDigest       string        `json:"config_digest"`
+		ComposeDigest      string        `json:"compose_digest"`
+		StateDigest        string        `json:"state_digest"`
+		PayloadDigest      string        `json:"payload_digest"`
+		LiveStateDigest    string        `json:"live_state_digest,omitempty"`
+		BackupReportDigest string        `json:"backup_report_digest,omitempty"`
+		Risk               RiskClass     `json:"risk"`
+		Approval           ApprovalClass `json:"approval"`
+		ApprovedBy         string        `json:"approved_by"`
+		ApprovedAt         string        `json:"approved_at"`
+		ExpiresAt          string        `json:"expires_at"`
+		Source             string        `json:"source"`
 	}{
 		a.SchemaVersion, a.PlanDigest, a.OperationDigest,
 		a.Application, a.Environment, a.Server,
 		a.ConfigDigest, a.ComposeDigest, a.StateDigest, a.PayloadDigest,
-		a.LiveStateDigest, a.Risk, a.Approval, a.ApprovedBy,
+		a.LiveStateDigest, a.BackupReportDigest, a.Risk, a.Approval, a.ApprovedBy,
 		a.ApprovedAt, a.ExpiresAt, a.Source,
 	})
 }
@@ -137,7 +148,7 @@ func (a ApprovalGrant) canonicalJSON() ([]byte, error) {
 func (a ApprovalGrant) ComputeDigest() (string, error) {
 	encoded, err := a.canonicalJSON()
 	if err != nil {
-		return "", fmt.Errorf("encode approval grant digest: %w", err)
+		return "", fmt.Errorf("encode local confirmation digest: %w", err)
 	}
 	return engine.HashBytes(encoded), nil
 }
@@ -158,7 +169,6 @@ func (a ApprovalGrant) validateContent() error {
 		{"config_digest", a.ConfigDigest},
 		{"compose_digest", a.ComposeDigest},
 		{"state_digest", a.StateDigest},
-		{"payload_digest", a.PayloadDigest},
 		{"approved_by", a.ApprovedBy},
 		{"approved_at", a.ApprovedAt},
 		{"expires_at", a.ExpiresAt},
@@ -174,6 +184,9 @@ func (a ApprovalGrant) validateContent() error {
 	}
 	if a.Source != ApprovalSourceLocalCLI {
 		return fmt.Errorf("unsupported approval source %q", a.Source)
+	}
+	if a.BackupReportDigest != "" && !sha256Digest.MatchString(a.BackupReportDigest) {
+		return errors.New("backup_report_digest must be a lowercase sha256 digest")
 	}
 	if !validRiskClass(a.Risk) {
 		return fmt.Errorf("unknown risk class %q", a.Risk)
@@ -197,7 +210,7 @@ func (a ApprovalGrant) validateContent() error {
 
 func (a *ApprovalGrant) Seal() error {
 	if a == nil {
-		return errors.New("approval grant is nil")
+		return errors.New("local confirmation is nil")
 	}
 	if err := a.validateContent(); err != nil {
 		return err
@@ -222,7 +235,7 @@ func (a ApprovalGrant) Validate() error {
 		return err
 	}
 	if a.ApprovalDigest != expected {
-		return fmt.Errorf("approval grant digest mismatch: got %q, expected %q", a.ApprovalDigest, expected)
+		return fmt.Errorf("local confirmation digest mismatch: got %q, expected %q", a.ApprovalDigest, expected)
 	}
 	return nil
 }
@@ -230,20 +243,18 @@ func (a ApprovalGrant) Validate() error {
 // ValidateForPlan rechecks every projected authority field. It runs inside the
 // canonical execution boundary, so adapters cannot weaken the binding by
 // validating a subset before calling Execute.
-func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
-	if plan == nil {
-		return errors.New("approval has no executable plan")
-	}
+func (a ApprovalGrant) ValidateForPlan(plan ExecutablePlan, now time.Time) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	if err := plan.Validate(); err != nil {
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
 		return fmt.Errorf("validate approved plan: %w", err)
 	}
-	binding := plan.Operation.Binding
+	binding := view.operation.Binding
 	want := ApprovalGrant{
-		PlanDigest:      plan.PlanDigest,
-		OperationDigest: plan.Operation.PlanDigest,
+		PlanDigest:      view.digest,
+		OperationDigest: view.operation.PlanDigest,
 		Application:     binding.Application,
 		Environment:     binding.Environment,
 		Server:          binding.Server,
@@ -252,8 +263,8 @@ func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 		StateDigest:     binding.StateDigest,
 		PayloadDigest:   binding.PayloadDigest,
 		LiveStateDigest: approvalLiveStateDigest(binding),
-		Risk:            plan.Operation.Risk,
-		Approval:        plan.Operation.Approval,
+		Risk:            view.operation.Risk,
+		Approval:        view.operation.Approval,
 	}
 	checks := []struct {
 		name string
@@ -273,6 +284,9 @@ func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 		{"operation digest", a.OperationDigest, want.OperationDigest},
 		{"plan digest", a.PlanDigest, want.PlanDigest},
 	}
+	if view.migrationBackup == nil && a.BackupReportDigest != "" {
+		return errors.New("local confirmation binds a backup report for a plan with no migration backup requirement")
+	}
 	for _, check := range checks {
 		if check.got != check.want {
 			return fmt.Errorf("approval %s does not match the executable plan", check.name)
@@ -280,8 +294,8 @@ func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 	}
 	approvedAt, _ := parseOperationTime(a.ApprovedAt, "approved_at")
 	expiresAt, _ := parseOperationTime(a.ExpiresAt, "expires_at")
-	planCreatedAt, _ := parseOperationTime(plan.Operation.CreatedAt, "plan created_at")
-	planExpiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
+	planCreatedAt, _ := parseOperationTime(view.operation.CreatedAt, "plan created_at")
+	planExpiresAt, _ := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
 	if approvedAt.Before(planCreatedAt) {
 		return errors.New("approval predates the executable plan")
 	}
@@ -300,11 +314,11 @@ func (a ApprovalGrant) ValidateForPlan(plan *DeployPlan, now time.Time) error {
 
 func (a ApprovalGrant) Save(path string) error {
 	if err := a.Validate(); err != nil {
-		return fmt.Errorf("validate approval grant: %w", err)
+		return fmt.Errorf("validate local confirmation: %w", err)
 	}
 	encoded, err := json.MarshalIndent(a, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode approval grant: %w", err)
+		return fmt.Errorf("encode local confirmation: %w", err)
 	}
 	encoded = append(encoded, '\n')
 	dir := filepath.Dir(path)
@@ -313,29 +327,29 @@ func (a ApprovalGrant) Save(path string) error {
 	}
 	tmp, err := os.CreateTemp(dir, ".approval-grant-*")
 	if err != nil {
-		return fmt.Errorf("create approval grant: %w", err)
+		return fmt.Errorf("create local confirmation: %w", err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("protect approval grant: %w", err)
+		return fmt.Errorf("protect local confirmation: %w", err)
 	}
 	if _, err := tmp.Write(encoded); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("write approval grant: %w", err)
+		return fmt.Errorf("write local confirmation: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close approval grant: %w", err)
+		return fmt.Errorf("close local confirmation: %w", err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("publish approval grant: %w", err)
+		return fmt.Errorf("publish local confirmation: %w", err)
 	}
 	return nil
 }
 
 func LoadApprovalGrant(path string) (*ApprovalGrant, error) {
-	encoded, err := readBoundedArtifact(path, "approval grant", maxApprovalGrantBytes)
+	encoded, err := readBoundedArtifact(path, "local confirmation", maxApprovalGrantBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -343,17 +357,17 @@ func LoadApprovalGrant(path string) (*ApprovalGrant, error) {
 	decoder.DisallowUnknownFields()
 	var approval ApprovalGrant
 	if err := decoder.Decode(&approval); err != nil {
-		return nil, fmt.Errorf("decode approval grant: %w", err)
+		return nil, fmt.Errorf("decode local confirmation: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("decode approval grant: multiple JSON values")
+			return nil, errors.New("decode local confirmation: multiple JSON values")
 		}
-		return nil, fmt.Errorf("decode approval grant: %w", err)
+		return nil, fmt.Errorf("decode local confirmation: %w", err)
 	}
 	if err := approval.Validate(); err != nil {
-		return nil, fmt.Errorf("validate approval grant: %w", err)
+		return nil, fmt.Errorf("validate local confirmation: %w", err)
 	}
 	return &approval, nil
 }

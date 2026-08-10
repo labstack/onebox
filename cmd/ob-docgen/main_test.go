@@ -23,7 +23,7 @@ func TestEveryLoaderErrorCodeIsDocumented(t *testing.T) {
 	}
 }
 
-func TestEveryLifecycleCodeIsDocumentedWithItsResolvingCommand(t *testing.T) {
+func TestEveryLifecycleCodeIsDocumentedWithItsGuidanceCommand(t *testing.T) {
 	page := renderErrorPage()
 	for _, code := range onebox.LifecycleFailureCodes() {
 		failure, err := onebox.NewLifecycleFailure(code)
@@ -33,8 +33,8 @@ func TestEveryLifecycleCodeIsDocumentedWithItsResolvingCommand(t *testing.T) {
 		if !strings.Contains(page, "`"+code+"`") {
 			t.Errorf("lifecycle code %q is missing from the generated page", code)
 		}
-		if !strings.Contains(page, "`"+failure.Next+"`") {
-			t.Errorf("lifecycle code %q is documented without its resolving command", code)
+		if !strings.Contains(page, "`"+failure.GuidanceCommand()+"`") || !strings.Contains(page, "| "+failure.GuidanceRole()+" |") {
+			t.Errorf("lifecycle code %q is documented without its guidance role and command", code)
 		}
 	}
 }

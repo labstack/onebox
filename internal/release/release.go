@@ -102,7 +102,7 @@ func Current(ctx context.Context, t transport.Transport, n app.Names) (string, e
 // operator can see it with `ls`, and ob simply behaves as though it were not
 // there. Callers must be able to say which happened.
 func list(ctx context.Context, t transport.Transport, n app.Names) (ids, skipped []string, err error) {
-	res, err := t.Run(ctx, "ls -1 "+q(PathsFor(n).Releases)+" 2>/dev/null || true")
+	res, err := t.Run(ctx, "ls -1A "+q(PathsFor(n).Releases)+" 2>/dev/null || true")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,24 +132,37 @@ func Previous(ctx context.Context, t transport.Transport, n app.Names) (string, 
 	if err != nil {
 		return "", err
 	}
-	ids, skipped, err := list(ctx, t, n)
-	if err != nil {
-		return "", err
+	if cur == "" {
+		return "", fmt.Errorf("no rollback target: there is no current release")
 	}
-	for i, id := range ids {
-		if id == cur && i > 0 {
-			return ids[i-1], nil
+	currentManifest, err := ReadManifest(ctx, t, n, cur)
+	if err != nil {
+		return "", fmt.Errorf("current release %s is not rollback-eligible: %w", cur, err)
+	}
+	if currentManifest.Kind != KindApplication || currentManifest.State != StateServing {
+		return "", fmt.Errorf("current release %s is not a serving application release", cur)
+	}
+	previous := currentManifest.Predecessor
+	if previous == "" {
+		return "", fmt.Errorf("current release %s has no recorded predecessor", cur)
+	}
+	previousManifest, err := ReadManifest(ctx, t, n, previous)
+	if err != nil {
+		return "", fmt.Errorf("recorded predecessor %s is not rollback-eligible: %w", previous, err)
+	}
+	if previousManifest.Kind != KindApplication || previousManifest.State != StateSuperseded || !manifestProvesServing(previousManifest) {
+		return "", fmt.Errorf("recorded predecessor %s is not a previously serving application release", previous)
+	}
+	return previous, nil
+}
+
+func manifestProvesServing(manifest Manifest) bool {
+	for _, transition := range manifest.Transitions {
+		if transition.State == StateServing {
+			return true
 		}
 	}
-	// Report the entries that were filtered out. Without them this message
-	// states a directory listing that contradicts what `ls` shows on the host —
-	// confident, specific and wrong — and gives the operator no way to tell a
-	// genuinely absent release from one ob declined to recognise.
-	if len(skipped) > 0 {
-		return "", fmt.Errorf("no previous release (current=%q, releases=%v); %d entr(ies) under %s were not "+
-			"recognised as release ids and were ignored: %v", cur, ids, len(skipped), PathsFor(n).Releases, skipped)
-	}
-	return "", fmt.Errorf("no previous release (current=%q, releases=%v)", cur, ids)
+	return false
 }
 
 func Activate(ctx context.Context, t transport.Transport, n app.Names, id string) error {

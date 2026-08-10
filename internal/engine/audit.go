@@ -18,20 +18,64 @@ import (
 // audit trail after an incident is looking for. The epoch separates them: it
 // counts invocations against the app, and every record carries it.
 func (e *Engine) Audit(ctx context.Context, n int) error {
-	ids, err := journal.List(ctx, e.T, e.names())
+	rows, err := e.AuditSnapshot(ctx, n)
 	if err != nil {
 		return err
 	}
-	if len(ids) == 0 {
+	if len(rows) == 0 {
 		fmt.Fprintln(e.Opts.Out, "no journals — nothing deployed through ob yet")
 		return nil
+	}
+
+	width := len("RELEASE")
+	for _, r := range rows {
+		if len(r.ReleaseID) > width {
+			width = len(r.ReleaseID)
+		}
+	}
+	format := fmt.Sprintf("%%-%ds %%-14s %%-20s %%-9s %%-12s %%s\n", width)
+	fmt.Fprintf(e.Opts.Out, format, "RELEASE", "ACTION", "OPERATOR", "GIT", "OUTCOME", "STARTED")
+	for _, r := range rows {
+		git := r.GitSHA
+		if git == "" {
+			git = "-"
+		}
+		fmt.Fprintf(e.Opts.Out, format, r.ReleaseID, r.Action, r.Operator, git, r.Outcome, r.StartedAt)
+		if r.Action == "exec" {
+			fmt.Fprintf(e.Opts.Out, "  target=%s (%s) command_digest=%s reason=%s\n", r.Target, r.TargetKind, r.CommandDigest, r.Reason)
+		}
+	}
+	return nil
+}
+
+type AuditRecord struct {
+	ReleaseID     string `json:"release_id"`
+	Epoch         int    `json:"epoch"`
+	Action        string `json:"action"`
+	Operator      string `json:"operator"`
+	GitSHA        string `json:"git_sha,omitempty"`
+	Outcome       string `json:"outcome"`
+	StartedAt     string `json:"started_at"`
+	Target        string `json:"target,omitempty"`
+	TargetKind    string `json:"target_kind,omitempty"`
+	CommandDigest string `json:"command_digest,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+func (e *Engine) AuditSnapshot(ctx context.Context, n int) ([]AuditRecord, error) {
+	ids, err := journal.List(ctx, e.T, e.names())
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []AuditRecord{}, nil
 	}
 
 	var rows []auditRow
 	for _, id := range ids {
 		recs, err := journal.Read(ctx, e.T, e.names(), id)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		rows = append(rows, auditRows(recs)...)
 	}
@@ -46,35 +90,29 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 		rows = rows[:n]
 	}
 
-	// Sized to the content: release identifiers carry the deploy kind, so a
-	// fixed width that fits a "deploy" pushes every later column out of line
-	// on a "service_apply" and the table stops being readable as a table.
-	width := len("RELEASE")
-	for _, r := range rows {
-		if len(r.deployID) > width {
-			width = len(r.deployID)
-		}
+	records := make([]AuditRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, AuditRecord{
+			ReleaseID: row.deployID, Epoch: row.epoch, Action: row.action,
+			Operator: row.operator, GitSHA: row.gitSHA, Outcome: row.outcome, StartedAt: row.startedAt,
+			Target: row.target, TargetKind: row.targetKind, CommandDigest: row.commandDigest, Reason: row.reason,
+		})
 	}
-	format := fmt.Sprintf("%%-%ds %%-14s %%-20s %%-9s %%-12s %%s\n", width)
-	fmt.Fprintf(e.Opts.Out, format, "RELEASE", "ACTION", "OPERATOR", "GIT", "OUTCOME", "STARTED")
-	for _, r := range rows {
-		git := r.gitSHA
-		if git == "" {
-			git = "-"
-		}
-		fmt.Fprintf(e.Opts.Out, format, r.deployID, r.action, r.operator, git, r.outcome, r.startedAt)
-	}
-	return nil
+	return records, nil
 }
 
 type auditRow struct {
-	deployID  string
-	epoch     int
-	action    string
-	operator  string
-	gitSHA    string
-	outcome   string
-	startedAt string
+	deployID      string
+	epoch         int
+	action        string
+	operator      string
+	gitSHA        string
+	outcome       string
+	startedAt     string
+	target        string
+	targetKind    string
+	commandDigest string
+	reason        string
 }
 
 // auditRows splits one journal into the invocations that wrote it.
@@ -105,6 +143,12 @@ func auditRows(recs []journal.Record) []auditRow {
 			if r.GitSHA != "" {
 				row.gitSHA = r.GitSHA
 			}
+			if r.Target != "" {
+				row.target = r.Target
+				row.targetKind = r.TargetKind
+				row.commandDigest = r.CommandDigest
+				row.reason = r.Reason
+			}
 			if r.Event == "start" && r.Phase != "" {
 				row.action = auditAction(r.Phase)
 			}
@@ -127,7 +171,7 @@ func auditRows(recs []journal.Record) []auditRow {
 // ran the command typed `ob service apply`.
 func auditAction(phase string) string {
 	switch phase {
-	case "accessory-apply":
+	case "service-apply":
 		return "service apply"
 	case "":
 		return "deploy"
@@ -144,6 +188,8 @@ func auditOutcome(action string) string {
 		return "bootstrapped"
 	case "service apply":
 		return "applied"
+	case "exec":
+		return "succeeded"
 	default:
 		return "deployed"
 	}

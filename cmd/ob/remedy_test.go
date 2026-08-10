@@ -12,7 +12,7 @@ import (
 
 // Every failure names a command the operator can actually run.
 //
-// safeResolvingCommand checks a remedy is shell-safe and starts with `ob `,
+// lifecycle validation checks guidance is shell-safe and starts with `ob `,
 // which is a claim about its form, not its truth. Eighteen of thirty-five
 // lifecycle codes passed that guard while naming verbs the CLI has never had —
 // `ob backup inspect`, `ob protection enable`, `ob assurance status`. A code is
@@ -26,12 +26,13 @@ func TestEveryLifecycleRemedyNamesARealCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", code, err)
 		}
-		if failure.Next == "" {
+		command := failure.GuidanceCommand()
+		if command == "" {
 			continue
 		}
-		fields := strings.Fields(failure.Next)
+		fields := strings.Fields(command)
 		if fields[0] != "ob" {
-			t.Errorf("%s: remedy %q does not start with ob", code, failure.Next)
+			t.Errorf("%s: guidance %q does not start with ob", code, command)
 			continue
 		}
 		var path []string
@@ -44,7 +45,7 @@ func TestEveryLifecycleRemedyNamesARealCommand(t *testing.T) {
 		want := "ob " + strings.Join(path, " ")
 		cmd, _, err := root.Find(path)
 		if err != nil || cmd == nil || cmd.CommandPath() != want {
-			t.Errorf("%s: remedy %q names %q, which is not a command", code, failure.Next, want)
+			t.Errorf("%s: guidance %q names %q, which is not a command", code, command, want)
 		}
 	}
 }

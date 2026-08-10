@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,13 @@ func conformanceCases() []conformanceCase {
 		{"volume scalar with a path", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
 		{"bind mount volume", wl("w: {image: nginx, volumes: [{source: ./data, path: /data}]}"), true},
 		{"published udp port", wl("w: {image: nginx, published_ports: [{host: 8555, container: 8555, protocol: udp}]}"), true},
+		// A fixed host socket cannot coexist with two rolling replicas. Recreate
+		// remains the explicit, valid way to publish it.
+		{"rolling workload with published host port", wl("w: {image: nginx, health: /healthz, strategy: rolling, published_ports: [{host: 8555, container: 8555}]}"), false},
+		{"recreate workload with published host port", wl("w: {image: nginx, strategy: recreate, published_ports: [{host: 8555, container: 8555}]}"), true},
+		// Manual jobs remain part of the release runtime even though deployment
+		// execution no longer selects them as an automatic release phase.
+		{"explicit manual job remains a runtime service", wl("j: {image: nginx, role: job, when: manual, data_effect: none}"), true},
 		{"service scalar", min + "services: {postgres: 18}\n", true},
 		{"service protection policy", validProtectionProject, true},
 		{"external service connection", validExternalServiceProject, true},
@@ -233,6 +241,31 @@ func TestPublishedPortBindsLoopback(t *testing.T) {
 	got := p.Workloads["w"].PublishedPorts[0]
 	if got.Bind != "127.0.0.1" || got.Protocol != "tcp" {
 		t.Fatalf("port = %+v, want loopback tcp", got)
+	}
+}
+
+func TestRollingWorkloadCannotPublishFixedHostPort(t *testing.T) {
+	_, err := LoadBytes([]byte(base+`workloads:
+  w:
+    image: nginx
+    strategy: rolling
+    health: {http: /healthz, port: 8080}
+    published_ports: [{host: 8000, container: 8080}]
+`), "ob.yml")
+	if err == nil {
+		t.Fatal("rolling workload with a fixed host port was accepted")
+	}
+	var projectErr *Error
+	if !errors.As(err, &projectErr) {
+		t.Fatalf("error type = %T, want *app.Error: %v", err, err)
+	}
+	if projectErr.Code != "project_invalid" || projectErr.Path != "workloads.w.published_ports" {
+		t.Fatalf("error = %#v", projectErr)
+	}
+	for _, resolution := range []string{"remove published_ports", "strategy to recreate"} {
+		if !strings.Contains(projectErr.Message, resolution) {
+			t.Fatalf("error does not name resolution %q: %s", resolution, projectErr.Message)
+		}
 	}
 }
 

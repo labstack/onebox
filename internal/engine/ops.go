@@ -2,36 +2,30 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
 )
 
 // Destroy tears the app down: containers via compose, then ob's own state
-// dir. Volumes survive unless removeVolumes — data loss is opt-in. The shared
-// managed proxy is refcounted: destroy deregisters this app; the proxy itself
-// goes only with removeProxy AND an empty registry (it may serve other apps).
+// dir. Volumes survive unless removeVolumes — data loss is opt-in. The managed
+// proxy belongs to the sole host owner and is removed only when requested.
 func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) error {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
 	if removeProxy && !e.Spec.Proxy.Managed {
-		return fmt.Errorf("--proxy: this app's proxy is not managed — nothing shared to remove")
+		return fmt.Errorf("--proxy: this application's proxy is not managed — nothing to remove")
 	}
 	hp := proxy.HostPaths(e.names())
-	if removeProxy {
-		// refuse BEFORE any teardown: other registered apps depend on it
-		others, err := e.proxyRegistryOthers(ctx)
-		if err != nil {
-			return err
-		}
-		if len(others) > 0 {
-			return fmt.Errorf("--proxy refused: the shared proxy still serves %s — destroy those apps first (or drop --proxy)",
-				strings.Join(others, ", "))
-		}
-	}
 	epoch, err := e.AcquireLock(ctx, "destroy", e.Opts.ForceLock)
 	if err != nil {
 		return err
@@ -132,7 +126,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		e.logf("kept %s — the service volumes survive and these credentials are the only thing that can open them", e.names().ServiceDir())
 	}
 	if e.Spec.Proxy.Managed {
-		// host scope, after the app fence is gone: plain Run, under host lock
+		// Host scope, after the app fence is gone: plain Run, under host lock.
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 			return err
 		}
@@ -140,15 +134,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// The app state (and its fence) is intentionally gone; subsequent
 		// mutations are protected solely by the host-scoped lock token.
 		e.fenceVal = ""
-		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Apps+"/"+e.Spec.Name)); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("deregister from proxy: %v %s", err, res.Stderr)
-		}
-		others, err := e.proxyRegistryOthers(ctx)
-		if err != nil {
-			return err
-		}
-		switch {
-		case removeProxy && len(others) == 0:
+		if removeProxy {
 			if res, err := e.hostMutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" down"); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
@@ -157,93 +143,183 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			if res, err := e.hostMutate(ctx, "rm -rf "+q(hp.Dir)); err != nil || res.ExitCode != 0 {
 				return fmt.Errorf("remove proxy dir: %v %s", err, res.Stderr)
 			}
-			e.logf("shared proxy removed (no apps remain)")
-		case removeProxy:
-			// raced: another app registered between the upfront check and now
-			e.logf("--proxy skipped: %s registered with the shared proxy during teardown — it stays", strings.Join(others, ", "))
-		case len(others) == 0:
-			e.logf("shared proxy kept with no registered apps — `ob destroy --proxy` removes it, or clean %s manually", hp.Dir)
+			e.logf("host proxy removed")
+		} else {
+			e.logf("host proxy kept — `ob destroy --proxy` removes it")
+		}
+		if removeProxy && removeVolumes {
+			if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Owner)); err != nil || res.ExitCode != 0 {
+				return fmt.Errorf("release host ownership: %v %s", err, res.Stderr)
+			}
+			e.logf("host ownership released after complete data and proxy removal")
 		}
 	}
 	e.logf("destroyed %s (volumes %s)", e.Spec.Name, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil
 }
 
-// proxyRegistryOthers lists apps other than this one registered with the
-// shared proxy.
-func (e *Engine) proxyRegistryOthers(ctx context.Context) ([]string, error) {
-	res, err := e.T.Run(ctx, "ls -1 "+q(proxy.HostPaths(e.names()).Apps)+" 2>/dev/null || true")
-	if err != nil {
-		return nil, err
-	}
-	var others []string
-	for _, name := range strings.Fields(res.Stdout) {
-		if name != e.Spec.Name && appNameRe.MatchString(name) {
-			others = append(others, name)
-		}
-	}
-	return others, nil
+const (
+	RuntimeTargetWorkload = "workload"
+	RuntimeTargetService  = "service"
+)
+
+type RuntimeTarget struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
-// Logs streams compose logs for one role/service (or all) from the current
-// release.
-func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, out io.Writer) error {
-	cur, err := release.Current(ctx, e.T, e.names())
+type RuntimeTargetError struct {
+	Name  string
+	Valid []RuntimeTarget
+}
+
+func (err *RuntimeTargetError) Error() string {
+	valid := make([]string, 0, len(err.Valid))
+	for _, target := range err.Valid {
+		valid = append(valid, target.Name+" ("+target.Kind+")")
+	}
+	return fmt.Sprintf("unknown runtime target %q; valid targets: %s", err.Name, strings.Join(valid, ", "))
+}
+
+func (err *RuntimeTargetError) Code() string { return "unknown_runtime_target" }
+
+// ResolveRuntimeTarget classifies the complete operator-visible runtime
+// namespace. Supporting services run in their own Compose projects; they are
+// never treated as services in the application release document.
+func (e *Engine) ResolveRuntimeTarget(name string) (RuntimeTarget, error) {
+	if _, ok := e.Spec.Workloads[name]; ok {
+		return RuntimeTarget{Name: name, Kind: RuntimeTargetWorkload}, nil
+	}
+	if _, ok := e.Spec.Services[name]; ok {
+		return RuntimeTarget{Name: name, Kind: RuntimeTargetService}, nil
+	}
+	valid := make([]RuntimeTarget, 0, len(e.Spec.Workloads)+len(e.Spec.Services))
+	for _, workload := range sortedNames(e.Spec.Workloads) {
+		valid = append(valid, RuntimeTarget{Name: workload, Kind: RuntimeTargetWorkload})
+	}
+	for _, service := range sortedNames(e.Spec.Services) {
+		valid = append(valid, RuntimeTarget{Name: service, Kind: RuntimeTargetService})
+	}
+	return RuntimeTarget{}, &RuntimeTargetError{Name: name, Valid: valid}
+}
+
+// Logs streams compose logs for exactly one workload or Onebox-run service.
+func (e *Engine) Logs(ctx context.Context, name string, follow bool, tail int, stdout, stderr io.Writer) error {
+	target, err := e.ResolveRuntimeTarget(name)
 	if err != nil {
 		return err
 	}
-	if cur == "" {
-		return fmt.Errorf("nothing deployed")
+	var cmd string
+	if target.Kind == RuntimeTargetService {
+		names := e.names()
+		cmd = "docker compose -p " + names.ServiceProject(name) + " -f " + q(names.ServiceFile(name))
+	} else {
+		cur, err := release.Current(ctx, e.T, e.names())
+		if err != nil {
+			return err
+		}
+		if cur == "" {
+			return fmt.Errorf("nothing deployed")
+		}
+		cmd = e.composeCmd(release.PathsFor(e.names()).Releases + "/" + cur + "/compose.yaml")
 	}
-	svc, err := e.resolveService(name)
-	if err != nil {
-		return err
-	}
-	cmd := e.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " logs --tail " + strconv.Itoa(tail)
+	cmd += " logs --tail " + strconv.Itoa(tail)
 	if follow {
 		cmd += " --follow"
 	}
-	if svc != "" {
-		cmd += " " + svc
-	}
-	return e.T.RunStream(ctx, cmd, out)
+	cmd += " " + name
+	return e.T.RunStream(ctx, cmd, stdout, stderr)
 }
 
-// ExecIn runs a command inside a role's container — the operator's own
-// command, verbatim (same trust level as their shell).
-func (e *Engine) ExecIn(ctx context.Context, name, command string, out io.Writer) error {
-	svc, err := e.resolveService(name)
+const maxExecReasonBytes = 256
+
+// ValidateExecReason protects the durable journal from unbounded or multiline
+// operator input. A reason is public operational metadata; callers must never
+// put a credential in it.
+func ValidateExecReason(reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("exec requires --reason with a short operational justification")
+	}
+	if len(reason) > maxExecReasonBytes {
+		return fmt.Errorf("exec reason exceeds %d bytes", maxExecReasonBytes)
+	}
+	for _, r := range reason {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("exec reason must be a single line without control characters")
+		}
+	}
+	return nil
+}
+
+// ExecInAudited runs the operator's command verbatim (the same trust level as
+// their shell), but journals only safe invocation metadata. Command bytes and
+// stdout/stderr are never persisted by Onebox.
+func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, reason string, stdout, stderr io.Writer) (err error) {
+	if err := ValidateExecReason(reason); err != nil {
+		return err
+	}
+	if strings.TrimSpace(operationID) == "" {
+		return errors.New("exec operation ID is required")
+	}
+	if strings.TrimSpace(command) == "" {
+		return errors.New("exec command is required")
+	}
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
+	target, err := e.ResolveRuntimeTarget(name)
 	if err != nil {
 		return err
 	}
-	if svc == "" {
-		return fmt.Errorf("exec needs a component or service name")
+	commandDigest := HashBytes([]byte(command))
+	writer := &journal.Writer{
+		T: e.T, Names: e.names(), DeployID: operationID, Operator: journal.DefaultOperator(),
+		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}
-	id, err := e.containerID(ctx, svc)
+	invocation := journal.Record{
+		Phase: "exec", Event: "start", Status: "ok", Target: target.Name,
+		TargetKind: target.Kind, CommandDigest: commandDigest, Reason: reason,
+	}
+	if err := writer.Append(ctx, invocation); err != nil {
+		return fmt.Errorf("journal exec start: %w", err)
+	}
+	defer func() {
+		finish := invocation
+		finish.Event = "finish"
+		finish.Status = "ok"
+		if err != nil {
+			finish.Status = "fail"
+			finish.ErrorCode = "exec_failed"
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				finish.ErrorCode = "exec_cancelled"
+			}
+		}
+		journalContext := ctx
+		var cancel context.CancelFunc
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			journalContext, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+		}
+		if journalErr := writer.Append(journalContext, finish); journalErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal exec finish: %w", journalErr))
+		}
+	}()
+	project := e.Spec.Name
+	if target.Kind == RuntimeTargetService {
+		project = e.names().ServiceProject(name)
+	}
+	ids, err := e.containerIDsForProject(ctx, project, name)
 	if err != nil {
 		return err
+	}
+	id := ""
+	if len(ids) > 0 {
+		id = ids[0]
 	}
 	if id == "" {
-		return fmt.Errorf("%s: no running container", svc)
+		return fmt.Errorf("%s: no running container", name)
 	}
-	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), out)
-}
-
-// resolveService maps a name the operator typed to a Compose service. A
-// workload's name IS its service name, so there is no indirection to undo: this
-// checks the name means something, and passes through a service that only the
-// rendered runtime knows about.
-func (e *Engine) resolveService(name string) (string, error) {
-	if name == "" {
-		return "", nil
-	}
-	if _, ok := e.Spec.Workloads[name]; ok {
-		return name, nil
-	}
-	if _, ok := e.Compose.Services[name]; ok {
-		return name, nil
-	}
-	return "", fmt.Errorf("%q is neither a workload nor a compose service", name)
+	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), stdout, stderr)
 }
 
 // volName: docker volume names — never interpolated back into a shell

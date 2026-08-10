@@ -123,34 +123,24 @@ func TestStructuredOutputMatrixIsDocumented(t *testing.T) {
 	page := readDocsPage(t, policiesPage, "it is authored, not generated")
 	// Only the list itself, not the paragraph after it: that sentence names
 	// `ob version`, which takes the same global `--output` as everything else.
-	matrix := sectionOf(t, page, "### Commands that accept", "Anything not listed")
+	matrix := sectionOf(t, page, "### Classified leaf commands", "Anything not listed")
 
 	documented := map[string]bool{}
 	for _, command := range regexp.MustCompile("`(ob [a-z-]+(?: [a-z-]+)*)`").FindAllStringSubmatch(matrix, -1) {
 		documented[command[1]] = true
 	}
 
-	for command := range structuredOutputCommands {
+	for command := range cliOutputMatrix {
 		if !documented[command] {
 			t.Errorf("%q carries structured output but is absent from the matrix in %s", command, policiesPage)
 		}
 	}
 	for command := range documented {
-		if !structuredOutputCommands[command] {
+		if _, ok := cliOutputMatrix[command]; !ok {
 			t.Errorf("the matrix in %s lists %q, which does not carry structured output", policiesPage, command)
 		}
 	}
-	for _, version := range []string{
-		cliValidateSchemaVersion,
-		cliCanonicalSchemaVersion,
-		cliPreviewSchemaVersion,
-		cliEjectSchemaVersion,
-		cliStatusSchemaVersion,
-		cliOperationSchemaVersion,
-		cliRecordSchemaVersion,
-		doctorReportSchemaVersion,
-		versionReportSchemaVersion,
-	} {
+	for _, version := range []string{cliSchemaVersion} {
 		if !strings.Contains(page, version) {
 			t.Errorf("structured schema %q is absent from %s", version, policiesPage)
 		}

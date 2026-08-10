@@ -13,10 +13,12 @@ import (
 
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/journal"
 )
 
 const (
 	ExecutableDeployPlanSchemaVersion = "onebox.run/executable-deploy-plan/v1alpha2"
+	ExecutableJobPlanSchemaVersion    = "onebox.run/executable-job-plan/v1alpha1"
 	OperationEventSchemaVersion       = "onebox.run/operation-event/v1alpha1"
 	maxExecutableDeployPlanBytes      = 16 << 20
 	maxApprovalGrantBytes             = 1 << 20
@@ -39,7 +41,7 @@ func readBoundedArtifact(path, kind string, limit int) ([]byte, error) {
 }
 
 func SupportedExecutableDeployPlanSchemas() []string {
-	return []string{ExecutableDeployPlanSchemaVersion}
+	return []string{ExecutableDeployPlanSchemaVersion, ExecutableJobPlanSchemaVersion}
 }
 
 func CurrentRunnerProvenance() buildinfo.Runner {
@@ -58,6 +60,54 @@ type DeployPlan struct {
 	NoOp            bool                        `json:"no_op"`
 	MigrationBackup *MigrationBackupRequirement `json:"migration_backup,omitempty"`
 	PlanDigest      string                      `json:"plan_digest"`
+}
+
+func (p DeployPlan) ExecutableOperation() OperationPlan { return p.Operation }
+func (p DeployPlan) ExecutablePlanDigest() string       { return p.PlanDigest }
+func (p DeployPlan) ExecutableMigrationBackup() *MigrationBackupRequirement {
+	return p.MigrationBackup
+}
+
+// ExecutablePlan is the common approval/evidence authority shared by deploy
+// and one-shot job plans. inspectExecutablePlan still accepts only Onebox's
+// concrete plan types, so an adapter cannot substitute its own validation.
+type ExecutablePlan interface {
+	Validate() error
+	ExecutableOperation() OperationPlan
+	ExecutablePlanDigest() string
+	ExecutableMigrationBackup() *MigrationBackupRequirement
+}
+
+type executablePlanView struct {
+	operation       OperationPlan
+	digest          string
+	migrationBackup *MigrationBackupRequirement
+}
+
+func inspectExecutablePlan(plan ExecutablePlan) (executablePlanView, error) {
+	if plan == nil {
+		return executablePlanView{}, errors.New("executable plan is nil")
+	}
+	switch typed := plan.(type) {
+	case *DeployPlan:
+		if typed == nil {
+			return executablePlanView{}, errors.New("executable plan is nil")
+		}
+	case *JobPlan:
+		if typed == nil {
+			return executablePlanView{}, errors.New("executable plan is nil")
+		}
+	default:
+		return executablePlanView{}, errors.New("unsupported executable plan type")
+	}
+	if err := plan.Validate(); err != nil {
+		return executablePlanView{}, err
+	}
+	return executablePlanView{
+		operation:       plan.ExecutableOperation(),
+		digest:          plan.ExecutablePlanDigest(),
+		migrationBackup: plan.ExecutableMigrationBackup(),
+	}, nil
 }
 
 func artifactDigest(artifact engine.Artifact) (string, error) {
@@ -282,10 +332,13 @@ type ExecutionBinding struct {
 type ExecuteRequest struct {
 	Kind                    OperationKind
 	Plan                    *DeployPlan
+	JobPlan                 *JobPlan
 	Approval                *ApprovalGrant
-	BackupEvidence          *BackupEvidenceReceipt
+	BackupReport            *BackupReport
 	MigrationBackupOverride *MigrationBackupOverride
-	Force                   bool
+	BreakLock               bool
+	AllowDestructiveMounts  bool
+	BreakMigrationGate      bool
 	NoRollback              bool
 	Redeploy                bool
 	RemoveVolumes           bool
@@ -301,14 +354,15 @@ type OperationResult struct {
 	ReleaseID string        `json:"release_id,omitempty"`
 	// EvidenceID is the engine's release/journal correlation key, not a claim
 	// that a journal append completed. An early failure may leave no evidence.
-	EvidenceID                    string           `json:"evidence_id,omitempty"`
-	StartedAt                     string           `json:"started_at"`
-	FinishedAt                    string           `json:"finished_at"`
-	NoOp                          bool             `json:"no_op,omitempty"`
-	ApprovalDigest                string           `json:"approval_digest,omitempty"`
-	BackupEvidenceDigest          string           `json:"backup_evidence_digest,omitempty"`
-	MigrationBackupOverrideDigest string           `json:"migration_backup_override_digest,omitempty"`
-	Runner                        buildinfo.Runner `json:"runner"`
+	EvidenceID                    string                     `json:"evidence_id,omitempty"`
+	StartedAt                     string                     `json:"started_at"`
+	FinishedAt                    string                     `json:"finished_at"`
+	NoOp                          bool                       `json:"no_op,omitempty"`
+	ApprovalDigest                string                     `json:"approval_digest,omitempty"`
+	BackupReportDigest            string                     `json:"backup_report_digest,omitempty"`
+	MigrationBackupOverrideDigest string                     `json:"migration_backup_override_digest,omitempty"`
+	Runner                        buildinfo.Runner           `json:"runner"`
+	JobResult                     *journal.JobResultEvidence `json:"job_result,omitempty"`
 }
 
 func validateRunnerProvenance(runner buildinfo.Runner, planSchema string) error {

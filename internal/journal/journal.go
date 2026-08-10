@@ -65,8 +65,7 @@ type Record struct {
 	MigrationBackupRequired bool                     `json:"migration_backup_required,omitempty"`
 	MigrationBackup         *MigrationBackupEvidence `json:"migration_backup,omitempty"`
 	JobResult               *JobResultEvidence       `json:"job_result,omitempty"`
-	// Protection fields extend the same host-synced operation journal without
-	// weakening compatibility with older deployment records.
+	// Protection fields share the host-synced operation journal.
 	OperationKind       string                    `json:"operation_kind,omitempty"`
 	Service             string                    `json:"service,omitempty"`
 	ProtectionStepID    string                    `json:"protection_step_id,omitempty"`
@@ -75,6 +74,12 @@ type Record struct {
 	Retry               *RetryClassification      `json:"retry,omitempty"`
 	HelperProvenance    *HelperProvenance         `json:"helper_provenance,omitempty"`
 	TerminalResult      *ProtectionTerminalResult `json:"terminal_result,omitempty"`
+	// Exec invocation evidence is intentionally value-free: command bytes and
+	// passthrough output never cross the durable journal boundary.
+	Target        string `json:"target,omitempty"`
+	TargetKind    string `json:"target_kind,omitempty"`
+	CommandDigest string `json:"command_digest,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 type Writer struct {
@@ -131,7 +136,7 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	}
 	// Durable authorization context belongs on the deploy start (so a crash
 	// before the first protected step remains resumable) and on the explicit
-	// backup-evidence decision. Avoid copying operator-provided fields onto every
+	// migration-backup authorization decision. Avoid copying operator-provided fields onto every
 	// journal line.
 	authorizationRecord := r.Phase == "deploy" && r.Event == "start" || r.SubStep == MigrationBackupSubStep
 	if authorizationRecord {
@@ -289,8 +294,11 @@ type Summary struct {
 	// DeploySucceeded is sticky and operation-scoped: later maintenance records
 	// may share this journal id, but cannot erase a compatible code activation.
 	DeploySucceeded bool
-	PrevRelease     string
-	GateOpen        bool
+	// Recovered is a successful automatic rollback terminal. The deploy itself
+	// failed, but no resume/abort work remains after centralized recovery.
+	Recovered   bool
+	PrevRelease string
+	GateOpen    bool
 	// RollbackCovered is true only when every recorded effect attempt was
 	// either explicitly rollback-safe or covered by the interrupted deploy's
 	// own policy declaration.
@@ -360,7 +368,7 @@ func Summarize(recs []Record) Summary {
 		if r.JobResult != nil && strings.HasPrefix(r.SubStep, "job:") {
 			s.JobResults[strings.TrimPrefix(r.SubStep, "job:")] = *r.JobResult
 		}
-		effectStep := r.SubStep == "migrate" || r.SubStep == EffectBaselineSubStep ||
+		effectStep := r.SubStep == EffectBaselineSubStep ||
 			strings.HasPrefix(r.SubStep, "job:") || strings.HasPrefix(r.SubStep, "hook:")
 		if effectStep {
 			s.Done[DoneGateRecorded] = true
@@ -386,7 +394,7 @@ func Summarize(recs []Record) Summary {
 			}
 		}
 
-		deployRecord := r.Phase == "" || r.Phase == "deploy" // phase was absent in early journals
+		deployRecord := r.Phase == "deploy"
 		switch r.Event {
 		case "start":
 			if deployRecord {
@@ -413,13 +421,14 @@ func Summarize(recs []Record) Summary {
 			if r.Status != "ok" {
 				continue
 			}
+			if r.Phase == "auto-rollback" {
+				s.Recovered = true
+			}
 			switch {
 			case r.Phase == "transfer":
 				s.Done["transfer"] = true
 			case r.SubStep == MigrationBackupSubStep:
 				s.Done[MigrationBackupSubStep] = true
-			case r.SubStep == "migrate": // sparse journals without job-level records
-				s.Done["migrate"] = true
 			case strings.HasPrefix(r.SubStep, "job:"):
 				s.Done[r.SubStep] = true
 			case strings.HasPrefix(r.SubStep, "hook:"):

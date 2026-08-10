@@ -46,14 +46,13 @@ func TestProtectionPublicSurfacesHaveNoCredentialOrDatabaseContentFields(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	// BackupEvidenceReceipt is the existing sealed manifest/evidence surface. It
-	// models identities and digests only; protection credentials and database
-	// payload bytes have no destination in its public shape.
-	manifestJSON, err := json.Marshal(BackupEvidenceReceipt{
-		SchemaVersion: BackupEvidenceReceiptSchemaVersion,
+	// BackupReport models identities and validation results only; protection
+	// credentials and database payload bytes have no destination in its shape.
+	manifestJSON, err := json.Marshal(BackupReport{
+		SchemaVersion: BackupReportSchemaVersion,
 		PlanDigest:    "sha256:plan", OperationDigest: "sha256:operation",
 		Application: "example", Environment: "production", Server: "offsite",
-		RecordedBy: "operator", RecordedAt: "2026-08-07T12:00:00Z", EvidenceDigest: "sha256:evidence",
+		ReportedBy: "operator", ReportedAt: "2026-08-07T12:00:00Z",
 	})
 	if err != nil {
 		t.Fatal(err)

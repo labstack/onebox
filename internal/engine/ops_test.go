@@ -3,6 +3,8 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -23,69 +25,6 @@ func opsFake(remoteSecretsHash string) *transport.Fake {
 		return base(cmd)
 	}
 	return f
-}
-
-func TestSecretsPushBouncesOnChange(t *testing.T) {
-	f := opsFake("deadbeef") // remote hash differs from anything
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", []byte("KEY=new\n")); err != nil {
-		t.Fatalf("push: %v\n%s", err, strings.Join(f.Commands, "\n"))
-	}
-	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, `"phase":"secrets-push"`) {
-		t.Fatalf("not journaled:\n%s", seq)
-	}
-	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") || !strings.Contains(seq, "--scale web=2") {
-		t.Fatalf("roles not bounced:\n%s", seq)
-	}
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/.secrets-") {
-		t.Fatalf("secrets not uploaded to an epoch-private staging dir: %v", f.Uploads)
-	}
-	// The installed name is the one the generated runtime references for this
-	// entry, not a constant. Pushing to a constant while generation referenced
-	// a derived name wrote a file nothing read: `secrets push` reported success
-	// and the container kept the values staged when the release was made.
-	if !strings.Contains(seq, "cp '/var/lib/ob/sample/.secrets-") || !strings.Contains(seq, "'/var/lib/ob/sample/releases/R7/.ob-decrypted-s.env.env'") {
-		t.Fatalf("secrets were not installed behind the app fence:\n%s", seq)
-	}
-	if strings.Contains(seq, "KEY=new") {
-		t.Fatal("secret content must never appear in a command")
-	}
-}
-
-func TestSecretsPushStopsWhenJournalStartFails(t *testing.T) {
-	f := opsFake("deadbeef")
-	base := f.Dynamic
-	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, `"phase":"secrets-push","event":"start"`) {
-			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
-		}
-		return base(cmd)
-	}
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", []byte("KEY=new\n"))
-	if err == nil || !strings.Contains(err.Error(), "journal secrets push start") {
-		t.Fatalf("secrets push error = %v", err)
-	}
-	if len(f.Uploads) != 0 {
-		t.Fatalf("secrets uploaded after journal failure: %v", f.Uploads)
-	}
-}
-
-func TestSecretsPushNoopOnMatch(t *testing.T) {
-	env := []byte("KEY=same\n")
-	// prime fake with the real hash of env
-	f2 := opsFake(HashBytesHex(env))
-	e := New(testConfig(), testProject(t), f2, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.SecretsPush(context.Background(), ".ob-decrypted-s.env.env", env); err != nil {
-		t.Fatal(err)
-	}
-	if len(f2.Uploads) != 0 {
-		t.Fatalf("no-op push must not upload: %v", f2.Uploads)
-	}
-	if strings.Contains(strings.Join(f2.Commands, "\n"), "force-recreate") {
-		t.Fatal("no-op push must not bounce roles")
-	}
 }
 
 func TestDestroySequence(t *testing.T) {
@@ -136,41 +75,121 @@ func TestLogsAndExecShapes(t *testing.T) {
 	f := opsFake("x")
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Workloads["postgres"] = app.Workload{Role: app.RoleDaemon, Image: &app.Image{Reference: "postgres:17"}}
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
-	if err := e.Logs(context.Background(), "web", true, 50, &out); err != nil {
+	if err := e.Logs(context.Background(), "web", true, 50, &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "logs --tail 50 --follow web") {
 		t.Fatalf("logs shape wrong:\n%s", seq)
 	}
-	if err := e.Logs(context.Background(), "postgres", false, 20, &out); err != nil {
+	if err := e.Logs(context.Background(), "postgres", false, 20, &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "logs --tail 20 postgres") {
-		t.Fatalf("workload logs shape wrong:\n%s", seq)
+	if !strings.Contains(seq, "docker compose -p ob_sample_postgres -f '/var/lib/ob/sample/services/postgres.yaml' logs --tail 20 postgres") {
+		t.Fatalf("service logs shape wrong:\n%s", seq)
 	}
-	if err := e.ExecIn(context.Background(), "web", "alembic current", &out); err != nil {
+	if err := e.ExecInAudited(context.Background(), "exec-workload", "web", "alembic current", "inspect migration state", &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
 	}
-	if err := e.ExecIn(context.Background(), "postgres", "psql --version", &out); err != nil {
+	if err := e.ExecInAudited(context.Background(), "exec-service", "postgres", "psql --version", "verify client version", &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker exec PG1 sh -c 'psql --version'") {
 		t.Fatalf("workload exec shape wrong:\n%s", seq)
 	}
-	if svc, err := e.resolveService("postgres"); err != nil || svc != "postgres" {
-		t.Fatalf("raw compose service resolution = %q, %v", svc, err)
+	if target, err := e.ResolveRuntimeTarget("postgres"); err != nil || target.Kind != RuntimeTargetService {
+		t.Fatalf("service resolution = %#v, %v", target, err)
 	}
-	if _, err := e.resolveService("nope"); err == nil {
-		t.Fatal("unknown name must error")
+	if _, err := e.ResolveRuntimeTarget("nope"); err == nil || !strings.Contains(err.Error(), "postgres (service)") || !strings.Contains(err.Error(), "web (workload)") {
+		t.Fatalf("unknown target error = %v", err)
+	}
+}
+
+func TestExecAuditPersistsDigestButNeverCommandOrOutput(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.HasPrefix(cmd, "docker exec ") {
+			return transport.Result{Stdout: "passthrough-secret-value\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
+	command := "printf command-secret-value"
+	var stdout bytes.Buffer
+	if err := e.ExecInAudited(context.Background(), "exec-redaction", "web", command, "incident 42 inspection", &stdout, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "passthrough-secret-value\n" {
+		t.Fatalf("passthrough = %q", stdout.String())
+	}
+	var journalCommands []string
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "/journal/exec-redaction.jsonl") {
+			journalCommands = append(journalCommands, cmd)
+		}
+	}
+	journalText := strings.Join(journalCommands, "\n")
+	if len(journalCommands) != 2 || !strings.Contains(journalText, HashBytes([]byte(command))) || !strings.Contains(journalText, "incident 42 inspection") {
+		t.Fatalf("journal evidence = %s", journalText)
+	}
+	if strings.Contains(journalText, "command-secret-value") || strings.Contains(journalText, "passthrough-secret-value") {
+		t.Fatalf("journal persisted exec bytes: %s", journalText)
+	}
+}
+
+func TestExecAuditRecordsFailureAndCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "failure", err: errors.New("container failed"), code: "exec_failed"},
+		{name: "cancelled", err: context.Canceled, code: "exec_cancelled"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := opsFake("x")
+			f.Err = func(cmd string) error {
+				if strings.HasPrefix(cmd, "docker exec ") {
+					return test.err
+				}
+				return nil
+			}
+			e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
+			err := e.ExecInAudited(context.Background(), "exec-"+test.name, "web", "false secret-command", "test terminal audit", io.Discard, io.Discard)
+			if !errors.Is(err, test.err) {
+				t.Fatalf("exec error = %v", err)
+			}
+			var journalText string
+			for _, cmd := range f.Commands {
+				if strings.Contains(cmd, "/journal/exec-"+test.name+".jsonl") {
+					journalText += cmd
+				}
+			}
+			if !strings.Contains(journalText, test.code) || strings.Contains(journalText, "secret-command") {
+				t.Fatalf("terminal journal = %s", journalText)
+			}
+		})
+	}
+}
+
+func TestExecReasonRefusedBeforeTargetContact(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: io.Discard, Sleep: noSleep})
+	for _, reason := range []string{"", "line one\nline two", strings.Repeat("x", maxExecReasonBytes+1)} {
+		if err := e.ExecInAudited(context.Background(), "exec-invalid", "web", "true", reason, io.Discard, io.Discard); err == nil {
+			t.Fatalf("reason %q accepted", reason)
+		}
+	}
+	if len(f.Commands) != 0 {
+		t.Fatalf("invalid reasons contacted target: %v", f.Commands)
 	}
 }
 
@@ -180,60 +199,45 @@ func proxyManagedCfg() *app.Resolved {
 	return cfg
 }
 
-func TestDestroyDeregistersFromProxy(t *testing.T) {
+func TestDestroyKeepsHostProxyWithoutFlag(t *testing.T) {
 	f := opsFake("x")
 	e := New(proxyManagedCfg(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Destroy(context.Background(), false, false); err != nil {
 		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/proxy/apps/sample'") {
-		t.Fatalf("destroy must deregister the app from the shared proxy:\n%s", seq)
+	if strings.Contains(seq, "/proxy/apps") {
+		t.Fatalf("destroy must not consult a cross-application proxy registry:\n%s", seq)
 	}
 	if strings.Contains(seq, "-p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
-		t.Fatalf("without --proxy the shared proxy must survive:\n%s", seq)
+		t.Fatalf("without --proxy the host proxy must survive:\n%s", seq)
 	}
 }
 
-func TestDestroyProxyTeardownWhenLastApp(t *testing.T) {
+func TestDestroyProxyTeardownForSoleOwner(t *testing.T) {
 	f := opsFake("x")
-	base := f.Dynamic
-	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "sample\n"}, true // we are the last app
-		}
-		return base(cmd)
-	}
 	e := New(proxyManagedCfg(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Destroy(context.Background(), false, true); err != nil {
 		t.Fatalf("destroy --proxy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
-		t.Fatalf("last app with --proxy must tear the proxy down:\n%s", seq)
+		t.Fatalf("sole owner with --proxy must tear the proxy down:\n%s", seq)
 	}
 	if !strings.Contains(seq, "rm -rf '/var/lib/ob/_host/proxy'") {
 		t.Fatalf("proxy state dir must go with it:\n%s", seq)
 	}
 }
 
-func TestDestroyProxyRefusedWhenShared(t *testing.T) {
+func TestCompleteDestroyReleasesHostOwnership(t *testing.T) {
 	f := opsFake("x")
-	base := f.Dynamic
-	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "sample\nunlock\n"}, true
-		}
-		return base(cmd)
-	}
 	e := New(proxyManagedCfg(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Destroy(context.Background(), false, true)
-	if err == nil || !strings.Contains(err.Error(), "unlock") {
-		t.Fatalf("--proxy with other registered apps must refuse naming them, got %v", err)
+	if err := e.Destroy(context.Background(), true, true); err != nil {
+		t.Fatalf("complete destroy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "down --remove-orphans") {
-		t.Fatalf("refusal must happen BEFORE any app teardown:\n%s", seq)
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+		t.Fatalf("complete teardown must release the sole owner record:\n%s", seq)
 	}
 }
 

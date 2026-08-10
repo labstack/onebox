@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,15 +64,26 @@ func TestPinImagesRewritesToDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "ghcr.io/x/app@sha256:" + strings.Repeat("ab", 32)
-	if pins["web"] != want {
-		t.Fatalf("pin: %q want %q", pins["web"], want)
+	for _, service := range []string{"web", "worker", "migrate"} {
+		if pins[service] != want {
+			t.Fatalf("%s pin: %q want %q", service, pins[service], want)
+		}
+		if p.Services[service].Image != want {
+			t.Fatalf("%s project image not rewritten: %q", service, p.Services[service].Image)
+		}
 	}
-	if p.Services["web"].Image != want {
-		t.Fatalf("project image not rewritten: %q", p.Services["web"].Image)
+	inspections := 0
+	for _, command := range f.Commands {
+		if strings.Contains(command, "imagetools inspect") {
+			inspections++
+		}
+	}
+	if inspections != 1 {
+		t.Fatalf("identical image references must resolve once, got %d inspections:\n%s", inspections, strings.Join(f.Commands, "\n"))
 	}
 }
 
-func TestPinImagesFallsBackUnpinned(t *testing.T) {
+func TestPinImagesFailsClosedWhenRegistryCannotResolveDigest(t *testing.T) {
 	f := planFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
@@ -80,18 +92,55 @@ func TestPinImagesFallsBackUnpinned(t *testing.T) {
 		}
 		return base(cmd)
 	}
-	var out bytes.Buffer
 	p := testProject(t)
-	e := New(testConfig(), p, f, Options{Out: &out, Sleep: noSleep})
+	e := New(testConfig(), p, f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.PinImages(context.Background())
+	var resolution *ImageResolutionError
+	if !errors.As(err, &resolution) {
+		t.Fatalf("error = %v, want ImageResolutionError", err)
+	}
+	if resolution.Code() != "image_unresolved" || resolution.Workload == "" ||
+		!strings.Contains(resolution.ResolvingCommand, "ob deploy --image "+resolution.Workload+"=") {
+		t.Fatalf("typed resolution error = %#v", resolution)
+	}
+}
+
+func TestPinImagesFailsClosedForBuildOnlyRuntimeService(t *testing.T) {
+	p := testProject(t)
+	service := p.Services["migrate"]
+	service.Image = ""
+	p.Services["migrate"] = service
+	e := New(testConfig(), p, planFake(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.PinImages(context.Background())
+	var resolution *ImageResolutionError
+	if !errors.As(err, &resolution) || resolution.Workload != "migrate" {
+		t.Fatalf("error = %v, want migrate ImageResolutionError", err)
+	}
+	if !strings.Contains(resolution.Detail, "build source") {
+		t.Fatalf("error does not explain the unresolved build input: %#v", resolution)
+	}
+}
+
+func TestPinImagesAcceptsAlreadyImmutableRuntimeWithoutRegistry(t *testing.T) {
+	p := testProject(t)
+	digest := "sha256:" + strings.Repeat("cd", 32)
+	for name, service := range p.Services {
+		service.Image = "ghcr.io/x/app@" + digest
+		p.Services[name] = service
+	}
+	f := &transport.Fake{Err: func(command string) error {
+		if strings.Contains(command, "imagetools inspect") {
+			return errors.New("registry must not be consulted")
+		}
+		return nil
+	}}
+	e := New(testConfig(), p, f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	pins, err := e.PinImages(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pins["web"] != "ghcr.io/x/app:v2" {
-		t.Fatalf("unpinned should keep tag: %q", pins["web"])
-	}
-	if !strings.Contains(out.String(), "unpinned") {
-		t.Fatalf("unpinned must be stated, not hidden: %s", out.String())
+	if len(pins) != len(testConfig().Workloads) {
+		t.Fatalf("pins = %#v", pins)
 	}
 }
 

@@ -32,6 +32,9 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 		passwords[name] = password
 	}
+	if err := e.claimHostOwner(ctx); err != nil {
+		return err
+	}
 
 	// the runtime is ob's own precondition — the one universal piece of
 	// host provisioning; bootstrap provisions the runtime.
@@ -114,12 +117,37 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 	if _, err := release.Push(ctx, e.T, localStagingDir, e.names(), releaseID); err != nil {
 		return err
 	}
+	manifest, err := release.NewManifest(releaseID, release.KindBootstrap, e.Opts.Now())
+	if err != nil {
+		return fmt.Errorf("bootstrap manifest: %w", err)
+	}
+	if err := e.writeReleaseManifest(ctx, manifest); err != nil {
+		return fmt.Errorf("write bootstrap manifest: %w", err)
+	}
+	defer func() {
+		if err == nil || manifest.State != release.StateStaged {
+			return
+		}
+		if transitionErr := manifest.Transition(release.StateFailed, e.Opts.Now(), ""); transitionErr != nil {
+			err = errors.Join(err, fmt.Errorf("fail bootstrap manifest: %w", transitionErr))
+			return
+		}
+		if writeErr := e.writeReleaseManifest(ctx, manifest); writeErr != nil {
+			err = errors.Join(err, fmt.Errorf("write failed bootstrap manifest: %w", writeErr))
+		}
+	}()
 
 	if len(e.Spec.ServiceNames()) > 0 {
 		e.logf("bootstrap: starting services %v", e.Spec.ServiceNames())
 		if err := e.ApplyServices(ctx); err != nil {
 			return fmt.Errorf("services: %w", err)
 		}
+	}
+	if err := manifest.Transition(release.StateVerified, e.Opts.Now(), ""); err != nil {
+		return fmt.Errorf("verify bootstrap manifest: %w", err)
+	}
+	if err := e.writeReleaseManifest(ctx, manifest); err != nil {
+		return fmt.Errorf("write verified bootstrap manifest: %w", err)
 	}
 	e.logf("bootstrap complete — run `ob deploy` for the first release")
 	return nil

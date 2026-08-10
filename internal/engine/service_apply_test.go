@@ -62,11 +62,7 @@ func TestServiceApplyConvergesUnderRegime(t *testing.T) {
 			t.Fatalf("converge not fenced: %s", c)
 		}
 	}
-	// The journal phase stays "accessory-apply": it is written into append-only
-	// journals on real hosts, and renaming it would make every existing record
-	// unreadable to the reader that maps it. Only what an operator reads was
-	// renamed; `ob audit` presents this as "service apply".
-	if !strings.Contains(seq, `"phase":"accessory-apply"`) {
+	if !strings.Contains(seq, `"phase":"service-apply"`) {
 		t.Fatalf("not journaled:\n%s", seq)
 	}
 	if !strings.Contains(out.String(), "postgres:17") {
@@ -78,7 +74,7 @@ func TestServiceApplyStopsWhenJournalStartFails(t *testing.T) {
 	f := accFake("")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, `"phase":"accessory-apply","event":"start"`) {
+		if strings.Contains(cmd, `"phase":"service-apply","event":"start"`) {
 			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
 		}
 		return base(cmd)
@@ -170,29 +166,32 @@ func TestAJobGetsItsConnectionFile(t *testing.T) {
 // data directory is refused before anything is replaced. The diff shows one
 // line — postgres:16 becoming postgres:17 — which reads as routine and is not.
 func TestAnUnsafeMajorUpgradeIsRefusedBeforeConverging(t *testing.T) {
-	f := accFake("")
-	base := f.Dynamic
-	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "postgres.version") {
-			return transport.Result{Stdout: "16\n"}, true
-		}
-		return base(cmd)
-	}
 	cfg := testConfig()
 	svc := cfg.Services["postgres"]
 	svc.Version = "17"
 	cfg.Services["postgres"] = svc
-
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
-	err := e.ServiceApply(context.Background(), "R9", false)
-	if err == nil {
-		t.Fatal("a major version change across an unreadable data directory must be refused")
-	}
-	if !strings.Contains(err.Error(), "cannot be opened") {
-		t.Fatalf("the refusal must say what would happen: %v", err)
-	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "ob_sample_postgres' -f") {
-		t.Fatal("it must refuse before replacing the container")
+	for _, allowDestructiveMounts := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without mount override", true: "with mount override"}[allowDestructiveMounts], func(t *testing.T) {
+			f := accFake("")
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, "postgres.version") {
+					return transport.Result{Stdout: "16\n"}, true
+				}
+				return base(cmd)
+			}
+			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+			err := e.ServiceApply(context.Background(), "R9", allowDestructiveMounts)
+			if err == nil {
+				t.Fatal("a major version change across an unreadable data directory must be refused")
+			}
+			if !strings.Contains(err.Error(), "cannot be opened") {
+				t.Fatalf("the refusal must say what would happen: %v", err)
+			}
+			if strings.Contains(strings.Join(f.Commands, "\n"), "ob_sample_postgres' -f") {
+				t.Fatal("it must refuse before replacing the container")
+			}
+		})
 	}
 }
 

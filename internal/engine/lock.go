@@ -110,7 +110,7 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 				}
 			}
 		default:
-			return 0, fmt.Errorf("deploy lock held by %s (deploy %s, age %ds, ttl %ds) — wait, or --force to break it",
+			return 0, fmt.Errorf("deploy lock held by %s (deploy %s, age %ds, ttl %ds) — wait, or --break-lock to break it",
 				holder.Owner, holder.DeployID, age, int(e.lockTTL().Seconds()))
 		}
 		removeObserved := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(observed) + ` ]; then rm -f ` + q(e.lockPath()) + `; else exit 75; fi`
@@ -168,7 +168,7 @@ func (e *Engine) lockTTL() time.Duration {
 //
 // `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
 // drives a macOS box through the Local transport). qpath must already be
-// shell-quoted. `--force` breaks the lock in every state (force precedes the
+// shell-quoted. `--break-lock` breaks the lock in every state (the override precedes the
 // refuse default in both callers); in AcquireLock a same-deploy holder is
 // reclaimed rather than refused — breaking your own lock is authorized.
 func lockAgeCmd(qpath string) string {
@@ -252,6 +252,24 @@ func (e *Engine) mutate(ctx context.Context, cmd string) (res transport.Result, 
 	}
 	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
 	res, err = e.T.Run(ctx, guarded)
+	if err != nil {
+		return res, err
+	}
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
+		return res, ErrFenced
+	}
+	return res, nil
+}
+
+// mutateInput is mutate's stdin-carrying counterpart. Manifest/checkpoint
+// bytes never appear in the remote command or process list, while the fence
+// still rejects a stale runner before the writer consumes stdin.
+func (e *Engine) mutateInput(ctx context.Context, cmd, input string) (res transport.Result, err error) {
+	if e.fenceVal == "" {
+		return e.T.RunInput(ctx, cmd, input)
+	}
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	res, err = e.T.RunInput(ctx, guarded, input)
 	if err != nil {
 		return res, err
 	}

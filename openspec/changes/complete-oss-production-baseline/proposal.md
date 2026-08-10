@@ -25,13 +25,13 @@ the `Run` tier.
   mounts. Every derived artifact carries reproducible-build provenance and is
   retained as a restore dependency.
 - Add symmetric protection disablement. Removing a policy first produces a
-  state-bound, strongly approved plan that keeps the recorded service image and
+  state-bound plan requiring fresh local confirmation that keeps the recorded service image and
   archive hooks effective until restart-bound prerequisites are reverted and
   verified; only then may the live runtime return to ordinary tag rendering.
   Remote backups, manifests, and their exact restore-image digests remain
   preserved.
 - Close the protected image-maintenance loop for every service delivery class.
-  An enabled service may take only a separately qualified and approved
+  An enabled service may take only a separately qualified and locally confirmed
   driver-qualified non-major exact-digest patch whose contract revalidates service and
   applicable-helper compatibility, preserves recovery continuity across
   restart, and retains
@@ -40,7 +40,7 @@ the `Run` tier.
   transition checks independently.
 - Add safe restore choreography that restores into an isolated volume, verifies
   it with an exact-compatible temporary service, requires a plan-bound strong
-  approval for live cutover, preserves the prior volume, and never treats a
+  local confirmation for live cutover, preserves the prior volume, and never treats a
   failed restore as permission to destroy either copy.
 - Introduce explicit `Run` and `Managed` service-tier reporting plus the actual
   recovery envelope (`snapshot`, `pitr`, or `cold`). Every current
@@ -57,10 +57,10 @@ the `Run` tier.
   stopped-node window; newly created NATS services get generated account
   credentials and a pinned external CLI health probe, while existing
   unauthenticated runtimes require an explicit state-bound conversion. MinIO
-  remains single-node and requires an approved stopped-service cold backup to
+  remains single-node and requires a separately planned, locally confirmed stopped-service cold backup to
   off-host S3-compatible storage plus recovery proof. Enabling
   PostgreSQL/MariaDB/ClickHouse protection may require a separately planned,
-  strongly approved one-time service restart; it is never hidden inside
+  separately planned, locally confirmed one-time service restart; it is never hidden inside
   ordinary schedule convergence.
 - Add rollback-aware image pruning, managed container-log rotation, disk
   thresholds, scheduled housekeeping, and status/doctor evidence for each.
@@ -73,13 +73,14 @@ the `Run` tier.
   projection and declared protection ownership but does not provision, back up,
   upgrade, or present them as Onebox-managed.
 - Ship an official CI workflow that builds and pushes build-sourced workloads,
-  resolves immutable image digests, and invokes the existing plan, approval,
-  and deploy path without creating a second lifecycle implementation.
+  resolves immutable image digests, and invokes the existing plan, local
+  confirmation, and deploy path without creating a second lifecycle
+  implementation or claiming independent authorization.
 - Extend every new CLI operation with versioned JSON/NDJSON results, typed
-  secret-free failures, stable identifiers, resolving next commands, and
-  idempotent retry behavior.
+  secret-free failures, stable identifiers, semantically distinct diagnostic,
+  next-step, and resolving commands, and idempotent retry behavior.
 
-Today, Onebox only validates externally produced migration-backup evidence,
+Today, Onebox only validates externally produced, plan-bound migration backup reports,
 streams current logs, reports declared observability intent, prunes release
 directories and journals, and requires an external image for production
 builds. All backup execution, restore execution, continuous checks, log
@@ -148,7 +149,7 @@ Explicit non-goals:
 - `external-service-connections`: Typed, secret-safe dependencies whose
   lifecycle and protection remain explicitly external to Onebox.
 - `ci-image-delivery`: An official digest-pinned CI handoff into the canonical
-  Onebox planning, approval, and execution service.
+  Onebox planning, local-confirmation, and execution service.
 
 ### Modified Capabilities
 
@@ -163,7 +164,7 @@ Explicit non-goals:
 ## Impact
 
 - Extends the closed project schema, generated JSON Schema, canonical output,
-  conformance corpus, service driver model, operation graph, plans, approvals,
+  conformance corpus, service driver model, operation graph, plans, local confirmations,
   journals, status, doctor, notifications, and documentation authority map.
 - Adds canonical Go service operations and CLI groups for backup and restore;
   the CLI remains the only adapter and all lifecycle decisions remain in the
@@ -189,7 +190,7 @@ Explicit non-goals:
   arguments.
 - Adds fault-oriented integration coverage for interrupted streams, partial
   uploads, unavailable storage, overlapping deploys, stale locks, expired
-  approvals, corrupted artifacts, incompatible versions, failed verification,
+  local confirmations, corrupted artifacts, incompatible versions, failed verification,
   timer retries, notification failure, and runner disconnection.
 - Requires README, schema, CLI, and product documentation to distinguish
   shipped OSS protection from premium/future assurance and to report each

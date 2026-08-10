@@ -109,7 +109,8 @@ delete volumes, remote backups, or foreign runtime resources.
 
 Housekeeping plan, run, and status commands SHALL use versioned structured
 output with stable resource identifiers, reclaimed-byte counts, preserved
-roots, typed failures, and resolving next commands. Repeating an operation
+roots, typed failures, and semantically classified diagnostic, next, or
+resolving commands. Repeating an operation
 identity SHALL be idempotent.
 
 #### Scenario: Structured prune result

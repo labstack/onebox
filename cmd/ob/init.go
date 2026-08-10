@@ -45,7 +45,7 @@ func addInitCommand(root *cobra.Command, g *globalFlags) {
 
 func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	if _, err := os.Stat(g.ConfigPath); err == nil {
-		return fmt.Errorf("%s already exists — init refuses to overwrite", g.ConfigPath)
+		return writeStructuredCommandFailure(cmd, g, "config_exists", "project file already exists", fmt.Errorf("%s already exists — init refuses to overwrite", g.ConfigPath))
 	}
 	dir := filepath.Dir(g.ConfigPath)
 	composePath := ""
@@ -56,12 +56,12 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 		}
 	}
 	if composePath == "" {
-		return fmt.Errorf("no compose file found in %s", dir)
+		return writeStructuredCommandFailure(cmd, g, "compose_not_found", "no Compose file was found", fmt.Errorf("no compose file found in %s", dir))
 	}
 	application := sanitizeApp(filepath.Base(mustAbs(dir)))
 	p, err := compose.Load(ctx, filepath.Join(dir, composePath), application)
 	if err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "compose_invalid", "the Compose project could not be loaded", err)
 	}
 
 	out := cmd.OutOrStdout()
@@ -160,15 +160,12 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 		fmt.Fprintf(&b, "  order: [%s]\n", strings.Join(workloads, ", "))
 	}
 	if err := os.WriteFile(g.ConfigPath, []byte(b.String()), 0o644); err != nil {
-		return err
+		return writeStructuredCommandFailure(cmd, g, "config_write_failed", "the project file could not be written", err)
 	}
-	fmt.Fprintf(out, "wrote %s (%s, %s, %s, %s)\n\n", g.ConfigPath,
-		countLabel(len(workloads), "workload"), countLabel(len(dataServices), "data service"),
-		countLabel(len(services), "supporting service"), countLabel(len(jobs), "job"))
 
 	// The doctor reports the exact compose delta each rolling candidate needs.
-	fmt.Fprintln(out, "rollability doctor:")
 	clean := true
+	blockers := make([]string, 0)
 	for _, name := range workloads {
 		if !rolling[name] {
 			continue
@@ -176,18 +173,33 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 		svc := p.Services[name]
 		if svc.ContainerName != "" {
 			clean = false
-			fmt.Fprintf(out, "  %s: remove `container_name: %s` — two copies can't share a name\n", name, svc.ContainerName)
+			blockers = append(blockers, fmt.Sprintf("%s: remove container_name %s; two copies cannot share a name", name, svc.ContainerName))
 		}
 		for _, port := range svc.Ports {
 			if port.Published != "" {
 				clean = false
-				fmt.Fprintf(out, "  %s: unbind host port %s:%d — the proxy routes instead; two containers can't share a host port\n", name, port.Published, port.Target)
+				blockers = append(blockers, fmt.Sprintf("%s: unbind host port %s:%d; the proxy routes instead", name, port.Published, port.Target))
 			}
 		}
 		if svc.Deploy != nil && svc.Deploy.Replicas != nil {
 			clean = false
-			fmt.Fprintf(out, "  %s: remove `deploy.replicas` — ob manages scale during rolls\n", name)
+			blockers = append(blockers, fmt.Sprintf("%s: remove deploy.replicas; Onebox manages scale during rolls", name))
 		}
+	}
+	if isStructuredOutput(g) {
+		return writeFiniteSuccess(cmd, g, map[string]any{
+			"artifact_path": g.ConfigPath, "compose_path": composePath, "application": application,
+			"workloads": workloads, "data_services": dataServices, "services": services, "jobs": jobs,
+			"rollability_ready": clean, "rollability_blockers": blockers,
+		})
+	}
+
+	fmt.Fprintf(out, "wrote %s (%s, %s, %s, %s)\n\n", g.ConfigPath,
+		countLabel(len(workloads), "workload"), countLabel(len(dataServices), "data service"),
+		countLabel(len(services), "supporting service"), countLabel(len(jobs), "job"))
+	fmt.Fprintln(out, "rollability doctor:")
+	for _, blocker := range blockers {
+		fmt.Fprintf(out, "  %s\n", blocker)
 	}
 	if clean {
 		fmt.Fprintln(out, "  no blockers — rolling components are deploy-ready")

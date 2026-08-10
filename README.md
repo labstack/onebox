@@ -50,7 +50,7 @@ documentation website. Build it with `just site-build`, or serve it locally with
 - Health-gated rolling or recreate deployments, traffic drain, verification,
   versioned releases, retention, and rollback.
 - Locks, fencing, append-only journals, resume, abort, migration gates, status,
-  audit, SOPS secrets, accessories, proxy operations, and notifications.
+  audit, SOPS secrets, supporting services, proxy operations, and notifications.
 - A canonical, versioned operation graph and one shared Go service for
   observation, proposals, execution, structured events, and operational
   memory. The CLI is an adapter over that service; engine locks, fencing,
@@ -79,7 +79,7 @@ evidence, shared policy, and recovery assurance without becoming a generic
 Docker UI.
 
 Versioned driver contracts and continuous observability management are not
-shipped. Plan/status drift observation and plan-bound migration backup evidence
+shipped. Plan/status drift observation and plan-bound migration backup reports
 are shipped; Onebox still does not create or store the backup itself.
 
 ## Start using it
@@ -132,7 +132,7 @@ Review production without changing it:
 ob plan --out ob-plan.json
 ```
 
-Create a short-lived approval for that exact plan, then deploy with both
+Record a short-lived local confirmation for that exact plan, then deploy with both
 artifacts:
 
 ```sh
@@ -162,10 +162,12 @@ and unsupported plans are rejected. Environment policy can set
 `PATH` is compatible. When a minimum version is configured, commit-derived and
 dirty checkout builds fail closed because they are not released runners.
 
-`ob approve` writes a mode-`0600`, digest-bound grant covering the plan,
-target, inputs, risk, operator, and expiry. A changed or expired plan needs a
-new grant. When approval policy is enabled, migrations and unknown data
-effects use the strong ceremony, where the operator types the release ID.
+`ob approve` writes a mode-`0600`, digest-bound local confirmation covering the
+plan, target, inputs, risk, operator label, and expiry. A changed or expired plan
+needs a new confirmation. The artifact is tamper-evident but is not authenticated
+identity or an independently issued capability. When approval policy is enabled,
+migrations and unknown data effects use the strong ceremony, where the operator
+types the release ID.
 
 For automation, `--output` accepts `human`, `json`, or `ndjson`:
 
@@ -175,24 +177,55 @@ ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
 ob status --output json
 ```
 
-Plans and status produce versioned documents. A JSON deploy buffers ordered
-operation events and its result into one envelope; NDJSON streams event records
-and a terminal result/error record. Diagnostics stay on stderr.
+Every finite machine result uses one `onebox.run/cli/v1alpha1` envelope with
+`schema_version`, `command`, `outcome`, and exactly one of `data` or `error`.
+Outcomes are `success`, `no_op`, `cancelled`, or `error`; cancellation exits 2
+and errors exit 1. NDJSON adds monotonic sequences and exactly one terminal
+record. Errors distinguish `diagnostic_command`, `next_command`, and
+`resolving_command`; diagnostics stay on stderr.
 
-When environment policy sets `require_migration_backup: true`, the executable
-plan binds protected resources, evidence age, restore-test requirements, and
-key-material names. Seal externally validated, secret-free facts into a
-plan-bound receipt and apply it with the plan:
+Logs and exec accept workloads and Onebox-run services through the same target
+namespace. Follow mode is NDJSON-only; finite logs may be JSON. Their output is
+operator-controlled passthrough and may contain secrets, so Onebox tags stdout
+and stderr but does not claim to redact those bytes. `ob exec` requires a
+bounded `--reason` and audits only safe invocation metadata plus the command
+digest, never the command or output bytes.
+
+Manual jobs use the same sealed-plan and local-confirmation boundary as deploys:
 
 ```sh
-ob backup-evidence create --plan ob-plan.json --manifest backup-facts.json --out ob-backup-evidence.json
-ob deploy --plan ob-plan.json --approval ob-approval.json --backup-evidence ob-backup-evidence.json
+ob job plan maintenance --out ob-job-plan.json
+ob approve --plan ob-job-plan.json --out ob-job-approval.json
+ob job run --plan ob-job-plan.json --approval ob-job-approval.json --output ndjson
 ```
 
-The facts manifest uses `onebox.run/migration-backup-facts/v1alpha1` and records
-artifact, integrity, restore-test, and key-usability facts, never backup bytes
-or secrets. An audited override requires the exact plan's strong or
-break-glass grant:
+Each application release has a strict manifest state (`staged`, `verified`,
+`serving`, `superseded`, `failed`, or `aborted`) and an explicit predecessor.
+Rollback follows that predecessor; resume and abort reconcile an interrupted
+checkpoint instead of inferring state from directory names.
+
+`ob secrets push` rotates the complete declared secret graph as one opaque
+generation. All affected workloads finish on the new generation or recovery
+returns them all to the old one; declaration changes require a normal deploy.
+
+When environment policy sets `require_migration_backup: true`, the executable
+plan binds protected resources, report age, restore-test requirements, and
+key-material names. Ask planning to write the bound report template, have the
+operator or backup tooling fill it from real observations, then bind that exact
+report into the local confirmation and execution:
+
+```sh
+ob plan --out ob-plan.json --backup-report-out ob-backup-report.json
+# Fill ob-backup-report.json from the backup system's actual results.
+ob approve --plan ob-plan.json --backup-report ob-backup-report.json --out ob-approval.json
+ob deploy --plan ob-plan.json --approval ob-approval.json --backup-report ob-backup-report.json
+```
+
+The report uses `onebox.run/backup-report/v1alpha1` and records artifact,
+integrity, restore-test, and key-usability observations, never backup bytes or
+secrets. It is execution input, not proof that Onebox created or independently
+verified a backup. An audited override requires the exact plan's strong or
+break-glass local confirmation:
 
 ```sh
 ob deploy --plan ob-plan.json --approval ob-approval.json --override-migration-backup "incident reason"
@@ -203,7 +236,7 @@ the `onebox.run/job-result/v1alpha1` protocol. Provider-aware evidence records
 `changed`, `provider`, and ordered `before_revisions`/`after_revisions`; Atlas
 results must extend history without rewriting it. A missing or invalid result
 from a migration becomes `changed=unknown` and halts before workload
-replacement unless a strong or break-glass grant authorized that exact plan.
+replacement unless a strong or break-glass local confirmation authorized that exact plan.
 
 External URL verification can assert allowed status codes, exact response
 headers, and scalar JSON values. Migration verification can bind the expected

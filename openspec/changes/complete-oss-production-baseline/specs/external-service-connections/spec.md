@@ -51,14 +51,15 @@ observing or planning.
 - **WHEN** preflight runs
 - **THEN** it reports a typed read failure and performs no corrective mutation
 
-### Requirement: External protection evidence is explicit
+### Requirement: External protection reporting is explicit
 
-Where policy requires migration backup evidence, an external service SHALL name
-its protection owner and required evidence identity. Onebox SHALL validate
-fresh plan-bound evidence or an independently authorized override but SHALL NOT
+Where policy requires a migration backup report, an external service SHALL name
+its protection owner and required report identity. Onebox SHALL validate a
+fresh plan-bound report or an explicit audited override bound to the plan's
+required local-confirmation class, but SHALL NOT
 create, store, restore, or claim the external provider's backup.
 
-#### Scenario: Fresh external evidence
+#### Scenario: Fresh external report
 - **GIVEN** a migration affects an external durable service
-- **WHEN** a matching fresh evidence receipt is supplied
+- **WHEN** a matching fresh backup report is supplied
 - **THEN** the plan may proceed while status continues to identify protection as externally owned

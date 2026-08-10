@@ -23,6 +23,7 @@ runtime:
 workloads:
   server:
     role: application
+    strategy: recreate
     image: ghcr.io/goauthentik/server:2026.5.6
     command: [server]
     domain: auth.example.com

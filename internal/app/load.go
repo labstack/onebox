@@ -117,6 +117,7 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	// project. A guard that cannot see what it guards is worse than none,
 	// because the enumeration then promises a failure that never fires.
 	p.Dir = filepath.Dir(filename)
+	p.file = filename
 	if err := validateSpec(p); err != nil {
 		return nil, err
 	}

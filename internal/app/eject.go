@@ -2,7 +2,6 @@ package app
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -108,7 +107,7 @@ func (r *Resolved) defaultEjectDest() string {
 }
 
 func (r *Resolved) projectFile() string {
-	return filepath.Join(r.Dir, "ob.yml")
+	return r.file
 }
 
 // stripOverlay removes what Onebox adds and reports which workloads were

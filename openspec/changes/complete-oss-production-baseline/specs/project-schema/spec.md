@@ -93,7 +93,7 @@ the resulting recovery envelope and its origin.
 
 #### Scenario: Policy attempts to authorize an enablement restart
 - **WHEN** a project tries to treat recurring interruption permission as authorization for a restart-bound protection prerequisite
-- **THEN** validation fails because the restart requires a separate state-bound plan and strong approval
+- **THEN** validation fails because the restart requires a separate state-bound plan and fresh local confirmation
 
 ### Requirement: Protection defaults and overrides preserve intent
 

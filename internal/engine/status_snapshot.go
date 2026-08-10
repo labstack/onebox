@@ -76,14 +76,14 @@ type StatusIncomplete struct {
 }
 
 // StatusProxy is the structured state of the host-managed proxy. It is absent
-// when this application does not manage the shared host proxy.
+// when this application does not manage the host proxy.
 type StatusProxy struct {
 	Managed           bool                `json:"managed"`
 	Container         *StatusContainer    `json:"container,omitempty"`
 	LocalConfigHash   string              `json:"local_config_hash,omitempty"`
 	AppliedConfigHash string              `json:"applied_config_hash,omitempty"`
 	ConfigDiverged    bool                `json:"config_diverged"`
-	RegisteredApps    []string            `json:"registered_apps"`
+	Owner             string              `json:"owner,omitempty"`
 	Certificates      []StatusCertificate `json:"certificates"`
 	Diverged          bool                `json:"diverged"`
 	Complete          bool                `json:"complete"`
@@ -113,7 +113,7 @@ type statusSnapshotRead struct {
 const (
 	statusProxyContainerRead = iota
 	statusProxyAppliedHashRead
-	statusProxyAppsRead
+	statusProxyOwnerRead
 	statusProxyCertificatesRead
 	statusProxyLocalHashRead
 	statusProxyReadCount
@@ -122,7 +122,7 @@ const (
 var statusProxyReadComponents = [statusProxyReadCount]string{
 	"proxy.container",
 	"proxy.applied_config",
-	"proxy.registered_apps",
+	"proxy.owner",
 	"proxy.certificates",
 	"proxy.local_config",
 }
@@ -233,8 +233,8 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Roles = append(snapshot.Roles, status)
 	}
-	for _, accessoryName := range e.Spec.ServiceNames() {
-		status := makeStatusService(accessoryName, byService[accessoryName], containersComplete)
+	for _, serviceName := range e.Spec.ServiceNames() {
+		status := makeStatusService(serviceName, byService[serviceName], containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Services = append(snapshot.Services, status)
 	}
@@ -249,7 +249,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		for i := proxyReadStart; i < len(reads); i++ {
 			proxyComplete[i-proxyReadStart] = reads[i].err == nil
 		}
-		proxyStatus, parseWarning := makeStatusProxy(px, proxyComplete, snapshot.CapturedAt)
+		proxyStatus, parseWarning := makeStatusProxy(px, proxyComplete, snapshot.CapturedAt, e.Spec.Name)
 		snapshot.Proxy = &proxyStatus
 		snapshot.Diverged = snapshot.Diverged || proxyStatus.Diverged
 		snapshot.Complete = snapshot.Complete && proxyStatus.Complete
@@ -356,13 +356,12 @@ func makeStatusIncomplete(summary journal.Summary) *StatusIncomplete {
 	}
 }
 
-func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time) (StatusProxy, *StatusWarning) {
+func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, application string) (StatusProxy, *StatusWarning) {
 	complete := func(index int) bool { return index < len(readComplete) && readComplete[index] }
 	status := StatusProxy{
-		Managed:        true,
-		RegisteredApps: []string{},
-		Certificates:   []StatusCertificate{},
-		Complete:       len(readComplete) == statusProxyReadCount,
+		Managed:      true,
+		Certificates: []StatusCertificate{},
+		Complete:     len(readComplete) == statusProxyReadCount,
 	}
 	for i := 0; i < statusProxyReadCount; i++ {
 		status.Complete = status.Complete && complete(i)
@@ -390,9 +389,11 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time) (StatusPr
 		status.Issues = append(status.Issues, "local and applied configuration hashes differ")
 	}
 
-	if complete(statusProxyAppsRead) {
-		status.RegisteredApps = strings.Fields(raw.apps)
-		sort.Strings(status.RegisteredApps)
+	if complete(statusProxyOwnerRead) {
+		status.Owner = raw.owner
+		if raw.owner != "" && raw.owner != application {
+			status.Issues = append(status.Issues, fmt.Sprintf("host is owned by application %s", raw.owner))
+		}
 	}
 
 	var parseWarning *StatusWarning

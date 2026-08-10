@@ -86,6 +86,11 @@ func LoadBytes(ctx context.Context, content []byte, projectName, dir string, env
 	}, func(o *loader.Options) {
 		o.SetProjectName(projectName, true)
 		o.SkipResolveEnvironment = true
+		// Jobs live behind the generated `job` profile so `compose up` never
+		// starts them accidentally. Planning and targeted execution still need
+		// those services in the parsed runtime; otherwise their images cannot be
+		// pinned and `compose run <job>` has no service to invoke.
+		o.Profiles = []string{"*"}
 	})
 	if err != nil {
 		// An unsatisfied variable is the author's, not ours: it comes from a

@@ -25,18 +25,26 @@ func executeRoot(t *testing.T, args ...string) string {
 
 func TestVersionJSON(t *testing.T) {
 	out := executeRoot(t, "--output", "json", "version")
-	var got versionReport
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
+	var envelope struct {
+		SchemaVersion string        `json:"schema_version"`
+		Command       string        `json:"command"`
+		Outcome       string        `json:"outcome"`
+		Data          versionReport `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
 		t.Fatalf("decode version JSON: %v\n%s", err, out)
 	}
-	if got.SchemaVersion != versionReportSchemaVersion {
-		t.Fatalf("schema version = %q, want %q", got.SchemaVersion, versionReportSchemaVersion)
+	if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob version" || envelope.Outcome != cliOutcomeSuccess {
+		t.Fatalf("version envelope = %+v", envelope)
 	}
+	got := envelope.Data
 	want := buildinfo.Read()
 	if got.Info != want {
 		t.Fatalf("build info = %+v, want %+v", got.Info, want)
 	}
-	if len(got.SupportedExecutablePlanSchemas) != 1 || got.SupportedExecutablePlanSchemas[0] != onebox.ExecutableDeployPlanSchemaVersion {
+	wantSchemas := []string{onebox.ExecutableDeployPlanSchemaVersion, onebox.ExecutableJobPlanSchemaVersion}
+	if len(got.SupportedExecutablePlanSchemas) != len(wantSchemas) ||
+		got.SupportedExecutablePlanSchemas[0] != wantSchemas[0] || got.SupportedExecutablePlanSchemas[1] != wantSchemas[1] {
 		t.Fatalf("supported schemas = %v", got.SupportedExecutablePlanSchemas)
 	}
 }
@@ -51,6 +59,7 @@ func TestVersionHumanReadable(t *testing.T) {
 		"build time:",
 		"go version:",
 		onebox.ExecutableDeployPlanSchemaVersion,
+		onebox.ExecutableJobPlanSchemaVersion,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("version output missing %q:\n%s", want, out)

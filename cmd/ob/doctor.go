@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,8 +22,6 @@ import (
 	"github.com/labstack/onebox/internal/onebox"
 )
 
-const doctorReportSchemaVersion = "onebox.run/doctor-report/v1alpha1"
-
 var errDoctorFailed = errors.New("doctor found failing checks")
 
 type doctorStatus string
@@ -36,13 +33,12 @@ const (
 )
 
 type doctorReport struct {
-	SchemaVersion string                  `json:"schema_version"`
-	Status        doctorStatus            `json:"status"`
-	Binary        doctorBinaryReport      `json:"binary"`
-	SSHAgent      doctorSSHAgentReport    `json:"ssh_agent"`
-	Project       doctorProjectReport     `json:"project"`
-	Approval      doctorApprovalReport    `json:"approval"`
-	Protections   doctorProtectionsReport `json:"protections"`
+	Status      doctorStatus            `json:"status"`
+	Binary      doctorBinaryReport      `json:"binary"`
+	SSHAgent    doctorSSHAgentReport    `json:"ssh_agent"`
+	Project     doctorProjectReport     `json:"project"`
+	Approval    doctorApprovalReport    `json:"approval"`
+	Protections doctorProtectionsReport `json:"protections"`
 }
 
 type doctorBinaryReport struct {
@@ -96,13 +92,13 @@ type doctorProjectReport struct {
 }
 
 type doctorApprovalReport struct {
-	Status             doctorStatus `json:"status"`
-	Message            string       `json:"message"`
-	PolicyKnown        bool         `json:"policy_known"`
-	Required           bool         `json:"required"`
-	Available          bool         `json:"available"`
-	Source             string       `json:"source"`
-	GrantSchemaVersion string       `json:"grant_schema_version"`
+	Status                    doctorStatus `json:"status"`
+	Message                   string       `json:"message"`
+	PolicyKnown               bool         `json:"policy_known"`
+	Required                  bool         `json:"required"`
+	Available                 bool         `json:"available"`
+	Source                    string       `json:"source"`
+	ConfirmationSchemaVersion string       `json:"confirmation_schema_version"`
 }
 
 type doctorProtectionsReport struct {
@@ -151,17 +147,27 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check local runner provenance and deployment safety capabilities",
-		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that has no backup — Onebox does not take backups, and silence\nthere would read as approval.",
+		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that has no backup — Onebox does not take backups, and silence\nthere would read as approval. In structured output, automation should gate on\nthe report status: data.status for pass or warn, and error.details.status for\na failing diagnosis.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())
-			if err := writeDoctorReport(cmd.OutOrStdout(), report, g.Output); err != nil {
-				return err
-			}
 			if report.Status == doctorFail {
+				if isStructuredOutput(g) {
+					publicErr := &cliPublicError{Code: "doctor_failed", SafeMessage: "doctor found failing checks", Details: report}
+					if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
+						return err
+					}
+					return withExitCode(errDoctorFailed, 1)
+				}
+				if err := writeDoctorReport(cmd.OutOrStdout(), report); err != nil {
+					return err
+				}
 				return errDoctorFailed
 			}
-			return nil
+			if isStructuredOutput(g) {
+				return writeFiniteSuccess(cmd, g, report)
+			}
+			return writeDoctorReport(cmd.OutOrStdout(), report)
 		},
 	}
 	root.AddCommand(cmd)
@@ -174,13 +180,12 @@ func buildDoctorReport(ctx context.Context, g *globalFlags, deps doctorDependenc
 	approval := inspectDoctorApproval(environment)
 	protections := inspectDoctorProtections(cfg, project.Path, deps)
 	report := doctorReport{
-		SchemaVersion: doctorReportSchemaVersion,
-		Status:        doctorPass,
-		Binary:        binary,
-		SSHAgent:      sshAgent,
-		Project:       project,
-		Approval:      approval,
-		Protections:   protections,
+		Status:      doctorPass,
+		Binary:      binary,
+		SSHAgent:    sshAgent,
+		Project:     project,
+		Approval:    approval,
+		Protections: protections,
 	}
 	for _, status := range []doctorStatus{binary.Status, sshAgent.Status, project.Status, approval.Status, protections.Status} {
 		report.Status = worseDoctorStatus(report.Status, status)
@@ -448,21 +453,21 @@ func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjec
 
 func inspectDoctorApproval(environment *app.Environment) doctorApprovalReport {
 	report := doctorApprovalReport{
-		Status:             doctorPass,
-		Available:          true,
-		Source:             onebox.ApprovalSourceLocalCLI,
-		GrantSchemaVersion: onebox.ApprovalGrantSchemaVersion,
+		Status:                    doctorPass,
+		Available:                 true,
+		Source:                    onebox.ApprovalSourceLocalCLI,
+		ConfirmationSchemaVersion: onebox.ApprovalGrantSchemaVersion,
 	}
 	if environment == nil {
-		report.Message = "local plan-bound approval grants are available; project policy was not resolved"
+		report.Message = "plan-bound local confirmations are available; project policy was not resolved"
 		return report
 	}
 	report.PolicyKnown = true
 	report.Required = environment.Policy.RequireApproval
 	if report.Required {
-		report.Message = "project requires approval and this runner can create plan-bound local grants"
+		report.Message = "project requires approval and this runner can record a plan-bound local confirmation"
 	} else {
-		report.Message = "project does not require approval; plan-bound local grants remain available"
+		report.Message = "project does not require approval; plan-bound local confirmation remains available"
 	}
 	return report
 }
@@ -576,18 +581,9 @@ func worseDoctorStatus(left, right doctorStatus) doctorStatus {
 	return left
 }
 
-func writeDoctorReport(out io.Writer, report doctorReport, mode string) error {
-	switch mode {
-	case "json":
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(report)
-	case "ndjson":
-		return json.NewEncoder(out).Encode(report)
-	default:
-		_, err := io.WriteString(out, formatDoctorReport(report))
-		return err
-	}
+func writeDoctorReport(out io.Writer, report doctorReport) error {
+	_, err := io.WriteString(out, formatDoctorReport(report))
+	return err
 }
 
 func formatDoctorReport(report doctorReport) string {

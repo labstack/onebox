@@ -2,16 +2,19 @@ schema: spec-driven
 
 context: |
   Onebox is an LLM-first production-operations product for containerized
-  applications intentionally running on one active Linux host. Go is the
+  applications intentionally running as the sole Onebox application on one
+  active Linux host. Go is the
   implementation language. The host is reached over SSH and the execution
   engine owns locks, fencing, journals, state-bound plans, approval
   validation, verification, and recovery gates.
 
-  Ownership boundary: the user owns their application containers; Onebox owns
-  everything else on the box. Host provisioning, the container runtime, the
-  proxy, TLS, networks, release staging, supporting data services, backups,
-  restore proof, pruning, and log rotation are Onebox's responsibility, not
-  the user's.
+  Ownership boundary: the user owns the host, provisioning, application data,
+  and application containers. Onebox owns the release state, locks, journals,
+  generated runtime, and any host proxy or supporting services it explicitly
+  manages. Onebox currently runs supporting services without a native backup
+  or restore contract. Migration gates may consume plan-bound backup reports
+  about artifacts created and checked by the operator or external tooling;
+  those reports do not make Onebox the backup provider.
 
   The project file is the authoring contract. Its closed, versioned schema is
   the typed model the loader decodes into, with grammars and enums declared in
@@ -31,9 +34,11 @@ context: |
 
   The coding agent is the normal user interface and it operates Onebox through
   the CLI. The CLI is therefore the product interface, not a non-primary
-  adapter: every command carries a versioned structured output mode, errors
-  are typed and carry the command that resolves them, results stay compact
-  with detail behind identifiers, and mutations are idempotent under retry.
+  adapter: every executable leaf has a closed output protocol, finite and
+  streaming machine results are versioned, and errors are typed. Guidance
+  distinguishes read-only diagnostic commands, workflow-next commands, and
+  commands that can actually resolve a condition. Lifecycle mutations are
+  idempotent under retry. Passthrough commands state their weaker guarantees.
   Lifecycle behavior lives in the canonical Go service, never in the adapter.
 
   Documentation status is explicit. Archived contracts under openspec/specs/
@@ -41,13 +46,16 @@ context: |
   guides describe implemented behavior. Active OpenSpec changes describe
   proposed behavior only. docs/product.md states product direction.
 
-  Safety invariants: model text is never approval, and consequential approval
-  is delivered out of band so the actor requesting a change cannot mint the
-  capability authorizing it; plaintext secrets never enter plans, model
-  context, logs, journals, or public errors; read operations never converge;
-  mutations require exact state binding and trusted approval; force cannot
-  manufacture safety; failures preserve data and honest recovery choices;
-  unsupported behavior fails closed.
+  Safety invariants: model text is never approval. The shipped `ob approve`
+  ceremony records a short-lived local human confirmation bound to one exact
+  plan; its digest detects modification but is not authenticated identity or
+  proof that the requesting actor could not mint it. Plaintext secrets never
+  enter plans, model context, journals, or public errors; passthrough logs and
+  exec output are explicitly outside that redaction claim. Read operations
+  never converge; lifecycle mutations require exact state binding and the
+  confirmation class policy requires; an override cannot manufacture safety;
+  failures preserve data and honest recovery choices; unsupported behavior
+  fails closed.
 
 rules:
   proposal:
@@ -59,7 +67,7 @@ rules:
     - Use normative SHALL requirements with observable Given/When/Then scenarios.
     - Cover agent retries, disconnections, stale state, incomplete evidence, redaction, cancellation, and crash recovery where relevant.
     - Never treat model-authored text as approval or secret authority.
-    - Specify structured CLI output, typed error codes, and resolving next commands for any agent-facing surface.
+    - Specify structured CLI output, typed error codes, and semantically distinct diagnostic, next-step, and resolving commands for any agent-facing surface.
   design:
     - Keep the CLI as the only adapter and the canonical Go service as the only behavior authority.
     - Document default precedence, effective-value origins, version compatibility, failure atomicity, persistence ownership, and recovery limits.

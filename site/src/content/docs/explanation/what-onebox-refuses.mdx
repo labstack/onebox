@@ -65,7 +65,7 @@ exposes honest recovery choices instead of proceeding.
 :::
 
 A missing or invalid job result from a migration becomes `changed=unknown` and
-halts **before** workload replacement, unless a strong or break-glass grant
+halts **before** workload replacement, unless a strong or break-glass local confirmation
 authorized that exact plan. The unknown is treated as the dangerous case, because
 it is.
 
@@ -80,10 +80,10 @@ the line and the command that resolves it.
   code: unknown_field
 ```
 
-The lifecycle failure contract goes further: each code carries a **safe resolving
-command**, validated to start with `ob ` and to contain no credential material.
-An agent can branch on the code and run the next command without a human
-translating anything.
+The lifecycle failure contract goes further: each code carries one safe command
+classified as **diagnostic**, **next**, or **resolving**. It is validated to start
+with `ob ` and to contain no credential material. An agent can branch on the
+code without mistaking a read-only inspection for a repair.
 
 ## Codes are promises
 

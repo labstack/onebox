@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/journal"
 )
 
 const (
 	ExecutableDeployPlanSchemaVersion = "onebox.run/executable-deploy-plan/v1alpha2"
+	ExecutableJobPlanSchemaVersion    = "onebox.run/executable-job-plan/v1alpha1"
 	OperationEventSchemaVersion       = "onebox.run/operation-event/v1alpha1"
 	maxExecutableDeployPlanBytes      = 16 << 20
 	maxApprovalGrantBytes             = 1 << 20
@@ -39,7 +40,7 @@ func readBoundedArtifact(path, kind string, limit int) ([]byte, error) {
 }
 
 func SupportedExecutableDeployPlanSchemas() []string {
-	return []string{ExecutableDeployPlanSchemaVersion}
+	return []string{ExecutableDeployPlanSchemaVersion, ExecutableJobPlanSchemaVersion}
 }
 
 func CurrentRunnerProvenance() buildinfo.Runner {
@@ -58,6 +59,46 @@ type DeployPlan struct {
 	NoOp            bool                        `json:"no_op"`
 	MigrationBackup *MigrationBackupRequirement `json:"migration_backup,omitempty"`
 	PlanDigest      string                      `json:"plan_digest"`
+}
+
+func (p DeployPlan) ExecutableOperation() OperationPlan { return p.Operation }
+func (p DeployPlan) ExecutablePlanDigest() string       { return p.PlanDigest }
+func (p DeployPlan) ExecutableMigrationBackup() *MigrationBackupRequirement {
+	return p.MigrationBackup
+}
+func (*DeployPlan) executablePlan()           {}
+func (p *DeployPlan) executablePlanNil() bool { return p == nil }
+
+// ExecutablePlan is the common approval/evidence authority shared by deploy
+// and one-shot job plans. Its unexported methods keep the authority closed to
+// Onebox plan types, so an adapter cannot substitute its own validation.
+type ExecutablePlan interface {
+	executablePlan()
+	executablePlanNil() bool
+	Validate() error
+	ExecutableOperation() OperationPlan
+	ExecutablePlanDigest() string
+	ExecutableMigrationBackup() *MigrationBackupRequirement
+}
+
+type executablePlanView struct {
+	operation       OperationPlan
+	digest          string
+	migrationBackup *MigrationBackupRequirement
+}
+
+func inspectExecutablePlan(plan ExecutablePlan) (executablePlanView, error) {
+	if plan == nil || plan.executablePlanNil() {
+		return executablePlanView{}, errors.New("executable plan is nil")
+	}
+	if err := plan.Validate(); err != nil {
+		return executablePlanView{}, err
+	}
+	return executablePlanView{
+		operation:       plan.ExecutableOperation(),
+		digest:          plan.ExecutablePlanDigest(),
+		migrationBackup: plan.ExecutableMigrationBackup(),
+	}, nil
 }
 
 func artifactDigest(artifact engine.Artifact) (string, error) {
@@ -123,23 +164,9 @@ func (p DeployPlan) validateContent() error {
 }
 
 func (p DeployPlan) ComputeDigest() (string, error) {
-	encoded, err := json.Marshal(struct {
-		SchemaVersion   string                      `json:"schema_version"`
-		Runner          buildinfo.Runner            `json:"runner"`
-		Operation       OperationPlan               `json:"operation"`
-		Artifact        engine.Artifact             `json:"artifact"`
-		Diff            string                      `json:"diff,omitempty"`
-		NoOp            bool                        `json:"no_op"`
-		MigrationBackup *MigrationBackupRequirement `json:"migration_backup,omitempty"`
-	}{
-		SchemaVersion:   p.SchemaVersion,
-		Runner:          p.Runner,
-		Operation:       p.Operation,
-		Artifact:        p.Artifact,
-		Diff:            p.Diff,
-		NoOp:            p.NoOp,
-		MigrationBackup: p.MigrationBackup,
-	})
+	planCopy := p
+	planCopy.PlanDigest = ""
+	encoded, err := json.Marshal(planCopy)
 	if err != nil {
 		return "", fmt.Errorf("encode executable deploy plan digest: %w", err)
 	}
@@ -187,28 +214,7 @@ func (p DeployPlan) Save(path string) error {
 		return fmt.Errorf("encode executable deploy plan: %w", err)
 	}
 	encoded = append(encoded, '\n')
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create plan directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".deploy-plan-*")
-	if err != nil {
-		return fmt.Errorf("create deploy plan: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("protect deploy plan: %w", err)
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write deploy plan: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close deploy plan: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := writeDurableArtifact(path, ".deploy-plan-*", encoded); err != nil {
 		return fmt.Errorf("publish deploy plan: %w", err)
 	}
 	return nil
@@ -258,7 +264,7 @@ type OperationEvent struct {
 	Time       string           `json:"time"`
 	Kind       OperationKind    `json:"kind"`
 	Phase      string           `json:"phase"`
-	Status     string           `json:"status"`
+	Status     OperationStatus  `json:"status"`
 	Message    string           `json:"message,omitempty"`
 	Runner     buildinfo.Runner `json:"runner"`
 }
@@ -282,10 +288,13 @@ type ExecutionBinding struct {
 type ExecuteRequest struct {
 	Kind                    OperationKind
 	Plan                    *DeployPlan
+	JobPlan                 *JobPlan
 	Approval                *ApprovalGrant
-	BackupEvidence          *BackupEvidenceReceipt
+	BackupReport            *BackupReport
 	MigrationBackupOverride *MigrationBackupOverride
-	Force                   bool
+	BreakLock               bool
+	AllowDestructiveMounts  bool
+	BreakMigrationGate      bool
 	NoRollback              bool
 	Redeploy                bool
 	RemoveVolumes           bool
@@ -294,21 +303,60 @@ type ExecuteRequest struct {
 	Events                  EventSink
 }
 
+// Validate rejects ambiguous plans, mismatched operation kinds, and safety or
+// authority fields that the selected operation does not consume.
+func (request ExecuteRequest) Validate() error {
+	if request.Plan != nil && request.JobPlan != nil {
+		return errors.New("execution request cannot contain both deploy and job plans")
+	}
+	switch request.Kind {
+	case KindDeploy:
+		if request.JobPlan != nil {
+			return errors.New("deploy execution cannot contain a job plan")
+		}
+	case KindJobRun:
+		if request.Plan != nil {
+			return errors.New("job execution cannot contain a deploy plan")
+		}
+	default:
+		if request.Plan != nil || request.JobPlan != nil {
+			return errors.New("only deploy and job execution requests may contain plans")
+		}
+	}
+	if request.AllowDestructiveMounts && request.Kind != KindServiceApply {
+		return errors.New("allow_destructive_mounts is valid only for service apply")
+	}
+	if request.BreakMigrationGate && request.Kind != KindAbort {
+		return errors.New("break_migration_gate is valid only for abort")
+	}
+	if (request.NoRollback || request.Redeploy) && request.Kind != KindDeploy {
+		return errors.New("no_rollback and redeploy are valid only for deploy")
+	}
+	if (request.RemoveVolumes || request.RemoveProxy) && request.Kind != KindDestroy {
+		return errors.New("remove_volumes and remove_proxy are valid only for destroy")
+	}
+	if (request.Approval != nil || request.BackupReport != nil || request.MigrationBackupOverride != nil) && request.Kind != KindDeploy && request.Kind != KindJobRun {
+		return errors.New("approval and migration backup authorization are valid only for deploy and job run")
+	}
+	return nil
+}
+
 type OperationResult struct {
-	ID        string        `json:"id"`
-	Kind      OperationKind `json:"kind"`
-	Status    string        `json:"status"`
-	ReleaseID string        `json:"release_id,omitempty"`
+	ID        string          `json:"id"`
+	Kind      OperationKind   `json:"kind"`
+	Status    OperationStatus `json:"status"`
+	ReleaseID string          `json:"release_id,omitempty"`
 	// EvidenceID is the engine's release/journal correlation key, not a claim
 	// that a journal append completed. An early failure may leave no evidence.
-	EvidenceID                    string           `json:"evidence_id,omitempty"`
-	StartedAt                     string           `json:"started_at"`
-	FinishedAt                    string           `json:"finished_at"`
-	NoOp                          bool             `json:"no_op,omitempty"`
-	ApprovalDigest                string           `json:"approval_digest,omitempty"`
-	BackupEvidenceDigest          string           `json:"backup_evidence_digest,omitempty"`
-	MigrationBackupOverrideDigest string           `json:"migration_backup_override_digest,omitempty"`
-	Runner                        buildinfo.Runner `json:"runner"`
+	EvidenceID                    string                     `json:"evidence_id,omitempty"`
+	StartedAt                     string                     `json:"started_at"`
+	FinishedAt                    string                     `json:"finished_at"`
+	NoOp                          bool                       `json:"no_op,omitempty"`
+	ApprovalDigest                string                     `json:"approval_digest,omitempty"`
+	BackupReportDigest            string                     `json:"backup_report_digest,omitempty"`
+	MigrationBackupOverrideDigest string                     `json:"migration_backup_override_digest,omitempty"`
+	Runner                        buildinfo.Runner           `json:"runner"`
+	JobResult                     *journal.JobResultEvidence `json:"job_result,omitempty"`
 }
 
 func validateRunnerProvenance(runner buildinfo.Runner, planSchema string) error {

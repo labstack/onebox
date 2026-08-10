@@ -3,6 +3,7 @@ package onebox
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -41,7 +42,7 @@ func backupEvidenceTestPlan(t *testing.T, base time.Time) DeployPlan {
 	return plan
 }
 
-func backupEvidenceTestReceipt(t *testing.T, plan *DeployPlan, base time.Time) BackupEvidenceReceipt {
+func backupReportForTest(t *testing.T, plan *DeployPlan, base time.Time) BackupReport {
 	t.Helper()
 	digest := func(char string) string { return "sha256:" + strings.Repeat(char, 64) }
 	resourceEvidence := []MigrationBackupResourceEvidence{{
@@ -73,141 +74,220 @@ func backupEvidenceTestReceipt(t *testing.T, plan *DeployPlan, base time.Time) B
 			},
 		})
 	}
-	receipt, err := NewBackupEvidenceReceipt(plan, "operator@example.test", base.Add(time.Minute), resourceEvidence, keyMaterial)
+	report, err := NewBackupReport(plan, "operator@example.test", base.Add(time.Minute), resourceEvidence, keyMaterial)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return receipt
+	return report
 }
 
-func TestBackupEvidenceReceiptIsStrictFreshAndPlanBound(t *testing.T) {
+func fillBackupReportTemplate(template BackupReport, observations BackupReport) BackupReport {
+	filled := template
+	filled.ReportedBy = observations.ReportedBy
+	filled.ReportedAt = observations.ReportedAt
+	filled.Resources = append([]MigrationBackupResourceEvidence(nil), template.Resources...)
+	for index := range filled.Resources {
+		observed := observations.Resources[index]
+		filled.Resources[index].BackupID = observed.BackupID
+		filled.Resources[index].CreatedAt = observed.CreatedAt
+		filled.Resources[index].Integrity = observed.Integrity
+		if filled.Resources[index].RestoreTest.State == BackupRestoreTestPassed {
+			filled.Resources[index].RestoreTest.Method = observed.RestoreTest.Method
+			filled.Resources[index].RestoreTest.TestedAt = observed.RestoreTest.TestedAt
+			filled.Resources[index].RestoreTest.ValidationDigest = observed.RestoreTest.ValidationDigest
+		}
+	}
+	filled.KeyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), template.KeyMaterial...)
+	for index := range filled.KeyMaterial {
+		observed := observations.KeyMaterial[index]
+		filled.KeyMaterial[index].BackupID = observed.BackupID
+		filled.KeyMaterial[index].CreatedAt = observed.CreatedAt
+		filled.KeyMaterial[index].Integrity = observed.Integrity
+		filled.KeyMaterial[index].Usability = observed.Usability
+	}
+	return filled
+}
+
+func TestBackupReportTemplateRoundTripPreservesPlanSkeleton(t *testing.T) {
+	base := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
+	for _, requireRestoreTest := range []bool{true, false} {
+		t.Run(fmt.Sprintf("restore_test_%t", requireRestoreTest), func(t *testing.T) {
+			plan := backupEvidenceTestPlan(t, base)
+			plan.MigrationBackup.RequireRestoreTest = requireRestoreTest
+			if err := plan.Seal(); err != nil {
+				t.Fatal(err)
+			}
+			template, err := NewBackupReportTemplate(&plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(template.Resources) != len(plan.MigrationBackup.Resources) || len(template.KeyMaterial) != len(plan.MigrationBackup.RequiredKeyMaterial) {
+				t.Fatalf("template shape = resources:%d keys:%d", len(template.Resources), len(template.KeyMaterial))
+			}
+			if !reflect.DeepEqual(template.Resources[0].Resource, plan.MigrationBackup.Resources[0]) {
+				t.Fatalf("template changed protected resource: %#v", template.Resources[0].Resource)
+			}
+			wantRestoreState := BackupRestoreTestNotTested
+			if requireRestoreTest {
+				wantRestoreState = BackupRestoreTestPassed
+			}
+			if template.Resources[0].RestoreTest.State != wantRestoreState {
+				t.Fatalf("template restore state = %q, want %q", template.Resources[0].RestoreTest.State, wantRestoreState)
+			}
+			for index, name := range plan.MigrationBackup.RequiredKeyMaterial {
+				if template.KeyMaterial[index].Name != name {
+					t.Fatalf("template key %d = %q, want %q", index, template.KeyMaterial[index].Name, name)
+				}
+			}
+			filled := fillBackupReportTemplate(template, backupReportForTest(t, &plan, base))
+			if err := filled.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
+				t.Fatalf("filled plan-produced template is not executable: %v", err)
+			}
+		})
+	}
+}
+
+func TestBackupReportIsStrictFreshAndPlanBound(t *testing.T) {
 	base := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
 	plan := backupEvidenceTestPlan(t, base)
-	receipt := backupEvidenceTestReceipt(t, &plan, base)
-	if err := receipt.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
-		t.Fatalf("valid receipt: %v", err)
+	report := backupReportForTest(t, &plan, base)
+	if err := report.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
+		t.Fatalf("valid report: %v", err)
+	}
+	confirmation, err := NewApprovalGrant(&plan, &report, "approver@example.test", base.Add(90*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := validateMigrationBackupForExecution(&plan, &report, nil, &confirmation, true, base.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("execute with bound report: %v", err)
+	}
+	if audit.Mode != "receipt" || !sha256Digest.MatchString(audit.ReceiptDigest) || audit.RecordedAt != base.Add(2*time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("internal attempt receipt = %#v", audit)
 	}
 
-	t.Run("tamper detection", func(t *testing.T) {
-		tampered := receipt
-		tampered.Resources = append([]MigrationBackupResourceEvidence(nil), receipt.Resources...)
+	t.Run("content changes digest", func(t *testing.T) {
+		originalDigest, err := report.ComputeDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tampered := report
+		tampered.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
 		tampered.Resources[0].BackupID = "different-artifact"
-		if err := tampered.Validate(); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
-			t.Fatalf("tampered receipt was accepted: %v", err)
+		tamperedDigest, err := tampered.ComputeDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tamperedDigest == originalDigest {
+			t.Fatal("changed report retained the same digest")
+		}
+		if _, err := validateMigrationBackupForExecution(&plan, &tampered, nil, &confirmation, true, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "confirm the current plan and report again") {
+			t.Fatalf("changed report was accepted with the old confirmation: %v", err)
 		}
 	})
 
-	t.Run("resealed target mismatch", func(t *testing.T) {
-		mismatch := receipt
+	t.Run("target mismatch", func(t *testing.T) {
+		mismatch := report
 		mismatch.Server = "deploy@other.example.test"
-		if err := mismatch.Seal(); err != nil {
-			t.Fatal(err)
-		}
 		if err := mismatch.ValidateForPlan(&plan, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "target") {
 			t.Fatalf("target mismatch was accepted: %v", err)
 		}
 	})
 
 	t.Run("exact key material set", func(t *testing.T) {
-		missing := receipt
-		missing.KeyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), receipt.KeyMaterial[:1]...)
-		if err := missing.Seal(); err != nil {
-			t.Fatal(err)
-		}
+		missing := report
+		missing.KeyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), report.KeyMaterial[:1]...)
 		if err := missing.ValidateForPlan(&plan, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "key material") {
 			t.Fatalf("incomplete key-material evidence was accepted: %v", err)
 		}
 	})
 
 	t.Run("exact protected resource", func(t *testing.T) {
-		mismatch := receipt
-		mismatch.Resources = append([]MigrationBackupResourceEvidence(nil), receipt.Resources...)
+		mismatch := report
+		mismatch.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
 		mismatch.Resources[0].Resource.Service = "other-postgres"
-		if err := mismatch.Seal(); err != nil {
-			t.Fatal(err)
-		}
 		if err := mismatch.ValidateForPlan(&plan, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "resources") {
 			t.Fatalf("wrong protected resource was accepted: %v", err)
 		}
 	})
 
 	t.Run("freshness boundary is inclusive", func(t *testing.T) {
-		boundary := receipt
-		boundary.Resources = append([]MigrationBackupResourceEvidence(nil), receipt.Resources...)
+		boundary := report
+		boundary.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
 		executionTime := base.Add(2 * time.Minute)
 		boundary.Resources[0].CreatedAt = executionTime.Add(-24 * time.Hour).Format(time.RFC3339Nano)
-		if err := boundary.Seal(); err != nil {
-			t.Fatal(err)
-		}
 		if err := boundary.ValidateForPlan(&plan, executionTime); err != nil {
 			t.Fatalf("backup exactly at max age was rejected: %v", err)
 		}
 	})
 
 	t.Run("stale backup", func(t *testing.T) {
-		stale := receipt
-		stale.Resources = append([]MigrationBackupResourceEvidence(nil), receipt.Resources...)
+		stale := report
+		stale.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
 		stale.Resources[0].CreatedAt = base.Add(-25 * time.Hour).Format(time.RFC3339Nano)
-		if err := stale.Seal(); err != nil {
-			t.Fatal(err)
-		}
 		if err := stale.ValidateForPlan(&plan, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "older than") {
 			t.Fatalf("stale backup was accepted: %v", err)
 		}
 	})
 
 	t.Run("future validation", func(t *testing.T) {
-		future := receipt
-		future.Resources = append([]MigrationBackupResourceEvidence(nil), receipt.Resources...)
+		future := report
+		future.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
 		future.Resources[0].Integrity.ValidatedAt = base.Add(10 * time.Minute).Format(time.RFC3339Nano)
-		if err := future.Seal(); err != nil {
-			t.Fatal(err)
-		}
 		if err := future.ValidateForPlan(&plan, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "future") {
 			t.Fatalf("future validation was accepted: %v", err)
 		}
 	})
 
 	t.Run("restore test required", func(t *testing.T) {
-		untested := receipt
-		untested.Resources = append([]MigrationBackupResourceEvidence(nil), receipt.Resources...)
+		untested := report
+		untested.Resources = append([]MigrationBackupResourceEvidence(nil), report.Resources...)
 		untested.Resources[0].RestoreTest = BackupRestoreTestEvidence{State: BackupRestoreTestNotTested}
-		if err := untested.Seal(); err != nil {
-			t.Fatal(err)
-		}
 		if err := untested.ValidateForPlan(&plan, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "passed restore test") {
 			t.Fatalf("untested backup was accepted: %v", err)
 		}
 	})
 }
 
-func TestBackupEvidenceArtifactsAreStrictAndProtected(t *testing.T) {
+func TestBackupReportArtifactsAreStrictAndTemplateIsProtected(t *testing.T) {
 	base := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
 	plan := backupEvidenceTestPlan(t, base)
-	receipt := backupEvidenceTestReceipt(t, &plan, base)
-	path := filepath.Join(t.TempDir(), "nested", "backup-evidence.json")
-	if err := receipt.Save(path); err != nil {
+	report := backupReportForTest(t, &plan, base)
+	template, err := NewBackupReportTemplate(&plan)
+	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
+	filled := fillBackupReportTemplate(template, report)
+	if err := filled.ValidateForPlan(&plan, base.Add(2*time.Minute)); err != nil {
+		t.Fatalf("filled plan-produced template is not executable: %v", err)
+	}
+	templatePath := filepath.Join(t.TempDir(), "nested", "backup-report-template.json")
+	if err := template.SaveTemplate(templatePath); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(templatePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("receipt mode = %04o, want 0600", got)
+		t.Fatalf("template mode = %04o, want 0600", got)
 	}
-	loaded, err := LoadBackupEvidenceReceipt(path)
+	path := filepath.Join(t.TempDir(), "backup-report.json")
+	encoded, err := json.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(*loaded, receipt) {
-		t.Fatalf("loaded receipt differs:\n got: %#v\nwant: %#v", *loaded, receipt)
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadBackupReport(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*loaded, report) {
+		t.Fatalf("loaded report differs:\n got: %#v\nwant: %#v", *loaded, report)
 	}
 
-	encoded, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var document map[string]any
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
@@ -221,7 +301,7 @@ func TestBackupEvidenceArtifactsAreStrictAndProtected(t *testing.T) {
 	if err := os.WriteFile(unknownPath, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadBackupEvidenceReceipt(unknownPath); err == nil || !strings.Contains(err.Error(), "unknown field") {
+	if _, err := LoadBackupReport(unknownPath); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("unknown boolean shortcut was accepted: %v", err)
 	}
 
@@ -229,8 +309,8 @@ func TestBackupEvidenceArtifactsAreStrictAndProtected(t *testing.T) {
 	if err := os.WriteFile(oversized, make([]byte, (1<<20)+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadBackupEvidenceReceipt(oversized); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized receipt was accepted: %v", err)
+	if _, err := LoadBackupReport(oversized); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized report was accepted: %v", err)
 	}
 }
 
@@ -244,7 +324,7 @@ func TestMigrationBackupOverrideRequiresStrongApprovalAndIsAuditable(t *testing.
 	if _, err := validateMigrationBackupForExecution(&plan, nil, &override, nil, true, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "strong") {
 		t.Fatalf("override without strong approval was accepted: %v", err)
 	}
-	approval, err := NewApprovalGrant(&plan, "approver@example.test", base.Add(time.Minute))
+	approval, err := NewApprovalGrant(&plan, nil, "approver@example.test", base.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,13 +349,13 @@ func TestMigrationBackupOverrideRequiresStrongApprovalAndIsAuditable(t *testing.
 		t.Fatalf("untrusted override source was accepted: %v", err)
 	}
 
-	receipt := backupEvidenceTestReceipt(t, &plan, base)
-	if _, err := validateMigrationBackupForExecution(&plan, &receipt, &override, &approval, true, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "not both") {
-		t.Fatalf("receipt plus override was accepted: %v", err)
+	report := backupReportForTest(t, &plan, base)
+	if _, err := validateMigrationBackupForExecution(&plan, &report, &override, &approval, true, base.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("report plus override was accepted: %v", err)
 	}
 }
 
-func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingEvidenceBeforeConnecting(t *testing.T) {
+func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingReportBeforeConnecting(t *testing.T) {
 	configPath := writeServiceProject(t)
 	configBytes, err := os.ReadFile(configPath)
 	if err != nil {
@@ -286,7 +366,7 @@ func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingEvidenceBe
 		"      allow_agent_proposals: true\n      require_migration_backup: true\n      migration_backup_maximum_age: 24h\n      require_migration_restore_test: true\n      migration_backup_key_material: [application_encryption_key]\n", 1)
 	configText = strings.Replace(configText,
 		"  database:\n",
-		"  migrate:\n    role: job\n    image: ghcr.io/example/app:migrate\n    data_effect: migration\n  database:\n", 1)
+		"  migrate:\n    role: job\n    image: ghcr.io/example/app:migrate\n    when: pre_release\n    data_effect: migration\n  database:\n", 1)
 	if err := os.WriteFile(configPath, []byte(configText), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -311,15 +391,15 @@ func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingEvidenceBe
 		!reflect.DeepEqual(plan.MigrationBackup.RequiredKeyMaterial, []string{"application_encryption_key"}) {
 		t.Fatalf("plan lost migration backup binding: %#v", plan.MigrationBackup)
 	}
-	approval, err := NewApprovalGrant(&plan, "approver@example.test", now.Add(time.Minute))
+	approval, err := NewApprovalGrant(&plan, nil, "approver@example.test", now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
 	connectsAfterPlan := connects
 	now = now.Add(2 * time.Minute)
 	_, err = service.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
-	if err == nil || !strings.Contains(err.Error(), "fresh backup evidence is required") {
-		t.Fatalf("missing backup evidence was accepted: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "fresh backup report is required") {
+		t.Fatalf("missing backup report was accepted: %v", err)
 	}
 	if connects != connectsAfterPlan {
 		t.Fatalf("missing evidence reached target connection: before=%d after=%d", connectsAfterPlan, connects)

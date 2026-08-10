@@ -281,7 +281,7 @@ var blocks = []block{
 		Summary: "Where the application runs, the SSH target, per-environment overrides, and the policy governing deployment there.",
 		ReadWhen: []string{
 			"Adding a staging or production environment",
-			"Requiring approval, a minimum runner version, or migration backup evidence",
+			"Requiring local confirmation, a minimum runner version, or a migration backup report",
 			"Working out which fields an environment override may change",
 		}},
 	{Key: "runtime", Title: "runtime", Order: 40, Status: statusShipped,
@@ -870,11 +870,11 @@ func renderErrorPage() string {
 	fmt.Fprintln(&buf, ":::")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "The failure contract shared by plans, event streams, terminal results, status and")
-	fmt.Fprintln(&buf, "doctor. Each carries a stable code and a safe resolving command; diagnostic")
+	fmt.Fprintln(&buf, "doctor. Each carries a stable code and one safe command in its semantic role; diagnostic")
 	fmt.Fprintln(&buf, "detail stays in restricted local evidence, never in the public record.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "| Code | Reachable | Means | Resolving command |")
-	fmt.Fprintln(&buf, "| --- | --- | --- | --- |")
+	fmt.Fprintln(&buf, "| Code | Reachable | Means | Guidance role | Command |")
+	fmt.Fprintln(&buf, "| --- | --- | --- | --- | --- |")
 	for _, code := range onebox.LifecycleFailureCodes() {
 		// A code that will not resolve is a defect in the contract, not a row to
 		// drop: a shorter table is one nobody can tell is incomplete.
@@ -886,7 +886,7 @@ func renderErrorPage() string {
 		if onebox.LifecycleFailureReserved(code) {
 			reach = "reserved"
 		}
-		fmt.Fprintf(&buf, "| `%s` | %s | %s | `%s` |\n", code, reach, escapeCell(failure.Message), failure.Next)
+		fmt.Fprintf(&buf, "| `%s` | %s | %s | %s | `%s` |\n", code, reach, escapeCell(failure.Message), failure.GuidanceRole(), failure.GuidanceCommand())
 	}
 
 	return buf.String()

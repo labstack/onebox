@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestEveryDeltaSpecFailureHasASecretFreeResolvingContract(t *testing.T) {
+func TestEveryDeltaSpecFailureHasASecretFreeGuidanceContract(t *testing.T) {
 	expected := []string{
 		"assurance_stale",
 		"backup_conflict",
@@ -61,8 +61,8 @@ func TestEveryDeltaSpecFailureHasASecretFreeResolvingContract(t *testing.T) {
 			if !safeLifecycleMetadata(failure.Code) {
 				t.Fatalf("code is not stable metadata: %q", failure.Code)
 			}
-			if !safeResolvingCommand(failure.Next) {
-				t.Fatalf("unsafe resolving command: %q", failure.Next)
+			if !safeGuidanceCommand(failure.GuidanceCommand()) || failure.GuidanceRole() == "" {
+				t.Fatalf("unsafe command guidance: %+v", failure)
 			}
 			encoded, err := json.Marshal(failure)
 			if err != nil {
@@ -78,7 +78,14 @@ func TestEveryDeltaSpecFailureHasASecretFreeResolvingContract(t *testing.T) {
 			record := validLifecycleResultRecord(LifecycleBackupCreate, "postgres")
 			record.Result.TerminalState = "failed"
 			record.Result.ErrorCode = failure.Code
-			record.Result.ResolvingCommands = []string{failure.Next}
+			switch failure.GuidanceRole() {
+			case "diagnostic":
+				record.Result.DiagnosticCommands = []string{failure.GuidanceCommand()}
+			case "next":
+				record.Result.NextCommands = []string{failure.GuidanceCommand()}
+			case "resolving":
+				record.Result.ResolvingCommands = []string{failure.GuidanceCommand()}
+			}
 			if err := record.Validate(); err != nil {
 				t.Fatalf("failure does not fit lifecycle result contract: %v", err)
 			}
@@ -99,5 +106,21 @@ func TestLifecycleFailureValidationDoesNotReflectUnsafeReplacement(t *testing.T)
 	}
 	if strings.Contains(err.Error(), canary) || strings.Contains(err.Error(), "mcp-must-not-see-this") {
 		t.Fatalf("validation reflected unsafe replacement: %v", err)
+	}
+}
+
+func TestGuidanceRoleForCommandDoesNotCallReadsResolving(t *testing.T) {
+	tests := map[string]string{
+		"ob status --output json":                       "diagnostic",
+		"ob backup target inspect --output json":        "diagnostic",
+		"ob secrets list --output json":                 "diagnostic",
+		"ob plan --output json":                         "next",
+		"ob approve --plan <plan> --out <confirmation>": "next",
+		"ob service apply --output ndjson":              "resolving",
+	}
+	for command, want := range tests {
+		if got := GuidanceRoleForCommand(command); got != want {
+			t.Errorf("GuidanceRoleForCommand(%q) = %q, want %q", command, got, want)
+		}
 	}
 }

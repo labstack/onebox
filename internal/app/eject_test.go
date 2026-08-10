@@ -82,6 +82,38 @@ func TestEjectedProjectStillGenerates(t *testing.T) {
 	}
 }
 
+func TestEjectRepointsTheExplicitProjectPathOnly(t *testing.T) {
+	dir := t.TempDir()
+	explicit := filepath.Join(dir, "deploy.project.yml")
+	siblingDefault := filepath.Join(dir, "ob.yml")
+	if err := os.WriteFile(explicit, []byte(ejectProject), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const untouched = "this is deliberately not a project\n"
+	if err := os.WriteFile(siblingDefault, []byte(untouched), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(explicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := p.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolved.Eject("compose.yaml", "r1", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(explicit)
+	if err != nil || !strings.Contains(string(body), "compose: compose.yaml#web") {
+		t.Fatalf("explicit project was not repointed: %v\n%s", err, body)
+	}
+	defaultBody, err := os.ReadFile(siblingDefault)
+	if err != nil || string(defaultBody) != untouched {
+		t.Fatalf("sibling ob.yml changed: %v\n%s", err, defaultBody)
+	}
+}
+
 // TestEjectPreservesComments. The project file is maintained by hand and its
 // comments say why things are the way they are. A decode-and-re-encode would
 // discard every one of them silently.

@@ -68,7 +68,7 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 func TestEnsureProxyFreshHost(t *testing.T) {
 	f := &transport.Fake{}
 	f.Dynamic = proxyPS(f, false)
-	e, hash, _ := proxyFixture(t, f)
+	e, _, _ := proxyFixture(t, f)
 	if err := e.EnsureProxy(context.Background(), "R1", false); err != nil {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
@@ -79,8 +79,8 @@ func TestEnsureProxyFreshHost(t *testing.T) {
 	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d") {
 		t.Fatalf("fresh host must up the proxy project:\n%s", seq)
 	}
-	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/sample'") {
-		t.Fatalf("app must register with its config hash:\n%s", seq)
+	if strings.Contains(seq, "/proxy/apps") {
+		t.Fatalf("proxy convergence must not create a cross-application registry:\n%s", seq)
 	}
 	if !strings.Contains(seq, "test -f '/var/lib/ob/_host/proxy/acme/acme.json' ||") {
 		t.Fatalf("acme.json creation must be guarded (never touch an existing one):\n%s", seq)
@@ -133,8 +133,8 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	if len(f.Uploads) != 0 {
 		t.Fatalf("unchanged proxy must not re-upload: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "echo '"+hash+"' > '/var/lib/ob/_host/proxy/apps/sample'") {
-		t.Fatalf("registration must still happen:\n%s", seq)
+	if strings.Contains(seq, "/proxy/apps") {
+		t.Fatalf("unchanged proxy must not create a cross-application registry:\n%s", seq)
 	}
 }
 
@@ -209,59 +209,30 @@ func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 	}
 }
 
-func TestEnsureProxyConflictNamesApps(t *testing.T) {
+func TestProxyApplyRefusesForeignOwnerBeforeMutation(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)
-	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "sample\nunlock\n"}, true
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{Stdout: "another-app\n"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
-			return transport.Result{Stdout: "0123456789abcdef\n"}, true
-		}
-		return ps(cmd)
+		return transport.Result{}, false
 	}
-	err := e.EnsureProxy(context.Background(), "R4", false)
-	if err == nil || !strings.Contains(err.Error(), "unlock") {
-		t.Fatalf("divergent config must conflict naming the other app, got %v", err)
+	e.Opts.ForceLock = true
+	err := e.ProxyApply(context.Background(), "R4")
+	if err == nil || !strings.Contains(err.Error(), "another-app") {
+		t.Fatalf("foreign host owner was accepted: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "up -d") || strings.Contains(seq, "docker restart") || len(f.Uploads) != 0 {
-		t.Fatalf("conflict must stop before any mutation:\n%s", seq)
-	}
-
-	// --force proceeds
-	f2 := &transport.Fake{}
-	e2, _, _ := proxyFixture(t, f2)
-	ps2 := proxyPS(f2, true)
-	f2.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "unlock\n"}, true
-		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
-			return transport.Result{Stdout: "0123456789abcdef\n"}, true
-		}
-		return ps2(cmd)
-	}
-	if err := e2.EnsureProxy(context.Background(), "R5", true); err != nil {
-		t.Fatalf("force must proceed past the conflict: %v", err)
+		t.Fatalf("foreign owner must stop before proxy mutation:\n%s", seq)
 	}
 }
 
-func TestEnsureProxyLockReleasedOnConflict(t *testing.T) {
+func TestEnsureProxyReleasesHostLock(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)
-	ps := proxyPS(f, true)
-	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'") {
-			return transport.Result{Stdout: "unlock\n"}, true
-		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/apps/unlock'") {
-			return transport.Result{Stdout: "0123456789abcdef\n"}, true
-		}
-		return ps(cmd)
-	}
+	f.Dynamic = proxyPS(f, false)
 	_ = e.EnsureProxy(context.Background(), "R6", false)
 	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/_host/lock'") {
 		t.Fatalf("host lock must be released on error:\n%s", strings.Join(f.Commands, "\n"))

@@ -22,7 +22,6 @@ type globalFlags struct {
 	Env        string
 	ConfigPath string
 	NoRollback bool
-	Force      bool
 	Output     string
 	// Images resolves build-sourced workloads. Parsed from --image by the
 	// verbs that accept it.
@@ -50,8 +49,8 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&g.Output, "output", "human", "output mode for supported commands: human|json|ndjson (see the CLI reference)")
 	addVersionCommand(root, g)
 	addDoctorCommand(root, g)
-	addBackupEvidenceCommand(root, g)
 	addCommands(root, g)
+	addJobCommand(root, g)
 	addInitCommand(root, g)
 	addOpsCommands(root, g)
 	addPreviewCommand(root, g)
@@ -82,14 +81,18 @@ func main() {
 		stopSignals()
 	}()
 	if err := newRootCmd().ExecuteContext(ctx); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			os.Exit(130)
-		}
 		// the one line every failure ends on — red where the terminal allows
 		ui.New(os.Stderr, false).Failf("ob: %v", err)
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			os.Exit(2)
+		}
+		var coded *cliExitError
+		if errors.As(err, &coded) {
+			os.Exit(coded.ExitCode())
+		}
 		os.Exit(1)
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
-		os.Exit(130)
+		os.Exit(2)
 	}
 }

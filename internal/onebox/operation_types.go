@@ -196,9 +196,9 @@ type OperationArtifactBinding struct {
 // CanonicalJSON returns the deterministic digest input. PlanDigest is always
 // excluded, preventing a self-referential identity.
 func (p OperationPlan) CanonicalJSON() ([]byte, error) {
-	copy := p
-	copy.PlanDigest = ""
-	return json.Marshal(copy)
+	planCopy := p
+	planCopy.PlanDigest = ""
+	return json.Marshal(planCopy)
 }
 
 func (p OperationPlan) ComputeDigest() (string, error) {

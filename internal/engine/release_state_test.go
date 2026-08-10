@@ -202,6 +202,44 @@ func TestActivateManifestCrashLeavesLastDurableBoundary(t *testing.T) {
 	}
 }
 
+func TestActivateManifestPredecessorWriteFailureLeavesTwoServingManifestsRecoverable(t *testing.T) {
+	target := happyFake()
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		latestInput := ""
+		if len(target.Inputs) > 0 {
+			latestInput = target.Inputs[len(target.Inputs)-1]
+		}
+		if strings.Contains(command, "/manifest.json.tmp") &&
+			strings.Contains(latestInput, `"id": "`+engineTestPreviousReleaseID+`"`) &&
+			strings.Contains(latestInput, `"state": "superseded"`) {
+			return transport.Result{ExitCode: 74, Stderr: "simulated predecessor manifest failure"}, true
+		}
+		return base(command)
+	}
+	engine := releaseStateTestEngine(t, target)
+	manifest := stagedManifest(t, engineTestDeployReleaseID)
+	if err := engine.writeReleaseManifest(context.Background(), manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.activateManifest(context.Background(), &manifest, engineTestPreviousReleaseID); err == nil {
+		t.Fatal("activation unexpectedly completed")
+	}
+	checkpoint, err := release.ReadActivationCheckpoint(context.Background(), target, engine.Names())
+	if err != nil || checkpoint.Phase != release.ActivationServingRecorded {
+		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
+	}
+	for _, releaseID := range []string{engineTestDeployReleaseID, engineTestPreviousReleaseID} {
+		stored, err := release.ReadManifest(context.Background(), target, engine.Names(), releaseID)
+		if err != nil || stored.State != release.StateServing {
+			t.Fatalf("manifest %s = %+v, %v; want recoverable serving state", releaseID, stored, err)
+		}
+	}
+	if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/ob/sample/activation.json'") {
+		t.Fatal("two-serving-manifest crash state lost its recovery checkpoint")
+	}
+}
+
 func TestRollbackRefusesSupersededManifestThatNeverProvedServing(t *testing.T) {
 	target := happyFake()
 	engine := releaseStateTestEngine(t, target)

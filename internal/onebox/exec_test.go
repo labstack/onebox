@@ -58,6 +58,61 @@ func TestExecRefusesInvalidReasonBeforeConnecting(t *testing.T) {
 	}
 }
 
+func TestExecRefusesIncompleteRequestBeforeConnecting(t *testing.T) {
+	for _, request := range []ExecRequest{
+		{Command: "true", Reason: "inspect a stuck request"},
+		{Target: "api", Reason: "inspect a stuck request"},
+	} {
+		connected := false
+		service := execService(t, func(context.Context, string) (transport.Transport, error) {
+			connected = true
+			return nil, errors.New("must not connect")
+		})
+		if _, err := service.Exec(context.Background(), request, &bytes.Buffer{}, &bytes.Buffer{}); err == nil || connected {
+			t.Fatalf("incomplete exec request reached target: request=%+v err=%v", request, err)
+		}
+	}
+}
+
+func TestExecEnforcesEnvironmentAndRunnerPolicyBeforeConnecting(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		prepare func(*Service)
+		want    string
+	}{
+		{name: "unknown environment", prepare: func(service *Service) { service.environment = "staging" }, want: "unknown_environment"},
+		{name: "runner policy", prepare: func(service *Service) {
+			service.configPath = writeExecProject(t, strings.Replace(execProjectYAML,
+				"    server: deploy@example.invalid\n",
+				"    server: deploy@example.invalid\n    policy: {minimum_onebox_version: v2026.08.3}\n", 1))
+		}, want: "not a released Onebox CalVer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			connected := false
+			service := execService(t, func(context.Context, string) (transport.Transport, error) {
+				connected = true
+				return nil, errors.New("must not connect")
+			})
+			test.prepare(service)
+			_, err := service.Exec(context.Background(), ExecRequest{
+				Target: "api", Command: "true", Reason: "inspect a stuck request",
+			}, &bytes.Buffer{}, &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), test.want) || connected {
+				t.Fatalf("policy refusal = %v, connected=%v", err, connected)
+			}
+		})
+	}
+}
+
+func writeExecProject(t *testing.T, project string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ob.yml")
+	if err := os.WriteFile(path, []byte(project), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestExecLocksFencesAndJournalsTheExactContainer(t *testing.T) {
 	fake := &transport.Fake{
 		TargetName: "deploy@example.invalid",

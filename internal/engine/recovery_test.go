@@ -265,3 +265,25 @@ func TestRecoverySnapshotRejectsAnotherApplication(t *testing.T) {
 		t.Fatalf("cross-application snapshot was accepted: %v", err)
 	}
 }
+
+func TestRecoveryEngineUsesSnapshotChoreography(t *testing.T) {
+	snapshot := strings.Replace(engineProject, "order: [web, worker]", "order: [worker, web]", 1)
+	target := happyFake()
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "/ob.snapshot.yml") {
+			return transport.Result{Stdout: snapshot}, true
+		}
+		return transport.Result{}, false
+	}
+	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	replay, err := engine.engineFromReleaseSnapshot(context.Background(), engineTestPreviousReleaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(replay.Spec.Deployment.Order, ","); got != "worker,web" {
+		t.Fatalf("recovery order = %q, want deployed snapshot order", got)
+	}
+	if got := strings.Join(engine.Spec.Deployment.Order, ","); got != "web,worker" {
+		t.Fatalf("recovery mutated working-tree engine order: %q", got)
+	}
+}

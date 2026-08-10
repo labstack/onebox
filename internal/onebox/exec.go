@@ -23,10 +23,11 @@ type ExecResult struct {
 	OperationID   string               `json:"operation_id"`
 	Target        engine.RuntimeTarget `json:"target"`
 	CommandDigest string               `json:"command_digest"`
+	ContainerID   string               `json:"container_id,omitempty"`
 	Reason        string               `json:"reason"`
 	StartedAt     string               `json:"started_at"`
 	FinishedAt    string               `json:"finished_at"`
-	Outcome       string               `json:"outcome"`
+	Outcome       OperationStatus      `json:"outcome"`
 }
 
 // Exec runs arbitrary container commands through the canonical service
@@ -34,13 +35,13 @@ type ExecResult struct {
 func (s *Service) Exec(ctx context.Context, request ExecRequest, stdout, stderr io.Writer) (result ExecResult, err error) {
 	started := s.now().UTC()
 	result.StartedAt = started.Format(time.RFC3339Nano)
-	result.Outcome = "failed"
+	result.Outcome = OperationStatusError
 	defer func() {
 		result.FinishedAt = s.now().UTC().Format(time.RFC3339Nano)
 		if err == nil {
-			result.Outcome = "succeeded"
+			result.Outcome = OperationStatusSuccess
 		} else if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			result.Outcome = "cancelled"
+			result.Outcome = OperationStatusCancelled
 		}
 	}()
 
@@ -78,6 +79,6 @@ func (s *Service) Exec(ctx context.Context, request ExecRequest, stdout, stderr 
 	if err != nil {
 		return result, err
 	}
-	err = e.ExecInAudited(ctx, result.OperationID, request.Target, request.Command, request.Reason, stdout, stderr)
+	result.ContainerID, err = e.ExecInAudited(ctx, result.OperationID, request.Target, request.Command, request.Reason, stdout, stderr)
 	return result, err
 }

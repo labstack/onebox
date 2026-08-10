@@ -28,20 +28,19 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		request.Kind = request.JobPlan.Operation.Kind
 	}
 	result := OperationResult{
-		Kind: request.Kind, Status: "running",
+		Kind: request.Kind, Status: OperationStatusRunning,
 		StartedAt: started.Format(time.RFC3339Nano), Runner: s.runner,
 	}
 	if request.Approval != nil {
 		result.ApprovalDigest = request.Approval.ApprovalDigest
-	}
-	if request.BackupReport != nil {
-		result.BackupReportDigest, _ = request.BackupReport.ComputeDigest()
 	}
 	if request.MigrationBackupOverride != nil {
 		result.MigrationBackupOverrideDigest = request.MigrationBackupOverride.OverrideDigest
 	}
 	if request.Plan != nil && request.Plan.Operation.ID != "" {
 		result.ID = request.Plan.Operation.ID
+	} else if request.JobPlan != nil && request.JobPlan.Operation.ID != "" {
+		result.ID = request.JobPlan.Operation.ID
 	} else {
 		identityKind := request.Kind
 		if !validOperationKind(identityKind) {
@@ -59,26 +58,36 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			SchemaVersion: OperationEventSchemaVersion,
 			OperationID:   result.ID, EvidenceID: result.EvidenceID, Sequence: sequence,
 			Time: s.now().UTC().Format(time.RFC3339Nano), Kind: request.Kind,
-			Phase: phase, Status: status, Message: message,
+			Phase: phase, Status: normalizeOperationStatus(status), Message: message,
 			Runner: s.runner,
 		})
 	}
 	finish := func(err error) (OperationResult, error) {
 		result.FinishedAt = s.now().UTC().Format(time.RFC3339Nano)
 		if err != nil {
-			result.Status = "failed"
+			result.Status = OperationStatusError
 			// Detailed engine errors remain on the trusted local return path and in
 			// journals. Structured events are safe for future MCP/dashboard sinks.
-			emit("operation", "failed", "operation failed; inspect local output and journal evidence")
+			emit("operation", string(OperationStatusError), "operation failed; inspect local output and journal evidence")
 			return result, err
 		}
 		if result.NoOp {
-			result.Status = "no_op"
+			result.Status = OperationStatusNoOp
 		} else {
-			result.Status = "succeeded"
+			result.Status = OperationStatusSuccess
 		}
-		emit("operation", result.Status, "")
+		emit("operation", string(result.Status), "")
 		return result, nil
+	}
+	if err := request.Validate(); err != nil {
+		return finish(err)
+	}
+	if request.BackupReport != nil {
+		digest, err := request.BackupReport.ComputeDigest()
+		if err != nil {
+			return finish(fmt.Errorf("compute backup report digest: %w", err))
+		}
+		result.BackupReportDigest = digest
 	}
 
 	if !validOperationKind(request.Kind) {
@@ -223,6 +232,23 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		emit("execute", "succeeded", "")
 	}
 	return finish(err)
+}
+
+func normalizeOperationStatus(status string) OperationStatus {
+	switch status {
+	case "started", "running":
+		return OperationStatusRunning
+	case "succeeded", "success":
+		return OperationStatusSuccess
+	case "failed", "error":
+		return OperationStatusError
+	case "no_op":
+		return OperationStatusNoOp
+	case "cancelled":
+		return OperationStatusCancelled
+	default:
+		return OperationStatusRunning
+	}
 }
 
 func (s *Service) executeDeploy(

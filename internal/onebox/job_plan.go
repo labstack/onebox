@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -51,6 +50,8 @@ func (p JobPlan) ExecutablePlanDigest() string       { return p.PlanDigest }
 func (p JobPlan) ExecutableMigrationBackup() *MigrationBackupRequirement {
 	return p.MigrationBackup
 }
+func (*JobPlan) executablePlan()           {}
+func (p *JobPlan) executablePlanNil() bool { return p == nil }
 
 func jobArtifactDigest(artifact JobArtifact) (string, error) {
 	encoded, err := json.Marshal(artifact)
@@ -116,9 +117,9 @@ func (p JobPlan) validateContent() error {
 }
 
 func (p JobPlan) ComputeDigest() (string, error) {
-	copy := p
-	copy.PlanDigest = ""
-	encoded, err := json.Marshal(copy)
+	planCopy := p
+	planCopy.PlanDigest = ""
+	encoded, err := json.Marshal(planCopy)
 	if err != nil {
 		return "", fmt.Errorf("encode executable job plan digest: %w", err)
 	}
@@ -166,27 +167,7 @@ func (p JobPlan) Save(path string) error {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".job-plan-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return writeDurableArtifact(path, ".job-plan-*", encoded)
 }
 
 func LoadJobPlan(path string) (*JobPlan, error) {
@@ -282,8 +263,7 @@ func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan,
 	if hostState.CurrentRelease == "" {
 		return JobPlan{}, errors.New("job requires a current serving release; run `ob deploy`")
 	}
-	runtime, runtimeDigest, image, err := readJobRuntime(ctx, e, hostState.CurrentRelease, jobID)
-	_ = runtime
+	runtimeDigest, image, err := readJobRuntime(ctx, e, hostState.CurrentRelease, jobID)
 	if err != nil {
 		return JobPlan{}, err
 	}
@@ -306,6 +286,8 @@ func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan,
 	}
 	if effect == DataEffectMigration || effect == DataEffectUnknown {
 		risk, reversibility, approval = RiskHigh, ReversibilityConditional, ApprovalStrong
+	} else if effect == DataEffectDestructive {
+		risk, reversibility, approval = RiskCritical, ReversibilityIrreversible, ApprovalStrong
 	}
 	artifact := JobArtifact{
 		Application: lp.resolved.Name, Environment: s.environment, Server: target,
@@ -341,14 +323,14 @@ func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan,
 	return plan, nil
 }
 
-func readJobRuntime(ctx context.Context, e *engine.Engine, releaseID, jobID string) ([]byte, string, string, error) {
+func readJobRuntime(ctx context.Context, e *engine.Engine, releaseID, jobID string) (string, string, error) {
 	path := release.PathsFor(e.Names()).Releases + "/" + releaseID + "/compose.yaml"
 	res, err := e.T.Run(ctx, "cat "+quote(path)+" 2>/dev/null")
 	if err != nil {
-		return nil, "", "", fmt.Errorf("read current runtime: %w", err)
+		return "", "", fmt.Errorf("read current runtime: %w", err)
 	}
 	if res.ExitCode != 0 || strings.TrimSpace(res.Stdout) == "" {
-		return nil, "", "", fmt.Errorf("current release %q runtime is unavailable", releaseID)
+		return "", "", fmt.Errorf("current release %q runtime is unavailable", releaseID)
 	}
 	var document struct {
 		Services map[string]struct {
@@ -356,13 +338,13 @@ func readJobRuntime(ctx context.Context, e *engine.Engine, releaseID, jobID stri
 		} `yaml:"services"`
 	}
 	if err := yaml.Unmarshal([]byte(res.Stdout), &document); err != nil {
-		return nil, "", "", fmt.Errorf("parse current runtime: %w", err)
+		return "", "", fmt.Errorf("parse current runtime: %w", err)
 	}
 	service, ok := document.Services[jobID]
 	if !ok {
-		return nil, "", "", fmt.Errorf("job %q is absent from current release %s; run `ob deploy`", jobID, releaseID)
+		return "", "", fmt.Errorf("job %q is absent from current release %s; run `ob deploy`", jobID, releaseID)
 	}
-	return []byte(res.Stdout), engine.HashBytes([]byte(res.Stdout)), strings.TrimSpace(service.Image), nil
+	return engine.HashBytes([]byte(res.Stdout)), strings.TrimSpace(service.Image), nil
 }
 
 var _ ExecutablePlan = (*JobPlan)(nil)

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -76,7 +77,10 @@ func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReport
 	}
 	if reportTemplate != nil {
 		if err := reportTemplate.SaveTemplate(backupReportOut); err != nil {
-			return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "backup report template could not be written", err)
+			if cleanupErr := os.Remove(outPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				err = errors.Join(err, fmt.Errorf("remove incomplete job plan artifact set: %w", cleanupErr))
+			}
+			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", err)
 		}
 	}
 	if isStructuredOutput(g) {

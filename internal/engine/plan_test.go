@@ -259,6 +259,11 @@ func TestPayloadDigests(t *testing.T) {
 	if err != nil || d3 == d1 {
 		t.Fatalf("payload change must move the digest: %v", err)
 	}
+	write(".job-migrate-result/result", "changed=true\n")
+	d4, err := LocalPayloadDigest(dir)
+	if err != nil || d4 != d3 {
+		t.Fatalf("ephemeral job results must be excluded: %s vs %s (%v)", d3, d4, err)
+	}
 
 	// the remote side runs the equivalent shell pipeline; assert the command
 	// shape and that the fake's answer is returned verbatim
@@ -274,7 +279,7 @@ func TestPayloadDigests(t *testing.T) {
 		t.Fatalf("remote digest: %q %v", got, err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, want := range []string{"! -name compose.yaml", "! -name '.job-*-result'", "LC_ALL=C sort"} {
+	for _, want := range []string{"! -name compose.yaml", "! -path './.job-*-result/*'", "LC_ALL=C sort"} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("remote pipeline missing %q:\n%s", want, seq)
 		}

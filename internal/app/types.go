@@ -102,6 +102,17 @@ type Overrides struct {
 	Services  map[string]map[string]any `json:"services,omitempty" description:"Allowed service tuning keyed by service name: resources and settings."`
 }
 
+// DataEffect is the closed data-impact vocabulary shared by authored jobs,
+// executable plans, and the engine's post-lock execution check.
+type DataEffect string
+
+const (
+	DataEffectNone        DataEffect = "none"
+	DataEffectMigration   DataEffect = "migration"
+	DataEffectDestructive DataEffect = "destructive"
+	DataEffectUnknown     DataEffect = "unknown"
+)
+
 type Workload struct {
 	Role     string `json:"role" description:"Lifecycle role: application, worker, daemon, or job." example:"application"`
 	Build    *Build `json:"build,omitempty" description:"Build metadata for development. Production requires a resolved image supplied with --image."`
@@ -137,9 +148,9 @@ type Workload struct {
 	Logging    *Logging       `json:"logging,omitempty" description:"Container logging driver and driver-specific options."`
 
 	// Job only.
-	When       string    `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
-	DataEffect string    `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
-	Schedule   *Schedule `json:"schedule,omitempty" description:"Host-resident recurring schedule for a job."`
+	When       string     `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
+	DataEffect DataEffect `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
+	Schedule   *Schedule  `json:"schedule,omitempty" description:"Host-resident recurring schedule for a job."`
 }
 
 type Build struct {

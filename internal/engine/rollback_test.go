@@ -23,7 +23,7 @@ func seedRollbackState(t *testing.T, target *transport.Fake) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, state := range []string{release.StateVerified, release.StateServing, release.StateSuperseded} {
+	for _, state := range []release.State{release.StateVerified, release.StateServing, release.StateSuperseded} {
 		if err := previous.Transition(state, at, ""); err != nil {
 			t.Fatal(err)
 		}

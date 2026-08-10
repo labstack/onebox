@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 )
@@ -14,10 +15,17 @@ import (
 // lock, fence, approval evidence, result protocol, and journal authority used
 // by deployment jobs. The expected release/runtime checks run after the lock
 // is held, closing the plan-to-execution race before container creation.
-func (e *Engine) RunJobWithJournalID(
-	ctx context.Context,
-	operationID, job, expectedRelease, expectedRuntimeDigest, expectedDataEffect string,
-) (string, *journal.JobResultEvidence, error) {
+type JobRunRequest struct {
+	OperationID           string
+	Job                   string
+	ExpectedRelease       string
+	ExpectedRuntimeDigest string
+	ExpectedDataEffect    app.DataEffect
+}
+
+func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest) (string, *journal.JobResultEvidence, error) {
+	operationID := request.OperationID
+	job := request.Job
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return operationID, nil, err
 	}
@@ -28,7 +36,7 @@ func (e *Engine) RunJobWithJournalID(
 	if workload.When != "manual" {
 		return operationID, nil, fmt.Errorf("job %q is not a manual job", job)
 	}
-	if workload.DataEffect != expectedDataEffect {
+	if workload.DataEffect != request.ExpectedDataEffect {
 		return operationID, nil, errors.New("job data effect changed since planning — re-plan")
 	}
 	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
@@ -46,8 +54,8 @@ func (e *Engine) RunJobWithJournalID(
 	if err != nil {
 		return operationID, nil, err
 	}
-	if current != expectedRelease {
-		return operationID, nil, fmt.Errorf("job plan is stale: current release changed from %q to %q — re-plan", expectedRelease, current)
+	if current != request.ExpectedRelease {
+		return operationID, nil, fmt.Errorf("job plan is stale: current release changed from %q to %q — re-plan", request.ExpectedRelease, current)
 	}
 	remoteDir := release.PathsFor(e.names()).Releases + "/" + current
 	remoteCompose := remoteDir + "/compose.yaml"
@@ -58,7 +66,7 @@ func (e *Engine) RunJobWithJournalID(
 	if res.ExitCode != 0 || strings.TrimSpace(res.Stdout) == "" {
 		return operationID, nil, fmt.Errorf("current release %q runtime is unavailable", current)
 	}
-	if actual := HashBytes([]byte(res.Stdout)); actual != expectedRuntimeDigest {
+	if actual := HashBytes([]byte(res.Stdout)); actual != request.ExpectedRuntimeDigest {
 		return operationID, nil, errors.New("job plan is stale: current release runtime changed — re-plan")
 	}
 
@@ -91,12 +99,15 @@ func (e *Engine) RunJobWithJournalID(
 		return runErr
 	}
 
-	if expectedDataEffect == "migration" && e.Opts.MigrationBackupWasRequired {
+	if request.ExpectedDataEffect == app.DataEffectMigration && e.Opts.MigrationBackupWasRequired {
 		if err := validateMigrationBackupEvidence(e.Opts.MigrationBackup, e.Opts.Now().UTC()); err != nil {
-			_ = writer.Append(ctx, journal.Record{
+			journalErr := writer.Append(ctx, journal.Record{
 				Phase: "job", SubStep: journal.MigrationBackupSubStep, Event: "result", Status: "fail",
 				ErrorCode: "migration_backup_required", Detail: "migration backup authorization rejected",
 			})
+			if journalErr != nil {
+				err = errors.Join(err, fmt.Errorf("journal migration backup rejection: %w", journalErr))
+			}
 			return operationID, nil, finish(err)
 		}
 		if err := writer.Append(ctx, journal.Record{
@@ -112,8 +123,8 @@ func (e *Engine) RunJobWithJournalID(
 	runErr := e.runJobPhase(ctx, writer, nil, remoteDir, remoteCompose, "job", []string{job})
 	var result *journal.JobResultEvidence
 	if evidence, ok := e.jobResults[job]; ok {
-		copy := evidence
-		result = &copy
+		resultCopy := evidence
+		result = &resultCopy
 	}
 	return operationID, result, finish(runErr)
 }

@@ -30,7 +30,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 		TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339), Token: token,
 	}
 	b, _ := json.Marshal(meta)
-	create := "mkdir -p " + q(hp.Base) + " && set -C; echo " + q(string(b)) + " > " + q(hp.Lock) + " 2>/dev/null"
+	create := "mkdir -p " + q(hp.Base) + " && set -C && echo " + q(string(b)) + " > " + q(hp.Lock) + " 2>/dev/null"
 
 	for attempt := 0; attempt < 4; attempt++ {
 		res, err := e.T.Run(ctx, create)

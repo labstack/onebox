@@ -53,6 +53,8 @@ func newGenerationFake(t *testing.T, unchanged bool) (*transport.Fake, *generati
 	fake := &transport.Fake{HostName: "example.invalid", TargetName: "deploy@example.invalid"}
 	fake.Dynamic = func(command string) (transport.Result, bool) {
 		switch {
+		case strings.Contains(command, "_host/owner"):
+			return transport.Result{Stdout: "shop\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
 		case strings.Contains(command, "/ob.snapshot.yml"):
@@ -149,7 +151,7 @@ func generationPayloads() []SecretPayload {
 	}
 }
 
-func seedSecretCheckpoint(t *testing.T, fake *transport.Fake, engine *Engine, phase string, replaced ...string) {
+func seedSecretCheckpoint(t *testing.T, fake *transport.Fake, engine *Engine, phase release.SecretPhase, replaced ...string) {
 	t.Helper()
 	at := time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC)
 	checkpoint, err := release.NewSecretCheckpoint(
@@ -168,8 +170,9 @@ func seedSecretCheckpoint(t *testing.T, fake *transport.Fake, engine *Engine, ph
 		}
 	}
 	if checkpoint.Phase != phase {
-		at = at.Add(time.Second)
-		if err := checkpoint.SetPhase(phase, at); err != nil {
+		checkpoint.Phase = phase
+		checkpoint.UpdatedAt = at.Add(time.Second).Format(time.RFC3339Nano)
+		if err := checkpoint.Validate(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -231,6 +234,25 @@ func TestSecretGenerationUnchangedIsNoOpWithoutReplacement(t *testing.T) {
 	}
 }
 
+func TestSecretGenerationUploadCleanupFailureCannotReportSuccess(t *testing.T) {
+	fake, _ := newGenerationFake(t, false)
+	base := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "rm -rf") && strings.Contains(command, ".secret-upload-"+newSecretGeneration) {
+			return transport.Result{ExitCode: 73, Stderr: "injected upload cleanup failure"}, true
+		}
+		return base(command)
+	}
+	engine := generationEngine(t, fake, &bytes.Buffer{})
+	result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+	if err == nil || !strings.Contains(err.Error(), "clean secret upload") || result.Generation != newSecretGeneration {
+		t.Fatalf("cleanup failure result = %#v, %v", result, err)
+	}
+	if !strings.Contains(strings.Join(fake.Commands, "\n"), `"phase":"secrets-push","event":"finish","status":"fail"`) {
+		t.Fatal("cleanup failure was not journaled as a failed operation")
+	}
+}
+
 func TestSecretGenerationJournalFailurePrecedesCandidateOrLiveMutation(t *testing.T) {
 	fake, _ := newGenerationFake(t, false)
 	base := fake.Dynamic
@@ -277,7 +299,7 @@ func TestSecretGenerationPartialFailureRecoversEveryWorkloadToOld(t *testing.T) 
 
 func TestSecretGenerationCheckpointResumesAfterEveryForwardCrashBoundary(t *testing.T) {
 	for _, test := range []struct {
-		phase    string
+		phase    release.SecretPhase
 		replaced []string
 	}{
 		{phase: release.SecretPrepared},
@@ -285,7 +307,7 @@ func TestSecretGenerationCheckpointResumesAfterEveryForwardCrashBoundary(t *test
 		{phase: release.SecretVerifying, replaced: []string{"web", "worker"}},
 		{phase: release.SecretCommitting, replaced: []string{"web", "worker"}},
 	} {
-		t.Run(test.phase, func(t *testing.T) {
+		t.Run(string(test.phase), func(t *testing.T) {
 			fake, state := newGenerationFake(t, false)
 			engine := generationEngine(t, fake, &bytes.Buffer{})
 			for _, workload := range test.replaced {
@@ -344,8 +366,9 @@ func TestSecretGenerationIncompleteRecoveryStaysRetryable(t *testing.T) {
 	}
 
 	result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
-	if err != nil || result.Generation != oldSecretGeneration {
-		t.Fatalf("recovery retry = %#v, %v", result, err)
+	var rolledBack *SecretRotationRolledBackError
+	if !errors.As(err, &rolledBack) || result.Generation != oldSecretGeneration {
+		t.Fatalf("recovery retry = %#v, %v; want explicit safe-rollback retry error", result, err)
 	}
 	for workload, identifier := range state.containers {
 		if state.generations[identifier] != oldSecretGeneration {
@@ -354,5 +377,10 @@ func TestSecretGenerationIncompleteRecoveryStaysRetryable(t *testing.T) {
 	}
 	if _, checkpointErr := release.ReadSecretCheckpoint(context.Background(), fake, engine.Names()); !errors.Is(checkpointErr, release.ErrSecretCheckpointMissing) {
 		t.Fatalf("completed recovery retained checkpoint: %v", checkpointErr)
+	}
+
+	result, err = engine.SecretsPushBatch(context.Background(), generationPayloads())
+	if err != nil || result.Generation != newSecretGeneration {
+		t.Fatalf("fresh retry after recovery = %#v, %v", result, err)
 	}
 }

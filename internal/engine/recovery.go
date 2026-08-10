@@ -58,7 +58,7 @@ func (e *Engine) engineFromReleaseSnapshot(ctx context.Context, releaseID string
 type recoveryRequest struct {
 	InterruptedID string
 	PreviousID    string
-	TerminalState string
+	TerminalState release.State
 	GateCovered   bool
 	BreakGlass    bool
 	Phase         string
@@ -211,7 +211,7 @@ func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, prev
 	return nil
 }
 
-func (e *Engine) finalizeRecoveredRelease(ctx context.Context, interruptedID, previousID, terminalState string) error {
+func (e *Engine) finalizeRecoveredRelease(ctx context.Context, interruptedID, previousID string, terminalState release.State) error {
 	current, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return err

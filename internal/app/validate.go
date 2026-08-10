@@ -379,7 +379,7 @@ func validateWorkload(w Workload, path string) error {
 		if err := checkEnum(path+".when", w.When, eJobWhen); err != nil {
 			return err
 		}
-		if err := checkEnum(path+".data_effect", w.DataEffect, eDataEffect); err != nil {
+		if err := checkEnum(path+".data_effect", string(w.DataEffect), eDataEffect); err != nil {
 			return err
 		}
 		if w.DataEffect == "" {

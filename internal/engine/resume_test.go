@@ -412,7 +412,7 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 const gateClosed = "changed=unknown (no result declared — gate closed, fail-safe)"
 
 // An unreadable previous snapshot is not a gate an operator can assert past.
-// --force asserts schema compatibility for the migration gate; it cannot supply
+// --break-migration-gate asserts schema compatibility for the migration gate; it cannot supply
 // the choreography of a release whose snapshot is gone — the release's Compose
 // document records images and healthchecks but not its strategies, ordering or
 // verification. Falling back to the interrupted release's choreography instead

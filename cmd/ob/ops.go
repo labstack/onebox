@@ -151,7 +151,12 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	secretsCmd.AddCommand(&cobra.Command{
 		Use:   "push",
 		Short: "re-render secrets into the live release and restart workloads if changed",
-		Long:  "Render the decrypted secrets into the current release on the host and\nrestart the workloads that read them.\n\nA no-op when the values have not changed, so running it twice costs one\nround trip and no restart.",
+		Long: "Render the complete decrypted secret graph into the current release on the host and\n" +
+			"restart the workloads that read changed values.\n\n" +
+			"The payload is uploaded and compared on the host even for a no-op; unchanged values do\n" +
+			"not replace or restart workloads. Refused when secret declarations differ from the\n" +
+			"deployed release, or when that release predates opaque secret generations. In either\n" +
+			"case, deploy first.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindSecretsPush}, "secrets push")
 		},

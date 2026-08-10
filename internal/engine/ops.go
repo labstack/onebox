@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if err != nil {
 		return err
 	}
+	defer e.ReleaseLock(ctx)
 	if err := e.WriteFence(ctx, "destroy", epoch); err != nil {
 		return err
 	}
@@ -81,8 +83,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 				}
 			}
 			if len(vols) > 0 {
-				if res, err := e.mutate(ctx, "docker volume rm "+strings.Join(vols, " ")); err != nil || res.ExitCode != 0 {
-					return fmt.Errorf("volume rm: %v %s", err, res.Stderr)
+				res, err := e.mutate(ctx, "docker volume rm "+strings.Join(vols, " "))
+				if err != nil {
+					return fmt.Errorf("volume rm: %w", err)
+				}
+				if res.ExitCode != 0 {
+					return fmt.Errorf("volume rm failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 				}
 			}
 		}
@@ -125,7 +131,8 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if keepingCredentials {
 		e.logf("kept %s — the service volumes survive and these credentials are the only thing that can open them", e.names().ServiceDir())
 	}
-	if e.Spec.Proxy.Managed {
+	releaseOwner := removeVolumes && (!e.Spec.Proxy.Managed || removeProxy)
+	if e.Spec.Proxy.Managed || releaseOwner {
 		// Host scope, after the app fence is gone: plain Run, under host lock.
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 			return err
@@ -140,16 +147,24 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("proxy down: %s", strings.TrimSpace(res.Stderr))
 			}
-			if res, err := e.hostMutate(ctx, "rm -rf "+q(hp.Dir)); err != nil || res.ExitCode != 0 {
-				return fmt.Errorf("remove proxy dir: %v %s", err, res.Stderr)
+			res, err := e.hostMutate(ctx, "rm -rf "+q(hp.Dir))
+			if err != nil {
+				return fmt.Errorf("remove proxy dir: %w", err)
+			}
+			if res.ExitCode != 0 {
+				return fmt.Errorf("remove proxy dir failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
 			e.logf("host proxy removed")
 		} else {
 			e.logf("host proxy kept — `ob destroy --proxy` removes it")
 		}
-		if removeProxy && removeVolumes {
-			if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Owner)); err != nil || res.ExitCode != 0 {
-				return fmt.Errorf("release host ownership: %v %s", err, res.Stderr)
+		if releaseOwner {
+			res, err := e.hostMutate(ctx, "rm -f "+q(hp.Owner))
+			if err != nil {
+				return fmt.Errorf("release host ownership: %w", err)
+			}
+			if res.ExitCode != 0 {
+				return fmt.Errorf("release host ownership failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
 			e.logf("host ownership released after complete data and proxy removal")
 		}
@@ -254,34 +269,55 @@ func ValidateExecReason(reason string) error {
 // ExecInAudited runs the operator's command verbatim (the same trust level as
 // their shell), but journals only safe invocation metadata. Command bytes and
 // stdout/stderr are never persisted by Onebox.
-func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, reason string, stdout, stderr io.Writer) (err error) {
+func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, reason string, stdout, stderr io.Writer) (containerID string, err error) {
 	if err := ValidateExecReason(reason); err != nil {
-		return err
+		return "", err
 	}
 	if strings.TrimSpace(operationID) == "" {
-		return errors.New("exec operation ID is required")
+		return "", errors.New("exec operation ID is required")
 	}
 	if strings.TrimSpace(command) == "" {
-		return errors.New("exec command is required")
+		return "", errors.New("exec command is required")
 	}
 	if err := e.RequireHostOwner(ctx); err != nil {
-		return err
+		return "", err
 	}
 	target, err := e.ResolveRuntimeTarget(name)
 	if err != nil {
-		return err
+		return "", err
 	}
+	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
+	if err != nil {
+		return "", err
+	}
+	defer e.ReleaseLock(ctx)
+	if err := e.WriteFence(ctx, operationID, epoch); err != nil {
+		return "", err
+	}
+	project := e.Spec.Name
+	if target.Kind == RuntimeTargetService {
+		project = e.names().ServiceProject(name)
+	}
+	ids, err := e.containerIDsForProject(ctx, project, name)
+	if err != nil {
+		return "", err
+	}
+	if len(ids) == 0 {
+		return "", fmt.Errorf("%s: no running container", name)
+	}
+	sort.Strings(ids)
+	containerID = ids[0]
 	commandDigest := HashBytes([]byte(command))
 	writer := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Operator: journal.DefaultOperator(),
+		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}
 	invocation := journal.Record{
 		Phase: "exec", Event: "start", Status: "ok", Target: target.Name,
-		TargetKind: target.Kind, CommandDigest: commandDigest, Reason: reason,
+		TargetKind: target.Kind, CommandDigest: commandDigest, ContainerID: containerID, Reason: reason,
 	}
 	if err := writer.Append(ctx, invocation); err != nil {
-		return fmt.Errorf("journal exec start: %w", err)
+		return containerID, fmt.Errorf("journal exec start: %w", err)
 	}
 	defer func() {
 		finish := invocation
@@ -304,22 +340,8 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 			err = errors.Join(err, fmt.Errorf("journal exec finish: %w", journalErr))
 		}
 	}()
-	project := e.Spec.Name
-	if target.Kind == RuntimeTargetService {
-		project = e.names().ServiceProject(name)
-	}
-	ids, err := e.containerIDsForProject(ctx, project, name)
-	if err != nil {
-		return err
-	}
-	id := ""
-	if len(ids) > 0 {
-		id = ids[0]
-	}
-	if id == "" {
-		return fmt.Errorf("%s: no running container", name)
-	}
-	return e.T.RunStream(ctx, "docker exec "+id+" sh -c "+q(command), stdout, stderr)
+	err = e.T.RunStream(ctx, "docker exec "+containerID+" sh -c "+q(command), stdout, stderr)
+	return containerID, err
 }
 
 // volName: docker volume names — never interpolated back into a shell

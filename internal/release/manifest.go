@@ -13,31 +13,38 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+type ManifestKind string
+type State string
+type OperationOutcome string
+
 const (
 	ManifestSchemaVersion = "onebox.run/release-manifest/v1alpha1"
 	ManifestFileName      = "manifest.json"
 
-	KindApplication = "application"
-	KindBootstrap   = "bootstrap"
+	KindApplication ManifestKind = "application"
+	KindBootstrap   ManifestKind = "bootstrap"
 
-	StateStaged     = "staged"
-	StateVerified   = "verified"
-	StateServing    = "serving"
-	StateSuperseded = "superseded"
-	StateFailed     = "failed"
-	StateAborted    = "aborted"
+	StateStaged     State = "staged"
+	StateVerified   State = "verified"
+	StateServing    State = "serving"
+	StateSuperseded State = "superseded"
+	StateFailed     State = "failed"
+	StateAborted    State = "aborted"
 
-	OutcomePending   = "pending"
-	OutcomeSucceeded = "succeeded"
-	OutcomeFailed    = "failed"
-	OutcomeAborted   = "aborted"
+	OutcomePending   OperationOutcome = "pending"
+	OutcomeSucceeded OperationOutcome = "succeeded"
+	OutcomeFailed    OperationOutcome = "failed"
+	OutcomeAborted   OperationOutcome = "aborted"
 )
 
 // StateTransition is the append-only lifecycle history inside one manifest.
 // The current state is duplicated on Manifest so status can inspect it without
-// interpreting history; validation requires both views to agree.
+// interpreting history; validation requires both views to agree. Application
+// releases advance staged -> verified -> serving -> superseded, with only the
+// serving/superseded rollback cycle. Bootstrap manifests may verify or fail but
+// never serve and never carry a predecessor.
 type StateTransition struct {
-	State string `json:"state"`
+	State State  `json:"state"`
 	At    string `json:"at"`
 }
 
@@ -47,9 +54,9 @@ type StateTransition struct {
 type Manifest struct {
 	SchemaVersion    string            `json:"schema_version"`
 	ID               string            `json:"id"`
-	Kind             string            `json:"kind"`
-	State            string            `json:"state"`
-	OperationOutcome string            `json:"operation_outcome"`
+	Kind             ManifestKind      `json:"kind"`
+	State            State             `json:"state"`
+	OperationOutcome OperationOutcome  `json:"operation_outcome"`
 	OutcomeAt        string            `json:"outcome_at,omitempty"`
 	Predecessor      string            `json:"predecessor,omitempty"`
 	Transitions      []StateTransition `json:"transitions"`
@@ -74,7 +81,7 @@ func (err *ManifestError) Error() string {
 	return message
 }
 
-func NewManifest(id, kind string, at time.Time) (Manifest, error) {
+func NewManifest(id string, kind ManifestKind, at time.Time) (Manifest, error) {
 	manifest := Manifest{
 		SchemaVersion:    ManifestSchemaVersion,
 		ID:               id,
@@ -92,7 +99,7 @@ func NewManifest(id, kind string, at time.Time) (Manifest, error) {
 // Transition advances the lifecycle state. A superseded application may be
 // activated again by rollback; that is a new activation transition and records
 // the release being left as its new predecessor.
-func (manifest *Manifest) Transition(next string, at time.Time, predecessor string) error {
+func (manifest *Manifest) Transition(next State, at time.Time, predecessor string) error {
 	if manifest == nil {
 		return manifestInvalid("", "manifest is nil")
 	}
@@ -106,37 +113,43 @@ func (manifest *Manifest) Transition(next string, at time.Time, predecessor stri
 	if at.UTC().Before(last) {
 		return manifestInvalid(manifest.ID, "transition timestamp precedes the current state")
 	}
+	updated := *manifest
+	updated.Transitions = append([]StateTransition(nil), manifest.Transitions...)
 	if next == StateServing {
 		if predecessor != "" && (!IsID(predecessor) || predecessor == manifest.ID) {
 			return manifestInvalid(manifest.ID, "serving predecessor is invalid")
 		}
-		manifest.Predecessor = predecessor
+		updated.Predecessor = predecessor
 	} else if predecessor != "" && predecessor != manifest.Predecessor {
 		return manifestInvalid(manifest.ID, "predecessor may change only during activation")
 	}
-	manifest.State = next
+	updated.State = next
 	if next != StateSuperseded {
 		if next == StateServing {
 			// Reactivating a superseded release is a new successful activation,
 			// not a continuation of the outcome recorded when it last served.
-			manifest.OperationOutcome = OutcomeSucceeded
+			updated.OperationOutcome = OutcomeSucceeded
 		} else {
-			manifest.OperationOutcome = outcomeForState(manifest.Kind, next, manifest.OperationOutcome)
+			updated.OperationOutcome = outcomeForState(manifest.Kind, next, manifest.OperationOutcome)
 		}
-		if manifest.OperationOutcome == OutcomePending {
-			manifest.OutcomeAt = ""
+		if updated.OperationOutcome == OutcomePending {
+			updated.OutcomeAt = ""
 		} else {
-			manifest.OutcomeAt = timestamp(at)
+			updated.OutcomeAt = timestamp(at)
 		}
 	}
-	manifest.Transitions = append(manifest.Transitions, StateTransition{State: next, At: timestamp(at)})
-	return manifest.Validate()
+	updated.Transitions = append(updated.Transitions, StateTransition{State: next, At: timestamp(at)})
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	*manifest = updated
+	return nil
 }
 
 // RecordOperationOutcome records a post-activation terminal result without
 // rewriting lifecycle truth. A recovered release may already be superseded by
 // the time failure/abort finalization completes.
-func (manifest *Manifest) RecordOperationOutcome(outcome string, at time.Time) error {
+func (manifest *Manifest) RecordOperationOutcome(outcome OperationOutcome, at time.Time) error {
 	if manifest == nil {
 		return manifestInvalid("", "manifest is nil")
 	}
@@ -153,9 +166,15 @@ func (manifest *Manifest) RecordOperationOutcome(outcome string, at time.Time) e
 	if at.UTC().Before(last) {
 		return manifestInvalid(manifest.ID, "operation outcome timestamp precedes the current transition")
 	}
-	manifest.OperationOutcome = outcome
-	manifest.OutcomeAt = timestamp(at)
-	return manifest.Validate()
+	updated := *manifest
+	updated.Transitions = append([]StateTransition(nil), manifest.Transitions...)
+	updated.OperationOutcome = outcome
+	updated.OutcomeAt = timestamp(at)
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	*manifest = updated
+	return nil
 }
 
 func (manifest Manifest) Validate() error {
@@ -171,7 +190,7 @@ func (manifest Manifest) Validate() error {
 	if len(manifest.Transitions) == 0 || manifest.Transitions[0].State != StateStaged || manifest.State != manifest.Transitions[len(manifest.Transitions)-1].State {
 		return manifestInvalid(manifest.ID, "state and transition history do not agree")
 	}
-	previousState := ""
+	var previousState State
 	var previousAt time.Time
 	for i, transition := range manifest.Transitions {
 		at, err := time.Parse(time.RFC3339Nano, transition.At)
@@ -215,7 +234,7 @@ func (manifest Manifest) Validate() error {
 	return nil
 }
 
-func allowedTransition(kind, from, to string) bool {
+func allowedTransition(kind ManifestKind, from, to State) bool {
 	if kind == KindBootstrap {
 		return (from == StateStaged && (to == StateVerified || to == StateFailed || to == StateAborted))
 	}
@@ -232,7 +251,7 @@ func allowedTransition(kind, from, to string) bool {
 	return false
 }
 
-func outcomeForState(kind, state, current string) string {
+func outcomeForState(kind ManifestKind, state State, current OperationOutcome) OperationOutcome {
 	switch state {
 	case StateStaged:
 		return OutcomePending

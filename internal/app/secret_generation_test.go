@@ -58,3 +58,26 @@ func TestSecretGenerationFromComposeRefusesPartialOrMixedState(t *testing.T) {
 		})
 	}
 }
+
+func TestApplySecretGenerationReplacesListFormLabel(t *testing.T) {
+	const oldGeneration = "sg-111111111111111111111111"
+	const newGeneration = "sg-222222222222222222222222"
+	input := []byte(`services:
+  web:
+    env_file: [.ob-decrypted-sops-api.env]
+    labels: [ob.app=shop, ob.secret-generation=` + oldGeneration + `]
+`)
+	graph := []SecretDeclaration{{OutputPath: ".ob-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}}}
+	output, err := ApplySecretGeneration(input, graph, newGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(output)
+	if strings.Contains(text, oldGeneration) || strings.Count(text, "ob.secret-generation=") != 1 {
+		t.Fatalf("list-form generation label was not replaced exactly once:\n%s", text)
+	}
+	selected, err := SecretGenerationFromCompose(output, []string{"web"})
+	if err != nil || selected != newGeneration {
+		t.Fatalf("selected generation = %q, err=%v", selected, err)
+	}
+}

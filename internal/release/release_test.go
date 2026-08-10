@@ -33,7 +33,7 @@ func seedReleaseChain(t *testing.T, target *transport.Fake, names app.Names, pre
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, state := range []string{StateVerified, StateServing, StateSuperseded} {
+	for _, state := range []State{StateVerified, StateServing, StateSuperseded} {
 		if err := previous.Transition(state, at, ""); err != nil {
 			t.Fatal(err)
 		}

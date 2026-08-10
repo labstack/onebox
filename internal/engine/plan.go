@@ -273,7 +273,8 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == "compose.yaml" || (strings.HasPrefix(rel, ".job-") && strings.HasSuffix(rel, "-result")) {
+		jobResultDir := strings.SplitN(rel, "/", 2)[0]
+		if rel == "compose.yaml" || strings.HasPrefix(jobResultDir, ".job-") && strings.HasSuffix(jobResultDir, "-result") {
 			return nil
 		}
 		b, err := os.ReadFile(path)
@@ -295,7 +296,7 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 // host: per-file sha256 lines, bytewise-sorted, hashed together.
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
 	dir := release.PathsFor(e.names()).Releases + "/" + releaseID
-	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -name '.job-*-result' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
+	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -path './.job-*-result/*' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return "", err

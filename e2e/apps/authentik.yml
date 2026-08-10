@@ -9,6 +9,7 @@ environments:
 workloads:
   server:
     role: application
+    strategy: recreate
     image: ghcr.io/goauthentik/server:2025.2.4
     command: [server]
     domain: auth.example.com

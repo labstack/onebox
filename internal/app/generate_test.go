@@ -221,7 +221,7 @@ func TestNoProxyAddsNothing(t *testing.T) {
 // TestUDPPortRendered covers the protocol a real project needed.
 func TestUDPPortRendered(t *testing.T) {
 	y := strings.Replace(appFixture, "    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n",
-		"    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n    published_ports: [{host: 8555, container: 8555, protocol: udp}]\n", 1)
+		"    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n    strategy: recreate\n    published_ports: [{host: 8555, container: 8555, protocol: udp}]\n", 1)
 	out := string(render(t, y))
 	if !strings.Contains(out, "127.0.0.1:8555:8555/udp") {
 		t.Errorf("expected a loopback-bound UDP publish\n%s", out)

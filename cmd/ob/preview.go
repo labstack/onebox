@@ -37,12 +37,12 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := app.Load(g.ConfigPath)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliPreviewSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 
 			images, err := parseImages(imageFlags)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliPreviewSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 
 			if release == "" {
@@ -50,7 +50,7 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 			}
 			rendered, err := p.Render(g.Env, release, images)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliPreviewSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 
 			out := cmd.OutOrStdout()
@@ -62,30 +62,25 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 				// a flag that appears to work and does not is worse than one
 				// that says no.
 				if showRaw {
-					return writeStructuredReadFailure(cmd, g, cliPreviewSchemaVersion,
+					return writeStructuredReadFailure(cmd, g,
 						fmt.Errorf("--raw cannot be combined with --output %s: the structured stream is always redacted", g.Output))
 				}
 				body, err := redactEnvValues(rendered.Bytes)
 				if err != nil {
-					return writeStructuredReadFailure(cmd, g, cliPreviewSchemaVersion, err)
+					return writeStructuredReadFailure(cmd, g, err)
 				}
 				services := map[string]string{}
 				for _, name := range sortedServiceNames(rendered.Services) {
 					doc, err := redactEnvValuesExcept(rendered.Services[name], p.ServicePublicEnv(name))
 					if err != nil {
-						return writeStructuredReadFailure(cmd, g, cliPreviewSchemaVersion, err)
+						return writeStructuredReadFailure(cmd, g, err)
 					}
 					services[name] = string(doc)
 				}
-				return writeCLIJSON(out, cliPreviewEnvelope{
-					SchemaVersion: cliPreviewSchemaVersion,
-					Environment:   g.Env,
-					Release:       release,
-					Digest:        rendered.Digest,
-					Redacted:      true,
-					Runtime:       string(body),
-					Services:      services,
-				}, g.Output == "json")
+				return writeFiniteSuccess(cmd, g, map[string]any{
+					"environment": g.Env, "release": release, "digest": rendered.Digest,
+					"redacted": true, "runtime": string(body), "services": services,
+				})
 			}
 
 			if digestOnly {

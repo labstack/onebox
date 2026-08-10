@@ -40,9 +40,9 @@ func (r *Rendered) Runnable() bool { return len(r.Unresolved) == 0 }
 // pull rather than starting something unintended.
 const UnresolvedImage = "ob-unresolved-image:no-release"
 
-// Images resolves a build-sourced workload to the image reference a release will
-// run. Resolving a version from a tag is the release-pipeline change; until it
-// lands the caller supplies this and generation fails closed without it.
+// Images supplies the exact image reference a release workload will run. It is
+// required for build-sourced workloads and overrides authored tags after a plan
+// resolves them to immutable digests, including for Compose-referenced services.
 type Images map[string]string
 
 // Render generates the Compose runtime for one environment and release.

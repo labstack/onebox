@@ -41,7 +41,7 @@ func TestDeploySeamOrdering(t *testing.T) {
 	cfg.Hooks["post_release"] = app.Command{Run: "touch post", Local: true}
 	cfg.Hooks["post_deploy"] = app.Command{Run: "touch done", Local: true}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	for _, name := range []string{"pre", "post", "done"} {

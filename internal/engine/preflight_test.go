@@ -19,6 +19,7 @@ func fakeEngine(t *testing.T, f *transport.Fake) *Engine {
 
 func TestPreflightHappyPath(t *testing.T) {
 	f := &transport.Fake{Script: []transport.Rule{
+		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample\n"}},
 		{Match: regexp.MustCompile(`docker version`), Result: transport.Result{Stdout: "27.0.3\n"}},
 		{Match: regexp.MustCompile(`docker compose version`), Result: transport.Result{Stdout: "2.29.1\n"}},
 		{Match: regexp.MustCompile(`df -Pk`), Result: transport.Result{Stdout: "4194304\n"}}, // 4 GiB in KiB
@@ -30,8 +31,9 @@ func TestPreflightHappyPath(t *testing.T) {
 	}
 }
 
-func TestPreflightFailsOnStoppedAccessory(t *testing.T) {
+func TestPreflightFailsOnStoppedService(t *testing.T) {
 	f := &transport.Fake{Script: []transport.Rule{
+		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample\n"}},
 		{Match: regexp.MustCompile(`docker version`), Result: transport.Result{Stdout: "27.0.3\n"}},
 		{Match: regexp.MustCompile(`docker compose version`), Result: transport.Result{Stdout: "2.29.1\n"}},
 		{Match: regexp.MustCompile(`df -Pk`), Result: transport.Result{Stdout: "4194304\n"}},
@@ -57,6 +59,8 @@ func TestPreflightManagedProxyMustRun(t *testing.T) {
 	mk := func(proxyUp bool) *transport.Fake {
 		return &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 			switch {
+			case strings.Contains(cmd, "_host/owner"):
+				return transport.Result{Stdout: "sample\n"}, true
 			case strings.Contains(cmd, "docker version"):
 				return transport.Result{Stdout: "27.0.3\n"}, true
 			case strings.Contains(cmd, "docker compose version"):

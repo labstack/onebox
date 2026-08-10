@@ -16,7 +16,7 @@ func approvalForTestPlan(t *testing.T, plan *DeployPlan) ApprovalGrant {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval, err := NewApprovalGrant(plan, "operator@example", createdAt.Add(time.Minute))
+	approval, err := NewApprovalGrant(plan, nil, "operator@example", createdAt.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

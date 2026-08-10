@@ -71,7 +71,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 			return transport.Result{Stdout: "PX1|Up 2 days (" + proxyHealth + ")\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
-		case strings.Contains(cmd, "ls -1 '/var/lib/ob/_host/proxy/apps'"):
+		case strings.Contains(cmd, "cat '/var/lib/ob/_host/owner'"):
 			return transport.Result{Stdout: "sample\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
@@ -102,8 +102,8 @@ func TestStatusManagedProxyInSync(t *testing.T) {
 	if !strings.Contains(s, "proxy") || !strings.Contains(s, "healthy") {
 		t.Fatalf("proxy line missing:\n%s", s)
 	}
-	if !strings.Contains(s, "apps: sample") {
-		t.Fatalf("registered apps missing:\n%s", s)
+	if !strings.Contains(s, "owner: sample") {
+		t.Fatalf("host owner missing:\n%s", s)
 	}
 	if !strings.Contains(s, "app.example.com") || !strings.Contains(s, "2026-09-15") || !strings.Contains(s, "73d") {
 		t.Fatalf("cert expiry missing:\n%s", s)

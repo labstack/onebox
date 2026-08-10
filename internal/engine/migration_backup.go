@@ -24,18 +24,18 @@ func (e *Engine) enforceMigrationBackup(ctx context.Context, jw *journal.Writer,
 			Event: "result", Status: "fail", Detail: "migration backup authorization rejected",
 			ErrorCode: "migration_backup_required",
 		})
-		e.progress("migration_backup", "failed", "migration backup evidence is required before migration")
+		e.progress("migration_backup", "failed", "a migration backup report or audited override is required before migration")
 		if journalErr != nil {
-			return errors.Join(err, fmt.Errorf("journal migration backup evidence: %w", journalErr))
+			return errors.Join(err, fmt.Errorf("journal migration backup authorization: %w", journalErr))
 		}
 		return err
 	}
 	if done[journal.MigrationBackupSubStep] {
-		e.logf("migration backup evidence: already accepted (resume)")
+		e.logf("migration backup authorization: already accepted (resume)")
 		e.progress("migration_backup", "succeeded", "")
 		return nil
 	}
-	detail := "backup evidence receipt accepted"
+	detail := "backup report receipt accepted"
 	if evidence.Mode == "override" {
 		detail = "explicit migration backup override accepted"
 		e.warnf("migration backup requirement OVERRIDDEN by %s: %s", evidence.OverrideOperator, evidence.OverrideReason)
@@ -44,8 +44,8 @@ func (e *Engine) enforceMigrationBackup(ctx context.Context, jw *journal.Writer,
 		Phase: "pre-release", SubStep: journal.MigrationBackupSubStep,
 		Event: "result", Status: "ok", Detail: detail,
 	}); err != nil {
-		e.progress("migration_backup", "failed", "could not persist migration backup evidence")
-		return fmt.Errorf("journal migration backup evidence: %w", err)
+		e.progress("migration_backup", "failed", "could not persist migration backup authorization")
+		return fmt.Errorf("journal migration backup authorization: %w", err)
 	}
 	e.progress("migration_backup", "succeeded", "")
 	return nil
@@ -63,11 +63,11 @@ func (e *Engine) migrationBackupRequired() bool {
 }
 
 func (e *Engine) hasPendingMigration(done map[string]bool) bool {
-	for _, job := range e.gateSteps() {
+	for _, job := range e.deployJobSteps() {
 		if e.jobDataEffect(job) != "migration" {
 			continue
 		}
-		if done["job:"+job] || done["migrate"] {
+		if done["job:"+job] {
 			continue
 		}
 		return true
@@ -77,10 +77,10 @@ func (e *Engine) hasPendingMigration(done map[string]bool) bool {
 
 func validateMigrationBackupEvidence(evidence *journal.MigrationBackupEvidence, now time.Time) error {
 	if evidence == nil {
-		return errors.New("migration backup evidence is required by environment policy; supply a fresh plan-bound receipt or an explicit audited override")
+		return errors.New("a migration backup report is required by environment policy; supply a fresh plan-bound report or an explicit audited override")
 	}
 	if len(evidence.ProtectedResources) == 0 {
-		return errors.New("migration backup evidence has no protected resources")
+		return errors.New("migration backup authorization has no protected resources")
 	}
 	if !sort.StringsAreSorted(evidence.ProtectedResources) {
 		return errors.New("migration backup protected resources are not sorted")
@@ -92,10 +92,10 @@ func validateMigrationBackupEvidence(evidence *journal.MigrationBackupEvidence, 
 	}
 	validUntil, err := time.Parse(time.RFC3339Nano, evidence.ValidUntil)
 	if err != nil {
-		return errors.New("migration backup evidence has an invalid validity deadline")
+		return errors.New("migration backup authorization has an invalid validity deadline")
 	}
 	if now.After(validUntil) {
-		return fmt.Errorf("migration backup evidence expired at %s; supply fresh evidence or an explicit audited override", validUntil.UTC().Format(time.RFC3339))
+		return fmt.Errorf("migration backup authorization expired at %s; supply a fresh backup report or an explicit audited override", validUntil.UTC().Format(time.RFC3339))
 	}
 	switch evidence.Mode {
 	case "receipt":
@@ -125,7 +125,7 @@ func validateMigrationBackupEvidence(evidence *journal.MigrationBackupEvidence, 
 			return errors.New("migration backup override time is invalid")
 		}
 	default:
-		return fmt.Errorf("unknown migration backup evidence mode %q", evidence.Mode)
+		return fmt.Errorf("unknown migration backup authorization mode %q", evidence.Mode)
 	}
 	return nil
 }

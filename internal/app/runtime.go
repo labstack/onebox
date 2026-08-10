@@ -123,7 +123,7 @@ func (w Workload) IsJob() bool { return w.Role == RoleJob }
 //
 // A bind mount is deliberately not durable here: onebox neither created the
 // host path nor can tell configuration from data by looking at it, so the
-// bytes are the operator's. Counting them would demand backup evidence for
+// bytes are the operator's. Counting them would demand a backup report for
 // every `./config` mount, and a warning that fires on everything is one
 // nobody reads.
 func (w Workload) HoldsDurableData() bool {
@@ -177,9 +177,9 @@ func (p *Spec) ReleaseOrder() []string {
 	return p.topological(runnable)
 }
 
-// JobOrder is the sequence jobs run in, before any long-running workload is
-// touched. Migrations that depend on each other are ordered by `needs` like
-// everything else.
+// JobOrder is the stable dependency order for every declared job. It describes
+// the release runtime, not which jobs a deploy executes; callers that execute a
+// release phase must use JobOrderFor so manual jobs remain deploy-inert.
 func (p *Spec) JobOrder() []string {
 	var jobs []string
 	for _, name := range sortedKeys(p.Workloads) {
@@ -193,6 +193,20 @@ func (p *Spec) JobOrder() []string {
 		}
 	}
 	return p.topological(jobs)
+}
+
+// JobOrderFor returns only jobs assigned to one automatic release phase while
+// preserving the dependency order of the complete job graph. In particular,
+// when="manual" is never used by deployment execution.
+func (p *Spec) JobOrderFor(when string) []string {
+	ordered := p.JobOrder()
+	out := make([]string, 0, len(ordered))
+	for _, name := range ordered {
+		if p.Workloads[name].When == when {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // ServiceNames are the supporting services, sorted. They live in their own

@@ -150,18 +150,23 @@ workloads:
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := p.Render("production", "r1", nil)
+	webPin := "nginx@sha256:" + strings.Repeat("a", 64)
+	databasePin := "postgres@sha256:" + strings.Repeat("b", 64)
+	r, err := p.Render("production", "r1", Images{"web": webPin, "db": databasePin})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := string(r.Bytes)
-	for _, want := range []string{"postgres:18.4-alpine", "pg_isready", "ob.workload: db"} {
+	for _, want := range []string{webPin, databasePin, "pg_isready", "ob.workload: db"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in rendered runtime\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "x-ob-compose-ref") {
 		t.Error("the reference marker should be replaced by the merged service")
+	}
+	if strings.Contains(out, "postgres:18.4-alpine") {
+		t.Fatalf("the adopted service tag survived its resolved pin:\n%s", out)
 	}
 }
 

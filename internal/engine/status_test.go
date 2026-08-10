@@ -155,7 +155,7 @@ func TestStatusFlagsCrashLoopingRole(t *testing.T) {
 // A crash-looping (Restarting) service is present in docker ps but not
 // serving. A fully-exited service already diverges (NOT RUNNING); a
 // crash-looping one must too, not silently pass as "in sync".
-func TestStatusFlagsCrashLoopingAccessory(t *testing.T) {
+func TestStatusFlagsCrashLoopingService(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "readlink"):

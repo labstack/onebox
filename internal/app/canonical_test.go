@@ -40,8 +40,8 @@ func originsFor(t *testing.T, env string) map[string]Origin {
 func TestOriginsDistinguishWhatWasWritten(t *testing.T) {
 	o := originsFor(t, "production")
 	for path, want := range map[string]Origin{
-		"app":                            OriginExplicit,
-		"workloads.ledger.build.context": OriginExplicit,
+		"app":                            OriginAuthored,
+		"workloads.ledger.build.context": OriginAuthored,
 		"workloads.ledger.domain":        OriginShorthand,
 		"workloads.ledger.port":          OriginShorthand,
 		"workloads.ledger.replicas":      OriginDefault,
@@ -66,7 +66,7 @@ func TestInjectedRoleIsNotClaimedAsTheAuthorsChoice(t *testing.T) {
 
 // TestOverrideOriginSurvivesResolution.
 func TestOverrideOriginSurvivesResolution(t *testing.T) {
-	if got := originsFor(t, "staging")["workloads.ledger.replicas"]; got != OriginOverride {
+	if got := originsFor(t, "staging")["workloads.ledger.replicas"]; got != OriginEnvironmentOverride {
 		t.Errorf("staging replicas = %q, want override", got)
 	}
 	if got := originsFor(t, "production")["workloads.ledger.replicas"]; got != OriginDefault {

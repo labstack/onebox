@@ -25,11 +25,11 @@ func TestJournalsOneRoundTrip(t *testing.T) {
 	// Mimic the remote `for f in ...; do echo MARKER$f; cat $f; done` output.
 	out := journalMarker + "R1.jsonl\n" +
 		marshal(
-			Record{DeployID: "R1", Event: "start"},
+			Record{DeployID: "R1", Phase: "deploy", Event: "start"},
 			Record{DeployID: "R1", Phase: "deploy", Event: "finish", Status: "ok"},
 		) + "\n" +
 		journalMarker + "R2.jsonl\n" +
-		marshal(Record{DeployID: "R2", Event: "start", Detail: "prev=R1"}) + "\n" +
+		marshal(Record{DeployID: "R2", Phase: "deploy", Event: "start", Detail: "prev=R1"}) + "\n" +
 		"garbage-not-json\n" // torn line tolerated
 
 	var got string
@@ -69,11 +69,11 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 	// R1's last line has no trailing "\n" (torn write); the command's echo adds
 	// one before R2's marker. R1's torn line is dropped, R2 stays intact.
 	out := journalMarker + "R1.jsonl\n" +
-		`{"deploy_id":"R1","event":"start"}` + "\n" +
+		`{"deploy_id":"R1","phase":"deploy","event":"start"}` + "\n" +
 		`{"deploy_id":"R1","event":"result","status":"ok"` + // <- torn, no closing brace/newline
 		"\n" + // the trailing `echo`
 		journalMarker + "R2.jsonl\n" +
-		`{"deploy_id":"R2","event":"start"}` + "\n\n"
+		`{"deploy_id":"R2","phase":"deploy","event":"start"}` + "\n\n"
 
 	var gotCmd string
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {

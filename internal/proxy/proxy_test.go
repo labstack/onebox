@@ -32,13 +32,13 @@ func writeCfg(t *testing.T, files map[string]string) string {
 
 func TestPathsHostScoped(t *testing.T) {
 	// The base comes from the project's resolved names, so an app declaring
-	// base_path puts the shared proxy beside its own state rather than in a
+	// base_path puts the host proxy beside its own state rather than in a
 	// second tree nothing else reads.
 	p := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"})
 	if p.Base != "/tmp/obbase/_host" {
 		t.Fatalf("base: %s", p.Base)
 	}
-	if p.Compose != "/tmp/obbase/_host/proxy/compose.yaml" || p.Apps != "/tmp/obbase/_host/proxy/apps" {
+	if p.Compose != "/tmp/obbase/_host/proxy/compose.yaml" || p.Owner != "/tmp/obbase/_host/owner" {
 		t.Fatalf("paths: %+v", p)
 	}
 	if p.Lock != "/tmp/obbase/_host/lock" || p.Acme != "/tmp/obbase/_host/proxy/acme" {

@@ -8,7 +8,7 @@ sidebar:
   order: 30
 read_when:
   - "Adding a staging or production environment"
-  - "Requiring approval, a minimum runner version, or migration backup evidence"
+  - "Requiring local confirmation, a minimum runner version, or a migration backup report"
   - "Working out which fields an environment override may change"
 ---
 
@@ -38,13 +38,13 @@ cannot drift from what `ob validate` accepts.
 | `<name>.overrides.workloads` | map | — | Allowed workload tuning keyed by workload name: replicas, resources, env, env_files, strategy, and routes. |
 | `<name>.policy` | object | — | Approval, runner compatibility, and migration-backup requirements for this environment. |
 | `<name>.policy.allow_agent_proposals` | boolean | `true` | Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated. |
-| `<name>.policy.migration_backup_key_material` | list | — | Names of key material whose usability must be attested in migration backup evidence. |
-| `<name>.policy.migration_backup_maximum_age` | string | `24h` | Maximum age of backup evidence accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.policy.migration_backup_key_material` | list | — | Names of key material whose usability must be covered by the migration backup report. |
+| `<name>.policy.migration_backup_maximum_age` | string | `24h` | Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.policy.minimum_onebox_version` | string | — | Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.08.1. |
 | `<name>.policy.minimum_plan_schema` | string | — | Oldest executable plan schema accepted by this environment. Expects a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2. |
-| `<name>.policy.require_approval` | boolean | `true` | Require a plan-bound approval grant before mutating this environment. |
-| `<name>.policy.require_migration_backup` | boolean | `false` | Require plan-bound external backup evidence before a release with migration risk. |
-| `<name>.policy.require_migration_restore_test` | boolean | `false` | Require the backup evidence to attest that a restore test succeeded. |
+| `<name>.policy.require_approval` | boolean | `true` | Require a plan-bound local confirmation before mutating this environment. |
+| `<name>.policy.require_migration_backup` | boolean | `false` | Require a plan-bound backup report before a release with migration risk. |
+| `<name>.policy.require_migration_restore_test` | boolean | `false` | Require the backup report to state that a restore test succeeded. |
 | `<name>.server` | object | — | SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host. |
 | `<name>.server.host` | string | — | SSH hostname or IP address. |
 | `<name>.server.port` | integer | — | SSH port. The SSH default is used when omitted. |

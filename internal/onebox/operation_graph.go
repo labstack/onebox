@@ -36,22 +36,25 @@ func deploymentGraph(cfg *app.Resolved, releaseID string) ([]OperationStep, erro
 	appendStep(OperationStep{ID: "preflight", Kind: StepPreflight, DataEffect: DataEffectNone})
 	appendStep(OperationStep{ID: "transfer", Kind: StepTransfer, DataEffect: DataEffectNone, Mutation: true})
 
-	for _, name := range orderedComponents(cfg, "job") {
-		component := cfg.Workloads[name]
-		service := name
-		step := OperationStep{
-			ID:         "job:" + service,
-			Kind:       StepJob,
-			Component:  name,
-			Service:    service,
-			DataEffect: DataEffectClass(component.DataEffect),
-			Mutation:   true,
+	appendJobs := func(when string) {
+		for _, name := range cfg.JobOrderFor(when) {
+			component := cfg.Workloads[name]
+			step := OperationStep{
+				ID:         "job:" + name,
+				Kind:       StepJob,
+				Component:  name,
+				Service:    name,
+				DataEffect: DataEffectClass(component.DataEffect),
+				Mutation:   true,
+			}
+			if step.DataEffect == DataEffectMigration {
+				step.ResultPolicy = JobResultProviderOrStrongUnknown
+			}
+			appendStep(step)
 		}
-		if step.DataEffect == DataEffectMigration {
-			step.ResultPolicy = JobResultProviderOrStrongUnknown
-		}
-		appendStep(step)
 	}
+
+	appendJobs("pre_release")
 
 	if hasLifecycleHook(cfg, "pre_release") {
 		appendStep(OperationStep{
@@ -77,6 +80,8 @@ func deploymentGraph(cfg *app.Resolved, releaseID string) ([]OperationStep, erro
 			Strategy: strategy, Mutation: true,
 		})
 	}
+
+	appendJobs("post_release")
 
 	if hasLifecycleHook(cfg, "post_release") {
 		appendStep(OperationStep{

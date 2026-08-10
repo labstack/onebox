@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/onebox/internal/compose"
 	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/secrets"
 )
 
@@ -23,6 +24,9 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	if request.Kind == "" && request.Plan != nil {
 		request.Kind = request.Plan.Operation.Kind
 	}
+	if request.Kind == "" && request.JobPlan != nil {
+		request.Kind = request.JobPlan.Operation.Kind
+	}
 	result := OperationResult{
 		Kind: request.Kind, Status: "running",
 		StartedAt: started.Format(time.RFC3339Nano), Runner: s.runner,
@@ -30,8 +34,8 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	if request.Approval != nil {
 		result.ApprovalDigest = request.Approval.ApprovalDigest
 	}
-	if request.BackupEvidence != nil {
-		result.BackupEvidenceDigest = request.BackupEvidence.EvidenceDigest
+	if request.BackupReport != nil {
+		result.BackupReportDigest, _ = request.BackupReport.ComputeDigest()
 	}
 	if request.MigrationBackupOverride != nil {
 		result.MigrationBackupOverrideDigest = request.MigrationBackupOverride.OverrideDigest
@@ -92,6 +96,17 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.NoOp = noOp
 		return finish(err)
 	}
+	if request.Kind == KindJobRun {
+		if request.JobPlan == nil {
+			return finish(errors.New("job run requires an executable job plan"))
+		}
+		result.ReleaseID = request.JobPlan.Operation.ReleaseID
+		emit("operation", "started", "")
+		evidenceID, jobResult, jobErr := s.executeJob(ctx, request, emit)
+		result.EvidenceID = evidenceID
+		result.JobResult = jobResult
+		return finish(jobErr)
+	}
 
 	lenient := request.Kind == KindProxyApply || request.Kind == KindDestroy
 	lp, err := s.loadProject(ctx, lenient)
@@ -114,7 +129,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	operationID := result.ID
 	emit("operation", "started", "")
 	e, cleanup, _, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
-		options.ForceLock = request.Force
+		options.ForceLock = request.BreakLock
 		options.NoRollback = request.NoRollback
 		options.Progress = emit
 	})
@@ -128,14 +143,20 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindResume:
 		result.EvidenceID, err = e.ResumeWithJournalID(ctx)
 	case KindAbort:
-		result.EvidenceID, err = e.AbortWithJournalID(ctx, request.Force)
+		result.EvidenceID, err = e.AbortWithJournalID(ctx, request.BreakMigrationGate)
 	case KindRollback:
 		result.EvidenceID, err = e.RollbackWithJournalID(ctx)
 		result.ReleaseID = result.EvidenceID
 	case KindBootstrap:
 		var staging string
 		var cleanupStaging func()
-		staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, s.images)
+		secretGeneration := ""
+		if len(lp.resolved.SecretDeclarationGraph()) > 0 {
+			secretGeneration, err = s.newSecretGeneration()
+		}
+		if err == nil {
+			staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, secretGeneration, s.images)
+		}
 		if err == nil {
 			defer cleanupStaging()
 			result.ReleaseID = operationID
@@ -147,10 +168,10 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		// projects, and nothing a release can remove.
 		result.ReleaseID = operationID
 		result.EvidenceID = operationID
-		err = e.ServiceApply(ctx, operationID, request.Force)
+		err = e.ServiceApply(ctx, operationID, request.AllowDestructiveMounts)
 	case KindProxyApply:
 		result.EvidenceID = operationID
-		err = e.ProxyApply(ctx, operationID, request.Force)
+		err = e.ProxyApply(ctx, operationID)
 	case KindSecretsPush:
 		entries := encryptedEntries(lp.resolved)
 		externalProjections := externalConnectionProjections(lp.resolved)
@@ -158,22 +179,16 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			err = errors.New("no encrypted env_files entry declared")
 			break
 		}
-		// Every encrypted entry, each to the file the runtime references for
-		// it. Pushing one while the release carries several would leave the
-		// rest at the values staged when the release was made.
+		// Render the complete graph before entering the engine. The engine then
+		// compares, checkpoints and replaces it as one generation-wide unit.
+		payloads := make([]engine.SecretPayload, 0, len(entries)+len(externalProjections))
 		for _, entry := range entries {
 			var envBytes []byte
 			envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
 			if err != nil {
 				break
 			}
-			// The last entry's journal identity is the one reported. Each push
-			// journals its own; the caller carries one, and the journal holds
-			// the rest.
-			result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, entry.StagedPath(), envBytes)
-			if err != nil {
-				break
-			}
+			payloads = append(payloads, engine.SecretPayload{Path: entry.StagedPath(), Bytes: envBytes})
 		}
 		decryptedSources := map[string][]byte{}
 		for _, projection := range externalProjections {
@@ -192,8 +207,14 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			var envBytes []byte
 			envBytes, err = secrets.ProjectEnvironment(source, projection.Entries)
 			if err == nil {
-				result.EvidenceID, err = e.SecretsPushWithJournalID(ctx, projection.Path, envBytes)
+				payloads = append(payloads, engine.SecretPayload{Path: projection.Path, Bytes: envBytes})
 			}
+		}
+		if err == nil {
+			var push engine.SecretPushResult
+			push, err = e.SecretsPushBatch(ctx, payloads)
+			result.EvidenceID = push.ReleaseID
+			result.NoOp = push.NoOp
 		}
 	case KindDestroy:
 		err = e.Destroy(ctx, request.RemoveVolumes, request.RemoveProxy)
@@ -241,6 +262,10 @@ func (s *Service) executeDeploy(
 	}
 	if err := ensureEnvironment(lp.resolved, s.environment); err != nil {
 		return false, err
+	}
+	hasSecretGraph := len(lp.resolved.SecretDeclarationGraph()) > 0
+	if hasSecretGraph != (plan.Artifact.SecretGeneration != "") || (hasSecretGraph && !release.IsSecretGeneration(plan.Artifact.SecretGeneration)) {
+		return false, errors.New("deployment plan secret generation does not match the resolved configuration — re-plan")
 	}
 	environmentConfig, err := lp.resolved.Environment(s.environment)
 	if err != nil {
@@ -301,7 +326,7 @@ func (s *Service) executeDeploy(
 		emit("approval", "started", "")
 		if request.Approval == nil {
 			return false, fmt.Errorf(
-				"%s approval is required for this exact deployment plan; create a bound grant with `ob approve --plan PLAN` and apply it with `ob deploy --plan PLAN --approval APPROVAL`",
+				"%s approval is required for this exact deployment plan; record a local confirmation with `ob approve --plan PLAN` and apply it with `ob deploy --plan PLAN --approval APPROVAL`",
 				plan.Operation.Approval,
 			)
 		}
@@ -317,11 +342,11 @@ func (s *Service) executeDeploy(
 		}
 	}
 	backupRequired := plan.MigrationBackup != nil && (!plan.NoOp || request.Redeploy)
-	if backupRequired || request.BackupEvidence != nil || request.MigrationBackupOverride != nil {
+	if backupRequired || request.BackupReport != nil || request.MigrationBackupOverride != nil {
 		emit("migration_backup", "started", "")
 	}
 	migrationBackupAudit, err := validateMigrationBackupForExecution(
-		plan, request.BackupEvidence, request.MigrationBackupOverride, request.Approval,
+		plan, request.BackupReport, request.MigrationBackupOverride, request.Approval,
 		backupRequired, s.now().UTC(),
 	)
 	if err != nil {
@@ -332,7 +357,7 @@ func (s *Service) executeDeploy(
 	}
 	applyPinnedImages(lp.compose, plan.Artifact.PinnedImages)
 	e, cleanup, target, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
-		options.ForceLock = request.Force
+		options.ForceLock = request.BreakLock
 		options.NoRollback = request.NoRollback
 		options.Progress = emit
 		options.MigrationBackupWasRequired = plan.MigrationBackup != nil
@@ -365,7 +390,7 @@ func (s *Service) executeDeploy(
 	emit("binding", "succeeded", "")
 
 	emit("stage", "started", "")
-	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, plan.Operation.ReleaseID, plan.Artifact.PinnedImages)
+	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, plan.Operation.ReleaseID, plan.Artifact.SecretGeneration, plan.Artifact.PinnedImages)
 	if err != nil {
 		return false, err
 	}

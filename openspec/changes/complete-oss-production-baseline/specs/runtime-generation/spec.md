@@ -9,7 +9,7 @@
 
 Generation SHALL emit a separate, stable runtime document for each supported
 Onebox-run service and SHALL keep it outside application releases. A service
-that has never enabled protection, or whose approved disablement completed,
+that has never enabled protection, or whose locally confirmed disablement completed,
 SHALL retain the existing version-tag image behavior and SHALL NOT require
 protection-driven registry digest resolution. Removing a policy from an enabled
 service SHALL move durable runtime state to `disable-pending`; it SHALL NOT by
@@ -62,7 +62,7 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 - **THEN** the generated runtime and service state use the registry-confirmed immutable digest and retain it as a restore and pruning root
 
 #### Scenario: Unprotected service remains tag-based
-- **WHEN** a service that never enabled protection or completed approved disablement is applied while its registry is unreachable
+- **WHEN** a service that never enabled protection or completed locally confirmed disablement is applied while its registry is unreachable
 - **THEN** generation preserves the existing version-tag runtime behavior and introduces no protection-driven registry failure
 
 #### Scenario: Protection image mapping is unpublished
@@ -75,7 +75,7 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 
 #### Scenario: Pre-protection same-major patch succeeds
 - **GIVEN** an existing service is not protected and a qualified patch exists in its declared major
-- **WHEN** its approved `ob service apply --refresh-image` plan executes
+- **WHEN** its locally confirmed `ob service apply --refresh-image` plan executes
 - **THEN** Onebox preserves its volume and rollback identity, applies the exact qualified upstream digest, restarts and verifies the service, leaves protection disabled, and names the subsequent protection command
 
 #### Scenario: Service patch would cross a major version
@@ -100,7 +100,7 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 
 #### Scenario: Protection policy is removed while prerequisites remain active
 - **WHEN** an apply removes the policy from a service with installed protection prerequisites
-- **THEN** the service enters `disable-pending`, retains its recorded digest and working hooks, reports `Run`, and requires a state-bound approved disablement before ordinary tag rendering
+- **THEN** the service enters `disable-pending`, retains its recorded digest and working hooks, reports `Run`, and requires a state-bound, locally confirmed disablement before ordinary tag rendering
 
 #### Scenario: Image reversion would strand an archive command
 - **WHEN** a plan would replace the recorded service image while an effective archive command still depends on a binary present only in that image
@@ -115,7 +115,7 @@ declared name SHALL be refused rather than treated as remove-and-recreate.
 ### Requirement: Protected service image maintenance is driver-qualified and recovery-safe
 
 Refreshing an enabled service image in any service delivery class SHALL use a
-state-bound, strongly approved, driver-qualified non-major `service_image_patch` plan rather
+state-bound, locally confirmed, driver-qualified non-major `service_image_patch` plan rather
 than disable and re-enable protection. Onebox SHALL offer the plan only when the
 driver lifecycle contract publishes the exact current-to-candidate service and
 any applicable helper digest transition plus driver-specific compatibility and continuity
@@ -131,7 +131,7 @@ explicit recovery choices when verification fails.
 
 #### Scenario: Protected upstream-digest patch succeeds
 - **GIVEN** an upstream-digest service has a qualified exact non-major transition with compatible helper and continuity checks
-- **WHEN** its strongly approved refresh-image plan executes
+- **WHEN** its locally confirmed refresh-image plan executes
 - **THEN** the service restarts on the candidate digest, protection remains effective, driver-native continuity verifies, and prior manifest image roots remain retained
 
 #### Scenario: Protected transition is not qualified
@@ -140,7 +140,7 @@ explicit recovery choices when verification fails.
 
 #### Scenario: Protected same-major patch succeeds
 - **GIVEN** PostgreSQL protection is enabled and a compatible qualified same-major derived image is available
-- **WHEN** the strongly approved refresh-image plan executes
+- **WHEN** the locally confirmed refresh-image plan executes
 - **THEN** PostgreSQL restarts once on the new digest with archive mode still effective, WAL continuity and repository readability verify, protection remains enabled, and manifest roots retain the prior digest
 
 #### Scenario: Protected patch compatibility is unproven
@@ -159,7 +159,7 @@ protected identity. NATS SHALL use generated least-privilege account
 credentials and a digest-pinned external CLI health probe when the upstream
 service image cannot provide an in-container check. Existing unauthenticated
 NATS runtimes SHALL remain unchanged and `Run` until a separate state-bound,
-strongly approved conversion declares expected connection interruption, updates
+locally confirmed conversion declares expected connection interruption, updates
 server and workload credentials together, redeploys dependent workloads,
 verifies authenticated reconnection and stream health, and preserves a bounded
 rollback to the prior server/runtime projection until verification passes.
@@ -182,7 +182,7 @@ rollback to the prior server/runtime projection until verification passes.
 
 #### Scenario: Existing NATS runtime is unauthenticated
 - **WHEN** protection planning finds an existing unauthenticated NATS service
-- **THEN** it refuses automatic credential enablement and requires an approved conversion plan naming expected interruption, affected workloads, rollback, and post-change authenticated health before the prior runtime can be discarded
+- **THEN** it refuses automatic credential enablement and requires a locally confirmed conversion plan naming expected interruption, affected workloads, rollback, and post-change authenticated health before the prior runtime can be discarded
 
 ### Requirement: Protection artifacts are generated, bound, and inspectable
 
@@ -237,7 +237,7 @@ The active volume selected for a service SHALL be recorded in fenced Onebox
 state rather than inferred from whichever volume happens to exist. A restore
 SHALL create a uniquely named staging volume, bind it to its backup and
 operation identity, and change the active selection only after verification
-and approval. The previous selection SHALL remain recorded as the rollback
+and local confirmation. The previous selection SHALL remain recorded as the rollback
 choice until an explicit retention operation makes it ineligible.
 
 #### Scenario: Restore is staged

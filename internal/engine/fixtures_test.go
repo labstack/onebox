@@ -10,6 +10,12 @@ import (
 	"github.com/labstack/onebox/internal/compose"
 )
 
+const (
+	engineTestPreviousReleaseID  = "20251231-235959-prev"
+	engineTestDeployReleaseID    = "20260101-000000-next"
+	engineTestBootstrapReleaseID = "20260101-000000-bootstrap"
+)
+
 // The engine's fixture is now a project declaration rather than a hand-built
 // normalised config. Loading it through the real loader is the point: a test
 // that assembles the struct directly can assert on a shape the loader would

@@ -33,9 +33,9 @@ type Transport interface {
 	// RunInput is Run with stdin — for secrets that must never appear in a
 	// command string (docker login --password-stdin).
 	RunInput(ctx context.Context, cmd, stdin string) (Result, error)
-	// RunStream runs cmd with combined output streamed to out — for
-	// long-running follows (logs -f) where buffering defeats the point.
-	RunStream(ctx context.Context, cmd string, out io.Writer) error
+	// RunStream runs cmd with stdout and stderr kept distinct. Long-running
+	// follows cannot be buffered, and structured clients need the channel tag.
+	RunStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error
 	Upload(ctx context.Context, localDir, remoteDir string) error
 	// Host is the bare hostname (for display, drift, and error context).
 	Host() string
@@ -82,12 +82,12 @@ func (l *Local) RunInput(ctx context.Context, cmd, stdin string) (Result, error)
 	return res, err
 }
 
-func (l *Local) RunStream(ctx context.Context, cmd string, out io.Writer) error {
+func (l *Local) RunStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error {
 	if l.Logger != nil {
 		l.Logger("local", cmd)
 	}
 	c := exec.CommandContext(ctx, "sh", "-c", cmd)
-	c.Stdout, c.Stderr = out, out
+	c.Stdout, c.Stderr = stdout, stderr
 	return c.Run()
 }
 

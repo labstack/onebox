@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/buildinfo"
 )
 
-var executableSchemaVersion = regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v([0-9]+)(?:(alpha|beta)([0-9]+))?$`)
+var executableSchemaVersion = regexp.MustCompile(`^onebox\.run/executable-(?:deploy|job)-plan/v([0-9]+)(?:(alpha|beta)([0-9]+))?$`)
 
 // CheckRunnerCompatibility applies the same version and executable-plan schema
 // policy used at execution without loading a plan or performing any mutation.

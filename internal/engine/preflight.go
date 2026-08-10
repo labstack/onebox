@@ -16,6 +16,9 @@ const minDiskKiB = 1 << 20 // 1 GiB
 // Preflight asserts the host is deployable. Nothing mutates except mkdir -p
 // of Onebox's own base directory; preflight never mutates the target.
 func (e *Engine) Preflight(ctx context.Context) error {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
 	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("docker daemon unreachable on %s: %v %s", e.T.Host(), err, res.Stderr)
 	}
@@ -90,8 +93,12 @@ func (e *Engine) containerID(ctx context.Context, svc string) (string, error) {
 }
 
 func (e *Engine) containerIDs(ctx context.Context, svc string) ([]string, error) {
+	return e.containerIDsForProject(ctx, e.Spec.Name, svc)
+}
+
+func (e *Engine) containerIDsForProject(ctx context.Context, project, svc string) ([]string, error) {
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+q(e.Spec.Name)+
+		"docker ps -q --filter label=com.docker.compose.project="+q(project)+
 			" --filter label=com.docker.compose.service="+q(svc))
 	if err != nil {
 		return nil, err

@@ -24,6 +24,9 @@ type Options struct {
 	// Sleep and Now are injectable for tests.
 	Sleep func(time.Duration)
 	Now   func() time.Time
+	// SecretGeneration returns a fresh opaque identifier for a secret
+	// transaction. It is injectable so crash-boundary tests remain deterministic.
+	SecretGeneration func() (string, error)
 	// ConvergeBuffer is the bounded wait for the proxy to observe a health
 	// change during the traffic-shift protocol's converged step.
 	ConvergeBuffer time.Duration
@@ -111,6 +114,9 @@ func New(a *app.Resolved, c *ctypes.Project, t transport.Transport, o Options) *
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.SecretGeneration == nil {
+		o.SecretGeneration = randomSecretGeneration
 	}
 	if o.ConvergeBuffer == 0 {
 		o.ConvergeBuffer = 3 * time.Second

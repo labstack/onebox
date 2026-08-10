@@ -57,27 +57,29 @@ Onebox SHALL produce a one-time state-bound enablement plan naming the exact
 configuration delta, expected interruption, rollback action, and post-restart
 health verification. It SHALL NOT apply that delta or restart the service from
 ordinary policy convergence, a recurring interruption window, or a scheduled
-operation. Execution SHALL require a fresh strong approval delivered
-independently of model-authored text. The enablement record SHALL prove how the
+operation. Execution SHALL require a fresh plan-bound local confirmation
+supplied separately from model-authored plan text. The confirmation SHALL NOT
+be described as authenticated identity or independently issued authority. The
+enablement record SHALL prove how the
 prerequisite was established but SHALL NOT serve as continuing proof. Backup
 preflight, status, doctor, and assurance SHALL re-observe the effective runtime
 prerequisite and configuration identity. A missing or drifted prerequisite
 SHALL block dependent backup operations and `Managed` graduation.
 
-#### Scenario: Enablement restart lacks approval
+#### Scenario: Enablement restart lacks confirmation
 - **GIVEN** PostgreSQL archive mode, MariaDB binary logging, or ClickHouse backup configuration requires a service restart
-- **WHEN** apply has no fresh approval bound to the enablement plan and live service state
+- **WHEN** apply has no fresh local confirmation bound to the enablement plan and live service state
 - **THEN** it refuses with code `protection_enablement_restart_not_authorized` without changing configuration or restarting the service
 
 #### Scenario: Enablement restart succeeds
-- **GIVEN** a fresh strongly approved enablement plan and unchanged live state
+- **GIVEN** a freshly confirmed enablement plan and unchanged live state
 - **WHEN** Onebox installs the driver-owned configuration and restarts the service
 - **THEN** it verifies service health and the effective prerequisite before recording enablement provenance
 
 #### Scenario: Effective prerequisite later drifts
 - **GIVEN** protection enablement previously succeeded but the effective archive, binary-log, named-collection, or equivalent prerequisite is now absent or changed
 - **WHEN** backup preflight, status, doctor, or assurance observes the service
-- **THEN** it reports `protection_prerequisite_drifted`, blocks dependent backup work, and reports the service `Run` until a newly approved enablement restores and verifies the prerequisite
+- **THEN** it reports `protection_prerequisite_drifted`, blocks dependent backup work, and reports the service `Run` until a newly confirmed enablement restores and verifies the prerequisite
 
 ### Requirement: Protection disablement preserves service safety and recovery assets
 
@@ -85,28 +87,28 @@ Removing a protection policy SHALL NOT itself remove runtime support or revert
 an image while an installed prerequisite remains effective. Onebox SHALL emit a
 state-bound disablement plan naming interruption, prerequisite reversal,
 rollback, verification, unit and image transitions, and remote-data handback.
-A restart-bound reversal SHALL require a fresh strong approval delivered
-independently of model-authored text. Until verification succeeds, Onebox SHALL
+A restart-bound reversal SHALL require a fresh plan-bound local confirmation
+supplied separately from the plan text. Until verification succeeds, Onebox SHALL
 retain the recorded service image and every hook, credential, configuration,
 and unit required to keep the engine safe. While disablement is pending, Onebox
 SHALL retain the last effective target and retention contract and continue its
 base-backup, continuous-archive, and native-prune schedules so archive growth
 remains retention-bounded; it SHALL stop restore-drill schedules. The state
 SHALL record its request time and a 24-hour action deadline and SHALL report its
-age, continued storage activity, and exact resolving approval/apply command.
+age, continued storage activity, and exact resolving confirmation/apply command.
 After that deadline it SHALL report `protection_disablement_overdue` without
 implicitly approving or executing the reversal. Disablement SHALL NOT delete
 remote backups, manifests, previous volumes, or manifest-referenced
 images.
 
-#### Scenario: Disablement restart lacks approval
+#### Scenario: Disablement restart lacks confirmation
 - **GIVEN** an enabled protection prerequisite requires restart-bound reversal
-- **WHEN** the policy is removed without a fresh approval bound to the disablement plan and live state
+- **WHEN** the policy is removed without a fresh local confirmation bound to the disablement plan and live state
 - **THEN** execution refuses with `protection_disablement_not_authorized`, keeps the safe runtime effective, and reports `disable-pending`
 
 #### Scenario: PostgreSQL protection is disabled safely
 - **GIVEN** PostgreSQL archive mode and an archive command are effective in the derived service image
-- **WHEN** an approved disablement executes
+- **WHEN** a locally confirmed disablement executes
 - **THEN** it first disables and verifies archive mode and WAL recycling while retaining the derived image, and only afterward may remove archive support or return the live runtime to ordinary tag rendering
 
 #### Scenario: Disablement crashes between phases
@@ -114,8 +116,8 @@ images.
 - **WHEN** the runner crashes or disconnects
 - **THEN** durable phase state resumes safely with the derived image still installed and all remote recovery assets preserved
 
-#### Scenario: Disablement waits for approval
-- **GIVEN** protection is `disable-pending` and restart approval has not arrived
+#### Scenario: Disablement waits for confirmation
+- **GIVEN** protection is `disable-pending` and restart confirmation has not arrived
 - **WHEN** scheduled work runs
 - **THEN** the last effective base-backup, archive, and native-prune schedules continue with bounded retention, restore drills do not run, and status reports the continued storage contract plus the exact disablement command
 
@@ -215,7 +217,7 @@ SHALL NOT delete remote backup bytes.
 A restore SHALL first materialize the selected backup into a new isolated
 volume, start an exact-compatible temporary service, and run driver integrity
 verification. Live cutover SHALL require a non-expired state-bound plan and a
-strong approval delivered independently of model-authored text. Onebox SHALL
+fresh plan-bound local confirmation supplied separately from the plan text. Onebox SHALL
 stop the current service only after staged verification succeeds, SHALL retain
 the pre-restore volume as a rollback point, and SHALL never reinterpret force
 as permission to destroy either copy.
@@ -223,7 +225,7 @@ as permission to destroy either copy.
 #### Scenario: Restore verification succeeds
 - **GIVEN** a compatible verified backup and sufficient target capacity
 - **WHEN** a restore is prepared
-- **THEN** the restored temporary service passes driver verification before a cutover can be approved
+- **THEN** the restored temporary service passes driver verification before a cutover can be locally confirmed
 
 #### Scenario: Stale live state
 - **GIVEN** a restore plan bound to the current service and volume state
@@ -372,7 +374,8 @@ Service-image patch, protection enable/disable, backup, restore, restore-test,
 list, inspect, and status commands SHALL provide
 versioned JSON and NDJSON contracts. Mutations SHALL stream ordered events and
 a terminal result; failures SHALL carry stable codes, secret-free messages,
-operation identifiers, and resolving next commands. Read commands SHALL NOT
+operation identifiers, and semantically classified diagnostic, next, or
+resolving commands. Read commands SHALL NOT
 create, repair, prune, or converge protection state.
 
 #### Scenario: Agent retries after disconnection

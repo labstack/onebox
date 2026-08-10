@@ -6,7 +6,7 @@ import "testing"
 //
 // A policy requiring no key material leaves RequiredKeyMaterial nil, while a
 // receipt with none carries a zero-length slice. reflect.DeepEqual called those
-// different, so every receipt `ob backup-evidence create` produced was refused
+// different, so every earlier locally wrapped report was refused
 // and the feature could not be used at all unless migration_backup_key_material
 // happened to be declared.
 func TestKeyMaterialSatisfiesTreatsNilAndEmptyAsTheSame(t *testing.T) {

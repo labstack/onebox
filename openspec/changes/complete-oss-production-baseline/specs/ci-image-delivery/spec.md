@@ -23,29 +23,30 @@ NOT be accepted as the workflow result.
 
 ### Requirement: CI uses the canonical lifecycle
 
-The workflow SHALL invoke the shipped CLI for validation, planning, approval
-validation, and deployment. It SHALL NOT reproduce rendering, drift checks,
-approval minting, locking, fencing, journaling, rollback, or recovery logic in
+The workflow SHALL invoke the shipped CLI for validation, planning,
+local-confirmation validation, and deployment. It SHALL NOT reproduce rendering, drift checks,
+local-confirmation creation, locking, fencing, journaling, rollback, or recovery logic in
 workflow scripts or actions.
 
 #### Scenario: Deploy is authorized
-- **GIVEN** an executable plan and an independently delivered matching approval artifact
+- **GIVEN** an executable plan and a separately recorded matching local-confirmation artifact
 - **WHEN** the deploy job runs
 - **THEN** it invokes `ob deploy` with those artifacts and publishes the terminal structured result
 
-#### Scenario: Approval is absent
-- **GIVEN** a plan requiring approval
-- **WHEN** CI has no independently delivered matching grant
-- **THEN** the workflow stops after planning and does not mint or infer approval from workflow text, actor identity, or model output
+#### Scenario: Confirmation is absent
+- **GIVEN** a plan requiring local confirmation
+- **WHEN** CI has no separately supplied matching local confirmation
+- **THEN** the workflow stops after planning and does not create or infer confirmation from workflow text, actor identity, or model output
 
 ### Requirement: CI artifacts are secret-safe and retryable
 
 Workflow artifacts SHALL include only redacted validation output, immutable
 image mappings, executable plans, and structured operation results. Registry,
-SSH, backup, application, and approval-delivery secrets SHALL remain in the CI
-secret facility and SHALL NOT be uploaded as artifacts. A retry SHALL reuse
+SSH, backup, and application secrets SHALL remain in the CI secret facility;
+local-confirmation artifacts SHALL remain protected and SHALL NOT be published
+as general build artifacts. A retry SHALL reuse
 the exact plan only while it remains valid and state-bound; otherwise it SHALL
-re-plan and require a new approval.
+re-plan and require a new local confirmation.
 
 #### Scenario: Retry after runner loss
 - **GIVEN** CI lost its connection after deployment began
@@ -53,9 +54,9 @@ re-plan and require a new approval.
 - **THEN** it inspects the operation identity and resumes or reports the terminal state rather than blindly starting another deployment
 
 #### Scenario: Plan expired
-- **GIVEN** an expired executable plan and approval
+- **GIVEN** an expired executable plan and local confirmation
 - **WHEN** the workflow retries
-- **THEN** it regenerates the plan and refuses to reuse the old approval
+- **THEN** it regenerates the plan and refuses to reuse the old confirmation
 
 ### Requirement: CI output contracts are versioned
 

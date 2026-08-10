@@ -9,16 +9,18 @@ import (
 // LifecycleFailure is the public, secret-free failure contract shared by
 // lifecycle plans, event streams, terminal results, status, and doctor.
 // Diagnostic detail remains in restricted local evidence; this record carries
-// only a stable branchable code and a safe resolving command.
+// only a stable branchable code and one semantically classified safe command.
 type LifecycleFailure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Next    string `json:"next"`
+	Code              string `json:"code"`
+	Message           string `json:"message"`
+	DiagnosticCommand string `json:"diagnostic_command,omitempty"`
+	NextCommand       string `json:"next_command,omitempty"`
+	ResolvingCommand  string `json:"resolving_command,omitempty"`
 }
 
 type lifecycleFailureDefinition struct {
 	message string
-	next    string
+	command string
 }
 
 var lifecycleFailureDefinitions = map[string]lifecycleFailureDefinition{
@@ -41,9 +43,9 @@ var lifecycleFailureDefinitions = map[string]lifecycleFailureDefinition{
 	"protected_service_patch_incompatible":         {"the candidate protected service or helper cannot prove repository and runtime compatibility", "ob status --output json"},
 	"protected_service_patch_unsupported":          {"no exact qualified protected current-to-candidate transition exists", "ob status --output json"},
 	"protection_disable_pending":                   {"protection removal is waiting for an authorized safe prerequisite reversal", "ob status --output json"},
-	"protection_disablement_not_authorized":        {"protection disablement requires a fresh strong approval bound to current state", "ob status --output json"},
+	"protection_disablement_not_authorized":        {"protection disablement requires a fresh local confirmation bound to current state", "ob status --output json"},
 	"protection_disablement_overdue":               {"protection disablement remains pending beyond its action deadline", "ob status --output json"},
-	"protection_enablement_restart_not_authorized": {"a restart-bound protection prerequisite lacks fresh strong approval", "ob validate --output json"},
+	"protection_enablement_restart_not_authorized": {"a restart-bound protection prerequisite lacks fresh local confirmation", "ob validate --output json"},
 	"protection_image_revert_unsafe":               {"the requested image reversion would strand an effective protection prerequisite", "ob status --output json"},
 	"protection_image_update_overdue":              {"a qualified protected service image publication missed its maintenance target", "ob status --output json"},
 	"protection_prerequisite_drifted":              {"a live prerequisite no longer matches the verified protection configuration", "ob validate --output json"},
@@ -64,7 +66,8 @@ func NewLifecycleFailure(code string) (LifecycleFailure, error) {
 	if !ok {
 		return LifecycleFailure{}, fmt.Errorf("unknown lifecycle failure code %q", code)
 	}
-	failure := LifecycleFailure{Code: code, Message: definition.message, Next: definition.next}
+	failure := LifecycleFailure{Code: code, Message: definition.message}
+	setLifecycleGuidance(&failure, definition.command)
 	if err := failure.Validate(); err != nil {
 		return LifecycleFailure{}, err
 	}
@@ -78,13 +81,77 @@ func (failure LifecycleFailure) Validate() error {
 	if !ok {
 		return fmt.Errorf("unknown lifecycle failure code %q", failure.Code)
 	}
-	if failure.Message != definition.message || failure.Next != definition.next {
+	if failure.Message != definition.message || failure.GuidanceCommand() != definition.command {
 		return fmt.Errorf("lifecycle failure %q does not match its public definition", failure.Code)
 	}
-	if !safeResolvingCommand(failure.Next) {
-		return fmt.Errorf("lifecycle failure %q has an unsafe resolving command", failure.Code)
+	set := 0
+	for _, command := range []string{failure.DiagnosticCommand, failure.NextCommand, failure.ResolvingCommand} {
+		if command != "" {
+			set++
+		}
+	}
+	if set != 1 || !safeGuidanceCommand(failure.GuidanceCommand()) {
+		return fmt.Errorf("lifecycle failure %q has invalid command guidance", failure.Code)
 	}
 	return nil
+}
+
+func (failure LifecycleFailure) GuidanceCommand() string {
+	for _, command := range []string{failure.DiagnosticCommand, failure.NextCommand, failure.ResolvingCommand} {
+		if command != "" {
+			return command
+		}
+	}
+	return ""
+}
+
+func (failure LifecycleFailure) GuidanceRole() string {
+	switch {
+	case failure.DiagnosticCommand != "":
+		return "diagnostic"
+	case failure.NextCommand != "":
+		return "next"
+	case failure.ResolvingCommand != "":
+		return "resolving"
+	default:
+		return ""
+	}
+}
+
+func setLifecycleGuidance(failure *LifecycleFailure, command string) {
+	switch GuidanceRoleForCommand(command) {
+	case "next":
+		failure.NextCommand = command
+	case "diagnostic":
+		failure.DiagnosticCommand = command
+	default:
+		failure.ResolvingCommand = command
+	}
+}
+
+// GuidanceRoleForCommand classifies a safe Onebox command by what executing it
+// can honestly accomplish for the reported condition.
+func GuidanceRoleForCommand(command string) string {
+	if strings.ContainsAny(command, "<>") {
+		return "next"
+	}
+	for _, prefix := range []string{"ob plan", "ob job plan", "ob approve"} {
+		if command == prefix || strings.HasPrefix(command, prefix+" ") {
+			return "next"
+		}
+	}
+	for _, prefix := range []string{
+		"ob status", "ob validate", "ob doctor", "ob audit", "ob help",
+		"ob canonical", "ob preflight", "ob preview", "ob schema", "ob version", "ob logs",
+		"ob secrets list", "ob service status", "ob protection status", "ob assurance inspect",
+		"ob backup target inspect", "ob backup list", "ob backup inspect", "ob restore inspect",
+		"ob housekeeping status",
+	} {
+		if command == prefix || strings.HasPrefix(command, prefix+" ") {
+			return "diagnostic"
+		}
+	}
+	return "resolving"
 }
 
 func LifecycleFailureCodes() []string {
@@ -101,7 +168,7 @@ func LifecycleFailureMeaning(code string) (string, bool) {
 	return definition.message, ok
 }
 
-func safeResolvingCommand(command string) bool {
+func safeGuidanceCommand(command string) bool {
 	if !strings.HasPrefix(command, "ob ") || len(command) > 256 || strings.ContainsAny(command, "\r\n\x00;|&`$<>") {
 		return false
 	}

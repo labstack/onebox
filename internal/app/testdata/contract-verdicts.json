@@ -105,6 +105,11 @@
     "digest": "5d4ab0e5117c9cbd57cf39e07f8cc8cab4e81cb73c1dc7dc8d331bd8b6ef39cc"
   },
   {
+    "case": "conformance/explicit manual job remains a runtime service",
+    "loads": true,
+    "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
+  },
+  {
     "case": "conformance/explicit workloads block",
     "loads": true,
     "digest": "9a25e5e99e9f1eb1cc71d17a0c8a13089938ddfadd052499097277b5dd7fcfe3"
@@ -310,6 +315,11 @@
     "digest": "b4bdfafcbb5b413b0a26a2347869340ad3a6fee5988c586620ed911e688bf0b3"
   },
   {
+    "case": "conformance/recreate workload with published host port",
+    "loads": true,
+    "digest": "4085d5da5b79188a4136716a328fc7923f19d45d383e08502a55033846bc501b"
+  },
+  {
     "case": "conformance/relative compose ref",
     "loads": true,
     "digest": "render:compose_file_unreadable"
@@ -318,6 +328,11 @@
     "case": "conformance/relative env_file",
     "loads": true,
     "digest": "d06998bfca47f1f5fd670feec5ea41bf720c35ae99474ec24633d636a9c0bd70"
+  },
+  {
+    "case": "conformance/rolling workload with published host port",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/routes list",

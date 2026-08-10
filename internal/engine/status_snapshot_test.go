@@ -68,7 +68,7 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 
 func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T) {
 	journalOut := journalMarkerLine + "R3.jsonl\n" +
-		`{"deploy_id":"R3","epoch":7,"event":"start","detail":"prev=R2","ts":"2026-07-12T18:00:00Z","operator":"v","git_sha":"abc123"}` + "\n" +
+		`{"deploy_id":"R3","epoch":7,"phase":"deploy","event":"start","detail":"prev=R2","ts":"2026-07-12T18:00:00Z","operator":"v","git_sha":"abc123"}` + "\n" +
 		`{"deploy_id":"R3","epoch":7,"phase":"transfer","event":"result","status":"ok","ts":"2026-07-12T18:01:00Z"}` + "\n" +
 		`{"deploy_id":"R3","epoch":7,"phase":"release","role":"web","event":"result","status":"ok","ts":"2026-07-12T18:02:00Z"}` + "\n"
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -252,8 +252,8 @@ func TestStatusSnapshotManagedProxy(t *testing.T) {
 	if px.LocalConfigHash != localHash || px.AppliedConfigHash != localHash || px.ConfigDiverged {
 		t.Fatalf("unexpected proxy hashes: %#v", px)
 	}
-	if len(px.RegisteredApps) != 1 || px.RegisteredApps[0] != "sample" {
-		t.Fatalf("unexpected registered apps: %v", px.RegisteredApps)
+	if px.Owner != "sample" {
+		t.Fatalf("unexpected host owner: %q", px.Owner)
 	}
 	if len(px.Certificates) != 1 || px.Certificates[0].Domain != "app.example.com" || px.Certificates[0].DaysRemaining != 10 || !px.Certificates[0].RenewalOverdue {
 		t.Fatalf("unexpected certificates: %#v", px.Certificates)

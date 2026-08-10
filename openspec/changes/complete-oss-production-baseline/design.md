@@ -2,7 +2,7 @@
 
 See `proposal.md` for motivation and scope. The existing engine already has the
 pieces consequential protection must inherit: SSH/local transports, exact
-plans and approvals, app and host locks, fencing epochs, append-only operation
+plans and local confirmations, app and host locks, fencing epochs, append-only operation
 journals, generated Compose, host systemd schedules, typed service drivers,
 status/doctor, and recovery gates. It does not have a driver lifecycle
 interface, backup repository, active-volume indirection, or a canonical
@@ -30,7 +30,7 @@ valid and visibly unprotected.
   scheduled backup, retention, real restore testing, and
   recoverable live cutover.
 - Keep all behavior authority in the canonical Go service and reuse the
-  engine's plan, lock, fence, journal, approval, structured-event, and recovery
+  engine's plan, lock, fence, journal, local-confirmation, structured-event, and recovery
   contracts.
 - Make tier, freshness, drift, ownership, defaults, and evidence origins
   observable without revealing credentials or backup content.
@@ -107,7 +107,7 @@ driver-specific continuity probes. There is no default transition. Status emits
 without one refuses with `protected_service_patch_unsupported` and leaves the
 service and tier evidence unchanged.
 
-`service_image_patch` supplies common fencing, locking, approval, one-restart
+`service_image_patch` supplies common fencing, locking, local confirmation, one-restart
 choreography, manifest-root retention, and safe rollback/stop behavior. Each
 driver supplies its own preflight and post-restart evidence: PostgreSQL stanza,
 repository, and WAL continuity; MySQL/MariaDB helper-matrix and binlog
@@ -142,7 +142,7 @@ driver graduates and publishes forward from that point; it does not backfill
 arbitrary historical upstream digests. An existing service on an older base
 receives `protection_service_patch_required` and the resolving command
 `ob service apply --refresh-image <service>`. That command creates a separate
-state-bound, strongly approved same-major patch plan, resolves the exact current
+state-bound, locally confirmed same-major patch plan, resolves the exact current
 qualified upstream base, preserves the volume and rollback identity, restarts
 and verifies PostgreSQL, and stops without enabling protection. A subsequent
 plan selects the derived image over that same base and enables protection.
@@ -151,7 +151,7 @@ same-major derived-to-derived patch plan. It binds the old and new image and
 pgBackRest digests, observed stanza and repository identity, volume and
 configuration identity, a fresh pre-patch recovery point, and the WAL archive
 position. Preflight refuses unless the new pgBackRest remains compatible with
-the existing stanza and repository. A fresh strong approval authorizes one
+the existing stanza and repository. A fresh plan-bound local confirmation authorizes one
 restart while `archive_mode`, the archive command, credentials, and schedules
 remain effective. Completion requires PostgreSQL health, unchanged effective
 archive configuration, a successful stanza check and archive round trip, and
@@ -251,7 +251,7 @@ layout. A generated systemd timer launches the runner with local transport,
 the envelope path, and secret-file references. The runner imports the same
 canonical Go service and operation graph as the CLI, accepts only scheduled
 operation schemas, opens no port, exits after one operation, and cannot mint an
-approval. It is an execution artifact, not another adapter or resident agent.
+local confirmation. It is an execution artifact, not another adapter or resident agent.
 
 The runner enforces lock, fence, journal, retry identity, helper provenance,
 and redaction exactly as a CLI-triggered operation. Updating Onebox regenerates
@@ -287,7 +287,7 @@ service apply, migrations, restore, and credential-affecting operations are
 mutually exclusive for a service. Replay-log upload may run concurrently only
 where the driver contract proves that concurrency safe.
 Ordinary application writes continue during qualified online methods; a cold
-contract obtains explicit interruption approval before stopping the service.
+contract obtains explicit plan-bound local confirmation before stopping the service.
 A version, engine, topology, or memory-headroom precondition may refuse online
 backup. Scheduled lock contention ends
 with a typed retryable result and bounded randomized delay; it never breaks a
@@ -304,14 +304,14 @@ contract that must enable `archive_mode`, binary logging, a named collection,
 or another restart-bound prerequisite emits a one-time state-bound enablement
 plan that names the configuration delta, expected outage, rollback, and health
 checks. Apply refuses with `protection_enablement_restart_not_authorized` until
-a fresh strong approval arrives independently of model text. The approved
+a fresh plan-bound local confirmation is supplied separately from the plan text. The confirmed
 operation writes the generated configuration, deliberately restarts and
 verifies the service, and records how the prerequisite was established. That
 record is provenance, not continuing proof: backup preflight, status, doctor,
 and assurance re-observe the effective runtime prerequisite and configuration
 digest. Drift immediately reports `protection_prerequisite_drifted`, blocks new
 backup work that depends on it, and keeps or returns the service to `Run` until
-an approved enablement plan re-establishes it. A policy's recurring
+a confirmed enablement plan re-establishes it. A policy's recurring
 interruption permission cannot authorize this restart, and the scheduled
 runner can never perform it implicitly. MariaDB receives a driver-owned
 `log_bin` configuration because its project settings surface cannot enable
@@ -323,7 +323,7 @@ Protection runtime state is explicit: `never-enabled`, `enabled`,
 derive from that state, not merely from whether the current project text has a
 policy. Removing a policy moves an enabled service to `disable-pending`, reports
 the service `Run`, records the request time and a 24-hour action deadline, and
-emits a state-bound `protection_disable` plan with the exact approval/apply
+emits a state-bound `protection_disable` plan with the exact confirmation/apply
 command. Until that plan completes, Onebox keeps the recorded service digest,
 configuration, archive hook, credentials, and the last effective base-backup,
 continuous-archive, and native-prune schedules. Those schedules continue under
@@ -331,7 +331,7 @@ the last effective target and retention contract so remote growth remains
 retention-bounded; restore-drill schedules stop because their proof no longer
 qualifies the service. Status makes that continued storage activity explicit.
 After the deadline it reports `protection_disablement_overdue` with elapsed age
-and the same resolving command. No timeout may bypass approval or revert a live
+and the same resolving command. No timeout may bypass confirmation or revert a live
 prerequisite; ordinary apply cannot reinterpret removal as permission to change
 it. Plan generation overlays the durable last-effective protection projection
 onto current project intent while pending, so matching retained artifacts are
@@ -342,14 +342,14 @@ restores the policy to return lifecycle state to `enabled`.
 
 If disablement must revert a restart-bound prerequisite, its plan names the
 outage, rollback, remote-data handback, and verification and requires a fresh
-strong approval. PostgreSQL first remains on the derived image, disables
+plan-bound local confirmation. PostgreSQL first remains on the derived image, disables
 `archive_mode` and its archive command, restarts, verifies WAL recycling and
 health, and durably records the prerequisite as absent. Only a later phase may
 remove generated archive units/configuration and return the live runtime to
 ordinary version-tag rendering. A crash between phases safely leaves the
 derived image installed. An image change attempted while an effective archive
 command still depends on the removed binary refuses with
-`protection_image_revert_unsafe`; missing approval refuses with
+`protection_image_revert_unsafe`; missing confirmation refuses with
 `protection_disablement_not_authorized`. Disablement never deletes repositories,
 manifests, or the exact image digests those manifests need for
 restore.
@@ -370,7 +370,7 @@ restore.
   lifecycle.
 
 Status carries each contributing fact, its source, observation time, expiry,
-and resolving command. A previously managed service immediately degrades to
+and semantically classified diagnostic, next, or resolving command. A previously managed service immediately degrades to
 `Run` when evidence expires; historical proof remains visible but cannot be
 mistaken for current protection.
 
@@ -410,7 +410,7 @@ Their initial contracts are deliberately different:
   PostgreSQL and the compatible pgBackRest binary over the exact pinned
   upstream PostgreSQL base digest, then generates the stanza and
   PostgreSQL archive/restore configuration inside that runtime. Enabling
-  `archive_mode` is a planned, strongly approved one-time restart. Onebox
+  `archive_mode` is a planned, locally confirmed one-time restart. Onebox
   checks WAL continuity and verifies the recovered cluster.
   pgBackRest documents repository encryption, S3-compatible storage, WAL
   archiving, retention, restore, and PITR:
@@ -432,7 +432,7 @@ Their initial contracts are deliberately different:
   physical full/incremental generations, records binary-log coordinates, and
   uses a MariaDB-specific closed-binlog archive/replay path. It never inherits
   MySQL qualification merely because both use port 3306. Onebox generates the
-  driver-owned `log_bin` configuration and requires an approved one-time
+  driver-owned `log_bin` configuration and requires a locally confirmed one-time
   enablement restart before PITR can qualify; the helper receives only the
   exact data volume, credentials, and ownership mapping. MariaDB documents the
   hot physical backup, prepare, restore, incremental, and binlog-coordinate
@@ -489,7 +489,7 @@ Their initial contracts are deliberately different:
   runtimes use generated least-privilege account credentials, and the same
   pinned CLI provides the external driver health probe because the service
   image carries no shell. Existing unauthenticated runtimes remain `Run` until
-  a state-bound, strongly approved conversion names the expected connection
+  a state-bound, locally confirmed conversion names the expected connection
   interruption, updates server and projected workload credentials in one
   fenced operation, redeploys dependent workloads, verifies authenticated
   reconnection and stream health, and can roll back both runtime and workload
@@ -549,8 +549,8 @@ stops there and removes its temporary resources only after evidence is durable;
 a failed drill is retained for explicit inspection/cleanup.
 
 Live cutover uses a fresh plan binding the manifest, active-volume record,
-service runtime, live container, and repository state. After a strong external
-approval, it stops the current service, atomically writes the fenced selection,
+service runtime, live container, and repository state. After a fresh plan-bound
+local confirmation, it stops the current service, atomically writes the fenced selection,
 regenerates the service runtime against the new actual volume, starts and
 verifies it, and records the previous selection. If startup verification fails,
 the operation switches back only when the old selection remains verified and
@@ -662,7 +662,7 @@ mapping. The generated application runtime receives staged secret references;
 no service runtime is generated.
 
 Plans bind redacted connection structure, probe result, and observation age.
-Migration policy may require externally generated plan-bound backup evidence.
+Migration policy may require an externally populated, plan-bound backup report.
 No provider SDK or provisioning command is introduced.
 
 ### 12. Keep CI as orchestration around the CLI
@@ -671,8 +671,9 @@ The repository ships a reusable GitHub Actions workflow and an equivalent
 documented shell sequence. They use pinned upstream actions, build/push each
 selected workload, resolve registry-confirmed digests, and pass `--image`
 mappings to `ob plan`. The workflow publishes only redacted structured outputs
-and never creates an approval. Deployment runs only when a matching approval
-artifact arrives through a separately trusted CI mechanism.
+and never creates a local confirmation. Deployment runs only when a matching
+local-confirmation artifact is supplied separately. This separation is a local
+ceremony boundary, not authenticated identity or independently issued authority.
 
 The workflow stores operation identity before invoking deploy. Retry first
 inspects that identity and uses resume/status behavior; it never blindly starts
@@ -719,9 +720,9 @@ rollback, or recovery implementation.
   version-bound part of the MongoDB runtime, not a Onebox control daemon; expose
   its health and refuse `Managed` when it is absent or incompatible.
 - [RabbitMQ cannot safely copy live message storage] → Require an authored
-  interruption window and independently approved stop/start operation; report
+  interruption window and separately planned, locally confirmed stop/start operation; report
   definition-only protection separately and never call it `Managed`.
-- [A live MinIO volume copy may be inconsistent] → Require an approved
+- [A live MinIO volume copy may be inconsistent] → Require a locally confirmed
   stopped-service cold artifact, exact-version isolated restore, and successful
   live restart before reporting protection.
 - [Remote storage outage can create false confidence] → Tier derives from
@@ -732,7 +733,7 @@ rollback, or recovery implementation.
   current/candidate service and helper digests, recovery evidence, rollback,
   and driver-native continuity before offering refresh.
 - [Partial protection disablement can strand engine prerequisites] → Drive
-  disablement through a fenced, approved, crash-resumable state machine; keep
+  disablement through a fenced, locally confirmed, crash-resumable state machine; keep
   the working image and hooks until restart-bound prerequisites are verified
   absent; keep backup/archive/prune schedules under bounded retention while
   pending; stop drills; report an action deadline; refuse unsafe image
@@ -753,14 +754,14 @@ rollback, or recovery implementation.
    contract, direct-native and Restic-artifact repository interfaces, the
    non-graduating test driver, protection manifests, manual backup/list/status,
    and fault tests.
-4. Add isolated restore and restore drills; then add approved live cutover and
+4. Add isolated restore and restore drills; then add locally confirmed live cutover and
    crash recovery.
 5. Qualify PostgreSQL patch-then-protect onboarding, protected same-major image
    maintenance with uninterrupted WAL continuity, the derived
-   PostgreSQL/pgBackRest image, approved archive-mode enablement and disablement,
+   PostgreSQL/pgBackRest image, locally confirmed archive-mode enablement and disablement,
    base/WAL/PITR, and update current docs only after its full evidence gate.
    Repeat independently for MySQL XtraBackup plus binlogs and MariaDB Backup
-   plus generated binlog configuration and approved enablement, including each
+   plus generated binlog configuration and locally confirmed enablement, including each
    exact protected service/helper patch transition.
 6. Add MongoDB single-node replica-set creation, explicit standalone conversion,
    PBM base backups, oplog PITR, and PBM-compatible protected patch transitions,
@@ -781,7 +782,7 @@ rollback, or recovery implementation.
    deletes backup repositories, active or previous volumes, or generated
    evidence.
 
-Ownership handback is explicit: removing a policy first completes any approved
+Ownership handback is explicit: removing a policy first completes any locally confirmed
 restart-bound prerequisite reversal, then removes generated units and permits
 ordinary runtime rendering. It leaves repositories, manifests,
 manifest-referenced images, and volumes intact. Inspection prints the

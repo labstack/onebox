@@ -28,7 +28,7 @@ those no longer determine the service tier.
 #### Scenario: Protection disablement is pending
 - **GIVEN** a service deliberately entered `disable-pending`
 - **WHEN** assurance runs after backup or restore proof would otherwise become stale
-- **THEN** it reports `protection_disable_pending` with age, deadline, continued storage activity, and the exact resolving command instead of emitting backup- or drill-freshness failures
+- **THEN** it reports `protection_disable_pending` with age, deadline, continued storage activity, and the exact mutation-capable resolving command instead of emitting backup- or drill-freshness failures
 
 ### Requirement: Notifications describe transitions without leaking secrets
 
@@ -78,8 +78,8 @@ passing current check.
 ### Requirement: Assurance status is agent-operable
 
 Assurance inspect and status commands SHALL return versioned structured output
-with stable check codes, timestamps, evidence identifiers, and resolving next
-commands. Repeated reads SHALL be side-effect free, and a runner disconnection
+with stable check codes, timestamps, evidence identifiers, and semantically
+classified diagnostic, next, or resolving commands. Repeated reads SHALL be side-effect free, and a runner disconnection
 SHALL not cause a later reader to treat an incomplete record as terminal proof.
 
 #### Scenario: Agent reads current assurance

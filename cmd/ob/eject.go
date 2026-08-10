@@ -29,27 +29,23 @@ func addEjectCommand(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := app.Load(g.ConfigPath)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			resolved, err := p.Resolve(g.Env)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			images, err := parseImages(imageFlags)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			res, err := resolved.Eject(dest, "ejected", images, overwrite)
 			if err != nil {
-				return writeStructuredReadFailure(cmd, g, cliEjectSchemaVersion, err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			out := cmd.OutOrStdout()
 			if isStructuredOutput(g) {
-				return writeCLIJSON(out, cliEjectEnvelope{
-					SchemaVersion: cliEjectSchemaVersion,
-					Runtime:       res.Runtime,
-					Workloads:     res.Workloads,
-				}, g.Output == "json")
+				return writeFiniteSuccess(cmd, g, map[string]any{"runtime": res.Runtime, "workloads": res.Workloads})
 			}
 			fmt.Fprintf(out, "wrote %s\n", res.Runtime)
 			fmt.Fprintf(out, "handed over: %s\n", strings.Join(res.Workloads, ", "))

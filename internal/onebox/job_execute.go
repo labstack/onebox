@@ -122,10 +122,11 @@ func (s *Service) executeJob(
 	}
 	emit("binding", "succeeded", "")
 	emit("execute", "started", "")
-	evidenceID, result, err := e.RunJobWithJournalID(
-		ctx, plan.Operation.ID, plan.Artifact.Job, plan.Artifact.CurrentRelease,
-		plan.Artifact.RuntimeDigest, string(plan.Artifact.DataEffect),
-	)
+	evidenceID, result, err := e.RunJobWithJournalID(ctx, engine.JobRunRequest{
+		OperationID: plan.Operation.ID, Job: plan.Artifact.Job,
+		ExpectedRelease: plan.Artifact.CurrentRelease, ExpectedRuntimeDigest: plan.Artifact.RuntimeDigest,
+		ExpectedDataEffect: plan.Artifact.DataEffect,
+	})
 	if err == nil {
 		emit("execute", "succeeded", "")
 	}

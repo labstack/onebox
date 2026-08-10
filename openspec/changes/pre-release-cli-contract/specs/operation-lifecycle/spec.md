@@ -42,6 +42,8 @@ A rollback target SHALL be the current serving application's recorded predecesso
 
 Retention SHALL preserve the current serving release and its configured eligible predecessor chain. It SHALL separately garbage-collect expired bootstrap snapshots, uploads, failed stages, aborted releases, and unknown entries according to explicit age and evidence rules. A directory's ineligibility for rollback SHALL NOT make it immortal and SHALL NOT make it immediately deletable.
 
+Retention SHALL fail closed when any manifest needed to establish the protected predecessor chain is missing, unreadable, or invalid. It SHALL select no deletion candidates from incomplete evidence rather than treating the unreadable predecessor as the end of the chain.
+
 #### Scenario: Failed stage exceeds retention age
 - **WHEN** a failed staged application release is older than the configured garbage-collection threshold and no incomplete operation references it
 - **THEN** retention removes it without counting it as a rollback release
@@ -84,6 +86,8 @@ If migration or unknown-effect evidence closes the rollback gate, automatic roll
 
 `secrets push` SHALL require exact equality between the local and current-release encrypted-entry declaration graph, including path, provider, order, scope, and affected workloads. It SHALL transition between opaque secret generations through a durable checkpoint. Generated files and containers SHALL identify only the opaque generation identifier; Onebox SHALL NOT expose raw or unkeyed secret-content hashes.
 
+Once the declaration graph is proven equal, rotation SHALL derive workload topology and operational attributes from the current release snapshot rather than mutable working-tree configuration. Startup SHALL remove abandoned plaintext upload directories from interrupted pre-checkpoint attempts. Successful commit SHALL remove superseded generations before clearing the checkpoint; a cleanup failure SHALL retain typed retryable recovery state instead of reporting success.
+
 The terminal invariant SHALL be exactly one of: every affected staged file and live workload uses the old generation; every affected staged file and live workload uses the new generation; or the operation remains typed-incomplete with its checkpoint. Success SHALL require the all-new state, while an unchanged input SHALL return a successful no-op. Plaintext values SHALL NOT appear in plans, arguments, output, logs, journals, or evidence added by Onebox.
 
 #### Scenario: Secret content changes
@@ -105,6 +109,14 @@ The terminal invariant SHALL be exactly one of: every affected staged file and l
 #### Scenario: Runner crashes during generation transition
 - **WHEN** the runner disconnects or crashes during prepare, replacement, verification, or commit
 - **THEN** retry resumes from the durable generation checkpoint without inventing a terminal state
+
+#### Scenario: Working tree changes after the current release
+- **WHEN** workload replica or operational settings differ locally while the encrypted declaration graph is unchanged
+- **THEN** `secrets push` rotates the deployed snapshot's workloads and settings and does not apply undeployed working-tree behavior
+
+#### Scenario: Cleanup fails after commit
+- **WHEN** live workloads and staged files use the new generation but removal of the superseded generation fails
+- **THEN** the checkpoint remains and retry completes cleanup before a terminal success is returned
 
 ### Requirement: Manual jobs use the same sealed operation model
 

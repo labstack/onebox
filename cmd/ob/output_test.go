@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -21,12 +22,98 @@ func outputTestCommand(out *bytes.Buffer) *cobra.Command {
 	return cmd
 }
 
+type foreignExitError struct{ code int }
+
+func (err foreignExitError) Error() string { return "foreign command failed" }
+func (err foreignExitError) ExitCode() int { return err.code }
+
+func TestWithExitCodeDoesNotTrustForeignExitCodeMethods(t *testing.T) {
+	err := withExitCode(foreignExitError{code: 17}, 2)
+	var cliErr *cliExitError
+	if !errors.As(err, &cliErr) || cliErr.ExitCode() != 2 {
+		t.Fatalf("wrapped error = %T %v", err, err)
+	}
+}
+
+func TestFiniteSuccessEnvelopeWireFormat(t *testing.T) {
+	var out bytes.Buffer
+	cmd := outputTestCommand(&out)
+	if err := writeFiniteSuccess(cmd, &globalFlags{Output: "json"}, map[string]any{"value": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n" +
+		"  \"schema_version\": \"onebox.run/cli/v1alpha1\",\n" +
+		"  \"command\": \"ob\",\n" +
+		"  \"outcome\": \"success\",\n" +
+		"  \"data\": {\n" +
+		"    \"value\": \"ok\"\n" +
+		"  }\n" +
+		"}\n"
+	if out.String() != want {
+		t.Fatalf("success envelope changed:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestFiniteErrorEnvelopeWireFormat(t *testing.T) {
+	var out bytes.Buffer
+	cmd := outputTestCommand(&out)
+	publicErr := &cliPublicError{
+		Code: "state_diverged", SafeMessage: "runtime state diverged",
+		DiagnosticCommand: "ob status", NextCommand: "ob plan",
+		ResolvingCommand: "ob deploy --plan PLAN", Path: "workloads.api",
+	}
+	if err := writeFiniteOutcome(cmd, &globalFlags{Output: "json"}, cliOutcomeError, nil, publicErr); err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n" +
+		"  \"schema_version\": \"onebox.run/cli/v1alpha1\",\n" +
+		"  \"command\": \"ob\",\n" +
+		"  \"outcome\": \"error\",\n" +
+		"  \"error\": {\n" +
+		"    \"code\": \"state_diverged\",\n" +
+		"    \"safe_message\": \"runtime state diverged\",\n" +
+		"    \"diagnostic_command\": \"ob status\",\n" +
+		"    \"next_command\": \"ob plan\",\n" +
+		"    \"resolving_command\": \"ob deploy --plan PLAN\",\n" +
+		"    \"path\": \"workloads.api\"\n" +
+		"  }\n" +
+		"}\n"
+	if out.String() != want {
+		t.Fatalf("error envelope changed:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestNDJSONWireFormat(t *testing.T) {
+	var out bytes.Buffer
+	stream := newCLIRecordStream(&out, "ob exec")
+	if err := stream.write("output", func(record *cliRecord) {
+		record.Channel = "stdout"
+		record.Chunk = "hello\n"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.write("event", func(record *cliRecord) {
+		record.Event = map[string]any{"phase": "verify", "status": "success"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.terminal(cliOutcomeSuccess, map[string]any{"id": "op-1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "{\"schema_version\":\"onebox.run/cli/v1alpha1\",\"command\":\"ob exec\",\"sequence\":1,\"kind\":\"output\",\"channel\":\"stdout\",\"chunk\":\"hello\\n\"}\n" +
+		"{\"schema_version\":\"onebox.run/cli/v1alpha1\",\"command\":\"ob exec\",\"sequence\":2,\"kind\":\"event\",\"event\":{\"phase\":\"verify\",\"status\":\"success\"}}\n" +
+		"{\"schema_version\":\"onebox.run/cli/v1alpha1\",\"command\":\"ob exec\",\"sequence\":3,\"kind\":\"terminal\",\"outcome\":\"success\",\"data\":{\"id\":\"op-1\"}}\n"
+	if out.String() != want {
+		t.Fatalf("NDJSON wire format changed:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
 func TestJSONOperationOutputIsOrderedAndRedactsErrors(t *testing.T) {
 	var out bytes.Buffer
 	output := newCLIOperationOutput(outputTestCommand(&out), &globalFlags{Output: "json"})
-	output.event(onebox.OperationEvent{Sequence: 2, Phase: "verify", Status: "succeeded"})
-	output.event(onebox.OperationEvent{Sequence: 1, Phase: "verify", Status: "started"})
-	result := onebox.OperationResult{ID: "op-1", Status: "failed"}
+	output.event(onebox.OperationEvent{Sequence: 2, Phase: "verify", Status: onebox.OperationStatusSuccess})
+	output.event(onebox.OperationEvent{Sequence: 1, Phase: "verify", Status: onebox.OperationStatusRunning})
+	result := onebox.OperationResult{ID: "op-1", Status: onebox.OperationStatusError}
 	if err := output.finish(&result, errors.New("password=hunter2")); err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +143,8 @@ func TestJSONOperationOutputIsOrderedAndRedactsErrors(t *testing.T) {
 func TestNDJSONOperationOutputEmitsEventsThenResult(t *testing.T) {
 	var out bytes.Buffer
 	output := newCLIOperationOutput(outputTestCommand(&out), &globalFlags{Output: "ndjson"})
-	output.event(onebox.OperationEvent{Sequence: 1, Phase: "binding", Status: "started"})
-	result := onebox.OperationResult{ID: "op-2", Status: "succeeded"}
+	output.event(onebox.OperationEvent{Sequence: 1, Phase: "binding", Status: onebox.OperationStatusRunning})
+	result := onebox.OperationResult{ID: "op-2", Status: onebox.OperationStatusSuccess}
 	if err := output.finish(&result, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -356,6 +443,39 @@ workloads:
 }
 
 func TestLeafOutputMatrixIsClosedAndHasNoAliases(t *testing.T) {
+	wantMatrix := map[string]cliOutputClass{
+		"ob abort":         {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob approve":       {Class: "finite_envelope", JSON: true},
+		"ob audit":         {Class: "finite_envelope", JSON: true},
+		"ob bootstrap":     {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob canonical":     {Class: "finite_envelope", JSON: true},
+		"ob deploy":        {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob destroy":       {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob doctor":        {Class: "finite_envelope", JSON: true},
+		"ob eject":         {Class: "finite_envelope", JSON: true},
+		"ob exec":          {Class: "operator_passthrough", NDJSON: true},
+		"ob init":          {Class: "finite_envelope", JSON: true},
+		"ob job plan":      {Class: "finite_envelope", JSON: true},
+		"ob job run":       {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob logs":          {Class: "operator_passthrough", JSON: true, NDJSON: true},
+		"ob plan":          {Class: "finite_envelope", JSON: true},
+		"ob preflight":     {Class: "finite_envelope", JSON: true},
+		"ob preview":       {Class: "finite_envelope", JSON: true},
+		"ob proxy apply":   {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob resume":        {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob rollback":      {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob schema":        {Class: "finite_envelope", JSON: true},
+		"ob secrets edit":  {Class: "trusted_editor", JSON: true},
+		"ob secrets list":  {Class: "finite_envelope", JSON: true},
+		"ob secrets push":  {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob service apply": {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob status":        {Class: "finite_envelope", JSON: true},
+		"ob validate":      {Class: "finite_envelope", JSON: true},
+		"ob version":       {Class: "finite_envelope", JSON: true},
+	}
+	if !reflect.DeepEqual(cliOutputMatrix, wantMatrix) {
+		t.Fatalf("CLI output matrix changed:\ngot  %#v\nwant %#v", cliOutputMatrix, wantMatrix)
+	}
 	root := newRootCmd()
 	seen := map[string]bool{}
 	validClasses := map[string]bool{

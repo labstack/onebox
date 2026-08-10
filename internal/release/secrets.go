@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -18,15 +19,17 @@ import (
 
 var ErrSecretCheckpointMissing = errors.New("secret checkpoint missing")
 
+type SecretPhase string
+
 const (
 	SecretCheckpointSchemaVersion = "onebox.run/secret-checkpoint/v1alpha1"
 
-	SecretPrepared   = "prepared"
-	SecretReplacing  = "replacing"
-	SecretVerifying  = "verifying"
-	SecretCommitting = "committing"
-	SecretCommitted  = "committed"
-	SecretRecovering = "recovering"
+	SecretPrepared   SecretPhase = "prepared"
+	SecretReplacing  SecretPhase = "replacing"
+	SecretVerifying  SecretPhase = "verifying"
+	SecretCommitting SecretPhase = "committing"
+	SecretCommitted  SecretPhase = "committed"
+	SecretRecovering SecretPhase = "recovering"
 )
 
 var opaqueSecretGeneration = regexp.MustCompile(`^sg-[0-9a-f]{24}$`)
@@ -36,15 +39,15 @@ var opaqueSecretGeneration = regexp.MustCompile(`^sg-[0-9a-f]{24}$`)
 // content hashes. A single per-application record is sufficient because the
 // application lock serializes all mutations.
 type SecretCheckpoint struct {
-	SchemaVersion     string   `json:"schema_version"`
-	ReleaseID         string   `json:"release_id"`
-	OldGeneration     string   `json:"old_generation"`
-	NewGeneration     string   `json:"new_generation"`
-	Phase             string   `json:"phase"`
-	AffectedWorkloads []string `json:"affected_workloads"`
-	PayloadPaths      []string `json:"payload_paths"`
-	ReplacedWorkloads []string `json:"replaced_workloads,omitempty"`
-	UpdatedAt         string   `json:"updated_at"`
+	SchemaVersion     string      `json:"schema_version"`
+	ReleaseID         string      `json:"release_id"`
+	OldGeneration     string      `json:"old_generation"`
+	NewGeneration     string      `json:"new_generation"`
+	Phase             SecretPhase `json:"phase"`
+	AffectedWorkloads []string    `json:"affected_workloads"`
+	PayloadPaths      []string    `json:"payload_paths"`
+	ReplacedWorkloads []string    `json:"replaced_workloads,omitempty"`
+	UpdatedAt         string      `json:"updated_at"`
 }
 
 func NewSecretCheckpoint(releaseID, oldGeneration, newGeneration string, workloads, paths []string, at time.Time) (SecretCheckpoint, error) {
@@ -62,20 +65,31 @@ func NewSecretCheckpoint(releaseID, oldGeneration, newGeneration string, workloa
 
 func IsSecretGeneration(value string) bool { return opaqueSecretGeneration.MatchString(value) }
 
-func (checkpoint *SecretCheckpoint) SetPhase(phase string, at time.Time) error {
+func (checkpoint *SecretCheckpoint) SetPhase(phase SecretPhase, at time.Time) error {
 	if checkpoint == nil {
 		return errors.New("secret checkpoint is nil")
 	}
+	if err := checkpoint.Validate(); err != nil {
+		return err
+	}
 	if !validSecretPhase(phase) {
 		return fmt.Errorf("secret checkpoint phase %q is invalid", phase)
+	}
+	if !allowedSecretPhaseTransition(checkpoint.Phase, phase) {
+		return fmt.Errorf("secret checkpoint phase transition %q -> %q is invalid", checkpoint.Phase, phase)
 	}
 	previous, err := time.Parse(time.RFC3339Nano, checkpoint.UpdatedAt)
 	if err != nil || at.UTC().Before(previous) {
 		return errors.New("secret checkpoint timestamp moved backwards")
 	}
-	checkpoint.Phase = phase
-	checkpoint.UpdatedAt = timestamp(at)
-	return checkpoint.Validate()
+	next := *checkpoint
+	next.Phase = phase
+	next.UpdatedAt = timestamp(at)
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	*checkpoint = next
+	return nil
 }
 
 func (checkpoint *SecretCheckpoint) MarkReplaced(workload string, at time.Time) error {
@@ -85,11 +99,17 @@ func (checkpoint *SecretCheckpoint) MarkReplaced(workload string, at time.Time) 
 	if !contains(checkpoint.AffectedWorkloads, workload) {
 		return fmt.Errorf("workload %q is outside the secret checkpoint", workload)
 	}
-	if !contains(checkpoint.ReplacedWorkloads, workload) {
-		checkpoint.ReplacedWorkloads = append(checkpoint.ReplacedWorkloads, workload)
-		sort.Strings(checkpoint.ReplacedWorkloads)
+	next := *checkpoint
+	next.ReplacedWorkloads = append([]string(nil), checkpoint.ReplacedWorkloads...)
+	if !contains(next.ReplacedWorkloads, workload) {
+		next.ReplacedWorkloads = append(next.ReplacedWorkloads, workload)
+		sort.Strings(next.ReplacedWorkloads)
 	}
-	return checkpoint.SetPhase(SecretReplacing, at)
+	if err := next.SetPhase(SecretReplacing, at); err != nil {
+		return err
+	}
+	*checkpoint = next
+	return nil
 }
 
 func (checkpoint SecretCheckpoint) Validate() error {
@@ -111,6 +131,12 @@ func (checkpoint SecretCheckpoint) Validate() error {
 	if !sortedUniqueExact(checkpoint.AffectedWorkloads) || !sortedUniqueExact(checkpoint.PayloadPaths) || !sortedUniqueExact(checkpoint.ReplacedWorkloads) {
 		return errors.New("secret checkpoint lists must be sorted and unique")
 	}
+	for _, payloadPath := range checkpoint.PayloadPaths {
+		if path.IsAbs(payloadPath) || path.Clean(payloadPath) != payloadPath || payloadPath == "." || payloadPath == ".." ||
+			strings.HasPrefix(payloadPath, "../") || strings.ContainsAny(payloadPath, "\\\x00") {
+			return fmt.Errorf("secret checkpoint payload path %q is not a canonical relative path", payloadPath)
+		}
+	}
 	for _, workload := range checkpoint.ReplacedWorkloads {
 		if !contains(checkpoint.AffectedWorkloads, workload) {
 			return fmt.Errorf("replaced workload %q is outside the secret checkpoint", workload)
@@ -122,10 +148,30 @@ func (checkpoint SecretCheckpoint) Validate() error {
 	return nil
 }
 
-func validSecretPhase(phase string) bool {
+func validSecretPhase(phase SecretPhase) bool {
 	switch phase {
 	case SecretPrepared, SecretReplacing, SecretVerifying, SecretCommitting, SecretCommitted, SecretRecovering:
 		return true
+	default:
+		return false
+	}
+}
+
+func allowedSecretPhaseTransition(from, to SecretPhase) bool {
+	if to == SecretRecovering {
+		return validSecretPhase(from)
+	}
+	switch from {
+	case SecretPrepared:
+		return to == SecretReplacing
+	case SecretReplacing:
+		return to == SecretReplacing || to == SecretVerifying
+	case SecretVerifying:
+		return to == SecretCommitting
+	case SecretCommitting:
+		return to == SecretCommitted
+	case SecretRecovering:
+		return to == SecretRecovering
 	default:
 		return false
 	}

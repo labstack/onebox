@@ -50,6 +50,28 @@ Focused adapter gates:
 - `go test ./internal/engine ./internal/transport` — 277 tests passed,
   including workload/service target resolution and distinct streamed channels.
 
+## Posted-review hardening
+
+The 2026-08-10 review pass added failure-injection and contract tests for the
+issues accepted from PR review: fail-closed host ownership and retention,
+post-lock job release/runtime drift, job authorization journaling, exact job
+operation identity, deployed-snapshot secret rotation, phase-aware secret
+recovery, unsafe payload rejection, plaintext upload and superseded-generation
+cleanup, audited/fenced exec container identity, durable local artifacts, and
+literal JSON/NDJSON output contracts. Release, activation, secret-checkpoint,
+operation-status, and data-effect vocabularies are now named types; the public
+operation status vocabulary is `running` plus the four terminal outcomes.
+
+Verification after those changes:
+
+- `go test ./...` — all 20 packages passed.
+- `go test -race ./internal/engine ./internal/release ./internal/journal ./internal/onebox ./cmd/ob` — passed.
+- `go vet ./...` and `golangci-lint run ./...` — passed with no issues.
+- `govulncheck ./...` — no reachable vulnerabilities.
+- `openspec validate --all --strict --no-interactive` — 5 passed, 0 failed.
+- `just check` — passed, including generated CLI reference drift and the
+  documentation build/table checks.
+
 ## Final release gate
 
 - `just check` passed: `go mod tidy -diff`, formatting, `go vet ./...`, the full

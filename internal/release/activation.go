@@ -16,28 +16,30 @@ import (
 
 var ErrActivationCheckpointMissing = errors.New("activation checkpoint missing")
 
+type ActivationPhase string
+
 const (
 	ActivationSchemaVersion = "onebox.run/activation-checkpoint/v1alpha1"
 
-	ActivationPrepared              = "prepared"
-	ActivationVerified              = "verified"
-	ActivationSymlinkSwitched       = "symlink_switched"
-	ActivationServingRecorded       = "serving_recorded"
-	ActivationPredecessorSuperseded = "predecessor_superseded"
+	ActivationPrepared              ActivationPhase = "prepared"
+	ActivationVerified              ActivationPhase = "verified"
+	ActivationSymlinkSwitched       ActivationPhase = "symlink_switched"
+	ActivationServingRecorded       ActivationPhase = "serving_recorded"
+	ActivationPredecessorSuperseded ActivationPhase = "predecessor_superseded"
 )
 
 // ActivationCheckpoint records the last durable boundary of the only
 // multi-file release-store mutation. It is deliberately a single per-app file:
 // the application lock permits exactly one activation at a time.
 type ActivationCheckpoint struct {
-	SchemaVersion string `json:"schema_version"`
-	ReleaseID     string `json:"release_id"`
-	Predecessor   string `json:"predecessor,omitempty"`
-	Phase         string `json:"phase"`
-	UpdatedAt     string `json:"updated_at"`
+	SchemaVersion string          `json:"schema_version"`
+	ReleaseID     string          `json:"release_id"`
+	Predecessor   string          `json:"predecessor,omitempty"`
+	Phase         ActivationPhase `json:"phase"`
+	UpdatedAt     string          `json:"updated_at"`
 }
 
-func NewActivationCheckpoint(releaseID, predecessor, phase string, at time.Time) (ActivationCheckpoint, error) {
+func NewActivationCheckpoint(releaseID, predecessor string, phase ActivationPhase, at time.Time) (ActivationCheckpoint, error) {
 	checkpoint := ActivationCheckpoint{
 		SchemaVersion: ActivationSchemaVersion,
 		ReleaseID:     releaseID,
@@ -51,7 +53,7 @@ func NewActivationCheckpoint(releaseID, predecessor, phase string, at time.Time)
 	return checkpoint, nil
 }
 
-func (checkpoint *ActivationCheckpoint) Advance(phase string, at time.Time) error {
+func (checkpoint *ActivationCheckpoint) Advance(phase ActivationPhase, at time.Time) error {
 	if checkpoint == nil {
 		return fmt.Errorf("activation checkpoint is nil")
 	}
@@ -89,7 +91,7 @@ func (checkpoint ActivationCheckpoint) Validate() error {
 	return nil
 }
 
-func activationPhaseIndex(phase string) int {
+func activationPhaseIndex(phase ActivationPhase) int {
 	switch phase {
 	case ActivationPrepared:
 		return 0

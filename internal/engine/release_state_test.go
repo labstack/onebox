@@ -76,19 +76,19 @@ func TestActivateManifestPersistsEveryBoundaryInOrder(t *testing.T) {
 	var manifestStates []string
 	for _, input := range target.Inputs {
 		if checkpoint, err := release.DecodeActivationCheckpoint([]byte(input)); err == nil {
-			checkpointPhases = append(checkpointPhases, checkpoint.Phase)
+			checkpointPhases = append(checkpointPhases, string(checkpoint.Phase))
 			continue
 		}
 		if persisted, err := release.DecodeManifest([]byte(input)); err == nil {
-			manifestStates = append(manifestStates, persisted.State)
+			manifestStates = append(manifestStates, string(persisted.State))
 		}
 	}
 	wantPhases := []string{
-		release.ActivationPrepared,
-		release.ActivationVerified,
-		release.ActivationSymlinkSwitched,
-		release.ActivationServingRecorded,
-		release.ActivationPredecessorSuperseded,
+		string(release.ActivationPrepared),
+		string(release.ActivationVerified),
+		string(release.ActivationSymlinkSwitched),
+		string(release.ActivationServingRecorded),
+		string(release.ActivationPredecessorSuperseded),
 	}
 	if strings.Join(checkpointPhases, ",") != strings.Join(wantPhases, ",") {
 		t.Fatalf("checkpoint phases = %v, want %v", checkpointPhases, wantPhases)
@@ -159,8 +159,8 @@ func TestActivateManifestCrashLeavesLastDurableBoundary(t *testing.T) {
 		name           string
 		failCommand    string
 		failInput      string
-		wantCheckpoint string
-		wantManifest   string
+		wantCheckpoint release.ActivationPhase
+		wantManifest   release.State
 	}{
 		{name: "before symlink", failCommand: "ln -sfn", wantCheckpoint: release.ActivationVerified, wantManifest: release.StateVerified},
 		{name: "before serving manifest", failCommand: "/manifest.json.tmp", failInput: `"state": "serving"`, wantCheckpoint: release.ActivationSymlinkSwitched, wantManifest: release.StateVerified},
@@ -199,5 +199,19 @@ func TestActivateManifestCrashLeavesLastDurableBoundary(t *testing.T) {
 				t.Fatal("failed activation cleared its recovery checkpoint")
 			}
 		})
+	}
+}
+
+func TestRollbackRefusesSupersededManifestThatNeverProvedServing(t *testing.T) {
+	target := happyFake()
+	engine := releaseStateTestEngine(t, target)
+	manifest := stagedManifest(t, engineTestDeployReleaseID)
+	manifest.State = release.StateSuperseded
+	manifest.Transitions[0].State = release.StateSuperseded
+	if err := engine.reactivateManifest(context.Background(), &manifest, engineTestPreviousReleaseID); err == nil || !strings.Contains(err.Error(), "previously serving") {
+		t.Fatalf("never-served rollback target was accepted: %v", err)
+	}
+	if len(target.Commands) != 0 {
+		t.Fatalf("refused rollback touched target: %#v", target.Commands)
 	}
 }

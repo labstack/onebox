@@ -45,7 +45,7 @@ Activation remains a checkpointed transaction: mark verified, switch `current`, 
 
 There is no pre-release compatibility path for manifest-less releases. A current release without a valid serving application manifest blocks mutation before effects. Corrupt and unknown manifests are preserved, excluded from rollback, and reported.
 
-Retention is a separate classifier: it preserves current and predecessor-chain releases, protects anything referenced by a checkpoint, and garbage-collects old bootstrap, upload, failed, and aborted entries under explicit age rules.
+Retention is a separate classifier: it preserves current and predecessor-chain releases, protects anything referenced by a checkpoint, and garbage-collects old bootstrap, upload, failed, and aborted entries under explicit age rules. If any manifest required to prove the protected chain is missing, unreadable, or invalid, classification fails closed and produces no deletion candidates.
 
 Alternative considered: infer eligibility from directory identifiers. Rejected because bootstrap, failure, activation order, and repeated rollback are not encoded by names.
 
@@ -65,11 +65,11 @@ Alternative considered: have `status` ignore a checkpoint after automatic rollba
 
 ### 5. Rotate opaque secret generations transactionally
 
-The service first compares the complete encrypted-entry declaration graph from local configuration with the current release snapshot: path, provider, order, scope, and affected workloads must match exactly. Any difference fails before upload and directs the operator to deploy.
+The service first compares the complete encrypted-entry declaration graph from local configuration with the current release snapshot: path, provider, order, scope, and affected workloads must match exactly. Any difference fails before upload and directs the operator to deploy. After equality is established, replacement topology and operational attributes come from that deployed snapshot, so secret rotation never smuggles undeployed working-tree behavior into the runtime.
 
 Changed decrypted files are prepared under a new opaque, random generation identifier while the old generation remains intact. A mode-protected checkpoint records `prepared`, each workload replacement, verification, and `committed`. A generated Compose overlay selects the generation and applies an `ob.secret-generation` label; no raw secret hash is emitted. Force replacement proves adoption by changed container identity plus the opaque label.
 
-On failure the recovery primitive recreates every affected role on the old generation. If that cannot complete, the checkpoint remains typed-incomplete; success is impossible while staged files or containers disagree. Retry resumes from the checkpoint after crashes in prepare, replacement, verification, or commit.
+On failure the recovery primitive recreates every affected role on the old generation. If that cannot complete, the checkpoint remains typed-incomplete; success is impossible while staged files or containers disagree. Retry resumes from the checkpoint after crashes in prepare, replacement, verification, commit, or cleanup. Startup sweeps abandoned pre-checkpoint plaintext upload directories. Commit removes superseded generations before clearing the checkpoint, so cleanup failure remains visible and retryable.
 
 This deliberately prefers a guaranteed replacement over reusing release-aware rolling logic that treats the current release as already converged. A later optimization may provide zero-downtime generation replacement without changing the terminal invariants.
 
@@ -89,7 +89,9 @@ there are no deprecated commands, aliases, hidden replacements, or alternate
 structured-output spellings. An invalid development invocation fails with the
 current command or flag rather than being translated by compatibility code.
 
-The finite envelope is `{schema_version, command, outcome, data|error}` with outcomes `success|no_op|cancelled|error`. NDJSON adds monotonic sequence and exactly one terminal record. Unbounded follow mode rejects JSON. Exec/log output is explicitly operator-controlled passthrough and not promised redaction; Onebox-generated arguments and metadata still never add credentials. Editor commands return a terminal result after the trusted editor exits, while help and completion retain native protocols.
+The finite envelope is `{schema_version, command, outcome, data|error}` with outcomes `success|no_op|cancelled|error`. Operation results use that same terminal vocabulary; non-terminal progress uses only `running`. NDJSON adds monotonic sequence and exactly one terminal record. Unbounded follow mode rejects JSON. Exec/log output is explicitly operator-controlled passthrough and not promised redaction; Onebox-generated arguments and metadata still never add credentials. Editor commands return a terminal result after the trusted editor exits, while help and completion retain native protocols.
+
+The canonical execution request validates its shape before dispatch: exactly one plan of the requested kind is present and kind-specific safety inputs are rejected when irrelevant. Plan, confirmation, report-template, receipt, and scheduled-envelope publication uses temp-file write, file sync, atomic rename, and directory sync so a successful return means the artifact is durably named.
 
 `eject` receives the loaded global path rather than reopening the default. Run-tier supporting services resolve to their driver Compose file/container without copying credentials into command arguments or envelopes. SOPS exit status 200 maps to a successful no-op.
 
@@ -125,7 +127,7 @@ The resolved secret declaration graph assigns each editable encrypted source a s
 
 ### 12. Keep the host ownership model singular
 
-Onebox continues to use a host lock and a host-scoped proxy because those resources outlive an application release, but the first-release target state has exactly one application owner. Bootstrap or preflight refuses a different registered application identity. Proxy convergence reads only that owner; destroy no longer offers cross-application preservation or conflict semantics.
+Onebox continues to use a host lock and a host-scoped proxy because those resources outlive an application release, but the first-release target state has exactly one application owner. The first claim is atomic. Bootstrap or preflight refuses a different registered application identity, and any existing owner record that cannot be read and validated fails closed instead of being treated as absent. Proxy convergence reads only that owner; destroy no longer offers cross-application preservation or conflict semantics.
 
 ### 13. Separate diagnosis, next action, and resolution
 
@@ -133,7 +135,7 @@ Typed errors may expose `diagnostic_command`, `next_command`, and `resolving_com
 
 ### 14. Audit arbitrary container execution without pretending it is safe
 
-`exec` retains its familiar name and passthrough protocol, but requires a bounded single-line reason. Onebox journals the target, target kind, operator, command digest, start time, outcome, and reason; it never records command bytes or passthrough output. The command remains outside release convergence and cannot claim rollback, redaction, or idempotence.
+`exec` retains its familiar name and passthrough protocol, but requires a bounded single-line reason. Onebox holds the application host lock and mutation fence across target resolution and invocation, then journals the target, target kind, exact container identifier, operator, command digest, start time, outcome, and reason; it never records command bytes or passthrough output. The command remains outside release convergence and cannot claim rollback, redaction, or idempotence.
 
 ## Risks / Trade-offs
 

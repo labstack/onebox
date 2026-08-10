@@ -50,11 +50,15 @@ The names a service declaration derives SHALL be reserved across both the applic
 
 ### Requirement: A target host has one application owner
 
-The first-release host contract SHALL admit exactly one Onebox application identity. Host-scoped proxy, lock, registry, and layout state SHALL be owned by that identity and SHALL NOT merge routes or conflict policy across independent applications. A different application identity SHALL be refused before mutation. Destroy SHALL decide proxy removal from the one owner and SHALL NOT imply a supported multi-application registry.
+The first-release host contract SHALL admit exactly one Onebox application identity. Host-scoped proxy, lock, registry, and layout state SHALL be owned by that identity and SHALL NOT merge routes or conflict policy across independent applications. A missing owner record MAY be claimed atomically by the first application. An existing owner record that is empty, malformed, unreadable, or otherwise unverifiable SHALL fail closed before mutation and SHALL NOT be treated as an unowned host. A different application identity SHALL be refused before mutation. Destroy SHALL decide proxy removal from the one owner and SHALL NOT imply a supported multi-application registry.
 
 #### Scenario: Another application targets an initialized host
 - **WHEN** bootstrap, preflight, proxy apply, service apply, or deploy observes host state owned by a different application identity
 - **THEN** it makes no mutation and returns a typed host-owner mismatch
+
+#### Scenario: Host owner evidence cannot be read
+- **WHEN** an ownership-guarded operation finds an owner record but cannot validate its contents
+- **THEN** it makes no mutation and returns a typed owner-evidence error instead of claiming the host
 
 #### Scenario: Owner destroys the application
 - **WHEN** the sole application owner confirms destroy with proxy removal

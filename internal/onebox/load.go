@@ -276,8 +276,9 @@ func encryptedEntries(r *app.Resolved) []app.EnvFile {
 	for _, name := range sortedNames(r.Spec.Workloads) {
 		w := r.Spec.Workloads[name]
 		for _, entry := range r.Spec.EnvFilesFor(w) {
-			if entry.Encrypted() && !seen[entry.File] {
-				seen[entry.File] = true
+			stagedPath := entry.StagedPath()
+			if entry.Encrypted() && !seen[stagedPath] {
+				seen[stagedPath] = true
 				out = append(out, entry)
 			}
 		}

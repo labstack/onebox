@@ -38,6 +38,8 @@ Structured records SHALL be the only bytes written to stdout in a structured mod
 
 Commands that stream operational events SHALL support NDJSON records containing `schema_version`, `command`, monotonic `sequence`, `kind`, and event data, followed by exactly one terminal record carrying the common outcome or error. Unbounded commands such as `logs --follow` SHALL refuse JSON and direct the caller to NDJSON. Finite logs MAY use JSON or NDJSON.
 
+Non-terminal operation progress SHALL use status `running`. Every public terminal operation status and result outcome SHALL use the same closed vocabulary as the common envelope: `success`, `no_op`, `cancelled`, or `error`; alternate spellings such as `started`, `succeeded`, and `failed` SHALL NOT appear in the public contract.
+
 `exec` output and container logs are operator-controlled passthrough data and MAY contain secrets; Onebox SHALL NOT claim to redact them. In NDJSON mode their chunks SHALL be identified as stdout or stderr without Onebox adding credentials. Interactive editor commands SHALL remain trusted-terminal operations and return only their terminal result envelope after the editor exits. Help and completion SHALL remain Cobra/shell-native protocol output and SHALL not be wrapped as operation results.
 
 #### Scenario: Follow logs requests JSON
@@ -114,6 +116,8 @@ When an executable plan requires migration backup protection, planning SHALL exp
 
 Every safety-affecting flag SHALL map to one typed request field and one documented effect. A lock-breaking flag SHALL NOT permit mount detachment, version incompatibility, proxy ownership conflict, or migration-gate override. A mount-detachment flag SHALL NOT break a lock or permit an unsupported major-version transition. Unsupported transitions SHALL remain unavailable regardless of any override flag.
 
+The execution boundary SHALL reject a request that supplies more than one executable plan, a plan for another operation kind, or a safety field that the selected operation does not consume. It SHALL NOT silently ignore irrelevant authority or safety inputs.
+
 #### Scenario: Destructive mounts are allowed
 - **WHEN** `service apply --allow-destructive-mounts` is invoked for a plan whose only blocked effect is an explicitly identified mount detachment
 - **THEN** that detachment may proceed while lock ownership and version compatibility remain enforced
@@ -144,7 +148,7 @@ Typed errors SHALL distinguish a read-only `diagnostic_command`, a workflow-adva
 
 ### Requirement: Exec is an audited escape hatch
 
-`ob exec` SHALL require a bounded single-line reason and SHALL append an audit record containing operator, target, target kind, command digest, reason, start time, and outcome. It SHALL NOT journal command bytes, stdin, stdout, or stderr. It SHALL continue to state that it is outside release convergence, rollback, idempotence, and passthrough redaction guarantees.
+`ob exec` SHALL require a bounded single-line reason. It SHALL acquire the application host lock and mutation fence before resolving the target container, execute against that exact container, and append an audit record containing operator, target, target kind, resolved container identifier, command digest, reason, start time, and outcome. It SHALL NOT journal command bytes, stdin, stdout, or stderr. It SHALL continue to state that it is outside release convergence, rollback, idempotence, and passthrough redaction guarantees.
 
 #### Scenario: Agent invokes exec without a reason
 - **WHEN** `ob exec` is invoked without `--reason`
@@ -152,7 +156,11 @@ Typed errors SHALL distinguish a read-only `diagnostic_command`, a workflow-adva
 
 #### Scenario: Exec completes
 - **WHEN** a reasoned exec command succeeds or fails
-- **THEN** audit exposes safe invocation evidence and never the command or passthrough bytes
+- **THEN** audit exposes the exact container and safe invocation evidence and never the command or passthrough bytes
+
+#### Scenario: Exec races with a release change
+- **WHEN** the target container would change while an exec is starting
+- **THEN** lock and fence ownership make resolution and invocation one protected operation instead of running against an unjournaled replacement
 
 ### Requirement: The command/output matrix is closed
 

@@ -9,24 +9,30 @@ import (
 )
 
 type HostOwnerMismatchError struct {
-	Expected string
-	Actual   string
+	Requesting string
+	Owner      string
 }
 
 func (e *HostOwnerMismatchError) Error() string {
-	return fmt.Sprintf("host is owned by application %q; application %q cannot mutate it", e.Actual, e.Expected)
+	return fmt.Sprintf("host is owned by application %q; application %q cannot mutate it", e.Owner, e.Requesting)
 }
 
 func (e *HostOwnerMismatchError) Code() string { return "host_owner_mismatch" }
 
 func (e *Engine) readHostOwner(ctx context.Context) (string, error) {
 	path := proxy.HostPaths(e.names()).Owner
-	result, err := e.T.Run(ctx, "cat "+q(path)+" 2>/dev/null || true")
+	result, err := e.T.Run(ctx, "if [ ! -e "+q(path)+" ]; then exit 3; fi; if [ ! -f "+q(path)+" ] || [ -L "+q(path)+" ]; then exit 4; fi; cat "+q(path))
 	if err != nil {
 		return "", err
 	}
+	if result.ExitCode == 3 {
+		return "", nil
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("read host owner record %s failed (exit %d): %s", path, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
 	owner := strings.TrimSpace(result.Stdout)
-	if owner != "" && !appNameRe.MatchString(owner) {
+	if !appNameRe.MatchString(owner) {
 		return "", fmt.Errorf("host owner record %s is invalid; inspect it before retrying", path)
 	}
 	return owner, nil
@@ -41,7 +47,7 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 		return fmt.Errorf("host has no Onebox application owner; run `ob bootstrap` for %q first", e.Spec.Name)
 	}
 	if owner != e.Spec.Name {
-		return &HostOwnerMismatchError{Expected: e.Spec.Name, Actual: owner}
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner}
 	}
 	return nil
 }
@@ -55,7 +61,7 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 		return err
 	}
 	if owner != "" && owner != e.Spec.Name {
-		return &HostOwnerMismatchError{Expected: e.Spec.Name, Actual: owner}
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner}
 	}
 	if owner == e.Spec.Name {
 		return nil
@@ -69,13 +75,13 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 		return err
 	}
 	if owner != "" && owner != e.Spec.Name {
-		return &HostOwnerMismatchError{Expected: e.Spec.Name, Actual: owner}
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner}
 	}
 	if owner == e.Spec.Name {
 		return nil
 	}
 	path := proxy.HostPaths(e.names()).Owner
-	result, err := e.hostMutate(ctx, "install -m 600 /dev/null "+q(path)+" && printf '%s\\n' "+q(e.Spec.Name)+" > "+q(path))
+	result, err := e.hostMutate(ctx, "umask 077 && set -C && printf '%s\\n' "+q(e.Spec.Name)+" > "+q(path))
 	if err != nil {
 		return err
 	}

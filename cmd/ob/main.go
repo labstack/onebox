@@ -86,7 +86,7 @@ func main() {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			os.Exit(2)
 		}
-		var coded interface{ ExitCode() int }
+		var coded *cliExitError
 		if errors.As(err, &coded) {
 			os.Exit(coded.ExitCode())
 		}

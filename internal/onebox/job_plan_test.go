@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -84,7 +85,7 @@ func TestPlanJobBindsCurrentReleaseRuntimeImageAndEffect(t *testing.T) {
 	if plan.Operation.Kind != KindJobRun || plan.Operation.ReleaseID != current || plan.Artifact.CurrentRelease != current {
 		t.Fatalf("job release binding = %+v", plan)
 	}
-	if plan.Artifact.RuntimeDigest != plan.Operation.Binding.ComposeDigest || plan.Artifact.RuntimeDigest == "" {
+	if plan.Artifact.RuntimeDigest != engine.HashBytes([]byte(runtime)) || plan.Artifact.RuntimeDigest != plan.Operation.Binding.ComposeDigest {
 		t.Fatalf("runtime digest was not bound: %+v", plan.Artifact)
 	}
 	if plan.Artifact.Image != "ghcr.io/example/maintenance@sha256:"+digest || plan.Artifact.DataEffect != DataEffectNone {
@@ -169,6 +170,55 @@ func TestExecuteMigrationJobRequiresBackupReportBeforeReconnect(t *testing.T) {
 	}
 }
 
+func TestExecuteJobRequiresPlanBoundApprovalBeforeReconnect(t *testing.T) {
+	current := "R0"
+	runtime := manualJobRuntime("ghcr.io/example/maintenance@sha256:" + strings.Repeat("ab", 32))
+	fake := jobPlanFake(&current, runtime)
+	now := time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)
+	connects := 0
+	service := newManualJobService(t, "none", false, fake, &now, &connects)
+	plan, err := service.PlanJob(context.Background(), PlanJobRequest{Job: "maintenance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectsAfterPlan := connects
+	now = now.Add(time.Minute)
+	_, err = service.Execute(context.Background(), ExecuteRequest{Kind: KindJobRun, JobPlan: &plan})
+	if err == nil || !strings.Contains(err.Error(), "approval is required") {
+		t.Fatalf("job without approval was accepted: %v", err)
+	}
+	if connects != connectsAfterPlan {
+		t.Fatalf("missing approval reconnected: before=%d after=%d", connectsAfterPlan, connects)
+	}
+}
+
+func TestExecuteJobRejectsTamperedPlanBeforeReconnect(t *testing.T) {
+	current := "R0"
+	runtime := manualJobRuntime("ghcr.io/example/maintenance@sha256:" + strings.Repeat("ab", 32))
+	fake := jobPlanFake(&current, runtime)
+	now := time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)
+	connects := 0
+	service := newManualJobService(t, "none", false, fake, &now, &connects)
+	plan, err := service.PlanJob(context.Background(), PlanJobRequest{Job: "maintenance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := NewApprovalGrant(&plan, nil, "operator@example.test", now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectsAfterPlan := connects
+	plan.Artifact.Job = "other"
+	now = now.Add(2 * time.Minute)
+	_, err = service.Execute(context.Background(), ExecuteRequest{Kind: KindJobRun, JobPlan: &plan, Approval: &approval})
+	if err == nil || !strings.Contains(err.Error(), "job operation step does not match") {
+		t.Fatalf("tampered job plan was accepted: %v", err)
+	}
+	if connects != connectsAfterPlan {
+		t.Fatalf("tampered plan reconnected: before=%d after=%d", connectsAfterPlan, connects)
+	}
+}
+
 func TestExecuteJobRunsOnceAndJournalsTerminalResult(t *testing.T) {
 	current := "R0"
 	runtime := manualJobRuntime("ghcr.io/example/maintenance@sha256:" + strings.Repeat("ab", 32))
@@ -189,14 +239,14 @@ func TestExecuteJobRunsOnceAndJournalsTerminalResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute job: %v", err)
 	}
-	if result.Status != "succeeded" || result.EvidenceID != plan.Operation.ID {
+	if result.Status != OperationStatusSuccess || result.ID != plan.Operation.ID || result.EvidenceID != plan.Operation.ID {
 		t.Fatalf("job result = %+v", result)
 	}
 	commands := strings.Join(fake.Commands, "\n")
 	if strings.Count(commands, "OB_RESULT_FILE=/run/onebox/job-result") != 1 {
 		t.Fatalf("job did not run exactly once:\n%s", commands)
 	}
-	for _, want := range []string{`"operation_kind":"job_run"`, `"sub_step":"job:maintenance"`, `"event":"finish","status":"ok"`} {
+	for _, want := range []string{`"operation_kind":"job_run"`, `"sub_step":"job:maintenance"`, `"event":"finish","status":"ok"`, approval.ApprovalDigest} {
 		if !strings.Contains(commands, want) {
 			t.Fatalf("job journal omitted %q:\n%s", want, commands)
 		}

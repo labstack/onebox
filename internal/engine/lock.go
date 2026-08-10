@@ -168,9 +168,9 @@ func (e *Engine) lockTTL() time.Duration {
 //
 // `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
 // drives a macOS box through the Local transport). qpath must already be
-// shell-quoted. `--break-lock` breaks the lock in every state (the override precedes the
-// refuse default in both callers); in AcquireLock a same-deploy holder is
-// reclaimed rather than refused — breaking your own lock is authorized.
+// shell-quoted. Callers that expose `--break-lock` apply it before the refusal
+// default. AcquireLock also reclaims a same-deploy holder; protection locks do
+// not expose the generic break override.
 func lockAgeCmd(qpath string) string {
 	// A dangling symlink is "present but not resolvable" → fail closed (age 0).
 	// Detect it FIRST and portably: `test -e` follows the link (false when the

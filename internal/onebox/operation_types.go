@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 // OperationPlanSchemaVersion identifies the stable, executable operation-plan
@@ -20,6 +22,7 @@ import (
 const OperationPlanSchemaVersion = "onebox.run/operation-plan/v1alpha1"
 
 type OperationKind string
+type OperationStatus string
 
 const (
 	KindDeploy       OperationKind = "deploy"
@@ -45,6 +48,14 @@ const (
 	KindRestoreAbort      OperationKind = "restore_abort"
 	KindHygieneRun        OperationKind = "hygiene_run"
 	KindAssuranceCheck    OperationKind = "assurance_check"
+)
+
+const (
+	OperationStatusRunning   OperationStatus = "running"
+	OperationStatusSuccess   OperationStatus = "success"
+	OperationStatusNoOp      OperationStatus = "no_op"
+	OperationStatusCancelled OperationStatus = "cancelled"
+	OperationStatusError     OperationStatus = "error"
 )
 
 type RiskClass string
@@ -90,12 +101,13 @@ const (
 	StepArchiveAppend   OperationStepKind = "archive_append"
 )
 
-type DataEffectClass string
+type DataEffectClass = app.DataEffect
 
 const (
-	DataEffectNone      DataEffectClass = "none"
-	DataEffectMigration DataEffectClass = "migration"
-	DataEffectUnknown   DataEffectClass = "unknown"
+	DataEffectNone        = app.DataEffectNone
+	DataEffectMigration   = app.DataEffectMigration
+	DataEffectDestructive = app.DataEffectDestructive
+	DataEffectUnknown     = app.DataEffectUnknown
 )
 
 type JobResultPolicy string
@@ -296,6 +308,7 @@ func (p OperationPlan) Validate() error {
 		return errors.New("steps must not be empty")
 	}
 	seen := make(map[string]struct{}, len(p.Steps))
+	destructive := false
 	for i, step := range p.Steps {
 		if strings.TrimSpace(step.ID) == "" {
 			return fmt.Errorf("steps[%d].id is required", i)
@@ -309,6 +322,7 @@ func (p OperationPlan) Validate() error {
 		if !validDataEffect(step.DataEffect) {
 			return fmt.Errorf("step %q has unknown data effect %q", step.ID, step.DataEffect)
 		}
+		destructive = destructive || step.DataEffect == DataEffectDestructive
 		if step.Kind == StepJob && step.DataEffect == DataEffectMigration {
 			if step.ResultPolicy != JobResultProviderOrStrongUnknown {
 				return fmt.Errorf("step %q migration result_policy must be %q", step.ID, JobResultProviderOrStrongUnknown)
@@ -334,6 +348,9 @@ func (p OperationPlan) Validate() error {
 			}
 		}
 		seen[step.ID] = struct{}{}
+	}
+	if destructive && (p.Risk != RiskCritical || p.Reversibility != ReversibilityIrreversible || p.Approval != ApprovalStrong && p.Approval != ApprovalBreakGlass) {
+		return errors.New("destructive data effects require critical risk, irreversible reversibility, and strong or break-glass approval")
 	}
 	seenSlots := make(map[string]struct{}, len(p.SecretSlots))
 	for index, slot := range p.SecretSlots {
@@ -410,27 +427,7 @@ func SaveOperationPlan(path string, p *OperationPlan) error {
 		return fmt.Errorf("encode operation plan: %w", err)
 	}
 	encoded = append(encoded, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create operation plan directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".operation-plan-*")
-	if err != nil {
-		return fmt.Errorf("create operation plan: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("protect operation plan: %w", err)
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write operation plan: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close operation plan: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := writeDurableArtifact(path, ".operation-plan-*", encoded); err != nil {
 		return fmt.Errorf("publish operation plan: %w", err)
 	}
 	return nil
@@ -522,7 +519,7 @@ func validStepKind(kind OperationStepKind) bool {
 
 func validDataEffect(effect DataEffectClass) bool {
 	switch effect {
-	case DataEffectNone, DataEffectMigration, DataEffectUnknown:
+	case DataEffectNone, DataEffectMigration, DataEffectDestructive, DataEffectUnknown:
 		return true
 	default:
 		return false

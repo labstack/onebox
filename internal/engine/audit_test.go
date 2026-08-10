@@ -43,3 +43,33 @@ func TestAuditListsOutcomesNewestFirst(t *testing.T) {
 		t.Fatalf("operator/sha missing:\n%s", s)
 	}
 }
+
+func TestAuditExposesSafeExecInvocationEvidence(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: "exec-1.jsonl\n"}, true
+		case strings.Contains(cmd, "exec-1.jsonl"):
+			return transport.Result{Stdout: journalLines(
+				journal.Record{DeployID: "exec-1", Phase: "exec", Event: "start", Operator: "v@mac", TS: "t1", Target: "web", TargetKind: "workload", CommandDigest: "abc123", Reason: "inspect incident 42"},
+				journal.Record{DeployID: "exec-1", Phase: "exec", Event: "finish", Status: "ok"},
+			)}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	records, err := e.AuditSnapshot(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Action != "exec" || records[0].Target != "web" || records[0].TargetKind != "workload" || records[0].CommandDigest != "abc123" || records[0].Reason != "inspect incident 42" || records[0].Outcome != "succeeded" {
+		t.Fatalf("exec audit = %+v", records)
+	}
+	if err := e.Audit(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "command_digest=abc123") || !strings.Contains(out.String(), "reason=inspect incident 42") {
+		t.Fatalf("human exec audit = %s", out.String())
+	}
+}

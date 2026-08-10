@@ -2,6 +2,7 @@ package onebox
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -77,6 +79,8 @@ func serviceFake() *transport.Fake {
 		TargetName: "deploy@example.invalid",
 		Dynamic: func(cmd string) (transport.Result, bool) {
 			switch {
+			case strings.Contains(cmd, "/_host/owner"):
+				return transport.Result{Stdout: "demo\n"}, true
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/R0\n"}, true
 			case strings.Contains(cmd, "docker ps") && strings.Contains(cmd, "--format"):
@@ -123,6 +127,90 @@ func newTestService(t *testing.T, f *transport.Fake) *Service {
 			return f, nil
 		},
 	})
+}
+
+func TestPlanDeployBindsAndRendersEveryRuntimeImage(t *testing.T) {
+	plan, err := newTestService(t, serviceFake()).PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("ab", 32)
+	wants := map[string]string{
+		"web":      "ghcr.io/example/app@" + digest,
+		"database": "ghcr.io/example/postgres@" + digest,
+	}
+	if len(plan.Artifact.PinnedImages) != len(wants) {
+		t.Fatalf("pinned images = %#v", plan.Artifact.PinnedImages)
+	}
+	for workload, want := range wants {
+		if plan.Artifact.PinnedImages[workload] != want {
+			t.Fatalf("%s pin = %q, want %q", workload, plan.Artifact.PinnedImages[workload], want)
+		}
+		if !strings.Contains(plan.Artifact.RenderedCompose, "image: "+want) {
+			t.Fatalf("rendered runtime does not use %s pin:\n%s", workload, plan.Artifact.RenderedCompose)
+		}
+	}
+	if !strings.Contains(plan.Artifact.RenderedCompose, "ob.workload: database") {
+		t.Fatalf("pinning the adopted Compose service dropped authored/overlay keys:\n%s", plan.Artifact.RenderedCompose)
+	}
+}
+
+func writeComposeBuildProject(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	pinnedWeb := "ghcr.io/example/app@sha256:" + strings.Repeat("1", 64)
+	files := map[string]string{
+		"compose.yaml": "services:\n  database:\n    build: .\n    command: [postgres, -c, shared_buffers=256MB]\n",
+		"ob.yml": `api_version: onebox.run/v1
+app: demo
+environments: {production: {server: deploy@example.invalid}}
+workloads:
+  web: {role: application, image: ` + pinnedWeb + `, strategy: recreate}
+  database: {role: daemon, compose: compose.yaml#database}
+deployment: {order: [web, database]}
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(dir, "ob.yml")
+}
+
+func composeBuildService(t *testing.T, images app.Images) *Service {
+	t.Helper()
+	return New(Options{
+		ConfigPath: writeComposeBuildProject(t), Environment: "production", Images: images,
+		Connect: func(context.Context, string) (transport.Transport, error) { return serviceFake(), nil },
+	})
+}
+
+func TestPlanDeployRefusesComposeBuildWithoutReleaseImage(t *testing.T) {
+	_, err := composeBuildService(t, nil).PlanDeploy(context.Background(), PlanDeployRequest{})
+	var resolution *engine.ImageResolutionError
+	if !errors.As(err, &resolution) || resolution.Workload != "database" {
+		t.Fatalf("error = %v, want database ImageResolutionError", err)
+	}
+	if resolution.ResolvingCommand != "ob deploy --image database=<digest-reference>" {
+		t.Fatalf("resolving command = %q", resolution.ResolvingCommand)
+	}
+}
+
+func TestPlanDeployRetainsComposeBuildImageForBoundReplay(t *testing.T) {
+	image := "ghcr.io/example/postgres@sha256:" + strings.Repeat("2", 64)
+	plan, err := composeBuildService(t, app.Images{"database": image}).PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Artifact.BuildImages["database"] != image || plan.Artifact.PinnedImages["database"] != image {
+		t.Fatalf("build/pinned images = %#v / %#v", plan.Artifact.BuildImages, plan.Artifact.PinnedImages)
+	}
+	for _, want := range []string{"image: " + image, "shared_buffers=256MB"} {
+		if !strings.Contains(plan.Artifact.RenderedCompose, want) {
+			t.Fatalf("rendered Compose dropped %q:\n%s", want, plan.Artifact.RenderedCompose)
+		}
+	}
 }
 
 func jobOnlyProject(t *testing.T, hooks map[string]app.Command) *app.Resolved {

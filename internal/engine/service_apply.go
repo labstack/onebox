@@ -14,14 +14,17 @@ import (
 
 // ServiceApply converges the supporting services explicitly, as a planned
 // maintenance event — never mid-deploy. It shows the diff against what is
-// running, refuses destructive mount changes without force, then converges
+// running, refuses destructive mount changes without the exact opt-in flag, then converges
 // each service's own Compose project under the full lock/fence/journal regime.
 //
 // The diff is against each service's live document rather than against a
 // release, because a service is not part of one. Comparing to the release
 // would report every service as changed on the first apply after a deploy,
 // and report nothing when a Postgres version changed under an untouched app.
-func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool) (err error) {
+func (e *Engine) ServiceApply(ctx context.Context, releaseID string, allowDestructiveMounts bool) (err error) {
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
 	if len(e.Spec.ServiceNames()) == 0 {
 		return fmt.Errorf("no services declared")
 	}
@@ -36,7 +39,7 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 	// diff shows one line — `postgres:16` becoming `postgres:17` — which reads
 	// as routine and is not: the new container starts, finds a data directory
 	// it cannot open, and crash-loops with the database intact and unreachable.
-	if err := e.refuseUnsafeMajorUpgrade(ctx, n, force); err != nil {
+	if err := e.refuseUnsafeMajorUpgrade(ctx, n); err != nil {
 		return err
 	}
 
@@ -97,7 +100,7 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 			}
 		}
 	}
-	if len(destructive) > 0 && !force {
+	if len(destructive) > 0 && !allowDestructiveMounts {
 		return fmt.Errorf("destructive mount change(s) — data would detach:\n  %s\nre-run with --allow-destructive-mounts if intended",
 			strings.Join(destructive, "\n  "))
 	}
@@ -115,11 +118,11 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 		return err
 	}
 	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
-	if err := jw.Append(ctx, journal.Record{Phase: "accessory-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")}); err != nil {
+	if err := jw.Append(ctx, journal.Record{Phase: "service-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")}); err != nil {
 		return fmt.Errorf("journal service apply start: %w", err)
 	}
 	defer func() {
-		finish := journal.Record{Phase: "accessory-apply", Event: "finish", Status: "ok"}
+		finish := journal.Record{Phase: "service-apply", Event: "finish", Status: "ok"}
 		if err != nil {
 			finish.Status = "fail"
 			finish.Detail = err.Error()
@@ -149,7 +152,7 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, force bool)
 // one. It cannot perform a dump-and-restore upgrade yet, so the honest answer
 // is to refuse the change and say what it would take, rather than to converge
 // and leave the operator with a database that will not start.
-func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names, force bool) error {
+func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names) error {
 	for _, name := range e.Spec.ServiceNames() {
 		if e.Spec.UpgradeInPlace(name) {
 			continue
@@ -171,11 +174,6 @@ func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names, forc
 			continue
 		}
 		runningVersion := applied
-		if force {
-			e.warnf("service %s: %s → %s across a major version (--allow-destructive-mounts); its data directory may not open",
-				name, runningVersion, declared)
-			continue
-		}
 		return fmt.Errorf(
 			"service %s runs %s and the project declares %s. A %s data directory written by %s "+
 				"cannot be opened by %s, so replacing the container would leave it crash-looping with the "+

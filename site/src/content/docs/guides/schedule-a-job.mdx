@@ -55,18 +55,34 @@ and a job that lies about it defeats them.
 ## Running one by hand
 
 ```sh
-ob exec <workload> -- <command>
+ob job plan maintenance --out ob-job-plan.json
+ob approve --plan ob-job-plan.json --out ob-job-approval.json
+ob job run --plan ob-job-plan.json --approval ob-job-approval.json
 ```
 
-:::caution[`ob exec` is outside the safety regime]
-It runs outside the journal, and nothing it changes belongs to any release. It is
-the one command whose effect on the server Onebox cannot describe in advance.
+A declared `when: manual` job remains in the digest-pinned release runtime but
+never joins the deploy graph. Its job plan binds the current serving release,
+runtime digest, immutable image, data effect, target, and expiry. Automation
+supplies the saved plan and its separately recorded local confirmation;
+migration jobs may also need the exact plan-bound backup report.
+
+For an undeclared emergency command, the escape hatch remains:
+
+```sh
+ob exec --reason "incident investigation" <workload|service> -- <command>
+```
+
+:::caution[`ob exec` is an audited escape hatch]
+Nothing it changes belongs to a release and Onebox cannot describe, roll back,
+or make its effect idempotent. The journal stores the reason, target, operator,
+outcome, and command digest, but never the command bytes or passthrough output.
+The reason is durable metadata, so do not put a secret in it.
 :::
 
-For a job that is part of a release rather than a schedule, use `run:`:
+For a job that participates automatically in a deploy, choose a release phase:
 
 ```yaml
-when: pre_release    # or post_release, or manual (the default)
+when: pre_release    # or post_release; manual is invoked only through job plan/run
 ```
 
 See [`workloads`](/reference/fields/workloads) for every field.

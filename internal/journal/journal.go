@@ -7,6 +7,7 @@ package journal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -65,8 +66,7 @@ type Record struct {
 	MigrationBackupRequired bool                     `json:"migration_backup_required,omitempty"`
 	MigrationBackup         *MigrationBackupEvidence `json:"migration_backup,omitempty"`
 	JobResult               *JobResultEvidence       `json:"job_result,omitempty"`
-	// Protection fields extend the same host-synced operation journal without
-	// weakening compatibility with older deployment records.
+	// Protection fields share the host-synced operation journal.
 	OperationKind       string                    `json:"operation_kind,omitempty"`
 	Service             string                    `json:"service,omitempty"`
 	ProtectionStepID    string                    `json:"protection_step_id,omitempty"`
@@ -75,6 +75,13 @@ type Record struct {
 	Retry               *RetryClassification      `json:"retry,omitempty"`
 	HelperProvenance    *HelperProvenance         `json:"helper_provenance,omitempty"`
 	TerminalResult      *ProtectionTerminalResult `json:"terminal_result,omitempty"`
+	// Exec invocation evidence is intentionally value-free: command bytes and
+	// passthrough output never cross the durable journal boundary.
+	Target        string `json:"target,omitempty"`
+	TargetKind    string `json:"target_kind,omitempty"`
+	CommandDigest string `json:"command_digest,omitempty"`
+	ContainerID   string `json:"container_id,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 type Writer struct {
@@ -129,11 +136,11 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	if r.ConfigHash == "" {
 		r.ConfigHash = w.ConfigHash
 	}
-	// Durable authorization context belongs on the deploy start (so a crash
-	// before the first protected step remains resumable) and on the explicit
-	// backup-evidence decision. Avoid copying operator-provided fields onto every
-	// journal line.
-	authorizationRecord := r.Phase == "deploy" && r.Event == "start" || r.SubStep == MigrationBackupSubStep
+	// Durable authorization context belongs on deploy and manual-job starts (so
+	// a crash before the first protected step remains resumable) and on the
+	// explicit migration-backup authorization decision. Avoid copying
+	// operator-provided fields onto every journal line.
+	authorizationRecord := (r.Phase == "deploy" || r.Phase == "job") && r.Event == "start" || r.SubStep == MigrationBackupSubStep
 	if authorizationRecord {
 		if r.ApprovalDigest == "" {
 			r.ApprovalDigest = w.ApprovalDigest
@@ -267,15 +274,45 @@ func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string
 	return ids, byID, nil
 }
 
-// PruneCandidates returns journal ids beyond the keep window, oldest first.
-// A journal outlives its release: keep is typically 2× the
-// release retention.
+// PruneCandidates returns journal ids beyond independent deploy and auxiliary
+// keep windows, oldest first. High-frequency exec/job/service activity must not
+// evict the deploy history needed for recovery and audit.
 func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, keep int) ([]string, error) {
-	ids, err := List(ctx, t, n)
-	if err != nil || len(ids) <= keep {
+	if keep < 1 {
+		return nil, errors.New("journal retention keep window must be positive")
+	}
+	ids, byID, err := Journals(ctx, t, n)
+	if err != nil {
 		return nil, err
 	}
-	return ids[:len(ids)-keep], nil
+	var deployIDs, auxiliaryIDs []string
+	for _, id := range ids {
+		records := byID[id]
+		if len(records) == 0 {
+			return nil, fmt.Errorf("journal retention refused: %s has no usable records", id)
+		}
+		deploy := false
+		for _, record := range records {
+			if record.Phase == "deploy" && record.Event == "start" {
+				deploy = true
+				break
+			}
+		}
+		if deploy {
+			deployIDs = append(deployIDs, id)
+		} else {
+			auxiliaryIDs = append(auxiliaryIDs, id)
+		}
+	}
+	var victims []string
+	if len(deployIDs) > keep {
+		victims = append(victims, deployIDs[:len(deployIDs)-keep]...)
+	}
+	if len(auxiliaryIDs) > keep {
+		victims = append(victims, auxiliaryIDs[:len(auxiliaryIDs)-keep]...)
+	}
+	sort.Strings(victims)
+	return victims, nil
 }
 
 // Summary is the journal reduced to what resume/abort/audit need.
@@ -289,8 +326,11 @@ type Summary struct {
 	// DeploySucceeded is sticky and operation-scoped: later maintenance records
 	// may share this journal id, but cannot erase a compatible code activation.
 	DeploySucceeded bool
-	PrevRelease     string
-	GateOpen        bool
+	// Recovered is a successful automatic rollback terminal. The deploy itself
+	// failed, but no resume/abort work remains after centralized recovery.
+	Recovered   bool
+	PrevRelease string
+	GateOpen    bool
 	// RollbackCovered is true only when every recorded effect attempt was
 	// either explicitly rollback-safe or covered by the interrupted deploy's
 	// own policy declaration.
@@ -360,7 +400,7 @@ func Summarize(recs []Record) Summary {
 		if r.JobResult != nil && strings.HasPrefix(r.SubStep, "job:") {
 			s.JobResults[strings.TrimPrefix(r.SubStep, "job:")] = *r.JobResult
 		}
-		effectStep := r.SubStep == "migrate" || r.SubStep == EffectBaselineSubStep ||
+		effectStep := r.SubStep == EffectBaselineSubStep ||
 			strings.HasPrefix(r.SubStep, "job:") || strings.HasPrefix(r.SubStep, "hook:")
 		if effectStep {
 			s.Done[DoneGateRecorded] = true
@@ -386,7 +426,7 @@ func Summarize(recs []Record) Summary {
 			}
 		}
 
-		deployRecord := r.Phase == "" || r.Phase == "deploy" // phase was absent in early journals
+		deployRecord := r.Phase == "deploy"
 		switch r.Event {
 		case "start":
 			if deployRecord {
@@ -413,13 +453,14 @@ func Summarize(recs []Record) Summary {
 			if r.Status != "ok" {
 				continue
 			}
+			if r.Phase == "auto-rollback" {
+				s.Recovered = true
+			}
 			switch {
 			case r.Phase == "transfer":
 				s.Done["transfer"] = true
 			case r.SubStep == MigrationBackupSubStep:
 				s.Done[MigrationBackupSubStep] = true
-			case r.SubStep == "migrate": // sparse journals without job-level records
-				s.Done["migrate"] = true
 			case strings.HasPrefix(r.SubStep, "job:"):
 				s.Done[r.SubStep] = true
 			case strings.HasPrefix(r.SubStep, "hook:"):

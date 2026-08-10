@@ -53,8 +53,8 @@ func TestMigrationBackupPolicyStopsBeforeMigrationWithoutEvidence(t *testing.T) 
 	now := time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)
 	f := migrationBackupHappyFake()
 	e := New(migrationBackupEngineConfig(), testProject(t), f, migrationBackupEngineOptions(now, nil))
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "migration backup evidence is required") {
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "migration backup report is required") {
 		t.Fatalf("missing evidence did not stop deploy: %v", err)
 	}
 	if sequence := strings.Join(f.Commands, "\n"); strings.Contains(sequence, "OB_RESULT_FILE") {
@@ -72,7 +72,7 @@ func TestMigrationBackupReceiptIsJournaledBeforeMigration(t *testing.T) {
 	}
 	f := migrationBackupHappyFake()
 	e := New(migrationBackupEngineConfig(), testProject(t), f, migrationBackupEngineOptions(now, evidence))
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
 		t.Fatalf("deploy with receipt: %v", err)
 	}
 	sequence := strings.Join(f.Commands, "\n")
@@ -99,7 +99,7 @@ func TestMigrationBackupOverrideAuditIsJournaled(t *testing.T) {
 	}
 	f := migrationBackupHappyFake()
 	e := New(migrationBackupEngineConfig(), testProject(t), f, migrationBackupEngineOptions(now, evidence))
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
 		t.Fatalf("deploy with override: %v", err)
 	}
 	sequence := strings.Join(f.Commands, "\n")
@@ -126,7 +126,7 @@ func TestExpiredMigrationBackupEvidenceStopsBeforeMigration(t *testing.T) {
 	}
 	f := happyFake()
 	e := New(migrationBackupEngineConfig(), testProject(t), f, migrationBackupEngineOptions(now, evidence))
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "expired") {
 		t.Fatalf("expired evidence did not stop deploy: %v", err)
 	}

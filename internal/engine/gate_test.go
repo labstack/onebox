@@ -23,7 +23,7 @@ func gateFake(migrateResult string) *transport.Fake {
 			// the new release fails verify; once auto-rollback replayed the
 			// previous release, verify goes green again
 			for _, c := range f.Commands {
-				if strings.Contains(c, "releases/R0/compose.yaml") {
+				if strings.Contains(c, "releases/"+engineTestPreviousReleaseID+"/compose.yaml") {
 					return transport.Result{ExitCode: 0}, true
 				}
 			}
@@ -31,9 +31,9 @@ func gateFake(migrateResult string) *transport.Fake {
 		case strings.Contains(cmd, "job-migrate-result"):
 			return transport.Result{Stdout: migrateResult}, true
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R0\n"}, true
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 		case strings.Contains(cmd, "ls -1"):
-			return transport.Result{Stdout: "R0\nR1\n"}, true
+			return transport.Result{Stdout: engineTestPreviousReleaseID + "\n" + engineTestDeployReleaseID + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -44,7 +44,7 @@ func TestGateOpenAutoRollsBack(t *testing.T) {
 	f := gateFake("changed=false\n")
 	var out bytes.Buffer
 	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil {
 		t.Fatal("failed verify must still return an error")
 	}
@@ -52,10 +52,10 @@ func TestGateOpenAutoRollsBack(t *testing.T) {
 		t.Fatalf("gate open must auto-rollback: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "releases/R0/compose.yaml") {
+	if !strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml") {
 		t.Fatalf("auto-rollback must replay previous release:\n%s", seq)
 	}
-	if strings.Contains(seq, "ln -sfn 'releases/R1'") {
+	if strings.Contains(seq, "ln -sfn 'releases/"+engineTestDeployReleaseID+"'") {
 		t.Fatal("failed release must not be activated")
 	}
 }
@@ -66,9 +66,11 @@ func TestAutoRollbackUsesPreviousReleaseSnapshot(t *testing.T) {
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R0\n"}, true
-		case strings.Contains(cmd, "/releases/R0/ob.snapshot.yml"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'"):
+			return transport.Result{}, true
 		case strings.Contains(cmd, "curl -fsS"):
 			return transport.Result{ExitCode: 22, Stderr: "500"}, true
 		}
@@ -79,12 +81,12 @@ func TestAutoRollbackUsesPreviousReleaseSnapshot(t *testing.T) {
 	cfg.Deployment.Order = []string{"web"}
 	cfg.Services = nil
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
 		t.Fatalf("deploy error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "releases/R0/compose.yaml") || !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
+	if !strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml") || !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
 		t.Fatalf("auto-rollback did not use the previous release snapshot:\n%s", seq)
 	}
 	if strings.Count(seq, "--scale web=") != 1 {
@@ -102,12 +104,12 @@ func TestAutoRollbackStopsWhenIntentCannotBeJournaled(t *testing.T) {
 		return base(cmd)
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "journal auto-rollback intent") {
 		t.Fatalf("deploy error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "docker stop -t 10 NEW1") || strings.Contains(seq, "releases/R0/compose.yaml' pull") {
+	if strings.Contains(seq, "docker stop -t 10 NEW1") || strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml' pull") {
 		t.Fatalf("auto-rollback mutated after its intent write failed:\n%s", seq)
 	}
 }
@@ -136,7 +138,7 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 	cfg.Hooks = map[string]app.Command{} // drop the migrate hook; migrate stays a job
 	f := happyFake()
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -149,12 +151,39 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 	}
 }
 
+func TestDeployRunsOnlyAutomaticJobsInTheirDeclaredPhase(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["cleanup"] = app.Workload{Role: app.RoleJob, When: "post_release", DataEffect: "none"}
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+	}
+	cfg.Hooks["cleanup"] = app.Command{Run: "echo POST_RELEASE_JOB_MARKER"}
+	cfg.Hooks["nightly"] = app.Command{Run: "echo MANUAL_JOB_MARKER"}
+	f := happyFake()
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "MANUAL_JOB_MARKER") {
+		t.Fatalf("manual job executed during deploy:\n%s", seq)
+	}
+	releaseAt := strings.Index(seq, "--force-recreate --timeout 30 worker")
+	postJobAt := strings.Index(seq, "POST_RELEASE_JOB_MARKER")
+	if releaseAt < 0 || postJobAt < 0 || postJobAt < releaseAt {
+		t.Fatalf("post-release job did not run after workload release:\n%s", seq)
+	}
+	if !strings.Contains(seq, `"phase":"post-release","sub_step":"job:cleanup"`) {
+		t.Fatalf("post-release job result was not journaled in its declared phase:\n%s", seq)
+	}
+}
+
 func TestDeployPersistsSafeEffectBaseline(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks = map[string]app.Command{}
 	f := happyFake()
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -206,12 +235,12 @@ func TestLifecycleHookDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 func TestGateClosedHaltsAndPages(t *testing.T) {
 	f := gateFake("") // migrate wrote nothing — fail safe
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
 		t.Fatalf("closed gate must halt-and-page: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "releases/R0/compose.yaml") {
+	if strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml") {
 		t.Fatalf("closed gate must NOT auto-rollback:\n%s", seq)
 	}
 }
@@ -283,8 +312,8 @@ func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
 		journal.Record{DeployID: "R1", Epoch: 1, Phase: "deploy", Event: "finish", Status: "fail"},
 	)
 	maintenance := journalLines(
-		journal.Record{DeployID: "R1-service", Epoch: 1, Phase: "accessory-apply", Event: "start"},
-		journal.Record{DeployID: "R1-service", Epoch: 1, Phase: "accessory-apply", Event: "finish", Status: "ok"},
+		journal.Record{DeployID: "R1-service", Epoch: 1, Phase: "service-apply", Event: "start"},
+		journal.Record{DeployID: "R1-service", Epoch: 1, Phase: "service-apply", Event: "finish", Status: "ok"},
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
@@ -295,11 +324,11 @@ func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
 		return base(cmd)
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R2", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
 		t.Fatalf("a safe retry must not erase R1's uncovered effect: %v", err)
 	}
-	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "releases/R0/compose.yaml") {
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml") {
 		t.Fatalf("rollback debt must prevent R2 from auto-rolling back to R0:\n%s", seq)
 	}
 }
@@ -313,7 +342,7 @@ func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 		Out: &bytes.Buffer{}, Sleep: noSleep,
 		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
 	})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
 		t.Fatalf("expand-only must permit auto-rollback: %v", err)
 	}
@@ -324,7 +353,7 @@ func TestDataEffectNoneOpensGateWithoutResultFile(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "none"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
 		t.Fatalf("data_effect=none must keep application rollback safe: %v", err)
 	}
@@ -336,7 +365,7 @@ func TestExpandOnlyDoesNotCoverUnknownJob(t *testing.T) {
 	cfg.Deployment.MigrationPolicy = "expand-only"
 	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "unknown"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
 		t.Fatalf("expand-only must not cover an unknown data effect: %v", err)
 	}
@@ -352,7 +381,7 @@ func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 		Out: &bytes.Buffer{}, Sleep: noSleep,
 		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
 	})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
 		t.Fatalf("expand-only must not cover an untyped lifecycle hook: %v", err)
 	}
@@ -364,11 +393,11 @@ func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 func TestNoRollbackFlagAlwaysHalts(t *testing.T) {
 	f := gateFake("changed=false\n")
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, NoRollback: true})
-	err := e.Deploy(context.Background(), "R1", t.TempDir())
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "--no-rollback") {
 		t.Fatalf("--no-rollback must halt even with open gate: %v", err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "releases/R0/compose.yaml") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "releases/"+engineTestPreviousReleaseID+"/compose.yaml") {
 		t.Fatal("--no-rollback must not roll back")
 	}
 }
@@ -376,13 +405,13 @@ func TestNoRollbackFlagAlwaysHalts(t *testing.T) {
 func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(context.Background(), "R1", t.TempDir()); err != nil {
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	found := false
 	for _, c := range f.Commands {
 		const (
-			resultDir  = "/var/lib/ob/sample/releases/R1/.job-migrate-result"
+			resultDir  = "/var/lib/ob/sample/releases/" + engineTestDeployReleaseID + "/.job-migrate-result"
 			resultFile = resultDir + "/result"
 		)
 		privateDir := strings.Index(c, "install -d -m 700 '"+resultDir+"'")

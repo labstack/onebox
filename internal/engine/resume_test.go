@@ -29,23 +29,24 @@ func interruptedFake(gateDetail string) *transport.Fake {
 
 func interruptedFakeWithPolicy(gateDetail string, policySafe bool) *transport.Fake {
 	f := happyFake()
+	seedStagedApplicationManifest(f, engineTestDeployReleaseID)
 	jr := journalLines(
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0", Operator: "v@mac", TS: "2026-07-03T00:00:00Z"},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: "migrate", Event: "result", Status: "ok", Detail: gateDetail, RollbackPolicySafe: policySafe},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, Operator: "v@mac", TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: "job:migrate", Event: "result", Status: "ok", Detail: gateDetail, RollbackPolicySafe: policySafe},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
-			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R0\n"}, true
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 		case strings.Contains(cmd, "ls -1 '/var/lib/ob/sample/releases'"):
-			return transport.Result{Stdout: "R0\nR1\n"}, true
+			return transport.Result{Stdout: engineTestPreviousReleaseID + "\n" + engineTestDeployReleaseID + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -72,7 +73,7 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
 		t.Fatalf("pending worker must be released:\n%s", seq)
 	}
-	if !strings.Contains(seq, "ln -sfn 'releases/R1'") {
+	if !strings.Contains(seq, "ln -sfn 'releases/"+engineTestDeployReleaseID+"'") {
 		t.Fatalf("resumed deploy must activate:\n%s", seq)
 	}
 	if !strings.Contains(seq, `"event":"finish","status":"ok"`) {
@@ -82,20 +83,21 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 
 func TestResumeUsesInterruptedReleaseSnapshotAfterConfigEdit(t *testing.T) {
 	f := happyFake()
+	seedStagedApplicationManifest(f, engineTestDeployReleaseID)
 	jr := journalLines(
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0", TS: "2026-07-03T00:00:00Z"},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
-			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
-		case strings.Contains(cmd, "/releases/R1/ob.snapshot.yml"):
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
+		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R0\n"}, true
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -122,14 +124,14 @@ func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
 	f := interruptedFake("changed=false")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "/releases/R1/ob.snapshot.yml") {
+		if strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml") {
 			return transport.Result{ExitCode: 1, Stderr: "No such file"}, true
 		}
 		return base(cmd)
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	id, err := e.ResumeWithJournalID(context.Background())
-	if id != "R1" || err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
+	if id != engineTestDeployReleaseID || err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
 		t.Fatalf("resume id/error = %q, %v", id, err)
 	}
 	if strings.Contains(strings.Join(f.Commands, "\n"), "ob-fenced") {
@@ -139,30 +141,31 @@ func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
 
 func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 	f := happyFake()
+	seedStagedApplicationManifest(f, engineTestDeployReleaseID)
 	jr := journalLines(
 		journal.Record{
-			DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0",
+			DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID,
 			Operator: "v@mac", TS: "2026-07-03T00:00:00Z",
 			ApprovalDigest: "sha256:approved", ApprovalClass: "strong",
 			AllowUnknownMigration: allowUnknown,
 		},
 		journal.Record{
-			DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep,
+			DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep,
 			Event: "result", Status: "ok", RollbackSafe: true,
 		},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
-			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		case strings.Contains(cmd, "ob.snapshot.yml"):
 			return transport.Result{Stdout: strings.Replace(engineProject, "data_effect: unknown", "data_effect: migration", 1)}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/R0\n"}, true
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -206,9 +209,9 @@ func TestResumeWithNothingIncomplete(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
-			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + journalLines(
-				journal.Record{DeployID: "R1", Phase: "deploy", Event: "start"},
-				journal.Record{DeployID: "R1", Phase: "deploy", Event: "finish", Status: "ok"},
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + journalLines(
+				journal.Record{DeployID: engineTestDeployReleaseID, Phase: "deploy", Event: "start"},
+				journal.Record{DeployID: engineTestDeployReleaseID, Phase: "deploy", Event: "finish", Status: "ok"},
 			)}, true
 		}
 		return base(cmd)
@@ -268,7 +271,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 	base := f.Dynamic
 	r0Scaled := func() bool {
 		for _, c := range f.Commands {
-			if strings.Contains(c, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale web=2") {
+			if strings.Contains(c, "releases/"+engineTestPreviousReleaseID+"/compose.yaml' up -d --no-deps --no-recreate --scale web=2") {
 				return true
 			}
 		}
@@ -283,7 +286,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		return false
 	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ob.release='R0'") && strings.Contains(cmd, "service='web'") {
+		if strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'") && strings.Contains(cmd, "service='web'") {
 			if r0Scaled() {
 				return transport.Result{Stdout: "PREV1\n"}, true
 			}
@@ -301,10 +304,10 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 			}
 			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
 		}
-		if strings.Contains(cmd, "ob.release='R0'") && strings.Contains(cmd, "service='worker'") {
+		if strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'") && strings.Contains(cmd, "service='worker'") {
 			return transport.Result{Stdout: ""}, true // worker never completed → recreate from R0
 		}
-		if strings.Contains(cmd, "ob.release='R1'") {
+		if strings.Contains(cmd, "ob.release='"+engineTestDeployReleaseID+"'") {
 			return transport.Result{Stdout: ""}, true // straggler sweep finds none
 		}
 		if strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PREV1") {
@@ -318,7 +321,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		t.Fatalf("abort: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "releases/R0/compose.yaml' up -d --no-deps --no-recreate --scale web=2") {
+	if !strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml' up -d --no-deps --no-recreate --scale web=2") {
 		t.Fatalf("abort must roll web back to R0:\n%s", seq)
 	}
 	if !strings.Contains(seq, `"event":"abort","status":"ok"`) {
@@ -356,23 +359,33 @@ deployment:
 
 func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 	f := happyFake()
+	seedStagedApplicationManifest(f, engineTestDeployReleaseID)
 	jr := journalLines(
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=R0", TS: "2026-07-03T00:00:00Z"},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
-		journal.Record{DeployID: "R1", Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
-			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + jr}, true
-		case strings.Contains(cmd, "/releases/R1/ob.snapshot.yml"):
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
+		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml"):
 			return transport.Result{Stdout: interruptedWebSnapshot}, true
-		case strings.Contains(cmd, "/releases/R0/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
-		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release='R0'"):
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=ob.release='"+engineTestDeployReleaseID+"'"):
+			for _, recorded := range f.Commands {
+				if strings.Contains(recorded, "docker rm -f NEW1") {
+					return transport.Result{}, true
+				}
+			}
+			return transport.Result{Stdout: "NEW1\n"}, true
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'"):
 			return transport.Result{}, true
-		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release='R1'"):
+		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release='"+engineTestDeployReleaseID+"'"):
 			return transport.Result{Stdout: "NEW1\n"}, true
 		}
 		return base(cmd)
@@ -391,7 +404,7 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
 		t.Fatalf("abort did not restore the previous snapshot's worker:\n%s", seq)
 	}
-	if !strings.Contains(seq, "docker stop -t 10 NEW1 && docker rm NEW1") {
+	if !strings.Contains(seq, "docker rm -f NEW1") {
 		t.Fatalf("abort did not sweep the interrupted snapshot's web newcomer:\n%s", seq)
 	}
 }
@@ -399,7 +412,7 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 const gateClosed = "changed=unknown (no result declared — gate closed, fail-safe)"
 
 // An unreadable previous snapshot is not a gate an operator can assert past.
-// --force asserts schema compatibility for the migration gate; it cannot supply
+// --break-migration-gate asserts schema compatibility for the migration gate; it cannot supply
 // the choreography of a release whose snapshot is gone — the release's Compose
 // document records images and healthchecks but not its strategies, ordering or
 // verification. Falling back to the interrupted release's choreography instead
@@ -429,7 +442,7 @@ func TestAbortRefusesUnreadablePreviousSnapshot(t *testing.T) {
 				f := interruptedFake(gate.detail)
 				base := f.Dynamic
 				f.Dynamic = func(cmd string) (transport.Result, bool) {
-					if strings.Contains(cmd, "/releases/R0/ob.snapshot.yml") {
+					if strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml") {
 						return prev.res, true
 					}
 					return base(cmd)
@@ -439,7 +452,7 @@ func TestAbortRefusesUnreadablePreviousSnapshot(t *testing.T) {
 				err := e.Abort(context.Background(), gate.force)
 				// R0 is named so this cannot pass on a refusal of R1, the
 				// interrupted release, which is read first by the same call.
-				if err == nil || !strings.Contains(err.Error(), "recovery refused: release R0") {
+				if err == nil || !strings.Contains(err.Error(), "recovery refused: release "+engineTestPreviousReleaseID) {
 					t.Fatalf("abort error = %v", err)
 				}
 				if strings.Contains(strings.Join(f.Commands, "\n"), `phase":"abort","event":"intent`) {
@@ -465,7 +478,7 @@ func TestAbortStopsWhenIntentCannotBeJournaled(t *testing.T) {
 		t.Fatalf("abort error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "releases/R0/compose.yaml' pull") {
+	if strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml' pull") {
 		t.Fatalf("abort mutated workloads after its intent write failed:\n%s", seq)
 	}
 }

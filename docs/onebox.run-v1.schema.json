@@ -498,7 +498,7 @@
                 "type": "boolean"
               },
               "migration_backup_key_material": {
-                "description": "Names of key material whose usability must be attested in migration backup evidence.",
+                "description": "Names of key material whose usability must be covered by the migration backup report.",
                 "items": {
                   "type": "string"
                 },
@@ -506,7 +506,7 @@
               },
               "migration_backup_maximum_age": {
                 "default": "24h",
-                "description": "Maximum age of backup evidence accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "description": "Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
                   "24h"
                 ],
@@ -531,17 +531,17 @@
               },
               "require_approval": {
                 "default": true,
-                "description": "Require a plan-bound approval grant before mutating this environment.",
+                "description": "Require a plan-bound local confirmation before mutating this environment.",
                 "type": "boolean"
               },
               "require_migration_backup": {
                 "default": false,
-                "description": "Require plan-bound external backup evidence before a release with migration risk.",
+                "description": "Require a plan-bound backup report before a release with migration risk.",
                 "type": "boolean"
               },
               "require_migration_restore_test": {
                 "default": false,
-                "description": "Require the backup evidence to attest that a restore test succeeded.",
+                "description": "Require the backup report to state that a restore test succeeded.",
                 "type": "boolean"
               }
             },
@@ -1673,6 +1673,68 @@
             "then": {
               "required": [
                 "domain"
+              ]
+            }
+          },
+          {
+            "not": {
+              "allOf": [
+                {
+                  "required": [
+                    "published_ports"
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "strategy": {
+                          "const": "rolling"
+                        }
+                      },
+                      "required": [
+                        "strategy"
+                      ]
+                    },
+                    {
+                      "allOf": [
+                        {
+                          "not": {
+                            "required": [
+                              "strategy"
+                            ]
+                          }
+                        },
+                        {
+                          "required": [
+                            "health"
+                          ]
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "properties": {
+                                "role": {
+                                  "const": "application"
+                                }
+                              },
+                              "required": [
+                                "role"
+                              ]
+                            },
+                            {
+                              "not": {
+                                "required": [
+                                  "role"
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           },

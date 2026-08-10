@@ -42,10 +42,20 @@ func (f *fakeRunner) Run(_ context.Context, cmd string) (transport.Result, error
 func healthyRunner() *fakeRunner {
 	return &fakeRunner{answers: map[string]transport.Result{
 		"docker version": {Stdout: "27.1.1\n"},
+		"/_host/owner":   {Stdout: "ledger\n"},
 		"docker ps":      {Stdout: ""},
 		"docker volume":  {Stdout: ""},
 		"docker network": {Stdout: "ob-ingress\t\n"},
 	}}
+}
+
+func TestPreflightRefusesForeignHostOwner(t *testing.T) {
+	run := healthyRunner()
+	run.answers["/_host/owner"] = transport.Result{Stdout: "another-app\n"}
+	report := preflight(t, run, preflightProject)
+	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "another-app") {
+		t.Fatalf("foreign host owner was not reported: %+v", report.Failures())
+	}
 }
 
 const preflightProject = `api_version: onebox.run/v1

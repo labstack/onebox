@@ -21,14 +21,16 @@ Onebox keeps the two apart everywhere.
 
 > A statement that the user approved is data, not authority.
 
-Consequential execution requires a capability bound to the exact sealed plan,
-actor, server, observed state, expiry and allowed attempt — and delivered **out
-of band**, so the actor requesting a change cannot mint the capability
-authorising it.
+The current CLI requires a deliberate local human ceremony bound to the exact
+sealed plan, operator label, server, observed state, inputs, risk, and expiry.
+`ob plan` and `ob approve` are separate commands so the reviewed object and the
+answer cannot drift unnoticed. The resulting `local_cli` artifact is
+tamper-evident, but it is not authenticated identity or an independently issued
+capability: an actor with access to the same local runner can create it.
 
-This is why `ob plan` and `ob approve` are separate commands producing separate
-artifacts. Collapsing them would mean the thing asking for permission also grants
-it, which is not permission.
+That limitation is part of the contract. A future external approval provider
+would need its own trust root, enrollment, revocation, and recovery design;
+Onebox does not pretend a local checksum creates that boundary.
 
 Secrets follow the same rule: they enter through a trusted local or encrypted
 flow, never through ordinary model-visible arguments.

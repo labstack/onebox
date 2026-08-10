@@ -354,6 +354,37 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 	}
 }
 
+func TestMutateStreamExecutesOnlyWhileFenceMatches(t *testing.T) {
+	cfg := testConfig()
+	cfg.BasePath = t.TempDir()
+	names := cfg.NamesFor("production")
+	if err := os.MkdirAll(names.AppDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fence := names.AppDir() + "/fence"
+	if err := os.WriteFile(fence, []byte("exec-op 7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := New(cfg, nil, transport.NewLocal(), Options{Environment: "production"})
+	e.fenceVal = "exec-op 7"
+	var stdout, stderr bytes.Buffer
+	if err := e.mutateStream(context.Background(), "printf allowed", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "allowed" || stderr.Len() != 0 {
+		t.Fatalf("matching fence output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if err := os.WriteFile(fence, []byte("new-owner 8\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	err := e.mutateStream(context.Background(), "printf forbidden", &stdout, &stderr)
+	if err == nil || stdout.Len() != 0 || !strings.Contains(stderr.String(), "ob-fenced") {
+		t.Fatalf("stale fence executed stream: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+}
+
 func TestMutateCheckedRejectsRemoteNonZeroExit(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "docker rm OLD1") {

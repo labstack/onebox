@@ -34,9 +34,9 @@ start=$(date +%s)
 OB="$S/ob"
 (cd "$REPO" && go build -o "$OB" ./cmd/ob) || { echo "  BUILD FAILED"; exit 1; }
 
-# Approval defaults on, so this takes the ceremony the way an operator would:
-# plan, bind a grant to that exact plan, apply both. Deploying is the only path
-# onto a host, and the approved path is the only way through it.
+# Confirmation defaults on, so this takes the ceremony the way an operator would:
+# plan, bind a local confirmation to that exact plan, apply both. Deploying is
+# the only path onto a host, and the confirmed path is the only way through it.
 #
 # The prompt is answered rather than bypassed, because there is no flag to skip
 # it and there should not be. A routine plan asks y/n; one that touches data
@@ -54,8 +54,8 @@ PYEOF
 out=$(cd "$REPO" && timeout 900 "$OB" bootstrap -c "$S/$APP.host.yml" 2>&1 \
   && timeout 900 "$OB" plan -c "$S/$APP.host.yml" --out "$S/$APP.plan.json" 2>&1 \
   && printf '%s\n' "$(approval_answer "$S/$APP.plan.json")" \
-     | timeout 300 "$OB" approve -c "$S/$APP.host.yml" --plan "$S/$APP.plan.json" --out "$S/$APP.grant.json" 2>&1 \
-  && timeout 900 "$OB" deploy -c "$S/$APP.host.yml" --plan "$S/$APP.plan.json" --approval "$S/$APP.grant.json" -y 2>&1)
+     | timeout 300 "$OB" approve -c "$S/$APP.host.yml" --plan "$S/$APP.plan.json" --out "$S/$APP.confirmation.json" 2>&1 \
+  && timeout 900 "$OB" deploy -c "$S/$APP.host.yml" --plan "$S/$APP.plan.json" --approval "$S/$APP.confirmation.json" -y 2>&1)
 rc=$?
 elapsed=$(( $(date +%s) - start ))
 
@@ -67,7 +67,7 @@ fi
 if [ -z "$WL" ]; then
   WL=$("$OB" canonical -c "$S/$APP.host.yml" --output json 2>/dev/null | python3 -c '
 import json,sys
-doc = json.load(sys.stdin)["document"]
+doc = json.load(sys.stdin)["data"]["document"]
 name, routed = None, None
 for line in doc.splitlines():
     if line.startswith("  ") and line.endswith(":") and not line.startswith("    "):

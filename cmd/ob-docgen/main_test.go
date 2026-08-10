@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,8 +12,28 @@ import (
 )
 
 // The generated pages are only trustworthy if they cannot fall behind the
-// binary. `just docs-check` runs `ob-docgen --check`, which is the enforcement;
-// these tests cover the properties that check depends on.
+// binary. The exact CLI-page test and `just docs-check` both enforce that
+// contract; the remaining tests cover the generator's structural properties.
+
+func TestCLIReferenceMatchesBinary(t *testing.T) {
+	obBinary := filepath.Join(t.TempDir(), "ob")
+	build := exec.Command("go", "build", "-o", obBinary, "../ob")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build ob for documentation check: %v\n%s", err, output)
+	}
+	generated, err := renderCLIPage(obBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("..", "..", "site", "src", "content", "docs", "reference", "cli.mdx")
+	committed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generated != string(committed) {
+		t.Fatal("CLI reference is stale; run `just docs-generate`")
+	}
+}
 
 func TestEveryLoaderErrorCodeIsDocumented(t *testing.T) {
 	page := renderErrorPage()
@@ -23,7 +44,7 @@ func TestEveryLoaderErrorCodeIsDocumented(t *testing.T) {
 	}
 }
 
-func TestEveryLifecycleCodeIsDocumentedWithItsResolvingCommand(t *testing.T) {
+func TestEveryLifecycleCodeIsDocumentedWithItsGuidanceCommand(t *testing.T) {
 	page := renderErrorPage()
 	for _, code := range onebox.LifecycleFailureCodes() {
 		failure, err := onebox.NewLifecycleFailure(code)
@@ -33,8 +54,8 @@ func TestEveryLifecycleCodeIsDocumentedWithItsResolvingCommand(t *testing.T) {
 		if !strings.Contains(page, "`"+code+"`") {
 			t.Errorf("lifecycle code %q is missing from the generated page", code)
 		}
-		if !strings.Contains(page, "`"+failure.Next+"`") {
-			t.Errorf("lifecycle code %q is documented without its resolving command", code)
+		if !strings.Contains(page, "`"+failure.GuidanceCommand()+"`") || !strings.Contains(page, "| "+failure.GuidanceRole()+" |") {
+			t.Errorf("lifecycle code %q is documented without its guidance role and command", code)
 		}
 	}
 }

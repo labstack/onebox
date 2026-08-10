@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	LifecycleRecordSchemaVersion   = "onebox.run/lifecycle-record/v1alpha1"
+	LifecycleRecordSchemaVersion   = "onebox.run/lifecycle-record/v1alpha2"
 	LifecycleDocumentSchemaVersion = "onebox.run/lifecycle-document/v1alpha1"
 )
 
@@ -64,23 +64,27 @@ type LifecycleEvent struct {
 }
 
 type LifecycleResult struct {
-	TerminalState     string                  `json:"terminal_state"`
-	FinishedAt        string                  `json:"finished_at"`
-	EvidenceID        string                  `json:"evidence_id,omitempty"`
-	NativeEvidence    *NativeEvidenceIdentity `json:"native_evidence,omitempty"`
-	Recovery          *RecoveryEnvelope       `json:"recovery,omitempty"`
-	ErrorCode         string                  `json:"error_code,omitempty"`
-	ResolvingCommands []string                `json:"resolving_commands,omitempty"`
+	TerminalState      string                  `json:"terminal_state"`
+	FinishedAt         string                  `json:"finished_at"`
+	EvidenceID         string                  `json:"evidence_id,omitempty"`
+	NativeEvidence     *NativeEvidenceIdentity `json:"native_evidence,omitempty"`
+	Recovery           *RecoveryEnvelope       `json:"recovery,omitempty"`
+	ErrorCode          string                  `json:"error_code,omitempty"`
+	DiagnosticCommands []string                `json:"diagnostic_commands,omitempty"`
+	NextCommands       []string                `json:"next_commands,omitempty"`
+	ResolvingCommands  []string                `json:"resolving_commands,omitempty"`
 }
 
 type ServiceTierStatus struct {
-	Tier              string                  `json:"tier"`
-	ObservedAt        string                  `json:"observed_at"`
-	EvidenceID        string                  `json:"evidence_id,omitempty"`
-	NativeEvidence    *NativeEvidenceIdentity `json:"native_evidence,omitempty"`
-	Recovery          *RecoveryEnvelope       `json:"recovery,omitempty"`
-	Codes             []string                `json:"codes,omitempty"`
-	ResolvingCommands []string                `json:"resolving_commands,omitempty"`
+	Tier               string                  `json:"tier"`
+	ObservedAt         string                  `json:"observed_at"`
+	EvidenceID         string                  `json:"evidence_id,omitempty"`
+	NativeEvidence     *NativeEvidenceIdentity `json:"native_evidence,omitempty"`
+	Recovery           *RecoveryEnvelope       `json:"recovery,omitempty"`
+	Codes              []string                `json:"codes,omitempty"`
+	DiagnosticCommands []string                `json:"diagnostic_commands,omitempty"`
+	NextCommands       []string                `json:"next_commands,omitempty"`
+	ResolvingCommands  []string                `json:"resolving_commands,omitempty"`
 }
 
 type NativeEvidenceIdentity struct {
@@ -265,15 +269,16 @@ func (result LifecycleResult) validate() error {
 	if result.TerminalState == "succeeded" && result.ErrorCode != "" {
 		return errors.New("a succeeded result cannot carry error_code")
 	}
-	if result.TerminalState != "succeeded" && (!safeLifecycleMetadata(result.ErrorCode) || len(result.ResolvingCommands) == 0) {
-		return errors.New("a non-success result requires a stable error_code and resolving command")
+	guidanceCount := len(result.DiagnosticCommands) + len(result.NextCommands) + len(result.ResolvingCommands)
+	if result.TerminalState != "succeeded" && (!safeLifecycleMetadata(result.ErrorCode) || guidanceCount == 0) {
+		return errors.New("a non-success result requires a stable error_code and command guidance")
 	}
 	if result.ErrorCode != "" {
 		if _, err := NewLifecycleFailure(result.ErrorCode); err != nil {
 			return errors.New("result error_code is not in the stable lifecycle registry")
 		}
 	}
-	if err := validateResolvingCommands(result.ResolvingCommands); err != nil {
+	if err := validateGuidanceCommands(result.DiagnosticCommands, result.NextCommands, result.ResolvingCommands); err != nil {
 		return err
 	}
 	if result.NativeEvidence != nil {
@@ -296,7 +301,7 @@ func (status ServiceTierStatus) validate() error {
 			return errors.New("service tier code is not safe metadata")
 		}
 	}
-	if err := validateResolvingCommands(status.ResolvingCommands); err != nil {
+	if err := validateGuidanceCommands(status.DiagnosticCommands, status.NextCommands, status.ResolvingCommands); err != nil {
 		return err
 	}
 	if status.NativeEvidence != nil {
@@ -340,10 +345,22 @@ func (recovery RecoveryEnvelope) validate() error {
 	return nil
 }
 
-func validateResolvingCommands(commands []string) error {
-	for _, command := range commands {
-		if !safeResolvingCommand(command) {
-			return errors.New("resolving command is not a safe Onebox command")
+func validateGuidanceCommands(diagnostic, next, resolving []string) error {
+	seen := map[string]bool{}
+	for role, commands := range map[string][]string{
+		"diagnostic": diagnostic, "next": next, "resolving": resolving,
+	} {
+		for _, command := range commands {
+			if !safeGuidanceCommand(command) {
+				return errors.New("guidance command is not a safe Onebox command")
+			}
+			if GuidanceRoleForCommand(command) != role {
+				return fmt.Errorf("%s command is classified as %s guidance", command, GuidanceRoleForCommand(command))
+			}
+			if seen[command] {
+				return errors.New("guidance command appears in more than one role")
+			}
+			seen[command] = true
 		}
 	}
 	return nil

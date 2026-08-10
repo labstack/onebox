@@ -74,18 +74,23 @@ func TestAppendScopesAuthorizationContextToEvidenceRecords(t *testing.T) {
 	if err := w.Append(context.Background(), Record{Phase: "deploy", Event: "start"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := w.Append(context.Background(), Record{Phase: "job", Event: "start"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := w.Append(context.Background(), Record{Phase: "release", Role: "web", Event: "result", Status: "ok"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Commands) != 2 {
+	if len(f.Commands) != 3 {
 		t.Fatalf("commands = %d", len(f.Commands))
 	}
 	for _, want := range []string{"sha256:approval", "operator@example", "incident INC-42"} {
-		if !strings.Contains(f.Commands[0], want) {
-			t.Fatalf("deploy start omitted %q: %s", want, f.Commands[0])
+		for _, index := range []int{0, 1} {
+			if !strings.Contains(f.Commands[index], want) {
+				t.Fatalf("operation start omitted %q: %s", want, f.Commands[index])
+			}
 		}
-		if strings.Contains(f.Commands[1], want) {
-			t.Fatalf("release record repeated %q: %s", want, f.Commands[1])
+		if strings.Contains(f.Commands[2], want) {
+			t.Fatalf("release record repeated %q: %s", want, f.Commands[2])
 		}
 	}
 }
@@ -94,7 +99,7 @@ func TestReadAndSummary(t *testing.T) {
 	recs := []Record{
 		{DeployID: "R2", Epoch: 4, Phase: "deploy", Event: "start", Detail: "prev=R1"},
 		{DeployID: "R2", Epoch: 4, Phase: "transfer", Event: "result", Status: "ok"},
-		{DeployID: "R2", Epoch: 4, Phase: "pre-release", SubStep: "migrate", Event: "result", Status: "ok", Detail: "changed=false"},
+		{DeployID: "R2", Epoch: 4, Phase: "pre-release", SubStep: "job:migrate", Event: "result", Status: "ok", Detail: "changed=false"},
 		{DeployID: "R2", Epoch: 4, Phase: "release", Role: "web", Event: "result", Status: "ok"},
 		{DeployID: "R2", Epoch: 4, Phase: "release", Role: "worker", Event: "intent"},
 	}
@@ -129,7 +134,7 @@ func TestReadAndSummary(t *testing.T) {
 	if !s.GateOpen {
 		t.Fatal("migrate reported changed=false — gate must be open")
 	}
-	if !s.Done["transfer"] || !s.Done["migrate"] || !s.Done["release:web"] || s.Done["release:worker"] {
+	if !s.Done["transfer"] || !s.Done["job:migrate"] || !s.Done["release:web"] || s.Done["release:worker"] {
 		t.Fatalf("done: %+v", s.Done)
 	}
 	ids, err := List(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
@@ -156,7 +161,7 @@ func TestSummarizeReconstructsAggregateGate(t *testing.T) {
 		{
 			name: "key-value changed-false result",
 			recs: []Record{
-				{SubStep: "migrate", Event: "result", Status: "ok", Detail: "changed=false"},
+				{SubStep: "job:migrate", Event: "result", Status: "ok", Detail: "changed=false"},
 			},
 			open: true, covered: true,
 		},
@@ -242,6 +247,18 @@ func TestSummarizeDeploySuccessSurvivesMaintenanceFailure(t *testing.T) {
 	}
 }
 
+func TestSummarizeSuccessfulAutoRollbackClosesRecovery(t *testing.T) {
+	summary := Summarize([]Record{
+		{DeployID: "20260101-000000-failed", Phase: "deploy", Event: "start"},
+		{DeployID: "20260101-000000-failed", Phase: "auto-rollback", Event: "intent"},
+		{DeployID: "20260101-000000-failed", Phase: "auto-rollback", Event: "result", Status: "ok"},
+		{DeployID: "20260101-000000-failed", Phase: "deploy", Event: "finish", Status: "fail"},
+	})
+	if !summary.Recovered || summary.Finished {
+		t.Fatalf("auto-rollback terminal summary = %+v", summary)
+	}
+}
+
 func TestSummarizeFailedTerminalAttemptsRemainRecoverable(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
@@ -264,8 +281,8 @@ func TestSummarizeFailedTerminalAttemptsRemainRecoverable(t *testing.T) {
 
 func TestSummarizeMaintenanceRecordsAreNotDeployTerminals(t *testing.T) {
 	s := Summarize([]Record{
-		{Phase: "accessory-apply", Event: "start"},
-		{Phase: "accessory-apply", Event: "finish", Status: "ok"},
+		{Phase: "service-apply", Event: "start"},
+		{Phase: "service-apply", Event: "finish", Status: "ok"},
 	})
 	if s.Started || s.Finished || s.DeploySucceeded {
 		t.Fatalf("maintenance journal was reduced as a deployment: %+v", s)

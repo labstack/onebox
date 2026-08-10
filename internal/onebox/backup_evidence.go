@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -22,7 +21,8 @@ import (
 )
 
 const (
-	BackupEvidenceReceiptSchemaVersion    = "onebox.run/migration-backup-evidence/v1alpha1"
+	BackupReportSchemaVersion             = "onebox.run/backup-report/v1alpha1"
+	backupReceiptSchemaVersion            = "onebox.run/internal-backup-receipt/v1alpha1"
 	MigrationBackupOverrideSchemaVersion  = "onebox.run/migration-backup-override/v1alpha1"
 	BackupRestoreTestPassed               = "passed"
 	BackupRestoreTestNotTested            = "not_tested"
@@ -32,8 +32,8 @@ const (
 var sha256Digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // MigrationBackupRequirement is plan-bound policy, not operator-supplied
-// evidence. Its presence means every pending migration step requires either a
-// matching receipt or an explicit audited override.
+// protection input. Its presence means every pending migration step requires
+// either a matching report or an explicit audited override.
 type MigrationBackupRequirement struct {
 	MaximumAge          string                    `json:"maximum_age"`
 	RequireRestoreTest  bool                      `json:"require_restore_test"`
@@ -216,87 +216,134 @@ type MigrationBackupKeyMaterialEvidence struct {
 	Usability BackupKeyMaterialUsabilityEvidence `json:"usability"`
 }
 
-// BackupEvidenceReceipt is a tamper-evident attestation about already-created
-// backup artifacts. It never runs a backup and never contains key material or
-// secret values; it records only artifact identifiers, digests, and validation
-// facts bound to one exact executable plan.
-type BackupEvidenceReceipt struct {
+// BackupReport is an operator/tool report about already-created backup
+// artifacts. It is execution input, not proof that Onebox created or
+// independently verified a backup. The report never contains backup bytes,
+// key material, secret values, commands, or provider credentials.
+type BackupReport struct {
 	SchemaVersion   string                               `json:"schema_version"`
 	PlanDigest      string                               `json:"plan_digest"`
 	OperationDigest string                               `json:"operation_digest"`
 	Application     string                               `json:"application"`
 	Environment     string                               `json:"environment"`
 	Server          string                               `json:"server"`
-	RecordedBy      string                               `json:"recorded_by"`
-	RecordedAt      string                               `json:"recorded_at"`
+	ReportedBy      string                               `json:"reported_by"`
+	ReportedAt      string                               `json:"reported_at"`
 	Resources       []MigrationBackupResourceEvidence    `json:"resources"`
 	KeyMaterial     []MigrationBackupKeyMaterialEvidence `json:"key_material,omitempty"`
-	EvidenceDigest  string                               `json:"evidence_digest"`
 }
 
-func NewBackupEvidenceReceipt(plan *DeployPlan, recordedBy string, recordedAt time.Time, resources []MigrationBackupResourceEvidence, keyMaterial []MigrationBackupKeyMaterialEvidence) (BackupEvidenceReceipt, error) {
-	if plan == nil {
-		return BackupEvidenceReceipt{}, errors.New("backup evidence requires an executable plan")
+func NewBackupReport(plan ExecutablePlan, reportedBy string, reportedAt time.Time, resources []MigrationBackupResourceEvidence, keyMaterial []MigrationBackupKeyMaterialEvidence) (BackupReport, error) {
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
+		return BackupReport{}, fmt.Errorf("validate backup report plan: %w", err)
 	}
-	if err := plan.Validate(); err != nil {
-		return BackupEvidenceReceipt{}, fmt.Errorf("validate backup evidence plan: %w", err)
-	}
-	if plan.MigrationBackup == nil {
-		return BackupEvidenceReceipt{}, errors.New("executable plan has no migration backup requirement")
+	if view.migrationBackup == nil {
+		return BackupReport{}, errors.New("executable plan has no migration backup requirement")
 	}
 	resources = append([]MigrationBackupResourceEvidence(nil), resources...)
 	keyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), keyMaterial...)
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Resource.Component < resources[j].Resource.Component })
 	sort.Slice(keyMaterial, func(i, j int) bool { return keyMaterial[i].Name < keyMaterial[j].Name })
-	binding := plan.Operation.Binding
-	receipt := BackupEvidenceReceipt{
-		SchemaVersion: BackupEvidenceReceiptSchemaVersion,
-		PlanDigest:    plan.PlanDigest, OperationDigest: plan.Operation.PlanDigest,
+	binding := view.operation.Binding
+	report := BackupReport{
+		SchemaVersion: BackupReportSchemaVersion,
+		PlanDigest:    view.digest, OperationDigest: view.operation.PlanDigest,
 		Application: binding.Application, Environment: binding.Environment, Server: binding.Server,
-		RecordedBy: strings.TrimSpace(recordedBy), RecordedAt: recordedAt.UTC().Format(time.RFC3339Nano),
+		ReportedBy: strings.TrimSpace(reportedBy), ReportedAt: reportedAt.UTC().Format(time.RFC3339Nano),
 		Resources: resources, KeyMaterial: keyMaterial,
 	}
-	if err := receipt.Seal(); err != nil {
-		return BackupEvidenceReceipt{}, err
+	if err := report.Validate(); err != nil {
+		return BackupReport{}, err
 	}
-	return receipt, nil
+	return report, nil
 }
 
-func (r BackupEvidenceReceipt) canonicalJSON() ([]byte, error) {
-	copy := r
-	copy.EvidenceDigest = ""
-	return json.Marshal(copy)
+// NewBackupReportTemplate projects the exact requirement from a sealed plan.
+// Placeholder values intentionally make the template invalid until the
+// reporting tool replaces them with its own observations.
+func NewBackupReportTemplate(plan ExecutablePlan) (BackupReport, error) {
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
+		return BackupReport{}, fmt.Errorf("validate backup report plan: %w", err)
+	}
+	if view.migrationBackup == nil {
+		return BackupReport{}, errors.New("executable plan has no migration backup requirement")
+	}
+	binding := view.operation.Binding
+	report := BackupReport{
+		SchemaVersion: BackupReportSchemaVersion,
+		PlanDigest:    view.digest, OperationDigest: view.operation.PlanDigest,
+		Application: binding.Application, Environment: binding.Environment, Server: binding.Server,
+		ReportedBy: "REPLACE-with-reporting-operator-or-tool", ReportedAt: "REPLACE-with-RFC3339-time",
+	}
+	for _, resource := range view.migrationBackup.Resources {
+		restore := BackupRestoreTestEvidence{State: BackupRestoreTestNotTested}
+		if view.migrationBackup.RequireRestoreTest {
+			restore = BackupRestoreTestEvidence{
+				State: BackupRestoreTestPassed, Method: "REPLACE-how-restore-was-tested",
+				TestedAt: "REPLACE-with-RFC3339-time", ValidationDigest: "sha256:REPLACE",
+			}
+		}
+		report.Resources = append(report.Resources, MigrationBackupResourceEvidence{
+			Resource: resource, BackupID: "REPLACE-with-backup-id", CreatedAt: "REPLACE-with-RFC3339-time",
+			Integrity:   BackupIntegrityEvidence{ArtifactDigest: "sha256:REPLACE", Method: "sha256", ValidatedAt: "REPLACE-with-RFC3339-time"},
+			RestoreTest: restore,
+		})
+	}
+	for _, name := range view.migrationBackup.RequiredKeyMaterial {
+		report.KeyMaterial = append(report.KeyMaterial, MigrationBackupKeyMaterialEvidence{
+			Name: name, BackupID: "REPLACE-with-backup-id", CreatedAt: "REPLACE-with-RFC3339-time",
+			Integrity: BackupIntegrityEvidence{ArtifactDigest: "sha256:REPLACE", Method: "sha256", ValidatedAt: "REPLACE-with-RFC3339-time"},
+			Usability: BackupKeyMaterialUsabilityEvidence{Method: "REPLACE-how-key-usability-was-checked", ValidatedAt: "REPLACE-with-RFC3339-time", ValidationDigest: "sha256:REPLACE"},
+		})
+	}
+	return report, nil
 }
 
-func (r BackupEvidenceReceipt) ComputeDigest() (string, error) {
+func (r BackupReport) SaveTemplate(path string) error {
+	if r.SchemaVersion != BackupReportSchemaVersion || !sha256Digest.MatchString(r.PlanDigest) {
+		return errors.New("backup report template must be created from a valid executable plan")
+	}
+	if err := saveBackupArtifact(path, ".backup-report-*", r); err != nil {
+		return fmt.Errorf("save backup report template: %w", err)
+	}
+	return nil
+}
+
+func (r BackupReport) canonicalJSON() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r BackupReport) ComputeDigest() (string, error) {
 	encoded, err := r.canonicalJSON()
 	if err != nil {
-		return "", fmt.Errorf("encode backup evidence digest: %w", err)
+		return "", fmt.Errorf("encode backup report digest: %w", err)
 	}
 	return engine.HashBytes(encoded), nil
 }
 
-func (r BackupEvidenceReceipt) validateContent() error {
-	if r.SchemaVersion != BackupEvidenceReceiptSchemaVersion {
-		return fmt.Errorf("unsupported backup evidence schema %q; this runner supports %q", r.SchemaVersion, BackupEvidenceReceiptSchemaVersion)
+func (r BackupReport) Validate() error {
+	if r.SchemaVersion != BackupReportSchemaVersion {
+		return fmt.Errorf("unsupported backup report schema %q; this runner supports %q", r.SchemaVersion, BackupReportSchemaVersion)
 	}
 	for name, value := range map[string]string{
 		"plan_digest": r.PlanDigest, "operation_digest": r.OperationDigest,
 		"application": r.Application, "environment": r.Environment, "target": r.Server,
-		"recorded_by": r.RecordedBy, "recorded_at": r.RecordedAt,
+		"reported_by": r.ReportedBy, "reported_at": r.ReportedAt,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
 	}
-	if _, err := parseOperationTime(r.RecordedAt, "recorded_at"); err != nil {
+	if _, err := parseOperationTime(r.ReportedAt, "reported_at"); err != nil {
 		return err
 	}
-	if err := validateBoundedText("recorded_by", r.RecordedBy, 256); err != nil {
+	if err := validateBoundedText("reported_by", r.ReportedBy, 256); err != nil {
 		return err
 	}
 	if len(r.Resources) == 0 {
-		return errors.New("backup evidence resources must not be empty")
+		return errors.New("backup report resources must not be empty")
 	}
 	previous := ""
 	for i, resource := range r.Resources {
@@ -304,7 +351,7 @@ func (r BackupEvidenceReceipt) validateContent() error {
 			return fmt.Errorf("resources[%d]: %w", i, err)
 		}
 		if previous != "" && resource.Resource.Component <= previous {
-			return errors.New("backup evidence resources must be unique and sorted by component")
+			return errors.New("backup report resources must be unique and sorted by component")
 		}
 		previous = resource.Resource.Component
 	}
@@ -314,7 +361,7 @@ func (r BackupEvidenceReceipt) validateContent() error {
 			return fmt.Errorf("key_material[%d]: %w", i, err)
 		}
 		if previous != "" && material.Name <= previous {
-			return errors.New("backup evidence key material must be unique and sorted by name")
+			return errors.New("backup report key material must be unique and sorted by name")
 		}
 		previous = material.Name
 	}
@@ -434,44 +481,13 @@ func validateBoundedText(name, value string, limit int) error {
 	return nil
 }
 
-func (r *BackupEvidenceReceipt) Seal() error {
-	if r == nil {
-		return errors.New("backup evidence receipt is nil")
-	}
-	if err := r.validateContent(); err != nil {
-		return err
-	}
-	digest, err := r.ComputeDigest()
-	if err != nil {
-		return err
-	}
-	r.EvidenceDigest = digest
-	return nil
-}
-
-func (r BackupEvidenceReceipt) Validate() error {
-	if err := r.validateContent(); err != nil {
-		return err
-	}
-	if r.EvidenceDigest == "" {
-		return errors.New("evidence_digest is required")
-	}
-	expected, err := r.ComputeDigest()
-	if err != nil {
-		return err
-	}
-	if r.EvidenceDigest != expected {
-		return fmt.Errorf("backup evidence digest mismatch: got %q, expected %q", r.EvidenceDigest, expected)
-	}
-	return nil
-}
-
-// keyMaterialSatisfies compares contents, not representation.
+// keyMaterialSatisfies normalizes nil against empty. Ordering remains bound to
+// the requirement because a report is an exact projection of its plan.
 //
 // reflect.DeepEqual treats an empty slice and a nil slice as different. A
 // policy requiring no key material leaves the requirement nil while a receipt
 // with none carries a zero-length slice, so the default configuration refused
-// every receipt `ob backup-evidence create` produced and the gate could not be
+// every earlier locally wrapped report and the gate could not be
 // satisfied at all.
 func keyMaterialSatisfies(supplied []MigrationBackupKeyMaterialEvidence, required []string) bool {
 	names := make([]string, 0, len(supplied))
@@ -481,31 +497,29 @@ func keyMaterialSatisfies(supplied []MigrationBackupKeyMaterialEvidence, require
 	return slices.Equal(names, required)
 }
 
-func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) error {
-	if plan == nil {
-		return errors.New("backup evidence has no executable plan")
-	}
+func (r BackupReport) ValidateForPlan(plan ExecutablePlan, now time.Time) error {
 	if err := r.Validate(); err != nil {
 		return err
 	}
-	if err := plan.Validate(); err != nil {
-		return fmt.Errorf("validate backup evidence plan: %w", err)
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
+		return fmt.Errorf("validate backup report plan: %w", err)
 	}
-	requirement := plan.MigrationBackup
+	requirement := view.migrationBackup
 	if requirement == nil {
 		return errors.New("executable plan has no migration backup requirement")
 	}
-	binding := plan.Operation.Binding
+	binding := view.operation.Binding
 	checks := []struct{ name, got, want string }{
-		{"plan digest", r.PlanDigest, plan.PlanDigest},
-		{"operation digest", r.OperationDigest, plan.Operation.PlanDigest},
+		{"plan digest", r.PlanDigest, view.digest},
+		{"operation digest", r.OperationDigest, view.operation.PlanDigest},
 		{"application", r.Application, binding.Application},
 		{"environment", r.Environment, binding.Environment},
 		{"target", r.Server, binding.Server},
 	}
 	for _, check := range checks {
 		if check.got != check.want {
-			return fmt.Errorf("backup evidence %s does not match the executable plan", check.name)
+			return fmt.Errorf("backup report %s does not match the executable plan", check.name)
 		}
 	}
 	resourceIdentities := make([]MigrationBackupResource, len(r.Resources))
@@ -513,42 +527,42 @@ func (r BackupEvidenceReceipt) ValidateForPlan(plan *DeployPlan, now time.Time) 
 		resourceIdentities[i] = r.Resources[i].Resource
 	}
 	if !reflect.DeepEqual(resourceIdentities, requirement.Resources) {
-		return errors.New("backup evidence resources do not match the executable plan")
+		return errors.New("backup report resources do not match the executable plan")
 	}
 	if !keyMaterialSatisfies(r.KeyMaterial, requirement.RequiredKeyMaterial) {
-		return errors.New("backup evidence key material does not match the executable plan")
+		return errors.New("backup report key material does not match the executable plan")
 	}
 	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)
 	now = now.UTC()
-	recordedAt, _ := parseOperationTime(r.RecordedAt, "recorded_at")
-	planCreatedAt, _ := parseOperationTime(plan.Operation.CreatedAt, "plan created_at")
-	planExpiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
-	if recordedAt.Before(planCreatedAt) {
-		return errors.New("backup evidence receipt predates the executable plan")
+	reportedAt, _ := parseOperationTime(r.ReportedAt, "reported_at")
+	planCreatedAt, _ := parseOperationTime(view.operation.CreatedAt, "plan created_at")
+	planExpiresAt, _ := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
+	if reportedAt.Before(planCreatedAt) {
+		return errors.New("backup report predates the executable plan")
 	}
-	if recordedAt.After(planExpiresAt) {
-		return errors.New("backup evidence receipt was recorded after the executable plan expired")
+	if reportedAt.After(planExpiresAt) {
+		return errors.New("backup report was recorded after the executable plan expired")
 	}
-	if recordedAt.After(now.Add(time.Minute)) {
-		return errors.New("backup evidence receipt was recorded in the future — check the runner clock")
+	if reportedAt.After(now.Add(time.Minute)) {
+		return errors.New("backup report was recorded in the future — check the runner clock")
 	}
 	for _, resource := range r.Resources {
-		if err := validateFreshEvidenceTimes(resource.CreatedAt, resource.Integrity.ValidatedAt, resource.RestoreTest.TestedAt, recordedAt, now, maxAge); err != nil {
-			return fmt.Errorf("backup evidence for resource %q: %w", resource.Resource.Component, err)
+		if err := validateFreshEvidenceTimes(resource.CreatedAt, resource.Integrity.ValidatedAt, resource.RestoreTest.TestedAt, reportedAt, now, maxAge); err != nil {
+			return fmt.Errorf("backup report for resource %q: %w", resource.Resource.Component, err)
 		}
 		if requirement.RequireRestoreTest && resource.RestoreTest.State != BackupRestoreTestPassed {
-			return fmt.Errorf("backup evidence for resource %q requires a passed restore test", resource.Resource.Component)
+			return fmt.Errorf("backup report for resource %q requires a passed restore test", resource.Resource.Component)
 		}
 	}
 	for _, material := range r.KeyMaterial {
-		if err := validateFreshEvidenceTimes(material.CreatedAt, material.Integrity.ValidatedAt, material.Usability.ValidatedAt, recordedAt, now, maxAge); err != nil {
-			return fmt.Errorf("backup evidence for key material %q: %w", material.Name, err)
+		if err := validateFreshEvidenceTimes(material.CreatedAt, material.Integrity.ValidatedAt, material.Usability.ValidatedAt, reportedAt, now, maxAge); err != nil {
+			return fmt.Errorf("backup report for key material %q: %w", material.Name, err)
 		}
 	}
 	return nil
 }
 
-func validateFreshEvidenceTimes(createdValue, validatedValue, testedValue string, recordedAt, now time.Time, maxAge time.Duration) error {
+func validateFreshEvidenceTimes(createdValue, validatedValue, testedValue string, reportedAt, now time.Time, maxAge time.Duration) error {
 	createdAt, _ := parseOperationTime(createdValue, "created_at")
 	validatedAt, _ := parseOperationTime(validatedValue, "validated_at")
 	if createdAt.After(now.Add(time.Minute)) || validatedAt.After(now.Add(time.Minute)) {
@@ -567,16 +581,17 @@ func validateFreshEvidenceTimes(createdValue, validatedValue, testedValue string
 			latest = testedAt
 		}
 	}
-	if latest.After(recordedAt) {
-		return errors.New("receipt was recorded before its validation evidence completed")
+	if latest.After(reportedAt) {
+		return errors.New("report was recorded before its validation checks completed")
 	}
 	return nil
 }
 
-func (r BackupEvidenceReceipt) validUntil(plan *DeployPlan) time.Time {
-	requirement := plan.MigrationBackup
+func (r BackupReport) validUntil(plan ExecutablePlan) time.Time {
+	view, _ := inspectExecutablePlan(plan)
+	requirement := view.migrationBackup
 	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)
-	expiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
+	expiresAt, _ := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
 	validUntil := expiresAt
 	for _, resource := range r.Resources {
 		createdAt, _ := parseOperationTime(resource.CreatedAt, "created_at")
@@ -591,6 +606,50 @@ func (r BackupEvidenceReceipt) validUntil(plan *DeployPlan) time.Time {
 		}
 	}
 	return validUntil.UTC()
+}
+
+// backupReceipt is created only at the execution boundary. It binds the exact
+// report accepted for one attempt without creating another public artifact or
+// asking the report author to manufacture a checksum field.
+type backupReceipt struct {
+	SchemaVersion   string `json:"schema_version"`
+	PlanDigest      string `json:"plan_digest"`
+	OperationDigest string `json:"operation_digest"`
+	ReportDigest    string `json:"report_digest"`
+	RecordedAt      string `json:"recorded_at"`
+	ValidUntil      string `json:"valid_until"`
+	ReceiptDigest   string `json:"receipt_digest"`
+}
+
+func newBackupReceipt(plan ExecutablePlan, report BackupReport, now time.Time) (backupReceipt, error) {
+	if err := report.ValidateForPlan(plan, now); err != nil {
+		return backupReceipt{}, err
+	}
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
+		return backupReceipt{}, err
+	}
+	reportDigest, err := report.ComputeDigest()
+	if err != nil {
+		return backupReceipt{}, err
+	}
+	receipt := backupReceipt{
+		SchemaVersion: backupReceiptSchemaVersion, PlanDigest: view.digest,
+		OperationDigest: view.operation.PlanDigest, ReportDigest: reportDigest,
+		RecordedAt: now.UTC().Format(time.RFC3339Nano), ValidUntil: report.validUntil(plan).Format(time.RFC3339Nano),
+	}
+	encoded, err := receipt.canonicalJSON()
+	if err != nil {
+		return backupReceipt{}, err
+	}
+	receipt.ReceiptDigest = engine.HashBytes(encoded)
+	return receipt, nil
+}
+
+func (r backupReceipt) canonicalJSON() ([]byte, error) {
+	copy := r
+	copy.ReceiptDigest = ""
+	return json.Marshal(copy)
 }
 
 // MigrationBackupOverride is a separate, plan-bound break-glass artifact. A
@@ -612,23 +671,21 @@ type MigrationBackupOverride struct {
 	OverrideDigest      string                    `json:"override_digest"`
 }
 
-func NewMigrationBackupOverride(plan *DeployPlan, operator, reason string, now time.Time) (MigrationBackupOverride, error) {
-	if plan == nil {
-		return MigrationBackupOverride{}, errors.New("migration backup override requires an executable plan")
-	}
-	if err := plan.Validate(); err != nil {
+func NewMigrationBackupOverride(plan ExecutablePlan, operator, reason string, now time.Time) (MigrationBackupOverride, error) {
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
 		return MigrationBackupOverride{}, fmt.Errorf("validate migration backup override plan: %w", err)
 	}
-	if plan.MigrationBackup == nil {
+	if view.migrationBackup == nil {
 		return MigrationBackupOverride{}, errors.New("executable plan has no migration backup requirement")
 	}
-	binding := plan.Operation.Binding
+	binding := view.operation.Binding
 	override := MigrationBackupOverride{
 		SchemaVersion: MigrationBackupOverrideSchemaVersion,
-		PlanDigest:    plan.PlanDigest, OperationDigest: plan.Operation.PlanDigest,
+		PlanDigest:    view.digest, OperationDigest: view.operation.PlanDigest,
 		Application: binding.Application, Environment: binding.Environment, Server: binding.Server,
-		Resources:           append([]MigrationBackupResource(nil), plan.MigrationBackup.Resources...),
-		RequiredKeyMaterial: append([]string(nil), plan.MigrationBackup.RequiredKeyMaterial...),
+		Resources:           append([]MigrationBackupResource(nil), view.migrationBackup.Resources...),
+		RequiredKeyMaterial: append([]string(nil), view.migrationBackup.RequiredKeyMaterial...),
 		Operator:            strings.TrimSpace(operator), Reason: strings.TrimSpace(reason),
 		CreatedAt: now.UTC().Format(time.RFC3339Nano), Source: MigrationBackupOverrideSourceLocalCLI,
 	}
@@ -719,23 +776,21 @@ func (o MigrationBackupOverride) Validate() error {
 	return nil
 }
 
-func (o MigrationBackupOverride) ValidateForPlan(plan *DeployPlan, now time.Time) error {
-	if plan == nil {
-		return errors.New("migration backup override has no executable plan")
-	}
+func (o MigrationBackupOverride) ValidateForPlan(plan ExecutablePlan, now time.Time) error {
 	if err := o.Validate(); err != nil {
 		return err
 	}
-	if err := plan.Validate(); err != nil {
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
 		return fmt.Errorf("validate migration backup override plan: %w", err)
 	}
-	if plan.MigrationBackup == nil {
+	if view.migrationBackup == nil {
 		return errors.New("executable plan has no migration backup requirement")
 	}
-	binding := plan.Operation.Binding
+	binding := view.operation.Binding
 	checks := []struct{ name, got, want string }{
-		{"plan digest", o.PlanDigest, plan.PlanDigest},
-		{"operation digest", o.OperationDigest, plan.Operation.PlanDigest},
+		{"plan digest", o.PlanDigest, view.digest},
+		{"operation digest", o.OperationDigest, view.operation.PlanDigest},
 		{"application", o.Application, binding.Application},
 		{"environment", o.Environment, binding.Environment},
 		{"server", o.Server, binding.Server},
@@ -745,12 +800,12 @@ func (o MigrationBackupOverride) ValidateForPlan(plan *DeployPlan, now time.Time
 			return fmt.Errorf("migration backup override %s does not match the executable plan", check.name)
 		}
 	}
-	if !reflect.DeepEqual(o.Resources, plan.MigrationBackup.Resources) || !reflect.DeepEqual(o.RequiredKeyMaterial, plan.MigrationBackup.RequiredKeyMaterial) {
+	if !reflect.DeepEqual(o.Resources, view.migrationBackup.Resources) || !reflect.DeepEqual(o.RequiredKeyMaterial, view.migrationBackup.RequiredKeyMaterial) {
 		return errors.New("migration backup override protected resources do not match the executable plan")
 	}
 	createdAt, _ := parseOperationTime(o.CreatedAt, "created_at")
-	planCreatedAt, _ := parseOperationTime(plan.Operation.CreatedAt, "plan created_at")
-	planExpiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
+	planCreatedAt, _ := parseOperationTime(view.operation.CreatedAt, "plan created_at")
+	planExpiresAt, _ := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
 	if createdAt.Before(planCreatedAt) {
 		return errors.New("migration backup override predates the executable plan")
 	}
@@ -764,40 +819,55 @@ func (o MigrationBackupOverride) ValidateForPlan(plan *DeployPlan, now time.Time
 }
 
 func validateMigrationBackupForExecution(
-	plan *DeployPlan,
-	receipt *BackupEvidenceReceipt,
+	plan ExecutablePlan,
+	report *BackupReport,
 	override *MigrationBackupOverride,
 	approval *ApprovalGrant,
 	required bool,
 	now time.Time,
 ) (*journal.MigrationBackupEvidence, error) {
-	if receipt != nil && override != nil {
-		return nil, errors.New("supply either backup evidence or a migration backup override, not both")
+	view, err := inspectExecutablePlan(plan)
+	if err != nil {
+		return nil, fmt.Errorf("validate migration backup plan: %w", err)
 	}
-	if plan.MigrationBackup == nil {
-		if receipt != nil || override != nil {
-			return nil, errors.New("backup evidence or override was supplied for a plan with no migration backup requirement")
+	if report != nil && override != nil {
+		return nil, errors.New("supply either a backup report or a migration backup override, not both")
+	}
+	if view.migrationBackup == nil {
+		if report != nil || override != nil {
+			return nil, errors.New("a backup report or override was supplied for a plan with no migration backup requirement")
 		}
 		return nil, nil
 	}
-	if receipt == nil && override == nil {
+	if report == nil && override == nil {
 		if required {
-			return nil, errors.New("fresh backup evidence is required before migration; supply a plan-bound receipt or an explicitly approved override")
+			return nil, errors.New("a fresh backup report is required before migration; supply --backup-report or an explicitly approved override")
 		}
 		return nil, nil
 	}
-	resources := make([]string, len(plan.MigrationBackup.Resources))
-	for i, resource := range plan.MigrationBackup.Resources {
+	resources := make([]string, len(view.migrationBackup.Resources))
+	for i, resource := range view.migrationBackup.Resources {
 		resources[i] = resource.Component + "/" + resource.Service
 	}
-	if receipt != nil {
-		if err := receipt.ValidateForPlan(plan, now); err != nil {
+	if report != nil {
+		reportDigest, err := report.ComputeDigest()
+		if err != nil {
+			return nil, err
+		}
+		if approval == nil {
+			return nil, errors.New("backup report requires a local confirmation bound to the same report")
+		}
+		if approval.BackupReportDigest != reportDigest {
+			return nil, errors.New("backup report does not match the report bound into the local confirmation; confirm the current plan and report again")
+		}
+		receipt, err := newBackupReceipt(plan, *report, now)
+		if err != nil {
 			return nil, err
 		}
 		return &journal.MigrationBackupEvidence{
-			Mode: "receipt", ReceiptDigest: receipt.EvidenceDigest,
-			ProtectedResources: resources, ValidUntil: receipt.validUntil(plan).Format(time.RFC3339Nano),
-			RecordedBy: receipt.RecordedBy, RecordedAt: receipt.RecordedAt,
+			Mode: "receipt", ReceiptDigest: receipt.ReceiptDigest,
+			ProtectedResources: resources, ValidUntil: receipt.ValidUntil,
+			RecordedBy: report.ReportedBy, RecordedAt: receipt.RecordedAt,
 		}, nil
 	}
 	if approval == nil || approval.Approval != ApprovalStrong && approval.Approval != ApprovalBreakGlass {
@@ -809,7 +879,7 @@ func validateMigrationBackupForExecution(
 	if err := override.ValidateForPlan(plan, now); err != nil {
 		return nil, err
 	}
-	expiresAt, _ := parseOperationTime(plan.Operation.ExpiresAt, "plan expires_at")
+	expiresAt, _ := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
 	return &journal.MigrationBackupEvidence{
 		Mode: "override", OverrideDigest: override.OverrideDigest,
 		ProtectedResources: resources, ValidUntil: expiresAt.UTC().Format(time.RFC3339Nano),
@@ -824,49 +894,18 @@ func saveBackupArtifact(path, prefix string, value any) error {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, prefix)
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(encoded); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return writeDurableArtifact(path, prefix, encoded)
 }
 
-func (r BackupEvidenceReceipt) Save(path string) error {
-	if err := r.Validate(); err != nil {
-		return fmt.Errorf("validate backup evidence receipt: %w", err)
+func LoadBackupReport(path string) (*BackupReport, error) {
+	var report BackupReport
+	if err := loadBackupArtifact(path, &report); err != nil {
+		return nil, fmt.Errorf("load backup report: %w", err)
 	}
-	if err := saveBackupArtifact(path, ".backup-evidence-*", r); err != nil {
-		return fmt.Errorf("save backup evidence receipt: %w", err)
+	if err := report.Validate(); err != nil {
+		return nil, fmt.Errorf("validate backup report: %w", err)
 	}
-	return nil
-}
-
-func LoadBackupEvidenceReceipt(path string) (*BackupEvidenceReceipt, error) {
-	var receipt BackupEvidenceReceipt
-	if err := loadBackupArtifact(path, &receipt); err != nil {
-		return nil, fmt.Errorf("load backup evidence receipt: %w", err)
-	}
-	if err := receipt.Validate(); err != nil {
-		return nil, fmt.Errorf("validate backup evidence receipt: %w", err)
-	}
-	return &receipt, nil
+	return &report, nil
 }
 
 func (o MigrationBackupOverride) Save(path string) error {

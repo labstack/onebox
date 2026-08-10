@@ -24,15 +24,17 @@ The compact contract is:
 
 ## The ownership boundary
 
-> The user owns their application containers. Onebox owns everything else on the
-> box.
+> The user owns the host, application, and data. Onebox owns the operational
+> state and resources it explicitly manages.
 
-Host provisioning, the container runtime, the proxy, TLS, networks, release
-staging, supporting data services, backups, restore proof, pruning, and log
-rotation are not the user's application, and therefore not the user's problem.
+The user supplies one Linux host. Onebox owns its release state, locks, journals,
+generated runtime, and any host proxy or supporting services selected in the
+project. It does not silently claim infrastructure or protection it has not
+actually established.
 
-That sentence is the direction, not an inventory. Owned today: host bootstrap,
-the container runtime check, the proxy and its TLS, the shared network, release
+The broader managed-operations goal is direction, not an inventory. Owned today:
+host bootstrap, the container runtime check, the proxy and its TLS, the host
+ingress network, release
 staging and retention, the supporting data services and their credentials, and
 scheduled jobs. **Not owned today: backups, restore proof, and log rotation.**
 Onebox says so rather than implying otherwise — `ob doctor` reports the absence
@@ -82,10 +84,13 @@ did not exist, and maintaining two surfaces cost more than it bought.
 
 What replaces it is a CLI built to be operated by an agent:
 
-- Every command carries a versioned structured output mode.
-- Errors are typed, and carry the command that resolves them.
+- Every executable command has a closed output protocol; finite and streaming
+  machine records are versioned, while help and completion remain shell-native.
+- Errors are typed and distinguish diagnostic, workflow-next, and resolving
+  commands.
 - Results stay compact, with detail behind identifiers.
-- Mutations are idempotent under retry.
+- Lifecycle mutations are idempotent under retry. `exec` is explicitly an
+  arbitrary, reasoned, digest-audited escape hatch and makes no such claim.
 - Scaffolding writes the operating instructions into the repository, so an agent
   learns the tool from the project rather than from a protocol.
 
@@ -95,10 +100,15 @@ implementation of anything that matters.
 
 ## Approval is not model intent
 
-A statement that the user approved is data, not authority. Consequential
-execution requires a capability bound to the exact sealed plan, actor, target,
-observed state, expiry, and allowed attempt — and delivered out of band, so the
-actor requesting a change cannot mint the capability authorising it.
+A statement that the user approved is data, not authenticated authority. The
+shipped `ob approve` ceremony records a short-lived local human confirmation
+bound to the exact sealed plan, operator label, target, observed state, inputs,
+risk, and expiry. Its digest detects artifact modification; it does not prove
+identity or that the actor requesting the change was unable to create it.
+
+Independent approval would require a separate trust root, enrollment,
+revocation, and recovery contract. That provider is product direction, not a
+property of the current local artifact.
 
 Secrets enter through a trusted local or encrypted flow and never through
 ordinary model-visible arguments.
@@ -107,8 +117,9 @@ ordinary model-visible arguments.
 
 Application rollback, data recovery, and reversal of an external side effect are
 different operations with different guarantees. Onebox classifies risk and
-refuses when evidence or a driver contract is insufficient. A force flag cannot
-turn an unsupported operation into a safe one.
+refuses when evidence or a driver contract is insufficient. Exact overrides can
+break a stale lock or authorize a named exceptional path; none can turn an
+unsupported operation into a safe one.
 
 A customer with root can still bypass Onebox, and a compromised host can lie
 about its own evidence. Onebox does not claim universal reversibility, high

@@ -6,25 +6,22 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 )
 
 const rollbackUnavailableConsequence = "automatic rollback is unavailable after this step; if a later step fails, halt, fix-forward, then run `ob resume`"
 
-// gateSteps is the ordered set of jobs run at the pre-release gate: every
-// `jobs` service, plus an untyped `migrate` hook that isn't itself a job (some
-// configs ran the migrate hook whether or not migrate was classified a job).
+// gateSteps is the ordered set of declared jobs run at the pre-release gate.
+// Jobs assigned to the manual or post-release phases never enter this gate.
 func (e *Engine) gateSteps() []string {
-	steps := append([]string{}, e.Spec.JobOrder()...)
-	if h, ok := e.Spec.Hooks["migrate"]; ok && h.Run != "" {
-		for _, s := range steps {
-			if s == "migrate" {
-				return steps
-			}
-		}
-		steps = append(steps, "migrate")
-	}
+	return append([]string{}, e.Spec.JobOrderFor("pre_release")...)
+}
+
+func (e *Engine) deployJobSteps() []string {
+	steps := append([]string{}, e.gateSteps()...)
+	steps = append(steps, e.Spec.JobOrderFor("post_release")...)
 	return steps
 }
 
@@ -38,7 +35,14 @@ func (e *Engine) gateSteps() []string {
 // rollback-safe by operator declaration. expand-only covers migration jobs,
 // never unknown jobs or untyped lifecycle hooks.
 func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[string]bool, remoteDir, remoteCompose string) error {
-	steps := e.gateSteps()
+	return e.runJobPhase(ctx, jw, done, remoteDir, remoteCompose, "pre-release", e.gateSteps())
+}
+
+func (e *Engine) runPostReleaseJobs(ctx context.Context, jw *journal.Writer, done map[string]bool, remoteDir, remoteCompose string) error {
+	return e.runJobPhase(ctx, jw, done, remoteDir, remoteCompose, "post-release", e.Spec.JobOrderFor("post_release"))
+}
+
+func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[string]bool, remoteDir, remoteCompose, phase string, steps []string) error {
 	if len(steps) == 0 {
 		// Fresh deploys persist the safe baseline before transfer. Resumes keep
 		// the reconstructed aggregate unchanged, including fail-closed sparse
@@ -51,8 +55,8 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 	allCovered := e.rollbackCovered
 	for _, job := range steps {
 		key := "job:" + job
-		if done[key] || done["migrate"] { // "migrate" = pre-jobs journal key
-			if e.jobDataEffect(job) == "none" {
+		if done[key] {
+			if e.jobDataEffect(job) == app.DataEffectNone {
 				e.logf("%s: already complete (resume) — rollback-safe by data_effect=none declaration", key)
 			} else if e.gateOpen {
 				e.logf("%s: already complete (resume) — rollback-safe result recovered from journal", key)
@@ -63,7 +67,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 		}
 		policySafe := e.jobRollbackPolicySafe(job)
 		if err := jw.Append(ctx, journal.Record{
-			Phase: "pre-release", SubStep: key, Event: "intent",
+			Phase: phase, SubStep: key, Event: "intent",
 			RollbackPolicySafe: policySafe,
 		}); err != nil {
 			return fmt.Errorf("journal %s intent: %w", key, err)
@@ -76,7 +80,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 		st(err)
 		if err != nil {
 			journalErr := jw.Append(ctx, journal.Record{
-				Phase: "pre-release", SubStep: key, Event: "result", Status: "fail", Detail: err.Error(),
+				Phase: phase, SubStep: key, Event: "result", Status: "fail", Detail: err.Error(),
 				RollbackPolicySafe: policySafe,
 			})
 			if journalErr != nil {
@@ -91,7 +95,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 			allCovered = false
 		}
 		resultRecord := journal.Record{
-			Phase: "pre-release", SubStep: key, Event: "result", Status: "ok", Detail: detail,
+			Phase: phase, SubStep: key, Event: "result", Status: "ok", Detail: detail,
 			RollbackSafe: safe, RollbackPolicySafe: policySafe,
 		}
 		if evidence, ok := e.jobResults[job]; ok {
@@ -110,7 +114,7 @@ func (e *Engine) runJobs(ctx context.Context, jw *journal.Writer, done map[strin
 // runOneJob runs a single gate step and reports whether it declared itself
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
-	safeByDeclaration := e.jobDataEffect(job) == "none"
+	safeByDeclaration := e.jobDataEffect(job) == app.DataEffectNone
 	resultDir := remoteDir + "/.job-" + job + "-result"
 	resultFile := resultDir + "/result"
 	const containerResultFile = "/run/onebox/job-result"
@@ -203,7 +207,7 @@ func injectComposeJobResult(command, hostResultFile, containerResultFile string)
 
 func (e *Engine) unknownJobResult(job, reason string) (bool, string, error) {
 	detail := "changed=unknown (" + reason + "); " + rollbackUnavailableConsequence
-	if e.jobDataEffect(job) != "migration" {
+	if e.jobDataEffect(job) != app.DataEffectMigration {
 		return false, detail, nil
 	}
 	strongApproval := e.Opts.AllowUnknownMigration && e.Opts.ApprovalDigest != "" &&
@@ -244,49 +248,26 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	case !e.rollbackCovered:
 		return fmt.Errorf("verify: %w — HALT-AND-PAGE: a job or lifecycle hook has rollback-unknown data effects not covered by a safe result or migration_policy. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --break-migration-gate`", verr)
 	}
-	replay, err := e.engineFromReleaseSnapshot(ctx, prev)
-	if err != nil {
-		return fmt.Errorf("verify: %w — automatic rollback refused: %v; release NOT activated", verr, err)
-	}
-	replay.fenceVal = e.fenceVal
 	e.logf("verify failed — auto-rollback to %s (gate open: effects declared safe, changed=false, or expand-only migrations)", prev)
-	if err := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "intent", Detail: "to=" + prev}); err != nil {
-		return errors.Join(verr, fmt.Errorf("journal auto-rollback intent: %w", err))
-	}
-	if err := e.removeNewcomers(ctx, releaseID); err != nil {
-		rollbackErr := fmt.Errorf("verify failed (%v) AND auto-rollback could not remove new containers: %w", verr, err)
-		if journalErr := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
-			return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", journalErr))
-		}
-		return rollbackErr
-	}
-	prevCompose := release.PathsFor(e.names()).Releases + "/" + prev + "/compose.yaml"
-	if err := replay.releaseRoles(ctx, prevCompose); err != nil {
-		rollbackErr := fmt.Errorf("verify failed (%v) AND auto-rollback failed: %w — intervene manually", verr, err)
-		if journalErr := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
-			return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", journalErr))
-		}
-		return rollbackErr
-	}
-	if err := replay.Verify(ctx); err != nil {
-		rollbackErr := fmt.Errorf("verify failed (%v) AND the rolled-back release also fails verify: %w — intervene manually", verr, err)
-		if journalErr := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
-			return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", journalErr))
-		}
-		return rollbackErr
+	if err := e.recoverInterrupted(ctx, recoveryRequest{
+		InterruptedID: releaseID,
+		PreviousID:    prev,
+		TerminalState: release.StateFailed,
+		GateCovered:   e.rollbackCovered,
+		Phase:         "auto-rollback",
+		Journal:       jw,
+	}); err != nil {
+		return fmt.Errorf("verify failed (%v) AND automatic rollback recovery failed: %w", verr, err)
 	}
 	rollbackErr := fmt.Errorf("verify: %w — auto-rolled back to %s (healthy); new release NOT activated", verr, prev)
-	if err := jw.Append(ctx, journal.Record{Phase: "auto-rollback", Event: "result", Status: "ok"}); err != nil {
-		return errors.Join(rollbackErr, fmt.Errorf("journal auto-rollback result: %w", err))
-	}
 	return rollbackErr
 }
 
-func (e *Engine) jobDataEffect(job string) string {
+func (e *Engine) jobDataEffect(job string) app.DataEffect {
 	if w, ok := e.Spec.Workloads[job]; ok && w.IsJob() && w.DataEffect != "" {
 		return w.DataEffect
 	}
-	return "unknown"
+	return app.DataEffectUnknown
 }
 
 func (e *Engine) jobRollbackPolicySafe(service string) bool {

@@ -27,11 +27,44 @@ type foreignExitError struct{ code int }
 func (err foreignExitError) Error() string { return "foreign command failed" }
 func (err foreignExitError) ExitCode() int { return err.code }
 
+type failingOutputWriter struct{ err error }
+
+func (writer failingOutputWriter) Write([]byte) (int, error) { return 0, writer.err }
+
 func TestWithExitCodeDoesNotTrustForeignExitCodeMethods(t *testing.T) {
 	err := withExitCode(foreignExitError{code: 17}, 2)
 	var cliErr *cliExitError
 	if !errors.As(err, &cliErr) || cliErr.ExitCode() != 2 {
 		t.Fatalf("wrapped error = %T %v", err, err)
+	}
+}
+
+func TestStructuredFailurePreservesCommandAndOutputErrors(t *testing.T) {
+	commandErr := errors.New("original operation failure")
+	outputErr := errors.New("output sink failed")
+	cmd := &cobra.Command{}
+	cmd.SetOut(failingOutputWriter{err: outputErr})
+	err := writeStructuredCommandFailure(cmd, &globalFlags{Output: "json"}, "operation_failed", "operation failed", commandErr)
+	if !errors.Is(err, commandErr) || !errors.Is(err, outputErr) {
+		t.Fatalf("joined error = %v", err)
+	}
+	var exitErr *cliExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("joined failure lost exit code: %v", err)
+	}
+}
+
+func TestStructuredCancellationPreservesOutputErrorAndExitCode(t *testing.T) {
+	outputErr := errors.New("output sink failed")
+	cmd := &cobra.Command{}
+	cmd.SetOut(failingOutputWriter{err: outputErr})
+	err := writeCancelled(cmd, &globalFlags{Output: "json"}, "operator cancelled")
+	if !errors.Is(err, outputErr) || !strings.Contains(err.Error(), "operator cancelled") {
+		t.Fatalf("joined cancellation = %v", err)
+	}
+	var exitErr *cliExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("joined cancellation lost exit code: %v", err)
 	}
 }
 

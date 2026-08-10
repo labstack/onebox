@@ -152,7 +152,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "push",
 		Short: "re-render secrets into the live release and restart workloads if changed",
 		Long: "Render the complete decrypted secret graph into the current release on the host and\n" +
-			"restart the workloads that read changed values.\n\n" +
+			"replace every workload that reads the declared secret graph when any value changes.\n\n" +
 			"The payload is uploaded and compared on the host even for a no-op; unchanged values do\n" +
 			"not replace or restart workloads. Refused when secret declarations differ from the\n" +
 			"deployed release, or when that release predates opaque secret generations. In either\n" +

@@ -303,6 +303,8 @@ type ExecuteRequest struct {
 	Events                  EventSink
 }
 
+// Validate rejects ambiguous plans, mismatched operation kinds, and safety or
+// authority fields that the selected operation does not consume.
 func (request ExecuteRequest) Validate() error {
 	if request.Plan != nil && request.JobPlan != nil {
 		return errors.New("execution request cannot contain both deploy and job plans")

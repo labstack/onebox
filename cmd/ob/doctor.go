@@ -147,7 +147,7 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check local runner provenance and deployment safety capabilities",
-		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that has no backup — Onebox does not take backups, and silence\nthere would read as approval.",
+		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that has no backup — Onebox does not take backups, and silence\nthere would read as approval. In structured output, automation should gate on\nthe report status: data.status for pass or warn, and error.details.status for\na failing diagnosis.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())

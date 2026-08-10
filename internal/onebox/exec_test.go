@@ -122,7 +122,7 @@ func TestExecLocksFencesAndJournalsTheExactContainer(t *testing.T) {
 				return transport.Result{Stdout: "shop\n"}, true
 			case strings.Contains(command, "docker ps -q"):
 				return transport.Result{Stdout: "bbbbbbbbbbbb\naaaaaaaaaaaa\n"}, true
-			case strings.HasPrefix(command, "docker exec aaaaaaaaaaaa "):
+			case strings.Contains(command, "docker exec aaaaaaaaaaaa "):
 				return transport.Result{Stdout: "done\n"}, true
 			default:
 				return transport.Result{}, false
@@ -145,7 +145,7 @@ func TestExecLocksFencesAndJournalsTheExactContainer(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 	commands := strings.Join(fake.Commands, "\n")
-	for _, required := range []string{"/lock", "/fence", "docker exec aaaaaaaaaaaa"} {
+	for _, required := range []string{"/lock", "/fence", "then docker exec aaaaaaaaaaaa"} {
 		if !strings.Contains(commands, required) {
 			t.Fatalf("exec omitted %s:\n%s", required, commands)
 		}
@@ -179,7 +179,7 @@ func TestExecClassifiesCancellation(t *testing.T) {
 			}
 		},
 		Err: func(command string) error {
-			if strings.HasPrefix(command, "docker exec aaaaaaaaaaaa ") {
+			if strings.Contains(command, "docker exec aaaaaaaaaaaa ") {
 				return context.Canceled
 			}
 			return nil

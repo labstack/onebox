@@ -8,6 +8,8 @@ import (
 	"github.com/labstack/onebox/internal/proxy"
 )
 
+// HostOwnerMismatchError reports an attempt by one application to mutate a
+// host claimed by another application.
 type HostOwnerMismatchError struct {
 	Requesting string
 	Owner      string

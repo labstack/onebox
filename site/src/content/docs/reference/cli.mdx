@@ -276,7 +276,9 @@ Check this runner and the safety capabilities of the environment it targets.
 Reports the runner's provenance and whether it satisfies the environment's
 minimum version and plan schema, and names every workload and service holding
 durable data that has no backup — Onebox does not take backups, and silence
-there would read as approval.
+there would read as approval. In structured output, automation should gate on
+the report status: data.status for pass or warn, and error.details.status for
+a failing diagnosis.
 
 Usage:
   ob doctor [flags]
@@ -750,7 +752,7 @@ Global Flags:
 
 ```
 Render the complete decrypted secret graph into the current release on the host and
-restart the workloads that read changed values.
+replace every workload that reads the declared secret graph when any value changes.
 
 The payload is uploaded and compared on the host even for a no-op; unchanged values do
 not replace or restart workloads. Refused when secret declarations differ from the

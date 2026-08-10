@@ -541,8 +541,15 @@ func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteReque
 	result, err := operationsService(cmd, g).Execute(cmd.Context(), request)
 	notifyOperationOutcome(cfg, g, verb, result, err)
 	if structured != nil {
-		if outputErr := structured.finish(&result, err); outputErr != nil && err == nil {
-			return outputErr
+		if outputErr := structured.finish(&result, err); outputErr != nil {
+			if err == nil {
+				return outputErr
+			}
+			exitCode := 1
+			if errors.Is(err, context.Canceled) {
+				exitCode = 2
+			}
+			return errors.Join(withExitCode(err, exitCode), fmt.Errorf("write structured operation result: %w", outputErr))
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) {

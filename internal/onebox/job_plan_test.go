@@ -207,15 +207,56 @@ func TestExecuteJobRejectsTamperedPlanBeforeReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectsAfterPlan := connects
-	plan.Artifact.Job = "other"
-	now = now.Add(2 * time.Minute)
-	_, err = service.Execute(context.Background(), ExecuteRequest{Kind: KindJobRun, JobPlan: &plan, Approval: &approval})
-	if err == nil || !strings.Contains(err.Error(), "job operation step does not match") {
-		t.Fatalf("tampered job plan was accepted: %v", err)
+	requirement := *backupEvidenceTestPlan(t, now).MigrationBackup
+	resealOperation := func(t *testing.T, candidate *JobPlan) {
+		t.Helper()
+		if err := candidate.Operation.Seal(); err != nil {
+			t.Fatalf("reseal operation fixture: %v", err)
+		}
 	}
-	if connects != connectsAfterPlan {
-		t.Fatalf("tampered plan reconnected: before=%d after=%d", connectsAfterPlan, connects)
+	tests := []struct {
+		name   string
+		want   string
+		mutate func(*testing.T, *JobPlan)
+	}{
+		{name: "job schema", want: "schema_version", mutate: func(_ *testing.T, p *JobPlan) { p.SchemaVersion = "future" }},
+		{name: "runner version", want: "runner: version is required", mutate: func(_ *testing.T, p *JobPlan) { p.Runner.Version = "" }},
+		{name: "runner schema", want: "does not declare support", mutate: func(_ *testing.T, p *JobPlan) { p.Runner.SupportedExecutablePlanSchemas = nil }},
+		{name: "operation content", want: "operation:", mutate: func(_ *testing.T, p *JobPlan) { p.Operation.SchemaVersion = "future" }},
+		{name: "operation digest", want: "operation: plan digest mismatch", mutate: func(_ *testing.T, p *JobPlan) { p.Operation.PlanDigest = "sha256:tampered" }},
+		{name: "operation kind", want: "operation kind", mutate: func(t *testing.T, p *JobPlan) { p.Operation.Kind = KindDeploy; resealOperation(t, p) }},
+		{name: "artifact authority", want: "artifact authority", mutate: func(_ *testing.T, p *JobPlan) { p.Artifact.Application = "other" }},
+		{name: "current release", want: "current release", mutate: func(_ *testing.T, p *JobPlan) { p.Artifact.CurrentRelease = "R1" }},
+		{name: "runtime digest", want: "runtime digest", mutate: func(_ *testing.T, p *JobPlan) { p.Artifact.RuntimeDigest = "sha256:" + strings.Repeat("cd", 32) }},
+		{name: "mutable image", want: "digest-pinned image", mutate: func(_ *testing.T, p *JobPlan) { p.Artifact.Image = "ghcr.io/example/maintenance:latest" }},
+		{name: "step count", want: "exactly one step", mutate: func(t *testing.T, p *JobPlan) {
+			p.Operation.Steps = append(p.Operation.Steps, OperationStep{ID: "verify", Kind: StepVerify, DependsOn: []string{p.Operation.Steps[0].ID}, DataEffect: DataEffectNone})
+			resealOperation(t, p)
+		}},
+		{name: "step binding", want: "step does not match", mutate: func(_ *testing.T, p *JobPlan) { p.Artifact.Job = "other" }},
+		{name: "artifact state digest", want: "artifact digest", mutate: func(t *testing.T, p *JobPlan) {
+			p.Operation.Binding.StateDigest = "sha256:" + strings.Repeat("ef", 32)
+			resealOperation(t, p)
+		}},
+		{name: "backup on non-migration", want: "non-migration job", mutate: func(_ *testing.T, p *JobPlan) { p.MigrationBackup = &requirement }},
+		{name: "outer plan digest", want: "executable job plan digest mismatch", mutate: func(_ *testing.T, p *JobPlan) { p.Runner.VCSRevision = "tampered" }},
+	}
+	connectsAfterPlan := connects
+	now = now.Add(2 * time.Minute)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := plan
+			candidate.Runner.SupportedExecutablePlanSchemas = append([]string(nil), plan.Runner.SupportedExecutablePlanSchemas...)
+			candidate.Operation.Steps = append([]OperationStep(nil), plan.Operation.Steps...)
+			test.mutate(t, &candidate)
+			_, executeErr := service.Execute(context.Background(), ExecuteRequest{Kind: KindJobRun, JobPlan: &candidate, Approval: &approval})
+			if executeErr == nil || !strings.Contains(executeErr.Error(), test.want) {
+				t.Fatalf("tampered job plan error = %v, want %q", executeErr, test.want)
+			}
+			if connects != connectsAfterPlan {
+				t.Fatalf("tampered plan reconnected: before=%d after=%d", connectsAfterPlan, connects)
+			}
+		})
 	}
 }
 

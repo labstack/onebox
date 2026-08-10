@@ -55,6 +55,9 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		if err != nil {
 			return err
 		}
+		if ids.ExitCode != 0 {
+			return fmt.Errorf("list application containers failed (exit %d): %s", ids.ExitCode, strings.TrimSpace(ids.Stderr))
+		}
 		for _, id := range strings.Fields(ids.Stdout) {
 			if validID.MatchString(id) {
 				// Fail closed, exactly as the service sweep does. Warning and
@@ -75,6 +78,9 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			res, err := e.T.Run(ctx, "docker volume ls -q --filter label=com.docker.compose.project="+q(e.Spec.Name))
 			if err != nil {
 				return err
+			}
+			if res.ExitCode != 0 {
+				return fmt.Errorf("list application volumes failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
 			var vols []string
 			for _, v := range strings.Fields(res.Stdout) {
@@ -294,6 +300,8 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 	if err := e.WriteFence(ctx, operationID, epoch); err != nil {
 		return "", err
 	}
+	stopHeartbeat := e.StartHeartbeat(ctx)
+	defer stopHeartbeat()
 	project := e.Spec.Name
 	if target.Kind == RuntimeTargetService {
 		project = e.names().ServiceProject(name)
@@ -340,7 +348,7 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 			err = errors.Join(err, fmt.Errorf("journal exec finish: %w", journalErr))
 		}
 	}()
-	err = e.T.RunStream(ctx, "docker exec "+containerID+" sh -c "+q(command), stdout, stderr)
+	err = e.mutateStream(ctx, "docker exec "+containerID+" sh -c "+q(command), stdout, stderr)
 	return containerID, err
 }
 

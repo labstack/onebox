@@ -222,10 +222,10 @@ func writeStructuredReadFailure(cmd *cobra.Command, g *globalFlags, commandErr e
 	if g.Output == "ndjson" {
 		stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
 		if err := stream.terminal(cliOutcomeError, nil, publicErr); err != nil {
-			return err
+			return errors.Join(withExitCode(explained, 1), fmt.Errorf("write structured failure: %w", err))
 		}
 	} else if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
-		return err
+		return errors.Join(withExitCode(explained, 1), fmt.Errorf("write structured failure: %w", err))
 	}
 	return withExitCode(explained, 1)
 }
@@ -238,10 +238,10 @@ func writeStructuredCommandFailure(cmd *cobra.Command, g *globalFlags, code, mes
 	if g.Output == "ndjson" {
 		stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
 		if err := stream.terminal(cliOutcomeError, nil, publicErr); err != nil {
-			return err
+			return errors.Join(withExitCode(commandErr, 1), fmt.Errorf("write structured failure: %w", err))
 		}
 	} else if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
-		return err
+		return errors.Join(withExitCode(commandErr, 1), fmt.Errorf("write structured failure: %w", err))
 	}
 	return withExitCode(commandErr, 1)
 }
@@ -251,7 +251,11 @@ func writeEarlyOperationFailure(cmd *cobra.Command, g *globalFlags, operationErr
 		return operationErr
 	}
 	if err := newCLIOperationOutput(cmd, g).finish(nil, operationErr); err != nil {
-		return err
+		exitCode := 1
+		if errors.Is(operationErr, context.Canceled) {
+			exitCode = 2
+		}
+		return errors.Join(withExitCode(operationErr, exitCode), fmt.Errorf("write structured failure: %w", err))
 	}
 	if errors.Is(operationErr, context.Canceled) {
 		return withExitCode(operationErr, 2)
@@ -264,17 +268,18 @@ func writeCancelled(cmd *cobra.Command, g *globalFlags, message string) error {
 		message = "operation cancelled"
 	}
 	publicErr := &cliPublicError{Code: "cancelled", SafeMessage: message}
+	cancelled := withExitCode(errors.New(message), 2)
 	if isStructuredOutput(g) {
 		if g.Output == "ndjson" {
 			stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
 			if err := stream.terminal(cliOutcomeCancelled, nil, publicErr); err != nil {
-				return err
+				return errors.Join(cancelled, fmt.Errorf("write structured cancellation: %w", err))
 			}
 		} else if err := writeFiniteOutcome(cmd, g, cliOutcomeCancelled, nil, publicErr); err != nil {
-			return err
+			return errors.Join(cancelled, fmt.Errorf("write structured cancellation: %w", err))
 		}
 	}
-	return withExitCode(errors.New(message), 2)
+	return cancelled
 }
 
 func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPublicError {

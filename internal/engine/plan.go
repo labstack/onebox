@@ -296,7 +296,7 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 // host: per-file sha256 lines, bytewise-sorted, hashed together.
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
 	dir := release.PathsFor(e.names()).Releases + "/" + releaseID
-	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -path './.job-*-result/*' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
+	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -path './.job-*-result' ! -path './.job-*-result/*' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return "", err

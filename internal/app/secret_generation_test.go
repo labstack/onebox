@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestSecretGenerationValidatorIsStrict(t *testing.T) {
+	valid := "sg-0123456789abcdef01234567"
+	if !IsSecretGeneration(valid) {
+		t.Fatalf("canonical generation %q was rejected", valid)
+	}
+	for _, invalid := range []string{
+		"", "sg-0123456789abcdef0123456", "sg-0123456789abcdef012345678",
+		"sg-0123456789ABCDEF01234567", "sg-0123456789abcdef0123456g",
+		"../" + valid, valid + "/child", "generation-0123456789abcdef01234567",
+	} {
+		t.Run(invalid, func(t *testing.T) {
+			if IsSecretGeneration(invalid) {
+				t.Fatalf("invalid generation %q was accepted", invalid)
+			}
+			if _, err := ApplySecretGeneration([]byte("services: {}\n"), nil, invalid); err == nil {
+				t.Fatalf("runtime rewrite accepted invalid generation %q", invalid)
+			}
+		})
+	}
+}
+
 func TestApplySecretGenerationChangesOnlyAffectedSecretBindings(t *testing.T) {
 	input := []byte(`services:
   web:

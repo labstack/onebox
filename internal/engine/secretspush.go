@@ -42,6 +42,8 @@ func (err *SecretRecoveryIncompleteError) Error() string {
 func (err *SecretRecoveryIncompleteError) Unwrap() error { return err.Cause }
 func (err *SecretRecoveryIncompleteError) Code() string  { return "secret_recovery_incomplete" }
 
+// SecretRotationRolledBackError reports that an interrupted rotation was
+// restored to its prior generation and the requested payload was not applied.
 type SecretRotationRolledBackError struct{ ReleaseID string }
 
 func (err *SecretRotationRolledBackError) Error() string {
@@ -180,6 +182,12 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 	if !release.IsSecretGeneration(oldGeneration) {
 		return result, fmt.Errorf("current runtime secret generation %q is invalid", oldGeneration)
 	}
+	// A crash after candidate installation but before checkpoint publication can
+	// leave plaintext outside recovery's durable graph. With no checkpoint, the
+	// committed runtime's generation is the only one that may survive.
+	if err := runtimeEngine.cleanupOrphanSecretGenerations(ctx, current, oldGeneration); err != nil {
+		return result, err
+	}
 	newGeneration, err := runtimeEngine.freshSecretGeneration(oldGeneration)
 	if err != nil {
 		return result, err
@@ -224,7 +232,8 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 		return result, err
 	}
 	if err := runtimeEngine.writeSecretCheckpoint(ctx, checkpoint); err != nil {
-		return result, err
+		cleanupErr := runtimeEngine.removeSecretGeneration(ctx, current, newGeneration)
+		return result, errors.Join(err, cleanupErr)
 	}
 
 	if err = runtimeEngine.advanceSecretGeneration(ctx, &checkpoint); err == nil {
@@ -568,6 +577,22 @@ func (e *Engine) removeSecretGeneration(ctx context.Context, releaseID, generati
 		return err
 	}
 	return e.mutateChecked(ctx, "remove retired secret generation", "rm -rf "+q(generationDir))
+}
+
+func (e *Engine) cleanupOrphanSecretGenerations(ctx context.Context, releaseID string, keep ...string) error {
+	if !release.IsID(releaseID) {
+		return errors.New("refusing to sweep secret generations for an invalid release")
+	}
+	root := release.PathsFor(e.names()).Releases + "/" + releaseID + "/" + app.SecretGenerationDirectory
+	command := "if [ -d " + q(root) + " ]; then find " + q(root) + " -mindepth 1 -maxdepth 1 -type d"
+	for _, generation := range keep {
+		if !release.IsSecretGeneration(generation) {
+			return fmt.Errorf("refusing to preserve invalid secret generation %q", generation)
+		}
+		command += " ! -name " + q(generation)
+	}
+	command += " -exec rm -rf -- {} +; fi"
+	return e.mutateChecked(ctx, "clean orphaned secret generations", command)
 }
 
 func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.SecretCheckpoint, workload, generation string) error {

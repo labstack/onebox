@@ -659,9 +659,9 @@ func TestExecuteNoOpEmitsOrderedEvidenceWithoutMutation(t *testing.T) {
 	want := []string{
 		"operation:running",
 		"binding:running",
-		"binding:success",
+		"binding:running",
 		"stage:running",
-		"stage:success",
+		"stage:running",
 		"operation:no_op",
 	}
 	got := make([]string, len(events))
@@ -826,19 +826,6 @@ func TestExecuteRequestRejectsIrrelevantAuthorityAndSafetyFields(t *testing.T) {
 				t.Fatalf("invalid execution request was accepted: %+v", test.request)
 			}
 		})
-	}
-}
-
-func TestNormalizeOperationStatusKeepsPublicVocabularyClosed(t *testing.T) {
-	for input, want := range map[string]OperationStatus{
-		"started": OperationStatusRunning, "running": OperationStatusRunning,
-		"evidence_recorded": OperationStatusRunning, "succeeded": OperationStatusSuccess,
-		"success": OperationStatusSuccess, "failed": OperationStatusError, "error": OperationStatusError,
-		"no_op": OperationStatusNoOp, "cancelled": OperationStatusCancelled,
-	} {
-		if got := normalizeOperationStatus(input); got != want {
-			t.Fatalf("normalize %q = %q, want %q", input, got, want)
-		}
 	}
 }
 

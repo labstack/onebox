@@ -207,6 +207,10 @@ func TestSecretGenerationChangedCommitsAllNewWithoutLeakingContent(t *testing.T)
 	if strings.Count(commands, "--force-recreate") < 2 || !strings.Contains(commands, newSecretGeneration+"/compose.yaml") {
 		t.Fatalf("generation-wide force replacement was not proved:\n%s", commands)
 	}
+	if !strings.Contains(commands, "clean orphaned secret generations") &&
+		(!strings.Contains(commands, "-mindepth 1 -maxdepth 1 -type d") || !strings.Contains(commands, "! -name '"+oldSecretGeneration+"'")) {
+		t.Fatalf("pre-checkpoint orphan generations were not swept:\n%s", commands)
+	}
 	allEvidence := commands + "\n" + strings.Join(fake.Inputs, "\n") + "\n" + output.String()
 	for _, forbidden := range []string{"TOP_SECRET_NEW", "sha256:", HashBytesHex([]byte("WEB=TOP_SECRET_NEW\n"))} {
 		if strings.Contains(allEvidence, forbidden) {
@@ -272,6 +276,28 @@ func TestSecretGenerationJournalFailurePrecedesCandidateOrLiveMutation(t *testin
 		if strings.Contains(commands, forbidden) {
 			t.Fatalf("journal failure crossed mutation boundary %q:\n%s", forbidden, commands)
 		}
+	}
+}
+
+func TestSecretGenerationCheckpointFailureRemovesInstalledCandidate(t *testing.T) {
+	fake, _ := newGenerationFake(t, false)
+	base := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "/secret-activation.json.tmp") {
+			return transport.Result{ExitCode: 74, Stderr: "injected checkpoint failure"}, true
+		}
+		return base(command)
+	}
+	engine := generationEngine(t, fake, &bytes.Buffer{})
+	_, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+	if err == nil || !strings.Contains(err.Error(), "write secret checkpoint failed") {
+		t.Fatalf("checkpoint failure = %v", err)
+	}
+	commands := strings.Join(fake.Commands, "\n")
+	installed := strings.Index(commands, "cp -R")
+	removed := strings.LastIndex(commands, "rm -rf '/srv/onebox/shop/releases/20260809-120000-current/.ob-secret-generations/"+newSecretGeneration+"'")
+	if installed < 0 || removed <= installed {
+		t.Fatalf("installed plaintext candidate survived checkpoint failure:\n%s", commands)
 	}
 }
 

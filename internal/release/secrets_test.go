@@ -81,6 +81,9 @@ func TestSecretCheckpointTransitionsAreOrderedAndTransactional(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := checkpoint
+	before.AffectedWorkloads = append([]string(nil), checkpoint.AffectedWorkloads...)
+	before.PayloadPaths = append([]string(nil), checkpoint.PayloadPaths...)
+	before.ReplacedWorkloads = append([]string(nil), checkpoint.ReplacedWorkloads...)
 	if err := checkpoint.SetPhase(SecretVerifying, at.Add(time.Second)); err == nil {
 		t.Fatal("checkpoint skipped the replacing phase")
 	}
@@ -94,6 +97,9 @@ func TestSecretCheckpointTransitionsAreOrderedAndTransactional(t *testing.T) {
 		t.Fatal(err)
 	}
 	before = checkpoint
+	before.AffectedWorkloads = append([]string(nil), checkpoint.AffectedWorkloads...)
+	before.PayloadPaths = append([]string(nil), checkpoint.PayloadPaths...)
+	before.ReplacedWorkloads = append([]string(nil), checkpoint.ReplacedWorkloads...)
 	if err := checkpoint.MarkReplaced("web", at.Add(3*time.Second)); err == nil {
 		t.Fatal("replacement rewound a verifying checkpoint")
 	}

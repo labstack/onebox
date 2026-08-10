@@ -17,9 +17,10 @@ import (
 // across runner attempts — same noclobber + TTL + holder-JSON
 // protocol as the app lock, at _host/lock. No epoch and no fence: proxy
 // converge is one short idempotent critical section, not a resumable
-// multi-phase deploy. No deadlock with app locks is possible: every acquirer
-// holds either the host lock alone (proxy apply) or its OWN app lock first
-// (bootstrap, destroy) — two apps never contend on an app lock, so no cycle.
+// multi-phase deploy. The one-application-per-host contract means the sole app
+// lock cannot participate in a cross-application cycle. claimHostOwner acquires
+// only the host lock; bootstrap and destroy acquire the app lock before the host
+// lock, and proxy apply acquires only the host lock.
 func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 	e.hostLockVal = ""
 	e.hostLockToken = ""

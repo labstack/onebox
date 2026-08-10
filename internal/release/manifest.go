@@ -13,8 +13,13 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+// ManifestKind distinguishes application releases from bootstrap snapshots.
 type ManifestKind string
+
+// State is the durable lifecycle state of a release manifest.
 type State string
+
+// OperationOutcome records the terminal result independently from release state.
 type OperationOutcome string
 
 const (

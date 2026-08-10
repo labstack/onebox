@@ -136,10 +136,10 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	if r.ConfigHash == "" {
 		r.ConfigHash = w.ConfigHash
 	}
-	// Durable authorization context belongs on the deploy start (so a crash
-	// before the first protected step remains resumable) and on the explicit
-	// migration-backup authorization decision. Avoid copying operator-provided fields onto every
-	// journal line.
+	// Durable authorization context belongs on deploy and manual-job starts (so
+	// a crash before the first protected step remains resumable) and on the
+	// explicit migration-backup authorization decision. Avoid copying
+	// operator-provided fields onto every journal line.
 	authorizationRecord := (r.Phase == "deploy" || r.Phase == "job") && r.Event == "start" || r.SubStep == MigrationBackupSubStep
 	if authorizationRecord {
 		if r.ApprovalDigest == "" {

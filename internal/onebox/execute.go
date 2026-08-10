@@ -49,7 +49,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.ID = s.newOperationID(started, gitShortSHA(ctx, filepath.Dir(s.configPath)), identityKind)
 	}
 	sequence := 0
-	emit := func(phase, status, message string) {
+	emitCanonical := func(phase string, status OperationStatus, message string) {
 		if request.Events == nil {
 			return
 		}
@@ -58,9 +58,14 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			SchemaVersion: OperationEventSchemaVersion,
 			OperationID:   result.ID, EvidenceID: result.EvidenceID, Sequence: sequence,
 			Time: s.now().UTC().Format(time.RFC3339Nano), Kind: request.Kind,
-			Phase: phase, Status: normalizeOperationStatus(status), Message: message,
+			Phase: phase, Status: status, Message: message,
 			Runner: s.runner,
 		})
+	}
+	// Engine progress strings are an internal vocabulary. Public non-terminal
+	// records always use running; only finish below can emit a terminal status.
+	emitProgress := func(phase, _ string, message string) {
+		emitCanonical(phase, OperationStatusRunning, message)
 	}
 	finish := func(err error) (OperationResult, error) {
 		result.FinishedAt = s.now().UTC().Format(time.RFC3339Nano)
@@ -68,7 +73,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			result.Status = OperationStatusError
 			// Detailed engine errors remain on the trusted local return path and in
 			// journals. Structured events are safe for future MCP/dashboard sinks.
-			emit("operation", string(OperationStatusError), "operation failed; inspect local output and journal evidence")
+			emitCanonical("operation", OperationStatusError, "operation failed; inspect local output and journal evidence")
 			return result, err
 		}
 		if result.NoOp {
@@ -76,7 +81,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		} else {
 			result.Status = OperationStatusSuccess
 		}
-		emit("operation", string(result.Status), "")
+		emitCanonical("operation", result.Status, "")
 		return result, nil
 	}
 	if err := request.Validate(); err != nil {
@@ -98,8 +103,8 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			return finish(errors.New("deploy requires an executable plan"))
 		}
 		result.ReleaseID = request.Plan.Operation.ReleaseID
-		emit("operation", "started", "")
-		noOp, err := s.executeDeploy(ctx, request, emit, func() {
+		emitProgress("operation", "started", "")
+		noOp, err := s.executeDeploy(ctx, request, emitProgress, func() {
 			result.EvidenceID = request.Plan.Operation.ReleaseID
 		})
 		result.NoOp = noOp
@@ -110,8 +115,8 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			return finish(errors.New("job run requires an executable job plan"))
 		}
 		result.ReleaseID = request.JobPlan.Operation.ReleaseID
-		emit("operation", "started", "")
-		evidenceID, jobResult, jobErr := s.executeJob(ctx, request, emit)
+		emitProgress("operation", "started", "")
+		evidenceID, jobResult, jobErr := s.executeJob(ctx, request, emitProgress)
 		result.EvidenceID = evidenceID
 		result.JobResult = jobResult
 		return finish(jobErr)
@@ -136,18 +141,18 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		return finish(err)
 	}
 	operationID := result.ID
-	emit("operation", "started", "")
+	emitProgress("operation", "started", "")
 	e, cleanup, _, err := s.engineWith(ctx, lp, s.environment, func(options *engine.Options) {
 		options.ForceLock = request.BreakLock
 		options.NoRollback = request.NoRollback
-		options.Progress = emit
+		options.Progress = emitProgress
 	})
 	if err != nil {
 		return finish(fmt.Errorf("connect target: %w", err))
 	}
 	defer cleanup()
 
-	emit("execute", "started", "")
+	emitProgress("execute", "started", "")
 	switch request.Kind {
 	case KindResume:
 		result.EvidenceID, err = e.ResumeWithJournalID(ctx)
@@ -229,26 +234,9 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		err = e.Destroy(ctx, request.RemoveVolumes, request.RemoveProxy)
 	}
 	if err == nil {
-		emit("execute", "succeeded", "")
+		emitProgress("execute", "succeeded", "")
 	}
 	return finish(err)
-}
-
-func normalizeOperationStatus(status string) OperationStatus {
-	switch status {
-	case "started", "running":
-		return OperationStatusRunning
-	case "succeeded", "success":
-		return OperationStatusSuccess
-	case "failed", "error":
-		return OperationStatusError
-	case "no_op":
-		return OperationStatusNoOp
-	case "cancelled":
-		return OperationStatusCancelled
-	default:
-		return OperationStatusRunning
-	}
 }
 
 func (s *Service) executeDeploy(

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +18,7 @@ import (
 
 var ErrSecretCheckpointMissing = errors.New("secret checkpoint missing")
 
+// SecretPhase identifies one durable step in a secret-generation transition.
 type SecretPhase string
 
 const (
@@ -31,8 +31,6 @@ const (
 	SecretCommitted  SecretPhase = "committed"
 	SecretRecovering SecretPhase = "recovering"
 )
-
-var opaqueSecretGeneration = regexp.MustCompile(`^sg-[0-9a-f]{24}$`)
 
 // SecretCheckpoint is the durable transaction record for one generation-wide
 // rotation. It contains identifiers and paths only, never secret values or
@@ -63,7 +61,8 @@ func NewSecretCheckpoint(releaseID, oldGeneration, newGeneration string, workloa
 	return checkpoint, nil
 }
 
-func IsSecretGeneration(value string) bool { return opaqueSecretGeneration.MatchString(value) }
+// IsSecretGeneration delegates to the canonical application/runtime validator.
+func IsSecretGeneration(value string) bool { return app.IsSecretGeneration(value) }
 
 func (checkpoint *SecretCheckpoint) SetPhase(phase SecretPhase, at time.Time) error {
 	if checkpoint == nil {

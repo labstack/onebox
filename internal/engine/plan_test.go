@@ -279,7 +279,7 @@ func TestPayloadDigests(t *testing.T) {
 		t.Fatalf("remote digest: %q %v", got, err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, want := range []string{"! -name compose.yaml", "! -path './.job-*-result/*'", "LC_ALL=C sort"} {
+	for _, want := range []string{"! -name compose.yaml", "! -path './.job-*-result'", "! -path './.job-*-result/*'", "LC_ALL=C sort"} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("remote pipeline missing %q:\n%s", want, seq)
 		}

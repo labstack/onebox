@@ -72,6 +72,19 @@ func TestHostOwnerReadFailureIsNotTreatedAsUnowned(t *testing.T) {
 	}
 }
 
+func TestHostOwnerInvalidRecordFailsClosed(t *testing.T) {
+	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "_host/owner") {
+			return transport.Result{Stdout: "bad/name\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := engine.RequireHostOwner(context.Background()); err == nil || !strings.Contains(err.Error(), "record") || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("invalid owner record was accepted: %v", err)
+	}
+}
+
 func TestClaimHostOwnerRechecksUnderLock(t *testing.T) {
 	reads := 0
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
@@ -93,5 +106,22 @@ func TestClaimHostOwnerRechecksUnderLock(t *testing.T) {
 		if strings.Contains(command, "printf '%s\\n'") && strings.Contains(command, "_host/owner") {
 			t.Fatalf("foreign owner was overwritten: %s", command)
 		}
+	}
+}
+
+func TestClaimHostOwnerReportsAtomicWriteFailure(t *testing.T) {
+	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "_host/owner") && strings.Contains(command, "cat "):
+			return transport.Result{ExitCode: 3}, true
+		case strings.Contains(command, "printf '%s\\n'") && strings.Contains(command, "_host/owner"):
+			return transport.Result{ExitCode: 74, Stderr: "read-only filesystem"}, true
+		default:
+			return transport.Result{}, false
+		}
+	}}
+	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := engine.claimHostOwner(context.Background()); err == nil || !strings.Contains(err.Error(), "record host owner") {
+		t.Fatalf("owner write failure was hidden: %v", err)
 	}
 }

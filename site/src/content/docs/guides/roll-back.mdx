@@ -34,8 +34,11 @@ script.
 ob rollback
 ```
 
-`deployment.retain_releases` (default `5`) decides how many completed release
-directories stay available. Rollback re-points `current` at one of them.
+Every release has a strict manifest state and an explicit predecessor. Rollback
+activates the current serving release's eligible predecessor, verifies it, and
+records the transition; it does not select a directory by timestamp or name.
+`deployment.retain_releases` (default `5`) bounds ordinary history while always
+protecting current, predecessor-chain, and checkpoint-referenced releases.
 
 ## What rollback does not do
 
@@ -60,10 +63,11 @@ Concretely:
 
 ## Resume and abort work from durable state
 
-Both read the append-only journal and the durable phase markers written during
-the deploy. They choose only recovery paths the journal can prove are safe; when
-safety cannot be proven, they stop and expose honest recovery choices rather than
-guessing.
+Both read the append-only journal, strict release manifests, and the durable
+activation checkpoint. Recovery removes only containers owned by the exact
+interrupted release, restores and verifies its predecessor, and clears the
+checkpoint last. A failed postcondition leaves the checkpoint retryable instead
+of hiding divergence.
 
 ```sh
 ob resume --output ndjson
@@ -80,7 +84,7 @@ evidence-backed workflow — not failover, and not something rollback reaches.
 
 ```sh
 ob audit          # human table of recorded operations
-ob logs           # the current log stream
+ob logs web       # one workload or Onebox-run service
 ob status --output json
 ```
 

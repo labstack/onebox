@@ -119,10 +119,10 @@ func TestResolveDoesNotLeakBetweenEnvironments(t *testing.T) {
 // project-level one without diffing two files.
 func TestOriginsRecordOverrides(t *testing.T) {
 	o := resolve(t, overrideFixture, "staging").Origins
-	if o["workloads.web.replicas"] != OriginOverride {
+	if o["workloads.web.replicas"] != OriginEnvironmentOverride {
 		t.Errorf("replicas origin = %q", o["workloads.web.replicas"])
 	}
-	if o["services.postgres.resources.memory"] != OriginOverride {
+	if o["services.postgres.resources.memory"] != OriginEnvironmentOverride {
 		t.Errorf("service memory origin = %q", o["services.postgres.resources.memory"])
 	}
 	if _, recorded := o["workloads.web.image"]; recorded {

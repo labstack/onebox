@@ -340,6 +340,10 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 	}
+	if len(w.PublishedPorts) > 0 && w.Mode() == "rolling" {
+		return errf("project_invalid", path+".published_ports", "",
+			"rolling workloads cannot publish fixed host ports because the serving and replacement replicas must coexist; remove published_ports or set strategy to recreate")
+	}
 	if w.Persistence != nil {
 		if err := checkEnum(path+".persistence.mode", w.Persistence.Mode, ePersistence); err != nil {
 			return err
@@ -375,7 +379,7 @@ func validateWorkload(w Workload, path string) error {
 		if err := checkEnum(path+".when", w.When, eJobWhen); err != nil {
 			return err
 		}
-		if err := checkEnum(path+".data_effect", w.DataEffect, eDataEffect); err != nil {
+		if err := checkEnum(path+".data_effect", string(w.DataEffect), eDataEffect); err != nil {
 			return err
 		}
 		if w.DataEffect == "" {

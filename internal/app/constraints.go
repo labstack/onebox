@@ -149,7 +149,7 @@ var (
 	// never runs, so the set is closed: a hook that silently does not fire is
 	// worse than one refused at load.
 	eHookSeam        = []string{"bootstrap", "pre_release", "post_release", "post_deploy"}
-	eDataEffect      = []string{"none", "migration", "destructive", "unknown"}
+	eDataEffect      = []string{string(DataEffectNone), string(DataEffectMigration), string(DataEffectDestructive), string(DataEffectUnknown)}
 	eMigrationPolicy = []string{"manual", "auto", "expand-only"}
 	eNotifyFormat    = []string{"text", "json"}
 	eNotifyEvent     = []string{"success", "failure"}

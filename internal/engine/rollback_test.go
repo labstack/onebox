@@ -5,9 +5,47 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
+
+const (
+	rollbackPreviousID = "20260101-000000-aaa111"
+	rollbackCurrentID  = "20260102-000000-bbb222"
+)
+
+func seedRollbackState(t *testing.T, target *transport.Fake) {
+	t.Helper()
+	at := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	previous, err := release.NewManifest(rollbackPreviousID, release.KindApplication, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []release.State{release.StateVerified, release.StateServing, release.StateSuperseded} {
+		if err := previous.Transition(state, at, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := release.NewManifest(rollbackCurrentID, release.KindApplication, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Transition(release.StateVerified, at, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Transition(release.StateServing, at, rollbackPreviousID); err != nil {
+		t.Fatal(err)
+	}
+	names := testConfig().NamesFor("production")
+	if err := release.WriteManifest(context.Background(), target, names, previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := release.WriteManifest(context.Background(), target, names, current); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // The previous release's snapshot has a DIFFERENT choreography (worker only,
 // recreate) — rollback must replay THAT, not the current ob.yml.
@@ -23,6 +61,7 @@ deployment:
 
 func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 	f := happyFake()
+	seedRollbackState(t, f)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "readlink") {
@@ -62,6 +101,7 @@ func TestRollbackRefusesWithoutUsableSnapshot(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := happyFake()
+			seedRollbackState(t, f)
 			base := f.Dynamic
 			f.Dynamic = func(cmd string) (transport.Result, bool) {
 				switch {
@@ -88,6 +128,7 @@ func TestRollbackRefusesWithoutUsableSnapshot(t *testing.T) {
 
 func TestRollbackReportsMissingFinishEvidence(t *testing.T) {
 	f := happyFake()
+	seedRollbackState(t, f)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
@@ -107,5 +148,52 @@ func TestRollbackReportsMissingFinishEvidence(t *testing.T) {
 	}
 	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "ln -sfn 'releases/20260101-000000-aaa111'") {
 		t.Fatalf("rollback must report that activation completed before evidence failed:\n%s", seq)
+	}
+}
+
+func TestRepeatedRollbackFollowsTheNewPredecessor(t *testing.T) {
+	target := happyFake()
+	seedRollbackState(t, target)
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "readlink") {
+			current := rollbackCurrentID
+			for _, recorded := range target.Commands {
+				switch {
+				case strings.Contains(recorded, "ln -sfn 'releases/"+rollbackPreviousID+"'"):
+					current = rollbackPreviousID
+				case strings.Contains(recorded, "ln -sfn 'releases/"+rollbackCurrentID+"'"):
+					current = rollbackCurrentID
+				}
+			}
+			return transport.Result{Stdout: "releases/" + current + "\n"}, true
+		}
+		if strings.Contains(command, "/releases/"+rollbackPreviousID+"/ob.snapshot.yml") {
+			return transport.Result{Stdout: oldSnapshot}, true
+		}
+		return base(command)
+	}
+	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	first, err := engine.RollbackWithJournalID(context.Background())
+	if err != nil || first != rollbackPreviousID {
+		t.Fatalf("first rollback = %q, %v", first, err)
+	}
+	second, err := engine.RollbackWithJournalID(context.Background())
+	if err != nil || second != rollbackCurrentID {
+		t.Fatalf("second rollback = %q, %v", second, err)
+	}
+	commands := strings.Join(target.Commands, "\n")
+	firstAt := strings.Index(commands, "ln -sfn 'releases/"+rollbackPreviousID+"'")
+	secondAt := strings.LastIndex(commands, "ln -sfn 'releases/"+rollbackCurrentID+"'")
+	if firstAt < 0 || secondAt <= firstAt {
+		t.Fatalf("rollback did not toggle deterministically:\n%s", commands)
+	}
+	current, err := release.ReadManifest(context.Background(), target, engine.Names(), rollbackCurrentID)
+	if err != nil || current.State != release.StateServing || current.Predecessor != rollbackPreviousID {
+		t.Fatalf("reactivated current manifest = %+v, %v", current, err)
+	}
+	previous, err := release.ReadManifest(context.Background(), target, engine.Names(), rollbackPreviousID)
+	if err != nil || previous.State != release.StateSuperseded {
+		t.Fatalf("superseded previous manifest = %+v, %v", previous, err)
 	}
 }

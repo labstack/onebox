@@ -58,13 +58,9 @@ func sanitizeStatus(status engine.StatusSnapshot) engine.StatusSnapshot {
 			proxyCopy.Container = &container
 		}
 		proxyCopy.Issues = statusIssueCodes("proxy", proxyCopy.Issues)
-		apps := make([]string, 0, len(proxyCopy.RegisteredApps))
-		for _, app := range proxyCopy.RegisteredApps {
-			if safeApp.MatchString(app) {
-				apps = append(apps, app)
-			}
+		if proxyCopy.Owner != "" && !safeApp.MatchString(proxyCopy.Owner) {
+			proxyCopy.Owner = "<invalid-owner>"
 		}
-		proxyCopy.RegisteredApps = apps
 		proxyCopy.Certificates = append([]engine.StatusCertificate(nil), proxyCopy.Certificates...)
 		for i := range proxyCopy.Certificates {
 			if !safeDomain.MatchString(proxyCopy.Certificates[i].Domain) {

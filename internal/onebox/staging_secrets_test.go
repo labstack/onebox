@@ -2,6 +2,7 @@ package onebox
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,25 +80,29 @@ func TestRootBindCannotOverwriteProjectedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
 
-	body, err := os.ReadFile(filepath.Join(staging, name))
+	generationPath := filepath.FromSlash(app.SecretGenerationPath("sg-000000000000000000000001", name))
+	body, err := os.ReadFile(filepath.Join(staging, generationPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(body) != "TOKEN=api-token\n" {
 		t.Fatalf("staged secret = %q, want current decrypted value", body)
 	}
-	info, err := os.Stat(filepath.Join(staging, name))
+	info, err := os.Stat(filepath.Join(staging, generationPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("staged secret mode = %o, want 600", info.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(staging, name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale root-level secret survived generation staging: %v", err)
 	}
 }
 
@@ -117,7 +122,7 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +137,8 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 	staged := map[string]string{}
 	for file, token := range want {
 		name := app.EnvFile{File: file, Provider: "sops"}.StagedPath()
-		body, err := os.ReadFile(filepath.Join(staging, name))
+		generationPath := filepath.FromSlash(app.SecretGenerationPath("sg-000000000000000000000001", name))
+		body, err := os.ReadFile(filepath.Join(staging, generationPath))
 		if err != nil {
 			t.Fatalf("%s was never staged: %v", file, err)
 		}
@@ -148,6 +154,14 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 	}
 	if len(staged) != 2 {
 		t.Fatalf("two entries must produce two files, got %d", len(staged))
+	}
+	runtime, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(runtime), "ob.secret-generation: sg-000000000000000000000001") ||
+		!strings.Contains(string(runtime), app.SecretGenerationDirectory+"/sg-000000000000000000000001/") {
+		t.Fatalf("initial deployment runtime does not bind the opaque generation:\n%s", runtime)
 	}
 
 	// A staged file nothing references is staged for nothing. The generated
@@ -176,7 +190,7 @@ func TestAPlaintextEntryKeepsItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,21 +279,22 @@ external_services:
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
 
 	projectionPath := ".ob-external-database_web.env"
-	projected, err := os.ReadFile(filepath.Join(staging, projectionPath))
+	generationPath := filepath.FromSlash(app.SecretGenerationPath("sg-000000000000000000000001", projectionPath))
+	projected, err := os.ReadFile(filepath.Join(staging, generationPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(projected) != "APP_DATABASE_URL=\"postgres://user:p$a#s@db/app\"\n" {
 		t.Fatalf("external projection = %q", projected)
 	}
-	info, err := os.Stat(filepath.Join(staging, projectionPath))
+	info, err := os.Stat(filepath.Join(staging, generationPath))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("external projection mode = %v, err=%v", info.Mode().Perm(), err)
 	}

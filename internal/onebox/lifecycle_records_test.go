@@ -113,9 +113,15 @@ func TestLifecycleRecordsRejectIncompatibleSchemasAndIncompleteFailures(t *testi
 		t.Fatalf("failure contract error = %v", err)
 	}
 	record.Result.ErrorCode = "backup_target_unreachable"
-	record.Result.ResolvingCommands = []string{"ob backup target inspect --output json"}
+	record.Result.DiagnosticCommands = []string{"ob backup target inspect --output json"}
 	if err := record.Validate(); err != nil {
 		t.Fatalf("complete typed failure rejected: %v", err)
+	}
+
+	record.Result.DiagnosticCommands = nil
+	record.Result.ResolvingCommands = []string{"ob status --output json"}
+	if err := record.Validate(); err == nil || !strings.Contains(err.Error(), "classified as diagnostic") {
+		t.Fatalf("misclassified read-only guidance error = %v", err)
 	}
 }
 

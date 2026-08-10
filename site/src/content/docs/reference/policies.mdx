@@ -51,68 +51,78 @@ A plan is a mode-`0600`, digest-protected envelope containing:
 **It expires after 15 minutes.** Any drift or local payload change requires a new
 plan.
 
-## The approval grant
+## The local confirmation
 
-`ob approve` writes a mode-`0600`, digest-bound grant covering the plan, server,
-inputs, risk, operator and expiry. A changed or expired plan needs a new grant.
+`ob approve` writes a mode-`0600`, digest-bound local confirmation covering the
+plan, server, inputs, risk, operator label, backup-report digest, and expiry. A
+changed or expired plan or report needs a new confirmation.
 
 When approval policy is enabled, migrations and unknown data effects use the
 **strong ceremony**, where the operator types the release ID.
 
-> A statement that the user approved is data, not authority.
-
-The grant is delivered out of band precisely so that the actor requesting a
-change cannot mint the capability authorising it.
+The artifact source is `local_cli`. Its digest detects modification and binds
+the ceremony to reviewed inputs, but it is not an identity-provider signature
+or proof that the actor requesting the change was technically unable to create
+it. Independent authorization is not shipped.
 
 ## Approval policy fields
 
 | Field | Default | Effect |
 | --- | --- | --- |
-| `require_approval` | `true` | A plan-bound grant is required before mutating |
+| `require_approval` | `true` | A plan-bound local confirmation is required before mutating |
 | `allow_agent_proposals` | `true` | Recorded policy; the current CLI does not distinguish agent identity, and execution stays approval-gated regardless |
-| `require_migration_backup` | `false` | Plan-bound external backup evidence before migration risk |
-| `migration_backup_maximum_age` | — | Maximum age of accepted evidence |
-| `require_migration_restore_test` | `false` | Evidence must attest a restore test succeeded |
-| `migration_backup_key_material` | — | Key material whose usability the evidence must attest |
+| `require_migration_backup` | `false` | Plan-bound backup report before migration risk |
+| `migration_backup_maximum_age` | — | Maximum age of the accepted report |
+| `require_migration_restore_test` | `false` | Report must state that a restore test succeeded |
+| `migration_backup_key_material` | — | Key material whose usability the report must cover |
 
 ## Structured output contracts
 
-Plans and status produce versioned documents. A JSON deploy buffers ordered
-operation events and its result into one envelope; NDJSON streams event records
-and a terminal result or error record. Diagnostics stay on stderr, so the
-structured stream is never polluted.
+Every machine-facing command uses one envelope:
+`{schema_version, command, outcome, data|error}`. Outcomes are `success`,
+`no_op`, `cancelled`, or `error`. Errors carry a stable `code`, a
+`safe_message`, plus guidance in its exact semantic role: `diagnostic_command`
+only inspects, `next_command` advances a workflow, and `resolving_command` can
+actually remedy the condition. Diagnostics stay on stderr.
 
-New structured documents receive **new schema identities** rather than changing
-existing output shapes.
+NDJSON uses the same schema identity. Every record adds a monotonic `sequence`
+and a `kind`; every stream ends in exactly one `terminal` record. Passthrough
+`stdout` and `stderr` chunks are tagged with their channel. Logs and exec are
+operator-controlled bytes and may contain secrets; they are not described as
+redacted.
 
-### Commands that accept `--output human|json|ndjson`
+### Classified leaf commands
 
-`ob abort` · `ob bootstrap` · `ob canonical` · `ob deploy` · `ob doctor` ·
-`ob eject` · `ob backup-evidence create` · `ob plan` · `ob preview` ·
-`ob proxy apply` · `ob resume` · `ob rollback` · `ob service apply` ·
-`ob status` · `ob validate` · `ob version`
+| Class | JSON | NDJSON | Commands |
+| --- | --- | --- | --- |
+| Finite envelope | yes | no | `ob approve` · `ob audit` · `ob canonical` · `ob doctor` · `ob eject` · `ob init` · `ob job plan` · `ob plan` · `ob preflight` · `ob preview` · `ob schema` · `ob secrets list` · `ob status` · `ob validate` · `ob version` |
+| Finite operation stream | yes | yes | `ob abort` · `ob bootstrap` · `ob deploy` · `ob destroy` · `ob job run` · `ob proxy apply` · `ob resume` · `ob rollback` · `ob secrets push` · `ob service apply` |
+| Operator passthrough | finite only | yes | `ob logs` |
+| Operator passthrough | no | yes | `ob exec` |
+| Trusted editor | yes, after exit | no | `ob secrets edit` |
 
-Anything not listed is human output only. There is one way to ask for machine
-output: `--output`. `ob doctor` and `ob version` take it like everything else.
+Anything not listed is native human output only. Finite commands accept JSON.
+Operations accept JSON and NDJSON. `ob logs` accepts JSON when finite and
+NDJSON when following; `ob exec` accepts NDJSON. `ob secrets edit` emits its
+terminal JSON envelope after the editor closes. Help and completion remain
+native Cobra output.
+
+`ob exec` additionally requires a bounded single-line `--reason`. Audit stores
+that reason, target, target kind, operator, outcome, and command digest; it never
+stores command bytes or passthrough output.
 
 ### Schema identities
 
-An agent branches on the schema version, never on the shape it happens to see.
+An agent branches on the schema version and command, never on an inferred shape.
 
 | Document | Schema identity |
 | --- | --- |
-| Validation result | `onebox.run/cli-validate/v1alpha1` |
-| Canonical project | `onebox.run/cli-canonical/v1alpha1` |
-| Generated runtime preview | `onebox.run/cli-preview/v1alpha1` |
-| Ejection result | `onebox.run/cli-eject/v1alpha1` |
-| Status snapshot | `onebox.run/status/v1alpha1` |
-| Operation envelope | `onebox.run/cli-operation/v1alpha1` |
-| Operation event record | `onebox.run/cli-record/v1alpha1` |
-| Doctor report | `onebox.run/doctor-report/v1alpha1` |
-| Version report | `onebox.run/version-report/v1alpha1` |
+| CLI envelope and NDJSON record | `onebox.run/cli/v1alpha1` |
 | Executable deploy plan | `onebox.run/executable-deploy-plan/v1alpha2` |
+| Executable job plan | `onebox.run/executable-job-plan/v1alpha1` |
 | Job result protocol | `onebox.run/job-result/v1alpha1` |
-| Migration backup facts | `onebox.run/migration-backup-facts/v1alpha1` |
+| Local confirmation | `onebox.run/local-confirmation/v1alpha1` |
+| Migration backup report | `onebox.run/backup-report/v1alpha1` |
 
 :::note[This table is under test]
 `cmd/ob/docs_test.go` asserts set equality in both directions: every command the
@@ -122,14 +132,13 @@ table. Adding one without documenting it fails the build, and so does documentin
 one that does not exist.
 :::
 
-## The v1 evolution guarantees
+## Pre-release evolution
 
-`api_version: onebox.run/v1` is stable. Within it:
-
-- A field is **added**, never repurposed.
-- A scalar form once accepted is accepted **permanently**.
-- A default may be added; an existing default's value **does not change**.
-- A constraint is **not tightened** against a project that already loads.
+Onebox is not released. The current contract is intentionally strict and may
+replace earlier development shapes without aliases, migrations, or hidden
+fallbacks. Unknown fields and unsupported schema identities are rejected.
+Compatibility guarantees begin with the first public release, not with local
+development snapshots.
 
 The JSON Schema published by `ob schema` is generated from the same declarations
 the loader enforces and is checked against the conformance corpus, so what your

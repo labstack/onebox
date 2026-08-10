@@ -19,10 +19,10 @@ const journalMarkerLine = "@@ob-journal@@"
 // newest journal. This is the correctness guard on the perf change.
 func TestFindIncompleteScansPastNewerFinished(t *testing.T) {
 	out := journalMarkerLine + "R1.jsonl\n" +
-		`{"deploy_id":"R1","event":"start","ts":"t"}` + "\n" +
+		`{"deploy_id":"R1","phase":"deploy","event":"start","ts":"t"}` + "\n" +
 		journalMarkerLine + "R2.jsonl\n" +
-		`{"deploy_id":"R2","event":"start","ts":"t"}` + "\n" +
-		`{"deploy_id":"R2","event":"finish","status":"ok","ts":"t"}` + "\n"
+		`{"deploy_id":"R2","phase":"deploy","event":"start","ts":"t"}` + "\n" +
+		`{"deploy_id":"R2","phase":"deploy","event":"finish","status":"ok","ts":"t"}` + "\n"
 
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "for f in") {

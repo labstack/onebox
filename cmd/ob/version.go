@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -12,17 +11,13 @@ import (
 	"github.com/labstack/onebox/internal/onebox"
 )
 
-const versionReportSchemaVersion = "onebox.run/version-report/v1alpha1"
-
 type versionReport struct {
-	SchemaVersion string `json:"schema_version"`
 	buildinfo.Info
 	SupportedExecutablePlanSchemas []string `json:"supported_executable_plan_schemas"`
 }
 
 func currentVersionReport() versionReport {
 	return versionReport{
-		SchemaVersion:                  versionReportSchemaVersion,
 		Info:                           buildinfo.Read(),
 		SupportedExecutablePlanSchemas: onebox.SupportedExecutableDeployPlanSchemas(),
 	}
@@ -35,19 +30,17 @@ func addVersionCommand(root *cobra.Command, g *globalFlags) {
 		Long:  "Print the version and build provenance of this binary.\n\nEnvironment policy can require a released runner, so a commit-derived or\ndirty build is reported as such rather than as a version.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return writeVersion(cmd.OutOrStdout(), currentVersionReport(), g.Output == "json")
+			report := currentVersionReport()
+			if isStructuredOutput(g) {
+				return writeFiniteSuccess(cmd, g, report)
+			}
+			return writeVersion(cmd.OutOrStdout(), report)
 		},
 	}
 	root.AddCommand(cmd)
 }
 
-func writeVersion(out io.Writer, report versionReport, jsonOutput bool) error {
-	if jsonOutput {
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(report)
-	}
-
+func writeVersion(out io.Writer, report versionReport) error {
 	fmt.Fprintf(out, "ob version %s\n", report.Version)
 	fmt.Fprintf(out, "vcs revision: %s\n", known(report.VCSRevision))
 	fmt.Fprintf(out, "dirty: %t\n", report.Dirty)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -26,16 +25,16 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := app.Load(g.ConfigPath)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			resolved, err := p.Resolve(g.Env)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 
 			env, ok := p.Environments[g.Env]
 			if !ok {
-				return fmt.Errorf("environment %q is not declared", g.Env)
+				return writeStructuredReadFailure(cmd, g, fmt.Errorf("environment %q is not declared", g.Env))
 			}
 			// One authority for the address. Building it here from Host and
 			// User dropped a declared port and connected to 22 instead — a
@@ -45,30 +44,34 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 
 			t, err := transport.NewSSHContext(cmd.Context(), addr)
 			if err != nil {
-				return fmt.Errorf("cannot reach %s: %w", addr, err)
+				return writeStructuredReadFailure(cmd, g, fmt.Errorf("cannot reach %s: %w", addr, err))
 			}
 			defer t.Close()
 
 			report, err := resolved.Preflight(cmd.Context(), t)
 			if err != nil {
-				return explain(err)
+				return writeStructuredReadFailure(cmd, g, err)
 			}
 			report.Server = addr
 
-			out := cmd.OutOrStdout()
-			if g.Output == "json" {
-				enc := json.NewEncoder(out)
-				enc.SetIndent("", "  ")
-				if err := enc.Encode(report); err != nil {
-					return err
-				}
-			} else {
+			if !isStructuredOutput(g) {
 				writeReport(cmd, report)
 			}
 			if !report.OK() {
 				// A non-zero exit is what makes this usable in a script or a
 				// pipeline without parsing anything.
-				return fmt.Errorf("%d of %d checks failed", len(report.Failures()), len(report.Checks))
+				preflightErr := fmt.Errorf("%d of %d checks failed", len(report.Failures()), len(report.Checks))
+				if isStructuredOutput(g) {
+					publicErr := &cliPublicError{Code: "preflight_failed", SafeMessage: "one or more preflight checks failed", Details: report}
+					if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
+						return err
+					}
+					return withExitCode(preflightErr, 1)
+				}
+				return preflightErr
+			}
+			if isStructuredOutput(g) {
+				return writeFiniteSuccess(cmd, g, map[string]any{"report": report})
 			}
 			return nil
 		},

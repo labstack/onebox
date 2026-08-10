@@ -86,7 +86,7 @@ func TestBuildDoctorReportFindsShadowingPolicyAndProtectionGaps(t *testing.T) {
 	// Durable data with no backup is a warning, not a failure: the
 	// configuration is sound, the risk is real, and refusing to run would be
 	// the wrong answer to "you should copy this off the box".
-	if report.SchemaVersion != doctorReportSchemaVersion || report.Status != doctorWarning {
+	if report.Status != doctorWarning {
 		t.Fatalf("unexpected report envelope: %+v", report)
 	}
 	if !report.Binary.Shadowed || len(report.Binary.Candidates) != 2 {
@@ -132,7 +132,6 @@ func TestDoctorCommandOutputModes(t *testing.T) {
 	for name, args := range map[string][]string{
 		"json output": {"-c", "/project/ob.yml", "--output", "json", "doctor"},
 		"root json":   {"--output", "json", "-c", "/project/ob.yml", "doctor"},
-		"ndjson":      {"--output", "ndjson", "-c", "/project/ob.yml", "doctor"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := newRootCmd()
@@ -146,15 +145,17 @@ func TestDoctorCommandOutputModes(t *testing.T) {
 			if stderr.Len() != 0 {
 				t.Fatalf("structured doctor output polluted stderr: %q", stderr.String())
 			}
-			var report doctorReport
-			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+			var envelope struct {
+				SchemaVersion string       `json:"schema_version"`
+				Command       string       `json:"command"`
+				Outcome       string       `json:"outcome"`
+				Data          doctorReport `json:"data"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 				t.Fatalf("decode doctor output: %v\n%s", err, out.String())
 			}
-			if report.SchemaVersion != doctorReportSchemaVersion {
-				t.Fatalf("schema version = %q", report.SchemaVersion)
-			}
-			if name == "ndjson" && strings.Count(out.String(), "\n") != 1 {
-				t.Fatalf("NDJSON must be one record: %q", out.String())
+			if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != "ob doctor" || envelope.Outcome != cliOutcomeSuccess || envelope.Data.Status != doctorWarning {
+				t.Fatalf("doctor envelope = %+v", envelope)
 			}
 		})
 	}

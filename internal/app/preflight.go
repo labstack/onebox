@@ -99,6 +99,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 2. The base path. Checked without creating anything: preflight that
 	// mutates is not preflight.
 	report.Checks = append(report.Checks, basePathCheck(ctx, run, n.BasePath))
+	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostDir()+"/owner", p.Name))
 
 	// 3. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
@@ -115,6 +116,22 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	}
 
 	return report, nil
+}
+
+func hostOwnerCheck(ctx context.Context, run Runner, path, application string) Check {
+	res, err := run.Run(ctx, fmt.Sprintf("cat %q 2>/dev/null || true", path))
+	if err != nil {
+		return Check{Name: "host owner", Detail: "could not read the host owner record", Remedy: "verify target access, then retry"}
+	}
+	owner := strings.TrimSpace(res.Stdout)
+	switch owner {
+	case application:
+		return Check{Name: "host owner", OK: true, Detail: application}
+	case "":
+		return Check{Name: "host owner", Detail: "host is not initialized for an application", Remedy: "run ob bootstrap to claim this host for the project"}
+	default:
+		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", owner), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
+	}
 }
 
 func basePathCheck(ctx context.Context, run Runner, base string) Check {

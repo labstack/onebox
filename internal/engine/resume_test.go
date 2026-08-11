@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -480,5 +481,36 @@ func TestAbortStopsWhenIntentCannotBeJournaled(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "releases/"+engineTestPreviousReleaseID+"/compose.yaml' pull") {
 		t.Fatalf("abort mutated workloads after its intent write failed:\n%s", seq)
+	}
+}
+
+// Resuming a deploy that a later successful deploy superseded would roll the
+// old release back onto the host and activate it — a silent downgrade. The
+// interrupted operation is history at that point, not pending work.
+func TestResumeRefusesADeploySupersededByANewerOne(t *testing.T) {
+	f := happyFake()
+	seedStagedApplicationManifest(f, engineTestDeployReleaseID)
+	newer := "20260102-000000-newer"
+	jr := journalLines(
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
+	) + journalMarkerLine + newer + ".jsonl\n" + journalLines(
+		journal.Record{DeployID: newer, Epoch: 1, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestDeployReleaseID, TS: "2026-07-04T00:00:00Z"},
+		journal.Record{DeployID: newer, Epoch: 1, Phase: "deploy", Event: "finish", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); !errors.Is(err, ErrNoIncomplete) {
+		t.Fatalf("resume error = %v, want ErrNoIncomplete", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "ln -sfn") || strings.Contains(seq, "--scale web=") {
+		t.Fatalf("a superseded deploy must never be re-activated:\n%s", seq)
 	}
 }

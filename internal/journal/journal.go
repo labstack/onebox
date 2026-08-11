@@ -353,6 +353,18 @@ type Summary struct {
 // decision. Resume uses it to preserve the aggregate result across retries.
 const DoneGateRecorded = "gate:recorded"
 
+// DoneActivation marks a durably recorded successful activation. It is the
+// evidence that separates the two halves of a deploy: before it, an interrupted
+// operation never took effect and resume replays the choreography; after it,
+// the release is the truth and only the post-activation steps remain.
+const DoneActivation = "activation"
+
+// FinalizeSubStepPrefix marks the post-activation steps. They are journaled
+// individually — and deliberately not as rollback effects, which belong to the
+// choreography that runs before activation — so a finalize replay repeats none
+// that already recorded a successful result.
+const FinalizeSubStepPrefix = "finalize:"
+
 // EffectBaselineSubStep is written durably before transfer or any effect can
 // start. Later job/hook attempts join the aggregate and may close it; if the
 // runner dies during upload, the journal still proves rollback is safe.
@@ -430,11 +442,19 @@ func Summarize(recs []Record) Summary {
 		switch r.Event {
 		case "start":
 			if deployRecord {
-				s.Started = true
-				s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
-				if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
-					s.PrevRelease = v
+				// Only the FIRST start describes what this operation superseded.
+				// Every resume appends its own start with the live current
+				// pointer, and once activation has moved that pointer it names
+				// the release being resumed — so a later start would rewrite the
+				// operation's predecessor to itself, and abort and finalize both
+				// read this field as durable evidence of what came before.
+				if !s.Started {
+					s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
+					if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
+						s.PrevRelease = v
+					}
 				}
+				s.Started = true
 			}
 		case "finish":
 			if deployRecord && r.Status == "ok" {
@@ -459,6 +479,10 @@ func Summarize(recs []Record) Summary {
 			switch {
 			case r.Phase == "transfer":
 				s.Done["transfer"] = true
+			case r.Phase == "activation":
+				s.Done[DoneActivation] = true
+			case strings.HasPrefix(r.SubStep, FinalizeSubStepPrefix):
+				s.Done[r.SubStep] = true
 			case r.SubStep == MigrationBackupSubStep:
 				s.Done[MigrationBackupSubStep] = true
 			case strings.HasPrefix(r.SubStep, "job:"):

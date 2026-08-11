@@ -44,7 +44,7 @@ Retention SHALL preserve the current serving release and its configured eligible
 
 Retention SHALL fail closed when any manifest needed to establish the protected predecessor chain is missing, unreadable, or invalid. It SHALL select no deletion candidates from incomplete evidence rather than treating the unreadable predecessor as the end of the chain.
 
-Refusing to select candidates SHALL NOT fail the operation that requested cleanup. The refusal SHALL be reported and journaled, and an operation whose release is already serving SHALL still reach its terminal state.
+Refusing to select candidates SHALL NOT fail the operation that requested cleanup. The refusal SHALL be reported to the operator, surfaced in the operation's progress events, and journaled with a value-free note; an operation whose release is already serving SHALL still reach its terminal state. A run that refuses to select release candidates SHALL delete nothing at all, including operation journals, because those journals are themselves the evidence that protects release directories whose manifests cannot be read.
 
 #### Scenario: Failed stage exceeds retention age
 - **WHEN** a failed staged application release is older than the configured garbage-collection threshold and no incomplete operation references it
@@ -56,7 +56,7 @@ Refusing to select candidates SHALL NOT fail the operation that requested cleanu
 
 #### Scenario: Chain evidence is unusable during a deploy
 - **WHEN** retention cannot establish the protected predecessor chain while completing a deploy whose release is already serving
-- **THEN** no directory is deleted, the refusal is reported and journaled as a skipped step, and the deploy still records a successful terminal state
+- **THEN** no release directory and no journal is deleted, the refusal is reported and journaled as a skipped step, and the deploy still records a successful terminal state
 
 ### Requirement: Recovery success is a complete state transition
 
@@ -64,9 +64,9 @@ For an operation whose durable effect gate is rollback-safe, abort or automatic 
 
 If migration or unknown-effect evidence closes the rollback gate, automatic rollback SHALL NOT run. Abort SHALL fail before restoring or removing containers unless the existing explicit break-glass authorization is present; it SHALL retain the checkpoint and return the specific resolving actions.
 
-Only the newest deploy SHALL be recoverable. A deploy that a later terminal deploy superseded SHALL NOT be reported as incomplete nor offered to resume or abort: the later deploy replaced every workload and activated its own release, so completing the older one would re-activate a superseded release and aborting it would restore a stale predecessor. Its records SHALL remain available as audit history.
+Only the newest deploy SHALL be recoverable. A deploy superseded by a later deploy that completed, aborted, or was rolled back SHALL NOT be reported as incomplete nor offered to resume or abort: the later operation re-released every workload and settled the host's release state, so completing the older one would re-activate a release the host has already moved past and aborting it would restore a staler predecessor still. Its records SHALL remain available as audit history.
 
-An operation interrupted after activation SHALL NOT be recovered by replaying its choreography or by reverting a healthy release. Resume SHALL complete only the post-activation steps that remain, and SHALL do so only when the recorded activation, the current release, the serving manifest and its recorded predecessor, the absence of an open activation checkpoint, and the live workload release labels all agree; on any disagreement it SHALL make no mutation and return typed error `finalize_refused`. Each post-activation step SHALL be journaled individually so a repeated finalize never re-runs a step that already succeeded.
+An operation interrupted after activation SHALL NOT be recovered by replaying its choreography or by reverting a healthy release. Resume SHALL complete only the post-activation steps that remain, and SHALL do so only when the recorded activation, the current release, the serving manifest and its recorded predecessor, the absence of an open activation checkpoint, and the live workload release labels all agree; on any disagreement it SHALL run no post-activation step, change no release, symlink, or workload state, and return typed error `finalize_refused`. Each post-activation step SHALL be journaled individually so a repeated finalize never re-runs a step that already succeeded.
 
 #### Scenario: Rolling newcomer exists only in created state
 - **WHEN** abort runs after a rolling replacement was created but could not start
@@ -98,10 +98,10 @@ An operation interrupted after activation SHALL NOT be recovered by replaying it
 
 #### Scenario: Finalize evidence disagrees
 - **WHEN** the current release, serving manifest, recorded predecessor, activation checkpoint, or live workload labels do not agree that this operation activated the release now serving
-- **THEN** no post-activation step runs, the host is not mutated, and the operation returns typed error `finalize_refused`
+- **THEN** no post-activation step runs, no release, symlink, or workload state changes, and the operation returns typed error `finalize_refused`
 
 #### Scenario: An interrupted deploy is superseded
-- **WHEN** a deploy is interrupted and a later deploy reaches a terminal state
+- **WHEN** a deploy is interrupted and a later deploy completes, aborts, or is rolled back
 - **THEN** status reports no incomplete deployment, resume and abort decline the superseded operation, and its journal remains in the audit history
 
 #### Scenario: A non-idempotent post-activation step already succeeded

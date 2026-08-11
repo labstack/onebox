@@ -14,7 +14,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-func seedServingApplicationManifest(f *transport.Fake, releaseID, predecessor string) {
+func seedServingApplicationManifest(f *transport.Fake, releaseID, predecessor string, outcome release.OperationOutcome) {
 	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	manifest, err := release.NewManifest(releaseID, release.KindApplication, at)
 	if err != nil {
@@ -24,6 +24,9 @@ func seedServingApplicationManifest(f *transport.Fake, releaseID, predecessor st
 		panic(err)
 	}
 	if err := manifest.Transition(release.StateServing, at.Add(2*time.Second), predecessor); err != nil {
+		panic(err)
+	}
+	if err := manifest.RecordOperationOutcome(outcome, at.Add(3*time.Second)); err != nil {
 		panic(err)
 	}
 	command, input, err := release.ManifestWrite(testConfig().NamesFor("production"), manifest)
@@ -51,7 +54,9 @@ hooks:
 func activatedFake(t *testing.T, tail ...journal.Record) *transport.Fake {
 	t.Helper()
 	f := happyFake()
-	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID)
+	// serving/failed is what a post-activation failure actually leaves behind;
+	// seeding succeeded would make the outcome assertions vacuous.
+	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID, release.OutcomeFailed)
 	records := []journal.Record{
 		{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, Operator: "v@mac", TS: "2026-07-03T00:00:00Z"},
 		{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
@@ -95,6 +100,44 @@ func storedManifest(t *testing.T, f *transport.Fake, releaseID string) release.M
 		t.Fatalf("read manifest %s: %v", releaseID, err)
 	}
 	return manifest
+}
+
+// A project whose job carries a schedule, so the middle post-activation step
+// has work to do and can be made to fail.
+var engineProjectWithScheduledJob = strings.Replace(engineProject, "services:", `  report:
+    role: job
+    image: ghcr.io/x/app:v2
+    command: report
+    when: manual
+    data_effect: none
+    schedule: {cron: "0 2 * * *", timezone: UTC}
+services:`, 1)
+
+func scheduledJobConfig() *app.Resolved {
+	spec, err := app.LoadBytes([]byte(engineProjectWithScheduledJob), "ob.yml")
+	if err != nil {
+		panic("scheduled-job fixture does not load: " + err.Error())
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		panic("scheduled-job fixture does not resolve: " + err.Error())
+	}
+	if resolved.Hooks == nil {
+		resolved.Hooks = map[string]app.Command{}
+	}
+	return resolved
+}
+
+func scheduledJobFake() *transport.Fake {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemd-analyze calendar") {
+			return transport.Result{Stdout: "ok\n"}, true
+		}
+		return base(cmd)
+	}
+	return f
 }
 
 // The contract's own scenario: an operation that fails after healthy activation
@@ -203,7 +246,7 @@ func TestFinalizeRefusesWhenActivationEvidenceDisagrees(t *testing.T) {
 		{
 			name: "manifest predecessor is not the recorded one",
 			arrange: func(f *transport.Fake) {
-				seedServingApplicationManifest(f, engineTestDeployReleaseID, "20251231-000000-other")
+				seedServingApplicationManifest(f, engineTestDeployReleaseID, "20251231-000000-other", release.OutcomeFailed)
 			},
 			want: "is not the predecessor",
 		},
@@ -275,7 +318,7 @@ func TestFinalizeRefusesWhenActivationEvidenceDisagrees(t *testing.T) {
 // activation this operation cannot claim the release that is live.
 func TestFinalizeRefusesWithoutJournaledActivation(t *testing.T) {
 	f := happyFake()
-	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID)
+	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID, release.OutcomeFailed)
 	lines := journalLines(
 		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, TS: "2026-07-03T00:00:00Z"},
 		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
@@ -323,8 +366,19 @@ func TestRetentionEvidenceRefusalIsReportedAndDoesNotFailTheDeploy(t *testing.T)
 		t.Fatalf("the skipped cleanup must be reported:\n%s", out.String())
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, `"sub_step":"finalize:retention","event":"result","status":"ok","detail":"release-store cleanup skipped`) {
+	if !strings.Contains(seq, `"sub_step":"finalize:retention","event":"result","status":"ok","detail":"`+retentionSkipped+`"`) {
 		t.Fatalf("the journal must record what cleanup declined to do:\n%s", seq)
+	}
+	// Host stderr reaches the operator on the local path and never the journal,
+	// which is why the durable detail is a fixed phrase.
+	if strings.Contains(seq, "this is not a checkpoint") {
+		t.Fatalf("the durable detail must not carry host output:\n%s", seq)
+	}
+	// Journals are the evidence that protects release directories with no
+	// readable manifest. The run that just declared the evidence incomplete must
+	// not delete them either.
+	if strings.Contains(seq, "rm -f '/var/lib/ob/sample/journal/") {
+		t.Fatalf("a refused retention must not prune journals:\n%s", seq)
 	}
 	if !strings.Contains(seq, `"event":"finish","status":"ok"`) {
 		t.Fatalf("the deploy must still reach a terminal state:\n%s", seq)
@@ -357,5 +411,112 @@ func TestRetentionDeletionFailureStillFailsTheDeploy(t *testing.T) {
 	manifest := storedManifest(t, f, "20260101-000000-aaa111")
 	if manifest.State != release.StateServing || manifest.OperationOutcome != release.OutcomeFailed {
 		t.Fatalf("manifest = %s/%s, want serving/failed", manifest.State, manifest.OperationOutcome)
+	}
+}
+
+// The predecessor is what proves this operation activated the release now
+// serving, and every resume appends its own start record naming the live
+// current pointer — which after activation is the release being finalized. If
+// that later record won, a second resume would compare the release against
+// itself and refuse forever: the fix-forward loop this whole path exists for is
+// exactly the case where the first resume fails too.
+func TestFinalizeSurvivesARepeatedResume(t *testing.T) {
+	f := activatedFake(t,
+		journal.Record{Phase: "finalize", SubStep: finalizeRetentionSubStep, Event: "result", Status: "ok"},
+		journal.Record{Phase: "finalize", SubStep: finalizeSchedulesSubStep, Event: "result", Status: "ok"},
+		journal.Record{Phase: "finalize", SubStep: finalizePostDeploySubStep, Event: "result", Status: "fail", Detail: "webhook unreachable"},
+		// what the first resume appended before failing again
+		journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + engineTestDeployReleaseID},
+		journal.Record{Phase: "finalize", SubStep: finalizePostDeploySubStep, Event: "result", Status: "fail", Detail: "webhook unreachable"},
+	)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("the second resume must still finalize: %v", err)
+	}
+	manifest := storedManifest(t, f, engineTestDeployReleaseID)
+	if manifest.OperationOutcome != release.OutcomeSucceeded {
+		t.Fatalf("outcome = %s, want succeeded", manifest.OperationOutcome)
+	}
+}
+
+// The health gate before the tail. A serving release that no longer verifies is
+// not finalized, is not auto-rolled-back, and records the failed outcome like
+// any other post-activation failure.
+func TestFinalizeStopsAtAFailingVerification(t *testing.T) {
+	f := activatedFake(t)
+	// A runner that died between activation and the tail leaves the outcome
+	// activation itself recorded — succeeded. The failed verification is what
+	// must move it, so seeding anything else would assert nothing.
+	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID, release.OutcomeSucceeded)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "curl") {
+			return transport.Result{ExitCode: 22, Stderr: "404"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Resume(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "verify serving release") {
+		t.Fatalf("resume error = %v, want a verification failure", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "notify-release") || strings.Contains(seq, `"phase":"finalize"`) {
+		t.Fatalf("no post-activation step may run after a failed verification:\n%s", seq)
+	}
+	if strings.Contains(seq, "ln -sfn 'releases/"+engineTestPreviousReleaseID+"'") {
+		t.Fatalf("a failed finalize verification must not roll back a serving release:\n%s", seq)
+	}
+	manifest := storedManifest(t, f, engineTestDeployReleaseID)
+	if manifest.State != release.StateServing || manifest.OperationOutcome != release.OutcomeFailed {
+		t.Fatalf("manifest = %s/%s, want serving/failed", manifest.State, manifest.OperationOutcome)
+	}
+}
+
+// The middle step has the same contract as the two either side of it.
+func TestScheduleSyncFailureIsAPostActivationFailure(t *testing.T) {
+	f := scheduledJobFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl enable --now") {
+			return transport.Result{ExitCode: 1, Stderr: "systemd is not running"}, true
+		}
+		return base(cmd)
+	}
+	cfg := scheduledJobConfig()
+	cfg.Hooks["post_deploy"] = app.Command{Run: "notify-release"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "schedules:") {
+		t.Fatalf("deploy error = %v, want a schedules failure", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, `"sub_step":"finalize:schedules","event":"result","status":"fail"`) {
+		t.Fatalf("the failed step must be journaled:\n%s", seq)
+	}
+	if strings.Contains(seq, "notify-release") {
+		t.Fatalf("a later step must not run after an earlier one failed:\n%s", seq)
+	}
+	manifest := storedManifest(t, f, "20260101-000000-aaa111")
+	if manifest.State != release.StateServing || manifest.OperationOutcome != release.OutcomeFailed {
+		t.Fatalf("manifest = %s/%s, want serving/failed", manifest.State, manifest.OperationOutcome)
+	}
+}
+
+// Schedules sync before the post-deploy hook so a hook that inspects the
+// schedule sees the one this release declares. Order is a contract, not an
+// accident of the table's layout.
+func TestScheduleSyncRunsBeforeThePostDeployHook(t *testing.T) {
+	f := scheduledJobFake()
+	cfg := scheduledJobConfig()
+	cfg.Hooks["post_deploy"] = app.Command{Run: "notify-release"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	schedules, hook := strings.Index(seq, "systemctl enable --now"), strings.Index(seq, "notify-release")
+	if schedules < 0 || hook < 0 || schedules > hook {
+		t.Fatalf("schedules must sync before the post-deploy hook (schedules=%d hook=%d):\n%s", schedules, hook, seq)
 	}
 }

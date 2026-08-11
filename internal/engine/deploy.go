@@ -380,10 +380,16 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 	return nil
 }
 
+// retentionSkipped is the durable, value-free note that retention declined to
+// act. The reason can carry host stderr, which the journal contract keeps off
+// durable evidence, so the detail stays on the trusted local path and only this
+// stable phrase is journaled.
+const retentionSkipped = "release-store cleanup skipped: retention evidence is incomplete"
+
 // pruneRetention removes releases beyond retain and journals beyond twice
-// that window because a journal outlives its release. It returns what the run
-// declined to do, so the journal records a deliberate skip rather than an
-// unqualified success.
+// that window because a journal outlives its release. It returns the skip note
+// when it deliberately declined to delete anything, so that the journal records
+// a skip rather than an unqualified success.
 func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 	journalIDs, err := journal.List(ctx, e.T, e.names())
 	if err != nil {
@@ -395,16 +401,21 @@ func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 		policy.EvidenceIDs[id] = true
 	}
 	decision, err := release.RetentionCandidates(ctx, e.T, e.names(), policy)
-	skipped := ""
 	var evidence *release.RetentionEvidenceError
 	switch {
 	case errors.As(err, &evidence):
 		// Refusing to delete on incomplete evidence is the contract. Failing the
 		// operation over it is not: the release is healthy and serving, and a
 		// deploy that cannot reach a terminal state is a worse outcome than a
-		// release store that keeps one directory too many. Say so and continue.
-		skipped = "release-store cleanup skipped — " + evidence.Error()
-		e.warnf("%s", skipped)
+		// release store that keeps one directory too many.
+		//
+		// Nothing else in this run may delete either. Journals are the evidence
+		// that protects release directories with no readable manifest, so
+		// pruning them during the one run that just said the evidence is
+		// incomplete would leave the store LESS protected than a clean run.
+		// The whole of retention declines together and a later run does both.
+		e.warnf("release-store cleanup skipped — %v", evidence)
+		return retentionSkipped, nil
 	case err != nil:
 		return "", err
 	default:
@@ -429,7 +440,7 @@ func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
-	return skipped, nil
+	return "", nil
 }
 
 // Rollback re-releases the previous release dir: its compose.yaml pins the

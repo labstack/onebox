@@ -85,15 +85,17 @@ already records as done, and the release keeps serving throughout. The manifest
 carries a failed operation outcome in the meantime, so a healthy release and an
 unfinished operation stay distinguishable.
 
-`ob resume` finalizes only when the recorded activation, the current release,
-the serving manifest and its recorded predecessor, and the live workload labels
-all agree. One disagreement returns `finalize_refused` and changes nothing.
+`ob resume` re-verifies the serving release first, then finalizes only when the
+recorded activation, the current release, the serving manifest and its recorded
+predecessor, the absence of an open activation checkpoint, and the live workload
+labels all agree. One disagreement returns `finalize_refused`: no step runs and
+no release, symlink or workload changes.
 
-Only the newest deploy is recoverable. Once a later deploy reaches a terminal
-state it has replaced every workload and activated its own release, so the older
-interrupted one is history rather than pending work — resuming it would
-re-activate a superseded release. `ob status` stops reporting it; `ob audit`
-still shows it as incomplete.
+Only the newest deploy is recoverable. Once a later deploy settles the host's
+release state — completing, aborting or rolling back — the older interrupted one
+is history rather than pending work, and resuming it would re-activate a release
+the host has already moved past. `ob status` stops reporting it; `ob audit` still
+shows the run.
 
 ## When recovery refuses
 

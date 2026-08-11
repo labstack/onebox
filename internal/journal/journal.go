@@ -362,7 +362,7 @@ const DoneActivation = "activation"
 // FinalizeSubStepPrefix marks the post-activation steps. They are journaled
 // individually — and deliberately not as rollback effects, which belong to the
 // choreography that runs before activation — so a finalize replay repeats none
-// of them.
+// that already recorded a successful result.
 const FinalizeSubStepPrefix = "finalize:"
 
 // EffectBaselineSubStep is written durably before transfer or any effect can
@@ -442,11 +442,19 @@ func Summarize(recs []Record) Summary {
 		switch r.Event {
 		case "start":
 			if deployRecord {
-				s.Started = true
-				s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
-				if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
-					s.PrevRelease = v
+				// Only the FIRST start describes what this operation superseded.
+				// Every resume appends its own start with the live current
+				// pointer, and once activation has moved that pointer it names
+				// the release being resumed — so a later start would rewrite the
+				// operation's predecessor to itself, and abort and finalize both
+				// read this field as durable evidence of what came before.
+				if !s.Started {
+					s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
+					if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
+						s.PrevRelease = v
+					}
 				}
+				s.Started = true
 			}
 		case "finish":
 			if deployRecord && r.Status == "ok" {

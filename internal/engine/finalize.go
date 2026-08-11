@@ -10,8 +10,10 @@ import (
 )
 
 // The post-activation steps, journaled individually so a finalize replay
-// repeats none of them. Retention and schedule sync are idempotent; the
-// post-deploy hook is not, which is the whole reason these keys exist.
+// repeats none that already succeeded — a step whose result was never recorded
+// as ok runs again, which is what makes a fix-forward resume work. Retention
+// and schedule sync are idempotent; the post-deploy hook is not, which is the
+// whole reason these keys exist.
 const (
 	finalizeRetentionSubStep  = journal.FinalizeSubStepPrefix + "retention"
 	finalizeSchedulesSubStep  = journal.FinalizeSubStepPrefix + "schedules"
@@ -61,7 +63,15 @@ func (e *Engine) finalizeActivated(ctx context.Context, jw *journal.Writer, mani
 	if err := e.Verify(ctx); err != nil {
 		vf(err)
 		e.progress("verification", "failed", "verification failed; inspect journal evidence")
-		return fmt.Errorf("verify serving release: %w", err)
+		verifyErr := fmt.Errorf("verify serving release: %w", err)
+		// The release is still serving and this operation still failed, so the
+		// manifest records that the same way a failed step does. Activation set
+		// the outcome to succeeded; leaving it there would claim a finished
+		// operation on a release that just failed its health gate.
+		if outcomeErr := e.recordOutcome(ctx, manifest, release.OutcomeFailed); outcomeErr != nil {
+			return errors.Join(verifyErr, outcomeErr)
+		}
+		return verifyErr
 	}
 	vf(nil)
 	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
@@ -106,8 +116,9 @@ func (e *Engine) requireActivationEvidence(ctx context.Context, manifest *releas
 	return e.requireLiveRelease(ctx, manifest.ID)
 }
 
-// requireLiveRelease checks the host agrees with the manifest: every declared
-// workload is running, and every container of it carries this release's label.
+// requireLiveRelease checks the host agrees with the manifest: every
+// long-running workload is running — jobs are not in ReleaseOrder and are not
+// expected to be — and every container of it carries this release's label.
 // Records can be written by a runner that then died before the workloads
 // converged, so the live state is evidence in its own right.
 func (e *Engine) requireLiveRelease(ctx context.Context, releaseID string) error {
@@ -139,8 +150,10 @@ func (e *Engine) requireLiveRelease(ctx context.Context, releaseID string) error
 // what did not finish. `ob resume` then completes exactly the steps that remain.
 func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, manifest *release.Manifest, done map[string]bool, remoteDir, remoteCompose string) error {
 	e.progress("cleanup", "started", "")
-	// A step returns what it deliberately did not do, so a skip is recorded as
-	// a skip instead of an unqualified success.
+	// A step returns, when and only when it succeeded, the note for work it
+	// deliberately declined to do; that note becomes the journal detail so a
+	// skip is not recorded as an unqualified success. label reproduces the error
+	// prefix each step had before it moved into this table.
 	for _, step := range []struct {
 		key   string
 		label string
@@ -166,6 +179,11 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 		result := journal.Record{Phase: "finalize", SubStep: step.key, Event: "result", Status: "ok", Detail: detail}
 		if err != nil {
 			result.Status, result.Detail = "fail", err.Error()
+		} else if detail != "" {
+			// Structured consumers see engine progress messages and never the
+			// warning on the local path, and a skipped step is exactly what an
+			// operator running under --output ndjson has to be told.
+			e.progress("cleanup", "skipped", detail)
 		}
 		if journalErr := jw.Append(ctx, result); journalErr != nil {
 			return errors.Join(err, fmt.Errorf("journal %s result: %w", step.key, journalErr))
@@ -188,8 +206,9 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 
 // recordOutcome writes the terminal result of the post-activation steps without
 // touching lifecycle state: a serving release stays serving even when the work
-// after it failed. That separation is what the manifest carries an outcome for,
-// and it is what lets a later finalize find the release and complete it.
+// after it failed. The outcome is evidence rather than an input — finalize finds
+// the release through its serving state and an unfinished journal — and it is
+// what keeps a healthy release distinguishable from a finished operation.
 func (e *Engine) recordOutcome(ctx context.Context, manifest *release.Manifest, outcome release.OperationOutcome) error {
 	if manifest.OperationOutcome == outcome {
 		return nil

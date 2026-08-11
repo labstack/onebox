@@ -79,13 +79,29 @@ protection from an adversarial infrastructure provider.
 ## `ob exec` is deliberately outside it
 
 ```sh
-ob exec <workload> -- <command>
+ob exec --reason "<why>" <target> -- <command>
 ```
 
-It runs outside the journal and the safety regime, and nothing it changes belongs
-to any release. Every other command states up front whether it contacts the
-server and whether it changes anything; `ob exec` is the one row without a
-definite answer, and that is the point rather than an omission.
+`--reason` is required. An escape hatch whose use cannot be explained afterwards
+is indistinguishable from an intrusion, so the reason is part of the record
+before the command runs.
+
+What Onebox guarantees here is narrow but real: exec takes the application lock
+and writes the mutation fence before it resolves a container, so it cannot run
+inside a workload a concurrent deploy is replacing, and it holds that lock for
+the life of the stream. It records the operator, the target and its kind, the
+exact container, the reason, a digest of the command, and the outcome.
+
+What it does not do is claim the result. Nothing exec changes belongs to a
+release, so nothing it changes survives the next deploy in any tracked sense,
+and nothing about it is reversible by rollback. Every other command states up
+front whether it contacts the server and whether it changes anything; `ob exec`
+is the one row without a definite answer, and that is the point rather than an
+omission.
+
+The command text itself never enters the durable record — only its digest —
+because an operator pasting a one-off command is not thinking about whether it
+contains a credential.
 
 ## Reading the envelope from outside
 

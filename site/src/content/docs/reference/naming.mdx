@@ -67,13 +67,21 @@ Groups that hold subcommands are nouns: `job`, `proxy`, `secrets`, and
 subcommands genuinely act on the whole set at once (`ob secrets push`).
 
 **An artifact keeps one word across all three of its surfaces** — the command
-that produces it, the flag that consumes it, and its default filename.
+that produces it, the flag that consumes it, and its filename.
 
-| Producer | Consumer flag | File |
+| Producer | Consumer flag | Default filename |
 | --- | --- | --- |
 | `ob plan` | `--plan` | `ob-plan.json` |
 | `ob approve` | `--approval` | `ob-approval.json` |
-| `ob plan --backup-report-out` | `--backup-report` | `ob-backup-report.json` |
+| `ob job plan` | `ob job run --plan` | `ob-job-plan.json` |
+| `ob plan --backup-report-out` | `--backup-report` | none — the path is required |
+
+The first three have a default path, so `--out` is optional.
+`--backup-report-out` is the exception: it has no default, and no report
+template is written unless you name a path — and then only when the plan
+actually requires one. `ob-backup-report.json` is a convention the guidance and
+the error messages suggest, not a default the binary supplies. `ob job plan`
+takes the same `--backup-report-out`, on the same terms.
 
 **The bypass gets harder as the blast radius grows.** `ob deploy` takes `-y` to
 skip its prompt. `ob destroy` has no flag that skips its confirmation: the

@@ -821,7 +821,7 @@ func jsonString(s string) string {
 func renderErrorPage() string {
 	var buf bytes.Buffer
 
-	summary := "Every typed failure code in the contract: the loader's validation codes, all of which are reachable, and the lifecycle failure contract, where a row marked reserved is one no path raises yet."
+	summary := "Every typed failure code in the contract: the loader's validation codes and the CLI and engine's operation codes, all of which are reachable, and the lifecycle failure contract, where a row marked reserved is one no path raises yet."
 
 	fmt.Fprintln(&buf, "---")
 	fmt.Fprintln(&buf, `title: Error codes`)
@@ -856,6 +856,33 @@ func renderErrorPage() string {
 	for _, code := range app.ErrorCodes() {
 		meaning, _ := app.ErrorCodeMeaning(code)
 		fmt.Fprintf(&buf, "| `%s` | %s |\n", code, escapeCell(meaning))
+	}
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## Operation codes")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Raised while a command runs, rather than while the project file is read. These")
+	fmt.Fprintln(&buf, "are the codes a deploy, a rollback, a secret rotation or an audited exec puts in")
+	fmt.Fprintln(&buf, "the `error.code` field, so they are the set to branch on when automating.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "A blank command is deliberate: some failures have no honest Onebox command that")
+	fmt.Fprintln(&buf, "resolves them. A local artifact that could not be written is fixed on the")
+	fmt.Fprintln(&buf, "filesystem, not by running the tool again. An angle-bracketed command names a")
+	fmt.Fprintln(&buf, "step to complete rather than a line to run verbatim.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "| Code | Means | Guidance role | Command |")
+	fmt.Fprintln(&buf, "| --- | --- | --- | --- |")
+	for _, code := range onebox.OperationFailureCodes() {
+		failure, ok := onebox.OperationFailureFor(code)
+		if !ok {
+			panic(fmt.Sprintf("operation code %q does not resolve", code))
+		}
+		role, command := "—", "—"
+		if failure.Command != "" {
+			role = failure.GuidanceRole()
+			command = "`" + failure.Command + "`"
+		}
+		fmt.Fprintf(&buf, "| `%s` | %s | %s | %s |\n", code, escapeCell(failure.Message), role, escapeCell(command))
 	}
 	fmt.Fprintln(&buf)
 

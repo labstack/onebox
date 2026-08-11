@@ -55,10 +55,15 @@ and a job that lies about it defeats them.
 ## Running one by hand
 
 ```sh
-ob job plan maintenance --out ob-job-plan.json
+ob job plan nightly-dump --out ob-job-plan.json
 ob approve --plan ob-job-plan.json --out ob-job-approval.json
 ob job run --plan ob-job-plan.json --approval ob-job-approval.json
 ```
+
+`ob job plan` accepts a job only when its resolved `when` is `manual`, which is
+the default for a job that declares none. A `pre_release` or `post_release` job
+is refused: it belongs to the deploy graph, and one-shot invocation is reserved
+for the jobs that do not.
 
 A declared `when: manual` job remains in the digest-pinned release runtime but
 never joins the deploy graph. Its job plan binds the current serving release,
@@ -84,5 +89,10 @@ For a job that participates automatically in a deploy, choose a release phase:
 ```yaml
 when: pre_release    # or post_release; manual is invoked only through job plan/run
 ```
+
+`schedule` and `when` are orthogonal, and both fire. A job declaring `schedule:`
+**and** `when: pre_release` runs on the host timer at its cron time *and* again
+on every deploy. Declaring both is how you ask for both; for the timer alone,
+leave `when` at its `manual` default.
 
 See [`workloads`](/reference/fields/workloads) for every field.

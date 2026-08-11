@@ -37,7 +37,7 @@ func TestCurrentReleaseWithoutManifestFailsClosed(t *testing.T) {
 		t.Fatal("manifest-less current release was accepted")
 	}
 	var typed *release.ManifestError
-	if !errors.As(err, &typed) || typed.Code != "manifest_missing" {
+	if !errors.As(err, &typed) || typed.Code() != "manifest_missing" {
 		t.Fatalf("error = %v, want manifest_missing", err)
 	}
 	if len(target.Inputs) != 0 || len(target.Uploads) != 0 {
@@ -53,7 +53,7 @@ func TestResumeReleaseWithoutManifestFailsClosed(t *testing.T) {
 		t.Fatal("manifest-less interrupted release was materialized")
 	}
 	var typed *release.ManifestError
-	if !errors.As(err, &typed) || typed.Code != "manifest_missing" {
+	if !errors.As(err, &typed) || typed.Code() != "manifest_missing" {
 		t.Fatalf("error = %v, want manifest_missing", err)
 	}
 	if len(target.Inputs) != 0 || len(target.Uploads) != 0 {
@@ -251,5 +251,63 @@ func TestRollbackRefusesSupersededManifestThatNeverProvedServing(t *testing.T) {
 	}
 	if len(target.Commands) != 0 {
 		t.Fatalf("refused rollback touched target: %#v", target.Commands)
+	}
+}
+
+// Activation writes the verified manifest before it switches the symlink, so a
+// runner that dies in between leaves a verified manifest. The halt guidance
+// tells the operator to fix forward and resume, which was impossible while
+// activation accepted only staged manifests: every retry refused and `ob abort`
+// was the sole way out.
+func TestActivateManifestResumesFromAVerifiedManifest(t *testing.T) {
+	target := happyFake()
+	engine := releaseStateTestEngine(t, target)
+	manifest := stagedManifest(t, engineTestDeployReleaseID)
+	if err := manifest.Transition(release.StateVerified, engine.Opts.Now(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.writeReleaseManifest(context.Background(), manifest); err != nil {
+		t.Fatal(err)
+	}
+	before := len(target.Inputs)
+
+	if err := engine.activateManifest(context.Background(), &manifest, ""); err != nil {
+		t.Fatalf("resume from verified: %v\n%s", err, strings.Join(target.Commands, "\n"))
+	}
+	if manifest.State != release.StateServing {
+		t.Fatalf("manifest state = %q, want serving", manifest.State)
+	}
+	// The transition is recorded once. A second verified entry would mean the
+	// re-entry rewrote history it had already written.
+	verified := 0
+	for _, input := range target.Inputs[before:] {
+		if decoded, err := release.DecodeManifest([]byte(input)); err == nil && decoded.State == release.StateVerified {
+			verified++
+		}
+	}
+	if verified != 0 {
+		t.Fatalf("re-entry rewrote the verified transition %d time(s)", verified)
+	}
+	if commands := strings.Join(target.Commands, "\n"); !strings.Contains(commands, "ln -sfn") {
+		t.Fatalf("re-entry did not reach the symlink switch:\n%s", commands)
+	}
+}
+
+func TestActivateManifestRefusesAStateItCannotResume(t *testing.T) {
+	target := happyFake()
+	engine := releaseStateTestEngine(t, target)
+	manifest := stagedManifest(t, engineTestDeployReleaseID)
+	for _, state := range []release.State{release.StateVerified, release.StateServing, release.StateSuperseded} {
+		if err := manifest.Transition(state, engine.Opts.Now(), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := engine.activateManifest(context.Background(), &manifest, "")
+	var refused *ActivationRefusedError
+	if !errors.As(err, &refused) || refused.Code() != "activation_refused" {
+		t.Fatalf("error = %v, want a typed activation_refused", err)
+	}
+	if refused.State != release.StateSuperseded {
+		t.Fatalf("refusal reported state %q", refused.State)
 	}
 }

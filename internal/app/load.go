@@ -98,10 +98,11 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	// remove — and leaving it accepted would keep two mechanisms for one idea.
 	if _, ok := raw["secrets"]; ok {
 		return nil, errf("secrets_withdrawn", "secrets",
-			"runtime.env_files: [{file: <path>, provider: sops}]",
+			"ob validate",
 			"the `secrets` block is withdrawn: declare the file as an env_files "+
-				"entry carrying a provider, at the project, environment or workload "+
-				"scope that should receive it")
+				"entry carrying a provider — runtime.env_files: [{file: <path>, "+
+				"provider: sops}] — at the project, environment or workload scope "+
+				"that should receive it")
 	}
 	if err := checkShape(raw, lines); err != nil {
 		return nil, err

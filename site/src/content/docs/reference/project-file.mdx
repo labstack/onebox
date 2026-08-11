@@ -39,7 +39,15 @@ published reference on the first line of a scaffolded project.
 | `runtime` | Environment files and local environment-file checks. | [runtime](/reference/fields/runtime) |
 | `hooks` | Commands at lifecycle seams. | [hooks](/reference/fields/hooks) |
 | `verifications` | What must be true for a release to activate. | [verifications](/reference/fields/verifications) |
+| `external_services` | Dependencies operated outside Onebox, and how a workload reaches them. | [external_services](/reference/fields/external_services) |
+| `backup_targets` | Off-host repositories the proposed protection layer would write to. | [backup_targets](/reference/fields/backup_targets) |
 | `registries` `notifications` `observability` | Named maps. | [registries](/reference/fields/registries) · [notifications](/reference/fields/notifications) · [observability](/reference/fields/observability) |
+
+`external_services` and `backup_targets` are published in the JSON Schema and
+accepted by `ob validate`, but the lifecycle behind them is not shipped:
+declaring a backup target creates no repository and no schedule, and an external
+service's health probe never runs. See
+[Shipped vs proposed](/status/capabilities).
 
 Any mapping also accepts `x-` keys. They are carried nowhere and never change the
 generated runtime.

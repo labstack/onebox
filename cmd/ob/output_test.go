@@ -402,8 +402,21 @@ func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
 		if want := "--output json is not supported by " + command; !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: error = %v, want %q", command, err, want)
 		}
-		if out != "" {
-			t.Errorf("%s: unsupported structured output wrote human help:\n%s", command, out)
+		// A group executes nothing, so it has no matrix row — but a caller that
+		// asked for JSON is parsing a stream, and human help or zero bytes are
+		// both unreadable to it. It gets a refusal envelope in the mode it asked
+		// for.
+		var envelope cliEnvelope
+		if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+			t.Fatalf("%s: output is not a JSON envelope (%v):\n%s", command, err, out)
+		}
+		if envelope.SchemaVersion != cliSchemaVersion || envelope.Command != command ||
+			envelope.Outcome != cliOutcomeError || envelope.Error == nil ||
+			envelope.Error.Code != "output_mode_incompatible" {
+			t.Errorf("%s: envelope = %+v", command, envelope)
+		}
+		if envelope.Error != nil && envelope.Error.DiagnosticCommand == "" {
+			t.Errorf("%s: refusal carries no diagnostic command", command)
 		}
 	}
 }
@@ -570,5 +583,65 @@ func TestIncompatibleLeafModeReturnsTypedEnvelope(t *testing.T) {
 	}
 	if envelope.Error.DiagnosticCommand != "ob help exec" || envelope.Error.ResolvingCommand != "" {
 		t.Fatalf("guidance = %+v", envelope.Error)
+	}
+}
+
+func TestStructuredDeployWithoutPlanCarriesTheTypedCodeAndNextStep(t *testing.T) {
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetArgs([]string{"deploy", "--output", "json"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("structured deploy without --plan succeeded")
+	}
+	var envelope cliEnvelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	// The instruction an agent needs is "go and plan first". Before this carried
+	// a code it arrived as the generic operation_failed with the actual sentence
+	// stranded on stderr, which is unreadable to the caller that asked for JSON.
+	if envelope.Error == nil || envelope.Error.Code != "plan_required" {
+		t.Fatalf("error = %+v", envelope.Error)
+	}
+	if envelope.Error.NextCommand != "ob plan --output json" {
+		t.Fatalf("next command = %q", envelope.Error.NextCommand)
+	}
+}
+
+func TestUnsupportedOutputModeStillAnswersInMachineForm(t *testing.T) {
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetArgs([]string{"validate", "--output", "yaml"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("unsupported output mode succeeded")
+	}
+	// No framing was successfully selected, so the refusal falls back to JSON
+	// rather than to nothing: a caller that mistypes the mode must still be able
+	// to read why.
+	var envelope cliEnvelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	if envelope.Error == nil || envelope.Error.Code != "output_mode_incompatible" {
+		t.Fatalf("error = %+v", envelope.Error)
+	}
+	if envelope.Error.DiagnosticCommand != "ob help validate" {
+		t.Fatalf("diagnostic command = %q", envelope.Error.DiagnosticCommand)
+	}
+}
+
+func TestEveryPublishedOperationCodeResolvesToItsEnvelopeMessage(t *testing.T) {
+	// The envelope and the generated error reference read the same registry, so
+	// a code cannot mean one thing to an operator and another in the docs.
+	for _, code := range onebox.OperationFailureCodes() {
+		failure, _ := onebox.OperationFailureFor(code)
+		if got := safeMessageForCode(code, "FALLBACK"); got != failure.Message {
+			t.Errorf("code %q: envelope message %q, published %q", code, got, failure.Message)
+		}
+		if got := guidanceCommandForCode(code); got != failure.Command {
+			t.Errorf("code %q: envelope command %q, published %q", code, got, failure.Command)
+		}
 	}
 }

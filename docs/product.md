@@ -4,7 +4,7 @@
 >
 > Not an implementation contract. See the [documentation authority
 > map](README.md) for what is shipped, and [active OpenSpec
-> changes](../../openspec/changes/) for what is proposed. The previous direction,
+> changes](../openspec/changes/) for what is proposed. The previous direction,
 > which made MCP the product interface, is archived at
 > [`archive/2026-08-02-product-mcp-native.md`](archive/2026-08-02-product-mcp-native.md).
 
@@ -89,10 +89,14 @@ What replaces it is a CLI built to be operated by an agent:
 - Errors are typed and distinguish diagnostic, workflow-next, and resolving
   commands.
 - Results stay compact, with detail behind identifiers.
-- Lifecycle mutations are idempotent under retry. `exec` is explicitly an
-  arbitrary, reasoned, digest-audited escape hatch and makes no such claim.
-- Scaffolding writes the operating instructions into the repository, so an agent
-  learns the tool from the project rather than from a protocol.
+- Convergence is idempotent under retry: re-applying services or the proxy
+  reaches the same state. Deploy retry is mediated by the journal and resume
+  rather than replayed blindly, and an expired plan is refused rather than
+  re-run. `exec` is explicitly an arbitrary, reasoned, digest-audited escape
+  hatch and makes no idempotency claim at all.
+- Scaffolding writes a project file an agent can read and validate. Writing
+  operating instructions into the repository is intent, not shipped: `ob init`
+  produces `ob.yml` and nothing else.
 
 Lifecycle behaviour lives in one canonical service. The CLI is an adapter over
 it, which is what would let an HTTP surface exist later without a second
@@ -140,10 +144,14 @@ contract and visible everywhere the service appears:
 - **Run** — pinned, persisted, health-gated, capped, observed, never recreated by
   an application rollback, and carrying no backup contract that it must state
   plainly.
-- **Workload** — any other container, released like the user's own.
+- **External** — declared, connected to, and not owned.
 
 A driver graduates from Run to Managed when its restore drill passes in CI. A
 declaration is never presented as proof that protection is running.
+
+This tier is direction, not current behaviour. The canonical facts carry the
+field and validate it, but nothing assigns a tier yet, and no surface reports
+one — see [Shipped vs proposed](../site/src/content/docs/status/capabilities.mdx).
 
 ## Delivery discipline
 

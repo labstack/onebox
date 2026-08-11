@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -132,26 +133,45 @@ func validateOutputMode(cmd *cobra.Command, g *globalFlags) error {
 	if g.Output == "human" {
 		return nil
 	}
+	// An unparseable mode is still a request for machine output. Answering it
+	// with an empty stream would make the one failure an agent is most likely to
+	// hit on its first call the only failure it cannot read; JSON is the
+	// fallback because no stream framing was successfully selected.
 	if g.Output != "json" && g.Output != "ndjson" {
-		return fmt.Errorf("--output must be human, json, or ndjson")
+		modeErr := fmt.Errorf("output_mode_incompatible: --output %s is not a supported output mode", g.Output)
+		publicErr := &cliPublicError{
+			Code:              "output_mode_incompatible",
+			SafeMessage:       safeMessageForCode("output_mode_incompatible", "the requested output mode is incompatible with this command"),
+			DiagnosticCommand: helpCommandFor(cmd),
+		}
+		if err := writeCLIJSON(cmd.OutOrStdout(), cliEnvelope{
+			SchemaVersion: cliSchemaVersion, Command: commandName(cmd),
+			Outcome: cliOutcomeError, Error: publicErr,
+		}, true); err != nil {
+			return errors.Join(withExitCode(modeErr, 1), fmt.Errorf("write structured failure: %w", err))
+		}
+		return withExitCode(modeErr, 1)
 	}
 	class, ok := cliOutputMatrix[cmd.CommandPath()]
 	if !ok || (g.Output == "json" && !class.JSON) || (g.Output == "ndjson" && !class.NDJSON) {
 		modeErr := fmt.Errorf("output_mode_incompatible: --output %s is not supported by %s", g.Output, cmd.CommandPath())
-		if ok {
-			publicErr := &cliPublicError{
-				Code: "output_mode_incompatible", SafeMessage: "the requested output mode is incompatible with this command",
-				DiagnosticCommand: "ob help " + strings.TrimPrefix(cmd.CommandPath(), "ob "),
+		publicErr := &cliPublicError{
+			Code:              "output_mode_incompatible",
+			SafeMessage:       safeMessageForCode("output_mode_incompatible", "the requested output mode is incompatible with this command"),
+			DiagnosticCommand: helpCommandFor(cmd),
+		}
+		// A command group and the root carry no matrix row because they execute
+		// nothing. They still answer in the requested framing: an agent probing
+		// `ob job --output json` to discover the surface must get an envelope,
+		// not zero bytes on a stream it is already parsing.
+		if g.Output == "json" {
+			if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
+				return errors.Join(withExitCode(modeErr, 1), fmt.Errorf("write structured failure: %w", err))
 			}
-			if g.Output == "json" {
-				if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
-					return err
-				}
-			} else {
-				stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
-				if err := stream.terminal(cliOutcomeError, nil, publicErr); err != nil {
-					return err
-				}
+		} else {
+			stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
+			if err := stream.terminal(cliOutcomeError, nil, publicErr); err != nil {
+				return errors.Join(withExitCode(modeErr, 1), fmt.Errorf("write structured failure: %w", err))
 			}
 		}
 		return withExitCode(modeErr, 1)
@@ -282,6 +302,9 @@ func writeCancelled(cmd *cobra.Command, g *globalFlags, message string) error {
 	return cancelled
 }
 
+// publicError builds the operator-facing error. fallbackMessage is used only
+// when the resolved code is in no published table; enumerated codes carry their
+// published sentence, whichever family owns them.
 func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPublicError {
 	result := &cliPublicError{Code: fallbackCode, SafeMessage: fallbackMessage}
 	if commandErr == nil {
@@ -291,7 +314,9 @@ func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPub
 	var projectErr *app.Error
 	if errors.As(commandErr, &projectErr) {
 		result.Code = projectErr.Code
-		result.SafeMessage = "project configuration is invalid"
+		// The loader publishes a sentence per code; collapsing all of them to one
+		// generic string discarded the only diagnostic a structured caller gets.
+		result.SafeMessage = safeMessageForCode(projectErr.Code, "project configuration is invalid")
 		result.Path = projectErr.Path
 		setCommandGuidance(result, projectErr.Next)
 		return result
@@ -310,41 +335,53 @@ func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPub
 	var coded interface{ Code() string }
 	if errors.As(commandErr, &coded) && coded.Code() != "" {
 		result.Code = coded.Code()
-		result.SafeMessage = safeMessageForCode(coded.Code(), fallbackMessage)
-		setCommandGuidance(result, guidanceCommandForCode(coded.Code()))
 	}
-	if errors.Is(commandErr, context.Canceled) {
+	// Only when nothing more specific resolved. A typed failure can carry a
+	// cancelled cause — an interrupt during a post-commit secret sweep — and
+	// calling that "cancelled" tells the operator nothing was applied when the
+	// new generation is committed and live.
+	if result.Code == fallbackCode && errors.Is(commandErr, context.Canceled) {
 		result.Code = "cancelled"
-		result.SafeMessage = "operation cancelled"
 	}
+
+	// Resolution happens here for every path that reaches it. When only the typed
+	// branch consulted the registry, a call site passing a literal code kept
+	// whatever sentence it had authored and no guidance was attached. The
+	// lifecycle branch above returns with its own typed fields.
+	result.SafeMessage = safeMessageForCode(result.Code, fallbackMessage)
+	command := guidanceCommandForCode(result.Code)
+	// An error that knows a more specific safe command than its code's
+	// published default wins: image_unresolved can name the exact workload to
+	// pin. A specific command that is not publishable falls back to the
+	// registry default rather than leaving the failure with no guidance.
+	var specific interface{ GuidanceCommand() string }
+	if errors.As(commandErr, &specific) && onebox.SafeGuidanceCommand(specific.GuidanceCommand()) {
+		command = specific.GuidanceCommand()
+	}
+	setCommandGuidance(result, command)
 	return result
 }
 
+// safeMessageForCode and guidanceCommandForCode both read the published
+// operation-failure registry rather than a private table. The registry is what
+// the error reference is generated from, so a code cannot carry one sentence in
+// the envelope and a different one in the documentation, and a code that
+// reaches an operator without being enumerated fails a test.
 func safeMessageForCode(code, fallback string) string {
-	messages := map[string]string{
-		"recovery_incomplete":             "recovery did not reach its verified terminal state",
-		"secret_recovery_incomplete":      "secret recovery did not reach its verified terminal state",
-		"unknown_runtime_target":          "the requested runtime target is not declared",
-		"secret_declaration_not_deployed": "the deployed release does not declare this secret graph",
-		"secret_generation_not_deployed":  "the deployed release does not reference the active secret generation",
-		"output_mode_incompatible":        "the requested output mode is incompatible with this command",
+	if message, ok := onebox.OperationFailureMeaning(code); ok && message != "" {
+		return message
 	}
-	if message := messages[code]; message != "" {
+	// A few codes are raised by both the loader and the engine — image_unresolved
+	// is the same condition found at two moments — and the validation table owns
+	// the sentence for those.
+	if message, ok := app.ErrorCodeMeaning(code); ok && message != "" {
 		return message
 	}
 	return fallback
 }
 
 func guidanceCommandForCode(code string) string {
-	commands := map[string]string{
-		"recovery_incomplete":             "ob resume --output ndjson",
-		"secret_recovery_incomplete":      "ob secrets push --output ndjson",
-		"secret_declaration_not_deployed": "ob deploy --output ndjson",
-		"secret_generation_not_deployed":  "ob deploy --output ndjson",
-		"unknown_runtime_target":          "ob status --output json",
-		"output_mode_incompatible":        "ob help",
-	}
-	return commands[code]
+	return onebox.OperationFailureCommand(code)
 }
 
 // setCommandGuidance assigns one semantic role. Inspection commands diagnose,
@@ -353,6 +390,14 @@ func guidanceCommandForCode(code string) string {
 // status/validate while believing they changed the reported condition.
 func setCommandGuidance(result *cliPublicError, command string) {
 	if result == nil || command == "" {
+		return
+	}
+	// The guidance fields are documented as safe Onebox commands, and an agent
+	// may run what it finds there. Anything that is not one — a YAML fragment
+	// authored as prose guidance, say — is dropped rather than published: the
+	// message already carries it, and a field that sometimes holds a command is
+	// worse than one that is absent.
+	if !onebox.SafeGuidanceCommand(command) {
 		return
 	}
 	switch onebox.GuidanceRoleForCommand(command) {
@@ -509,4 +554,46 @@ func safeStatusSnapshot(snapshot engine.StatusSnapshot) engine.StatusSnapshot {
 		snapshot.Warnings[i].Message = "observation unavailable; inspect stderr for local diagnostics"
 	}
 	return snapshot
+}
+
+// cliCodedError attaches a published operation-failure code to a refusal the
+// CLI raises before any service call. Without one, an argument refusal — the
+// first thing a new agent operator hits — arrives as the generic
+// operation_failed envelope with the actual instruction stranded on stderr.
+type cliCodedError struct {
+	err  error
+	code string
+}
+
+func (e *cliCodedError) Error() string { return e.err.Error() }
+func (e *cliCodedError) Unwrap() error { return e.err }
+func (e *cliCodedError) Code() string  { return e.code }
+
+func codedError(code string, format string, args ...any) error {
+	return &cliCodedError{err: fmt.Errorf(format, args...), code: code}
+}
+
+// helpCommandFor names the help page for a command, and plain `ob help` for the
+// root, so the guidance never renders with a doubled space or a repeated "ob".
+func helpCommandFor(cmd *cobra.Command) string {
+	return strings.TrimSpace("ob help " + strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), "ob")))
+}
+
+// artifactExists reports whether a path was present before this invocation
+// wrote anything. Note the plan has already been overwritten by the time any
+// cleanup runs, so this does not preserve an earlier run's artifact — it only
+// decides whether a path this run did not create should be removed.
+func artifactExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func removeArtifactWeCreated(path string, preexisting bool) error {
+	if preexisting {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove incomplete artifact set: %w", err)
+	}
+	return nil
 }

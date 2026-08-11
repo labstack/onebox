@@ -19,9 +19,29 @@ services:
   postgres: 17
 ```
 
-That is sufficient. Onebox runs the image, a durable volume, a health check, a
-credential generated on the server, and the connection details your application
-reads. You supply no password, no port, and no data path.
+That is sufficient as a declaration. Onebox supplies the image, a durable volume,
+a health check, a credential generated on the server, and the connection details
+your application reads. You supply no password, no port, and no data path.
+
+Declaring it does not start it. Services live outside the release lifecycle, so
+`ob deploy` wires up connections but never creates or replaces a service
+container — that would make every deploy a potential database restart. Apply the
+service explicitly:
+
+```sh
+ob service apply --output ndjson
+```
+
+On a host you have not bootstrapped yet, `ob bootstrap` does this for you. If you
+skip it on a live application, the next deploy stops at preflight with
+`service "postgres" is not running — start it with ob bootstrap or ob service apply`.
+
+:::caution[Mount changes are refused by default]
+If applying a service would detach or replace a volume that holds data, it stops
+rather than proceeding. Passing `--allow-destructive-mounts` says you have
+accepted that. A major version transition has no override at all — that is a
+migration, not a setting.
+:::
 
 The service's name is its driver unless `driver` says otherwise, so a second
 Postgres is:

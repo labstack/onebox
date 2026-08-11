@@ -126,6 +126,7 @@ step to complete rather than a line to run verbatim.
 | `divergence_detected` | the live release does not match the recorded release state | diagnostic | `ob status --output json` |
 | `doctor_failed` | a local readiness check failed | diagnostic | `ob doctor --output json` |
 | `exec_failed` | the audited exec could not be completed | diagnostic | `ob status --output json` |
+| `finalize_refused` | the release cannot be finalized because the recorded activation evidence disagrees with the live host | diagnostic | `ob status --output json` |
 | `host_owner_mismatch` | this host is owned by a different Onebox application, and one host has one owner | diagnostic | `ob preflight --output json` |
 | `job_plan_failed` | the one-shot job plan could not be produced | next | `ob job plan <job> --output json` |
 | `logs_failed` | log retrieval failed | diagnostic | `ob status --output json` |

@@ -159,5 +159,20 @@ deployment:
   migration_policy: manual   # manual · auto · expand-only
 ```
 
-`expand-only` is the safe default shape for zero-downtime work: additive schema
-changes deploy freely, destructive ones do not.
+`expand-only` is your promise, not a check Onebox performs. It declares that
+every migration in this project is additive — that a release running the old
+code against the new schema still works. Onebox never inspects your SQL; it
+takes the declaration and, on the strength of it, keeps the rollback gate
+**open** after a `data_effect: migration` job runs, so a failed verify can roll
+back automatically instead of halting.
+
+That makes it the right setting for a genuinely expand-only workflow and the
+wrong one everywhere else. Under `manual` or `auto`, a migration job closes the
+gate: recovery stops and asks you, because rolling the application back over a
+schema it can no longer read is worse than staying put.
+
+:::caution[It relaxes a gate, it does not add one]
+Nothing about `expand-only` prevents a destructive migration from running. If
+you set it and then ship a `DROP COLUMN`, auto-rollback will happily return the
+application to code that expects the column to exist.
+:::

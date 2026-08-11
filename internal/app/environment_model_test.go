@@ -151,8 +151,13 @@ secrets: {production: s.yaml}
 	if !asError(err, &e) || e.Code != "secrets_withdrawn" {
 		t.Fatalf("want secrets_withdrawn, got %v", err)
 	}
-	if !strings.Contains(e.Next, "provider: sops") {
-		t.Errorf("the refusal must name the replacement form: %q", e.Next)
+	// The replacement shape belongs in the message. Next is published as a safe
+	// command an agent may run, so a YAML fragment there would be executed.
+	if !strings.Contains(e.Message, "provider: sops") {
+		t.Errorf("the refusal must name the replacement form: %q", e.Message)
+	}
+	if !strings.HasPrefix(e.Next, "ob ") {
+		t.Errorf("Next must be a runnable command, got %q", e.Next)
 	}
 }
 

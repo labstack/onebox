@@ -80,9 +80,22 @@ func (err *RecoveryIncompleteError) Error() string {
 func (err *RecoveryIncompleteError) Unwrap() error { return err.Err }
 func (err *RecoveryIncompleteError) Code() string  { return "recovery_incomplete" }
 
+// MigrationGateClosedError reports that automatic recovery is refused because
+// the interrupted release ran rollback-unknown data effects. It is typed
+// because the two ways forward — fix forward and resume, or take the
+// break-glass abort — are a decision an operator must make deliberately, and a
+// generic operation_failed envelope hides that the decision exists.
+type MigrationGateClosedError struct{ InterruptedID string }
+
+func (err *MigrationGateClosedError) Error() string {
+	return fmt.Sprintf("recovery refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", err.InterruptedID)
+}
+
+func (err *MigrationGateClosedError) Code() string { return "migration_gate_closed" }
+
 func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest) (err error) {
 	if !request.GateCovered && !request.BreakGlass {
-		return fmt.Errorf("recovery refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", request.InterruptedID)
+		return &MigrationGateClosedError{InterruptedID: request.InterruptedID}
 	}
 	if request.Journal == nil || request.InterruptedID == "" ||
 		(request.TerminalState != release.StateFailed && request.TerminalState != release.StateAborted) {

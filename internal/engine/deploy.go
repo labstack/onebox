@@ -291,8 +291,8 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
 		return fmt.Errorf("journal verify result: %w", err)
 	}
-	if manifest.State != release.StateStaged {
-		return fmt.Errorf("release %s cannot activate from manifest state %s", releaseID, manifest.State)
+	if !activationResumable(manifest.State) {
+		return &ActivationRefusedError{ReleaseID: releaseID, State: manifest.State}
 	}
 	e.progress("verification", "succeeded", "")
 
@@ -445,7 +445,7 @@ func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if observedCurrent == "" {
-		return "", fmt.Errorf("no rollback target: there is no current release")
+		return "", &release.RollbackTargetMissingError{Reason: "there is no current release"}
 	}
 	epoch, err := e.AcquireLock(ctx, observedCurrent, e.Opts.ForceLock)
 	if err != nil {

@@ -118,7 +118,7 @@ func TestDecodeManifestIsClosedAndValidatesEvidence(t *testing.T) {
 			body, _ := json.Marshal(copyDocument)
 			_, err := DecodeManifest(body)
 			var manifestErr *ManifestError
-			if !errors.As(err, &manifestErr) || manifestErr.Code != test.code {
+			if !errors.As(err, &manifestErr) || manifestErr.Code() != test.code {
 				t.Fatalf("error = %v, want %s", err, test.code)
 			}
 		})
@@ -200,7 +200,7 @@ func TestReadManifestReportsMissingUnsafeAndMismatchedEvidence(t *testing.T) {
 	assertCode := func(want string, err error) {
 		t.Helper()
 		var manifestErr *ManifestError
-		if !errors.As(err, &manifestErr) || manifestErr.Code != want {
+		if !errors.As(err, &manifestErr) || manifestErr.Code() != want {
 			t.Fatalf("error = %v, want %s", err, want)
 		}
 	}

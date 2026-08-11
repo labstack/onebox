@@ -24,15 +24,28 @@ starts and stores nothing durable.
 | `mariadb` | Relational database | `url` `host` `port` `user` `password` `database` |
 | `mongodb` | Document database | `url` `host` `port` `user` `password` `database` |
 | `clickhouse` | Analytical database | `url` `host` `port` `user` `password` `database` |
-| `redis` | Cache, queue | `url` `host` `port` `password` |
-| `valkey` | Cache, queue | `url` `host` `port` `password` |
+| `redis` | Cache, queue | `url` `host` `port` `user` `password` |
+| `valkey` | Cache, queue | `url` `host` `port` `user` `password` |
 | `rabbitmq` | Message broker | `url` `host` `port` `user` `password` |
-| `nats` | Messaging, JetStream | `url` `host` `port` |
+| `nats` | Messaging, JetStream | `url` `host` `port` `password` |
 | `minio` | S3-compatible object storage | `url` `host` `port` `user` `password` |
-| `meilisearch` | Search | `url` `host` `port` |
+| `meilisearch` | Search | `url` `host` `port` `password` |
 
 A part the driver does not have — a database on a cache — is omitted rather than
-written empty.
+written empty. Every driver has a password part; `redis` and `valkey` have a
+user part because Redis 6+ authenticates the built-in `default` user, and a URL
+with an empty username fails AUTH outright.
+
+:::caution[`nats` has no health check]
+Its image carries no shell to run a probe in, so the driver declares none. A
+`needs` on it resolves to `started` rather than `healthy`, and writing
+`condition: healthy` against it is refused at load time rather than left to hang
+on the target. Every other driver has one.
+
+Its server is also started without authentication. The `password` part is
+written into the connection file like any other, but nothing on the nats side
+checks it.
+:::
 
 ## What a declaration gets you
 
@@ -41,8 +54,9 @@ services:
   postgres: 17
 ```
 
-The image, a durable volume, a health check, a credential generated on the
-target, and the connection details your application reads.
+The image, a durable volume, a health check (every driver but `nats`), a
+credential generated on the target, and the connection details your application
+reads.
 
 - **The service outlives every release.** Its own Compose project; no deploy and
   no rollback stops it or removes its volume.

@@ -54,11 +54,12 @@ nothing, or is explicit about what it changes.
    ob preview
    ```
 
-   `ob canonical` annotates every value you did not write with `# default`,
-   `# shorthand` or `# override`. `ob preview` prints the Compose runtime it will
-   generate. Read both before the first deploy — the difference between a value
-   someone chose and one that appeared by itself is what a person checking a
-   production configuration needs to see.
+   `ob canonical` marks each value with where it came from: `# default` for one
+   Onebox chose, `# shorthand` for a top-level key it moved into a workload,
+   `# override` for one an environment supplied. `ob preview` prints the Compose
+   runtime it will generate. Read both before the first deploy — the difference
+   between a value someone chose and one that appeared by itself is what a
+   person checking a production configuration needs to see.
 
 4. **Prepare the host.** This contacts and changes the server.
 
@@ -108,7 +109,7 @@ nothing, or is explicit about what it changes.
 </FileTree>
 
 Container and volume names are derived and stable: `shop_web`, `shop_web_2`,
-`ob_shop_postgres`, `ob_shop_postgres_data`, `ob_shop` for the service network,
+`shop_postgres`, `ob_shop_postgres_data`, `ob_shop` for the service network,
 `ob-ingress` for the host proxy network. Once a volume exists, its name cannot
 change without moving data.
 
@@ -121,12 +122,21 @@ requesting the change was technically unable to create it. Environments that
 need independent authorization require a future external provider, not a local
 checksum artifact.
 
-For automation, both accept structured output:
+For automation, plan and deploy accept structured output, and `ob approve` sits
+between them:
 
 ```sh
-ob plan   --output json  --out ob-plan.json
+ob plan --output json --out ob-plan.json
+echo y | ob approve --plan ob-plan.json --out ob-approval.json
 ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
 ```
+
+`ob approve` always prompts and there is no flag to skip it. A routine plan asks
+yes or no; one that touches data — a migration, a destructive job, or an
+unknown data effect — asks for the release ID to be typed back. It reads the
+answer from stdin without checking for a terminal, so a pipeline supplies `y`,
+or the release ID for the stronger ceremony. Anything else records nothing and
+exits cancelled.
 
 A JSON deploy buffers ordered operation events and its result into one envelope.
 NDJSON streams event records and a terminal result or error record. Diagnostics

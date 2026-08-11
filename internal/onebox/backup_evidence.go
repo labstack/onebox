@@ -29,6 +29,13 @@ const (
 	MigrationBackupOverrideSourceLocalCLI = "local_cli"
 )
 
+// ErrBackupReportNotRequired reports that a plan declares no migration backup
+// requirement. It is a sentinel rather than an anonymous error because a caller
+// cannot know in advance whether a plan will need a report: `ob plan
+// --backup-report-out` is asked for defensively, and "this deploy touches no
+// data" must be distinguishable from "the template could not be produced".
+var ErrBackupReportNotRequired = errors.New("executable plan has no migration backup requirement")
+
 var sha256Digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // MigrationBackupRequirement is plan-bound policy, not operator-supplied
@@ -239,7 +246,7 @@ func NewBackupReport(plan ExecutablePlan, reportedBy string, reportedAt time.Tim
 		return BackupReport{}, fmt.Errorf("validate backup report plan: %w", err)
 	}
 	if view.migrationBackup == nil {
-		return BackupReport{}, errors.New("executable plan has no migration backup requirement")
+		return BackupReport{}, ErrBackupReportNotRequired
 	}
 	resources = append([]MigrationBackupResourceEvidence(nil), resources...)
 	keyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), keyMaterial...)
@@ -268,7 +275,7 @@ func NewBackupReportTemplate(plan ExecutablePlan) (BackupReport, error) {
 		return BackupReport{}, fmt.Errorf("validate backup report plan: %w", err)
 	}
 	if view.migrationBackup == nil {
-		return BackupReport{}, errors.New("executable plan has no migration backup requirement")
+		return BackupReport{}, ErrBackupReportNotRequired
 	}
 	binding := view.operation.Binding
 	report := BackupReport{
@@ -507,7 +514,7 @@ func (r BackupReport) ValidateForPlan(plan ExecutablePlan, now time.Time) error 
 	}
 	requirement := view.migrationBackup
 	if requirement == nil {
-		return errors.New("executable plan has no migration backup requirement")
+		return ErrBackupReportNotRequired
 	}
 	binding := view.operation.Binding
 	checks := []struct{ name, got, want string }{
@@ -677,7 +684,7 @@ func NewMigrationBackupOverride(plan ExecutablePlan, operator, reason string, no
 		return MigrationBackupOverride{}, fmt.Errorf("validate migration backup override plan: %w", err)
 	}
 	if view.migrationBackup == nil {
-		return MigrationBackupOverride{}, errors.New("executable plan has no migration backup requirement")
+		return MigrationBackupOverride{}, ErrBackupReportNotRequired
 	}
 	binding := view.operation.Binding
 	override := MigrationBackupOverride{
@@ -785,7 +792,7 @@ func (o MigrationBackupOverride) ValidateForPlan(plan ExecutablePlan, now time.T
 		return fmt.Errorf("validate migration backup override plan: %w", err)
 	}
 	if view.migrationBackup == nil {
-		return errors.New("executable plan has no migration backup requirement")
+		return ErrBackupReportNotRequired
 	}
 	binding := view.operation.Binding
 	checks := []struct{ name, got, want string }{

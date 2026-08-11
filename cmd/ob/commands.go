@@ -414,24 +414,40 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 
 // runPlan writes the plan artifact for the CI/review flow.
 func runPlan(cmd *cobra.Command, g *globalFlags, outPath, backupReportOut string) error {
+	preexisting := artifactExists(outPath)
 	pl, err := buildPlan(cmd, g)
 	if err != nil {
 		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
-	var reportTemplate *onebox.BackupReport
-	if backupReportOut != "" {
-		template, templateErr := onebox.NewBackupReportTemplate(&pl.plan)
-		if templateErr != nil {
-			return writeStructuredCommandFailure(cmd, g, "backup_report_not_required", "backup report template could not be created", templateErr)
-		}
-		reportTemplate = &template
-	}
+	// The plan is written before the template is attempted. A caller cannot know
+	// ahead of time whether a plan will require a backup report, so passing
+	// --backup-report-out defensively must not cost the plan artifact on every
+	// deploy that touches no data.
 	if err := pl.plan.Save(outPath); err != nil {
 		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
+	var reportTemplate *onebox.BackupReport
+	backupReportRequired := false
+	if backupReportOut != "" {
+		template, templateErr := onebox.NewBackupReportTemplate(&pl.plan)
+		switch {
+		case templateErr == nil:
+			reportTemplate = &template
+			backupReportRequired = true
+		case errors.Is(templateErr, onebox.ErrBackupReportNotRequired):
+			// Not a failure: this plan declares no migration backup requirement,
+			// so there is no template to write. The plan stands, and the caller
+			// is told plainly rather than by the absence of a file.
+		default:
+			if cleanupErr := removeArtifactWeCreated(outPath, preexisting); cleanupErr != nil {
+				templateErr = errors.Join(templateErr, fmt.Errorf("remove incomplete plan artifact set: %w", cleanupErr))
+			}
+			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "plan artifacts could not be written", templateErr)
+		}
+	}
 	if reportTemplate != nil {
 		if err := reportTemplate.SaveTemplate(backupReportOut); err != nil {
-			if cleanupErr := os.Remove(outPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			if cleanupErr := removeArtifactWeCreated(outPath, preexisting); cleanupErr != nil {
 				err = errors.Join(err, fmt.Errorf("remove incomplete plan artifact set: %w", cleanupErr))
 			}
 			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "plan artifacts could not be written", err)
@@ -439,6 +455,11 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath, backupReportOut string
 	}
 	if isStructuredOutput(g) {
 		data := map[string]any{"plan": pl.plan, "artifact_path": outPath}
+		if backupReportOut != "" {
+			// Always present when the flag was passed, so a caller branches on a
+			// field rather than on whether a key exists.
+			data["backup_report_required"] = backupReportRequired
+		}
 		if reportTemplate != nil {
 			data["backup_report"] = reportTemplate
 			data["backup_report_path"] = backupReportOut
@@ -446,8 +467,11 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath, backupReportOut string
 		return writeFiniteSuccess(cmd, g, data)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s\n", outPath)
-	if reportTemplate != nil {
+	switch {
+	case reportTemplate != nil:
 		fmt.Fprintf(cmd.OutOrStdout(), "backup report template written to %s\n", backupReportOut)
+	case backupReportOut != "":
+		fmt.Fprintln(cmd.OutOrStdout(), "no migration backup report is required for this plan")
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "approve with: ob approve --plan %s", outPath)
 	if reportTemplate != nil {
@@ -637,13 +661,13 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("backup reports and migration overrides require --plan"))
 	}
 	if planFile == "" && approvalFile != "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--approval requires --plan so the exact approved artifact is applied"))
+		return writeEarlyOperationFailure(cmd, g, codedError("plan_required", "--approval requires --plan so the exact approved artifact is applied"))
 	}
 	if migrationBackupOverrideReason != "" && approvalFile == "" {
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--override-migration-backup requires a plan-bound local-confirmation --approval file created with the strong ceremony"))
 	}
 	if isStructuredOutput(g) && planFile == "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("structured deploy requires --plan; run `ob plan --output %s` first", g.Output))
+		return writeEarlyOperationFailure(cmd, g, codedError("plan_required", "structured deploy requires --plan; run `ob plan --output %s` first", g.Output))
 	}
 	if planFile != "" {
 		plan, err := onebox.LoadDeployPlan(planFile)

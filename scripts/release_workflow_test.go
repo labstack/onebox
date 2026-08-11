@@ -288,6 +288,15 @@ func runReleaseAt(t *testing.T, repo testRepository, justShim string, prePushHoo
 		t.Fatal(err)
 	}
 	writeExecutable(t, filepath.Join(binDir, "just"), justShim)
+	// A gh that reports the previous release as published, so the in-flight gate
+	// is exercised by the tests that care about it and inert everywhere else.
+	ghShim := "#!/usr/bin/env bash\nexit 0\n"
+	for _, entry := range extraEnv {
+		if value, ok := strings.CutPrefix(entry, "RELEASE_TEST_GH="); ok {
+			ghShim = value
+		}
+	}
+	writeExecutable(t, filepath.Join(binDir, "gh"), ghShim)
 	if calendar != "" {
 		writeExecutable(t, filepath.Join(binDir, "date"), "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$RELEASE_TEST_CALENDAR\"\n")
 		extraEnv = append(extraEnv, "RELEASE_TEST_CALENDAR="+calendar)
@@ -427,6 +436,25 @@ func skipIfUTCMonthChanged(t *testing.T, start string) {
 	}
 }
 
+// A nineteen-digit revision is valid, and one past the widest machine integer is
+// still valid: the contract bounds the width, not the arithmetic, so the creator
+// carries by hand rather than refusing a range it is supposed to serve.
+func TestReleaseIncrementsARevisionWiderThanMachineArithmetic(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	month := utcPeriod()
+	// One past the signed 64-bit maximum, so plain arithmetic would wrap.
+	runGit(t, repo.work, "tag", "v"+month+".9223372036854775808", repo.head)
+	runGit(t, repo.work, "push", "origin", "--tags")
+
+	output, err := runRelease(t, repo, normalJustShim, nil)
+	skipIfUTCMonthChanged(t, month)
+	if err != nil {
+		t.Fatalf("release failed: %v\n%s", err, output)
+	}
+	assertPublishedRelease(t, repo, "v"+month+".9223372036854775809")
+}
+
 // Bash arithmetic is signed 64-bit, so incrementing a revision the grammar still
 // admits can wrap negative and tag garbage. The creator refuses instead.
 func TestReleaseRefusesWhenTheRevisionSpaceIsExhausted(t *testing.T) {
@@ -447,5 +475,45 @@ func TestReleaseRefusesWhenTheRevisionSpaceIsExhausted(t *testing.T) {
 	}
 	if tags := gitOutput(t, repo.origin, "tag", "--list"); tags != exhausted {
 		t.Fatalf("a refused release must publish no new tag, got:\n%s", tags)
+	}
+}
+
+// Only one release may be in flight, because GitHub orders queued runs by when
+// they start waiting rather than by tag age: two tags created close together can
+// publish out of order, and the older one is then correctly refused at publish
+// time — a release nobody gets. This refuses to create the second tag instead.
+func TestReleaseWaitsForThePreviousReleaseToPublish(t *testing.T) {
+	requireReleaseTools(t)
+	for _, test := range []struct {
+		name      string
+		published bool
+		wantErr   string
+	}{
+		{name: "previous release published", published: true},
+		{name: "previous release still publishing", wantErr: "has not published yet"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newTestRepository(t)
+			month := utcPeriod()
+			runGit(t, repo.work, "tag", "v"+month+".0", repo.head)
+			runGit(t, repo.work, "push", "origin", "--tags")
+
+			stub := "#!/usr/bin/env bash\nexit 1\n"
+			if test.published {
+				stub = "#!/usr/bin/env bash\nexit 0\n"
+			}
+			output, err := runRelease(t, repo, normalJustShim, nil, "OB_RELEASE_REPOSITORY=labstack/onebox", "RELEASE_TEST_GH="+stub)
+			skipIfUTCMonthChanged(t, month)
+			switch {
+			case test.wantErr == "" && err != nil:
+				t.Fatalf("release failed: %v\n%s", err, output)
+			case test.wantErr == "":
+				assertPublishedRelease(t, repo, "v"+month+".1")
+			case err == nil:
+				t.Fatalf("release created a tag while the previous one was still publishing:\n%s", output)
+			case !strings.Contains(output, test.wantErr):
+				t.Fatalf("release did not explain the refusal:\n%s", output)
+			}
+		})
 	}
 }

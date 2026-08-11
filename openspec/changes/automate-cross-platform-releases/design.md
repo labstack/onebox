@@ -148,7 +148,11 @@ continue to use the repository's ephemeral `GITHUB_TOKEN`.
 - **A tag is immutable even if publication fails** → Pull requests build the
   complete snapshot first; transient workflow failures can be rerun, while a
   source/config defect is fixed and published under the next revision without
-  moving the failed tag.
+  moving the failed tag. The rerun boundary is the GitHub Release itself: it is
+  created before the Cask and the Scoop manifest, so a failure up to that point
+  is rerunnable, and a failure after it leaves the release published with stale
+  package metadata that the next revision repairs. A rerun of an already
+  published tag is refused rather than allowed to half-republish.
 - **Apple credentials are long-lived publisher authority** → Keep them in
   release-only Actions secrets, never expose them to pull-request jobs, and
   rotate the certificate and team key deliberately.

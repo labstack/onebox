@@ -9,11 +9,13 @@ build:
     set -euo pipefail
     ob_build_dir="${OB_BIN_DIR:-${HOME}/.local/bin}"
     ob_build_version="${OB_VERSION:-}"
-    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[0-9]{4}\.(0[1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
-      echo "OB_VERSION must match vYEAR.MONTH.SEQUENCE" >&2; exit 1
+    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
+      echo "OB_VERSION must match vYYYY.M.REVISION" >&2; exit 1
     fi
     if [ -z "$ob_build_version" ]; then
-      ob_build_version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+      # --long keeps the commit suffix even on a tagged commit, so a checkout build
+      # can never stamp a bare release identity and pass as a released runner.
+      ob_build_version=$(git describe --tags --always --dirty --long 2>/dev/null || echo dev)
     fi
     ob_build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     mkdir -p "$ob_build_dir"
@@ -208,7 +210,7 @@ diagrams-check:
     done
     exit $status
 
-# Create and publish the next vYEAR.MONTH.SEQUENCE tag from releasable main.
+# Create and publish the next vYYYY.M.REVISION tag from releasable main.
 release:
     bash scripts/release.sh
 

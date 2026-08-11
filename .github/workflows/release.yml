@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions: {}
+
+# Releases serialize globally, not per tag: two tags pushed together each start a
+# run, and both publish to the same Homebrew and Scoop repositories. queue: max
+# because the default, single, cancels whichever release is already waiting when
+# the next one arrives — serializing by dropping a release is not serializing.
+concurrency:
+  group: release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release source
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Publish signed release, Homebrew, and Scoop
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # Tags as well as main: lineage validation needs main, and the changelog
+      # needs the preceding tag. checkout fetches only the tag being released,
+      # so without this every release would log the whole history.
+      - name: Fetch release lineage
+        run: git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Validate tag and main lineage
+        run: scripts/validate-release-tag.sh "${GITHUB_REF_NAME}" origin/main
+
+      # Against the published release, not against local tags: a tag that exists
+      # says nothing about whether its release ran, and a queued release is not
+      # stale merely because a newer tag was created while it waited.
+      - name: Refuse to publish behind the current release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/require-newest-release.sh "${GITHUB_REF_NAME}" "${GITHUB_REPOSITORY}"
+
+      - name: Verify release credentials and publication targets
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+        run: |
+          required=(
+            GH_TOKEN
+            MACOS_NOTARY_ISSUER_ID
+            MACOS_NOTARY_KEY
+            MACOS_NOTARY_KEY_ID
+            MACOS_SIGN_P12
+            MACOS_SIGN_PASSWORD
+          )
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "Required release secret ${name} is not configured." >&2
+              exit 1
+            fi
+          done
+          for repository in labstack/homebrew-tap labstack/scoop-bucket; do
+            access=$(gh api "repos/${repository}" --jq '[.default_branch, .permissions.push] | @tsv')
+            if [ "$access" != $'main\ttrue' ]; then
+              echo "PACKAGE_REPOS_TOKEN must have contents write access to ${repository}:main." >&2
+              exit 1
+            fi
+          done
+
+      - name: Publish immutable release
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.0.0
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_REPOS_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+
+      # The published artifacts, not a snapshot of them. Until this ran here,
+      # nothing checked what a user actually downloads.
+      - name: Verify published artifacts
+        run: scripts/verify-release-dist.sh dist

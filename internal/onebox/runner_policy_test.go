@@ -10,13 +10,13 @@ import (
 
 func TestEnforceRunnerPolicy(t *testing.T) {
 	runner := buildinfo.Runner{
-		Info: buildinfo.Info{Version: "v2026.08.4"},
+		Info: buildinfo.Info{Version: "v2026.8.4"},
 		SupportedExecutablePlanSchemas: []string{
 			"onebox.run/executable-deploy-plan/v1alpha2",
 		},
 	}
 	policy := app.Policy{
-		MinimumOneboxVersion: "v2026.08.3",
+		MinimumOneboxVersion: "v2026.8.3",
 		MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 	}
 	if err := enforceRunnerPolicy(policy, runner, "onebox.run/executable-deploy-plan/v1alpha2"); err != nil {
@@ -25,7 +25,7 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 
 	t.Run("version", func(t *testing.T) {
 		tooOld := runner
-		tooOld.Version = "v2026.07.20"
+		tooOld.Version = "v2026.7.20"
 		err := enforceRunnerPolicy(policy, tooOld, "onebox.run/executable-deploy-plan/v1alpha2")
 		if err == nil || !strings.Contains(err.Error(), "below environment minimum") || !strings.Contains(err.Error(), "PATH") {
 			t.Fatalf("old runner rejection is not actionable: %v", err)
@@ -34,7 +34,7 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 
 	t.Run("development runner", func(t *testing.T) {
 		development := runner
-		development.Version = "v2026.08.3-4-gabcdef"
+		development.Version = "v2026.8.3-4-gabcdef"
 		err := enforceRunnerPolicy(policy, development, "onebox.run/executable-deploy-plan/v1alpha2")
 		if err == nil || !strings.Contains(err.Error(), "not a released Onebox CalVer") || !strings.Contains(err.Error(), "released ob binary") {
 			t.Fatalf("development runner rejection is not actionable: %v", err)

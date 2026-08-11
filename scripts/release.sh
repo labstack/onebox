@@ -66,17 +66,22 @@ increment_decimal() {
   printf '%s\n' "$result"
 }
 
-# Only one release may be in flight. GitHub orders queued runs by when they
-# start waiting, not by when their tags were created, so two tags created close
+# Only one release may be in flight. GitHub orders queued runs by when they start
+# waiting, not by when their tags were created, so two tags created close
 # together can publish out of order: the newer one lands first and the older is
 # then correctly refused at publish time — a release nobody gets. Refusing to
-# create the next tag until the previous one is actually published removes the
-# race rather than adjudicating it.
+# create the next tag while the previous one is still running removes the race
+# rather than adjudicating it.
+#
+# The question is whether the previous run has FINISHED, not whether it
+# published. A run that failed before publication is exactly the case the
+# contract fixes under the next revision, so waiting for a release it will never
+# create would block that fix forever.
 #
 # The check is skipped only when origin is not a GitHub remote, which no real
 # release is. Set OB_RELEASE_REPOSITORY to name the repository explicitly.
-require_previous_release_published() {
-  local repository=$1 previous="" candidate
+require_previous_release_terminal() {
+  local repository=$1 previous="" candidate previous_commit run_status
   while IFS= read -r candidate; do
     if [[ "$candidate" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
       previous=$candidate
@@ -87,11 +92,17 @@ require_previous_release_published() {
     return 0
   fi
   if ! command -v gh >/dev/null 2>&1; then
-    echo "gh is required to confirm that ${previous} has published; install it or set OB_RELEASE_REPOSITORY=" >&2
+    echo "gh is required to confirm that the ${previous} release run has finished; install it or set OB_RELEASE_REPOSITORY=" >&2
     return 1
   fi
-  if ! gh api "repos/${repository}/releases/tags/${previous}" >/dev/null 2>&1; then
-    echo "previous release ${previous} has not published yet; wait for its release run to finish before creating the next tag." >&2
+  previous_commit=$(git rev-parse --verify "refs/tags/${previous}^{commit}")
+  # Any nonzero exit refuses: an outage is not evidence that nothing is running.
+  if ! run_status=$(gh api "repos/${repository}/actions/workflows/release.yml/runs?head_sha=${previous_commit}&per_page=1" --jq '.workflow_runs[0].status // ""'); then
+    echo "cannot read the ${previous} release run; refusing to create the next tag without knowing whether it is still publishing." >&2
+    return 1
+  fi
+  if [ -n "$run_status" ] && [ "$run_status" != "completed" ]; then
+    echo "the ${previous} release run is ${run_status}; wait for it to finish before creating the next tag." >&2
     return 1
   fi
 }
@@ -107,7 +118,7 @@ github_repository_slug() {
 
 release_repository=${OB_RELEASE_REPOSITORY:-$(github_repository_slug "$(git remote get-url origin)")}
 if [ -n "$release_repository" ]; then
-  require_previous_release_published "$release_repository"
+  require_previous_release_terminal "$release_repository"
 fi
 
 release_calendar=$(date -u +%Y:%m)

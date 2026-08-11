@@ -145,6 +145,12 @@ continue to use the repository's ephemeral `GITHUB_TOKEN`.
   advertise `go install`.
 - **Cross-compilation cannot prove native startup** → A three-OS smoke matrix
   executes the CLI in addition to the six-target snapshot build.
+- **Two releases in flight cannot be ordered** → GitHub orders queued runs by
+  when they start waiting, not by tag age, so release creation refuses while the
+  previous release run is still queued or running. It asks whether that run has
+  finished, not whether it published: a run that failed before publication is
+  the case repaired under the next revision, and waiting for a release it will
+  never create would block that repair forever.
 - **A tag is immutable even if publication fails** → Pull requests build the
   complete snapshot first; transient workflow failures can be rerun, while a
   source/config defect is fixed and published under the next revision without

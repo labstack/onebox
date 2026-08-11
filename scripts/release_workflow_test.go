@@ -482,15 +482,23 @@ func TestReleaseRefusesWhenTheRevisionSpaceIsExhausted(t *testing.T) {
 // they start waiting rather than by tag age: two tags created close together can
 // publish out of order, and the older one is then correctly refused at publish
 // time — a release nobody gets. This refuses to create the second tag instead.
-func TestReleaseWaitsForThePreviousReleaseToPublish(t *testing.T) {
+//
+// Terminality is the question, not publication: a run that failed before it
+// published is precisely the case the contract repairs under the next revision,
+// so waiting for a release it will never create would block that repair forever.
+func TestReleaseWaitsForThePreviousReleaseRunToFinish(t *testing.T) {
 	requireReleaseTools(t)
 	for _, test := range []struct {
-		name      string
-		published bool
-		wantErr   string
+		name    string
+		status  string
+		wantErr string
 	}{
-		{name: "previous release published", published: true},
-		{name: "previous release still publishing", wantErr: "has not published yet"},
+		{name: "previous run succeeded", status: "completed"},
+		{name: "previous run failed before publishing", status: "completed"},
+		{name: "previous run never started", status: ""},
+		{name: "previous run is queued", status: "queued", wantErr: "is queued"},
+		{name: "previous run is in progress", status: "in_progress", wantErr: "is in_progress"},
+		{name: "run state is unreadable", status: "api-failure", wantErr: "cannot read the"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo := newTestRepository(t)
@@ -498,9 +506,9 @@ func TestReleaseWaitsForThePreviousReleaseToPublish(t *testing.T) {
 			runGit(t, repo.work, "tag", "v"+month+".0", repo.head)
 			runGit(t, repo.work, "push", "origin", "--tags")
 
-			stub := "#!/usr/bin/env bash\nexit 1\n"
-			if test.published {
-				stub = "#!/usr/bin/env bash\nexit 0\n"
+			stub := "#!/usr/bin/env bash\nprintf '%s\\n' '" + test.status + "'\n"
+			if test.status == "api-failure" {
+				stub = "#!/usr/bin/env bash\necho 'HTTP 502' >&2\nexit 1\n"
 			}
 			output, err := runRelease(t, repo, normalJustShim, nil, "OB_RELEASE_REPOSITORY=labstack/onebox", "RELEASE_TEST_GH="+stub)
 			skipIfUTCMonthChanged(t, month)
@@ -510,7 +518,7 @@ func TestReleaseWaitsForThePreviousReleaseToPublish(t *testing.T) {
 			case test.wantErr == "":
 				assertPublishedRelease(t, repo, "v"+month+".1")
 			case err == nil:
-				t.Fatalf("release created a tag while the previous one was still publishing:\n%s", output)
+				t.Fatalf("release created a tag while the previous run was %s:\n%s", test.status, output)
 			case !strings.Contains(output, test.wantErr):
 				t.Fatalf("release did not explain the refusal:\n%s", output)
 			}

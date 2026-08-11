@@ -52,6 +52,25 @@ func (err *SecretRotationRolledBackError) Error() string {
 
 func (err *SecretRotationRolledBackError) Code() string { return "secret_rotation_rolled_back" }
 
+// SecretCleanupPendingError reports a rotation that committed and verified the
+// new generation but could not finish removing the retired one or clearing the
+// checkpoint. The rotation itself succeeded, so rolling live workloads back to
+// the old generation would undo applied secrets to fix a housekeeping failure —
+// and if the old generation directory is already gone, that rollback can never
+// succeed and the checkpoint wedges permanently. The checkpoint is left in
+// place instead, and a retry resumes cleanup from the committed phase.
+type SecretCleanupPendingError struct {
+	ReleaseID string
+	Cause     error
+}
+
+func (err *SecretCleanupPendingError) Error() string {
+	return fmt.Sprintf("secret rotation for release %s is applied but its cleanup is incomplete; rerun `ob secrets push` to finish it: %v", err.ReleaseID, err.Cause)
+}
+
+func (err *SecretCleanupPendingError) Unwrap() error { return err.Cause }
+func (err *SecretCleanupPendingError) Code() string  { return "secret_cleanup_pending" }
+
 type SecretGenerationNotDeployedError struct{ CurrentRelease string }
 
 func (err *SecretGenerationNotDeployedError) Error() string {
@@ -122,7 +141,14 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 			return
 		}
 		finish := journal.Record{Phase: "secrets-push", Event: "finish", Status: "ok", Detail: "generation=" + result.Generation}
-		if err != nil {
+		var cleanupPending *SecretCleanupPendingError
+		switch {
+		case errors.As(err, &cleanupPending):
+			// The transition committed and verified; only the sweep is
+			// outstanding. Recording this as a failure would make the durable
+			// evidence assert the opposite of what happened.
+			finish.Detail = "generation=" + result.Generation + " cleanup=pending"
+		case err != nil:
 			finish.Status = "fail"
 			finish.Detail = "generation transition failed"
 		}
@@ -148,7 +174,13 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 			}
 		} else {
 			err = runtimeEngine.advanceSecretGeneration(ctx, &checkpoint)
-			if err != nil {
+			var cleanupPending *SecretCleanupPendingError
+			switch {
+			case err == nil:
+			case errors.As(err, &cleanupPending):
+				// Applied and verified; only housekeeping is outstanding. Keep the
+				// new generation as the result and leave the checkpoint for a retry.
+			default:
 				transitionErr := err
 				if recoveryErr := runtimeEngine.recoverSecretGeneration(ctx, &checkpoint); recoveryErr != nil {
 					err = &SecretRecoveryIncompleteError{ReleaseID: current, Cause: errors.Join(transitionErr, recoveryErr)}
@@ -238,6 +270,13 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 
 	if err = runtimeEngine.advanceSecretGeneration(ctx, &checkpoint); err == nil {
 		return result, nil
+	}
+	// A cleanup failure after a verified commit is not a failed rotation. The
+	// requested payload is live, so recovering would undo it; the checkpoint stays
+	// and the operator is told to rerun to finish the sweep.
+	var cleanupPending *SecretCleanupPendingError
+	if errors.As(err, &cleanupPending) {
+		return result, err
 	}
 	transitionErr := err
 	if recoveryErr := runtimeEngine.recoverSecretGeneration(ctx, &checkpoint); recoveryErr != nil {
@@ -465,10 +504,7 @@ func (e *Engine) advanceSecretGeneration(ctx context.Context, checkpoint *releas
 		if err := e.verifySecretGeneration(ctx, *checkpoint, checkpoint.NewGeneration); err != nil {
 			return err
 		}
-		if err := e.removeSecretGeneration(ctx, checkpoint.ReleaseID, checkpoint.OldGeneration); err != nil {
-			return err
-		}
-		return e.clearSecretCheckpoint(ctx)
+		return e.finishSecretCleanup(ctx, checkpoint)
 	}
 	if checkpoint.Phase == release.SecretPrepared || checkpoint.Phase == release.SecretReplacing {
 		if err := checkpoint.SetPhase(release.SecretReplacing, secretCheckpointTime(*checkpoint, e.Opts.Now())); err != nil {
@@ -526,10 +562,30 @@ func (e *Engine) advanceSecretGeneration(ctx context.Context, checkpoint *releas
 	if err := e.verifySecretGeneration(ctx, *checkpoint, checkpoint.NewGeneration); err != nil {
 		return err
 	}
-	if err := e.removeSecretGeneration(ctx, checkpoint.ReleaseID, checkpoint.OldGeneration); err != nil {
-		return err
+	return e.finishSecretCleanup(ctx, checkpoint)
+}
+
+// finishSecretCleanup runs the two steps that follow a verified commit. Both are
+// idempotent — `rm -rf` of an already-removed generation and clearing an
+// already-cleared checkpoint both succeed — so a retry can re-enter here safely.
+func (e *Engine) finishSecretCleanup(ctx context.Context, checkpoint *release.SecretCheckpoint) error {
+	// The checkpoint is cleared before the retired generation is swept, not
+	// after. The other order leaves a window where the old generation is gone
+	// while the checkpoint still names it: a retry then re-enters the committed
+	// phase, and any failure there is not a cleanup error, so it falls through
+	// to recovery and tries to roll back onto a directory that no longer
+	// exists — wedging the checkpoint permanently.
+	//
+	// Clearing first cannot strand the generation: cleanupOrphanSecretGenerations
+	// sweeps any generation the committed runtime does not reference at the
+	// start of the next push, which is exactly the crash window this opens.
+	if err := e.clearSecretCheckpoint(ctx); err != nil {
+		return &SecretCleanupPendingError{ReleaseID: checkpoint.ReleaseID, Cause: err}
 	}
-	return e.clearSecretCheckpoint(ctx)
+	if err := e.removeSecretGeneration(ctx, checkpoint.ReleaseID, checkpoint.OldGeneration); err != nil {
+		return &SecretCleanupPendingError{ReleaseID: checkpoint.ReleaseID, Cause: err}
+	}
+	return nil
 }
 
 func (e *Engine) recoverSecretGeneration(ctx context.Context, checkpoint *release.SecretCheckpoint) error {

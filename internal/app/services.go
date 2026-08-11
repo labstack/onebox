@@ -579,9 +579,20 @@ func (c ClientEnv) ClientEnvScript(secretFile, clientFile string, aliases []Alia
 	b.WriteString("[ -n \"$pw\" ] || { echo 'no source of randomness on this host' >&2; exit 1; }\n")
 	b.WriteString("umask 077\n")
 
-	fmt.Fprintf(&b, "rm -f %s\n", shellQuote(secretFile))
+	// Truncate rather than remove. The file is the service's Compose `env_file`,
+	// so it has to exist even for a driver that declares no credential variables
+	// — `nats` is one — and removing it would leave the following chmod to fail
+	// on a missing path and Compose to refuse a mount it was promised.
+	// The credential file's writes are checked. The script has no `set -e` and
+	// its last command is a chmod that needs no disk space, so an unchecked
+	// truncate-then-append could destroy the only copy of a credential — or
+	// leave a half-written one that the next apply reads back as the password —
+	// and still exit 0. writeEnvFile below applies the same guards to every
+	// derived client and alias file.
+	fmt.Fprintf(&b, ": > %[1]s || { echo 'cannot write '%[1]s >&2; exit 1; }\n", shellQuote(secretFile))
 	for _, v := range c.SecretVars {
-		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"$pw\" >> %s\n", shellQuote(v), shellQuote(secretFile))
+		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"$pw\" >> %[2]s || { echo 'cannot write '%[2]s >&2; exit 1; }\n",
+			shellQuote(v), shellQuote(secretFile))
 	}
 	fmt.Fprintf(&b, "chmod 600 %s\n", shellQuote(secretFile))
 
@@ -642,8 +653,11 @@ func (c ClientEnv) canonicalNames() map[string]string {
 // writeEnvFile emits the shell that writes one env file, sorted so a re-apply
 // produces the same bytes.
 func writeEnvFile(path string, names map[string]string, parts map[string]string) string {
+	// Same rule as the credential file: a connection file that is truncated and
+	// then partially written is worse than one that is missing, because the
+	// application reads it and fails against a service reporting itself healthy.
 	var b strings.Builder
-	fmt.Fprintf(&b, "rm -f %s\n", shellQuote(path))
+	fmt.Fprintf(&b, ": > %[1]s || { echo 'cannot write '%[1]s >&2; exit 1; }\n", shellQuote(path))
 	vars := make([]string, 0, len(names))
 	for v := range names {
 		vars = append(vars, v)
@@ -656,7 +670,8 @@ func writeEnvFile(path string, names map[string]string, parts map[string]string)
 			// for a cache. Writing it empty would look like a value.
 			continue
 		}
-		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"%s\" >> %s\n", shellQuote(v), value, shellQuote(path))
+		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"%s\" >> %[3]s || { echo 'cannot write '%[3]s >&2; exit 1; }\n",
+			shellQuote(v), value, shellQuote(path))
 	}
 	fmt.Fprintf(&b, "chmod 600 %s\n", shellQuote(path))
 	return b.String()

@@ -275,3 +275,25 @@ func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
 		}
 	}
 }
+
+// A driver with no credential variables still gets a credential file, because
+// the file is the service's Compose env_file. Removing it would leave the chmod
+// to fail on a missing path and Compose to refuse a mount it was promised.
+func TestCredentialFileExistsEvenForADriverWithNoSecretVariables(t *testing.T) {
+	client := ClientEnv{Prefix: "NATS", Host: "nats", Port: 4222, Scheme: "nats"}
+	if len(client.SecretVars) != 0 {
+		t.Fatalf("fixture drifted: SecretVars = %v", client.SecretVars)
+	}
+	script := client.ClientEnvScript("/s.env", "/c.env", nil)
+	if strings.Contains(script, "rm -f '/s.env'") {
+		t.Fatalf("credential file is removed and never recreated:\n%s", script)
+	}
+	if !strings.Contains(script, ": > '/s.env'") {
+		t.Fatalf("credential file is not created before chmod:\n%s", script)
+	}
+	create := strings.Index(script, ": > '/s.env'")
+	chmod := strings.Index(script, "chmod 600 '/s.env'")
+	if create < 0 || chmod < 0 || chmod < create {
+		t.Fatalf("chmod does not follow creation:\n%s", script)
+	}
+}

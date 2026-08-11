@@ -118,17 +118,52 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	return report, nil
 }
 
+// hostOwnerCheck answers "can this application own this host", which is not the
+// same question as "is it already bootstrapped". An unclaimed host passes:
+// preflight exists to be run *before* the first bootstrap, and failing there
+// would mean the only way to satisfy the check is the mutation it precedes.
+//
+// The read is exit-code aware rather than `|| true`, so an owner record that
+// exists but cannot be read is never reported as an unclaimed host — the two
+// answers lead to opposite actions, and the wrong one adopts a machine that
+// already belongs to somebody else.
 func hostOwnerCheck(ctx context.Context, run Runner, path, application string) Check {
-	res, err := run.Run(ctx, fmt.Sprintf("cat %q 2>/dev/null || true", path))
+	// The same probe the engine's readHostOwner uses, including the
+	// regular-file and symlink guards. Preflight accepting a symlinked owner
+	// record the engine then refuses would make preflight pass on a host every
+	// subsequent mutation rejects.
+	res, err := run.Run(ctx, "if [ ! -e "+shellQuote(path)+" ]; then exit 3; fi; "+
+		"if [ ! -f "+shellQuote(path)+" ] || [ -L "+shellQuote(path)+" ]; then exit 4; fi; cat "+shellQuote(path))
 	if err != nil {
 		return Check{Name: "host owner", Detail: "could not read the host owner record", Remedy: "verify target access, then retry"}
+	}
+	if res.ExitCode == 3 {
+		return Check{Name: "host owner", OK: true, Detail: "unclaimed — ob bootstrap will claim it for " + application}
+	}
+	if res.ExitCode == 4 {
+		return Check{
+			Name:   "host owner",
+			Detail: "the host owner record is not a regular file",
+			Remedy: "inspect the host state directory; only a regular file is a valid owner record",
+		}
+	}
+	if res.ExitCode != 0 {
+		return Check{
+			Name:   "host owner",
+			Detail: "the host owner record exists but could not be read",
+			Remedy: "verify target access and the record's permissions, then retry",
+		}
 	}
 	owner := strings.TrimSpace(res.Stdout)
 	switch owner {
 	case application:
 		return Check{Name: "host owner", OK: true, Detail: application}
 	case "":
-		return Check{Name: "host owner", Detail: "host is not initialized for an application", Remedy: "run ob bootstrap to claim this host for the project"}
+		return Check{
+			Name:   "host owner",
+			Detail: "the host owner record is present but empty",
+			Remedy: "inspect the host state directory; an empty record is not a valid claim",
+		}
 	default:
 		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", owner), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
 	}

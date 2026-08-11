@@ -356,3 +356,33 @@ func TestDestroyRefusesFailedSweepDiscovery(t *testing.T) {
 		})
 	}
 }
+
+// Ownership gates every command, so releasing it while this application's data
+// is still on the host locks the owner out of the only supported way to reclaim
+// it — and if another application bootstraps in between, the volumes and the
+// credentials that open them are stranded for good.
+func TestDestroyKeepsHostOwnershipWhileDataRemains(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, false); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+		t.Fatalf("ownership was released while volumes were kept:\n%s", seq)
+	}
+}
+
+func TestDestroyTellsTheOperatorHowToReleaseTheHost(t *testing.T) {
+	f := opsFake("x")
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, false); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	// A retained record with no way to discover the remedy is the defect that
+	// made releasing it early look attractive in the first place.
+	if !strings.Contains(out.String(), "ob destroy --volumes") {
+		t.Fatalf("retaining ownership did not name the command that releases it:\n%s", out.String())
+	}
+}

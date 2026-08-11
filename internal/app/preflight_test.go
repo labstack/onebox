@@ -319,3 +319,39 @@ port: 3000
 		t.Fatal("a value that resolves to nothing must be reported empty")
 	}
 }
+
+// Preflight runs before the first bootstrap, so an unclaimed host is a pass.
+// Failing there would make the check satisfiable only by the mutation it
+// precedes, which is the one thing an operator runs preflight to avoid.
+func TestPreflightAcceptsAnUnclaimedHost(t *testing.T) {
+	run := healthyRunner()
+	run.answers["/_host/owner"] = transport.Result{ExitCode: 3}
+	report := preflight(t, run, preflightProject)
+	if !report.OK() {
+		t.Fatalf("an unbootstrapped host failed preflight: %+v", report.Failures())
+	}
+}
+
+// "Unreadable" and "unclaimed" lead to opposite actions, and the wrong one
+// adopts a machine that already belongs to somebody else. A record that is
+// present but cannot be read must never read as absent.
+func TestPreflightRefusesAnUnreadableHostOwnerRecord(t *testing.T) {
+	run := healthyRunner()
+	run.answers["/_host/owner"] = transport.Result{ExitCode: 1, Stderr: "permission denied"}
+	report := preflight(t, run, preflightProject)
+	if report.OK() {
+		t.Fatal("an unreadable owner record passed preflight as though the host were unclaimed")
+	}
+	if detail := report.Failures()[0].Detail; !strings.Contains(detail, "could not be read") {
+		t.Fatalf("unreadable record reported as %q", detail)
+	}
+}
+
+func TestPreflightRefusesAnEmptyHostOwnerRecord(t *testing.T) {
+	run := healthyRunner()
+	run.answers["/_host/owner"] = transport.Result{Stdout: "\n"}
+	report := preflight(t, run, preflightProject)
+	if report.OK() {
+		t.Fatal("an empty owner record passed preflight")
+	}
+}

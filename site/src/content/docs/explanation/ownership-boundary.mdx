@@ -36,6 +36,33 @@ runtime and Onebox merely operates it — which is the opposite arrangement. See
 configure.** `services: {postgres: 17}` is sufficient because the image, port,
 data path, health check and credential all sit on Onebox's side of the line.
 
+## The boundary needs a name on it
+
+"Onebox owns everything else on the box" is only meaningful if exactly one
+application is doing the owning. Two Onebox applications on one host would both
+believe they own the proxy, the shared network, the release store and the host
+lock — and the second one to converge would quietly undo the first.
+
+So ownership is written down. `ob bootstrap` records the owning application on
+the host, and every mutating command reads that record before it does anything.
+A different application is refused with `host_owner_mismatch`.
+
+`ob bootstrap` is the one mutation that may claim an unowned host — that is what
+it is for. Every other mutation requires the record to exist and to name this
+application, so a mistyped target cannot silently adopt a machine by deploying
+to it. `ob preflight` reads without claiming, and reports an unowned host as
+ready rather than as a failure.
+
+The check fails closed in both directions. An owner file that cannot be read is
+not treated as an absent one — "unowned" and "unreadable" would otherwise be the
+same answer, and the wrong one is destructive.
+
+Full destruction releases the record, which is what makes a host reusable for a
+different application rather than permanently claimed. Partial destruction does
+not: while volumes or service credentials remain, the record stays, because
+every command is gated on it and releasing early would strand the owner outside
+their own data.
+
 ## The boundary cuts both ways
 
 If Onebox owns the proxy, TLS and the shared network, it must also own admitting

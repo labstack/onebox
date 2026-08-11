@@ -137,7 +137,14 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if keepingCredentials {
 		e.logf("kept %s — the service volumes survive and these credentials are the only thing that can open them", e.names().ServiceDir())
 	}
-	releaseOwner := removeVolumes && (!e.Spec.Proxy.Managed || removeProxy)
+	// Ownership is released only when nothing of this application is left
+	// behind. Keeping it while volumes or service credentials survive is what
+	// preserves the operator's ability to come back and run
+	// `ob destroy --volumes`: RequireHostOwner gates every command, so a host
+	// released early is a host whose remaining data its owner can no longer
+	// reach — and if another application claims it first, the volumes and the
+	// only credentials that open them are stranded for good.
+	releaseOwner := removeVolumes && !keepingCredentials && (!e.Spec.Proxy.Managed || removeProxy)
 	if e.Spec.Proxy.Managed || releaseOwner {
 		// Host scope, after the app fence is gone: plain Run, under host lock.
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
@@ -161,7 +168,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 				return fmt.Errorf("remove proxy dir failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
 			e.logf("host proxy removed")
-		} else {
+		} else if e.Spec.Proxy.Managed {
 			e.logf("host proxy kept — `ob destroy --proxy` removes it")
 		}
 		if releaseOwner {
@@ -172,8 +179,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			if res.ExitCode != 0 {
 				return fmt.Errorf("release host ownership failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
-			e.logf("host ownership released after complete data and proxy removal")
+			e.logf("host ownership released — another application can now claim this host")
 		}
+	}
+	if !releaseOwner {
+		e.logf("host ownership kept for %s — run `ob destroy --volumes%s` to remove what remains and release the host",
+			e.Spec.Name, map[bool]string{true: " --proxy", false: ""}[e.Spec.Proxy.Managed])
 	}
 	e.logf("destroyed %s (volumes %s)", e.Spec.Name, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil

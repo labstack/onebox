@@ -64,7 +64,7 @@ func NewApprovalGrant(plan ExecutablePlan, report *BackupReport, approvedBy stri
 	}
 	now = now.UTC()
 	if !now.Before(expiresAt) {
-		return ApprovalGrant{}, fmt.Errorf("deployment plan expired at %s — re-plan", expiresAt.Format(time.RFC3339))
+		return ApprovalGrant{}, &PlanExpiredError{Kind: PlanKindDeployment, ExpiresAt: expiresAt}
 	}
 	binding := view.operation.Binding
 	backupReportDigest := ""
@@ -302,7 +302,7 @@ func (a ApprovalGrant) ValidateForPlan(plan ExecutablePlan, now time.Time) error
 	}
 	now = now.UTC()
 	if expiresAt.Before(now) {
-		return fmt.Errorf("approval expired at %s — approve the current plan again", expiresAt.Format(time.RFC3339))
+		return &ApprovalExpiredError{ExpiresAt: expiresAt}
 	}
 	if approvedAt.After(now.Add(time.Minute)) {
 		return errors.New("approval was created in the future — check the runner clock")

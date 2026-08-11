@@ -52,8 +52,11 @@ agent to install on the host.
     is refused, not invented.
   </Card>
   <Card title="Built to be driven by an agent" icon="rocket">
-    Every command carries `--output json|ndjson`, errors are typed and carry the
-    command that resolves them, and mutations are idempotent under retry.
+    Structured output is a per-command contract: the
+    [output matrix](/reference/policies) names every command that takes
+    `--output json|ndjson`, and most of them take JSON only. Errors are typed,
+    and where honest guidance exists they carry one command in its exact role —
+    diagnostic, next, or resolving. Mutations are idempotent under retry.
   </Card>
 </CardGrid>
 

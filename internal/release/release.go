@@ -127,31 +127,52 @@ func list(ctx context.Context, t transport.Transport, n app.Names) (ids, skipped
 	return ids, skipped, nil
 }
 
+// RollbackTargetMissingError reports that no previously serving release can be
+// rolled back to. It is typed because the operation-lifecycle contract requires
+// a branchable code here: an untyped failure collapses to the generic
+// operation_failed envelope, which cannot tell an operator or an agent that the
+// right move is to deploy forward rather than retry the rollback.
+type RollbackTargetMissingError struct {
+	Reason string
+	Err    error
+}
+
+func (err *RollbackTargetMissingError) Error() string {
+	message := "no rollback target: " + err.Reason
+	if err.Err != nil {
+		message += ": " + err.Err.Error()
+	}
+	return message
+}
+
+func (err *RollbackTargetMissingError) Unwrap() error { return err.Err }
+func (err *RollbackTargetMissingError) Code() string  { return "rollback_target_missing" }
+
 func Previous(ctx context.Context, t transport.Transport, n app.Names) (string, error) {
 	cur, err := Current(ctx, t, n)
 	if err != nil {
 		return "", err
 	}
 	if cur == "" {
-		return "", fmt.Errorf("no rollback target: there is no current release")
+		return "", &RollbackTargetMissingError{Reason: "there is no current release"}
 	}
 	currentManifest, err := ReadManifest(ctx, t, n, cur)
 	if err != nil {
-		return "", fmt.Errorf("current release %s is not rollback-eligible: %w", cur, err)
+		return "", &RollbackTargetMissingError{Reason: "current release " + cur + " is not rollback-eligible", Err: err}
 	}
 	if currentManifest.Kind != KindApplication || currentManifest.State != StateServing {
-		return "", fmt.Errorf("current release %s is not a serving application release", cur)
+		return "", &RollbackTargetMissingError{Reason: "current release " + cur + " is not a serving application release"}
 	}
 	previous := currentManifest.Predecessor
 	if previous == "" {
-		return "", fmt.Errorf("current release %s has no recorded predecessor", cur)
+		return "", &RollbackTargetMissingError{Reason: "current release " + cur + " has no recorded predecessor"}
 	}
 	previousManifest, err := ReadManifest(ctx, t, n, previous)
 	if err != nil {
-		return "", fmt.Errorf("recorded predecessor %s is not rollback-eligible: %w", previous, err)
+		return "", &RollbackTargetMissingError{Reason: "recorded predecessor " + previous + " is not rollback-eligible", Err: err}
 	}
 	if previousManifest.Kind != KindApplication || previousManifest.State != StateSuperseded || !manifestProvesServing(previousManifest) {
-		return "", fmt.Errorf("recorded predecessor %s is not a previously serving application release", previous)
+		return "", &RollbackTargetMissingError{Reason: "recorded predecessor " + previous + " is not a previously serving application release"}
 	}
 	return previous, nil
 }

@@ -64,7 +64,9 @@ For an operation whose durable effect gate is rollback-safe, abort or automatic 
 
 If migration or unknown-effect evidence closes the rollback gate, automatic rollback SHALL NOT run. Abort SHALL fail before restoring or removing containers unless the existing explicit break-glass authorization is present; it SHALL retain the checkpoint and return the specific resolving actions.
 
-Only the newest deploy SHALL be recoverable. A deploy superseded by a later deploy that completed, aborted, or was rolled back SHALL NOT be reported as incomplete nor offered to resume or abort: the later operation re-released every workload and settled the host's release state, so completing the older one would re-activate a release the host has already moved past and aborting it would restore a staler predecessor still. Its records SHALL remain available as audit history.
+Only the newest deploy SHALL be recoverable. A deploy older than one that reached a terminal state of its own — finished, aborted, or automatically rolled back — SHALL NOT be reported as incomplete nor offered to resume or abort: the later operation re-released every workload and settled the host's release state, so completing the older one would re-activate a release the host has already moved past and aborting it would restore a staler predecessor still. Its records SHALL remain available as audit history.
+
+An interrupted deploy whose release the host has already moved past by other means SHALL be refused before any effect runs, on the evidence of its own manifest state, rather than at activation after workloads have been replaced.
 
 An operation interrupted after activation SHALL NOT be recovered by replaying its choreography or by reverting a healthy release. Resume SHALL complete only the post-activation steps that remain, and SHALL do so only when the recorded activation, the current release, the serving manifest and its recorded predecessor, the absence of an open activation checkpoint, and the live workload release labels all agree; on any disagreement it SHALL run no post-activation step, change no release, symlink, or workload state, and return typed error `finalize_refused`. Each post-activation step SHALL be journaled individually so a repeated finalize never re-runs a step that already succeeded.
 
@@ -101,8 +103,16 @@ An operation interrupted after activation SHALL NOT be recovered by replaying it
 - **THEN** no post-activation step runs, no release, symlink, or workload state changes, and the operation returns typed error `finalize_refused`
 
 #### Scenario: An interrupted deploy is superseded
-- **WHEN** a deploy is interrupted and a later deploy completes, aborts, or is rolled back
+- **WHEN** a deploy is interrupted and a later deploy finishes, aborts, or is automatically rolled back
 - **THEN** status reports no incomplete deployment, resume and abort decline the superseded operation, and its journal remains in the audit history
+
+#### Scenario: An interrupted deploy was superseded by a manual rollback
+- **WHEN** resume is requested for an interrupted deploy whose release a manual rollback has since superseded
+- **THEN** it is refused on its manifest state before any job, workload, or activation change, and no container of that release is started
+
+#### Scenario: A post-activation step declines to act
+- **WHEN** a post-activation step deliberately performs no work, such as retention refusing on incomplete evidence
+- **THEN** it is journaled as a skipped step carrying the reason, is not recorded as completed, and a later finalize attempts it again
 
 #### Scenario: A non-idempotent post-activation step already succeeded
 - **WHEN** finalize runs again after the post-deploy hook already recorded a successful result

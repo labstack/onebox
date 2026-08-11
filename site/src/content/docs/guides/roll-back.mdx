@@ -91,11 +91,15 @@ predecessor, the absence of an open activation checkpoint, and the live workload
 labels all agree. One disagreement returns `finalize_refused`: no step runs and
 no release, symlink or workload changes.
 
-Only the newest deploy is recoverable. Once a later deploy settles the host's
-release state — completing, aborting or rolling back — the older interrupted one
-is history rather than pending work, and resuming it would re-activate a release
-the host has already moved past. `ob status` stops reporting it; `ob audit` still
-shows the run.
+Only the newest deploy is recoverable. Once a later deploy reaches a terminal
+state of its own — finished, aborted, or automatically rolled back — the older
+interrupted one is history rather than pending work, and resuming it would
+re-activate a release the host has already moved past. `ob status` stops
+reporting it; `ob audit` still shows the run.
+
+A manual `ob rollback` is journaled under the release it restores, so it does not
+settle an interrupted deploy that way. That deploy stays visible, and resuming it
+is refused on its superseded manifest before any workload is touched.
 
 ## When recovery refuses
 

@@ -63,15 +63,11 @@ func (e *Engine) finalizeActivated(ctx context.Context, jw *journal.Writer, mani
 	if err := e.Verify(ctx); err != nil {
 		vf(err)
 		e.progress("verification", "failed", "verification failed; inspect journal evidence")
-		verifyErr := fmt.Errorf("verify serving release: %w", err)
 		// The release is still serving and this operation still failed, so the
 		// manifest records that the same way a failed step does. Activation set
 		// the outcome to succeeded; leaving it there would claim a finished
 		// operation on a release that just failed its health gate.
-		if outcomeErr := e.recordOutcome(ctx, manifest, release.OutcomeFailed); outcomeErr != nil {
-			return errors.Join(verifyErr, outcomeErr)
-		}
-		return verifyErr
+		return e.failedOutcome(ctx, manifest, fmt.Errorf("verify serving release: %w", err))
 	}
 	vf(nil)
 	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
@@ -173,28 +169,30 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 			continue
 		}
 		if err := jw.Append(ctx, journal.Record{Phase: "finalize", SubStep: step.key, Event: "intent"}); err != nil {
-			return fmt.Errorf("journal %s intent: %w", step.key, err)
+			return e.failedOutcome(ctx, manifest, fmt.Errorf("journal %s intent: %w", step.key, err))
 		}
 		detail, err := step.run()
-		result := journal.Record{Phase: "finalize", SubStep: step.key, Event: "result", Status: "ok", Detail: detail}
-		if err != nil {
+		result := journal.Record{Phase: "finalize", SubStep: step.key, Event: "result", Status: "ok"}
+		switch {
+		case err != nil:
 			result.Status, result.Detail = "fail", err.Error()
-		} else if detail != "" {
+		case detail != "":
+			// A step that declined to act did not complete. Recording it as a
+			// result would mark it done and skip it on every later finalize,
+			// even once whatever blocked it is fixed — so it is journaled as
+			// its own event that carries the reason and nothing else.
+			result.Event, result.Status, result.Detail = "skip", "", detail
 			// Structured consumers see engine progress messages and never the
 			// warning on the local path, and a skipped step is exactly what an
 			// operator running under --output ndjson has to be told.
-			e.progress("cleanup", "skipped", detail)
+			e.progress("cleanup", "skipped", step.label+": "+detail)
 		}
 		if journalErr := jw.Append(ctx, result); journalErr != nil {
-			return errors.Join(err, fmt.Errorf("journal %s result: %w", step.key, journalErr))
+			return e.failedOutcome(ctx, manifest, errors.Join(err, fmt.Errorf("journal %s result: %w", step.key, journalErr)))
 		}
 		if err != nil {
-			e.progress("cleanup", "failed", "a post-activation step failed; the release stays serving — `ob resume` completes the rest")
-			stepErr := fmt.Errorf("%s: %w", step.label, err)
-			if outcomeErr := e.recordOutcome(ctx, manifest, release.OutcomeFailed); outcomeErr != nil {
-				return errors.Join(stepErr, outcomeErr)
-			}
-			return stepErr
+			e.progress("cleanup", "failed", "post-activation step "+step.label+" failed; the release stays serving — `ob resume` completes the rest")
+			return e.failedOutcome(ctx, manifest, fmt.Errorf("%s: %w", step.label, err))
 		}
 	}
 	if err := e.recordOutcome(ctx, manifest, release.OutcomeSucceeded); err != nil {
@@ -202,6 +200,18 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 	}
 	e.progress("cleanup", "succeeded", "")
 	return nil
+}
+
+// failedOutcome records that this operation failed after activation and returns
+// the cause. Every exit from the post-activation steps goes through it,
+// including the ones where the journal itself could not be written: the manifest
+// is a different medium, and a release left claiming a finished operation is the
+// state the outcome field exists to prevent.
+func (e *Engine) failedOutcome(ctx context.Context, manifest *release.Manifest, cause error) error {
+	if err := e.recordOutcome(ctx, manifest, release.OutcomeFailed); err != nil {
+		return errors.Join(cause, err)
+	}
+	return cause
 }
 
 // recordOutcome writes the terminal result of the post-activation steps without

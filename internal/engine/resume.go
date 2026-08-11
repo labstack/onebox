@@ -17,13 +17,17 @@ var ErrNoIncomplete = errors.New("no incomplete deploy found in the journal")
 // FindIncomplete returns the newest deploy journal when it started but never
 // finished or aborted — the deploy a crashed runner left behind.
 //
-// Only the newest deploy is ever actionable. Once a later deploy settles the
-// host's release state — completing, aborting, or rolling back, each of which
-// re-releases every role — an older interrupted deploy has nothing left to
-// complete: resuming it would re-activate a release the host has already moved
-// past, and aborting it would revert to a predecessor further stale still. Its
-// records remain in `ob audit` as history; what they are not is work waiting to
-// be done.
+// Only the newest deploy is ever actionable. Once a later deploy reaches a
+// terminal state of its own — finished, aborted, or automatically rolled back —
+// an older interrupted deploy has nothing left to complete: resuming it would
+// re-activate a release the host has already moved past, and aborting it would
+// revert to a predecessor further stale still. Its records remain in `ob audit`
+// as history; what they are not is work waiting to be done.
+//
+// A manual `ob rollback` journals under the release it restores, not under the
+// interrupted deploy, so it does not settle one: the interrupted deploy stays
+// actionable and `runPhases` refuses it on its superseded manifest before any
+// effect runs.
 func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 	ids, byID, err := journal.Journals(ctx, e.T, e.names())
 	if err != nil {

@@ -93,6 +93,33 @@ func activatedFake(t *testing.T, tail ...journal.Record) *transport.Fake {
 	return f
 }
 
+// supersededManifest is what a manual rollback leaves on the release it left.
+func supersededManifest(f *transport.Fake, releaseID, predecessor string) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	manifest, err := release.NewManifest(releaseID, release.KindApplication, at)
+	if err != nil {
+		panic(err)
+	}
+	for i, state := range []release.State{release.StateVerified, release.StateServing, release.StateSuperseded} {
+		predecessorFor := ""
+		if state == release.StateServing {
+			predecessorFor = predecessor
+		}
+		if err := manifest.Transition(state, at.Add(time.Duration(i+1)*time.Second), predecessorFor); err != nil {
+			panic(err)
+		}
+	}
+	command, input, err := release.ManifestWrite(testConfig().NamesFor("production"), manifest)
+	if err != nil {
+		panic(err)
+	}
+	if result, runErr := f.RunInput(context.Background(), command, input); runErr != nil || result.ExitCode != 0 {
+		panic("seed superseded application manifest")
+	}
+	f.Commands = nil
+	f.Inputs = nil
+}
+
 func storedManifest(t *testing.T, f *transport.Fake, releaseID string) release.Manifest {
 	t.Helper()
 	manifest, err := release.ReadManifest(context.Background(), f, testConfig().NamesFor("production"), releaseID)
@@ -366,8 +393,13 @@ func TestRetentionEvidenceRefusalIsReportedAndDoesNotFailTheDeploy(t *testing.T)
 		t.Fatalf("the skipped cleanup must be reported:\n%s", out.String())
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, `"sub_step":"finalize:retention","event":"result","status":"ok","detail":"`+retentionSkipped+`"`) {
+	// A skip is its own event: recorded as evidence, never marked done, so a
+	// later finalize retries the cleanup once whatever blocked it is fixed.
+	if !strings.Contains(seq, `"sub_step":"finalize:retention","event":"skip","detail":"`+retentionSkipped+`"`) {
 		t.Fatalf("the journal must record what cleanup declined to do:\n%s", seq)
+	}
+	if strings.Contains(seq, `"sub_step":"finalize:retention","event":"result"`) {
+		t.Fatalf("a declined step must not be recorded as a completed result:\n%s", seq)
 	}
 	// Host stderr reaches the operator on the local path and never the journal,
 	// which is why the durable detail is a fixed phrase.
@@ -518,5 +550,45 @@ func TestScheduleSyncRunsBeforeThePostDeployHook(t *testing.T) {
 	schedules, hook := strings.Index(seq, "systemctl enable --now"), strings.Index(seq, "notify-release")
 	if schedules < 0 || hook < 0 || schedules > hook {
 		t.Fatalf("schedules must sync before the post-deploy hook (schedules=%d hook=%d):\n%s", schedules, hook, seq)
+	}
+}
+
+// A manual `ob rollback` journals under the release it restores, so it never
+// settles the interrupted deploy's own journal and that deploy stays the newest
+// actionable one. Its manifest is superseded by then, and replaying it would
+// start containers of a release the host has already moved past — so the
+// refusal has to land before the first role rolls, not at activation.
+func TestResumeRefusesASupersededReleaseBeforeAnyEffect(t *testing.T) {
+	f := happyFake()
+	supersededManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID)
+	jr := journalLines(
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: journal.EffectBaselineSubStep, Event: "result", Status: "ok", RollbackSafe: true},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
+		case strings.Contains(cmd, "test -d"):
+			return transport.Result{ExitCode: 0}, true
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Resume(context.Background())
+	var refused *ActivationRefusedError
+	if !errors.As(err, &refused) || refused.State != release.StateSuperseded {
+		t.Fatalf("resume error = %v, want activation_refused for a superseded release", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, forbidden := range []string{"--force-recreate --timeout 30 worker", "--scale web=", "run --rm --no-deps", "ln -sfn"} {
+		if strings.Contains(seq, forbidden) {
+			t.Fatalf("a superseded release must be refused before any effect (%s):\n%s", forbidden, seq)
+		}
 	}
 }

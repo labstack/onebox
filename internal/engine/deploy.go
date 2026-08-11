@@ -229,6 +229,14 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return e.finalizeActivated(ctx, jw, &manifest, done, remoteDir, remoteCompose)
 	}
 
+	// Anything else the host has already settled — superseded by a manual
+	// rollback, or terminally failed or aborted — is refused HERE, before a job
+	// runs or a role rolls. Activation would refuse it anyway, but by then this
+	// deploy would have started containers of a release the host moved past.
+	if !activationResumable(manifest.State) {
+		return &ActivationRefusedError{ReleaseID: releaseID, State: manifest.State}
+	}
+
 	// Before any job runs: a job can need a database as readily as an
 	// application can, and both read a file that only exists once it is
 	// written.

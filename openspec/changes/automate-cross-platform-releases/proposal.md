@@ -4,7 +4,7 @@ Onebox has a guarded tag publisher but no automated path from a release tag to i
 
 ## What Changes
 
-- **BREAKING** Replace the zero-padded four-digit CalVer identity (`v2026.08.1`) with the shorter, SemVer-shaped `vYY.M.SEQUENCE` identity (`v26.8.1`).
+- **BREAKING** Replace the zero-padded monthly CalVer identity (`v2026.08.1`) with the SemVer-compatible `vYYYY.M.REVISION` identity (`v2026.8.0`), where each UTC month starts at revision zero.
 - Make a valid release tag trigger a pinned GitHub Actions workflow that verifies the tagged commit before GoReleaser publishes artifacts.
 - Build `ob` for Linux, macOS, and Windows on amd64 and arm64; publish tar/zip archives, SHA-256 checksums, Linux `.deb`/`.rpm` packages, a Homebrew Cask, and a Scoop manifest.
 - Sign and notarize both macOS binaries with one LabStack Developer ID Application identity and a dedicated App Store Connect team key before they enter release archives.
@@ -12,7 +12,7 @@ Onebox has a guarded tag publisher but no automated path from a release tag to i
 - Update the release script, parser, tests, OpenSpec, schema examples, and user documentation to one release identity.
 - Publish generated package metadata to dedicated `labstack/homebrew-tap` and `labstack/scoop-bucket` repositories using release credentials scoped to those repositories.
 - Keep WinGet, hosted APT/RPM repositories, SBOMs, and attestations out of this first slice until their repositories, credentials, and operating policies exist.
-- Treat Onebox as a distributed application rather than a versioned importable Go library; `go install ...@v26.8.1` is not a supported installation contract.
+- Treat Onebox as a distributed application rather than a versioned importable Go library; `go install ...@v2026.8.0` is not a supported installation contract.
 
 ## Capabilities
 
@@ -22,7 +22,7 @@ Onebox has a guarded tag publisher but no automated path from a release tag to i
 
 ### Modified Capabilities
 
-- `release-versioning`: Changes the canonical CalVer grammar from four-digit, zero-padded `vYEAR.MONTH.SEQUENCE` to two-digit, unpadded `vYY.M.SEQUENCE` while preserving UTC monthly sequencing and numeric ordering.
+- `release-versioning`: Changes the canonical CalVer grammar from zero-padded `vYEAR.MONTH.SEQUENCE` to unpadded, zero-based `vYYYY.M.REVISION` while preserving UTC monthly resets and numeric ordering.
 
 ## Impact
 

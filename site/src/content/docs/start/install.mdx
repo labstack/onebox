@@ -26,10 +26,10 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
    ob version
    ```
 
-   Releases use `vYY.M.SEQUENCE`, for example `v26.8.1` for the first release
-   in August 2026. Months are unpadded and the sequence increases for each
-   release in a UTC calendar month. Checkout builds use Git-derived provenance
-   and stay visibly distinct from a release.
+   Releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first release
+   in August 2026. The year is four digits, months are unpadded, and each UTC
+   calendar month starts at revision zero. Checkout builds use Git-derived
+   provenance and stay visibly distinct from a release.
 
 3. **Check the local safety setup.**
 
@@ -48,7 +48,7 @@ Both commands take `--output json`.
 ## Install from a GitHub Release
 
 Set `version` to the release without its leading `v`. The asset name uses that
-value, while the download URL uses the full `vYY.M.SEQUENCE` tag.
+value, while the download URL uses the full `vYYYY.M.REVISION` tag.
 
 <Tabs>
   <TabItem label="macOS with Homebrew">
@@ -64,7 +64,7 @@ value, while the download URL uses the full `vYY.M.SEQUENCE` tag.
   <TabItem label="macOS">
 
   ```sh
-  version=26.8.1
+  version=2026.8.0
   arch=arm64 # use amd64 on Intel Macs
   asset="onebox_${version}_darwin_${arch}.tar.gz"
   curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/${asset}"
@@ -79,7 +79,7 @@ value, while the download URL uses the full `vYY.M.SEQUENCE` tag.
   <TabItem label="Linux archive">
 
   ```sh
-  version=26.8.1
+  version=2026.8.0
   arch=amd64 # use arm64 on 64-bit ARM
   asset="onebox_${version}_linux_${arch}.tar.gz"
   curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/${asset}"
@@ -94,7 +94,7 @@ value, while the download URL uses the full `vYY.M.SEQUENCE` tag.
   <TabItem label="Windows PowerShell">
 
   ```powershell
-  $Version = "26.8.1"
+  $Version = "2026.8.0"
   $Arch = "amd64" # use arm64 on Windows on ARM
   $Asset = "onebox_${Version}_windows_${Arch}.zip"
   $Base = "https://github.com/labstack/onebox/releases/download/v${Version}"
@@ -135,10 +135,10 @@ the package entry as above, then install the local file:
 
 ```sh
 # Debian or Ubuntu (choose amd64 or arm64)
-sudo apt install ./onebox_26.8.1_linux_amd64.deb
+sudo apt install ./onebox_2026.8.0_linux_amd64.deb
 
 # Fedora or RHEL (choose amd64 or arm64)
-sudo dnf install ./onebox_26.8.1_linux_amd64.rpm
+sudo dnf install ./onebox_2026.8.0_linux_amd64.rpm
 ```
 
 These are downloadable package files, not hosted APT or RPM repositories.
@@ -147,9 +147,9 @@ WinGet is not published yet. Homebrew and Scoop metadata live in the dedicated
 Onebox source repository.
 
 :::caution[`go install` is not a release channel]
-The application tag `v26.8.1` is intentionally CalVer-shaped, but the Go module
-path does not declare a `/v26` module major. Use a precompiled release asset or
-build from source; `go install github.com/labstack/onebox/cmd/ob@v26.8.1` is not
+The application tag `v2026.8.0` is intentionally CalVer-shaped, but the Go module
+path does not declare a `/v2026` module major. Use a precompiled release asset or
+build from source; `go install github.com/labstack/onebox/cmd/ob@v2026.8.0` is not
 a supported installation contract.
 :::
 

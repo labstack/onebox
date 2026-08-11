@@ -15,13 +15,13 @@ var validateReleaseTagScript string
 func TestValidateReleaseTagAcceptsTagOnMain(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	runGit(t, repo.work, "tag", "v26.8.1", repo.head)
+	runGit(t, repo.work, "tag", "v2026.8.0", repo.head)
 
-	output, err := runTagValidator(t, repo.work, "v26.8.1", "origin/main")
+	output, err := runTagValidator(t, repo.work, "v2026.8.0", "origin/main")
 	if err != nil {
 		t.Fatalf("validator rejected a release on main: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "validated v26.8.1") {
+	if !strings.Contains(output, "validated v2026.8.0") {
 		t.Fatalf("validator did not report the accepted tag:\n%s", output)
 	}
 }
@@ -29,13 +29,13 @@ func TestValidateReleaseTagAcceptsTagOnMain(t *testing.T) {
 func TestValidateReleaseTagRejectsMalformedTags(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	for _, tag := range []string{"v2026.8.1", "v26.08.1", "v26.8.0", "v26.8.1-rc1"} {
+	for _, tag := range []string{"v26.8.0", "v2026.08.0", "v2026.8.00", "v2026.8.0-rc1"} {
 		t.Run(tag, func(t *testing.T) {
 			output, err := runTagValidator(t, repo.work, tag, "origin/main")
 			if err == nil {
 				t.Fatalf("validator accepted malformed tag %s:\n%s", tag, output)
 			}
-			if !strings.Contains(output, "must match vYY.M.SEQUENCE") {
+			if !strings.Contains(output, "must match vYYYY.M.REVISION") {
 				t.Fatalf("validator did not explain the tag grammar:\n%s", output)
 			}
 		})
@@ -47,9 +47,9 @@ func TestValidateReleaseTagRejectsCommitOffMain(t *testing.T) {
 	repo := newTestRepository(t)
 	runGit(t, repo.work, "checkout", "-b", "release-candidate")
 	runGit(t, repo.work, "commit", "--allow-empty", "-m", "off-main release")
-	runGit(t, repo.work, "tag", "v26.8.1")
+	runGit(t, repo.work, "tag", "v2026.8.0")
 
-	output, err := runTagValidator(t, repo.work, "v26.8.1", "origin/main")
+	output, err := runTagValidator(t, repo.work, "v2026.8.0", "origin/main")
 	if err == nil {
 		t.Fatalf("validator accepted a release commit off main:\n%s", output)
 	}

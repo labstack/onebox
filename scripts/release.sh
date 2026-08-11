@@ -56,26 +56,21 @@ if [[ ! "$release_calendar" =~ ^[0-9]{4}:(0[1-9]|1[0-2])$ ]]; then
   echo "could not determine the UTC release month." >&2
   exit 1
 fi
-release_year_full=${release_calendar%%:*}
+release_year=${release_calendar%%:*}
 release_month_padded=${release_calendar##*:}
-if ((10#$release_year_full < 2010 || 10#$release_year_full > 2099)); then
-  echo "release year must be between 2010 and 2099." >&2
-  exit 1
-fi
-release_year=$((10#$release_year_full - 2000))
 release_month=$((10#$release_month_padded))
 release_period="${release_year}.${release_month}"
 release_tags=$(git tag --list "v${release_period}.*" --sort=-v:refname)
 release_period_pattern=${release_period//./\\.}
 release_last=""
 while IFS= read -r release_candidate; do
-  if [[ "$release_candidate" =~ ^v${release_period_pattern}\.[1-9][0-9]*$ ]]; then
+  if [[ "$release_candidate" =~ ^v${release_period_pattern}\.(0|[1-9][0-9]*)$ ]]; then
     release_last=$release_candidate
     break
   fi
 done <<< "$release_tags"
 if [ -z "$release_last" ]; then
-  release_number=1
+  release_number=0
 else
   release_number=$((10#${release_last##*.} + 1))
 fi

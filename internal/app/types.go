@@ -89,7 +89,7 @@ type Server struct {
 type Policy struct {
 	RequireApproval             bool     `json:"require_approval" description:"Require a plan-bound local confirmation before mutating this environment." default:"true"`
 	AllowAgentProposals         bool     `json:"allow_agent_proposals" description:"Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated." default:"true"`
-	MinimumOneboxVersion        string   `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v26.8.1"`
+	MinimumOneboxVersion        string   `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.8.0"`
 	MinimumPlanSchema           string   `json:"minimum_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
 	RequireMigrationBackup      bool     `json:"require_migration_backup" description:"Require a plan-bound backup report before a release with migration risk." default:"false"`
 	MigrationBackupMaximumAge   string   `json:"migration_backup_maximum_age,omitempty" description:"Maximum age of a backup report accepted for a migration." default:"24h" example:"24h"`

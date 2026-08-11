@@ -4,8 +4,8 @@ set -euo pipefail
 release_tag=${1:-${GITHUB_REF_NAME:-}}
 main_ref=${2:-origin/main}
 
-if [[ ! "$release_tag" =~ ^v[1-9][0-9]\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
-  echo "release tag must match vYY.M.SEQUENCE." >&2
+if [[ ! "$release_tag" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$ ]]; then
+  echo "release tag must match vYYYY.M.REVISION." >&2
   exit 1
 fi
 

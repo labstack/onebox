@@ -22,13 +22,13 @@ type testRepository struct {
 	head   string
 }
 
-func TestReleaseSequence(t *testing.T) {
+func TestReleaseRevision(t *testing.T) {
 	requireReleaseTools(t)
 
 	t.Run("first release in UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
 		month := utcPeriod()
-		tag := "v" + month + ".1"
+		tag := "v" + month + ".0"
 
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
@@ -38,7 +38,7 @@ func TestReleaseSequence(t *testing.T) {
 		assertPublishedRelease(t, repo, tag)
 	})
 
-	t.Run("sequence compares integers across nine to ten", func(t *testing.T) {
+	t.Run("revision compares integers across nine to ten", func(t *testing.T) {
 		repo := newTestRepository(t)
 		month := utcPeriod()
 		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9", "v" + month + ".08", "v" + month + ".09", "v" + month + ".010", "v" + month + ".invalid"} {
@@ -55,7 +55,7 @@ func TestReleaseSequence(t *testing.T) {
 		assertPublishedRelease(t, repo, tag)
 	})
 
-	t.Run("sequence resets in a new UTC month", func(t *testing.T) {
+	t.Run("revision resets in a new UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
 		now := time.Now().UTC()
 		month := releasePeriod(now)
@@ -63,7 +63,7 @@ func TestReleaseSequence(t *testing.T) {
 		runGit(t, repo.work, "tag", "v"+previousMonth+".41", repo.head)
 		runGit(t, repo.work, "push", "origin", "--tags")
 
-		tag := "v" + month + ".1"
+		tag := "v" + month + ".0"
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
 		if err != nil {
@@ -73,17 +73,17 @@ func TestReleaseSequence(t *testing.T) {
 	})
 }
 
-func TestReleaseRejectsUnsupportedCalendarYear(t *testing.T) {
+func TestReleaseRejectsMalformedUTCCalendar(t *testing.T) {
 	requireReleaseTools(t)
-	for _, calendar := range []string{"2009:12", "2100:01"} {
+	for _, calendar := range []string{"26:08", "2026:8", "2026:13"} {
 		t.Run(calendar, func(t *testing.T) {
 			repo := newTestRepository(t)
 			output, err := runReleaseAt(t, repo, normalJustShim, nil, calendar)
 			if err == nil {
 				t.Fatalf("release unexpectedly accepted %s:\n%s", calendar, output)
 			}
-			if !strings.Contains(output, "release year must be between 2010 and 2099") {
-				t.Fatalf("release did not explain the supported year range:\n%s", output)
+			if !strings.Contains(output, "could not determine the UTC release month") {
+				t.Fatalf("release did not explain the invalid UTC calendar:\n%s", output)
 			}
 			if tags := gitOutput(t, repo.work, "tag", "--list", "v*"); tags != "" {
 				t.Fatalf("release created tags after refusing the year: %s", tags)
@@ -121,7 +121,7 @@ func TestReleaseRejectsMainAdvanceBeforeAtomicPublication(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".1"
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" fetch origin main
@@ -147,7 +147,7 @@ func TestNoOpBranchRefMissesMainAdvanceAfterAdvertisement(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".1"
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" fetch origin main
@@ -179,7 +179,7 @@ func TestReleaseLosesCompetingTagRaceWithoutReplacingWinner(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".1"
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" commit --allow-empty -m competing-tag
@@ -201,7 +201,7 @@ func TestReleaseFailsClosedWhenBranchPolicyRejectsMainUpdate(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".1"
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 while read -r old_object new_object ref_name; do
@@ -413,7 +413,7 @@ func utcPeriod() string {
 }
 
 func releasePeriod(value time.Time) string {
-	return fmt.Sprintf("%02d.%d", value.Year()%100, int(value.Month()))
+	return fmt.Sprintf("%d.%d", value.Year(), int(value.Month()))
 }
 
 func skipIfUTCMonthChanged(t *testing.T, start string) {

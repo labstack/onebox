@@ -9,8 +9,8 @@ build:
     set -euo pipefail
     ob_build_dir="${OB_BIN_DIR:-${HOME}/.local/bin}"
     ob_build_version="${OB_VERSION:-}"
-    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
-      echo "OB_VERSION must match vYY.M.SEQUENCE" >&2; exit 1
+    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$ ]]; then
+      echo "OB_VERSION must match vYYYY.M.REVISION" >&2; exit 1
     fi
     if [ -z "$ob_build_version" ]; then
       ob_build_version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -208,7 +208,7 @@ diagrams-check:
     done
     exit $status
 
-# Create and publish the next vYY.M.SEQUENCE tag from releasable main.
+# Create and publish the next vYYYY.M.REVISION tag from releasable main.
 release:
     bash scripts/release.sh
 

@@ -6,7 +6,7 @@ environments:
     policy:
       require_approval: true
       allow_agent_proposals: true
-      minimum_onebox_version: v26.8.1
+      minimum_onebox_version: v2026.8.0
       minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
       require_migration_backup: false
 workloads:

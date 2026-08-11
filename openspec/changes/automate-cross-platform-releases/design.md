@@ -46,20 +46,20 @@ the root module is installable at that tag through `go install`.
 
 ## Decisions
 
-### Use `vYY.M.SEQUENCE` with a bounded epoch
+### Use `vYYYY.M.REVISION` with zero-based monthly revisions
 
-The parser and publisher use two digits for years 2010 through 2099, an
-unpadded month, and an unpadded positive monthly sequence. This matches the
-widely used `YY.MM.MICRO` CalVer family while keeping every Onebox tag in the
-supported epoch valid semantic-version syntax. Numeric parsing remains the
-ordering authority; lexical ordering is never used.
+The parser and publisher use the full four-digit UTC year, an unpadded month,
+and an unpadded non-negative monthly revision that starts at zero. This keeps
+the release identity immediately legible while remaining valid semantic-version
+syntax. Numeric parsing remains the ordering authority; lexical ordering is
+never used.
 
 Alternatives rejected:
 
-- `vYYYY.0M.SEQUENCE` is the current readable form but GoReleaser rejects tags
+- `vYYYY.0M.SEQUENCE` is the previous readable form but GoReleaser rejects tags
   containing numeric components such as `08`.
-- `vYYYY.M.SEQUENCE` makes the Go semantic major the full year while adding no
-  useful information beyond `YY` during the product's supported horizon.
+- `vYY.M.SEQUENCE` is shorter, but hides the century and makes release output
+  less immediately recognizable than the requested full-year form.
 - Ordinary `v0.x.y`/`v1.x.y` would preserve `go install`, but would discard the
   requested time-based release identity.
 
@@ -137,8 +137,9 @@ continue to use the repository's ephemeral `GITHUB_TOKEN`.
 
 ## Risks / Trade-offs
 
-- **`YY` has a 2099 horizon** → Validation refuses unsupported years; a future
-  version-contract change must land before 2100 rather than silently wrapping.
+- **The calendar year is the semantic major** → Onebox is distributed as an
+  application, and documentation does not advertise its CalVer tags as an
+  importable Go module contract.
 - **CalVer tags are not usable as normal Go module releases** → Documentation
   lists archives and packages as supported installation paths and does not
   advertise `go install`.
@@ -146,7 +147,7 @@ continue to use the repository's ephemeral `GITHUB_TOKEN`.
   executes the CLI in addition to the six-target snapshot build.
 - **A tag is immutable even if publication fails** → Pull requests build the
   complete snapshot first; transient workflow failures can be rerun, while a
-  source/config defect is fixed and published under the next sequence without
+  source/config defect is fixed and published under the next revision without
   moving the failed tag.
 - **Apple credentials are long-lived publisher authority** → Keep them in
   release-only Actions secrets, never expose them to pull-request jobs, and
@@ -176,7 +177,7 @@ continue to use the repository's ephemeral `GITHUB_TOKEN`.
    Store Connect team key, store them as Onebox Actions secrets, and validate a
    signed/notarized snapshot without publishing.
 5. Merge the verified change, update local `main`, and run `just release` to
-   create the first `vYY.M.1` tag.
+   create the first `vYYYY.M.0` tag.
 6. If the change must be rolled back before the first tag, revert the pull
    request. After a tag exists, never move or delete it; correct defects under a
-   later monthly sequence.
+   later monthly revision.

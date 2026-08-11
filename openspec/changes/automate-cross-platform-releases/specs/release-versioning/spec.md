@@ -4,9 +4,11 @@
 
 Every Onebox release SHALL have the form `vYYYY.M.REVISION`, where `YYYY` is
 the four-digit UTC Gregorian year, `M` is the unpadded UTC calendar month from
-`1` through `12`, and `REVISION` is an unpadded non-negative integer that
-restarts at zero for the first release in a UTC calendar month. Release
-ordering SHALL compare year, month, and revision as integers.
+`1` through `12`, and `REVISION` is an unpadded non-negative integer of at most
+nineteen digits that restarts at zero for the first release in a UTC calendar
+month. Release ordering SHALL compare year, month, and revision as integers.
+The bound is the width every implementation can hold and compare: a wider
+revision would be publishable as a tag and unusable as runner provenance.
 
 #### Scenario: First release in a UTC month
 - **WHEN** no release tag exists for the current UTC year and month
@@ -31,6 +33,10 @@ ordering SHALL compare year, month, and revision as integers.
 #### Scenario: Revision is zero-padded
 - **WHEN** a release identity contains a zero-padded revision such as `v2026.8.00`
 - **THEN** release validation rejects it as non-canonical
+
+#### Scenario: Revision exceeds the representable width
+- **WHEN** a release identity carries a revision wider than nineteen digits, or the next revision for a month would exceed it
+- **THEN** release validation and release creation both reject it rather than publishing an identity the runner cannot parse
 
 ### Requirement: Minimum runner policy uses CalVer ordering
 

@@ -426,3 +426,26 @@ func skipIfUTCMonthChanged(t *testing.T, start string) {
 		t.Skipf("UTC month changed during test from %s to %s", start, end)
 	}
 }
+
+// Bash arithmetic is signed 64-bit, so incrementing a revision the grammar still
+// admits can wrap negative and tag garbage. The creator refuses instead.
+func TestReleaseRefusesWhenTheRevisionSpaceIsExhausted(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	month := utcPeriod()
+	exhausted := "v" + month + ".9999999999999999999"
+	runGit(t, repo.work, "tag", exhausted, repo.head)
+	runGit(t, repo.work, "push", "origin", "--tags")
+
+	output, err := runRelease(t, repo, normalJustShim, nil)
+	skipIfUTCMonthChanged(t, month)
+	if err == nil {
+		t.Fatalf("release created a tag past the representable revision:\n%s", output)
+	}
+	if !strings.Contains(output, "revision space for") {
+		t.Fatalf("release did not explain the refusal:\n%s", output)
+	}
+	if tags := gitOutput(t, repo.origin, "tag", "--list"); tags != exhausted {
+		t.Fatalf("a refused release must publish no new tag, got:\n%s", tags)
+	}
+}

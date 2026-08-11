@@ -49,6 +49,14 @@ jobs:
       - name: Validate tag and main lineage
         run: scripts/validate-release-tag.sh "${GITHUB_REF_NAME}" origin/main
 
+      # Against the published release, not against local tags: a tag that exists
+      # says nothing about whether its release ran, and a queued release is not
+      # stale merely because a newer tag was created while it waited.
+      - name: Refuse to publish behind the current release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/require-newest-release.sh "${GITHUB_REF_NAME}" "${GITHUB_REPOSITORY}"
+
       - name: Verify release credentials and publication targets
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}

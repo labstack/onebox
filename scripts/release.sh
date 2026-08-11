@@ -64,7 +64,7 @@ release_tags=$(git tag --list "v${release_period}.*" --sort=-v:refname)
 release_period_pattern=${release_period//./\\.}
 release_last=""
 while IFS= read -r release_candidate; do
-  if [[ "$release_candidate" =~ ^v${release_period_pattern}\.(0|[1-9][0-9]*)$ ]]; then
+  if [[ "$release_candidate" =~ ^v${release_period_pattern}\.(0|[1-9][0-9]{0,18})$ ]]; then
     release_last=$release_candidate
     break
   fi
@@ -72,7 +72,15 @@ done <<< "$release_tags"
 if [ -z "$release_last" ]; then
   release_number=0
 else
-  release_number=$((10#${release_last##*.} + 1))
+  # Bash arithmetic is signed 64-bit, so a revision the grammar still allows can
+  # overflow it and wrap to a negative number that this script would then tag.
+  # Refuse above the last value that increments safely instead.
+  release_previous=${release_last##*.}
+  if [ "${#release_previous}" -ge 19 ]; then
+    echo "revision space for ${release_period} is exhausted at ${release_last}." >&2
+    exit 1
+  fi
+  release_number=$((10#$release_previous + 1))
 fi
 release_tag="v${release_period}.${release_number}"
 release_commit=$(printf 'chore(release): %s\n' "$release_tag" | git commit-tree "${release_head}^{tree}" -p "$release_head")

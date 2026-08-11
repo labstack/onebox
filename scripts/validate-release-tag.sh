@@ -31,13 +31,4 @@ if ! git merge-base --is-ancestor "$release_commit" "$main_commit"; then
   exit 1
 fi
 
-# Homebrew and Scoop hold one version each, so publishing an older tag after a
-# newer one silently downgrades both. Queueing orders concurrent runs; nothing
-# orders a re-run of last month's tag, which is what this refuses.
-newest_tag=$(git tag --list 'v*' --merged "$main_commit" --sort=-v:refname | head -n 1)
-if [ -n "$newest_tag" ] && [ "$newest_tag" != "$release_tag" ]; then
-  echo "release tag ${release_tag} is older than the published ${newest_tag}; publishing it would downgrade Homebrew and Scoop." >&2
-  exit 1
-fi
-
 echo "validated ${release_tag} at ${release_commit} on ${main_ref}"

@@ -102,8 +102,8 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	// The local walk and the remote find must select the same files. When they
 	// do not, every plan reports a change: no deploy short-circuits, pre-release
 	// migrations re-run, and a rotated secret can hash identically to the one it
-	// replaced. Unit tests compare the two matchers; only a real host proves the
-	// shell half against a real `find` over a real release directory.
+	// replaced. A unit test already runs the shell half against a local `find`;
+	// this proves it against the host's own find over a real release directory.
 	assertPayloadDigestsAgree := func(stage string) string {
 		t.Helper()
 		local, err := engine.LocalPayloadDigest(lastResolved, lastStaging)

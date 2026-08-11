@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -277,23 +280,59 @@ func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
 }
 
 // A driver with no credential variables still gets a credential file, because
-// the file is the service's Compose env_file. Removing it would leave the chmod
-// to fail on a missing path and Compose to refuse a mount it was promised.
+// the file is the service's Compose env_file. Asserted by running the script,
+// not by matching its spelling: any correct implementation must leave the file
+// present and mode 0600.
 func TestCredentialFileExistsEvenForADriverWithNoSecretVariables(t *testing.T) {
-	client := ClientEnv{Prefix: "NATS", Host: "nats", Port: 4222, Scheme: "nats"}
+	spec := serviceSpec(t, "services: {store: {driver: nats, version: 2}}\n")
+	client, ok := spec.ClientEnvFor("store")
+	if !ok {
+		t.Fatal("nats service is not declared")
+	}
 	if len(client.SecretVars) != 0 {
-		t.Fatalf("fixture drifted: SecretVars = %v", client.SecretVars)
+		t.Fatalf("nats gained credential variables; this test no longer covers the zero-variable driver: %v", client.SecretVars)
 	}
-	script := client.ClientEnvScript("/s.env", "/c.env", nil)
-	if strings.Contains(script, "rm -f '/s.env'") {
-		t.Fatalf("credential file is removed and never recreated:\n%s", script)
+	dir := t.TempDir()
+	secretFile := filepath.Join(dir, "s.env")
+	script := client.ClientEnvScript(secretFile, filepath.Join(dir, "c.env"), nil)
+	// /bin/sh, deliberately: the emitted script must work under dash, where a
+	// redirection failure on a special builtin aborts before `||` can run.
+	if out, err := exec.Command("/bin/sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("apply script failed: %v\n%s\n%s", err, out, script)
 	}
-	if !strings.Contains(script, ": > '/s.env'") {
-		t.Fatalf("credential file is not created before chmod:\n%s", script)
+	info, err := os.Stat(secretFile)
+	if err != nil {
+		t.Fatalf("credential file absent after a successful apply: %v", err)
 	}
-	create := strings.Index(script, ": > '/s.env'")
-	chmod := strings.Index(script, "chmod 600 '/s.env'")
-	if create < 0 || chmod < 0 || chmod < create {
-		t.Fatalf("chmod does not follow creation:\n%s", script)
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("credential file mode = %v, want 0600", info.Mode().Perm())
+	}
+}
+
+// The credential file is the only copy of a password the database already
+// holds. A truncate-then-append cannot be made safe with `||` guards: the
+// truncation lands first, so a failure between the two leaves an empty or
+// half-written file that the *next* apply reads back — either minting a fresh
+// password the database will reject, or canonicalising a truncated one. The
+// write must be atomic, which means a temp file and a rename.
+func TestCredentialWritesAreAtomic(t *testing.T) {
+	client := ClientEnv{
+		Prefix: "PG", Host: "pg", Port: 5432, Scheme: "postgres",
+		SecretVars: []string{"POSTGRES_PASSWORD"}, User: "onebox", Database: "app",
+	}
+	script := client.ClientEnvScript("/s.env", "/c.env", []AliasFile{{Path: "/a.env", Vars: map[string]string{"DB_URL": "url"}}})
+
+	for _, target := range []string{"'/s.env'", "'/c.env'", "'/a.env'"} {
+		if strings.Contains(script, ": > "+target) {
+			t.Errorf("%s is truncated in place; a failed write destroys it:\n%s", target, script)
+		}
+		if !strings.Contains(script, "mv -f") {
+			t.Errorf("%s is not installed by rename:\n%s", target, script)
+		}
+	}
+	// Nothing may read a target back between truncation and completion, and no
+	// `: >` should survive anywhere in the script.
+	if strings.Contains(script, ": > ") {
+		t.Errorf("script still truncates a live file in place:\n%s", script)
 	}
 }

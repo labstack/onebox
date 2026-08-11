@@ -137,14 +137,13 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if keepingCredentials {
 		e.logf("kept %s — the service volumes survive and these credentials are the only thing that can open them", e.names().ServiceDir())
 	}
-	// Ownership is released only when nothing of this application is left
-	// behind. Keeping it while volumes or service credentials survive is what
-	// preserves the operator's ability to come back and run
-	// `ob destroy --volumes`: RequireHostOwner gates every command, so a host
-	// released early is a host whose remaining data its owner can no longer
-	// reach — and if another application claims it first, the volumes and the
-	// only credentials that open them are stranded for good.
-	releaseOwner := removeVolumes && !keepingCredentials && (!e.Spec.Proxy.Managed || removeProxy)
+	// Released only when the volumes go and the proxy is this application's to
+	// remove. Keeping it while data survives preserves the operator's ability to
+	// return and run `ob destroy --volumes`: RequireHostOwner gates every
+	// command, so a host released early is one whose remaining data its owner
+	// can no longer reach. Service credentials need no separate term — they are
+	// kept only when the volumes are, so removeVolumes already covers them.
+	releaseOwner := removeVolumes && (!e.Spec.Proxy.Managed || removeProxy)
 	if e.Spec.Proxy.Managed || releaseOwner {
 		// Host scope, after the app fence is gone: plain Run, under host lock.
 		if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
@@ -155,7 +154,11 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		// mutations are protected solely by the host-scoped lock token.
 		e.fenceVal = ""
 		if removeProxy {
-			if res, err := e.hostMutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" down"); err != nil {
+			// An earlier `ob destroy --proxy` removes this directory, so a repeat
+			// run must treat "already gone" as done. Failing here left the owner
+			// record in place with no command able to remove it.
+			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down; fi"
+			if res, err := e.hostMutate(ctx, down); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("proxy down: %s", strings.TrimSpace(res.Stderr))
@@ -184,7 +187,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	}
 	if !releaseOwner {
 		e.logf("host ownership kept for %s — run `ob destroy --volumes%s` to remove what remains and release the host",
-			e.Spec.Name, map[bool]string{true: " --proxy", false: ""}[e.Spec.Proxy.Managed])
+			e.Spec.Name, map[bool]string{true: " --proxy", false: ""}[e.Spec.Proxy.Managed && !removeProxy])
 	}
 	e.logf("destroyed %s (volumes %s)", e.Spec.Name, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil

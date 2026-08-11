@@ -583,18 +583,21 @@ func (c ClientEnv) ClientEnvScript(secretFile, clientFile string, aliases []Alia
 	// so it has to exist even for a driver that declares no credential variables
 	// — `nats` is one — and removing it would leave the following chmod to fail
 	// on a missing path and Compose to refuse a mount it was promised.
-	// The credential file's writes are checked. The script has no `set -e` and
-	// its last command is a chmod that needs no disk space, so an unchecked
-	// truncate-then-append could destroy the only copy of a credential — or
-	// leave a half-written one that the next apply reads back as the password —
-	// and still exit 0. writeEnvFile below applies the same guards to every
-	// derived client and alias file.
-	fmt.Fprintf(&b, ": > %[1]s || { echo 'cannot write '%[1]s >&2; exit 1; }\n", shellQuote(secretFile))
-	for _, v := range c.SecretVars {
-		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"$pw\" >> %[2]s || { echo 'cannot write '%[2]s >&2; exit 1; }\n",
-			shellQuote(v), shellQuote(secretFile))
-	}
-	fmt.Fprintf(&b, "chmod 600 %s\n", shellQuote(secretFile))
+	// Written to a temp file and renamed. Truncating in place cannot be made
+	// safe with `||` guards: the truncation lands first, so a failure between it
+	// and the last append leaves an empty or half-written credential that the
+	// *next* apply reads back through the `[ -s ]` branch above — minting a
+	// fresh password the database will reject, or canonicalising a truncated
+	// one. Both report success. A rename is atomic, so the file is either the
+	// old credential or the complete new one.
+	b.WriteString(atomicEnvFile(secretFile, func(target string) string {
+		var lines strings.Builder
+		for _, v := range c.SecretVars {
+			fmt.Fprintf(&lines, "if ! printf '%%s=%%s\\n' %s \"$pw\" >> %[2]s; then echo 'cannot write '%[2]s >&2; exit 1; fi\n",
+				shellQuote(v), target)
+		}
+		return lines.String()
+	}))
 
 	parts := c.parts()
 	b.WriteString(writeEnvFile(clientFile, c.canonicalNames(), parts))
@@ -653,27 +656,44 @@ func (c ClientEnv) canonicalNames() map[string]string {
 // writeEnvFile emits the shell that writes one env file, sorted so a re-apply
 // produces the same bytes.
 func writeEnvFile(path string, names map[string]string, parts map[string]string) string {
-	// Same rule as the credential file: a connection file that is truncated and
-	// then partially written is worse than one that is missing, because the
-	// application reads it and fails against a service reporting itself healthy.
-	var b strings.Builder
-	fmt.Fprintf(&b, ": > %[1]s || { echo 'cannot write '%[1]s >&2; exit 1; }\n", shellQuote(path))
+	// Same rule as the credential file: an application reading a half-written
+	// connection file fails against a service that reports itself healthy.
 	vars := make([]string, 0, len(names))
 	for v := range names {
 		vars = append(vars, v)
 	}
 	sort.Strings(vars)
-	for _, v := range vars {
-		value, ok := parts[names[v]]
-		if !ok || value == "" {
-			// A part this driver does not have — a user for Redis, a database
-			// for a cache. Writing it empty would look like a value.
-			continue
+	return atomicEnvFile(path, func(target string) string {
+		var lines strings.Builder
+		for _, v := range vars {
+			value, ok := parts[names[v]]
+			if !ok || value == "" {
+				// A part this driver does not have — a user for Redis, a database
+				// for a cache. Writing it empty would look like a value.
+				continue
+			}
+			fmt.Fprintf(&lines, "if ! printf '%%s=%%s\\n' %s \"%s\" >> %[3]s; then echo 'cannot write '%[3]s >&2; exit 1; fi\n",
+				shellQuote(v), value, target)
 		}
-		fmt.Fprintf(&b, "printf '%%s=%%s\\n' %s \"%s\" >> %[3]s || { echo 'cannot write '%[3]s >&2; exit 1; }\n",
-			shellQuote(v), value, shellQuote(path))
-	}
-	fmt.Fprintf(&b, "chmod 600 %s\n", shellQuote(path))
+		return lines.String()
+	})
+}
+
+// atomicEnvFile renders writes into a sibling temp file, then renames it over
+// the target. Every step is checked with `if !`, not `||`: `:` and other POSIX
+// special builtins abort a non-interactive shell on a redirection error before
+// `||` can run, so a guard written that way is dead on dash — which is /bin/sh
+// on Debian and Ubuntu. The temp file shares the target's directory so the
+// rename cannot cross a filesystem.
+func atomicEnvFile(path string, body func(target string) string) string {
+	quoted, temp := shellQuote(path), shellQuote(path+".ob-tmp")
+	var b strings.Builder
+	fmt.Fprintf(&b, "if ! printf '' > %[1]s; then echo 'cannot write '%[1]s >&2; exit 1; fi\n", temp)
+	// Every append is checked too. The rename is only reached when the temp file
+	// is complete, so a short write can never be installed over a good file.
+	b.WriteString(body(temp))
+	fmt.Fprintf(&b, "if ! chmod 600 %[1]s; then echo 'cannot secure '%[1]s >&2; exit 1; fi\n", temp)
+	fmt.Fprintf(&b, "if ! mv -f %[1]s %[2]s; then echo 'cannot install '%[2]s >&2; exit 1; fi\n", temp, quoted)
 	return b.String()
 }
 

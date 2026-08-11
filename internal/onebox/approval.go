@@ -64,7 +64,7 @@ func NewApprovalGrant(plan ExecutablePlan, report *BackupReport, approvedBy stri
 	}
 	now = now.UTC()
 	if !now.Before(expiresAt) {
-		return ApprovalGrant{}, &PlanExpiredError{Kind: PlanKindDeployment, ExpiresAt: expiresAt}
+		return ApprovalGrant{}, &PlanExpiredError{Kind: planKindOfOperation(view.operation), Job: jobNameOfOperation(view.operation), ExpiresAt: expiresAt}
 	}
 	binding := view.operation.Binding
 	backupReportDigest := ""

@@ -215,7 +215,9 @@ var operationFailureDefinitions = map[string]OperationFailure{
 	},
 }
 
-// OperationFailureCodes lists every CLI and engine failure code, sorted.
+// OperationFailureCodes lists every code in this registry, sorted. Codes owned
+// by the loader or lifecycle families are deliberately absent — image_unresolved
+// is raised by the engine but documented by the loader.
 func OperationFailureCodes() []string {
 	codes := make([]string, 0, len(operationFailureDefinitions))
 	for code := range operationFailureDefinitions {

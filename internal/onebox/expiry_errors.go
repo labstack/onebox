@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// PlanExpiredError and ApprovalExpiredError are the two most common recoverable
-// states in the plan/approve/apply loop, and both were previously untyped. An
+// PlanExpiredError and ApprovalExpiredError are recoverable states in the
+// plan/approve/apply loop, and both were previously untyped. An
 // untyped failure reaches the caller as the generic operation_failed envelope,
 // which cannot distinguish "re-plan and try again" — always safe, always the
 // right move — from a failure that changed something on the host. Typing them
@@ -52,3 +52,26 @@ func (err *ApprovalExpiredError) Error() string {
 }
 
 func (err *ApprovalExpiredError) Code() string { return "approval_expired" }
+
+// planKindOfOperation and jobNameOfOperation derive the discriminator from the
+// sealed operation, so the approval ceremony reports the same artifact the
+// caller supplied. Hardcoding the deployment kind here sent an operator whose
+// job plan expired to `ob plan`, which builds the wrong artifact entirely.
+func planKindOfOperation(operation OperationPlan) PlanKind {
+	if operation.Kind == KindJobRun {
+		return PlanKindJob
+	}
+	return PlanKindDeployment
+}
+
+func jobNameOfOperation(operation OperationPlan) string {
+	if operation.Kind != KindJobRun {
+		return ""
+	}
+	for _, step := range operation.Steps {
+		if step.Kind == StepJob {
+			return step.Component
+		}
+	}
+	return ""
+}

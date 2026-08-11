@@ -382,7 +382,13 @@ func TestDestroyTellsTheOperatorHowToReleaseTheHost(t *testing.T) {
 	}
 	// A retained record with no way to discover the remedy is the defect that
 	// made releasing it early look attractive in the first place.
-	if !strings.Contains(out.String(), "ob destroy --volumes") {
-		t.Fatalf("retaining ownership did not name the command that releases it:\n%s", out.String())
+	// The exact command matters. This fixture's proxy is unmanaged, so --proxy
+	// would be wrong here; a managed one needs it, and an operator following a
+	// command missing a required flag retains ownership again.
+	if !strings.Contains(out.String(), "run `ob destroy --volumes` to remove what remains") {
+		t.Fatalf("retention notice did not name the releasing command:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "--volumes --proxy") {
+		t.Fatalf("retention notice demanded --proxy for an unmanaged proxy:\n%s", out.String())
 	}
 }

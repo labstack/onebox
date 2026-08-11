@@ -279,7 +279,7 @@ func OnlyReleaseLabelsChanged(live, planned string) bool {
 // FNM_PATHNAME, so `*` crosses `/` there while a Go first-segment test does
 // not — the glob quietly excluded `./.job-a/b-result` on the host and kept it
 // locally, which is the same permanent inequality this code exists to prevent.
-// Exact names cannot diverge, and payloadExclusions is the one place both
+// Exact names cannot diverge, and payloadExclusionsFor is the one place both
 // renderings come from.
 // jobResultDirName is the release-relative directory a job writes its result
 // into. Declared here because the payload digest must exclude exactly what
@@ -395,7 +395,7 @@ func LocalPayloadDigestContext(ctx context.Context, spec *app.Resolved, dir stri
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
 	dir := release.PathsFor(e.names()).Releases + "/" + releaseID
 	// The exclusion arguments are rendered from the same table the local walk
-	// matches against, so the two cannot select different sets. Nothing is
+	// matches against, so for a given spec the two select the same set. Nothing is
 	// redirected to /dev/null: an unreadable file must fail the read rather
 	// than silently shrink the digest to one taken over the readable subset.
 	// The listing is captured before it is folded. A pipeline's exit status is

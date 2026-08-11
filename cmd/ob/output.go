@@ -303,8 +303,8 @@ func writeCancelled(cmd *cobra.Command, g *globalFlags, message string) error {
 }
 
 // publicError builds the operator-facing error. fallbackMessage is used only
-// when the resolved code is not in the published registry; an enumerated code
-// always carries its published sentence.
+// when the resolved code is in no published table; enumerated codes carry their
+// published sentence, whichever family owns them.
 func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPublicError {
 	result := &cliPublicError{Code: fallbackCode, SafeMessage: fallbackMessage}
 	if commandErr == nil {
@@ -314,7 +314,9 @@ func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPub
 	var projectErr *app.Error
 	if errors.As(commandErr, &projectErr) {
 		result.Code = projectErr.Code
-		result.SafeMessage = "project configuration is invalid"
+		// The loader publishes a sentence per code; collapsing all of them to one
+		// generic string discarded the only diagnostic a structured caller gets.
+		result.SafeMessage = safeMessageForCode(projectErr.Code, "project configuration is invalid")
 		result.Path = projectErr.Path
 		setCommandGuidance(result, projectErr.Next)
 		return result
@@ -334,15 +336,18 @@ func publicError(commandErr error, fallbackCode, fallbackMessage string) *cliPub
 	if errors.As(commandErr, &coded) && coded.Code() != "" {
 		result.Code = coded.Code()
 	}
-	if errors.Is(commandErr, context.Canceled) {
+	// Only when nothing more specific resolved. A typed failure can carry a
+	// cancelled cause — an interrupt during a post-commit secret sweep — and
+	// calling that "cancelled" tells the operator nothing was applied when the
+	// new generation is committed and live.
+	if result.Code == fallbackCode && errors.Is(commandErr, context.Canceled) {
 		result.Code = "cancelled"
 	}
 
-	// Resolution happens here, for every path, rather than inside the typed
-	// branch. When only the typed branch consulted the registry, a call site
-	// passing a literal code kept whatever sentence it had authored — so the
-	// published catalogue and the emitted envelope disagreed for the majority
-	// of codes, and no guidance was attached at all.
+	// Resolution happens here for every path that reaches it. When only the typed
+	// branch consulted the registry, a call site passing a literal code kept
+	// whatever sentence it had authored and no guidance was attached. The
+	// lifecycle branch above returns with its own typed fields.
 	result.SafeMessage = safeMessageForCode(result.Code, fallbackMessage)
 	command := guidanceCommandForCode(result.Code)
 	// An error that knows a more specific safe command than its code's
@@ -575,9 +580,9 @@ func helpCommandFor(cmd *cobra.Command) string {
 }
 
 // artifactExists reports whether a path was present before this invocation
-// wrote anything, so a failure later in the sequence does not delete an
-// artifact an earlier successful run produced. --out defaults to a fixed name,
-// so the previous good plan is exactly what would be at risk.
+// wrote anything. Note the plan has already been overwritten by the time any
+// cleanup runs, so this does not preserve an earlier run's artifact — it only
+// decides whether a path this run did not create should be removed.
 func artifactExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

@@ -386,7 +386,7 @@ func (s *Service) executeDeploy(
 		}
 		options.DeployPrecondition = func(preconditionContext context.Context, locked *engine.Engine) error {
 			if expiresAt.Before(s.now().UTC()) {
-				return errors.New("deployment plan expired before mutation — re-plan")
+				return &PlanExpiredError{Kind: PlanKindDeployment, ExpiresAt: expiresAt}
 			}
 			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.resolved.Name)
 		}

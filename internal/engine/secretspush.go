@@ -58,7 +58,9 @@ func (err *SecretRotationRolledBackError) Code() string { return "secret_rotatio
 // the old generation would undo applied secrets to fix a housekeeping failure —
 // and if the old generation directory is already gone, that rollback can never
 // succeed and the checkpoint wedges permanently. The checkpoint is left in
-// place instead, and a retry resumes cleanup from the committed phase.
+// place instead. The checkpoint is cleared before the sweep, so a rerun
+// normally finishes through the orphan sweep at the start of the next push;
+// only a failure to clear it leaves a committed checkpoint to resume.
 type SecretCleanupPendingError struct {
 	ReleaseID string
 	Cause     error
@@ -179,7 +181,7 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 			case err == nil:
 			case errors.As(err, &cleanupPending):
 				// Applied and verified; only housekeeping is outstanding. Keep the
-				// new generation as the result and leave the checkpoint for a retry.
+				// new generation as the result and let the next push finish the sweep.
 			default:
 				transitionErr := err
 				if recoveryErr := runtimeEngine.recoverSecretGeneration(ctx, &checkpoint); recoveryErr != nil {
@@ -272,8 +274,8 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 		return result, nil
 	}
 	// A cleanup failure after a verified commit is not a failed rotation. The
-	// requested payload is live, so recovering would undo it; the checkpoint stays
-	// and the operator is told to rerun to finish the sweep.
+	// requested payload is live, so recovering would undo it; the operator is told
+	// to rerun, which finishes the sweep.
 	var cleanupPending *SecretCleanupPendingError
 	if errors.As(err, &cleanupPending) {
 		return result, err
@@ -567,7 +569,7 @@ func (e *Engine) advanceSecretGeneration(ctx context.Context, checkpoint *releas
 
 // finishSecretCleanup runs the two steps that follow a verified commit. Both are
 // idempotent — `rm -rf` of an already-removed generation and clearing an
-// already-cleared checkpoint both succeed — so a retry can re-enter here safely.
+// already-cleared checkpoint both succeed — so either step may be repeated.
 func (e *Engine) finishSecretCleanup(ctx context.Context, checkpoint *release.SecretCheckpoint) error {
 	// The checkpoint is cleared before the retired generation is swept, not
 	// after. The other order leaves a window where the old generation is gone

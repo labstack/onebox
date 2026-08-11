@@ -101,8 +101,10 @@ func (e *Engine) resumeApplicationManifest(ctx context.Context, releaseID string
 }
 
 // ActivationRefusedError reports a release whose manifest state cannot be
-// activated. It is typed because the operator's next move differs by state:
-// verified and staged are both resumable, and anything else needs `ob abort`.
+// activated. It is typed so an agent can branch on activation_refused rather
+// than parse prose. State is carried for diagnosis, not because the remedy
+// varies: it is only constructed for states that cannot resume, and they all
+// need `ob abort`.
 type ActivationRefusedError struct {
 	ReleaseID string
 	State     release.State

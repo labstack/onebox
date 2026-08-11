@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -428,5 +429,62 @@ func TestLocalAndRemotePayloadSelectionAgree(t *testing.T) {
 		if !remote[rel] {
 			t.Errorf("%s is hashed locally but not remotely", rel)
 		}
+	}
+}
+
+// The whole point of capturing the listing before folding it is that find's
+// failure must not be swallowed. A pipeline's status is its last stage's, so
+// the old form returned a well-formed digest over whatever was readable.
+func TestRemotePayloadDigestFailsWhenTheListingFails(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "sha256sum") {
+			return transport.Result{ExitCode: 1, Stderr: "find: ./secret: Permission denied"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	digest, err := e.RemotePayloadDigest(context.Background(), "R7")
+	if err == nil {
+		t.Fatalf("an unreadable release produced a digest instead of an error: %q", digest)
+	}
+	if !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("error lost the cause: %v", err)
+	}
+}
+
+// An empty release directory must hash to the same value the local walk gives
+// an empty payload, or a first deploy can never be recognised as unchanged.
+func TestRemotePayloadDigestOfAnEmptyListingMatchesTheLocalWalk(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "sha256sum") {
+			return transport.Result{Stdout: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  -\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	remote, err := e.RemotePayloadDigest(context.Background(), "R7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := LocalPayloadDigest(testConfig(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote != local {
+		t.Fatalf("empty remote %s != empty local %s", remote, local)
+	}
+}
+
+// Only jobs write a result directory. Excluding the name for every workload
+// would hide a live `.job-web-result` from drift detection, and the differential
+// test cannot see it because widening the table widens both renderings.
+func TestPayloadExclusionsCoverJobsOnly(t *testing.T) {
+	var names []string
+	for _, exclusion := range payloadExclusionsFor(testConfig()) {
+		names = append(names, exclusion.name)
+	}
+	want := []string{"compose.yaml", release.ManifestFileName, jobResultDirName("migrate")}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("exclusions = %v, want %v", names, want)
 	}
 }

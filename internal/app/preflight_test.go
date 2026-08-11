@@ -355,3 +355,40 @@ func TestPreflightRefusesAnEmptyHostOwnerRecord(t *testing.T) {
 		t.Fatal("an empty owner record passed preflight")
 	}
 }
+
+// A symlinked or non-regular owner record is refused by the engine, so preflight
+// must refuse it too — otherwise preflight passes a host every mutation rejects.
+func TestPreflightRefusesANonRegularHostOwnerRecord(t *testing.T) {
+	run := healthyRunner()
+	run.answers["/_host/owner"] = transport.Result{ExitCode: 4}
+	report := preflight(t, run, preflightProject)
+	if report.OK() {
+		t.Fatal("a non-regular owner record passed preflight")
+	}
+	if detail := report.Failures()[0].Detail; !strings.Contains(detail, "not a regular file") {
+		t.Fatalf("non-regular record reported as %q", detail)
+	}
+}
+
+// The fake never runs a shell, so the emitted probe is the only place the
+// regular-file and symlink guards can be pinned. They are what makes exit 4
+// reachable at all.
+func TestPreflightOwnerProbeCarriesTheEngineGuards(t *testing.T) {
+	run := healthyRunner()
+	preflight(t, run, preflightProject)
+	var probe string
+	for _, cmd := range run.ran {
+		if strings.Contains(cmd, "/_host/owner") {
+			probe = cmd
+			break
+		}
+	}
+	if probe == "" {
+		t.Fatal("preflight did not read the host owner record")
+	}
+	for _, want := range []string{"exit 3", "exit 4", "-f ", "-L "} {
+		if !strings.Contains(probe, want) {
+			t.Errorf("probe is missing %q: %s", want, probe)
+		}
+	}
+}

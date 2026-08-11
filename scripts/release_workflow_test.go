@@ -59,7 +59,11 @@ func TestReleaseRevision(t *testing.T) {
 		repo := newTestRepository(t)
 		now := time.Now().UTC()
 		month := releasePeriod(now)
-		previousMonth := releasePeriod(now.AddDate(0, -1, 0))
+		// The last day of the previous month, not AddDate(0, -1, 0): from the
+		// 31st that normalizes back into the current month, which silently
+		// turns this into a same-month test — and fails outright on the days
+		// where the normalization lands on today.
+		previousMonth := releasePeriod(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1))
 		runGit(t, repo.work, "tag", "v"+previousMonth+".41", repo.head)
 		runGit(t, repo.work, "push", "origin", "--tags")
 

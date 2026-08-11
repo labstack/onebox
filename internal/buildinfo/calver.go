@@ -6,7 +6,11 @@ import (
 	"strconv"
 )
 
-var releaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$`)
+// ReleaseVersionPattern is the one grammar for a release identity. It is
+// exported so the project loader validates `minimum_onebox_version` against the
+// same expression this package parses: a loader that accepted a version no tag
+// can carry would fail closed on a release that is perfectly valid.
+var ReleaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$`)
 
 // ReleaseVersion is a canonical Onebox vYYYY.M.REVISION release identity.
 type ReleaseVersion struct {
@@ -18,7 +22,7 @@ type ReleaseVersion struct {
 // ParseReleaseVersion parses the exact version form used by Onebox tags,
 // binary provenance, and minimum-runner policy.
 func ParseReleaseVersion(value string) (ReleaseVersion, error) {
-	matches := releaseVersionPattern.FindStringSubmatch(value)
+	matches := ReleaseVersionPattern.FindStringSubmatch(value)
 	if matches == nil {
 		return ReleaseVersion{}, fmt.Errorf("%q must match vYYYY.M.REVISION with a four-digit year, an unpadded month from 1 through 12, and an unpadded non-negative revision", value)
 	}

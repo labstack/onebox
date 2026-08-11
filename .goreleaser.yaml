@@ -59,7 +59,11 @@ checksum:
 
 notarize:
   macos:
-    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+    # Not isEnvSet: an absent GitHub secret arrives as an empty string, which
+    # that helper treats as unset, and a skipped notarize pipe is not an error —
+    # a release would publish unsigned Darwin binaries and exit 0. Keyed on the
+    # snapshot instead, a missing certificate fails while rendering.
+    - enabled: '{{ not .IsSnapshot }}'
       ids:
         - ob
       sign:

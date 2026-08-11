@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/labstack/onebox/internal/buildinfo"
 )
 
 //go:embed validate-release-tag.sh
@@ -69,4 +71,44 @@ func runTagValidator(t *testing.T, dir, tag, mainRef string) (string, error) {
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+// The release grammar is written twice: once in Bash, where it gates the tag a
+// human pushes, and once in Go, where it gates `minimum_onebox_version` and the
+// runner's own provenance. Drift is silent in both directions — a looser shell
+// publishes a tag the binary cannot parse, a looser loader accepts a minimum no
+// tag can satisfy — so one corpus decides both.
+func TestTagValidatorAndParserAgreeOnTheGrammar(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	for _, candidate := range []struct {
+		tag   string
+		valid bool
+	}{
+		{tag: "v2026.1.0", valid: true},
+		{tag: "v2026.10.0", valid: true},
+		{tag: "v2026.12.99", valid: true},
+		{tag: "v2026.8.10", valid: true},
+		{tag: "v2026.0.0"},
+		{tag: "v2026.13.0"},
+		{tag: "v2026.08.0"},
+		{tag: "v2026.8.00"},
+		{tag: "v2026.8.01"},
+		{tag: "v26.8.0"},
+		{tag: "v02026.8.0"},
+		{tag: "v2026.8.0-rc1"},
+		{tag: "2026.8.0"},
+	} {
+		t.Run(candidate.tag, func(t *testing.T) {
+			runGit(t, repo.work, "tag", "--force", candidate.tag, repo.head)
+			_, shellErr := runTagValidator(t, repo.work, candidate.tag, "origin/main")
+			_, parseErr := buildinfo.ParseReleaseVersion(candidate.tag)
+			if (shellErr == nil) != (parseErr == nil) {
+				t.Fatalf("shell and Go disagree on %s: shell=%v go=%v", candidate.tag, shellErr, parseErr)
+			}
+			if (parseErr == nil) != candidate.valid {
+				t.Fatalf("%s: valid=%v, want %v", candidate.tag, parseErr == nil, candidate.valid)
+			}
+		})
+	}
 }

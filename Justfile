@@ -13,7 +13,9 @@ build:
       echo "OB_VERSION must match vYYYY.M.REVISION" >&2; exit 1
     fi
     if [ -z "$ob_build_version" ]; then
-      ob_build_version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+      # --long keeps the commit suffix even on a tagged commit, so a checkout build
+      # can never stamp a bare release identity and pass as a released runner.
+      ob_build_version=$(git describe --tags --always --dirty --long 2>/dev/null || echo dev)
     fi
     ob_build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     mkdir -p "$ob_build_dir"

@@ -57,6 +57,16 @@ func TestCompareReleaseVersions(t *testing.T) {
 		{actual: "v2026.8.4", minimum: "v2026.8.5", want: -1},
 		{actual: "v2026.7.20", minimum: "v2026.8.0", want: -1},
 		{actual: "v2027.1.0", minimum: "v2026.12.99", want: 1},
+		// Comparison is numeric per field. The old zero-padded format made a
+		// lexicographic comparison accidentally correct, and every case above
+		// still agrees with one — these are the pairs where it does not, so a
+		// regression to string ordering cannot pass. A runner that compared as
+		// text would read v2026.9.0 as newer than the v2026.11.0 an
+		// environment demands, and deploy anyway.
+		{actual: "v2026.9.0", minimum: "v2026.11.0", want: -1},
+		{actual: "v2026.11.0", minimum: "v2026.9.0", want: 1},
+		{actual: "v2026.8.9", minimum: "v2026.8.10", want: -1},
+		{actual: "v2026.8.10", minimum: "v2026.8.9", want: 1},
 	}
 	for _, test := range tests {
 		actual, err := ParseReleaseVersion(test.actual)

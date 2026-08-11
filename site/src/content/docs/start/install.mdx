@@ -47,6 +47,13 @@ Both commands take `--output json`.
 
 ## Install from a GitHub Release
 
+:::note[No release is published yet]
+The pipeline below is configured and verified in CI, and the first
+`vYYYY.M.REVISION` tag publishes it. Until that tag exists, these downloads —
+and the Homebrew and Scoop commands, which fetch the same assets — return 404.
+Build from source in the meantime.
+:::
+
 Set `version` to the release without its leading `v`. The asset name uses that
 value, while the download URL uses the full `vYYYY.M.REVISION` tag.
 

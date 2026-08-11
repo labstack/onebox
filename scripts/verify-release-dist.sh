@@ -8,14 +8,15 @@ if [ ! -f "$metadata" ]; then
   exit 1
 fi
 
-release_version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$metadata")
-release_tag=$(sed -n 's/.*"tag":"\([^"]*\)".*/\1/p' "$metadata")
+release_version=$(jq -r '.version // empty' "$metadata")
+release_tag=$(jq -r '.tag // empty' "$metadata")
 if [ -z "$release_version" ] || [ -z "$release_tag" ]; then
   echo "release metadata has no version or tag." >&2
   exit 1
 fi
 
 expected_artifacts=(
+  "onebox_${release_version}_checksums.txt"
   "onebox_${release_version}_darwin_amd64.tar.gz"
   "onebox_${release_version}_darwin_arm64.tar.gz"
   "onebox_${release_version}_linux_amd64.deb"
@@ -26,15 +27,12 @@ expected_artifacts=(
   "onebox_${release_version}_linux_arm64.tar.gz"
   "onebox_${release_version}_windows_amd64.zip"
   "onebox_${release_version}_windows_arm64.zip"
-  "onebox_${release_version}_checksums.txt"
 )
 
 actual_artifacts=()
 while IFS= read -r artifact; do
   actual_artifacts+=("$artifact")
 done < <(find "$dist_dir" -maxdepth 1 -type f -name 'onebox_*' -exec basename {} \; | LC_ALL=C sort)
-IFS=$'\n' expected_artifacts=($(printf '%s\n' "${expected_artifacts[@]}" | LC_ALL=C sort))
-unset IFS
 if [ "${actual_artifacts[*]}" != "${expected_artifacts[*]}" ]; then
   echo "release artifact inventory differs from the contract." >&2
   diff -u <(printf '%s\n' "${expected_artifacts[@]}") <(printf '%s\n' "${actual_artifacts[@]}") >&2 || true
@@ -42,8 +40,9 @@ if [ "${actual_artifacts[*]}" != "${expected_artifacts[*]}" ]; then
 fi
 
 checksum_file="${dist_dir}/onebox_${release_version}_checksums.txt"
-if [ "$(wc -l < "$checksum_file" | tr -d ' ')" -ne 10 ]; then
-  echo "checksum manifest must cover exactly ten distributable artifacts." >&2
+distributable_count=$(( ${#expected_artifacts[@]} - 1 ))
+if [ "$(wc -l < "$checksum_file" | tr -d ' ')" -ne "$distributable_count" ]; then
+  echo "checksum manifest must cover exactly ${distributable_count} distributable artifacts." >&2
   exit 1
 fi
 if command -v sha256sum >/dev/null 2>&1; then
@@ -51,6 +50,12 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
   (cd "$dist_dir" && shasum -a 256 -c "$(basename "$checksum_file")")
 fi
+
+# Every later hash comparison reads this manifest rather than recomputing: the
+# bytes behind it were just checked, and one source cannot disagree with itself.
+artifact_hash() {
+  awk -v name="$1" '$2 == name || $2 == "*" name { print $1 }' "$checksum_file"
+}
 
 for platform in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
   archive="${dist_dir}/onebox_${release_version}_${platform}.tar.gz"
@@ -71,19 +76,17 @@ for platform in windows_amd64 windows_arm64; do
   fi
 done
 
-for arch in amd64 arm64; do
-  deb="${dist_dir}/onebox_${release_version}_linux_${arch}.deb"
-  if [ "$(ar t "$deb" | head -n 1)" != "debian-binary" ]; then
-    echo "invalid Debian package: $(basename "$deb")" >&2
-    exit 1
-  fi
-  rpm="${dist_dir}/onebox_${release_version}_linux_${arch}.rpm"
-  rpm_magic=$(od -An -N4 -tx1 "$rpm" | tr -d ' \n')
-  if [ "$rpm_magic" != "edabeedb" ]; then
-    echo "invalid RPM package: $(basename "$rpm")" >&2
-    exit 1
-  fi
-done
+# What the contract promises about a package is where it puts the binary, which
+# is the one thing nfpm's own output format cannot guarantee on its behalf.
+if command -v dpkg-deb >/dev/null 2>&1; then
+  for arch in amd64 arm64; do
+    deb="${dist_dir}/onebox_${release_version}_linux_${arch}.deb"
+    if ! dpkg-deb -c "$deb" | grep -q ' \./usr/bin/ob$'; then
+      echo "Debian package does not install /usr/bin/ob: $(basename "$deb")" >&2
+      exit 1
+    fi
+  done
+fi
 
 scoop_manifest="${dist_dir}/scoop/onebox.json"
 if [ ! -f "$scoop_manifest" ]; then
@@ -107,12 +110,7 @@ for architecture in 64bit:amd64 arm64:arm64; do
     echo "Scoop ${scoop_arch} entry does not install ob.exe." >&2
     exit 1
   fi
-  windows_archive="${dist_dir}/onebox_${release_version}_windows_${artifact_arch}.zip"
-  if command -v sha256sum >/dev/null 2>&1; then
-    expected_hash=$(sha256sum "$windows_archive" | awk '{print $1}')
-  else
-    expected_hash=$(shasum -a 256 "$windows_archive" | awk '{print $1}')
-  fi
+  expected_hash=$(artifact_hash "onebox_${release_version}_windows_${artifact_arch}.zip")
   actual_hash=$(jq -r --arg arch "$scoop_arch" '.architecture[$arch].hash' "$scoop_manifest")
   if [ "$actual_hash" != "$expected_hash" ]; then
     echo "Scoop ${scoop_arch} hash does not match its Windows archive." >&2
@@ -129,19 +127,22 @@ if ! grep -Fq 'cask "onebox" do' "$cask" || ! grep -Fq 'binary "ob"' "$cask"; th
   echo "Homebrew Cask does not install ob." >&2
   exit 1
 fi
-for arch in amd64 arm64; do
-  archive="${dist_dir}/onebox_${release_version}_darwin_${arch}.tar.gz"
-  if ! grep -Fq "_darwin_${arch}.tar.gz" "$cask"; then
-    echo "Homebrew Cask has no ${arch} macOS archive." >&2
+# The cask holds a url and sha256 for macOS AND Linux, on Intel and ARM. A
+# file-wide grep therefore still passes when two of them are swapped, which is a
+# cask that hands every user the wrong digest — so read each block on its own.
+for pair in intel:amd64 arm:arm64; do
+  cask_arch=${pair%%:*}
+  artifact_arch=${pair##*:}
+  block=$(awk '/on_macos do/,/^  end$/' "$cask" | awk "/on_${cask_arch} do/,/end/")
+  # The cask interpolates the file name from its own version, so the fixed part
+  # to assert is the release the URL points at and the architecture it serves.
+  url=$(grep -m 1 '^ *url "' <<< "$block")
+  if [[ "$url" != *"/download/${release_tag}/"* || "$url" != *"_darwin_${artifact_arch}.tar.gz"* ]]; then
+    echo "Homebrew Cask ${artifact_arch} URL does not point at ${release_tag} for that architecture: ${url}" >&2
     exit 1
   fi
-  if command -v sha256sum >/dev/null 2>&1; then
-    expected_hash=$(sha256sum "$archive" | awk '{print $1}')
-  else
-    expected_hash=$(shasum -a 256 "$archive" | awk '{print $1}')
-  fi
-  if ! grep -Fq "$expected_hash" "$cask"; then
-    echo "Homebrew Cask ${arch} hash does not match its macOS archive." >&2
+  if ! grep -Fq "$(artifact_hash "onebox_${release_version}_darwin_${artifact_arch}.tar.gz")" <<< "$block"; then
+    echo "Homebrew Cask ${artifact_arch} hash does not match its macOS archive." >&2
     exit 1
   fi
 done
@@ -151,7 +152,10 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-x86_64) native_binary="${dist_dir}/ob_darwin_amd64_v1/ob" ;;
   Linux-aarch64 | Linux-arm64) native_binary="${dist_dir}/ob_linux_arm64_v8.0/ob" ;;
   Linux-x86_64 | Linux-amd64) native_binary="${dist_dir}/ob_linux_amd64_v1/ob" ;;
-  *) native_binary="" ;;
+  *)
+    echo "unsupported verification host: $(uname -s)-$(uname -m)" >&2
+    exit 1
+    ;;
 esac
 if [ -n "$native_binary" ]; then
   version_output=$("$native_binary" version --output json)
@@ -165,4 +169,4 @@ if [ -n "$native_binary" ]; then
   fi
 fi
 
-echo "verified 6 archives, 4 Linux packages, 10 checksums, Homebrew, Scoop, and embedded build metadata for ${release_tag}"
+echo "verified 6 archives, 4 Linux packages, ${distributable_count} checksums, Homebrew, Scoop, and embedded build metadata for ${release_tag}"

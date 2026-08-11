@@ -7,8 +7,10 @@ on:
 
 permissions: {}
 
+# Releases serialize globally, not per tag: two tags pushed together each start a
+# run, and both publish to the same Homebrew and Scoop repositories.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -29,15 +31,17 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          persist-credentials: false
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      # Tags as well as main: lineage validation needs main, and the changelog
+      # needs the preceding tag. checkout fetches only the tag being released,
+      # so without this every release would log the whole history.
       - name: Fetch release lineage
-        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+        run: git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
 
       - name: Validate tag and main lineage
         run: scripts/validate-release-tag.sh "${GITHUB_REF_NAME}" origin/main
@@ -87,3 +91,8 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+
+      # The published artifacts, not a snapshot of them. Until this ran here,
+      # nothing checked what a user actually downloads.
+      - name: Verify published artifacts
+        run: scripts/verify-release-dist.sh dist

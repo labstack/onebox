@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -60,24 +59,36 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 }
 
 func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReportOut string) error {
+	preexisting := artifactExists(outPath)
 	plan, err := operationsService(cmd, g).PlanJob(cmd.Context(), onebox.PlanJobRequest{Job: jobID})
 	if err != nil {
 		return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "job planning failed; inspect stderr for local diagnostics", err)
 	}
-	var reportTemplate *onebox.BackupReport
-	if backupReportOut != "" {
-		template, templateErr := onebox.NewBackupReportTemplate(&plan)
-		if templateErr != nil {
-			return writeStructuredCommandFailure(cmd, g, "backup_report_not_required", "backup report template could not be created", templateErr)
-		}
-		reportTemplate = &template
-	}
+	// Plan first, template second: see the same ordering in runPlan. A job that
+	// declares no migration effect must not lose its plan because the caller
+	// asked for a report template it turns out not to need.
 	if err := plan.Save(outPath); err != nil {
 		return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "job planning failed; inspect stderr for local diagnostics", err)
 	}
+	var reportTemplate *onebox.BackupReport
+	backupReportRequired := false
+	if backupReportOut != "" {
+		template, templateErr := onebox.NewBackupReportTemplate(&plan)
+		switch {
+		case templateErr == nil:
+			reportTemplate = &template
+			backupReportRequired = true
+		case errors.Is(templateErr, onebox.ErrBackupReportNotRequired):
+		default:
+			if cleanupErr := removeArtifactWeCreated(outPath, preexisting); cleanupErr != nil {
+				templateErr = errors.Join(templateErr, fmt.Errorf("remove incomplete job plan artifact set: %w", cleanupErr))
+			}
+			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", templateErr)
+		}
+	}
 	if reportTemplate != nil {
 		if err := reportTemplate.SaveTemplate(backupReportOut); err != nil {
-			if cleanupErr := os.Remove(outPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			if cleanupErr := removeArtifactWeCreated(outPath, preexisting); cleanupErr != nil {
 				err = errors.Join(err, fmt.Errorf("remove incomplete job plan artifact set: %w", cleanupErr))
 			}
 			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", err)
@@ -85,6 +96,9 @@ func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReport
 	}
 	if isStructuredOutput(g) {
 		data := map[string]any{"plan": plan, "artifact_path": outPath}
+		if backupReportOut != "" {
+			data["backup_report_required"] = backupReportRequired
+		}
 		if reportTemplate != nil {
 			data["backup_report"] = reportTemplate
 			data["backup_report_path"] = backupReportOut
@@ -93,8 +107,11 @@ func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReport
 	}
 	renderJobPlan(cmd, &plan)
 	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s", outPath)
-	if reportTemplate != nil {
+	switch {
+	case reportTemplate != nil:
 		fmt.Fprintf(cmd.OutOrStdout(), "; backup report template written to %s", backupReportOut)
+	case backupReportOut != "":
+		fmt.Fprint(cmd.OutOrStdout(), "; no migration backup report is required for this job")
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
@@ -132,7 +149,7 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 		return writeEarlyOperationFailure(cmd, g, errors.New("--override-migration-backup requires --approval"))
 	}
 	if isStructuredOutput(g) && planPath == "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("structured job run requires --plan; run `ob job plan %s --output %s` first", jobID, g.Output))
+		return writeEarlyOperationFailure(cmd, g, codedError("plan_required", "structured job run requires --plan; run `ob job plan %s --output %s` first", jobID, g.Output))
 	}
 
 	if planPath != "" {

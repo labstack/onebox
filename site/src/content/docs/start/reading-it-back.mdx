@@ -24,7 +24,7 @@ Four commands contact nothing and change nothing. Run them before you ever run
 It prints every effective value with its origin annotated:
 
 - `# default` — Onebox chose it
-- `# shorthand` — you wrote the scalar form
+- `# shorthand` — you wrote it at the top level and it became a workload field
 - `# override` — an environment override supplied it
 
 That distinction is the point. The difference between a value someone chose and
@@ -57,10 +57,11 @@ them, but the behaviour behind them is not yet executable — see
 
 ## Reading the whole command surface
 
-An operator can afford to find out by trying. An agent cannot. So every command
-states up front whether it contacts the server, whether it changes anything, and
-whether it supports machine output — see the [CLI reference](/reference/cli).
+An operator can afford to find out by trying. An agent cannot. Every command's
+help states whether it contacts the server and whether it changes anything, and
+the [structured output contracts](/reference/policies#structured-output-contracts)
+classify every command that accepts `--output`, with the modes each one takes.
 
-The one row without a definite answer is `ob exec`, and that is the point: it
-runs outside the journal and the safety regime, and nothing it changes belongs
-to any release.
+The odd row there is `ob exec`, the only command that refuses JSON, and that is
+the point: it runs outside the journal and the safety regime, and nothing it
+changes belongs to any release.

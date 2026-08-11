@@ -27,7 +27,7 @@ func addSchemaCommand(root *cobra.Command, g *globalFlags) {
 			"Reference it from the first line of a project so an editor can offer\n" +
 			"completion, hover documentation and inline errors:\n\n" +
 			"  # yaml-language-server: $schema=" + app.SchemaID + "\n\n" +
-			"Or keep a copy in the repository with --to, which is what an editor\n" +
+			"Or keep a copy in the repository with --out, which is what an editor\n" +
 			"needs when the machine is offline.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

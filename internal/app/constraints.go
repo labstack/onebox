@@ -98,8 +98,8 @@ var (
 	gRegistryUser = grammar{"registry username", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@+-]*$`),
 		"a username of letters, digits and . _ @ + -"}
 
-	gCalVer = grammar{"version", regexp.MustCompile(`^v[0-9]{4}\.(0[1-9]|1[0-2])\.[1-9][0-9]*$`),
-		"a CalVer release such as v2026.08.1"}
+	gCalVer = grammar{"version", regexp.MustCompile(`^v[1-9][0-9]\.([1-9]|1[0-2])\.[1-9][0-9]*$`),
+		"a CalVer release such as v26.8.1"}
 
 	gHTTPURL = grammar{"url", regexp.MustCompile(`^https?://`),
 		"an http or https URL"}

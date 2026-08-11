@@ -1,6 +1,7 @@
 /ob
 /ob-docgen
 /bin/
+/dist/
 .serena/
 .codegraph/
 

@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
   # Every pull request, whatever it targets. Restricting this to `main` meant a
@@ -25,6 +26,7 @@ jobs:
       # Nothing here pushes, so the job token does not need to survive checkout.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -63,6 +65,23 @@ jobs:
       - name: Verify repository
         run: just ci
 
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.0.0
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: check
+
+      - name: Build release snapshot
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.0.0
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --snapshot --clean
+
+      - name: Inspect release snapshot
+        run: scripts/verify-release-dist.sh dist
+
       # A green run should leave the tree exactly as it was found. The generated
       # reference pages are committed, so a regeneration nobody committed means
       # the tree disagrees with the binary that just built it.
@@ -78,6 +97,36 @@ jobs:
             git --no-pager diff >&2
             exit 1
           fi
+
+  native-smoke:
+    name: Native CLI smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build native CLI
+        run: go build -o ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/ob
+
+      - name: Exercise safe CLI surfaces
+        run: |
+          ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} version
+          ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} --help
+          ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} schema --out "${{ runner.temp }}/onebox.run-v1.schema.json"
 
   e2e:
     name: End-to-end (Docker)

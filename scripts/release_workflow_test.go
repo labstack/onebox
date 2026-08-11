@@ -2,6 +2,7 @@ package scripts_test
 
 import (
 	_ "embed"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +27,7 @@ func TestReleaseSequence(t *testing.T) {
 
 	t.Run("first release in UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
-		month := utcMonth()
+		month := utcPeriod()
 		tag := "v" + month + ".1"
 
 		output, err := runRelease(t, repo, normalJustShim, nil)
@@ -39,7 +40,7 @@ func TestReleaseSequence(t *testing.T) {
 
 	t.Run("sequence compares integers across nine to ten", func(t *testing.T) {
 		repo := newTestRepository(t)
-		month := utcMonth()
+		month := utcPeriod()
 		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9", "v" + month + ".08", "v" + month + ".09", "v" + month + ".010", "v" + month + ".invalid"} {
 			runGit(t, repo.work, "tag", tag, repo.head)
 		}
@@ -57,8 +58,8 @@ func TestReleaseSequence(t *testing.T) {
 	t.Run("sequence resets in a new UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
 		now := time.Now().UTC()
-		month := now.Format("2006.01")
-		previousMonth := now.AddDate(0, -1, 0).Format("2006.01")
+		month := releasePeriod(now)
+		previousMonth := releasePeriod(now.AddDate(0, -1, 0))
 		runGit(t, repo.work, "tag", "v"+previousMonth+".41", repo.head)
 		runGit(t, repo.work, "push", "origin", "--tags")
 
@@ -72,10 +73,30 @@ func TestReleaseSequence(t *testing.T) {
 	})
 }
 
+func TestReleaseRejectsUnsupportedCalendarYear(t *testing.T) {
+	requireReleaseTools(t)
+	for _, calendar := range []string{"2009:12", "2100:01"} {
+		t.Run(calendar, func(t *testing.T) {
+			repo := newTestRepository(t)
+			output, err := runReleaseAt(t, repo, normalJustShim, nil, calendar)
+			if err == nil {
+				t.Fatalf("release unexpectedly accepted %s:\n%s", calendar, output)
+			}
+			if !strings.Contains(output, "release year must be between 2010 and 2099") {
+				t.Fatalf("release did not explain the supported year range:\n%s", output)
+			}
+			if tags := gitOutput(t, repo.work, "tag", "--list", "v*"); tags != "" {
+				t.Fatalf("release created tags after refusing the year: %s", tags)
+			}
+			assertRemoteMain(t, repo, repo.head)
+		})
+	}
+}
+
 func TestReleaseRejectsMainAdvanceDuringChecks(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
+	month := utcPeriod()
 	shim := `#!/bin/sh
 set -eu
 if [ "${1:-}" = "docs-check" ]; then
@@ -99,7 +120,7 @@ fi
 func TestReleaseRejectsMainAdvanceBeforeAtomicPublication(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
+	month := utcPeriod()
 	tag := "v" + month + ".1"
 	hook := `#!/bin/sh
 set -eu
@@ -125,7 +146,7 @@ git -C "$RACER_REPO" push origin main
 func TestNoOpBranchRefMissesMainAdvanceAfterAdvertisement(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
+	month := utcPeriod()
 	tag := "v" + month + ".1"
 	hook := `#!/bin/sh
 set -eu
@@ -157,7 +178,7 @@ git -C "$RACER_REPO" push origin main
 func TestReleaseLosesCompetingTagRaceWithoutReplacingWinner(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
+	month := utcPeriod()
 	tag := "v" + month + ".1"
 	hook := `#!/bin/sh
 set -eu
@@ -179,7 +200,7 @@ git -C "$RACER_REPO" push origin "refs/tags/$RELEASE_TEST_TAG:refs/tags/$RELEASE
 func TestReleaseFailsClosedWhenBranchPolicyRejectsMainUpdate(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
+	month := utcPeriod()
 	tag := "v" + month + ".1"
 	hook := `#!/bin/sh
 set -eu
@@ -253,11 +274,20 @@ func configureGitIdentity(t *testing.T, dir string) {
 
 func runRelease(t *testing.T, repo testRepository, justShim string, prePushHook *string, extraEnv ...string) (string, error) {
 	t.Helper()
+	return runReleaseAt(t, repo, justShim, prePushHook, "", extraEnv...)
+}
+
+func runReleaseAt(t *testing.T, repo testRepository, justShim string, prePushHook *string, calendar string, extraEnv ...string) (string, error) {
+	t.Helper()
 	binDir := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	writeExecutable(t, filepath.Join(binDir, "just"), justShim)
+	if calendar != "" {
+		writeExecutable(t, filepath.Join(binDir, "date"), "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$RELEASE_TEST_CALENDAR\"\n")
+		extraEnv = append(extraEnv, "RELEASE_TEST_CALENDAR="+calendar)
+	}
 	if prePushHook != nil {
 		writeExecutable(t, filepath.Join(repo.work, ".git", "hooks", "pre-push"), *prePushHook)
 	}
@@ -378,13 +408,17 @@ func remoteRef(t *testing.T, repo testRepository, ref string) string {
 	return fields[0]
 }
 
-func utcMonth() string {
-	return time.Now().UTC().Format("2006.01")
+func utcPeriod() string {
+	return releasePeriod(time.Now().UTC())
+}
+
+func releasePeriod(value time.Time) string {
+	return fmt.Sprintf("%02d.%d", value.Year()%100, int(value.Month()))
 }
 
 func skipIfUTCMonthChanged(t *testing.T, start string) {
 	t.Helper()
-	if end := utcMonth(); end != start {
+	if end := utcPeriod(); end != start {
 		t.Skipf("UTC month changed during test from %s to %s", start, end)
 	}
 }

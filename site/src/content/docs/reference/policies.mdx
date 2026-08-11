@@ -12,8 +12,10 @@ read_when:
 
 ## Release identity
 
-Onebox releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`. The
-sequence increases for each release in a UTC calendar month.
+Onebox releases use `vYY.M.SEQUENCE`, for example `v26.8.1` for the first
+release in August 2026. Months are unpadded and the sequence increases for each
+release in a UTC calendar month. Years `10` through `99` represent 2010 through
+2099.
 
 Checkout builds use Git-derived provenance and remain **visibly distinct** from a
 release. `ob version` reports which you have.
@@ -24,7 +26,7 @@ release. `ob version` reports which you have.
 environments:
   production:
     policy:
-      minimum_onebox_version: v2026.08.1
+      minimum_onebox_version: v26.8.1
       minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
 ```
 

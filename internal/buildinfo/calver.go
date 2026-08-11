@@ -6,9 +6,9 @@ import (
 	"strconv"
 )
 
-var releaseVersionPattern = regexp.MustCompile(`^v([0-9]{4})\.(0[1-9]|1[0-2])\.([1-9][0-9]*)$`)
+var releaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9])\.([1-9]|1[0-2])\.([1-9][0-9]*)$`)
 
-// ReleaseVersion is a canonical Onebox vYEAR.MONTH.SEQUENCE release identity.
+// ReleaseVersion is a canonical Onebox vYY.M.SEQUENCE release identity.
 type ReleaseVersion struct {
 	year     uint64
 	month    uint64
@@ -20,7 +20,7 @@ type ReleaseVersion struct {
 func ParseReleaseVersion(value string) (ReleaseVersion, error) {
 	matches := releaseVersionPattern.FindStringSubmatch(value)
 	if matches == nil {
-		return ReleaseVersion{}, fmt.Errorf("%q must match vYEAR.MONTH.SEQUENCE with a zero-padded month and positive sequence", value)
+		return ReleaseVersion{}, fmt.Errorf("%q must match vYY.M.SEQUENCE with a year from 10 through 99, an unpadded month from 1 through 12, and a positive sequence", value)
 	}
 	year, err := strconv.ParseUint(matches[1], 10, 64)
 	if err != nil {
@@ -34,7 +34,7 @@ func ParseReleaseVersion(value string) (ReleaseVersion, error) {
 	if err != nil {
 		return ReleaseVersion{}, fmt.Errorf("parse release sequence: %w", err)
 	}
-	return ReleaseVersion{year: year, month: month, sequence: sequence}, nil
+	return ReleaseVersion{year: 2000 + year, month: month, sequence: sequence}, nil
 }
 
 // CompareReleaseVersions returns -1, 0, or 1 when actual is older than, equal

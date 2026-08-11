@@ -9,7 +9,7 @@ import (
 func TestReadDerivesEmbeddedBuildInfo(t *testing.T) {
 	got := read(&debug.BuildInfo{
 		GoVersion: "go-test",
-		Main:      debug.Module{Version: "v2026.07.1"},
+		Main:      debug.Module{Version: "v26.7.1"},
 		Settings: []debug.BuildSetting{
 			{Key: "vcs.revision", Value: "abc123"},
 			{Key: "vcs.modified", Value: "true"},
@@ -17,7 +17,7 @@ func TestReadDerivesEmbeddedBuildInfo(t *testing.T) {
 		},
 	}, true, "", "2026-07-13T12:35:00Z")
 
-	if got.Version != "v2026.07.1" || got.VCSRevision != "abc123" || !got.Dirty {
+	if got.Version != "v26.7.1" || got.VCSRevision != "abc123" || !got.Dirty {
 		t.Fatalf("unexpected version provenance: %+v", got)
 	}
 	if got.VCSTime != "2026-07-13T12:34:56Z" || got.BuildTime != "2026-07-13T12:35:00Z" {
@@ -29,8 +29,8 @@ func TestReadDerivesEmbeddedBuildInfo(t *testing.T) {
 }
 
 func TestReadPrefersLinkedRelease(t *testing.T) {
-	got := read(&debug.BuildInfo{Main: debug.Module{Version: "v2026.07.1"}}, true, "v2026.08.1", "")
-	if got.Version != "v2026.08.1" {
+	got := read(&debug.BuildInfo{Main: debug.Module{Version: "v26.7.1"}}, true, "v26.8.1", "")
+	if got.Version != "v26.8.1" {
 		t.Fatalf("version = %q, want linked release", got.Version)
 	}
 }

@@ -84,7 +84,11 @@ are shipped; Onebox still does not create or store the backup itself.
 
 ## Start using it
 
-Build or install the binary into `~/.local/bin`:
+Released archives and Linux packages are installed from GitHub Releases,
+macOS users can install through Homebrew, and Windows users can install through
+Scoop. Follow the verified steps in the
+[installation guide](site/src/content/docs/start/install.mdx).
+To build the binary from a checkout into `~/.local/bin`:
 
 ```sh
 just build
@@ -94,9 +98,10 @@ just build
 `PATH`; set `OB_BIN_DIR` to use another destination. Run `just --list` to see
 the available build, test, formatting, and check targets.
 
-Onebox releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`. The
-sequence increases for each release in a UTC calendar month. Checkout builds
-use Git-derived provenance and remain visibly distinct from a release.
+Onebox releases use `vYY.M.SEQUENCE`, for example `v26.8.1` for the first
+release in August 2026. Months are unpadded and the sequence increases for each
+release in a UTC calendar month. Checkout builds use Git-derived provenance and
+remain visibly distinct from a release.
 Maintainers create the next release with `just release`, which requires a
 clean, checked, up-to-date `main` branch and atomically publishes a
 metadata-only fast-forward release commit plus its tag to `origin`. The release

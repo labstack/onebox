@@ -38,6 +38,21 @@ This page is the reconciliation. Three states:
   check, a server-generated credential, and projected connection details.
 - Plan/status drift observation and plan-bound migration **backup reports
   validation**.
+- Tag-gated GitHub Releases with checksum-covered Linux, macOS and Windows
+  archives for amd64 and arm64, plus Debian and RPM packages for both Linux
+  architectures.
+- A Scoop bucket manifest for Windows amd64 and arm64, published only after the
+  same release verification gate succeeds.
+- A Homebrew Cask for macOS amd64 and arm64. Both macOS binaries are signed with
+  LabStack's Developer ID and accepted by Apple's notarization service before
+  publication.
+
+## Distribution not shipped
+
+WinGet, hosted APT and RPM repositories, non-macOS artifact signatures, SBOMs
+and provenance attestations are not configured. The first release channels are
+GitHub Releases, Homebrew and Scoop. Checksums detect corruption; macOS also has
+Developer ID publisher identity and Apple notarization.
 
 ## Schema only
 

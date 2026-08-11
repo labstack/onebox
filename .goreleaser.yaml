@@ -1,0 +1,120 @@
+version: 2
+
+project_name: onebox
+
+builds:
+  - id: ob
+    main: ./cmd/ob
+    binary: ob
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/labstack/onebox/internal/buildinfo.release={{ .Tag }}
+        -X github.com/labstack/onebox/internal/buildinfo.buildTime={{ .Date }}
+
+archives:
+  - id: ob
+    ids:
+      - ob
+    name_template: "onebox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+
+nfpms:
+  - id: ob
+    ids:
+      - ob
+    package_name: onebox
+    file_name_template: "onebox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    vendor: LabStack
+    homepage: https://onebox.run
+    maintainer: LabStack <support@labstack.com>
+    description: Production operations for an application intentionally running on one server.
+    license: Proprietary
+    bindir: /usr/bin
+    formats:
+      - deb
+      - rpm
+
+checksum:
+  name_template: "onebox_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - ob
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
+homebrew_casks:
+  - name: onebox
+    ids:
+      - ob
+    binaries:
+      - ob
+    url:
+      template: "https://github.com/labstack/onebox/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+      verified: github.com/labstack/onebox/
+    commit_msg_template: "chore: update onebox to {{ .Tag }}"
+    directory: Casks
+    homepage: https://onebox.run
+    description: Production operations for an application intentionally running on one server.
+    repository:
+      owner: labstack
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.PACKAGE_REPOS_TOKEN }}"
+    commit_author:
+      name: onebox-release
+      email: support@labstack.com
+
+scoops:
+  - name: onebox
+    ids:
+      - ob
+    url_template: "https://github.com/labstack/onebox/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_msg_template: "chore: update onebox to {{ .Tag }}"
+    homepage: https://onebox.run
+    description: Production operations for an application intentionally running on one server.
+    license: Proprietary
+    repository:
+      owner: labstack
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.PACKAGE_REPOS_TOKEN }}"
+    commit_author:
+      name: onebox-release
+      email: support@labstack.com
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

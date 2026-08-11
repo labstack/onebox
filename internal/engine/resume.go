@@ -14,8 +14,15 @@ import (
 // a genuine journal-read failure (which must not be reported as "all in sync").
 var ErrNoIncomplete = errors.New("no incomplete deploy found in the journal")
 
-// FindIncomplete returns the newest journal that started but never finished
-// or aborted — the deploy a crashed runner left behind.
+// FindIncomplete returns the newest deploy journal when it started but never
+// finished or aborted — the deploy a crashed runner left behind.
+//
+// Only the newest deploy is ever actionable. Once a later deploy reaches a
+// terminal state it has rolled every role and activated its own release, so an
+// older interrupted deploy has nothing left to complete: resuming it would
+// re-activate a superseded release, and aborting it would revert to a
+// predecessor two releases stale. Its records remain in `ob audit` as history;
+// what they are not is work waiting to be done.
 func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 	ids, byID, err := journal.Journals(ctx, e.T, e.names())
 	if err != nil {
@@ -23,9 +30,13 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 	}
 	for i := len(ids) - 1; i >= 0; i-- {
 		s := journal.Summarize(byID[ids[i]])
-		if s.Started && !s.Finished && !s.Aborted && !s.Recovered {
-			return s, nil
+		if !s.Started {
+			continue // a job or service journal, not a deploy
 		}
+		if s.Finished || s.Aborted || s.Recovered {
+			return journal.Summary{}, ErrNoIncomplete
+		}
+		return s, nil
 	}
 	return journal.Summary{}, ErrNoIncomplete
 }
@@ -33,6 +44,10 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 // Resume continues an interrupted deploy from the journal: completed phases
 // and roles skip; the half-rolled role is adopted via its ob.release label.
 // A NEW lock epoch is taken, which fences the old runner if it still lives.
+//
+// A deploy interrupted AFTER activation is resumed too, but nothing is
+// replayed: the release is already the truth, so resume completes only the
+// post-activation steps that remain (see finalizeActivated).
 func (e *Engine) Resume(ctx context.Context) error {
 	_, err := e.ResumeWithJournalID(ctx)
 	return err
@@ -53,6 +68,7 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 		s.DeployID, s.StartedAt, s.Operator, s.Done["transfer"])
 	e.gateOpen = s.GateOpen
 	e.rollbackCovered = s.RollbackCovered // preserve the interrupted deploy's effect policy
+	e.journalPredecessor = s.PrevRelease
 	e.Opts.MigrationBackupWasRequired = s.MigrationBackupRequired
 	e.Opts.MigrationBackup = s.MigrationBackup
 	e.Opts.ApprovalDigest = s.ApprovalDigest

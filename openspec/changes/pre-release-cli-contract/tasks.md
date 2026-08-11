@@ -46,3 +46,9 @@
 
 - [x] 6.1 Update README, product/security language, CLI/schema reference, guides, generated docs, and examples for local confirmation, backup reports, exact override flags, one-host ownership, secret selection, guidance roles, and audited exec.
 - [x] 6.2 Re-run focused authority/backup/force/proxy/secrets/exec tests, full Go tests, vet, lint, strict OpenSpec validation, formatting, doc generation, site checks, Docker E2E, and the throwaway Hetzner lifecycle; record passing and explicitly scoped evidence before archive.
+
+## 7. Post-activation completion
+
+- [x] 7.1 Journal retention, schedule sync, and the post-deploy hook as individually skippable finalize steps, and record a failed operation outcome on the serving manifest when one of them fails.
+- [x] 7.2 Add the evidence-gated finalize path so `ob resume` completes a deploy interrupted after activation without replaying its choreography, refusing with `finalize_refused` on any disagreement.
+- [x] 7.3 Report a retention evidence refusal instead of failing an operation whose release is already serving, and stop offering a deploy that a later terminal deploy superseded for resume or abort.

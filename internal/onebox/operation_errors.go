@@ -91,6 +91,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "the audited exec could not be completed",
 		Command: "ob status --output json",
 	},
+	"finalize_refused": {
+		Message: "the release cannot be finalized because the recorded activation evidence disagrees with the live host",
+		Command: "ob status --output json",
+	},
 	"host_owner_mismatch": {
 		Message: "this host is owned by a different Onebox application, and one host has one owner",
 		Command: "ob preflight --output json",

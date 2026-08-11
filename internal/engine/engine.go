@@ -103,6 +103,11 @@ type Engine struct {
 	gateOpen        bool
 	rollbackCovered bool // aggregate explicit/policy coverage for every effect attempt
 	jobResults      map[string]journal.JobResultEvidence
+	// journalPredecessor is the release the interrupted operation recorded as
+	// its predecessor. Finalize compares it with the serving manifest, which by
+	// then has replaced the current pointer — so the live host can no longer
+	// say which release this operation actually superseded.
+	journalPredecessor string
 }
 
 func New(a *app.Resolved, c *ctypes.Project, t transport.Transport, o Options) *Engine {

@@ -220,6 +220,15 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("release manifest: %w", manifestErr)
 	}
 
+	// A serving manifest means activation already completed durably, so this
+	// operation is past the seam: nothing before activation may run again, and
+	// only the post-activation steps remain. A fresh deploy always stages its
+	// own manifest, so this is reachable from resume alone — and finalize
+	// refuses anyway unless the journal proves this operation activated it.
+	if manifest.State == release.StateServing {
+		return e.finalizeActivated(ctx, jw, &manifest, done, remoteDir, remoteCompose)
+	}
+
 	// Before any job runs: a job can need a database as readily as an
 	// application can, and both read a file that only exists once it is
 	// written.
@@ -326,22 +335,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	}
 	fin(nil)
 	e.progress("activation", "succeeded", "")
-	e.progress("cleanup", "started", "")
-	if err := e.pruneRetention(ctx); err != nil {
-		e.progress("cleanup", "failed", "retention cleanup failed after activation; inspect journal evidence")
-		return fmt.Errorf("prune: %w", err)
-	}
-	e.progress("cleanup", "succeeded", "")
-	// After activation, because a timer invokes the job through `current` and
-	// that pointer has only just moved. Before the post-deploy hook, so a hook
-	// that inspects the schedule sees the one this release declares.
-	if err := e.SyncSchedules(ctx); err != nil {
-		return fmt.Errorf("schedules: %w", err)
-	}
-	if err := e.RunHook(ctx, "post_deploy", remoteDir, remoteCompose); err != nil {
-		return fmt.Errorf("post-deploy: %w", err)
-	}
-	return nil
+	return e.runPostActivation(ctx, jw, &manifest, done, remoteDir, remoteCompose)
 }
 
 // runRollbackEffectHook journals untyped lifecycle hooks as rollback-unknown
@@ -387,11 +381,13 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 }
 
 // pruneRetention removes releases beyond retain and journals beyond twice
-// that window because a journal outlives its release.
-func (e *Engine) pruneRetention(ctx context.Context) error {
+// that window because a journal outlives its release. It returns what the run
+// declined to do, so the journal records a deliberate skip rather than an
+// unqualified success.
+func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 	journalIDs, err := journal.List(ctx, e.T, e.names())
 	if err != nil {
-		return err
+		return "", err
 	}
 	policy := release.DefaultRetentionPolicy(e.Spec.Deployment.RetainReleases, e.Opts.Now())
 	policy.EvidenceIDs = make(map[string]bool, len(journalIDs))
@@ -399,30 +395,41 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 		policy.EvidenceIDs[id] = true
 	}
 	decision, err := release.RetentionCandidates(ctx, e.T, e.names(), policy)
-	if err != nil {
-		return err
-	}
-	if len(decision.Reported) > 0 {
-		e.warnf("%d release-store entr(ies) were preserved for inspection: %v", len(decision.Reported), decision.Reported)
-	}
-	for _, id := range decision.Victims {
-		if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
-			return err
+	skipped := ""
+	var evidence *release.RetentionEvidenceError
+	switch {
+	case errors.As(err, &evidence):
+		// Refusing to delete on incomplete evidence is the contract. Failing the
+		// operation over it is not: the release is healthy and serving, and a
+		// deploy that cannot reach a terminal state is a worse outcome than a
+		// release store that keeps one directory too many. Say so and continue.
+		skipped = "release-store cleanup skipped — " + evidence.Error()
+		e.warnf("%s", skipped)
+	case err != nil:
+		return "", err
+	default:
+		if len(decision.Reported) > 0 {
+			e.warnf("%d release-store entr(ies) were preserved for inspection: %v", len(decision.Reported), decision.Reported)
 		}
-	}
-	if len(decision.Victims) > 0 {
-		e.logf("pruned %d expired release-store entries", len(decision.Victims))
+		for _, id := range decision.Victims {
+			if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
+				return "", err
+			}
+		}
+		if len(decision.Victims) > 0 {
+			e.logf("pruned %d expired release-store entries", len(decision.Victims))
+		}
 	}
 	jvictims, err := journal.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases*2)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, id := range jvictims {
 		if err := e.mutateChecked(ctx, "prune journal "+id, "rm -f "+q(release.PathsFor(e.names()).Base+"/journal/"+id+".jsonl")); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return skipped, nil
 }
 
 // Rollback re-releases the previous release dir: its compose.yaml pins the

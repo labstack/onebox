@@ -37,6 +37,21 @@ type RetentionDecision struct {
 	Reported []string
 }
 
+// RetentionEvidenceError reports that the protected set could not be
+// established from durable evidence, so no deletion candidate was selected.
+//
+// It is typed because refusing to delete and failing the operation in flight
+// are different decisions, and only the caller can make the second one. Nothing
+// is lost by cleaning up later; a healthy activated release stranded without a
+// terminal state because cleanup declined to act is a real loss.
+type RetentionEvidenceError struct{ Err error }
+
+func (err *RetentionEvidenceError) Error() string {
+	return "retention refused: " + err.Err.Error()
+}
+
+func (err *RetentionEvidenceError) Unwrap() error { return err.Err }
+
 func DefaultRetentionPolicy(retain int, now time.Time) RetentionPolicy {
 	if retain < 1 {
 		retain = 1
@@ -72,7 +87,7 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	if current != "" {
 		protected[current] = true
 		if err := protectPredecessorChain(ctx, target, names, current, policy.RetainApplications, protected); err != nil {
-			return RetentionDecision{}, fmt.Errorf("retention refused: predecessor chain evidence is unusable: %w", err)
+			return RetentionDecision{}, &RetentionEvidenceError{Err: fmt.Errorf("predecessor chain evidence is unusable: %w", err)}
 		}
 	}
 	checkpoint, checkpointErr := ReadActivationCheckpoint(ctx, target, names)
@@ -82,13 +97,13 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 			protected[checkpoint.Predecessor] = true
 		}
 	} else if !errors.Is(checkpointErr, ErrActivationCheckpointMissing) {
-		return RetentionDecision{}, fmt.Errorf("retention refused: activation checkpoint evidence is unusable: %w", checkpointErr)
+		return RetentionDecision{}, &RetentionEvidenceError{Err: fmt.Errorf("activation checkpoint evidence is unusable: %w", checkpointErr)}
 	}
 	secretCheckpoint, secretCheckpointErr := ReadSecretCheckpoint(ctx, target, names)
 	if secretCheckpointErr == nil {
 		protected[secretCheckpoint.ReleaseID] = true
 	} else if !errors.Is(secretCheckpointErr, ErrSecretCheckpointMissing) {
-		return RetentionDecision{}, fmt.Errorf("retention refused: secret checkpoint evidence is unusable: %w", secretCheckpointErr)
+		return RetentionDecision{}, &RetentionEvidenceError{Err: fmt.Errorf("secret checkpoint evidence is unusable: %w", secretCheckpointErr)}
 	}
 
 	for _, id := range ids {

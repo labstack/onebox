@@ -76,6 +76,25 @@ ob resume --output ndjson
 ob abort  --output ndjson
 ```
 
+Activation splits the two halves of a deploy. Interrupted before it, the release
+never took effect and `ob resume` replays the phases that remain. Interrupted
+after it — retention, schedule sync or the `post_deploy` hook failed while the
+new release was already current and healthy — there is nothing to replay:
+`ob resume` completes only those remaining steps, skipping any the journal
+already records as done, and the release keeps serving throughout. The manifest
+carries a failed operation outcome in the meantime, so a healthy release and an
+unfinished operation stay distinguishable.
+
+`ob resume` finalizes only when the recorded activation, the current release,
+the serving manifest and its recorded predecessor, and the live workload labels
+all agree. One disagreement returns `finalize_refused` and changes nothing.
+
+Only the newest deploy is recoverable. Once a later deploy reaches a terminal
+state it has replaced every workload and activated its own release, so the older
+interrupted one is history rather than pending work — resuming it would
+re-activate a superseded release. `ob status` stops reporting it; `ob audit`
+still shows it as incomplete.
+
 ## When recovery refuses
 
 Two refusals have an override, and each grants exactly one thing.

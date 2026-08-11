@@ -60,6 +60,28 @@ func TestValidateReleaseTagRejectsCommitOffMain(t *testing.T) {
 	}
 }
 
+// Homebrew and Scoop hold one version each. Queueing orders the runs that arrive
+// together; nothing orders a re-run of an older tag, and publishing that would
+// leave both package managers pointing at a release the project has moved past.
+func TestValidateReleaseTagRejectsATagOlderThanTheNewestRelease(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	runGit(t, repo.work, "tag", "v2026.8.0", repo.head)
+	runGit(t, repo.work, "tag", "v2026.9.0", repo.head)
+
+	output, err := runTagValidator(t, repo.work, "v2026.8.0", "origin/main")
+	if err == nil {
+		t.Fatalf("validator accepted a superseded tag:\n%s", output)
+	}
+	if !strings.Contains(output, "is older than the published v2026.9.0") {
+		t.Fatalf("validator did not name the newer release:\n%s", output)
+	}
+
+	if output, err := runTagValidator(t, repo.work, "v2026.9.0", "origin/main"); err != nil {
+		t.Fatalf("validator rejected the newest release: %v\n%s", err, output)
+	}
+}
+
 func runTagValidator(t *testing.T, dir, tag, mainRef string) (string, error) {
 	t.Helper()
 	script := filepath.Join(t.TempDir(), "validate-release-tag.sh")
@@ -89,6 +111,10 @@ func TestTagValidatorAndParserAgreeOnTheGrammar(t *testing.T) {
 		{tag: "v2026.10.0", valid: true},
 		{tag: "v2026.12.99", valid: true},
 		{tag: "v2026.8.10", valid: true},
+		{tag: "v2026.8.9999999999999999999", valid: true},
+		// One digit wider than any uint64: the shell grammar alone would have
+		// published a tag the runner cannot parse into its own provenance.
+		{tag: "v2026.8.18446744073709551616"},
 		{tag: "v2026.0.0"},
 		{tag: "v2026.13.0"},
 		{tag: "v2026.08.0"},
@@ -100,6 +126,12 @@ func TestTagValidatorAndParserAgreeOnTheGrammar(t *testing.T) {
 		{tag: "2026.8.0"},
 	} {
 		t.Run(candidate.tag, func(t *testing.T) {
+			// One tag at a time: the newest-release guard would otherwise reject
+			// a well-formed candidate merely because a previous case left a
+			// higher tag behind, and that is a different refusal than grammar.
+			for _, existing := range strings.Fields(gitOutput(t, repo.work, "tag", "--list", "v*")) {
+				runGit(t, repo.work, "tag", "-d", existing)
+			}
 			runGit(t, repo.work, "tag", "--force", candidate.tag, repo.head)
 			_, shellErr := runTagValidator(t, repo.work, candidate.tag, "origin/main")
 			_, parseErr := buildinfo.ParseReleaseVersion(candidate.tag)

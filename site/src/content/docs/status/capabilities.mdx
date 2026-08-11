@@ -39,11 +39,12 @@ This page is the reconciliation. Three states:
 - Plan/status drift observation and plan-bound migration **backup reports
   validation**.
 
-## Distribution, pending the first tag
+## Distribution, published by tag
 
-Configured and verified in CI on every pull request, and published by the first
-`vYYYY.M.REVISION` tag. No release exists yet, so the install commands in the
-documentation begin working at that tag and not before.
+Configured and verified in CI on every pull request, and published by pushing a
+`vYYYY.M.REVISION` tag. What is installable at any moment is what
+[the releases page](https://github.com/labstack/onebox/releases) lists; the
+install commands work from the first published tag onward.
 
 - Tag-gated GitHub Releases with checksum-covered Linux, macOS and Windows
   archives for amd64 and arm64, plus Debian and RPM packages for both Linux

@@ -6,7 +6,7 @@ func TestParseReleaseVersion(t *testing.T) {
 	valid := []string{
 		"v2010.1.0",
 		"v2026.8.42",
-		"v9999.12.18446744073709551615",
+		"v9999.12.9999999999999999999",
 	}
 	for _, value := range valid {
 		if _, err := ParseReleaseVersion(value); err != nil {

@@ -8,9 +8,12 @@ on:
 permissions: {}
 
 # Releases serialize globally, not per tag: two tags pushed together each start a
-# run, and both publish to the same Homebrew and Scoop repositories.
+# run, and both publish to the same Homebrew and Scoop repositories. queue: max
+# because the default, single, cancels whichever release is already waiting when
+# the next one arrives — serializing by dropping a release is not serializing.
 concurrency:
   group: release
+  queue: max
   cancel-in-progress: false
 
 jobs:

@@ -40,11 +40,19 @@ if [ "${actual_artifacts[*]}" != "${expected_artifacts[*]}" ]; then
 fi
 
 checksum_file="${dist_dir}/onebox_${release_version}_checksums.txt"
-distributable_count=$(( ${#expected_artifacts[@]} - 1 ))
-if [ "$(wc -l < "$checksum_file" | tr -d ' ')" -ne "$distributable_count" ]; then
-  echo "checksum manifest must cover exactly ${distributable_count} distributable artifacts." >&2
+# By name, not by count: sha256sum --check passes on a manifest that lists one
+# artifact twice and omits another, and so would any line count.
+distributable_artifacts=()
+for artifact in "${expected_artifacts[@]}"; do
+  [ "$artifact" = "onebox_${release_version}_checksums.txt" ] || distributable_artifacts+=("$artifact")
+done
+checksummed_artifacts=$(sed 's/^[0-9a-f]* [ *]*//' "$checksum_file" | LC_ALL=C sort)
+if [ "$checksummed_artifacts" != "$(printf '%s\n' "${distributable_artifacts[@]}" | LC_ALL=C sort)" ]; then
+  echo "checksum manifest does not cover exactly the distributable artifacts." >&2
+  diff -u <(printf '%s\n' "${distributable_artifacts[@]}" | LC_ALL=C sort) <(printf '%s\n' "$checksummed_artifacts") >&2 || true
   exit 1
 fi
+distributable_count=${#distributable_artifacts[@]}
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$dist_dir" && sha256sum --check "$(basename "$checksum_file")")
 else

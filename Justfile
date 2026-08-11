@@ -9,7 +9,7 @@ build:
     set -euo pipefail
     ob_build_dir="${OB_BIN_DIR:-${HOME}/.local/bin}"
     ob_build_version="${OB_VERSION:-}"
-    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$ ]]; then
+    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
       echo "OB_VERSION must match vYYYY.M.REVISION" >&2; exit 1
     fi
     if [ -z "$ob_build_version" ]; then

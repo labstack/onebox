@@ -4,7 +4,10 @@ set -euo pipefail
 release_tag=${1:-${GITHUB_REF_NAME:-}}
 main_ref=${2:-origin/main}
 
-if [[ ! "$release_tag" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$ ]]; then
+# The revision is capped at nineteen digits because that is the widest value the
+# runner's own parser can hold: every 19-digit number fits in a uint64, and a tag
+# it cannot parse is a release with no usable provenance.
+if [[ ! "$release_tag" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
   echo "release tag must match vYYYY.M.REVISION." >&2
   exit 1
 fi
@@ -25,6 +28,15 @@ if [ "$head_commit" != "$release_commit" ]; then
 fi
 if ! git merge-base --is-ancestor "$release_commit" "$main_commit"; then
   echo "release tag ${release_tag} is not reachable from ${main_ref}." >&2
+  exit 1
+fi
+
+# Homebrew and Scoop hold one version each, so publishing an older tag after a
+# newer one silently downgrades both. Queueing orders concurrent runs; nothing
+# orders a re-run of last month's tag, which is what this refuses.
+newest_tag=$(git tag --list 'v*' --merged "$main_commit" --sort=-v:refname | head -n 1)
+if [ -n "$newest_tag" ] && [ "$newest_tag" != "$release_tag" ]; then
+  echo "release tag ${release_tag} is older than the published ${newest_tag}; publishing it would downgrade Homebrew and Scoop." >&2
   exit 1
 fi
 

@@ -47,11 +47,11 @@ Both commands take `--output json`.
 
 ## Install from a GitHub Release
 
-:::note[No release is published yet]
-The pipeline below is configured and verified in CI, and the first
-`vYYYY.M.REVISION` tag publishes it. Until that tag exists, these downloads —
-and the Homebrew and Scoop commands, which fetch the same assets — return 404.
-Build from source in the meantime.
+:::note[Releases begin at the first tag]
+Every download below, including the assets Homebrew and Scoop fetch, comes from
+a published `vYYYY.M.REVISION` release. If
+[the releases page](https://github.com/labstack/onebox/releases) is empty, or
+lists nothing for your platform, build from source instead.
 :::
 
 Set `version` to the release without its leading `v`. The asset name uses that

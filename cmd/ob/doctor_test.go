@@ -37,7 +37,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 			"production": {
 				Policy: app.Policy{
 					RequireApproval:      true,
-					MinimumOneboxVersion: "v2026.07.1",
+					MinimumOneboxVersion: "v2026.7.1",
 					MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 				},
 			},
@@ -48,7 +48,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 	}
 	runner := buildinfo.Runner{
 		Info: buildinfo.Info{
-			Version: "v2026.07.2", VCSRevision: "new-revision", Dirty: false,
+			Version: "v2026.7.2", VCSRevision: "new-revision", Dirty: false,
 			VCSTime: "2026-07-13T12:00:00Z", BuildTime: "2026-07-13T12:01:00Z", GoVersion: "go-test",
 		},
 		SupportedExecutablePlanSchemas: onebox.SupportedExecutableDeployPlanSchemas(),
@@ -68,7 +68,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 		inspectBinary: func(path string) (buildinfo.Info, error) {
 			if canonicalPath(path) == canonicalPath(oldBinary) {
 				return buildinfo.Info{
-					Version: "v2026.07.1", VCSRevision: "old-revision",
+					Version: "v2026.7.1", VCSRevision: "old-revision",
 					VCSTime: "2026-07-01T12:00:00Z", GoVersion: "go-test",
 				}, nil
 			}
@@ -197,7 +197,7 @@ func TestDoctorReportsIncompatibleProjectPolicy(t *testing.T) {
 		return &app.Spec{
 			APIVersion: "onebox.run/v1",
 			Environments: map[string]app.Environment{
-				"production": {Policy: app.Policy{MinimumOneboxVersion: "v2027.01.1"}},
+				"production": {Policy: app.Policy{MinimumOneboxVersion: "v2027.1.0"}},
 			},
 			Workloads: map[string]app.Workload{},
 		}, nil
@@ -238,10 +238,10 @@ func TestDoctorSSHAgentUnavailableAndEmpty(t *testing.T) {
 
 func TestStaleCandidateDoesNotFlagSameRevision(t *testing.T) {
 	running := buildinfo.Info{
-		Version: "v2026.07.2", VCSRevision: "same", VCSTime: "2026-07-13T12:00:00Z",
+		Version: "v2026.7.2", VCSRevision: "same", VCSTime: "2026-07-13T12:00:00Z",
 	}
 	candidate := buildinfo.Info{
-		Version: "v2026.07.1-4-gdeadbeef", VCSRevision: "same", VCSTime: "2026-07-01T00:00:00Z",
+		Version: "v2026.7.1-4-gdeadbeef", VCSRevision: "same", VCSTime: "2026-07-01T00:00:00Z",
 	}
 	if relation, reason := compareBinaryCandidate(candidate, running); relation != 0 {
 		t.Fatalf("same VCS revision reported stale: %s", reason)
@@ -263,7 +263,7 @@ func TestDoctorFlagsRunningBinarySupersededByLaterPATHCandidate(t *testing.T) {
 		return "", errors.New("not found")
 	}
 	deps.runner.Info = buildinfo.Info{
-		Version: "v2026.07.1", VCSRevision: "old-revision", VCSTime: "2026-07-01T12:00:00Z",
+		Version: "v2026.7.1", VCSRevision: "old-revision", VCSTime: "2026-07-01T12:00:00Z",
 		BuildTime: "2026-07-01T12:01:00Z", GoVersion: "go-test",
 	}
 	deps.inspectBinary = func(path string) (buildinfo.Info, error) {
@@ -271,7 +271,7 @@ func TestDoctorFlagsRunningBinarySupersededByLaterPATHCandidate(t *testing.T) {
 			return buildinfo.Info{}, errors.New("unexpected candidate")
 		}
 		return buildinfo.Info{
-			Version: "v2026.07.2", VCSRevision: "new-revision", VCSTime: "2026-07-13T12:00:00Z", GoVersion: "go-test",
+			Version: "v2026.7.2", VCSRevision: "new-revision", VCSTime: "2026-07-13T12:00:00Z", GoVersion: "go-test",
 		}, nil
 	}
 

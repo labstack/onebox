@@ -1,0 +1,7 @@
+# actionlint's schema predates concurrency.queue, which GitHub documents and
+# accepts: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+# Scoped to the one key so every other syntax error in this file still fails.
+paths:
+  .github/workflows/release.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

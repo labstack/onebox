@@ -6,21 +6,25 @@ import (
 	"strconv"
 )
 
-var releaseVersionPattern = regexp.MustCompile(`^v([0-9]{4})\.(0[1-9]|1[0-2])\.([1-9][0-9]*)$`)
+// ReleaseVersionPattern is the one grammar for a release identity. It is
+// exported so the project loader validates `minimum_onebox_version` against the
+// same expression this package parses: a loader that accepted a version no tag
+// can carry would fail closed on a release that is perfectly valid.
+var ReleaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$`)
 
-// ReleaseVersion is a canonical Onebox vYEAR.MONTH.SEQUENCE release identity.
+// ReleaseVersion is a canonical Onebox vYYYY.M.REVISION release identity.
 type ReleaseVersion struct {
 	year     uint64
 	month    uint64
-	sequence uint64
+	revision uint64
 }
 
 // ParseReleaseVersion parses the exact version form used by Onebox tags,
 // binary provenance, and minimum-runner policy.
 func ParseReleaseVersion(value string) (ReleaseVersion, error) {
-	matches := releaseVersionPattern.FindStringSubmatch(value)
+	matches := ReleaseVersionPattern.FindStringSubmatch(value)
 	if matches == nil {
-		return ReleaseVersion{}, fmt.Errorf("%q must match vYEAR.MONTH.SEQUENCE with a zero-padded month and positive sequence", value)
+		return ReleaseVersion{}, fmt.Errorf("%q must match vYYYY.M.REVISION with a four-digit year, an unpadded month from 1 through 12, and an unpadded non-negative revision of at most nineteen digits", value)
 	}
 	year, err := strconv.ParseUint(matches[1], 10, 64)
 	if err != nil {
@@ -30,11 +34,11 @@ func ParseReleaseVersion(value string) (ReleaseVersion, error) {
 	if err != nil {
 		return ReleaseVersion{}, fmt.Errorf("parse release month: %w", err)
 	}
-	sequence, err := strconv.ParseUint(matches[3], 10, 64)
+	revision, err := strconv.ParseUint(matches[3], 10, 64)
 	if err != nil {
-		return ReleaseVersion{}, fmt.Errorf("parse release sequence: %w", err)
+		return ReleaseVersion{}, fmt.Errorf("parse release revision: %w", err)
 	}
-	return ReleaseVersion{year: year, month: month, sequence: sequence}, nil
+	return ReleaseVersion{year: year, month: month, revision: revision}, nil
 }
 
 // CompareReleaseVersions returns -1, 0, or 1 when actual is older than, equal
@@ -43,7 +47,7 @@ func CompareReleaseVersions(actual, minimum ReleaseVersion) int {
 	for _, pair := range [][2]uint64{
 		{actual.year, minimum.year},
 		{actual.month, minimum.month},
-		{actual.sequence, minimum.sequence},
+		{actual.revision, minimum.revision},
 	} {
 		if pair[0] < pair[1] {
 			return -1

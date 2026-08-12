@@ -161,12 +161,7 @@ implemented.
 Documentation says what is true today. Direction lives here, and it is not
 presented as a capability.
 
-## Product and commercial boundary
-
-The open local engine is the adoption surface. Potential paid value is the trust
-and assurance layer: team approval, durable evidence, continuous protection,
-tested recovery, policy, and support. Pricing and hosted scope are hypotheses,
-not repository contracts.
+## Positioning
 
 The durable positioning is:
 

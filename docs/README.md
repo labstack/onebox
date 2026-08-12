@@ -8,7 +8,6 @@ the repository rather than to a reader.
 |---|---|
 | [`onebox.run-v1.schema.json`](onebox.run-v1.schema.json) | The published JSON Schema for the project file. Generated from the Go model by `ob schema` and tested byte-for-byte against it. `app.SchemaID` points at this path on `main`, and `ob init` writes that URL onto the first line of every scaffolded project. |
 | [`product.md`](product.md) | Product direction. Not an implementation contract, and not a capability list. |
-| [`archive/`](archive) | Superseded direction, kept so a reversal can be read rather than inferred. |
 
 ## Where the user documentation went
 
@@ -21,9 +20,11 @@ the repository rather than to a reader.
 ## Which documents are authoritative
 
 Documentation says what is true **today**. Direction lives in
-[`product.md`](product.md), proposals live in
-[active OpenSpec changes](../openspec/changes/), and neither is presented as a
-capability.
+[`product.md`](product.md), and it is not presented as a capability. What the
+binary actually does is the generated reference under
+`site/src/content/docs/reference/`, produced by `cmd/ob-docgen` and checked
+against the binary by `just docs-generate-check`, so it cannot describe
+something the loader does not accept.
 
 The site marks three states. The vocabulary is closed — the content schema
 rejects a fourth at build time, and the generator's registry is checked against

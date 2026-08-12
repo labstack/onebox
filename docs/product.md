@@ -3,10 +3,9 @@
 > Status: product direction
 >
 > Not an implementation contract. See the [documentation authority
-> map](README.md) for what is shipped, and [active OpenSpec
-> changes](../openspec/changes/) for what is proposed. The previous direction,
-> which made MCP the product interface, is archived at
-> [`archive/2026-08-02-product-mcp-native.md`](archive/2026-08-02-product-mcp-native.md).
+> map](README.md) for what is shipped, and the
+> [capabilities page](../site/src/content/docs/status/capabilities.mdx) for what
+> the binary does today versus what the schema merely accepts.
 
 ## Product statement
 
@@ -155,13 +154,12 @@ one — see [Shipped vs proposed](../site/src/content/docs/status/capabilities.m
 
 ## Delivery discipline
 
-A capability is shipped only when its requirements and design are approved, its
-task checklist is implemented, its tests pass, current documentation is updated
-from proposed to implemented, and its OpenSpec change strict-validates and is
-archived.
+A capability is shipped only when its design is agreed, its tests pass, and the
+generated reference and capabilities page are updated from proposed to
+implemented.
 
-Documentation says what is true today. Direction lives here, proposals live in
-OpenSpec changes, and neither is presented as a capability.
+Documentation says what is true today. Direction lives here, and it is not
+presented as a capability.
 
 ## Product and commercial boundary
 

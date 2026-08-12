@@ -334,3 +334,17 @@ The opt-in Docker end-to-end suite is run with:
 ```sh
 OB_E2E=1 go test ./e2e/
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the verification gate, and
+the standard a change has to meet. Contributions require accepting the
+[Contributor License Agreement](CLA.md).
+
+Security issues go to [SECURITY.md](SECURITY.md), never to a public issue.
+
+## License
+
+Onebox is licensed under the [Apache License, Version 2.0](LICENSE).
+
+Copyright 2026 LabStack LLC.

@@ -47,7 +47,7 @@ nfpms:
     homepage: https://onebox.run
     maintainer: LabStack <support@labstack.com>
     description: Production operations for an application intentionally running on one server.
-    license: Proprietary
+    license: Apache-2.0
     bindir: /usr/bin
     formats:
       - deb
@@ -108,7 +108,7 @@ scoops:
     commit_msg_template: "chore: update onebox to {{ .Tag }}"
     homepage: https://onebox.run
     description: Production operations for an application intentionally running on one server.
-    license: Proprietary
+    license: Apache-2.0
     repository:
       owner: labstack
       name: scoop-bucket

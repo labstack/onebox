@@ -68,10 +68,11 @@ workloads:
     image: nginx
     health: /healthz
     routes:
-      - {domain: shop.example.com, path: /, port: 3000}
+      - {domain: shop.example.com, path: /, port: 3000, middlewares: [compress@file, secure-headers@file]}
       - {domain: shop.example.com, path: /api, port: 3001}
       - {domain: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
-      - {domain: db.example.com, port: 5432, protocol: tcp, tls: passthrough, entrypoint: pg}
+      - {domain: db.example.com, port: 5432, protocol: tcp, tls: passthrough, entrypoint: pg, middlewares: [office-only@file]}
+proxy: {config: traefik}
 `
 	r, err := loadText(t, body).Resolve("production")
 	if err != nil {
@@ -82,7 +83,7 @@ workloads:
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"3000", "3001", "9000", "5432", "h2c", "passthrough", "grpc", "pg"} {
+	for _, want := range []string{"3000", "3001", "9000", "5432", "h2c", "passthrough", "grpc", "pg", "compress@file", "secure-headers@file", "office-only@file"} {
 		if !strings.Contains(string(canonical), want) {
 			t.Errorf("the canonical form lost %q", want)
 		}
@@ -102,8 +103,11 @@ workloads:
 		// Each router names the backend it means.
 		"traefik.http.routers.shop_web_r0.service: shop_web",
 		"traefik.http.routers.shop_web_r1.service: shop_web_r1",
+		// Middleware order is authored behavior, not a set to sort.
+		"traefik.http.routers.shop_web_r0.middlewares: compress@file,secure-headers@file",
 		// The non-HTTP route is a TCP router matching on SNI, forwarded intact.
 		"traefik.tcp.routers.shop_web_r3.rule: HostSNI(`db.example.com`)",
+		"traefik.tcp.routers.shop_web_r3.middlewares: office-only@file",
 		"traefik.tcp.routers.shop_web_r3.tls.passthrough: \"true\"",
 		// And the scheme reaches the backend that needs it.
 		"traefik.http.services.shop_web_r2.loadbalancer.server.scheme: h2c",
@@ -111,5 +115,32 @@ workloads:
 		if !strings.Contains(runtime, want) {
 			t.Errorf("the generated runtime is missing:\n  %s", want)
 		}
+	}
+	if strings.Contains(runtime, "traefik.http.routers.shop_web_r1.middlewares") {
+		t.Fatal("middleware from route zero leaked onto route one")
+	}
+}
+
+func TestRouteMiddlewareOrderPreservesRepetition(t *testing.T) {
+	body := `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@203.0.113.10}}
+workloads:
+  web:
+    image: nginx
+    routes:
+      - {domain: shop.example.com, port: 3000, middlewares: [prefix@file, auth@file, prefix@file]}
+proxy: {managed: false}
+`
+	r, err := loadText(t, body).Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "traefik.http.routers.shop_web_r0.middlewares: prefix@file,auth@file,prefix@file"; !strings.Contains(string(rendered.Bytes), want) {
+		t.Fatalf("middleware chain lost its authored order or repetition:\n%s", rendered.Bytes)
 	}
 }

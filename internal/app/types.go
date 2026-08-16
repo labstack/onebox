@@ -169,14 +169,21 @@ type Image struct {
 }
 
 type Route struct {
-	Domain     string `json:"domain" description:"DNS name matched by the proxy." example:"shop.example.com"`
-	Path       string `json:"path" description:"URL path prefix matched by an HTTP route." default:"/"`
-	Port       int    `json:"port" description:"Container port receiving routed traffic." example:"3000"`
-	Entrypoint string `json:"entrypoint" description:"Named proxy listener used for the route." default:"websecure"`
-	Protocol   string `json:"protocol" description:"Routing protocol: http, tcp, or udp." default:"http"`
-	Scheme     string `json:"scheme" description:"Backend connection scheme: http, https, h2c, tcp, or udp." default:"http"`
-	TLS        string `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
+	Domain      string          `json:"domain" description:"DNS name matched by the proxy." example:"shop.example.com"`
+	Path        string          `json:"path" description:"URL path prefix matched by an HTTP route." default:"/"`
+	Port        int             `json:"port" description:"Container port receiving routed traffic." example:"3000"`
+	Entrypoint  string          `json:"entrypoint" description:"Named proxy listener used for the route." default:"websecure"`
+	Protocol    string          `json:"protocol" description:"Routing protocol: http, tcp, or udp." default:"http"`
+	Scheme      string          `json:"scheme" description:"Backend connection scheme: http, https, h2c, tcp, or udp." default:"http"`
+	TLS         string          `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
+	Middlewares []MiddlewareRef `json:"middlewares,omitempty" description:"Ordered provider-qualified middleware references applied to this route."`
 }
+
+// MiddlewareRef names dynamic proxy configuration without opening the
+// traefik.* label namespace to authored input. The provider suffix is required
+// because Onebox-generated routers live in the Docker provider while project
+// middleware commonly lives in the file provider.
+type MiddlewareRef string
 
 type Health struct {
 	HTTP string `json:"http,omitempty" description:"HTTP path probed inside the container." example:"/healthz"`

@@ -115,6 +115,32 @@ func TestResolveDoesNotLeakBetweenEnvironments(t *testing.T) {
 	}
 }
 
+func TestRouteMiddlewareOverrideRequiresManagedProxyConfig(t *testing.T) {
+	body := `api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: root@prod}
+  staging:
+    server: root@stage
+    overrides:
+      workloads:
+        web:
+          routes: [{domain: shop.example.com, path: /, port: 3000, entrypoint: websecure, protocol: http, scheme: http, tls: terminate, middlewares: [auth@file]}]
+workloads:
+  web:
+    image: nginx
+    routes: [{domain: shop.example.com, port: 3000}]
+`
+	p, err := LoadBytes([]byte(body), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Resolve("staging")
+	if err == nil || !strings.Contains(err.Error(), "environments.staging.overrides.workloads.web.routes[0].middlewares") {
+		t.Fatalf("middleware override without managed proxy config error = %v", err)
+	}
+}
+
 // TestOriginsRecordOverrides so a reader can tell a staging value from a
 // project-level one without diffing two files.
 func TestOriginsRecordOverrides(t *testing.T) {

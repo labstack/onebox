@@ -366,6 +366,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "routes", "items", "protocol"}, enum(eRouteProtocol)},
 	{[]string{"workloads", "*", "routes", "items", "scheme"}, enum(eRouteScheme)},
 	{[]string{"workloads", "*", "routes", "items", "tls"}, enum(eRouteTLS)},
+	{[]string{"workloads", "*", "routes", "items", "middlewares", "items"}, pattern(gMiddlewareRef)},
 	{[]string{"workloads", "*", "volumes", "items", "name"}, pattern(gIdent)},
 	{[]string{"workloads", "*", "volumes", "items", "path"}, pattern(gAbsPath)},
 

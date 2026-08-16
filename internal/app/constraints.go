@@ -115,6 +115,13 @@ var (
 	gComposeRef = grammar{"compose reference", regexp.MustCompile("^[^/#][^#]*#[a-zA-Z0-9._-]+$"),
 		"a reference of the form path/to/compose.yaml#service"}
 
+	// Middleware is dynamic proxy configuration owned by a provider. Requiring
+	// the suffix prevents a file-provider middleware from being looked up in the
+	// Docker provider merely because the author omitted `@file`. Commas are not
+	// accepted because Traefik uses them to separate the ordered router chain.
+	gMiddlewareRef = grammar{"middleware reference", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*@[a-z][a-z0-9-]*$`),
+		"a provider-qualified name such as secure-headers@file"}
+
 	gPlanSchema = grammar{"plan schema", regexp.MustCompile(`^onebox\.run/executable-deploy-plan/v[1-9][0-9]*((alpha|beta)[1-9][0-9]*)?$`),
 		"a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2"}
 

@@ -1089,6 +1089,15 @@
             "description": "Named proxy listener used for the route.",
             "type": "string"
           },
+          "middlewares": {
+            "description": "Ordered provider-qualified middleware references applied to this route.",
+            "items": {
+              "description": "Expects a provider-qualified name such as secure-headers@file.",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*@[a-z][a-z0-9-]*$",
+              "type": "string"
+            },
+            "type": "array"
+          },
           "path": {
             "default": "/",
             "description": "URL path prefix matched by an HTTP route. Expects a path beginning with /.",
@@ -2375,6 +2384,15 @@
                   "default": "websecure",
                   "description": "Named proxy listener used for the route.",
                   "type": "string"
+                },
+                "middlewares": {
+                  "description": "Ordered provider-qualified middleware references applied to this route.",
+                  "items": {
+                    "description": "Expects a provider-qualified name such as secure-headers@file.",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*@[a-z][a-z0-9-]*$",
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "path": {
                   "default": "/",

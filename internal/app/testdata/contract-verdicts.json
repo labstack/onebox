@@ -200,6 +200,11 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/managed route middleware without proxy config",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/migration_policy expand-only",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
@@ -248,6 +253,11 @@
     "case": "conformance/one-char identifier",
     "loads": true,
     "digest": "5ac4d1f97c5a8fc93a3ebab678f6196fd68051d6f5eae0df66aaaa49d19687c6"
+  },
+  {
+    "case": "conformance/operator proxy owns route middleware",
+    "loads": true,
+    "digest": "6506674c2e724800df2920c0dad03d56bd53191127c44ee3a3cc3997c9c7389e"
   },
   {
     "case": "conformance/persistence block with no mode still refuses replicas",
@@ -300,6 +310,11 @@
     "code": "backup_retention_unsupported"
   },
   {
+    "case": "conformance/provider-qualified route middlewares",
+    "loads": true,
+    "digest": "d1be2e35c3638c2532e28f43043520b085bdc091815355023ee02a1d535e26cf"
+  },
+  {
     "case": "conformance/proxy kind none with a route",
     "loads": false,
     "code": "route_without_proxy"
@@ -328,6 +343,11 @@
     "case": "conformance/relative env_file",
     "loads": true,
     "digest": "d06998bfca47f1f5fd670feec5ea41bf720c35ae99474ec24633d636a9c0bd70"
+  },
+  {
+    "case": "conformance/repeated route middleware remains ordered",
+    "loads": true,
+    "digest": "6cdb57177de03068697a4c5449d1fa21945581a1b68b27e1364e8818a81c9732"
   },
   {
     "case": "conformance/rolling workload with published host port",
@@ -433,6 +453,11 @@
     "case": "conformance/unmanaged proxy keeps its routes",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
+  },
+  {
+    "case": "conformance/unqualified route middleware",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/verifications url contains advisory",

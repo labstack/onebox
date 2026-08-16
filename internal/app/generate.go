@@ -483,6 +483,13 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		pre := fmt.Sprintf("traefik.%s.routers.%s.", kind, router)
 		out[pre+"rule"] = rule
 		out[pre+"entrypoints"] = r.Entrypoint
+		if len(r.Middlewares) > 0 {
+			middlewares := make([]string, len(r.Middlewares))
+			for j, middleware := range r.Middlewares {
+				middlewares[j] = string(middleware)
+			}
+			out[pre+"middlewares"] = strings.Join(middlewares, ",")
+		}
 		if r.TLS == "terminate" || r.TLS == "passthrough" {
 			out[pre+"tls"] = "true"
 			// `tls=true` alone terminates. Passthrough is a separate key, and

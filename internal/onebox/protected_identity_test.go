@@ -28,7 +28,7 @@ func TestProtectedServiceIdentityBindsEveryGeneratedName(t *testing.T) {
 		t.Fatal(err)
 	}
 	if record.ServiceProject != "ob_example_database" || record.RestoreProject != "ob_example_database_restore" ||
-		record.RestoreContainer != "example_database_restore" || record.RestoreNetwork != "ob_example_database_restore-net" ||
+		record.RestoreContainer != "example-database-restore-1" || record.RestoreNetwork != "ob_example_database_restore-net" ||
 		record.RestoreVolume != "ob_example_database_restore-stage" || record.StatePath != "/var/lib/ob/example/protection/state/database.active-volume.json" {
 		t.Fatalf("protected identity = %#v", record)
 	}

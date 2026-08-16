@@ -67,7 +67,7 @@ func TestPreflightManagedProxyMustRun(t *testing.T) {
 				return transport.Result{Stdout: "2.29.1\n"}, true
 			case strings.Contains(cmd, "df -Pk"):
 				return transport.Result{Stdout: "4194304\n"}, true
-			case strings.Contains(cmd, "project='ob-proxy'"):
+			case strings.Contains(cmd, "project='onebox-proxy'"):
 				if proxyUp {
 					return transport.Result{Stdout: "PX1\n"}, true
 				}

@@ -49,7 +49,7 @@ func TestPathsHostScoped(t *testing.T) {
 func TestRenderCompose(t *testing.T) {
 	b := string(RenderCompose("traefik:v3.7", "ob-ingress", true))
 	for _, want := range []string{
-		"container_name: ob-proxy",
+		"container_name: onebox-proxy",
 		"image: traefik:v3.7",
 		`"80:80"`, `"443:443"`,
 		"/var/run/docker.sock:/var/run/docker.sock:ro",

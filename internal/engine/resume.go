@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
@@ -120,7 +119,11 @@ func (e *Engine) AbortWithJournalID(ctx context.Context, force bool) (string, er
 
 func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err error) {
 	if !s.RollbackCovered && !force {
-		return fmt.Errorf("abort refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", s.DeployID)
+		// The same condition recoverInterrupted raises, so it carries the
+		// same code: abort and resume are the two commands an operator is
+		// choosing between, and reporting one as operation_failed and the
+		// other as migration_gate_closed makes the choice unreadable.
+		return &MigrationGateClosedError{InterruptedID: s.DeployID, Refused: "abort"}
 	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
 	if err != nil {

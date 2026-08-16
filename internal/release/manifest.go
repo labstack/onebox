@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -358,14 +359,19 @@ func WriteManifest(ctx context.Context, target transport.Transport, n app.Names,
 	return nil
 }
 
+// probeStatFailed is this package's own code for "neither stat form worked".
+// It sits above app's Probe* range because the checkpoint readers emit both:
+// app.ProbeUndetermined took 5, which this used to occupy.
+const probeStatFailed = 7
+
 func ReadManifest(ctx context.Context, target transport.Transport, n app.Names, id string) (Manifest, error) {
 	if !IsID(id) {
 		return Manifest{}, manifestInvalid(id, "identifier is invalid")
 	}
 	path := ManifestPath(n, id)
-	command := `if [ ! -e ` + q(path) + ` ]; then exit 3; fi; ` +
+	command := `if [ ! -e ` + q(path) + ` ] && [ ! -L ` + q(path) + ` ]; then ` + app.UndeterminedArm(path) + `exit 3; fi; ` +
 		`if [ ! -f ` + q(path) + ` ]; then exit 4; fi; ` +
-		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit 5; ` +
+		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit ` + strconv.Itoa(probeStatFailed) + `; ` +
 		`printf 'mode=%s\n' "$mode"; cat ` + q(path)
 	result, err := target.Run(ctx, command)
 	if err != nil {
@@ -375,8 +381,22 @@ func ReadManifest(ctx context.Context, target transport.Transport, n app.Names, 
 	case 0:
 	case 3:
 		return Manifest{}, &ManifestError{ErrCode: "manifest_missing", ReleaseID: id, Detail: "release has no manifest"}
+	// These three are read failures, not verdicts on the manifest's content:
+	// manifest_invalid says the document is wrong, and retention is entitled
+	// to retire that by age. Nothing was read here, so the code has to say so
+	// — retention preserves on manifest_read_failed alone.
 	case 4:
-		return Manifest{}, &ManifestError{ErrCode: "manifest_invalid", ReleaseID: id, Detail: "manifest path is not a regular file"}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "manifest path is not a regular file"}
+	case app.ProbeStatePathNotDirectory:
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "the path that should hold the manifest is not a directory"}
+	case app.ProbeUndetermined:
+		// Not manifest_missing: absence was never established, and
+		// retention deletes on that answer.
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "a directory holding the manifest cannot be searched; verify access, then retry"}
+	case probeStatFailed:
+		// Both stat forms send their own stderr to /dev/null, so the
+		// generic branch below would report this with no cause at all.
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "the manifest's mode could not be read; neither stat form worked on this host"}
 	default:
 		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: strings.TrimSpace(result.Stderr)}
 	}

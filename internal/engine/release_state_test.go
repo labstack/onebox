@@ -97,12 +97,19 @@ func TestActivateManifestPersistsEveryBoundaryInOrder(t *testing.T) {
 		t.Fatalf("manifest states = %s", got)
 	}
 	commands := strings.Join(target.Commands, "\n")
-	if !strings.Contains(commands, "ln -sfn 'releases/"+engineTestDeployReleaseID+"'") ||
-		!strings.Contains(commands, "rm -f '/var/lib/ob/sample/activation.json'") {
-		t.Fatalf("activation did not switch and finalize the checkpoint:\n%s", commands)
+	if !strings.Contains(commands, "ln -sfn 'releases/"+engineTestDeployReleaseID+"'") {
+		t.Fatalf("activation did not switch the current symlink:\n%s", commands)
 	}
-	if _, err := release.ReadActivationCheckpoint(context.Background(), target, engine.Names()); err == nil {
-		t.Fatal("completed activation left its checkpoint behind")
+	// The checkpoint deliberately outlives activateManifest. Clearing it here
+	// would leave a window where the release is serving, the checkpoint is
+	// gone, and nothing has journalled the activation — a state finalize
+	// refuses on every retry while the release is healthy and live. The
+	// caller clears it once that evidence is durable.
+	if strings.Contains(commands, "rm -f '/var/lib/ob/sample/activation.json'") {
+		t.Fatalf("activation cleared its own checkpoint before any evidence was journalled:\n%s", commands)
+	}
+	if _, err := release.ReadActivationCheckpoint(context.Background(), target, engine.Names()); err != nil {
+		t.Fatalf("activation must leave its checkpoint for the caller to clear: %v", err)
 	}
 	stored, err := release.ReadManifest(context.Background(), target, engine.Names(), engineTestDeployReleaseID)
 	if err != nil || stored.State != release.StateServing {

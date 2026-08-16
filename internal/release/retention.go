@@ -117,6 +117,40 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 		return RetentionDecision{}, refuseRetention(secretCheckpointErr, fmt.Errorf("secret checkpoint evidence is unusable: %w", secretCheckpointErr))
 	}
 
+	// Only a failure to READ preserves. A manifest that was read and found
+	// wrong — invalid JSON, unsafe mode, an id that disagrees with its
+	// directory — is a verdict, and retention is entitled to retire it by
+	// age like any other expired release.
+	//
+	// The split is about evidence, not about whether the condition heals.
+	// Some read failures never heal either (a manifest that is a directory,
+	// a dangling symlink), so those releases are preserved and re-reported
+	// until someone intervenes. That is deliberate: a leak is visible in
+	// every report and one rm away, while deleting a release on an answer we
+	// never obtained is unrecoverable and takes the evidence with it.
+	manifestUnread := func(err error) bool {
+		var typed *ManifestError
+		if !errors.As(err, &typed) {
+			// Not a verdict about the manifest at all — the command itself
+			// failed (transport, exec). Nothing was read, so this is the
+			// least evidence of all, and deleting on it is unrecoverable.
+			// Context cancellation never reaches here: the loop returns it
+			// before consulting this predicate.
+			return true
+		}
+		switch typed.ErrCode {
+		case "manifest_read_failed":
+			return true
+		case "manifest_schema_unknown":
+			// "This binary cannot read it" is not "this manifest is wrong".
+			// After a downgrade past a schema bump, every release the newer
+			// binary wrote reads this way, and retiring them by age deletes
+			// exactly the releases an operator would roll forward to.
+			return true
+		}
+		return false
+	}
+
 	for _, id := range ids {
 		if protected[id] {
 			decision.Preserve = append(decision.Preserve, id)
@@ -124,7 +158,16 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 		}
 		manifest, manifestErr := ReadManifest(ctx, target, names, id)
 		if manifestErr != nil {
-			if policy.EvidenceIDs[id] || !expiredReleaseID(id, policy.Now, policy.UnknownAfter) {
+			if errors.Is(manifestErr, context.Canceled) || errors.Is(manifestErr, context.DeadlineExceeded) {
+				return RetentionDecision{}, manifestErr
+			}
+			// "No manifest" and "the manifest could not be read" are not the
+			// same evidence. Age can retire the first; the second says the
+			// release's own record is unreadable — a dangling manifest
+			// symlink, an unsearchable directory — and deleting the release
+			// on that answer destroys what an operator needs to diagnose it.
+			// A manifest that WAS read and found wrong stays retirable.
+			if policy.EvidenceIDs[id] || !expiredReleaseID(id, policy.Now, policy.UnknownAfter) || manifestUnread(manifestErr) {
 				decision.Preserve = append(decision.Preserve, id)
 				decision.Reported = append(decision.Reported, id)
 				continue

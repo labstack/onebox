@@ -196,6 +196,12 @@ func TestBuildWithoutResolvedImageFailsClosed(t *testing.T) {
 			t.Fatalf("got %v, want image_unresolved", err)
 		} else if e.Next == "" {
 			t.Error("the failure should name the command that resolves it")
+		} else if strings.HasPrefix(e.Next, "ob deploy") {
+			// A structured deploy without --plan is refused with
+			// plan_required, so guidance naming it hands an agent a refusal
+			// instead of progress. The engine raises this same code and
+			// points at `ob plan`; the loader has to agree.
+			t.Errorf("guidance %q is a deploy, which a structured caller cannot follow", e.Next)
 		}
 	}
 	if _, err := p.Render("production", "r1", Images{"web": "ghcr.io/acme/ledger:1.4.0"}); err != nil {

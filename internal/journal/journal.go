@@ -235,16 +235,42 @@ const journalMarker = "@@ob-journal@@"
 func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string, map[string][]Record, error) {
 	// A missing journal directory is a valid never-deployed state. Existing but
 	// unreadable directories/files fail so status cannot report false completeness.
+	// -e follows symlinks, so the -L arm is what keeps a dangling journal-dir
+	// link out of the "never deployed" answer — the false completeness above.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
 	// that record's line would swallow the following file's marker, losing an
 	// entire deploy's records to one torn write.
 	cmd := "if [ -d " + q(dir(n)) + " ]; then cd " + q(dir(n)) + " || exit; " +
-		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
-		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ]; then exit 2; fi"
+		// Searchable but not readable: cd succeeds and the glob cannot
+		// enumerate, so the loop never runs and the read looks like a
+		// never-deployed host. Same false completeness, one step over.
+		"[ -r . ] || exit 2; " +
+		"for f in *.jsonl; do if [ ! -f \"$f\" ]; then " +
+		// Any non-regular entry is the directory's problem one level down:
+		// skipping it drops that deploy's records, and FindIncomplete then
+		// reports nothing incomplete — the same false completeness. -e
+		// catches a directory or device sitting where a journal belongs;
+		// -L catches the dangling link -e cannot see.
+		"if [ -e \"$f\" ] || [ -L \"$f\" ]; then exit 2; fi; continue; fi; echo " + q(journalMarker) +
+		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ] || [ -L " + q(dir(n)) + " ]; then exit 2; else " +
+		// An unsearchable ancestor hides the directory as thoroughly as a
+		// missing one, and answering "never deployed" there strands an
+		// interrupted deploy: FindIncomplete reports nothing to resume.
+		app.UndeterminedArm(dir(n)) + "true; fi"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err
+	}
+	// The script's own refusals carry no stderr, so the generic form below
+	// would print an exit code and no cause.
+	switch res.ExitCode {
+	case 2:
+		return nil, nil, fmt.Errorf("read deployment journals failed: %s exists but a journal there could not be read; inspect the deployment state directory", dir(n))
+	case app.ProbeStatePathNotDirectory:
+		return nil, nil, fmt.Errorf("read deployment journals failed: the path that should hold %s is not a directory; inspect the deployment state directory", dir(n))
+	case app.ProbeUndetermined:
+		return nil, nil, fmt.Errorf("read deployment journals failed: a directory holding %s cannot be searched, so a never-deployed host cannot be told from an unreadable one; verify access, then retry", dir(n))
 	}
 	if res.ExitCode != 0 {
 		return nil, nil, fmt.Errorf("read deployment journals failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))

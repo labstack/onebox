@@ -81,11 +81,17 @@ var operationFailureDefinitions = map[string]OperationFailure{
 	},
 	"divergence_detected": {
 		Message: "the live release does not match the recorded release state",
-		Command: "ob status --output json",
+		// Not `ob status`: this code is raised BY ob status, so publishing it
+		// tells a caller to re-run the command that just failed.
+		Command: "ob audit --output json",
 	},
 	"doctor_failed": {
 		Message: "a local readiness check failed",
-		Command: "ob doctor --output json",
+		// No guidance on purpose. This is raised BY ob doctor, so naming it
+		// tells a caller to re-run the command that just failed; and no other
+		// command re-checks local readiness — `ob validate` inspects the
+		// project file, which is a different question. The failing checks are
+		// already in the envelope's details.
 	},
 	"exec_failed": {
 		Message: "the audited exec could not be completed",
@@ -136,7 +142,16 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Command: "ob plan --backup-report-out <path>",
 	},
 	"migration_gate_closed": {
-		Message: "the interrupted release ran rollback-unknown data effects, so automatic recovery is refused",
+		// Command-neutral: both `ob resume` and `ob abort` raise this code,
+		// and a sentence naming recovery told an operator who asked to roll
+		// back that something else was refused. The command that was refused
+		// is in the error's own message; the guidance below is the default,
+		// which the typed error overrides per command.
+		Message: "the interrupted release ran rollback-unknown data effects, so the requested recovery action is refused",
+		Command: "ob resume --output ndjson",
+	},
+	"post_activation_failed": {
+		Message: "the release is serving, but the work after activation did not finish",
 		Command: "ob resume --output ndjson",
 	},
 	"operation_failed": {
@@ -163,7 +178,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 	},
 	"preflight_failed": {
 		Message: "a target readiness check failed before any mutation",
-		Command: "ob preflight --output json",
+		// No guidance, same reasoning as doctor_failed. Every preflight check
+		// is a fact about the target host — base path, owner record, name
+		// collisions — and `ob doctor` only ever looks at the local machine,
+		// so it would pass cleanly and explain nothing.
 	},
 	"recovery_incomplete": {
 		Message: "recovery did not reach its verified terminal state",

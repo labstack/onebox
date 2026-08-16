@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -271,16 +272,10 @@ func writeEarlyOperationFailure(cmd *cobra.Command, g *globalFlags, operationErr
 		return operationErr
 	}
 	if err := newCLIOperationOutput(cmd, g).finish(nil, operationErr); err != nil {
-		exitCode := 1
-		if errors.Is(operationErr, context.Canceled) {
-			exitCode = 2
-		}
+		exitCode := cancellationExitCode(operationErr, "operation_failed")
 		return errors.Join(withExitCode(operationErr, exitCode), fmt.Errorf("write structured failure: %w", err))
 	}
-	if errors.Is(operationErr, context.Canceled) {
-		return withExitCode(operationErr, 2)
-	}
-	return withExitCode(operationErr, 1)
+	return withExitCode(operationErr, cancellationExitCode(operationErr, "operation_failed"))
 }
 
 func writeCancelled(cmd *cobra.Command, g *globalFlags, message string) error {
@@ -511,11 +506,50 @@ func (o *cliOperationOutput) event(event onebox.OperationEvent) {
 	_ = o.stream.write("event", func(record *cliRecord) { record.Event = event })
 }
 
+// typedFailure reports whether err carries its own operation code. Such an
+// error names a condition the cancelled cause does not describe.
+//
+// It has to recognise every shape publicError resolves a code from, or the
+// envelope contradicts itself: outcome "cancelled" beside a specific
+// error.code. Two of the three carry Code as a struct field with no method,
+// and errors.Join puts them in chains that also satisfy errors.Is(Canceled).
+func typedFailure(err error, fallbackCode string) bool {
+	var projectErr *app.Error
+	if errors.As(err, &projectErr) && projectErr.Code != "" {
+		return true
+	}
+	var lifecycleErr onebox.LifecycleFailure
+	if errors.As(err, &lifecycleErr) && lifecycleErr.Code != "" {
+		return true
+	}
+	// A code equal to the fallback is what publicError itself rewrites to
+	// "cancelled", so treating it as typed would put outcome "error" beside
+	// error.code "cancelled" — the same contradiction, mirrored.
+	var coded interface{ Code() string }
+	return errors.As(err, &coded) && coded.Code() != "" && coded.Code() != fallbackCode
+}
+
+// cancellationExitCode reports the exit status for a finished operation. It
+// mirrors typedFailure because the published contract says the exit code
+// matches the terminal outcome in the envelope: exit 2 means cancelled and
+// nothing was changed, so a typed post-commit failure must not claim it.
+func cancellationExitCode(err error, fallbackCode string) int {
+	if errors.Is(err, context.Canceled) && !typedFailure(err, fallbackCode) {
+		return 2
+	}
+	return 1
+}
+
 func (o *cliOperationOutput) finish(result *onebox.OperationResult, operationErr error) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	outcome := cliOutcomeSuccess
-	if errors.Is(operationErr, context.Canceled) {
+	// Only an interrupt that carries no more specific code is a cancellation.
+	// publicError makes the same distinction for error.code; outcome is the
+	// top-level field an agent branches on, so letting a post-commit failure
+	// ship as "cancelled" tells it nothing was applied while the new
+	// generation is committed and live.
+	if errors.Is(operationErr, context.Canceled) && !typedFailure(operationErr, "operation_failed") {
 		outcome = cliOutcomeCancelled
 	} else if operationErr != nil {
 		outcome = cliOutcomeError
@@ -579,21 +613,261 @@ func helpCommandFor(cmd *cobra.Command) string {
 	return strings.TrimSpace("ob help " + strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), "ob")))
 }
 
-// artifactExists reports whether a path was present before this invocation
-// wrote anything. Note the plan has already been overwritten by the time any
-// cleanup runs, so this does not preserve an earlier run's artifact — it only
-// decides whether a path this run did not create should be removed.
-func artifactExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+// stagedArtifact writes a file next to its destination and moves it into place
+// only once every other artifact in the set has also been written. Ordering
+// alone is not enough: whichever file is written first is left orphaned when a
+// later one fails, and the caller cannot tell an orphan from a complete set.
+// A rename is the last step for each, so a failure before the renames leaves
+// the caller's previous files exactly as they were.
+type stagedArtifact struct {
+	staged, final string
+	// restored on rollback: a rename replaces whatever was at final, and
+	// without keeping it the "all or nothing" below can only mean "nothing",
+	// which deletes a file the failed run was never asked to touch.
+	backup   string
+	replaced bool
+	// orphan records that a backup was already sitting there when staging
+	// began, with no destination beside it — a previous run killed between
+	// commit()'s two renames. It is the caller's only copy, so discard() must
+	// leave it alone even though THIS artifact replaced nothing.
+	orphan bool
 }
 
-func removeArtifactWeCreated(path string, preexisting bool) error {
-	if preexisting {
+func stageArtifact(final, suffix string, write func(string) error) (stagedArtifact, error) {
+	// The suffix distinguishes artifacts staged in the same directory. Two
+	// artifacts sharing a destination would otherwise stage to one path, and
+	// the second write would silently become the content of the first.
+	// A unique staged name, not a derived one. Two concurrent runs against the
+	// same --out would otherwise write to one temp path: the second write
+	// wins, the first run commits it and reports success, and the second is
+	// told it failed while the destination holds ITS plan. Reserving the name
+	// here also means the write below renames onto a path nothing else owns.
+	// The writers used to create this directory on their way to the file.
+	// Reserving a temp inside it happens first now, so the MkdirAll has to
+	// move here too — otherwise `--out artifacts/plan.json` into a directory
+	// that does not exist yet fails where it used to work.
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return stagedArtifact{}, err
+	}
+	reserved, err := os.CreateTemp(filepath.Dir(final), filepath.Base(final)+".ob-tmp"+suffix+"-")
+	if err != nil {
+		return stagedArtifact{}, err
+	}
+	staged := reserved.Name()
+	if err := reserved.Close(); err != nil {
+		_ = os.Remove(staged)
+		return stagedArtifact{}, err
+	}
+	// A previous run killed between commit and settle leaves a backup here.
+	// Clearing it bounds the leak to one crashed run — but ONLY when the
+	// destination itself survives. A backup with no destination beside it is
+	// the other kill window, between the two renames inside commit(), and
+	// there it is the caller's only remaining copy: deleting it would destroy
+	// the data this machinery exists to protect.
+	backup := final + ".ob-bak" + suffix
+	orphan := false
+	switch {
+	case fileExists(final):
+		_ = os.Remove(backup)
+	case fileExists(backup):
+		orphan = true
+	}
+	if err := write(staged); err != nil {
+		_ = os.Remove(staged)
+		return stagedArtifact{}, err
+	}
+	return stagedArtifact{staged: staged, final: final, backup: backup, orphan: orphan}, nil
+}
+
+func (a *stagedArtifact) commit() error {
+	if a.staged == "" {
 		return nil
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove incomplete artifact set: %w", err)
+	switch info, err := os.Stat(a.final); {
+	case err == nil && !info.Mode().IsRegular():
+		// Never move a directory or device aside: discard would then delete
+		// the backup, so "replace the artifact" would quietly destroy
+		// something this command has no business touching.
+		return fmt.Errorf("refusing to replace %s: not a regular file", a.final)
+	case err == nil:
+		if err := os.Rename(a.final, a.backup); err != nil {
+			return err
+		}
+		a.replaced = true
+	case !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+	if err := os.Rename(a.staged, a.final); err != nil {
+		a.restore()
+		return err
 	}
 	return nil
+}
+
+// rollback undoes a commit: the new file goes away and whatever it replaced
+// comes back. Best effort — the failure being reported is the one worth
+// surfacing — but without it a partial set leaves one destination holding a
+// previous run's content and another deleted outright.
+func (a *stagedArtifact) rollback() {
+	if a.staged == "" {
+		return
+	}
+	_ = os.Remove(a.final)
+	a.restore()
+}
+
+func (a *stagedArtifact) restore() {
+	if !a.replaced {
+		return
+	}
+	if err := os.Rename(a.backup, a.final); err != nil {
+		// The caller's previous file is still in the backup and is now the
+		// only copy: rollback has already removed final. Keeping the flag set
+		// stops discard from deleting it, which would leave neither the new
+		// artifact nor the one it replaced.
+		return
+	}
+	a.replaced = false
+}
+
+// settle releases the backup once the WHOLE set has landed. It cannot happen
+// inside commit(): a later artifact's failure rolls this one back, and that
+// restore needs the backup. Only when every commit and the directory sync have
+// succeeded is the previous file safe to drop.
+func (a *stagedArtifact) settle() {
+	if a.staged == "" {
+		return
+	}
+	// Both the file this run replaced and any orphan from a crashed earlier
+	// run are redundant now: the destination exists and holds the new
+	// artifact, so neither is anybody's last copy.
+	_ = os.Remove(a.backup)
+	a.replaced, a.orphan = false, false
+}
+
+func (a stagedArtifact) discard() {
+	if a.staged == "" {
+		return
+	}
+	_ = os.Remove(a.staged)
+	// Only when nothing is depending on it. A still-set replaced flag means a
+	// restore failed and this backup holds the caller's only copy; orphan
+	// means it was already the only copy before this run began. Either way
+	// the run is ending without a destination in place, so the backup stays.
+	if !a.replaced && !a.orphan {
+		_ = os.Remove(a.backup)
+	}
+}
+
+// commitArtifactSet moves a whole set into place, or puts the tree back as it
+// was. Every staged and backup file is removed on the way out whatever happens,
+// and a failure part-way restores what already landed: a caller told the run
+// failed must find neither a fresh artifact nor a missing one.
+func commitArtifactSet(artifacts ...stagedArtifact) error {
+	defer func() {
+		for _, artifact := range artifacts {
+			artifact.discard()
+		}
+	}()
+	rollback := func(upto int) {
+		for i := upto - 1; i >= 0; i-- {
+			artifacts[i].rollback()
+		}
+	}
+	for i := range artifacts {
+		if err := artifacts[i].commit(); err != nil {
+			rollback(i)
+			return err
+		}
+	}
+	// The writers fsync the file and then the directory, but that sync made
+	// the STAGED name durable — the renames above are further directory
+	// changes with nothing behind them. Without this, a command can report
+	// success and a power loss can leave the destination absent while the
+	// .ob-tmp name survives.
+	//
+	// A sync failure rolls the set back like any other: returning it with the
+	// renames standing would report failure with a fresh, complete, approvable
+	// artifact in place.
+	if err := syncArtifactDirectories(artifacts); err != nil {
+		rollback(len(artifacts))
+		return err
+	}
+	// Nothing can roll back past this point, so the replaced files are no
+	// longer anybody's only copy. Without this they outlive every successful
+	// run: a second `ob plan` over the same path would leave the previous
+	// run's complete, approvable artifact beside the new one forever.
+	for i := range artifacts {
+		artifacts[i].settle()
+	}
+	return nil
+}
+
+func syncArtifactDirectories(artifacts []stagedArtifact) error {
+	synced := map[string]bool{}
+	for _, artifact := range artifacts {
+		// Zero-value artifacts were never staged. filepath.Dir("") is ".",
+		// which would fsync the process's working directory on every run that
+		// passed no --backup-report-out, and fail the whole set if that
+		// directory has since been removed.
+		if artifact.staged == "" {
+			continue
+		}
+		dir := filepath.Dir(artifact.final)
+		if synced[dir] {
+			continue
+		}
+		synced[dir] = true
+		directory, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+		if err := directory.Sync(); err != nil {
+			_ = directory.Close()
+			return err
+		}
+		if err := directory.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sameArtifactPath reports whether two destinations are the same file. A raw
+// string comparison lets `plan.json` and `./plan.json` (or `dir/../plan.json`)
+// through, and the two would then commit onto one path with the second
+// silently winning.
+func sameArtifactPath(left, right string) bool {
+	// Resolve the PARENT, not the file: the artifacts do not exist yet, so
+	// EvalSymlinks on the full path would fail. A symlinked output directory
+	// otherwise defeats the guard entirely, and a lexical Clean over `..`
+	// through a symlink gets it wrong in the other direction too.
+	clean := func(path string) string {
+		// Split BEFORE any cleaning: filepath.Abs runs a lexical Clean, which
+		// collapses `link/..` to nothing and loses the symlink entirely. The
+		// directory half is resolved on its own, where EvalSymlinks walks the
+		// real chain, and only then is the base joined back on.
+		dir, base := filepath.Split(path)
+		if dir == "" {
+			dir = "."
+		}
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			if absolute, absErr := filepath.Abs(path); absErr == nil {
+				return filepath.Clean(absolute)
+			}
+			return filepath.Clean(path)
+		}
+		absolute, err := filepath.Abs(filepath.Join(resolved, base))
+		if err != nil {
+			return filepath.Join(resolved, base)
+		}
+		return absolute
+	}
+	return clean(left) == clean(right)
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }

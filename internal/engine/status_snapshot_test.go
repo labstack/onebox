@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -230,6 +231,194 @@ func TestStatusSnapshotDoesNotHideProxyReadCommandFailures(t *testing.T) {
 	}
 	if len(snapshot.Warnings) != 1 || snapshot.Warnings[0].Component != "proxy.applied_config" {
 		t.Fatalf("proxy warning missing: %#v", snapshot.Warnings)
+	}
+}
+
+// The JSON path must not assert drift about a file it never read: config_diverged
+// is what an agent branches on, and an empty applied hash compared against a real
+// local one manufactures divergence out of a failed read.
+func TestStatusSnapshotDoesNotInventDriftFromARefusedHashRead(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, "", "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "config.hash") {
+			return transport.Result{ExitCode: app.ProbeUndetermined}, true
+		}
+		return base(cmd)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Proxy == nil {
+		t.Fatal("proxy section was dropped entirely")
+	}
+	if snapshot.Proxy.ConfigDiverged {
+		t.Errorf("drift asserted from an unread applied hash: %#v", snapshot.Proxy)
+	}
+	for _, issue := range snapshot.Proxy.Issues {
+		if strings.Contains(issue, "hashes differ") {
+			t.Errorf("hash-mismatch issue raised for an unread file: %#v", snapshot.Proxy.Issues)
+		}
+	}
+	if snapshot.Proxy.AppliedConfigHash != "" {
+		t.Errorf("applied hash published from a refused read: %q", snapshot.Proxy.AppliedConfigHash)
+	}
+}
+
+// Pins what a refused certificate read reports. Note this passes with or
+// without the acmeIssue gate in makeStatusProxy: CertExpiries returns no certs
+// and no error for empty input, so the gate is defensive rather than
+// load-bearing. The behaviour below is the contract regardless of which line
+// currently produces it.
+func TestStatusSnapshotDoesNotPublishCertificatesFromARefusedStore(t *testing.T) {
+	applied := ""
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))
+	e, f, _, _ := statusProxyEngine(t, &applied, acme, "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "acme.json") {
+			return transport.Result{ExitCode: app.ProbeUndetermined}, true
+		}
+		return base(cmd)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Proxy == nil {
+		t.Fatal("proxy section was dropped entirely")
+	}
+	if len(snapshot.Proxy.Certificates) != 0 {
+		t.Errorf("certificates published from a refused store: %#v", snapshot.Proxy.Certificates)
+	}
+	if snapshot.Proxy.Complete {
+		t.Errorf("proxy reported complete despite a refused certificate read: %#v", snapshot.Proxy)
+	}
+	var named bool
+	for _, issue := range snapshot.Proxy.Issues {
+		if strings.Contains(issue, "cannot be searched") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("refusal was not named among the issues: %#v", snapshot.Proxy.Issues)
+	}
+}
+
+// readHostOwner refuses any record that is not a valid application name, so
+// status publishing one would be the "two answers about one file" the shared
+// probe exists to eliminate: the JSON reads as correctly claimed while every
+// mutation refuses the host.
+func TestStatusSnapshotDoesNotPublishAnOwnerEveryMutationRefuses(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, "", "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{Stdout: "Prod App\n"}, true
+		}
+		return base(cmd)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Proxy == nil {
+		t.Fatal("proxy section was dropped entirely")
+	}
+	if snapshot.Proxy.Owner != "" {
+		t.Errorf("status published owner %q, which every mutation refuses", snapshot.Proxy.Owner)
+	}
+	if snapshot.Proxy.Complete {
+		t.Errorf("proxy reported complete with an unusable owner record: %#v", snapshot.Proxy)
+	}
+	var named bool
+	for _, issue := range snapshot.Proxy.Issues {
+		if strings.Contains(issue, "not a valid application name") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the invalid owner was not named among the issues: %#v", snapshot.Proxy.Issues)
+	}
+}
+
+// The probe can exit outside its enumerated set — cat fails when the record is
+// unlinked or replaced between the -r test and the read. Raising that would
+// stop gather and render nothing, costing the operator every other fact about
+// the host over one file.
+func TestStatusSnapshotSurvivesAnUnenumeratedOwnerExit(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, "", "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{ExitCode: 1, Stderr: "input/output error"}, true
+		}
+		return base(cmd)
+	}
+
+	// Status, not StatusSnapshot: the snapshot degrades per component, while
+	// gather stops the human path at the first error and renders nothing.
+	// A divergence error is expected and fine — it comes after rendering. A
+	// read error is the abort, and it comes instead of rendering.
+	if err := e.Status(context.Background()); err != nil && strings.Contains(err.Error(), "read host owner") {
+		t.Fatalf("an unenumerated owner exit aborted the whole report: %v", err)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snapshot.Proxy == nil || snapshot.Proxy.Container == nil {
+		t.Fatalf("container health was lost to the owner read: %#v", snapshot.Proxy)
+	}
+	if snapshot.Proxy.Complete {
+		t.Errorf("proxy reported complete despite an unreadable owner: %#v", snapshot.Proxy)
+	}
+}
+
+// A refused file read is reported, not raised: status is what an operator runs
+// to find out what is wrong, and one unsearchable directory must not take the
+// container health, the owner and the rest of the report with it. The snapshot
+// still refuses to call the proxy complete.
+func TestStatusSnapshotReportsRefusedProxyReadsWithoutLosingTheRest(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, "", "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "config.hash") {
+			return transport.Result{ExitCode: app.ProbeUndetermined}, true
+		}
+		return base(cmd)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("a refused read must not abort the snapshot: %v", err)
+	}
+	if snapshot.Proxy == nil {
+		t.Fatal("proxy section was dropped entirely")
+	}
+	if snapshot.Proxy.Complete {
+		t.Errorf("proxy reported complete despite a refused read: %#v", snapshot.Proxy)
+	}
+	if snapshot.Proxy.Container == nil {
+		t.Errorf("container health was lost to an unrelated read: %#v", snapshot.Proxy)
+	}
+	var named bool
+	for _, issue := range snapshot.Proxy.Issues {
+		if strings.Contains(issue, "cannot be searched") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("refusal was not named among the issues: %#v", snapshot.Proxy.Issues)
 	}
 }
 

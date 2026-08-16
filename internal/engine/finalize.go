@@ -54,7 +54,7 @@ func named(releaseID string) string {
 // is the post-activation tail, and this is the only path that runs it a second
 // time.
 func (e *Engine) finalizeActivated(ctx context.Context, jw *journal.Writer, manifest *release.Manifest, done map[string]bool, remoteDir, remoteCompose string) error {
-	if err := e.requireActivationEvidence(ctx, manifest, done); err != nil {
+	if err := e.requireActivationEvidence(ctx, jw, manifest, done); err != nil {
 		return err
 	}
 	e.logf("release %s is already serving; completing the post-activation steps only", manifest.ID)
@@ -67,11 +67,20 @@ func (e *Engine) finalizeActivated(ctx context.Context, jw *journal.Writer, mani
 		// manifest records that the same way a failed step does. Activation set
 		// the outcome to succeeded; leaving it there would claim a finished
 		// operation on a release that just failed its health gate.
-		return e.failedOutcome(ctx, manifest, fmt.Errorf("verify serving release: %w", err))
+		// Diagnostic guidance, not `ob resume`: resume re-enters this same
+		// function, runs the same Verify, and fails identically. Every other
+		// post-activation failure is genuinely completed by a re-run; this
+		// one is self-perpetuating, and publishing a resolving command an
+		// agent may execute would have it loop instead of stopping to look.
+		return e.failedOutcomeWithGuidance(ctx, manifest, "ob audit --output json",
+			fmt.Errorf("verify serving release: %w", err))
 	}
 	vf(nil)
 	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
-		return fmt.Errorf("journal verify result: %w", err)
+		// The release is serving and this operation still failed — the same
+		// reasoning as the Verify branch one line up, which is why that one
+		// goes through failedOutcome too.
+		return e.failedOutcome(ctx, manifest, fmt.Errorf("journal verify result: %w", err))
 	}
 	e.progress("verification", "succeeded", "")
 	return e.runPostActivation(ctx, jw, manifest, done, remoteDir, remoteCompose)
@@ -81,11 +90,33 @@ func (e *Engine) finalizeActivated(ctx context.Context, jw *journal.Writer, mani
 // now serving was activated by the operation being finalized. Every source must
 // agree; one disagreement refuses. A serving manifest on its own proves only
 // that some operation activated this release, which is not the same claim.
-func (e *Engine) requireActivationEvidence(ctx context.Context, manifest *release.Manifest, done map[string]bool) error {
+func (e *Engine) requireActivationEvidence(ctx context.Context, jw *journal.Writer, manifest *release.Manifest, done map[string]bool) error {
 	refuse := func(format string, a ...any) error {
 		return &FinalizeRefusedError{ReleaseID: manifest.ID, Reason: fmt.Sprintf(format, a...)}
 	}
-	if !done[journal.DoneActivation] {
+	// A completed activation checkpoint is the other durable proof. The
+	// journal record is written after the clear-worthy checkpoint reaches its
+	// last phase, so a failed journal append leaves exactly this state:
+	// symlink switched, manifest serving, checkpoint open at
+	// ActivationPredecessorSuperseded, journal holding only the intent.
+	// Refusing on the journal alone makes that permanent — nothing rewrites
+	// the record, so every resume repeats the refusal while the release is
+	// live and its outcome stays pending, and the only offered escape rolls a
+	// healthy release back.
+	activated := done[journal.DoneActivation]
+	journalledFromCheckpoint := false
+	if !activated {
+		checkpoint, checkpointErr := release.ReadActivationCheckpoint(ctx, e.T, e.names())
+		switch {
+		case checkpointErr == nil && checkpoint.ReleaseID == manifest.ID &&
+			checkpoint.Phase == release.ActivationPredecessorSuperseded:
+			activated = true
+			journalledFromCheckpoint = true
+		case checkpointErr != nil && !errors.Is(checkpointErr, release.ErrActivationCheckpointMissing):
+			return fmt.Errorf("read activation checkpoint: %w", checkpointErr)
+		}
+	}
+	if !activated {
 		return refuse("its journal records no successful activation")
 	}
 	current, err := release.Current(ctx, e.T, e.names())
@@ -102,14 +133,74 @@ func (e *Engine) requireActivationEvidence(ctx context.Context, manifest *releas
 	// A checkpoint still on the host means activation stopped partway through
 	// its own sequence. Recovery reconciles that from the checkpoint; finalize
 	// must not step over it.
-	_, checkpointErr := release.ReadActivationCheckpoint(ctx, e.T, e.names())
+	staleCheckpoint := false
+	checkpoint, checkpointErr := release.ReadActivationCheckpoint(ctx, e.T, e.names())
 	switch {
 	case checkpointErr == nil:
+		// A checkpoint for THIS release at the sequence's LAST phase, once the
+		// journal already proves the activation completed, is a clear that
+		// did not land — the clear is
+		// the last write of the sequence and can fail on its own. Refusing
+		// would be permanent: nothing on the resume path retries it, so every
+		// `ob resume` would repeat the refusal on a healthy live release, and
+		// the only escapes are rolling it back or deploying over it. Finish
+		// the interrupted step instead of stepping over it.
+		// The phase is what decides this, not whose release it names. A
+		// checkpoint at the last phase records an activation that finished;
+		// the only thing left undone is the clear. A rollback writes one
+		// carrying the ROLLBACK TARGET's id, so keying on manifest.ID here
+		// left that case refusing on every resume until someone deployed
+		// again. Earlier phases still refuse: those are genuinely interrupted
+		// sequences, and recovery reconciles them from the checkpoint.
+		if checkpoint.Phase == release.ActivationPredecessorSuperseded {
+			// Cleared after the live check below, not here: a run that ends
+			// in finalize_refused changed nothing it claimed to, and the
+			// checkpoint is durable evidence that recovery and retention both
+			// read. Destroying it on the way to a refusal is a mutation the
+			// refusal says did not happen.
+			staleCheckpoint = true
+			break
+		}
+		// Anything else — another release, or an earlier phase — means
+		// activation stopped partway through its own sequence. Recovery
+		// reconciles that from the checkpoint; finalize must not step over it.
 		return refuse("an activation checkpoint is still open")
 	case !errors.Is(checkpointErr, release.ErrActivationCheckpointMissing):
 		return fmt.Errorf("read activation checkpoint: %w", checkpointErr)
 	}
-	return e.requireLiveRelease(ctx, manifest.ID)
+	if err := e.requireLiveRelease(ctx, manifest.ID); err != nil {
+		return err
+	}
+	// The checkpoint was the ONLY proof of activation, and it is about to be
+	// deleted. Write the journal record it stood in for first: clearing
+	// without it would leave a release whose activation nothing records, and
+	// any later failure in this run — likely, since an unwritable journal is
+	// what lost the record to begin with — would make every future resume
+	// refuse permanently on a healthy, live release.
+	if journalledFromCheckpoint {
+		if err := jw.Append(ctx, journal.Record{
+			Phase: "activation", Event: "result", Status: "ok", Detail: "release=" + manifest.ID,
+		}); err != nil {
+			// Reached only after requireLiveRelease proved the release is
+			// live, and it is the path most likely to fail — it exists
+			// because the journal was unwritable earlier. An untyped error
+			// here reports cancelled/exit 2 for a serving release.
+			return &PostActivationFailedError{
+				ReleaseID: manifest.ID,
+				Err:       fmt.Errorf("journal activation result reconstructed from checkpoint: %w", err),
+			}
+		}
+	}
+	// Every source agreed, so the clear that did not land can be completed.
+	// rm -f is idempotent, so repeating it costs nothing.
+	if staleCheckpoint {
+		// Reached only once the release is proven live, so the same typing
+		// applies: an interrupt here is not "nothing was changed".
+		if err := e.clearActivationCheckpoint(ctx); err != nil {
+			return e.failedOutcome(ctx, manifest, fmt.Errorf("clear activation checkpoint: %w", err))
+		}
+	}
+	return nil
 }
 
 // requireLiveRelease checks the host agrees with the manifest: every
@@ -196,7 +287,11 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 		}
 	}
 	if err := e.recordOutcome(ctx, manifest, release.OutcomeSucceeded); err != nil {
-		return err
+		// Also an exit from the post-activation steps, and the interrupt case
+		// is real: every step has already run, so a bare context.Canceled
+		// here would ship as "cancelled, nothing was changed" for a release
+		// that is live, journalled and fully finalized but one write.
+		return &PostActivationFailedError{ReleaseID: manifest.ID, Err: err}
 	}
 	e.progress("cleanup", "succeeded", "")
 	return nil
@@ -208,10 +303,51 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 // is a different medium, and a release left claiming a finished operation is the
 // state the outcome field exists to prevent.
 func (e *Engine) failedOutcome(ctx context.Context, manifest *release.Manifest, cause error) error {
+	return e.failedOutcomeWithGuidance(ctx, manifest, "", cause)
+}
+
+// failedOutcomeWithGuidance is failedOutcome for the exits whose published
+// remedy is not the default `ob resume`.
+func (e *Engine) failedOutcomeWithGuidance(ctx context.Context, manifest *release.Manifest, guidance string, cause error) error {
 	if err := e.recordOutcome(ctx, manifest, release.OutcomeFailed); err != nil {
-		return errors.Join(cause, err)
+		// err is the failure to stamp the manifest, and it is the more
+		// dangerous half: the release is left claiming a finished operation,
+		// which is the state this outcome field exists to prevent. Joining
+		// cause twice would report the step failure and lose it.
+		return errors.Join(err, &PostActivationFailedError{ReleaseID: manifest.ID, Err: cause, Guidance: guidance})
 	}
-	return cause
+	return &PostActivationFailedError{ReleaseID: manifest.ID, Err: cause, Guidance: guidance}
+}
+
+// PostActivationFailedError reports that the work after activation did not
+// finish. It is typed because the release is already serving: an interrupt here
+// unwraps to context.Canceled, and without a code of its own the CLI reports
+// outcome "cancelled" and exit 2 — "nothing was changed" — for a deploy whose
+// release is live and whose manifest has just been stamped failed.
+type PostActivationFailedError struct {
+	ReleaseID string
+	Err       error
+	// Guidance overrides the published default. A rollback that could not
+	// clear its checkpoint must not be handed `ob resume`: that fixes the
+	// interrupted deploy forward, the opposite of the operation that just
+	// ran, and finalize would refuse anyway because the checkpoint carries
+	// the rollback target's id rather than the deploy's.
+	Guidance string
+}
+
+func (err *PostActivationFailedError) Error() string {
+	return fmt.Sprintf("release %s is serving, but the work after activation did not finish: %v", err.ReleaseID, err.Err)
+}
+
+func (err *PostActivationFailedError) Unwrap() error { return err.Err }
+
+func (err *PostActivationFailedError) Code() string { return "post_activation_failed" }
+
+func (err *PostActivationFailedError) GuidanceCommand() string {
+	if err.Guidance != "" {
+		return err.Guidance
+	}
+	return "ob resume --output ndjson"
 }
 
 // recordOutcome writes the terminal result of the post-activation steps without

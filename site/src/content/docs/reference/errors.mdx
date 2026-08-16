@@ -123,8 +123,8 @@ step to complete rather than a line to run verbatim.
 | `config_exists` | a project file already exists and init refuses to overwrite it | diagnostic | `ob validate --output json` |
 | `config_write_failed` | the project file could not be written | — | — |
 | `confirmation_failed` | the typed confirmation did not match the release identifier | next | `ob approve --plan <path>` |
-| `divergence_detected` | the live release does not match the recorded release state | diagnostic | `ob status --output json` |
-| `doctor_failed` | a local readiness check failed | diagnostic | `ob doctor --output json` |
+| `divergence_detected` | the live release does not match the recorded release state | diagnostic | `ob audit --output json` |
+| `doctor_failed` | a local readiness check failed | — | — |
 | `exec_failed` | the audited exec could not be completed | diagnostic | `ob status --output json` |
 | `finalize_refused` | the release cannot be finalized because the recorded activation evidence disagrees with the live host | diagnostic | `ob status --output json` |
 | `host_owner_mismatch` | this host is owned by a different Onebox application, and one host has one owner | diagnostic | `ob preflight --output json` |
@@ -137,13 +137,14 @@ step to complete rather than a line to run verbatim.
 | `manifest_schema_unknown` | a release manifest declares a schema this binary does not support | diagnostic | `ob version --output json` |
 | `manifest_write_failed` | a release manifest could not be written to the host | diagnostic | `ob status --output json` |
 | `migration_backup_required` | a migration-effect step requires a plan-bound backup report or an audited override | next | `ob plan --backup-report-out <path>` |
-| `migration_gate_closed` | the interrupted release ran rollback-unknown data effects, so automatic recovery is refused | resolving | `ob resume --output ndjson` |
+| `migration_gate_closed` | the interrupted release ran rollback-unknown data effects, so the requested recovery action is refused | resolving | `ob resume --output ndjson` |
 | `operation_failed` | the operation failed; inspect stderr and journal evidence | diagnostic | `ob audit --output json` |
 | `output_mode_incompatible` | the requested output mode is incompatible with this command | diagnostic | `ob help` |
 | `plan_expired` | the sealed plan is older than its validity window | next | `ob plan --output json` |
 | `plan_failed` | the plan could not be produced; inspect stderr for local diagnostics | diagnostic | `ob validate --output json` |
 | `plan_required` | this command requires a sealed plan when run with structured output | next | `ob plan --output json` |
-| `preflight_failed` | a target readiness check failed before any mutation | diagnostic | `ob preflight --output json` |
+| `post_activation_failed` | the release is serving, but the work after activation did not finish | resolving | `ob resume --output ndjson` |
+| `preflight_failed` | a target readiness check failed before any mutation | — | — |
 | `recovery_incomplete` | recovery did not reach its verified terminal state | resolving | `ob resume --output ndjson` |
 | `rollback_target_missing` | no previously serving release is recorded as a rollback target | next | `ob plan --output json` |
 | `secret_cleanup_pending` | the rotation is applied and verified, but removing the retired generation did not finish | resolving | `ob secrets push --output ndjson` |

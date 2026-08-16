@@ -99,7 +99,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 2. The base path. Checked without creating anything: preflight that
 	// mutates is not preflight.
 	report.Checks = append(report.Checks, basePathCheck(ctx, run, n.BasePath))
-	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostDir()+"/owner", p.Name))
+	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostOwnerPath(), p.Name))
 
 	// 3. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
@@ -129,29 +129,55 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 // already belongs to somebody else.
 func hostOwnerCheck(ctx context.Context, run Runner, path, application string) Check {
 	// The same probe the engine's readHostOwner uses, including the
-	// regular-file and symlink guards. Preflight accepting a symlinked owner
-	// record the engine then refuses would make preflight pass on a host every
-	// subsequent mutation rejects.
-	res, err := run.Run(ctx, "if [ ! -e "+shellQuote(path)+" ]; then exit 3; fi; "+
-		"if [ ! -f "+shellQuote(path)+" ] || [ -L "+shellQuote(path)+" ]; then exit 4; fi; cat "+shellQuote(path))
+	// regular-file and symlink guards.
+	res, err := run.Run(ctx, HostOwnerProbe(path))
 	if err != nil {
 		return Check{Name: "host owner", Detail: "could not read the host owner record", Remedy: "verify target access, then retry"}
 	}
-	if res.ExitCode == 3 {
+	if res.ExitCode == ProbeAbsent {
 		return Check{Name: "host owner", OK: true, Detail: "unclaimed — ob bootstrap will claim it for " + application}
 	}
-	if res.ExitCode == 4 {
+	// Absence that could not be established is not absence. Passing this as
+	// unclaimed is how one application adopts a host that already has an owner.
+	if res.ExitCode == ProbeUndetermined {
+		return Check{
+			Name:   "host owner",
+			Detail: "the host state directory cannot be searched, so an owner record cannot be ruled out",
+			Remedy: "verify access to the host state directory, then retry",
+		}
+	}
+	if res.ExitCode == ProbeStatePathNotDirectory {
+		return Check{
+			Name:   "host owner",
+			Detail: "the path that should hold the host owner record is not a directory",
+			Remedy: "inspect the host state directory; no permission change fixes a file where the directory belongs",
+		}
+	}
+	if res.ExitCode == ProbeNotRegular {
 		return Check{
 			Name:   "host owner",
 			Detail: "the host owner record is not a regular file",
 			Remedy: "inspect the host state directory; only a regular file is a valid owner record",
 		}
 	}
-	if res.ExitCode != 0 {
+	// 2 is the probe's own refusal; 1 is cat failing on a record it could not
+	// read for some other reason. Both are facts about the record.
+	if res.ExitCode == ProbeUnreadable || res.ExitCode == 1 {
 		return Check{
 			Name:   "host owner",
 			Detail: "the host owner record exists but could not be read",
 			Remedy: "verify target access and the record's permissions, then retry",
+		}
+	}
+	// Anything else is the command failing rather than a fact about the
+	// record — no shell, a transport reporting a remote status without a Go
+	// error — and reporting that as an unreadable record is a diagnosis
+	// preflight never made.
+	if res.ExitCode != 0 {
+		return Check{
+			Name:   "host owner",
+			Detail: fmt.Sprintf("the host owner record could not be checked (exit %d)", res.ExitCode),
+			Remedy: "verify target access and that a POSIX shell is available, then retry",
 		}
 	}
 	owner := strings.TrimSpace(res.Stdout)
@@ -170,20 +196,66 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application string) C
 }
 
 func basePathCheck(ctx context.Context, run Runner, base string) Check {
-	// Walk up to the nearest existing ancestor and test that it is writable.
+	// Walk up to the nearest ancestor we can see and test that it is usable.
+	//
+	// -e follows symlinks, so the walk has to stop at a link it cannot
+	// resolve as well as at a real directory: without -L a dangling
+	// base_path is invisible, the walk climbs past it to a writable
+	// /var/lib, and preflight answers "base path OK" for a path whose first
+	// mkdir fails with "File exists" — the false absence this whole contract
+	// exists to refuse.
 	cmd := fmt.Sprintf(
-		`p=%q; while [ ! -e "$p" ] && [ "$p" != "/" ]; do p=$(dirname "$p"); done; `+
-			`[ -w "$p" ] && echo "$p" || { echo "$p"; exit 1; }`, base)
+		`p=%q; while [ ! -e "$p" ] && [ ! -L "$p" ] && [ "$p" != "/" ]; do p=$(dirname "$p"); done; `+
+			`echo "$p"; `+
+			`if [ -L "$p" ] && [ ! -e "$p" ]; then exit %d; fi; `+
+			`if [ ! -d "$p" ]; then exit %d; fi; `+
+			`( cd "$p" ) 2>/dev/null || exit %d; `+
+			`[ -w "$p" ] || exit 1`,
+		base, ProbeNotRegular, ProbeStatePathNotDirectory, ProbeUndetermined)
 	res, err := run.Run(ctx, cmd)
-	if err != nil || res.ExitCode != 0 {
-		where := strings.TrimSpace(res.Stdout)
+	if err != nil {
+		return Check{Name: "base path", Detail: "could not read the base path", Remedy: "verify target access, then retry"}
+	}
+	where := strings.TrimSpace(res.Stdout)
+	switch res.ExitCode {
+	case 0:
+		return Check{Name: "base path", OK: true, Detail: base}
+	case ProbeNotRegular:
+		return Check{
+			Name:   "base path",
+			Detail: fmt.Sprintf("%s is a symlink whose target does not exist", where),
+			Remedy: fmt.Sprintf("repair or remove %s; ob will not create a base path through a broken link", where),
+		}
+	case ProbeStatePathNotDirectory:
+		return Check{
+			Name:   "base path",
+			Detail: fmt.Sprintf("%s is not a directory", where),
+			Remedy: fmt.Sprintf("remove %s, or set base_path somewhere ob can create a directory", where),
+		}
+	case ProbeUndetermined:
+		return Check{
+			Name:   "base path",
+			Detail: fmt.Sprintf("%s cannot be searched, so its contents could not be checked", where),
+			Remedy: fmt.Sprintf("grant this account access to %s, then retry", where),
+		}
+	}
+	if res.ExitCode == 1 {
 		return Check{
 			Name:   "base path",
 			Detail: fmt.Sprintf("%s is not writable by this account", where),
 			Remedy: fmt.Sprintf("grant write access to %s, or set base_path to a directory this account owns", where),
 		}
 	}
-	return Check{Name: "base path", OK: true, Detail: base}
+	// The probe emits 0, 1, 4, 5 and 6 and nothing else, so any other status
+	// is the command itself failing — no shell, a transport reporting a remote
+	// status without a Go error. Reusing the not-writable sentence there names
+	// a cause preflight never observed, with an empty path where the offending
+	// directory should be.
+	return Check{
+		Name:   "base path",
+		Detail: fmt.Sprintf("the base path could not be checked (exit %d)", res.ExitCode),
+		Remedy: "verify target access and that a POSIX shell is available, then retry",
+	}
 }
 
 // ownedNames lists the container, volume and network names already on the host,

@@ -59,17 +59,20 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 }
 
 func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReportOut string) error {
-	preexisting := artifactExists(outPath)
 	plan, err := operationsService(cmd, g).PlanJob(cmd.Context(), onebox.PlanJobRequest{Job: jobID})
 	if err != nil {
 		return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "job planning failed; inspect stderr for local diagnostics", err)
 	}
-	// Plan first, template second: see the same ordering in runPlan. A job that
-	// declares no migration effect must not lose its plan because the caller
-	// asked for a report template it turns out not to need.
-	if err := plan.Save(outPath); err != nil {
+	// Validated before anything is staged. Save() validates on its way to
+	// writing, so without this a plan that is simply invalid would be
+	// reported as artifact_write_failed — a write that never happened, and a
+	// code whose guidance is blank.
+	if err := plan.Validate(); err != nil {
 		return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "job planning failed; inspect stderr for local diagnostics", err)
 	}
+	// A job that declares no migration effect must not lose its plan because
+	// the caller asked for a report template it turns out not to need — hence
+	// the not-required case below is not a failure.
 	var reportTemplate *onebox.BackupReport
 	backupReportRequired := false
 	if backupReportOut != "" {
@@ -80,19 +83,46 @@ func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReport
 			backupReportRequired = true
 		case errors.Is(templateErr, onebox.ErrBackupReportNotRequired):
 		default:
-			if cleanupErr := removeArtifactWeCreated(outPath, preexisting); cleanupErr != nil {
-				templateErr = errors.Join(templateErr, fmt.Errorf("remove incomplete job plan artifact set: %w", cleanupErr))
-			}
-			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", templateErr)
+			// Built, not written: see the note on the same arm in plan. The
+			// code stays job-scoped — plan_failed publishes `ob validate` as
+			// its guidance, which is not the command that retries this.
+			return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "job planning failed; inspect stderr for local diagnostics", templateErr)
 		}
 	}
+	// One destination cannot hold both. Staging gives them distinct temp
+	// names, so the set would commit and the plan — renamed second — would
+	// silently win, leaving the run reporting a backup_report_path that holds
+	// a deploy plan.
+	if backupReportOut != "" && sameArtifactPath(outPath, backupReportOut) {
+		return writeStructuredCommandFailure(cmd, g, "artifact_write_failed",
+			"job plan artifacts could not be written", fmt.Errorf("--out and --backup-report-out name the same path: %s", outPath))
+	}
+	// Staged and committed together, for the reason given in runPlan.
+	var stagedReport stagedArtifact
 	if reportTemplate != nil {
-		if err := reportTemplate.SaveTemplate(backupReportOut); err != nil {
-			if cleanupErr := removeArtifactWeCreated(outPath, preexisting); cleanupErr != nil {
-				err = errors.Join(err, fmt.Errorf("remove incomplete job plan artifact set: %w", cleanupErr))
-			}
-			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", err)
+		var stageErr error
+		stagedReport, stageErr = stageArtifact(backupReportOut, ".report", reportTemplate.SaveTemplate)
+		if stageErr != nil {
+			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", stageErr)
 		}
+	}
+	// artifact_write_failed, not job_plan_failed: staging is where the writes actually
+	// happen — MkdirAll, CreateTemp, Write, Sync, Rename, directory fsync — so
+	// ENOSPC and EACCES land here, and job_plan_failed publishes `ob validate`, which
+	// would pass and leave the caller looping.
+	stagedPlan, stageErr := stageArtifact(outPath, ".plan", plan.Save)
+	if stageErr != nil {
+		stagedReport.discard()
+		return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", stageErr)
+	}
+	// Committed as a set: a failure part-way puts the tree back — what landed
+	// is removed and whatever it replaced is restored from its backup — and
+	// every staged and backup file is discarded on the way out. A caller told
+	// the run failed finds neither a fresh artifact nor a missing one.
+	// A commit failure is a rename or a directory sync — a write, not a
+	// planning problem, so it must not report job_plan_failed.
+	if err := commitArtifactSet(stagedReport, stagedPlan); err != nil {
+		return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "job plan artifacts could not be written", err)
 	}
 	if isStructuredOutput(g) {
 		data := map[string]any{"plan": plan, "artifact_path": outPath}

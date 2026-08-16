@@ -373,6 +373,25 @@ func TestDestroyKeepsHostOwnershipWhileDataRemains(t *testing.T) {
 	}
 }
 
+// With a managed proxy --proxy is always part of the releasing command, so the
+// notice must name it even on the run that just passed --proxy and kept
+// volumes. Keying the suffix on !removeProxy told that operator to run
+// `ob destroy --volumes`, which retains ownership again — the exact defect the
+// notice exists to prevent.
+func TestDestroyNamesProxyEvenAfterAProxyOnlyDestroy(t *testing.T) {
+	spec := testConfig()
+	spec.Spec.Proxy.Managed = true
+	f := opsFake("x")
+	var out bytes.Buffer
+	e := New(spec, testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, true); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	if !strings.Contains(out.String(), "run `ob destroy --volumes --proxy`") {
+		t.Fatalf("retention notice named a command that retains ownership again:\n%s", out.String())
+	}
+}
+
 func TestDestroyTellsTheOperatorHowToReleaseTheHost(t *testing.T) {
 	f := opsFake("x")
 	var out bytes.Buffer

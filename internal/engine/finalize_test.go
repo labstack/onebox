@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,19 @@ hooks:
 // activatedFake is a deploy that got past activation and then failed in the
 // post-activation steps: the release is current, serving, and healthy, and the
 // journal's last record is finish:fail.
+// activatedFakeWithoutActivationResult is the state a failed activation-journal
+// append leaves: the intent is recorded, the result never landed.
+func activatedFakeWithoutActivationResult(t *testing.T, tail ...journal.Record) *transport.Fake {
+	t.Helper()
+	return buildActivatedFake(t, false, tail...)
+}
+
 func activatedFake(t *testing.T, tail ...journal.Record) *transport.Fake {
+	t.Helper()
+	return buildActivatedFake(t, true, tail...)
+}
+
+func buildActivatedFake(t *testing.T, activationResult bool, tail ...journal.Record) *transport.Fake {
 	t.Helper()
 	f := happyFake()
 	// serving/failed is what a post-activation failure actually leaves behind;
@@ -65,7 +78,11 @@ func activatedFake(t *testing.T, tail ...journal.Record) *transport.Fake {
 		{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
 		{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "release", Role: "worker", Event: "result", Status: "ok"},
 		{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "verify", Event: "result", Status: "ok"},
-		{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "activation", Event: "result", Status: "ok", Detail: "release=" + engineTestDeployReleaseID},
+	}
+	if activationResult {
+		records = append(records, journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "activation", Event: "result", Status: "ok", Detail: "release=" + engineTestDeployReleaseID})
+	} else {
+		records = append(records, journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "activation", Event: "intent", Detail: "release=" + engineTestDeployReleaseID})
 	}
 	for _, record := range tail {
 		record.DeployID, record.Epoch = engineTestDeployReleaseID, 2
@@ -246,6 +263,74 @@ func TestFinalizeDoesNotRepeatACompletedPostDeployHook(t *testing.T) {
 	}
 	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "notify-release") {
 		t.Fatalf("a completed post-deploy hook must not repeat:\n%s", seq)
+	}
+}
+
+// The activation checkpoint is cleared last, after the journal records the
+// activation, so a clear that fails leaves a checkpoint behind on a release
+// that is live and fully activated. Refusing on that would be permanent:
+// nothing on the resume path retries the clear, so every `ob resume` would
+// repeat it, and the only escapes are rolling a healthy release back or
+// deploying over it. Finalize finishes the interrupted step instead.
+func TestFinalizeCompletesAClearThatDidNotLand(t *testing.T) {
+	f := activatedFake(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("a checkpoint left by a failed clear must not refuse a finalize: %v", err)
+	}
+	if _, err := release.ReadActivationCheckpoint(context.Background(), f, e.Names()); err == nil {
+		t.Fatal("finalize left the stale checkpoint behind, so the next resume repeats the problem")
+	}
+}
+
+// A refused finalize changed nothing it claimed to, so it must not consume the
+// checkpoint on the way out: recovery and retention both read that file as
+// durable evidence.
+func TestARefusedFinalizeLeavesTheCheckpointIntact(t *testing.T) {
+	f := activatedFake(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+	// A workload is no longer running, so the live check refuses.
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker ps --filter label=ob.app=") {
+			return transport.Result{Stdout: "NEW1|web|" + engineTestDeployReleaseID + "|Up (healthy)\n"}, true
+		}
+		return base(cmd)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	var refused *FinalizeRefusedError
+	if err := e.Resume(context.Background()); !errors.As(err, &refused) {
+		t.Fatalf("resume error = %v, want a typed finalize_refused", err)
+	}
+	if _, err := release.ReadActivationCheckpoint(context.Background(), f, e.Names()); err != nil {
+		t.Fatalf("a refused finalize consumed the checkpoint it refused on: %v", err)
 	}
 }
 
@@ -590,5 +675,352 @@ func TestResumeRefusesASupersededReleaseBeforeAnyEffect(t *testing.T) {
 		if strings.Contains(seq, forbidden) {
 			t.Fatalf("a superseded release must be refused before any effect (%s):\n%s", forbidden, seq)
 		}
+	}
+}
+
+// A manifest that still claims the previous outcome is the state the outcome
+// field exists to prevent, so the failure to stamp it must reach the operator —
+// not be replaced by the step failure that triggered it.
+func TestFailedOutcomeReportsAFailedManifestWrite(t *testing.T) {
+	f := activatedFake(t)
+	// Not already failed: recordOutcome short-circuits when the manifest
+	// carries the outcome it is about to write, so the default seed would make
+	// the write this test needs to fail never happen at all.
+	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID, release.OutcomeSucceeded)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		// The post-deploy hook fails...
+		if strings.Contains(cmd, "notify-release") {
+			return transport.Result{ExitCode: 1, Stderr: "hook exploded"}, true
+		}
+		// ...and so does the manifest write that records the outcome.
+		if strings.Contains(cmd, "manifest.json.tmp") {
+			return transport.Result{ExitCode: 1, Stderr: "disk full"}, true
+		}
+		return base(cmd)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Resume(context.Background())
+	if err == nil {
+		t.Fatal("resume reported success with an unstamped manifest")
+	}
+	var typed *PostActivationFailedError
+	if !errors.As(err, &typed) {
+		t.Errorf("error = %v, want it to carry PostActivationFailedError", err)
+	}
+	if !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("the manifest write failure was dropped: %v", err)
+	}
+}
+
+// The success write is an exit from the post-activation steps too: every step
+// has already run, so an interrupt there must not report "cancelled, nothing
+// was changed" for a release that is live and fully finalized but one write.
+func TestASuccessfulFinalizeStillTypesItsOutcomeWriteFailure(t *testing.T) {
+	f := activatedFake(t)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "manifest.json.tmp") {
+			return transport.Result{ExitCode: 1, Stderr: "transport lost"}, true
+		}
+		return base(cmd)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Resume(context.Background())
+	var typed *PostActivationFailedError
+	if !errors.As(err, &typed) {
+		t.Fatalf("error = %v, want a typed post_activation_failed", err)
+	}
+	if typed.Code() != "post_activation_failed" {
+		t.Errorf("code = %q", typed.Code())
+	}
+}
+
+// The checkpoint clear runs after the release is live and journalled, so a
+// failure there is not "nothing was changed". Untyped, an interrupt at that
+// moment ships as outcome cancelled and exit 2 for a deploy whose new
+// generation is serving.
+func TestAFailedCheckpointClearIsTypedAsPostActivation(t *testing.T) {
+	f := activatedFake(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+	// Installed after seeding, and excluding the checkpoint WRITE, whose trap
+	// also contains `rm -f "$tmp"`. e.mutate prefixes the command with fence
+	// checks, so this cannot anchor on a prefix either.
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "rm -f") && strings.Contains(cmd, "activation.json") && !strings.Contains(cmd, "mktemp") {
+			return transport.Result{ExitCode: 1, Stderr: "transport lost"}, true
+		}
+		return base(cmd)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	var typed *PostActivationFailedError
+	if err := e.Resume(context.Background()); !errors.As(err, &typed) {
+		t.Fatalf("error = %v, want a typed post_activation_failed", err)
+	}
+}
+
+// A failed activation-journal append leaves the release serving with only the
+// intent recorded. Refusing on the journal alone makes that permanent: nothing
+// rewrites the record, every resume repeats the refusal, the outcome stays
+// pending on a healthy release, and the only offered escape rolls it back. A
+// checkpoint at the sequence's last phase is the other durable proof that
+// activation completed.
+func TestFinalizeAcceptsACompletedCheckpointWhenTheJournalAppendFailed(t *testing.T) {
+	f := activatedFakeWithoutActivationResult(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("finalize refused a release its checkpoint proves was activated: %v", err)
+	}
+	if _, err := release.ReadActivationCheckpoint(context.Background(), f, e.Names()); err == nil {
+		t.Error("the completed checkpoint was left behind")
+	}
+}
+
+// Without that proof the refusal still stands: a checkpoint at an earlier
+// phase means activation genuinely did not finish.
+func TestFinalizeStillRefusesWithAnIncompleteCheckpointAndNoJournalRecord(t *testing.T) {
+	f := activatedFakeWithoutActivationResult(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPrepared, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	var refused *FinalizeRefusedError
+	if err := e.Resume(context.Background()); !errors.As(err, &refused) {
+		t.Fatalf("error = %v, want a typed finalize_refused", err)
+	}
+}
+
+// The checkpoint is the only proof of activation on this path, and finalize
+// deletes it. If the record it stood in for is not written first, a later
+// failure in the same run leaves neither evidence source, and every future
+// resume refuses permanently on a healthy, live release.
+func TestFinalizeJournalsTheReconstructedActivationBeforeClearingTheCheckpoint(t *testing.T) {
+	f := activatedFakeWithoutActivationResult(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	appended, cleared := -1, -1
+	for i, cmd := range f.Commands {
+		if appended < 0 && strings.Contains(cmd, `"phase":"activation"`) && strings.Contains(cmd, `"event":"result"`) {
+			appended = i
+		}
+		if cleared < 0 && strings.Contains(cmd, "rm -f") && strings.Contains(cmd, "activation.json") && !strings.Contains(cmd, "mktemp") {
+			cleared = i
+		}
+	}
+	if appended < 0 {
+		t.Fatal("the activation the checkpoint proved was never written to the journal")
+	}
+	if cleared >= 0 && cleared < appended {
+		t.Fatalf("checkpoint cleared at %d, before the activation was journalled at %d", cleared, appended)
+	}
+}
+
+// Transition(StateServing) sets the outcome to succeeded, so an exit that skips
+// failedOutcome leaves the manifest claiming a finished operation for one that
+// failed — the state the outcome field exists to prevent.
+func TestAFailedCheckpointClearRecordsAFailedOutcome(t *testing.T) {
+	f := activatedFake(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestDeployReleaseID, engineTestPreviousReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+	seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID, release.OutcomeSucceeded)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "rm -f") && strings.Contains(cmd, "activation.json") && !strings.Contains(cmd, "mktemp") {
+			return transport.Result{ExitCode: 1, Stderr: "transport lost"}, true
+		}
+		return base(cmd)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err == nil {
+		t.Fatal("resume reported success with an uncleared checkpoint")
+	}
+	var wroteFailed bool
+	for _, input := range f.Inputs {
+		if strings.Contains(input, `"operation_outcome"`) && strings.Contains(input, `"failed"`) {
+			wroteFailed = true
+		}
+	}
+	if !wroteFailed {
+		t.Error("the manifest still claims a finished operation after a failed clear")
+	}
+}
+
+// A rollback writes a checkpoint carrying the ROLLBACK TARGET's id. Keying the
+// stale-checkpoint completion on manifest.ID left that case refusing on every
+// resume until someone deployed again — the phase is what says the activation
+// finished, not whose release it names.
+func TestFinalizeClearsACompletedCheckpointForAnotherRelease(t *testing.T) {
+	f := activatedFake(t)
+	checkpoint, err := release.NewActivationCheckpoint(
+		engineTestPreviousReleaseID, engineTestDeployReleaseID,
+		release.ActivationPredecessorSuperseded, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, input, err := release.ActivationCheckpointWrite(testConfig().NamesFor("production"), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.RunInput(context.Background(), command, input); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("a completed checkpoint from another release still refused: %v", err)
+	}
+	if _, err := release.ReadActivationCheckpoint(context.Background(), f, e.Names()); err == nil {
+		t.Error("the completed checkpoint was left behind")
+	}
+}
+
+// Journal appends past activation are exits too. The release is already
+// serving, so an untyped failure here reports "cancelled, nothing was changed"
+// for a live generation and leaves the manifest claiming the operation
+// succeeded.
+func TestPostActivationJournalAppendFailuresAreTypedAndRecorded(t *testing.T) {
+	for name, marker := range map[string]string{
+		"verify result":     `"phase":"verify"`,
+		"activation result": `"phase":"activation"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := activatedFake(t)
+			seedServingApplicationManifest(f, engineTestDeployReleaseID, engineTestPreviousReleaseID, release.OutcomeSucceeded)
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, marker) && strings.Contains(cmd, `"event":"result"`) {
+					return transport.Result{ExitCode: 1, Stderr: "journal unwritable"}, true
+				}
+				return base(cmd)
+			}
+
+			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			err := e.Resume(context.Background())
+			if err == nil {
+				return // this marker is not reached on the resume path
+			}
+			var typed *PostActivationFailedError
+			if !errors.As(err, &typed) {
+				t.Errorf("error = %v, want a typed post_activation_failed", err)
+			}
+		})
+	}
+}
+
+// Every other post-activation failure is completed by re-running resume; a
+// verify failure is not — resume re-enters this function, runs the same Verify
+// and fails identically. Publishing a resolving command an agent may execute
+// would have it loop instead of stopping to diagnose.
+//
+// Two halves: the helper carries guidance through, and the verify branch is
+// the one that passes a diagnostic. Driving a real verify failure would need a
+// project fixture with verifications, which tests the fixture more than the
+// rule.
+func TestFailedOutcomeCarriesGuidanceThrough(t *testing.T) {
+	f := activatedFake(t)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	manifest, err := release.ReadManifest(context.Background(), f, e.Names(), engineTestDeployReleaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = e.failedOutcomeWithGuidance(context.Background(), &manifest, "ob audit --output json", errors.New("boom"))
+	var typed *PostActivationFailedError
+	if !errors.As(err, &typed) {
+		t.Fatalf("error = %v, want a typed post_activation_failed", err)
+	}
+	if got := typed.GuidanceCommand(); got != "ob audit --output json" {
+		t.Errorf("guidance = %q, want the diagnostic the caller asked for", got)
+	}
+	// The default is still resume for every other exit.
+	err = e.failedOutcome(context.Background(), &manifest, errors.New("boom"))
+	if !errors.As(err, &typed) || typed.GuidanceCommand() != "ob resume --output ndjson" {
+		t.Errorf("default guidance = %q, want ob resume", typed.GuidanceCommand())
+	}
+}
+
+func TestTheVerifyBranchPublishesADiagnostic(t *testing.T) {
+	body, err := os.ReadFile("finalize.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	index := strings.Index(text, `fmt.Errorf("verify serving release:`)
+	if index < 0 {
+		t.Fatal("the verify failure branch moved; update this test")
+	}
+	window := text[max(0, index-300):index]
+	if !strings.Contains(window, "failedOutcomeWithGuidance") || !strings.Contains(window, "ob audit --output json") {
+		t.Error("the verify failure no longer publishes a diagnostic; ob resume re-runs the check that just failed")
 	}
 }

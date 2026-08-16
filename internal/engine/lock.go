@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -90,7 +91,7 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		}
 		var holder lockMeta
 		_ = json.Unmarshal([]byte(observed), &holder)
-		ares, err := e.T.Run(ctx, lockAgeCmd(q(e.lockPath())))
+		ares, err := e.T.Run(ctx, lockAgeCmd(e.lockPath()))
 		if err != nil {
 			return 0, err
 		}
@@ -161,18 +162,19 @@ func (e *Engine) lockTTL() time.Duration {
 //     released it between our failed create and this check)
 //
 // Dangling-check first, then stat, so a present-but-unstattable lock is caught
-// by `-e`/`-L` and refused rather than misread as absent. Limit: if the lock's PARENT dir is
-// unsearchable, neither stat nor `-e`/`-L` can observe the lock, so it reads as
-// absent and is taken over (fail open). Not a live path — the runner owns
-// /var/lib/ob/<app> (Preflight asserts it writable) — so the guarantee is "fail
-// closed while the lock is observable", not absolute.
+// by `-e`/`-L` and refused rather than misread as absent. Absence itself is
+// established rather than assumed: if a directory on the way is unsearchable,
+// neither stat nor `-e`/`-L` can observe the lock, and that used to read as
+// absent and be taken over (fail open). UndeterminedArm now turns it into age
+// 0, so the guarantee is "fail closed", not "fail closed while observable".
 //
 // `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
-// drives a macOS box through the Local transport). qpath must already be
-// shell-quoted. Callers that expose `--break-lock` apply it before the refusal
+// drives a macOS box through the Local transport). path is quoted here, so
+// callers pass it raw. Callers that expose `--break-lock` apply it before the refusal
 // default. AcquireLock also reclaims a same-deploy holder; protection locks do
 // not expose the generic break override.
-func lockAgeCmd(qpath string) string {
+func lockAgeCmd(path string) string {
+	qpath := q(path)
 	// A dangling symlink is "present but not resolvable" → fail closed (age 0).
 	// Detect it FIRST and portably: `test -e` follows the link (false when the
 	// target is gone) while `test -L` stays true. Relying on stat to fail here is
@@ -181,7 +183,14 @@ func lockAgeCmd(qpath string) string {
 	return "if [ -L " + qpath + " ] && [ ! -e " + qpath + " ]; then echo 0; " +
 		"elif M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
 		"elif [ -e " + qpath + " ] || [ -L " + qpath + " ]; then echo 0; " +
-		"else date +%s; fi"
+		// Absence has to be established, not assumed. If a directory on the
+		// way cannot be searched, neither stat nor -e/-L can see the lock,
+		// and answering "maximal age" hands the deploy a lock that may be
+		// held right now — the one false absence whose cost is two
+		// concurrent mutators rather than a misleading report. The arm runs
+		// in a subshell so its refusal becomes age 0 (fail closed) rather
+		// than an exit status this command's callers do not read.
+		"else if ( " + app.UndeterminedArm(path) + "true ); then date +%s; else echo 0; fi; fi"
 }
 
 // StartHeartbeat keeps the lock fresh while the deploy runs; a crashed

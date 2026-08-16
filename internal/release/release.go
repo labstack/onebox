@@ -79,9 +79,22 @@ func Push(ctx context.Context, t transport.Transport, stagingDir string, n app.N
 
 func Current(ctx context.Context, t transport.Transport, n app.Names) (string, error) {
 	p := PathsFor(n)
-	res, err := t.Run(ctx, "if [ -L "+q(p.Current)+" ]; then readlink "+q(p.Current)+"; elif [ -e "+q(p.Current)+" ]; then exit 2; fi")
+	// -L is tested first, so a dangling pointer is read rather than mistaken
+	// for absence. An unsearchable ancestor is the remaining false-absence
+	// route: without the arm it answers "first deploy" for a host that has
+	// released many times.
+	res, err := t.Run(ctx, "if [ -L "+q(p.Current)+" ]; then readlink "+q(p.Current)+
+		"; elif [ -e "+q(p.Current)+" ]; then exit 2; else "+app.UndeterminedArm(p.Current)+"true; fi")
 	if err != nil {
 		return "", err
+	}
+	switch res.ExitCode {
+	case app.ProbeUnreadable:
+		return "", fmt.Errorf("read current release failed: %s exists and is not a release pointer; inspect it, only a symlink is a valid current release", p.Current)
+	case app.ProbeStatePathNotDirectory:
+		return "", fmt.Errorf("read current release failed: the path that should hold %s is not a directory", p.Current)
+	case app.ProbeUndetermined:
+		return "", fmt.Errorf("read current release failed: a directory holding %s cannot be searched, so a first deploy cannot be told from an unreadable one; verify access, then retry", p.Current)
 	}
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf("read current release failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))

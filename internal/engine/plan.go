@@ -163,9 +163,13 @@ func (err *ImageResolutionError) GuidanceCommand() string { return err.Resolving
 
 func imageResolutionError(workload, image, detail string) *ImageResolutionError {
 	return &ImageResolutionError{
-		Workload:         workload,
-		Image:            image,
-		ResolvingCommand: "ob deploy --image " + workload + "=<digest-reference>",
+		Workload: workload,
+		Image:    image,
+		// `ob plan`, not `ob deploy`: a structured deploy without --plan is
+		// refused with plan_required, so guidance naming it hands an agent a
+		// refusal instead of progress. Pinning the workload in a plan is the
+		// step that actually unblocks either path.
+		ResolvingCommand: "ob plan --image " + workload + "=<digest-reference>",
 		Detail:           detail,
 	}
 }
@@ -398,17 +402,47 @@ func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (str
 	// matches against, so for a given spec the two select the same set. Nothing is
 	// redirected to /dev/null: an unreadable file must fail the read rather
 	// than silently shrink the digest to one taken over the readable subset.
-	// The listing is captured before it is folded. A pipeline's exit status is
-	// its last stage's, so `find … | sort | sha256sum | cut` reported success
-	// even when find could not read part of the tree — yielding a well-formed
-	// digest over the readable subset only. Command substitution with `||`
-	// propagates find's own status instead.
+	// The listing is staged in a file, not a shell variable. A pipeline's exit
+	// status is its last stage's, so `find … | sort | sha256sum | cut`
+	// reported success even when find could not read part of the tree —
+	// yielding a well-formed digest over the readable subset only. Staging
+	// lets `||` propagate find's own status.
 	//
-	// The empty case is spelled out because `printf '%s\n' ""` emits a newline,
-	// which would hash differently from the local walk's empty input.
-	cmd := "cd " + q(dir) + " && listing=$(find . -type f " + payloadFindArgs(payloadExclusionsFor(e.Spec)) +
-		" -exec sha256sum {} +) || exit $?; { if [ -n \"$listing\" ]; then printf '%s\\n' \"$listing\"; fi; }" +
-		" | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
+	// A variable would do that too, but a payload includes bind sources: a
+	// project that binds a large tree makes the listing tens of megabytes,
+	// held in the shell and re-emitted through printf, which is where memory
+	// and ARG_MAX limits start deciding whether a deploy works. The file
+	// streams instead, and an empty payload leaves an empty file, which
+	// hashes as the local walk's empty input without a special case.
+	//
+	// The temp file lives outside the release directory on purpose: a file
+	// inside it would be counted by the very find that is digesting it.
+	// Every stage is staged, not piped, for the same reason: a pipeline's exit
+	// status is its last stage's. Folding through `sort | sha256sum | cut`
+	// would reintroduce the defect one stage over — the large payload that
+	// motivates staging is exactly what makes sort spill to $TMPDIR, and a
+	// full disk there has sort emit partial output and exit 2 while sha256sum
+	// happily hashes the truncation. That returns a well-formed wrong digest,
+	// which reads downstream as "live payload changed since plan" on a host
+	// where nothing changed.
+	// The trap is installed BEFORE the first mktemp: installing it after both
+	// leaves a window where the second mktemp fails, or the shell is
+	// interrupted between them, and the first temp file survives. Digests run
+	// on every plan and every deploy precondition, so that accumulates in
+	// $TMPDIR. rm -f tolerates the unset variables.
+	// `cd` is its own guarded statement. Written as `cd DIR && trap …; …` the
+	// && binds to the trap alone, the ; ends the and-list, and a failed cd —
+	// release directory missing, renamed, unreadable — falls through to `find .`
+	// in the login shell's home directory. That exits 0 with a well-formed
+	// digest of the wrong tree, which reads downstream as "the payload
+	// changed" on a host where nothing did.
+	cmd := "cd " + q(dir) + " || exit $?; " +
+		"trap 'rm -f \"$listing\" \"$sorted\"' EXIT INT TERM; " +
+		"listing=$(mktemp) || exit $?; sorted=$(mktemp) || exit $?; " +
+		"find . -type f " + payloadFindArgs(payloadExclusionsFor(e.Spec)) +
+		" -exec sha256sum {} + > \"$listing\" || exit $?; " +
+		"LC_ALL=C sort \"$listing\" > \"$sorted\" || exit $?; " +
+		"digest=$(sha256sum < \"$sorted\") || exit $?; printf '%s\\n' \"$digest\""
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return "", err

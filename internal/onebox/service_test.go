@@ -192,7 +192,7 @@ func TestPlanDeployRefusesComposeBuildWithoutReleaseImage(t *testing.T) {
 	if !errors.As(err, &resolution) || resolution.Workload != "database" {
 		t.Fatalf("error = %v, want database ImageResolutionError", err)
 	}
-	if resolution.ResolvingCommand != "ob deploy --image database=<digest-reference>" {
+	if resolution.ResolvingCommand != "ob plan --image database=<digest-reference>" {
 		t.Fatalf("resolving command = %q", resolution.ResolvingCommand)
 	}
 }

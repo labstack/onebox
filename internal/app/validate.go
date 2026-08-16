@@ -255,6 +255,12 @@ func validateWorkload(w Workload, path string) error {
 		if err := checkEnum(rp+".tls", r.TLS, eRouteTLS); err != nil {
 			return err
 		}
+		for j, middleware := range r.Middlewares {
+			mp := indexed(rp+".middlewares", j)
+			if err := gMiddlewareRef.check(mp, string(middleware)); err != nil {
+				return err
+			}
+		}
 		// Passthrough means the proxy forwards the encrypted stream without
 		// looking at it, which an HTTP router cannot do — it exists to read
 		// the request. Accepting it here would generate a router that quietly

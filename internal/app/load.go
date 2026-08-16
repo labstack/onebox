@@ -515,6 +515,18 @@ func crossFieldRules(p *Spec) error {
 	if err := checkRouteCollisions(p); err != nil {
 		return err
 	}
+	if p.Proxy.Kind != "none" && p.Proxy.Managed && p.Proxy.Config == "" {
+		for _, name := range sortedKeys(p.Workloads) {
+			for i, route := range p.Workloads[name].Routes {
+				if len(route.Middlewares) == 0 {
+					continue
+				}
+				return errf("project_invalid", indexed("workloads."+name+".routes", i)+".middlewares", "",
+					"route middleware references require proxy.config when Onebox manages the proxy; "+
+						"declare the proxy configuration that provides them, or set proxy.managed to false when the operator owns it")
+			}
+		}
+	}
 	if p.Proxy.Kind == "none" {
 		for _, name := range sortedKeys(p.Workloads) {
 			if len(p.Workloads[name].NormalisedRoutes()) > 0 {

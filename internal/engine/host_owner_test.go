@@ -15,7 +15,7 @@ func TestForeignHostOwnerBlocksMutationsBeforeEffects(t *testing.T) {
 		name string
 		run  func(context.Context, *Engine) error
 	}{
-		{"bootstrap", func(ctx context.Context, engine *Engine) error { return engine.Bootstrap(ctx, "R1", t.TempDir()) }},
+		{"bootstrap", func(ctx context.Context, engine *Engine) error { return engine.Bootstrap(ctx, "R1") }},
 		{"preflight", func(ctx context.Context, engine *Engine) error { return engine.Preflight(ctx) }},
 		{"deploy", func(ctx context.Context, engine *Engine) error { return engine.Deploy(ctx, "R1", t.TempDir()) }},
 		{"resume", func(ctx context.Context, engine *Engine) error { _, err := engine.ResumeWithJournalID(ctx); return err }},

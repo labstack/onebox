@@ -11,7 +11,8 @@ read_when:
 ---
 
 `onebox.run/v1` is the contract for one application on one host. It goes in
-`ob.yml` at the root of your repository.
+`ob.yml` at the root of your repository. `ob.yaml` is accepted automatically
+when `ob.yml` is absent, and `-c` accepts either spelling or any explicit path.
 
 Only `api_version` and `environments` are required — plus at least one workload,
 from a `workloads` block or the top-level shorthand.

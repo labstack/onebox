@@ -14,12 +14,28 @@ func (s *Service) ResolveExecutionBinding(ctx context.Context, kind OperationKin
 	if !validOperationKind(kind) {
 		return ExecutionBinding{}, fmt.Errorf("unknown operation kind %q", kind)
 	}
-	lenient := kind == KindProxyApply || kind == KindDestroy
+	lenient := operationUsesInspectionRuntime(kind)
 	lp, err := s.loadProject(ctx, lenient)
 	if err != nil {
 		return ExecutionBinding{}, fmt.Errorf("load project: %w", err)
 	}
 	return s.executionBinding(lp)
+}
+
+// operationUsesInspectionRuntime identifies mutations that need the contract's
+// shape but never execute its locally rendered application runtime. Their local
+// view may therefore carry fail-closed placeholder images; recovery operations
+// replay the immutable runtime already stored on the host. Deploy and job
+// execution are deliberately absent: anything they can stage must have real
+// release images.
+func operationUsesInspectionRuntime(kind OperationKind) bool {
+	switch kind {
+	case KindResume, KindAbort, KindRollback, KindBootstrap, KindServiceApply,
+		KindProxyApply, KindSecretsPush, KindDestroy:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) executionBinding(lp *loadedProject) (ExecutionBinding, error) {

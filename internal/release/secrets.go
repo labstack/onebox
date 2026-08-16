@@ -9,6 +9,7 @@ import (
 	"io"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -220,9 +221,9 @@ func SecretCheckpointWrite(names app.Names, checkpoint SecretCheckpoint) (comman
 
 func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names app.Names) (SecretCheckpoint, error) {
 	path := SecretCheckpointPath(names)
-	command := `if [ ! -e ` + q(path) + ` ]; then exit 3; fi; ` +
+	command := `if [ ! -e ` + q(path) + ` ] && [ ! -L ` + q(path) + ` ]; then ` + app.UndeterminedArm(path) + `exit 3; fi; ` +
 		`if [ ! -f ` + q(path) + ` ]; then exit 4; fi; ` +
-		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit 5; ` +
+		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit ` + strconv.Itoa(probeStatFailed) + `; ` +
 		`printf 'mode=%s\n' "$mode"; cat ` + q(path)
 	result, err := target.Run(ctx, command)
 	if err != nil {
@@ -234,6 +235,12 @@ func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names
 		return SecretCheckpoint{}, ErrSecretCheckpointMissing
 	case 4:
 		return SecretCheckpoint{}, errors.New("secret checkpoint is not a regular file")
+	case app.ProbeStatePathNotDirectory:
+		return SecretCheckpoint{}, errors.New("the path that should hold the secret checkpoint is not a directory")
+	case app.ProbeUndetermined:
+		return SecretCheckpoint{}, errors.New("a directory holding the secret checkpoint cannot be searched, so a missing checkpoint cannot be told from an unreadable one; verify access, then retry")
+	case probeStatFailed:
+		return SecretCheckpoint{}, errors.New("the secret checkpoint's mode could not be read; neither stat form worked on this host")
 	default:
 		return SecretCheckpoint{}, fmt.Errorf("secret checkpoint read failed: %s", strings.TrimSpace(result.Stderr))
 	}

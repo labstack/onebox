@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/imageref"
 	"github.com/labstack/onebox/internal/release"
 )
@@ -156,11 +157,19 @@ func (err *ImageResolutionError) Error() string {
 
 func (err *ImageResolutionError) Code() string { return "image_unresolved" }
 
+// GuidanceCommand names the exact workload to pin, which is more useful than
+// the generic command published for the code.
+func (err *ImageResolutionError) GuidanceCommand() string { return err.ResolvingCommand }
+
 func imageResolutionError(workload, image, detail string) *ImageResolutionError {
 	return &ImageResolutionError{
-		Workload:         workload,
-		Image:            image,
-		ResolvingCommand: "ob deploy --image " + workload + "=<digest-reference>",
+		Workload: workload,
+		Image:    image,
+		// `ob plan`, not `ob deploy`: a structured deploy without --plan is
+		// refused with plan_required, so guidance naming it hands an agent a
+		// refusal instead of progress. Pinning the workload in a plan is the
+		// step that actually unblocks either path.
+		ResolvingCommand: "ob plan --image " + workload + "=<digest-reference>",
 		Detail:           detail,
 	}
 }
@@ -251,15 +260,110 @@ func OnlyReleaseLabelsChanged(live, planned string) bool {
 	return releaseLabelLine.ReplaceAllString(live, "") == releaseLabelLine.ReplaceAllString(planned, "")
 }
 
-// LocalPayloadDigest hashes everything in a staging dir EXCEPT compose.yaml
-// (that's compared label-invariantly) — env files, secrets, snapshot, bind
-// sources. Same line format and ordering as the remote shell pipeline in
-// RemotePayloadDigest, so equal digests mean byte-equal payloads.
-func LocalPayloadDigest(dir string) (string, error) {
-	return LocalPayloadDigestContext(context.Background(), dir)
+// A release directory is a staging directory plus two things the lifecycle
+// writes to it afterwards: the state manifest, and the result directory of any
+// job run against the serving release. Counting those as payload makes the
+// local and remote digests permanently unequal — every plan then reports a
+// change, no deploy short-circuits, and pre-release migrations re-run.
+//
+// `.ob-secret-generations/` is deliberately NOT excluded. Staging writes the
+// bound generation's decrypted payload there (see stageExecution), so
+// excluding it would drop every secret byte from the digest: a rotated secret
+// reusing the live generation would hash identically, the deploy would
+// short-circuit as a no-op, and the new value would never reach the host —
+// while a sealed plan would stop binding the secret material it was approved
+// against.
+//
+// `compose.yaml` is excluded only at the top level, because it is compared
+// separately and label-invariantly. A compose file nested anywhere else is
+// payload.
+//
+// The job-result exclusions are exact paths built from the declared job names
+// rather than a `.job-*-result` glob. `find -path` matches with fnmatch and no
+// FNM_PATHNAME, so `*` crosses `/` there while a Go first-segment test does
+// not — the glob quietly excluded `./.job-a/b-result` on the host and kept it
+// locally, which is the same permanent inequality this code exists to prevent.
+// Exact names cannot diverge, and payloadExclusionsFor is the one place both
+// renderings come from.
+// jobResultDirName is the release-relative directory a job writes its result
+// into. Declared here because the payload digest must exclude exactly what
+// gate.go creates, and a second spelling would silently stop matching.
+func jobResultDirName(job string) string { return ".job-" + job + "-result" }
+
+type payloadExclusion struct {
+	name    string // exact top-level entry name
+	subtree bool   // also exclude everything beneath it
 }
 
-func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) {
+func (x payloadExclusion) findArgs() string {
+	args := "! -path './" + x.name + "'"
+	if x.subtree {
+		args += " ! -path './" + x.name + "/*'"
+	}
+	return args
+}
+
+func (x payloadExclusion) excludes(rel string) bool {
+	if rel == x.name {
+		return true
+	}
+	return x.subtree && strings.HasPrefix(rel, x.name+"/")
+}
+
+// payloadExclusionsFor is derived from the spec so the job-result names are
+// exact. A leftover result directory for a job the project no longer declares
+// is deliberately treated as payload: it is genuine drift on the host, and
+// reporting it is better than hiding it behind a wildcard.
+func payloadExclusionsFor(spec *app.Resolved) []payloadExclusion {
+	exclusions := []payloadExclusion{
+		{name: "compose.yaml"},
+		{name: release.ManifestFileName},
+	}
+	// Only a job writes a result directory. Excluding the name for every
+	// workload would hide a live `.job-web-result` belonging to a non-job
+	// workload from drift detection.
+	names := make([]string, 0, len(spec.Workloads))
+	for name, workload := range spec.Workloads {
+		if workload.IsJob() {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		exclusions = append(exclusions, payloadExclusion{name: jobResultDirName(name), subtree: true})
+	}
+	return exclusions
+}
+
+func payloadFindArgs(exclusions []payloadExclusion) string {
+	args := make([]string, 0, len(exclusions))
+	for _, exclusion := range exclusions {
+		args = append(args, exclusion.findArgs())
+	}
+	return strings.Join(args, " ")
+}
+
+func isPayloadMember(exclusions []payloadExclusion, rel string) bool {
+	for _, exclusion := range exclusions {
+		if exclusion.excludes(rel) {
+			return false
+		}
+	}
+	return true
+}
+
+// LocalPayloadDigest hashes everything in a staging dir except the entries
+// payloadExclusionsFor names — env files, the decrypted secret generation, the
+// snapshot, bind sources. Same line format and ordering as the remote shell
+// pipeline in RemotePayloadDigest, so equal digests mean byte-equal payloads.
+//
+// The exclusion set depends on the declared job names, so this takes the spec.
+func LocalPayloadDigest(spec *app.Resolved, dir string) (string, error) {
+	return LocalPayloadDigestContext(context.Background(), spec, dir)
+}
+
+func LocalPayloadDigestContext(ctx context.Context, spec *app.Resolved, dir string) (string, error) {
+	exclusions := payloadExclusionsFor(spec)
 	var lines []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -272,16 +376,14 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 		if err != nil {
 			return err
 		}
-		rel = filepath.ToSlash(rel)
-		jobResultDir := strings.SplitN(rel, "/", 2)[0]
-		if rel == "compose.yaml" || strings.HasPrefix(jobResultDir, ".job-") && strings.HasSuffix(jobResultDir, "-result") {
+		if !isPayloadMember(exclusions, filepath.ToSlash(rel)) {
 			return nil
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		lines = append(lines, fmt.Sprintf("%x  ./%s\n", sha256.Sum256(b), rel))
+		lines = append(lines, fmt.Sprintf("%x  ./%s\n", sha256.Sum256(b), filepath.ToSlash(rel)))
 		return nil
 	})
 	if err != nil {
@@ -296,7 +398,51 @@ func LocalPayloadDigestContext(ctx context.Context, dir string) (string, error) 
 // host: per-file sha256 lines, bytewise-sorted, hashed together.
 func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (string, error) {
 	dir := release.PathsFor(e.names()).Releases + "/" + releaseID
-	cmd := "cd " + q(dir) + " && find . -type f ! -name compose.yaml ! -path './.job-*-result' ! -path './.job-*-result/*' -exec sha256sum {} + 2>/dev/null | LC_ALL=C sort | sha256sum | cut -d' ' -f1"
+	// The exclusion arguments are rendered from the same table the local walk
+	// matches against, so for a given spec the two select the same set. Nothing is
+	// redirected to /dev/null: an unreadable file must fail the read rather
+	// than silently shrink the digest to one taken over the readable subset.
+	// The listing is staged in a file, not a shell variable. A pipeline's exit
+	// status is its last stage's, so `find … | sort | sha256sum | cut`
+	// reported success even when find could not read part of the tree —
+	// yielding a well-formed digest over the readable subset only. Staging
+	// lets `||` propagate find's own status.
+	//
+	// A variable would do that too, but a payload includes bind sources: a
+	// project that binds a large tree makes the listing tens of megabytes,
+	// held in the shell and re-emitted through printf, which is where memory
+	// and ARG_MAX limits start deciding whether a deploy works. The file
+	// streams instead, and an empty payload leaves an empty file, which
+	// hashes as the local walk's empty input without a special case.
+	//
+	// The temp file lives outside the release directory on purpose: a file
+	// inside it would be counted by the very find that is digesting it.
+	// Every stage is staged, not piped, for the same reason: a pipeline's exit
+	// status is its last stage's. Folding through `sort | sha256sum | cut`
+	// would reintroduce the defect one stage over — the large payload that
+	// motivates staging is exactly what makes sort spill to $TMPDIR, and a
+	// full disk there has sort emit partial output and exit 2 while sha256sum
+	// happily hashes the truncation. That returns a well-formed wrong digest,
+	// which reads downstream as "live payload changed since plan" on a host
+	// where nothing changed.
+	// The trap is installed BEFORE the first mktemp: installing it after both
+	// leaves a window where the second mktemp fails, or the shell is
+	// interrupted between them, and the first temp file survives. Digests run
+	// on every plan and every deploy precondition, so that accumulates in
+	// $TMPDIR. rm -f tolerates the unset variables.
+	// `cd` is its own guarded statement. Written as `cd DIR && trap …; …` the
+	// && binds to the trap alone, the ; ends the and-list, and a failed cd —
+	// release directory missing, renamed, unreadable — falls through to `find .`
+	// in the login shell's home directory. That exits 0 with a well-formed
+	// digest of the wrong tree, which reads downstream as "the payload
+	// changed" on a host where nothing did.
+	cmd := "cd " + q(dir) + " || exit $?; " +
+		"trap 'rm -f \"$listing\" \"$sorted\"' EXIT INT TERM; " +
+		"listing=$(mktemp) || exit $?; sorted=$(mktemp) || exit $?; " +
+		"find . -type f " + payloadFindArgs(payloadExclusionsFor(e.Spec)) +
+		" -exec sha256sum {} + > \"$listing\" || exit $?; " +
+		"LC_ALL=C sort \"$listing\" > \"$sorted\" || exit $?; " +
+		"digest=$(sha256sum < \"$sorted\") || exit $?; printf '%s\\n' \"$digest\""
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return "", err

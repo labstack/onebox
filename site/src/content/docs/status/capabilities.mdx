@@ -11,7 +11,7 @@ read_when:
 ---
 
 Documentation says what is true today. Direction lives in the product statement,
-proposals live in OpenSpec changes, and neither is presented as a capability.
+and it is not presented as a capability.
 
 This page is the reconciliation. Three states:
 
@@ -32,10 +32,22 @@ This page is the reconciliation. Three states:
 - Locks, fencing, append-only journals, resume, abort, migration gates, status,
   audit, SOPS secrets, supporting services, proxy operations, notifications.
 - A canonical, versioned operation graph and one shared Go service for
-  observation, proposals, execution, structured events and operational memory.
-  The CLI is an adapter over it.
-- Eleven supporting-service drivers, each running with a durable volume, a health
-  check, a server-generated credential, and projected connection details.
+  proposals, execution, structured events and operational memory. The CLI is an
+  adapter over it. Observation is the engine's status snapshot, not a method on
+  that service.
+- Eleven supporting-service drivers, each running with a durable volume, a
+  server-generated credential, and projected connection details. All but `nats`
+  also run a health check; that image has no shell to probe with, so
+  `condition: healthy` against it is refused at load.
+- One application owner per host, recorded on the box at bootstrap and checked
+  before every mutation, so a second application cannot converge over the first.
+- Typed release manifests, durable activation and secret-rotation checkpoints,
+  opaque secret generations, and retention that fails closed when the evidence
+  it prunes against cannot be read.
+- A closed CLI contract: a versioned envelope, an NDJSON event stream with one
+  terminal record, three families of typed error code, and the 0/1/2 exit
+  mapping. See [Policies](/reference/policies) and
+  [Error codes](/reference/errors).
 - Plan/status drift observation and plan-bound migration **backup reports
   validation**.
 
@@ -73,7 +85,7 @@ Nothing behind them executes.
 | --- | --- |
 | [`backup_targets`](/reference/fields/backup_targets) | Declaring a target creates no repository and no schedule. |
 | [`services.<name>.protection`](/reference/fields/services) | Declaring recovery intent establishes no protection. No backup is taken, no drill is run, and no service reports `Managed`. |
-| [`external_services`](/reference/fields/external_services) | Accepted and canonicalised; the lifecycle refusals and health probes are not wired. |
+| [`external_services`](/reference/fields/external_services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
 
 The [lifecycle failure codes](/reference/errors#lifecycle-failure-codes) are
 defined and drift-tested in the binary, but most of the operations that raise
@@ -82,9 +94,9 @@ them are not yet executable.
 ## Intent only
 
 [`observability`](/reference/fields/observability) — `logs`, `metrics` and
-`alerts` declare desired capability. The values are visible to validation and
-planning, but the local engine does not run continuous collectors or alert
-managers, and status reports them as *declared* rather than managed.
+`alerts` declare desired capability. `ob validate` reads the block. Nothing else
+does: the local engine runs no collectors and no alert managers, and `ob status`
+does not report the block at all — not even as declared.
 
 ## Not owned at all
 
@@ -107,7 +119,6 @@ a distinct, evidence-backed workflow, not failover.
 > believing their database is backed up by something that has never taken a
 > backup.
 
-A capability ships only when its requirements and design are approved, its task
-checklist is implemented, its tests pass, current documentation is updated from
-proposed to implemented, and its OpenSpec change strict-validates and is
-archived. Until then it appears here, in this column, and not in the other one.
+A capability ships only when its design is agreed, its tests pass, and the
+generated reference and this page are updated from proposed to implemented.
+Until then it appears here, in this column, and not in the other one.

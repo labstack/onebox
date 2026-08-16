@@ -47,7 +47,9 @@ Application rollback, data recovery, and reversal of an external side effect are
 different operations with different guarantees. Onebox classifies the risk and
 **refuses** when evidence or a driver contract is insufficient.
 
-A force flag cannot turn an unsupported operation into a safe one.
+No flag turns an unsupported operation into a safe one. The override flags below
+do not widen what Onebox can do — each one records that you have taken
+responsibility for one specific judgement it refused to make for you.
 :::
 
 Concretely:
@@ -73,6 +75,58 @@ of hiding divergence.
 ob resume --output ndjson
 ob abort  --output ndjson
 ```
+
+Activation splits the two halves of a deploy. Interrupted before it, the release
+never took effect and `ob resume` replays the phases that remain. Interrupted
+after it — retention, schedule sync or the `post_deploy` hook failed while the
+new release was already current and healthy — there is nothing to replay:
+`ob resume` completes only those remaining steps, skipping any the journal
+already records as done, and the release keeps serving throughout. The manifest
+carries a failed operation outcome in the meantime, so a healthy release and an
+unfinished operation stay distinguishable.
+
+`ob resume` re-verifies the serving release first, then finalizes only when the
+recorded activation, the current release, the serving manifest and its recorded
+predecessor, the absence of an open activation checkpoint, and the live workload
+labels all agree. One disagreement returns `finalize_refused`: no step runs and
+no release, symlink or workload changes.
+
+Only the newest deploy is recoverable. Once a later deploy reaches a terminal
+state of its own — finished, aborted, or automatically rolled back — the older
+interrupted one is history rather than pending work, and resuming it would
+re-activate a release the host has already moved past. `ob status` stops
+reporting it; `ob audit` still shows the run.
+
+A manual `ob rollback` is journaled under the release it restores, so it does not
+settle an interrupted deploy that way. That deploy stays visible, and resuming it
+is refused on its superseded manifest before any workload is touched.
+
+## When recovery refuses
+
+Two refusals have an override, and each grants exactly one thing.
+
+**`migration_gate_closed`** — the interrupted release ran a job or hook whose
+data effects are rollback-unknown, so `ob abort` will not roll the application
+back on its own. Fix forward and `ob resume`, or, if you know the old code reads
+the current data correctly, take responsibility explicitly:
+
+```sh
+ob abort --break-migration-gate --output ndjson
+```
+
+**A stale operation lock** — a previous runner died holding it. Inspect the
+holder in `ob status` first; the lock records who took it and when. If it is
+genuinely abandoned:
+
+```sh
+ob abort --break-lock --output ndjson
+```
+
+`--break-lock` is on six commands: `deploy`, `bootstrap`, `abort`, `job run`,
+`service apply` and `proxy apply`. Not every mutating command has it — `resume`,
+`destroy` and `secrets push` do not. It breaks the application and host locks
+only. The protection lock has no override and clears on TTL expiry or when the
+same operation returns.
 
 ## Recovery onto another host is a different workflow
 

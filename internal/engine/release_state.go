@@ -100,19 +100,52 @@ func (e *Engine) resumeApplicationManifest(ctx context.Context, releaseID string
 	return manifest, nil
 }
 
+// ActivationRefusedError reports a release whose manifest state cannot be
+// activated. It is typed so an agent can branch on activation_refused rather
+// than parse prose. State is carried for diagnosis, not because the remedy
+// varies: it is only constructed for states that cannot resume, and they all
+// need `ob abort`.
+type ActivationRefusedError struct {
+	ReleaseID string
+	State     release.State
+}
+
+func (err *ActivationRefusedError) Error() string {
+	return fmt.Sprintf("release %s cannot activate from manifest state %s; recover it with `ob abort`", err.ReleaseID, err.State)
+}
+
+func (err *ActivationRefusedError) Code() string { return "activation_refused" }
+
+// activationResumable reports whether a manifest can enter activation. Verified
+// is included because activation writes that state before it switches the
+// symlink: a runner that dies in between leaves a verified manifest, and the
+// halt guidance tells the operator to fix forward and resume. Refusing verified
+// made that instruction impossible to follow — only `ob abort` could clear it.
+func activationResumable(state release.State) bool {
+	return state == release.StateStaged || state == release.StateVerified
+}
+
 func (e *Engine) activateManifest(ctx context.Context, manifest *release.Manifest, predecessor string) error {
-	if manifest == nil || manifest.State != release.StateStaged {
-		return fmt.Errorf("activation requires a staged application manifest")
+	if manifest == nil {
+		return fmt.Errorf("activation requires an application manifest")
+	}
+	if !activationResumable(manifest.State) {
+		return &ActivationRefusedError{ReleaseID: manifest.ID, State: manifest.State}
 	}
 	checkpoint, err := e.beginActivationCheckpoint(ctx, manifest.ID, predecessor)
 	if err != nil {
 		return err
 	}
-	if err := manifest.Transition(release.StateVerified, e.Opts.Now(), ""); err != nil {
-		return err
-	}
-	if err := e.writeReleaseManifest(ctx, *manifest); err != nil {
-		return fmt.Errorf("record verified release: %w", err)
+	// Already verified means this is a re-entry after a crash inside the
+	// activation window. The state is durable, so record it once and carry on
+	// from the checkpoint rather than transitioning a second time.
+	if manifest.State == release.StateStaged {
+		if err := manifest.Transition(release.StateVerified, e.Opts.Now(), ""); err != nil {
+			return err
+		}
+		if err := e.writeReleaseManifest(ctx, *manifest); err != nil {
+			return fmt.Errorf("record verified release: %w", err)
+		}
 	}
 	if err := e.checkpointVerified(ctx, &checkpoint); err != nil {
 		return err
@@ -208,8 +241,13 @@ func (e *Engine) completeActivation(ctx context.Context, manifest *release.Manif
 	if err := e.writeActivationCheckpoint(ctx, *checkpoint); err != nil {
 		return fmt.Errorf("checkpoint predecessor superseded: %w", err)
 	}
-	if err := e.clearActivationCheckpoint(ctx); err != nil {
-		return err
-	}
+	// The checkpoint is NOT cleared here. Callers clear it once the operation's
+	// own journal records the activation, because those two writes bracket the
+	// only unrecoverable window in the sequence: cleared checkpoint + serving
+	// manifest + no journal evidence is a state finalize refuses on every
+	// retry ("its journal records no successful activation") while the release
+	// is healthy and live, and the refusal's guidance would roll it back.
+	// Clearing last leaves the opposite window instead — checkpoint open,
+	// activation journalled — which recovery is built to reconcile.
 	return nil
 }

@@ -80,9 +80,45 @@ func (err *RecoveryIncompleteError) Error() string {
 func (err *RecoveryIncompleteError) Unwrap() error { return err.Err }
 func (err *RecoveryIncompleteError) Code() string  { return "recovery_incomplete" }
 
+// MigrationGateClosedError is raised by every command the gate stops — resume
+// and abort alike — so the code is deliberately command-neutral. Refused names
+// the command that was refused: those two are what an operator is choosing
+// between, so the sentence has to say which one it is talking about, and the
+// registry message is worded to fit either.
+type MigrationGateClosedError struct {
+	InterruptedID string
+	Refused       string
+}
+
+func (err *MigrationGateClosedError) Error() string {
+	refused := err.Refused
+	if refused == "" {
+		refused = "recovery"
+	}
+	return fmt.Sprintf("%s refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", refused, err.InterruptedID)
+}
+
+func (err *MigrationGateClosedError) Code() string { return "migration_gate_closed" }
+
+// GuidanceCommand overrides the registry default per refused command. The
+// structured envelope never renders Error(), so without this an operator who
+// ran `ob abort` is handed `ob resume` — the opposite action — and an agent
+// that executes resolving commands fixes forward instead of rolling back.
+func (err *MigrationGateClosedError) GuidanceCommand() string {
+	if err.Refused == "abort" {
+		// Deliberately NOT `ob abort --break-migration-gate`. That string
+		// classifies as a resolving command, which an agent may run — and
+		// running it rolls back a release with rollback-unknown data effects,
+		// which is the decision this gate exists to put in front of a human.
+		// The break-glass flag is named in Error(), for a person to read.
+		return "ob audit --output json"
+	}
+	return "ob resume --output ndjson"
+}
+
 func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest) (err error) {
 	if !request.GateCovered && !request.BreakGlass {
-		return fmt.Errorf("recovery refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", request.InterruptedID)
+		return &MigrationGateClosedError{InterruptedID: request.InterruptedID, Refused: "recovery"}
 	}
 	if request.Journal == nil || request.InterruptedID == "" ||
 		(request.TerminalState != release.StateFailed && request.TerminalState != release.StateAborted) {

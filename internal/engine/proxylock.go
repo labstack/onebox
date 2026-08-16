@@ -53,7 +53,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 		}
 		var holder lockMeta
 		_ = json.Unmarshal([]byte(observed), &holder)
-		ares, err := e.T.Run(ctx, lockAgeCmd(q(hp.Lock)))
+		ares, err := e.T.Run(ctx, lockAgeCmd(hp.Lock))
 		if err != nil {
 			return err
 		}

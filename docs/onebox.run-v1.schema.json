@@ -2206,7 +2206,7 @@
                   },
                   "properties": {
                     "condition": {
-                      "description": "Prerequisite condition: started or healthy.",
+                      "description": "Prerequisite condition: started, healthy, or completed.",
                       "enum": [
                         "started",
                         "healthy",
@@ -2264,7 +2264,7 @@
             "type": "integer"
           },
           "published_ports": {
-            "description": "Host ports published outside the proxy. They bind to loopback by default.",
+            "description": "Host ports published outside the proxy. They bind to loopback by default. A rolling workload cannot publish one, because two replicas cannot hold the same host port during a roll: set strategy: recreate, or route through the proxy instead.",
             "items": {
               "additionalProperties": false,
               "patternProperties": {

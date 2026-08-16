@@ -41,6 +41,12 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
    environment's `minimum_onebox_version` and `minimum_plan_schema`, and names
    every workload and service holding durable data that has no backup.
 
+   Run it from a directory that has an `ob.yml`. Outside a project it reports
+   `project_unreadable` and exits non-zero, which is correct — most of what it
+   checks is relative to a project — but it looks alarming if you have not
+   created one yet. Come back to this step after
+   [your first deploy](/start/first-deploy).
+
 </Steps>
 
 Both commands take `--output json`.

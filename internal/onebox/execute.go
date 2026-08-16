@@ -259,7 +259,7 @@ func (s *Service) executeDeploy(
 	}
 	now := s.now().UTC()
 	if expiresAt.Before(now) {
-		return false, fmt.Errorf("deployment plan expired at %s — re-plan", expiresAt.Format(time.RFC3339))
+		return false, &PlanExpiredError{Kind: PlanKindDeployment, ExpiresAt: expiresAt}
 	}
 	if createdAt.After(now.Add(time.Minute)) {
 		return false, errors.New("deployment plan was created in the future — check the runner clock and re-plan")
@@ -386,7 +386,7 @@ func (s *Service) executeDeploy(
 		}
 		options.DeployPrecondition = func(preconditionContext context.Context, locked *engine.Engine) error {
 			if expiresAt.Before(s.now().UTC()) {
-				return errors.New("deployment plan expired before mutation — re-plan")
+				return &PlanExpiredError{Kind: PlanKindDeployment, ExpiresAt: expiresAt}
 			}
 			return verifyRemoteDeployBinding(preconditionContext, locked, plan, s.environment, lp.configBytes, lp.resolved.Name)
 		}
@@ -420,7 +420,7 @@ func (s *Service) executeDeploy(
 	if strings.TrimSpace(string(renderedRedacted)) != strings.TrimSpace(plan.Artifact.RenderedCompose) {
 		return false, errors.New("rendered Compose differs from the plan — re-plan")
 	}
-	payloadDigest, err := engine.LocalPayloadDigestContext(ctx, staging)
+	payloadDigest, err := engine.LocalPayloadDigestContext(ctx, lp.resolved, staging)
 	if err != nil {
 		return false, fmt.Errorf("hash staged payload: %w", err)
 	}

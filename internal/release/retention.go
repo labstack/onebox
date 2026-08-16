@@ -37,6 +37,32 @@ type RetentionDecision struct {
 	Reported []string
 }
 
+// RetentionEvidenceError reports that the protected set could not be
+// established from durable evidence, so no deletion candidate was selected.
+//
+// It is typed because refusing to delete and failing the operation in flight
+// are different decisions, and only the caller can make the second one. Nothing
+// is lost by cleaning up later; a healthy activated release stranded without a
+// terminal state because cleanup declined to act is a real loss.
+type RetentionEvidenceError struct{ Err error }
+
+func (err *RetentionEvidenceError) Error() string {
+	return fmt.Sprintf("retention refused: %v", err.Err)
+}
+
+func (err *RetentionEvidenceError) Unwrap() error { return err.Err }
+
+// refuseRetention classifies a failed evidence read. A cancelled or expired
+// context is not evidence about the release store — it says the operator or the
+// deadline stopped this run — so it stays a hard failure rather than being
+// downgraded to a reported skip that would let the caller issue more commands.
+func refuseRetention(cause, refusal error) error {
+	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return cause
+	}
+	return &RetentionEvidenceError{Err: refusal}
+}
+
 func DefaultRetentionPolicy(retain int, now time.Time) RetentionPolicy {
 	if retain < 1 {
 		retain = 1
@@ -72,7 +98,7 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	if current != "" {
 		protected[current] = true
 		if err := protectPredecessorChain(ctx, target, names, current, policy.RetainApplications, protected); err != nil {
-			return RetentionDecision{}, fmt.Errorf("retention refused: predecessor chain evidence is unusable: %w", err)
+			return RetentionDecision{}, refuseRetention(err, fmt.Errorf("predecessor chain evidence is unusable: %w", err))
 		}
 	}
 	checkpoint, checkpointErr := ReadActivationCheckpoint(ctx, target, names)
@@ -82,13 +108,47 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 			protected[checkpoint.Predecessor] = true
 		}
 	} else if !errors.Is(checkpointErr, ErrActivationCheckpointMissing) {
-		return RetentionDecision{}, fmt.Errorf("retention refused: activation checkpoint evidence is unusable: %w", checkpointErr)
+		return RetentionDecision{}, refuseRetention(checkpointErr, fmt.Errorf("activation checkpoint evidence is unusable: %w", checkpointErr))
 	}
 	secretCheckpoint, secretCheckpointErr := ReadSecretCheckpoint(ctx, target, names)
 	if secretCheckpointErr == nil {
 		protected[secretCheckpoint.ReleaseID] = true
 	} else if !errors.Is(secretCheckpointErr, ErrSecretCheckpointMissing) {
-		return RetentionDecision{}, fmt.Errorf("retention refused: secret checkpoint evidence is unusable: %w", secretCheckpointErr)
+		return RetentionDecision{}, refuseRetention(secretCheckpointErr, fmt.Errorf("secret checkpoint evidence is unusable: %w", secretCheckpointErr))
+	}
+
+	// Only a failure to READ preserves. A manifest that was read and found
+	// wrong — invalid JSON, unsafe mode, an id that disagrees with its
+	// directory — is a verdict, and retention is entitled to retire it by
+	// age like any other expired release.
+	//
+	// The split is about evidence, not about whether the condition heals.
+	// Some read failures never heal either (a manifest that is a directory,
+	// a dangling symlink), so those releases are preserved and re-reported
+	// until someone intervenes. That is deliberate: a leak is visible in
+	// every report and one rm away, while deleting a release on an answer we
+	// never obtained is unrecoverable and takes the evidence with it.
+	manifestUnread := func(err error) bool {
+		var typed *ManifestError
+		if !errors.As(err, &typed) {
+			// Not a verdict about the manifest at all — the command itself
+			// failed (transport, exec). Nothing was read, so this is the
+			// least evidence of all, and deleting on it is unrecoverable.
+			// Context cancellation never reaches here: the loop returns it
+			// before consulting this predicate.
+			return true
+		}
+		switch typed.ErrCode {
+		case "manifest_read_failed":
+			return true
+		case "manifest_schema_unknown":
+			// "This binary cannot read it" is not "this manifest is wrong".
+			// After a downgrade past a schema bump, every release the newer
+			// binary wrote reads this way, and retiring them by age deletes
+			// exactly the releases an operator would roll forward to.
+			return true
+		}
+		return false
 	}
 
 	for _, id := range ids {
@@ -98,7 +158,16 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 		}
 		manifest, manifestErr := ReadManifest(ctx, target, names, id)
 		if manifestErr != nil {
-			if policy.EvidenceIDs[id] || !expiredReleaseID(id, policy.Now, policy.UnknownAfter) {
+			if errors.Is(manifestErr, context.Canceled) || errors.Is(manifestErr, context.DeadlineExceeded) {
+				return RetentionDecision{}, manifestErr
+			}
+			// "No manifest" and "the manifest could not be read" are not the
+			// same evidence. Age can retire the first; the second says the
+			// release's own record is unreadable — a dangling manifest
+			// symlink, an unsearchable directory — and deleting the release
+			// on that answer destroys what an operator needs to diagnose it.
+			// A manifest that WAS read and found wrong stays retirable.
+			if policy.EvidenceIDs[id] || !expiredReleaseID(id, policy.Now, policy.UnknownAfter) || manifestUnread(manifestErr) {
 				decision.Preserve = append(decision.Preserve, id)
 				decision.Reported = append(decision.Reported, id)
 				continue

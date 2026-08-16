@@ -132,7 +132,7 @@ type Workload struct {
 	Env            map[string]any  `json:"env,omitempty" description:"Literal container environment values. Managed-service credential variables cannot be overridden."`
 	EnvFiles       []EnvFile       `json:"env_files,omitempty" description:"Workload-specific ordered environment-file list. Replaces broader defaults when present."`
 	Volumes        []Volume        `json:"volumes,omitempty" description:"Managed named volumes or repository bind mounts."`
-	PublishedPorts []PublishedPort `json:"published_ports,omitempty" description:"Host ports published outside the proxy. They bind to loopback by default."`
+	PublishedPorts []PublishedPort `json:"published_ports,omitempty" description:"Host ports published outside the proxy. They bind to loopback by default. A rolling workload cannot publish one, because two replicas cannot hold the same host port during a roll: set strategy: recreate, or route through the proxy instead."`
 	Persistence    *Persistence    `json:"persistence,omitempty" description:"Declares whether this workload holds data that must outlive releases."`
 	Needs          []Need          `json:"needs,omitempty" description:"Workload or supporting-service prerequisites and optional connection-variable mappings."`
 
@@ -231,7 +231,7 @@ type Persistence struct {
 
 type Need struct {
 	Name      string `json:"name" description:"Name of a workload or supporting service that must start first."`
-	Condition string `json:"condition" description:"Prerequisite condition: started or healthy."`
+	Condition string `json:"condition" description:"Prerequisite condition: started, healthy, or completed."`
 	// Env maps a variable the workload reads to the part of the connection
 	// that belongs in it.
 	Env map[string]string `json:"env,omitempty" description:"Maps application environment-variable names to service connection parts such as host, port, user, password, database, or url."`

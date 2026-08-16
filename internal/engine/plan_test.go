@@ -5,11 +5,14 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -100,7 +103,7 @@ func TestPinImagesFailsClosedWhenRegistryCannotResolveDigest(t *testing.T) {
 		t.Fatalf("error = %v, want ImageResolutionError", err)
 	}
 	if resolution.Code() != "image_unresolved" || resolution.Workload == "" ||
-		!strings.Contains(resolution.ResolvingCommand, "ob deploy --image "+resolution.Workload+"=") {
+		!strings.Contains(resolution.ResolvingCommand, "ob plan --image "+resolution.Workload+"=") {
 		t.Fatalf("typed resolution error = %#v", resolution)
 	}
 }
@@ -243,24 +246,24 @@ func TestPayloadDigests(t *testing.T) {
 	write("ob.snapshot.yml", "app: sample\n")
 	write("server/.env", "KEY=one\n")
 
-	d1, err := LocalPayloadDigest(dir)
+	d1, err := LocalPayloadDigest(testConfig(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// compose.yaml changes must NOT move the digest
 	write("compose.yaml", "services: {changed: {}}\n")
-	d2, err := LocalPayloadDigest(dir)
+	d2, err := LocalPayloadDigest(testConfig(), dir)
 	if err != nil || d1 != d2 {
 		t.Fatalf("compose.yaml must be excluded: %s vs %s (%v)", d1, d2, err)
 	}
 	// payload changes MUST move it
 	write("server/.env", "KEY=two\n")
-	d3, err := LocalPayloadDigest(dir)
+	d3, err := LocalPayloadDigest(testConfig(), dir)
 	if err != nil || d3 == d1 {
 		t.Fatalf("payload change must move the digest: %v", err)
 	}
 	write(".job-migrate-result/result", "changed=true\n")
-	d4, err := LocalPayloadDigest(dir)
+	d4, err := LocalPayloadDigest(testConfig(), dir)
 	if err != nil || d4 != d3 {
 		t.Fatalf("ephemeral job results must be excluded: %s vs %s (%v)", d3, d4, err)
 	}
@@ -279,9 +282,224 @@ func TestPayloadDigests(t *testing.T) {
 		t.Fatalf("remote digest: %q %v", got, err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, want := range []string{"! -name compose.yaml", "! -path './.job-*-result'", "! -path './.job-*-result/*'", "LC_ALL=C sort"} {
+	for _, want := range []string{
+		"! -path './compose.yaml'", "! -path './manifest.json'",
+		"! -path './.job-migrate-result'", "! -path './.job-migrate-result/*'", "LC_ALL=C sort",
+	} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("remote pipeline missing %q:\n%s", want, seq)
 		}
+	}
+	// Decrypted secrets are staged into this directory, so excluding it would
+	// drop every secret byte from the digest on both sides.
+	if strings.Contains(seq, app.SecretGenerationDirectory) {
+		t.Fatalf("remote pipeline excludes staged secret payload:\n%s", seq)
+	}
+}
+
+// A release directory is a staging directory plus what the lifecycle writes to
+// it afterwards. If those extras count as payload the two digests can never be
+// equal and no deploy is ever a no-op. The inverse matters just as much:
+// .ob-secret-generations IS staged, so excluding it would make a rotated secret
+// hash identically and deploy as a no-op.
+func TestPayloadDigestSpansStagedSecretsButNotReleaseMetadata(t *testing.T) {
+	spec := testConfig()
+	write := func(dir, rel, body string) {
+		t.Helper()
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const generation = "sg-000000000000000000000000"
+	secretPath := app.SecretGenerationPath(generation, ".ob-decrypted-sops-app.enc.env")
+
+	staging := t.TempDir()
+	write(staging, "compose.yaml", "services: {}\n")
+	write(staging, "ob.snapshot.yml", "app: sample\n")
+	write(staging, secretPath, "TOKEN=value\n")
+
+	released := t.TempDir()
+	for _, rel := range []string{"compose.yaml", "ob.snapshot.yml", secretPath} {
+		body, err := os.ReadFile(filepath.Join(staging, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(released, rel, string(body))
+	}
+	// Written to the release directory after upload; staging never has these.
+	write(released, release.ManifestFileName, `{"id":"R1","state":"serving"}`+"\n")
+	write(released, ".job-migrate-result/result", "changed=true\n")
+
+	stagingDigest, err := LocalPayloadDigest(spec, staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releasedDigest, err := LocalPayloadDigest(spec, released)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stagingDigest != releasedDigest {
+		t.Fatalf("release-store metadata moved the payload digest: staging %s, released %s", stagingDigest, releasedDigest)
+	}
+
+	// The regression that matters most: a rotated secret under the same
+	// generation must move the digest, or the deploy short-circuits and the new
+	// value never reaches the host.
+	write(staging, secretPath, "TOKEN=rotated\n")
+	rotated, err := LocalPayloadDigest(spec, staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated == stagingDigest {
+		t.Fatal("a changed secret produced an identical payload digest; the deploy would be reported as a no-op")
+	}
+}
+
+// The local matcher and the remote find arguments are two renderings of one
+// table, so the only way to know they select the same set is to run both.
+func TestLocalAndRemotePayloadSelectionAgree(t *testing.T) {
+	if _, err := exec.LookPath("find"); err != nil {
+		t.Skip("find is unavailable")
+	}
+	dir := t.TempDir()
+	// Adversarial names: a directory that a `.job-*-result` glob would swallow
+	// because find's -path lets * cross a slash, a near-miss suffix, and a
+	// regular file carrying a directory's reserved name.
+	for _, rel := range []string{
+		"ob.snapshot.yml",
+		"compose.yaml",
+		"nested/compose.yaml",
+		"manifest.json",
+		"nested/manifest.json",
+		".job-migrate-result/result",
+		".job-migrate-result-extra/f",
+		".job-alpha/beta-result/f",
+		".job-alpha/gamma-result",
+		app.SecretGenerationDirectory + "/sg-000000000000000000000000/app.env",
+	} {
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(rel), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	exclusions := payloadExclusionsFor(testConfig())
+	shell := "cd " + q(dir) + " && find . -type f " + payloadFindArgs(exclusions) + " | LC_ALL=C sort"
+	out, err := exec.Command("/bin/sh", "-c", shell).Output()
+	if err != nil {
+		t.Fatalf("run find: %v", err)
+	}
+	remote := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			remote[strings.TrimPrefix(line, "./")] = true
+		}
+	}
+
+	local := map[string]bool{}
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !info.Mode().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if slash := filepath.ToSlash(rel); isPayloadMember(exclusions, slash) {
+			local[slash] = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for rel := range remote {
+		if !local[rel] {
+			t.Errorf("%s is hashed remotely but not locally", rel)
+		}
+	}
+	for rel := range local {
+		if !remote[rel] {
+			t.Errorf("%s is hashed locally but not remotely", rel)
+		}
+	}
+}
+
+// The whole point of capturing the listing before folding it is that find's
+// failure must not be swallowed. A pipeline's status is its last stage's, so
+// the old form returned a well-formed digest over whatever was readable.
+func TestRemotePayloadDigestFailsWhenTheListingFails(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "sha256sum") {
+			return transport.Result{ExitCode: 1, Stderr: "find: ./secret: Permission denied"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	digest, err := e.RemotePayloadDigest(context.Background(), "R7")
+	if err == nil {
+		t.Fatalf("an unreadable release produced a digest instead of an error: %q", digest)
+	}
+	if !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("error lost the cause: %v", err)
+	}
+}
+
+// An empty release directory must hash to the same value the local walk gives
+// an empty payload, or a first deploy can never be recognised as unchanged.
+func TestRemotePayloadDigestOfAnEmptyListingMatchesTheLocalWalk(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "sha256sum") {
+			return transport.Result{Stdout: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  -\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	remote, err := e.RemotePayloadDigest(context.Background(), "R7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := LocalPayloadDigest(testConfig(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote != local {
+		t.Fatalf("empty remote %s != empty local %s", remote, local)
+	}
+}
+
+// Only jobs write a result directory. Excluding the name for every workload
+// would hide a live `.job-web-result` from drift detection, and the differential
+// test cannot see it because widening the table widens both renderings.
+func TestPayloadExclusionsCoverJobsOnly(t *testing.T) {
+	var names []string
+	for _, exclusion := range payloadExclusionsFor(testConfig()) {
+		names = append(names, exclusion.name)
+	}
+	want := []string{"compose.yaml", release.ManifestFileName, jobResultDirName("migrate")}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("exclusions = %v, want %v", names, want)
+	}
+}
+
+// Guidance that immediately refuses is worse than none. A structured `ob deploy`
+// without --plan is rejected with plan_required, so the resolving command for an
+// unresolved image must name the step that actually unblocks the caller. Built
+// through the constructor on purpose: a literal here would pass whatever the
+// constructor produces.
+func TestImageResolutionGuidanceDoesNotRefuseWithoutAPlan(t *testing.T) {
+	command := imageResolutionError("web", "app:latest", "no digest").GuidanceCommand()
+	if strings.HasPrefix(command, "ob deploy") {
+		t.Fatalf("resolving command %q is a deploy; a structured deploy without --plan is refused", command)
+	}
+	if !strings.HasPrefix(command, "ob plan --image web=") {
+		t.Fatalf("resolving command = %q, want an ob plan --image form naming the workload", command)
 	}
 }

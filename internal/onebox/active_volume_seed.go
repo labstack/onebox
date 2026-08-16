@@ -6,8 +6,25 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
 )
+
+// activeVolumeStateProbe classifies the active-volume state file: 0 with the
+// record on stdout, 2 present but unreadable as a record, 3 never seeded.
+//
+// -e follows symlinks, so the -L arm is what keeps a dangling link out of the
+// exit-3 answer; without it a broken link reads as never-seeded and the seed
+// proceeds against state that exists. An unsearchable ancestor hides the file
+// the same way, which is what UndeterminedArm's exit 5 is for. A live symlink
+// to a regular file is still read through: -f follows it, and refusing
+// symlinked state would be a new rule, not a fix.
+func activeVolumeStateProbe(path string) string {
+	p := quote(path)
+	return "if [ -f " + p + " ]; then cat " + p +
+		"; elif [ -e " + p + " ] || [ -L " + p + " ]; then exit 2; else " +
+		app.UndeterminedArm(path) + "exit 3; fi"
+}
 
 // SeedActiveVolume records the stable service volume for an installation that
 // predates active-volume state. It observes only: no Docker volume is created,
@@ -18,9 +35,7 @@ func SeedActiveVolume(ctx context.Context, execution *engine.Engine, service, lo
 	}
 	names := execution.Names()
 	statePath := names.ActiveVolumeFile(service)
-	stateResult, err := execution.T.Run(ctx,
-		"if [ -f "+quote(statePath)+" ]; then cat "+quote(statePath)+"; elif [ -e "+quote(statePath)+" ]; then exit 2; else exit 3; fi",
-	)
+	stateResult, err := execution.T.Run(ctx, activeVolumeStateProbe(statePath))
 	if err != nil {
 		return ActiveVolumeRecord{}, false, err
 	}
@@ -38,6 +53,12 @@ func SeedActiveVolume(ctx context.Context, execution *engine.Engine, service, lo
 		// Expected migration path; prove the stable volume exists and is owned.
 	case 2:
 		return ActiveVolumeRecord{}, false, errors.New("active-volume state path exists but is not a regular file")
+	case app.ProbeStatePathNotDirectory:
+		return ActiveVolumeRecord{}, false, errors.New("the path that should hold the active-volume state is not a directory")
+	case app.ProbeUndetermined:
+		// Not "never seeded": absence was never established, and seeding
+		// on that answer writes over state that may already be there.
+		return ActiveVolumeRecord{}, false, errors.New("a directory holding the active-volume state cannot be searched, so existing state cannot be ruled out; verify access, then retry")
 	default:
 		return ActiveVolumeRecord{}, false, errors.New("inspect active-volume state failed")
 	}

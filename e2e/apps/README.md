@@ -34,6 +34,17 @@ serves, and destroys the host. One application per host, which is the product's
 scope — putting several on one box would not test what this contract
 describes.
 
+It provisions against your own Hetzner account and costs real money, so it is
+never run by CI. `hcloud` must be authenticated, and `OB_E2E_SSH_KEY` must name
+a key from `hcloud ssh-key list` that can reach the new host:
+
+```sh
+OB_E2E_SSH_KEY='my-key' ./e2e/apps/one-app-one-host.sh umami 3000 /api/heartbeat
+```
+
+`OB_E2E_SERVER_TYPE`, `OB_E2E_IMAGE`, and `OB_E2E_LOCATION` override the
+defaults (`cpx22`, `ubuntu-24.04`, `fsn1`).
+
 | App | Bare image to serving | HTTP | Containers | Volumes |
 |---|---|---|---|---|
 | vaultwarden | 39s | 200 | 1 | 1 |

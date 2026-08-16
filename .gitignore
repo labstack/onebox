@@ -2,8 +2,19 @@
 /ob-docgen
 /bin/
 /dist/
+
+# Local assistant and editor state. These are per-developer and per-machine,
+# and one of them (.claude/settings.local.json) accumulates a permission
+# allowlist containing real host addresses. The repository ignores them itself
+# rather than relying on any contributor's global ignore file.
 .serena/
 .codegraph/
+.claude/
+.codex/
+.vscode/
+.idea/
+*.swp
+.DS_Store
 
 # Generated at runtime, never source: a plan artifact carries a concrete
 # deploy target, live host state, and an expiry. An approval is bound to one

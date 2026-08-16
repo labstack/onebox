@@ -1,5 +1,3 @@
-openspec_version := "1.7.0"
-
 # Build the CLI into a user-local directory on PATH.
 default: build
 
@@ -44,13 +42,8 @@ fmt:
 # Not hermetic in the stronger sense: `_mod-tidy` needs the module cache warm
 # (or the network), and `site-build` needs `site/node_modules` — run
 # `just site-install` once on a fresh clone.
-check: _mod-tidy _fmt-check vet test docs-generate-check diagrams-check site-build
+check: _mod-tidy _fmt-check vet test docs-generate-check site-build
     @echo "All checks passed"
-
-# Strict OpenSpec validation. Separate from `check` because it shells to npx,
-# which needs the network on a cold cache; CI runs it as part of `ci`.
-openspec-check:
-    npx --yes @fission-ai/openspec@{{ openspec_version }} validate --all --strict --no-interactive
 
 # CI adds the pinned lint, vulnerability, workflow and spec passes to the local
 # gate.
@@ -58,7 +51,7 @@ openspec-check:
 # They are separate from `check` because each needs a tool the repository does
 # not vendor; a contributor without them should still be able to run `just check`
 # and get a truthful answer about their change.
-ci: check lint vuln workflow-check openspec-check
+ci: check lint vuln workflow-check
     @echo "CI checks passed"
 
 [private]
@@ -145,70 +138,8 @@ site: docs-generate
 site-build: docs-generate-check
     cd site && npm run build
 
-# Strictly validate canonical specs and every active OpenSpec change.
-docs-check: diagrams-check docs-generate-check openspec-check
-
-# Render every openspec .d2 source to the .svg committed beside it, and record
-# each source's hash so drift is detectable without d2 installed.
-diagrams:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v d2 >/dev/null || { echo "d2 not installed: brew install d2" >&2; exit 1; }
-    shopt -s nullglob
-    for dir in openspec/*/*/diagrams openspec/*/*/*/diagrams; do
-        manifest="$dir/.manifest"
-        : >"$manifest"
-        for src in "$dir"/*.d2; do
-            out="${src%.d2}.svg"
-            # elk routes orthogonally and reads better than dagre's curves for
-            # most of these, but neither engine honours `direction` inside a
-            # container, and elk handles that case far worse. A source can opt
-            # out with a `# d2-layout: dagre` line.
-            #
-            # --dark-theme embeds a prefers-color-scheme block so the diagrams
-            # follow GitHub's dark mode. That only works while the sources set
-            # no explicit fills: an explicit style wins over the theme in BOTH
-            # modes, so a light pastel fill would survive onto a dark ground.
-            # Semantic colour therefore lives on strokes and labels only.
-            layout="$(sed -n 's/^# d2-layout: *//p' "$src" | head -1)"
-            d2 --layout "${layout:-elk}" --theme 1 --dark-theme 200 --pad 24 "$src" "$out" >/dev/null
-            printf '%s  %s\n' "$(shasum -a 256 "$src" | cut -d' ' -f1)" "$(basename "$src")" >>"$manifest"
-        done
-        echo "rendered $(ls "$dir"/*.d2 2>/dev/null | wc -l | tr -d ' ') diagram(s) in $dir"
-    done
-
-# Fail when a .d2 source changed without `just diagrams` being re-run.
-#
-# Compares each source against the hash recorded when its .svg was rendered,
-# rather than re-rendering and diffing. That keeps this runnable in CI with no
-# d2 dependency, and avoids false failures from d2 version differences changing
-# SVG output. It catches the real mistake — editing a diagram and forgetting to
-# regenerate — but does not verify hand-edited SVG content.
-diagrams-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    shopt -s nullglob
-    status=0
-    for dir in openspec/*/*/diagrams openspec/*/*/*/diagrams; do
-        manifest="$dir/.manifest"
-        if [[ ! -f "$manifest" ]]; then
-            echo "missing $manifest — run: just diagrams" >&2
-            status=1
-            continue
-        fi
-        for src in "$dir"/*.d2; do
-            name="$(basename "$src")"
-            [[ -f "${src%.d2}.svg" ]] || { echo "missing SVG for $src — run: just diagrams" >&2; status=1; continue; }
-            recorded="$(awk -v n="$name" '$2 == n {print $1}' "$manifest")"
-            [[ -n "$recorded" ]] || { echo "$src is not in $manifest — run: just diagrams" >&2; status=1; continue; }
-            actual="$(shasum -a 256 "$src" | cut -d' ' -f1)"
-            [[ "$recorded" == "$actual" ]] || { echo "$src changed since its SVG was rendered — run: just diagrams" >&2; status=1; }
-        done
-        for recorded_name in $(awk '{print $2}' "$manifest"); do
-            [[ -f "$dir/$recorded_name" ]] || { echo "$dir/$recorded_name is in the manifest but gone — run: just diagrams" >&2; status=1; }
-        done
-    done
-    exit $status
+# Validate that every generated reference page matches the binary.
+docs-check: docs-generate-check
 
 # Create and publish the next vYYYY.M.REVISION tag from releasable main.
 release:

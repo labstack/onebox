@@ -170,7 +170,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		}
 	}
 	if err := e.waitHealth(ctx, ids[0], "healthy", 180*time.Second, 5*time.Second); err != nil {
-		return fmt.Errorf("proxy never became healthy (traefik.yml must enable ping: {}): %w", err)
+		return fmt.Errorf("proxy never became healthy (the Traefik static configuration must enable ping: {}): %w", err)
 	}
 	// the applied-state marker — written ONLY after health confirms, so an
 	// interrupted converge is retried, never mistaken for "unchanged"

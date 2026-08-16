@@ -14,9 +14,10 @@ import (
 // Bootstrap performs first contact: base directories → the user's bootstrap
 // hook (host-specific provisioning — docker install, tailscale, data dirs —
 // stays the operator's, config management is a non-goal) → registry login →
-// push a release dir → start services from it. Never activates; after
-// bootstrap every deploy is a pure release.
-func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir string) (err error) {
+// record bootstrap evidence → start supporting services. It never stages or
+// activates application workloads; after bootstrap every deploy is a pure
+// release.
+func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	// Several registries may be declared; a login is attempted for each that
 	// carries credentials, and a named-but-empty password variable is an error
 	// rather than a silent anonymous pull that fails later on a private image.
@@ -84,8 +85,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 	}()
 
-	remoteDir := p.Releases + "/" + releaseID
-	if err := e.RunHook(ctx, "bootstrap", p.Base, remoteDir+"/compose.yaml"); err != nil {
+	if err := e.RunHook(ctx, "bootstrap", p.Base, ""); err != nil {
 		return fmt.Errorf("bootstrap hook: %w", err)
 	}
 
@@ -113,9 +113,14 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID, localStagingDir strin
 		}
 	}
 
-	e.logf("bootstrap: pushing release payload %s", releaseID)
-	if _, err := release.Push(ctx, e.T, localStagingDir, e.names(), releaseID); err != nil {
+	e.logf("bootstrap: recording evidence %s", releaseID)
+	evidenceDir := p.Releases + "/" + releaseID
+	// mkdir without -p makes the identity a create-only boundary: an operation
+	// may never overwrite evidence already stored under the same identity.
+	if res, err := e.mutate(ctx, "mkdir -m 700 "+q(evidenceDir)); err != nil {
 		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("bootstrap evidence directory: %s", strings.TrimSpace(res.Stderr))
 	}
 	manifest, err := release.NewManifest(releaseID, release.KindBootstrap, e.Opts.Now())
 	if err != nil {

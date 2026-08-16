@@ -30,19 +30,10 @@ import (
 // parses the runtime it generates. There is no user-authored Compose file to
 // find: the declaration is the source, and the author states what would
 // otherwise have to be inferred.
-func loadAll(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
-	return loadAllWith(ctx, g, false)
-}
-
-// loadAllLenient is for read-only verbs — status, logs, exec, audit, proxy
-// apply. None of them run anything, so a workload whose image nobody has built
-// yet must not block the query; it renders with a placeholder and the caller
-// can say so.
+// loadAllLenient is for commands that inspect the application runtime without
+// executing it. A workload whose image nobody has built yet must not block the
+// query or contract validation; it renders with a non-pullable placeholder.
 func loadAllLenient(ctx context.Context, g *globalFlags) (*app.Resolved, *ctypes.Project, error) {
-	return loadAllWith(ctx, g, true)
-}
-
-func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolved, *ctypes.Project, error) {
 	spec, err := app.Load(g.ConfigPath)
 	if err != nil {
 		return nil, nil, err
@@ -51,12 +42,7 @@ func loadAllWith(ctx context.Context, g *globalFlags, lenient bool) (*app.Resolv
 	if err != nil {
 		return nil, nil, err
 	}
-	var rendered *app.Rendered
-	if lenient {
-		rendered, err = resolved.RenderForInspection(g.Env, nil)
-	} else {
-		rendered, err = resolved.Render(g.Env, "", nil)
-	}
+	rendered, err := resolved.RenderForInspection(g.Env, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -83,9 +69,12 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(&cobra.Command{
 		Use:   "validate",
 		Short: "validate schema, workloads, and rollability — no side effects",
-		Long:  "Load the project, expand shorthand, apply defaults and the environment's\noverrides, and check every rule the contract states.\n\nContacts nothing and writes nothing. A failure names the field, the line and\nthe constraint; `ob canonical` shows what was understood.",
+		Long:  "Load the project, expand shorthand, apply defaults and the environment's\noverrides, and check every rule the contract states.\n\nContacts nothing and writes nothing. Build metadata is valid before CI supplies\na release image; plan and deploy require that image via `--image`. A failure\nnames the field, the line and the constraint; `ob canonical` shows what was\nunderstood.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, _, err := loadAll(cmd.Context(), g)
+			// A build source is valid contract metadata; the image produced by CI is
+			// release input. Validation describes the project without weakening the
+			// strict render used by plan and deploy.
+			cfg, _, err := loadAllLenient(cmd.Context(), g)
 			if err != nil {
 				return writeStructuredReadFailure(cmd, g, err)
 			}
@@ -174,7 +163,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
-		Long:  "Prepare a host: install what the deploy needs, create the layout, log in to\nregistries, start the proxy, and start supporting services.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. It does not release the application;\n`ob deploy` does that.",
+		Long:  "Prepare a host: install what the deploy needs, create the layout, log in to\nregistries, start the proxy, and start supporting services.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. Application images, source and environment\npayloads are not required or staged; `ob deploy` binds and releases them.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindBootstrap, BreakLock: bootstrapBreakLock,

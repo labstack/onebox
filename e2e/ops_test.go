@@ -90,8 +90,8 @@ func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engi
 
 func bootstrapHost(t *testing.T, dir, cfgFile, base string) {
 	t.Helper()
-	e, id, staging := buildDeploy(t, dir, cfgFile, "bootstrap", base)
-	if err := e.Bootstrap(context.Background(), id, staging); err != nil {
+	e, id, _ := buildDeploy(t, dir, cfgFile, "bootstrap", base)
+	if err := e.Bootstrap(context.Background(), id); err != nil {
 		t.Fatalf("bootstrap host: %v", err)
 	}
 }

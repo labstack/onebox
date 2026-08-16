@@ -59,6 +59,38 @@ func TestPublisherDestinationsMatchTheWorkflowPreflight(t *testing.T) {
 	}
 }
 
+func TestPublishedPackageLicensesMatchRepository(t *testing.T) {
+	repositoryLicense := readRepositoryFile(t, "../LICENSE")
+	if !strings.Contains(repositoryLicense, "Apache License") || !strings.Contains(repositoryLicense, "Version 2.0") {
+		t.Fatal("repository license is no longer Apache License 2.0; update the expected package identifier")
+	}
+
+	var config struct {
+		NFPMS  []packageMetadata `yaml:"nfpms"`
+		Scoops []packageMetadata `yaml:"scoops"`
+	}
+	if err := yaml.Unmarshal([]byte(readRepositoryFile(t, "../.goreleaser.yaml")), &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.NFPMS) != 1 || len(config.Scoops) != 1 {
+		t.Fatalf("want exactly one nFPM package and one Scoop manifest, got %d and %d", len(config.NFPMS), len(config.Scoops))
+	}
+
+	const want = "Apache-2.0"
+	for target, license := range map[string]string{
+		"nfpms":  config.NFPMS[0].License,
+		"scoops": config.Scoops[0].License,
+	} {
+		if license != want {
+			t.Errorf("%s publishes license %q, want repository SPDX identifier %q", target, license, want)
+		}
+	}
+}
+
+type packageMetadata struct {
+	License string `yaml:"license"`
+}
+
 type publisher struct {
 	Repository struct {
 		Owner  string `yaml:"owner"`

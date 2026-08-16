@@ -126,7 +126,7 @@ func (e *Engine) AcquireProtectionLock(ctx context.Context, service, operationID
 		}
 		var holder protectionLockMeta
 		_ = json.Unmarshal([]byte(observed), &holder)
-		ageResult, err := e.T.Run(ctx, lockAgeCmd(q(e.protectionLockPath(service))))
+		ageResult, err := e.T.Run(ctx, lockAgeCmd(e.protectionLockPath(service)))
 		if err != nil {
 			return 0, err
 		}

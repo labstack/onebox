@@ -113,7 +113,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if engine.OnlyReleaseLabelsChanged(liveRedacted, string(renderedRedacted)) {
 		diff = ""
 	}
-	payloadDigest, err := engine.LocalPayloadDigestContext(ctx, staging)
+	payloadDigest, err := engine.LocalPayloadDigestContext(ctx, lp.resolved, staging)
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("hash planned payload: %w", err)
 	}
@@ -162,7 +162,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		if err != nil {
 			return DeployPlan{}, fmt.Errorf("build restaged compose diff: %w", err)
 		}
-		payloadDigest, err = engine.LocalPayloadDigestContext(ctx, staging)
+		payloadDigest, err = engine.LocalPayloadDigestContext(ctx, lp.resolved, staging)
 		if err != nil {
 			return DeployPlan{}, fmt.Errorf("hash restaged payload: %w", err)
 		}

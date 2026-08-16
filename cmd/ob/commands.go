@@ -418,27 +418,84 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath, backupReportOut string
 	if err != nil {
 		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
-	var reportTemplate *onebox.BackupReport
-	if backupReportOut != "" {
-		template, templateErr := onebox.NewBackupReportTemplate(&pl.plan)
-		if templateErr != nil {
-			return writeStructuredCommandFailure(cmd, g, "backup_report_not_required", "backup report template could not be created", templateErr)
-		}
-		reportTemplate = &template
-	}
-	if err := pl.plan.Save(outPath); err != nil {
+	// Validated before anything is staged. Save() validates on its way to
+	// writing, so without this a plan that is simply invalid would be
+	// reported as artifact_write_failed — a write that never happened, and a
+	// code whose guidance is blank.
+	if err := pl.plan.Validate(); err != nil {
 		return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", err)
 	}
+	// A caller cannot know ahead of time whether a plan will require a backup
+	// report, so passing --backup-report-out defensively must not cost the
+	// plan artifact on every deploy that touches no data — hence the
+	// not-required case below is not a failure.
+	var reportTemplate *onebox.BackupReport
+	backupReportRequired := false
+	if backupReportOut != "" {
+		template, templateErr := onebox.NewBackupReportTemplate(&pl.plan)
+		switch {
+		case templateErr == nil:
+			reportTemplate = &template
+			backupReportRequired = true
+		case errors.Is(templateErr, onebox.ErrBackupReportNotRequired):
+			// Not a failure: this plan declares no migration backup requirement,
+			// so there is no template to write. The plan stands, and the caller
+			// is told plainly rather than by the absence of a file.
+		default:
+			// The template could not be BUILT from this plan. Nothing was
+			// written and no write failed, so artifact_write_failed names a
+			// cause that did not occur.
+			return writeStructuredCommandFailure(cmd, g, "plan_failed", "plan failed; inspect stderr for local diagnostics", templateErr)
+		}
+	}
+	// One destination cannot hold both. Staging gives them distinct temp
+	// names, so the set would commit and the plan — renamed second — would
+	// silently win, leaving the run reporting a backup_report_path that holds
+	// a deploy plan.
+	if backupReportOut != "" && sameArtifactPath(outPath, backupReportOut) {
+		return writeStructuredCommandFailure(cmd, g, "artifact_write_failed",
+			"plan artifacts could not be written", fmt.Errorf("--out and --backup-report-out name the same path: %s", outPath))
+	}
+	// Both files are staged, then moved into place together. The plan is the
+	// artifact `ob approve` and `ob deploy --plan` consume, so a run that
+	// reports failure must never leave a fresh, approvable one behind; and on
+	// a re-plan the paths already exist, so cleanup after the fact cannot put
+	// the caller's previous files back. Staging is what makes "all or nothing"
+	// hold in both directions.
+	var stagedReport stagedArtifact
 	if reportTemplate != nil {
-		if err := reportTemplate.SaveTemplate(backupReportOut); err != nil {
-			if cleanupErr := os.Remove(outPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
-				err = errors.Join(err, fmt.Errorf("remove incomplete plan artifact set: %w", cleanupErr))
-			}
+		var err error
+		stagedReport, err = stageArtifact(backupReportOut, ".report", reportTemplate.SaveTemplate)
+		if err != nil {
 			return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "plan artifacts could not be written", err)
 		}
 	}
+	// artifact_write_failed, not plan_failed: staging is where the writes actually
+	// happen — MkdirAll, CreateTemp, Write, Sync, Rename, directory fsync — so
+	// ENOSPC and EACCES land here, and plan_failed publishes `ob validate`, which
+	// would pass and leave the caller looping.
+	stagedPlan, err := stageArtifact(outPath, ".plan", pl.plan.Save)
+	if err != nil {
+		stagedReport.discard()
+		return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "plan artifacts could not be written", err)
+	}
+	// Committed as a set: a failure part-way puts the tree back — what landed
+	// is removed and whatever it replaced is restored from its backup — and
+	// every staged and backup file is discarded on the way out. A caller told
+	// the run failed finds neither a fresh artifact nor a missing one.
+	// A commit failure is a rename or a directory sync — a write, not a
+	// planning problem. plan_failed publishes `ob validate`, which would pass
+	// and leave the caller looping.
+	if err := commitArtifactSet(stagedReport, stagedPlan); err != nil {
+		return writeStructuredCommandFailure(cmd, g, "artifact_write_failed", "plan artifacts could not be written", err)
+	}
 	if isStructuredOutput(g) {
 		data := map[string]any{"plan": pl.plan, "artifact_path": outPath}
+		if backupReportOut != "" {
+			// Always present when the flag was passed, so a caller branches on a
+			// field rather than on whether a key exists.
+			data["backup_report_required"] = backupReportRequired
+		}
 		if reportTemplate != nil {
 			data["backup_report"] = reportTemplate
 			data["backup_report_path"] = backupReportOut
@@ -446,8 +503,11 @@ func runPlan(cmd *cobra.Command, g *globalFlags, outPath, backupReportOut string
 		return writeFiniteSuccess(cmd, g, data)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nplan written to %s\n", outPath)
-	if reportTemplate != nil {
+	switch {
+	case reportTemplate != nil:
 		fmt.Fprintf(cmd.OutOrStdout(), "backup report template written to %s\n", backupReportOut)
+	case backupReportOut != "":
+		fmt.Fprintln(cmd.OutOrStdout(), "no migration backup report is required for this plan")
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "approve with: ob approve --plan %s", outPath)
 	if reportTemplate != nil {
@@ -545,17 +605,10 @@ func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteReque
 			if err == nil {
 				return outputErr
 			}
-			exitCode := 1
-			if errors.Is(err, context.Canceled) {
-				exitCode = 2
-			}
-			return errors.Join(withExitCode(err, exitCode), fmt.Errorf("write structured operation result: %w", outputErr))
+			return errors.Join(withExitCode(err, cancellationExitCode(err, "operation_failed")), fmt.Errorf("write structured operation result: %w", outputErr))
 		}
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				return withExitCode(err, 2)
-			}
-			return withExitCode(err, 1)
+			return withExitCode(err, cancellationExitCode(err, "operation_failed"))
 		}
 	}
 	return err
@@ -582,9 +635,13 @@ func runStatus(cmd *cobra.Command, g *globalFlags) error {
 	if snapshot.Diverged {
 		statusErr := errors.New("status: divergence detected")
 		publicErr := &cliPublicError{
-			Code: "divergence_detected", SafeMessage: "recorded and observed state diverge",
-			DiagnosticCommand: "ob audit --output json", Details: map[string]any{"status": snapshot},
+			Code: "divergence_detected", SafeMessage: safeMessageForCode("divergence_detected", "recorded and observed state diverge"),
+			Details: map[string]any{"status": snapshot},
 		}
+		// Guidance comes from the registry, which the error reference is
+		// generated from. Hardcoding it here is how the envelope and the docs
+		// end up publishing different commands for one code.
+		setCommandGuidance(publicErr, guidanceCommandForCode(publicErr.Code))
 		if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
 			return err
 		}
@@ -637,13 +694,13 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("backup reports and migration overrides require --plan"))
 	}
 	if planFile == "" && approvalFile != "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--approval requires --plan so the exact approved artifact is applied"))
+		return writeEarlyOperationFailure(cmd, g, codedError("plan_required", "--approval requires --plan so the exact approved artifact is applied"))
 	}
 	if migrationBackupOverrideReason != "" && approvalFile == "" {
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--override-migration-backup requires a plan-bound local-confirmation --approval file created with the strong ceremony"))
 	}
 	if isStructuredOutput(g) && planFile == "" {
-		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("structured deploy requires --plan; run `ob plan --output %s` first", g.Output))
+		return writeEarlyOperationFailure(cmd, g, codedError("plan_required", "structured deploy requires --plan; run `ob plan --output %s` first", g.Output))
 	}
 	if planFile != "" {
 		plan, err := onebox.LoadDeployPlan(planFile)

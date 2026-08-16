@@ -112,6 +112,27 @@ native Cobra output.
 that reason, target, target kind, operator, outcome, and command digest; it never
 stores command bytes or passthrough output.
 
+### Exit codes
+
+Three codes, and the set is closed. Every failure is `1`: there is no second
+failure code, because which failure it was is the error `code` in the envelope
+rather than the exit status.
+
+| Code | Means |
+| --- | --- |
+| `0` | Succeeded, or there was nothing to do. Both the `success` and `no_op` outcomes exit `0` |
+| `1` | Failed |
+| `2` | Cancelled: an interrupt, or an operator declining a confirmation or typing one back wrongly. Nothing was changed |
+
+The codes hold whether output is human, JSON or NDJSON, and match the terminal
+outcome in the envelope.
+
+:::caution[`ob exec` does not propagate the remote exit status]
+A container command that exits `3` is an exec that failed, and the CLI exits
+`1`. Only cancellation exits `2`. An agent that needs the command's own status
+must have the command report it in its output.
+:::
+
 ### Schema identities
 
 An agent branches on the schema version and command, never on an inferred shape.
@@ -125,12 +146,17 @@ An agent branches on the schema version and command, never on an inferred shape.
 | Local confirmation | `onebox.run/local-confirmation/v1alpha1` |
 | Migration backup report | `onebox.run/backup-report/v1alpha1` |
 
-:::note[This table is under test]
-`cmd/ob/docs_test.go` asserts set equality in both directions: every command the
-binary gives structured output appears in the list above, every command listed
-above really has it, and every schema identity the binary emits appears in the
-table. Adding one without documenting it fails the build, and so does documenting
-one that does not exist.
+:::note[The command matrix is under test; this table mostly is not]
+`cmd/ob/docs_test.go` asserts set equality in both directions for the
+[classified leaf commands](#classified-leaf-commands): every command the binary
+gives structured output appears in that list, and every command listed there
+really has it. Adding one without documenting it fails the build, and so does
+documenting one that does not exist.
+
+The identities above are not held to that standard. Only
+`onebox.run/cli/v1alpha1` is asserted, and only in one direction — that the page
+mentions it somewhere. The other five are maintained by hand and could drift
+without failing the build.
 :::
 
 ## Pre-release evolution

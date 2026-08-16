@@ -210,8 +210,12 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		ref, ok := images[name]
 		if !ok || ref == "" {
 			if images[inspectionKey] == "" {
+				// `ob plan`, not `ob deploy`: a structured deploy without
+				// --plan is refused with plan_required, so guidance naming it
+				// hands an agent a refusal instead of progress. The engine
+				// raises this same code and points at the same command.
 				return nil, nil, definitions{}, errf("image_unresolved", "workloads."+name,
-					"ob deploy --image "+name+"=<reference>",
+					"ob plan --image "+name+"=<reference>",
 					"workload %q is built from source, and production never builds: pass the reference "+
 						"whatever built it produced, as --image %s=<reference>", name, name)
 			}

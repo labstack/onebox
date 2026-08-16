@@ -47,6 +47,22 @@ may have as many workloads as it needs — a server, workers, jobs, databases,
 caches, a proxy — but the unit Onebox owns is the application, and a host runs
 one of them.
 
+That last part is enforced, not advisory. `ob bootstrap` writes an owner record
+on the host, and every command that changes anything checks it first. Point a
+second application at the same machine and it refuses before touching anything:
+
+```
+host is owned by application "shop"; application "blog" cannot mutate it
+```
+
+The record is released only when nothing of the application is left: volumes
+removed, and the proxy removed too if this application manages it. Keeping it
+while data survives is deliberate — ownership is what lets you come back and run
+`ob destroy --volumes`, and a host released early is one whose remaining volumes
+its owner can no longer reach. `ob destroy` tells you which command releases it.
+`ob preflight` reports the current owner, and passes on a host nobody has claimed
+yet.
+
 Onebox is **not**:
 
 - a cluster manager, Kubernetes replacement, PaaS, or hosting provider

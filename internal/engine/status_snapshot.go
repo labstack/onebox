@@ -381,23 +381,48 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 	if complete(statusProxyLocalHashRead) {
 		status.LocalConfigHash = raw.localHash
 	}
-	if complete(statusProxyAppliedHashRead) {
+	// A refused read leaves raw.applied empty, which is not the same as "the
+	// host applied nothing". Publishing the hash or comparing it would have
+	// the JSON assert divergence — the field an agent branches on — about a
+	// file that was never read. renderProxy refuses the same comparison.
+	if complete(statusProxyAppliedHashRead) && raw.appliedIssue == "" {
 		status.AppliedConfigHash = raw.applied
-	}
-	if complete(statusProxyLocalHashRead) && complete(statusProxyAppliedHashRead) && raw.localHash != raw.applied {
-		status.ConfigDiverged = true
-		status.Issues = append(status.Issues, "local and applied configuration hashes differ")
+		if complete(statusProxyLocalHashRead) && raw.localHash != raw.applied {
+			status.ConfigDiverged = true
+			status.Issues = append(status.Issues, "local and applied configuration hashes differ")
+		}
 	}
 
+	if complete(statusProxyAppliedHashRead) && raw.appliedIssue != "" {
+		status.Complete = false
+		status.Issues = append(status.Issues, raw.appliedIssue)
+	}
+	if complete(statusProxyCertificatesRead) && raw.acmeIssue != "" {
+		status.Complete = false
+		status.Issues = append(status.Issues, raw.acmeIssue)
+	}
 	if complete(statusProxyOwnerRead) {
 		status.Owner = raw.owner
-		if raw.owner != "" && raw.owner != application {
+		// The read returned, but it returned a record we would not act on.
+		// Reporting it complete would have the JSON assert an owner (or an
+		// unclaimed host) that the engine refuses.
+		if raw.ownerIssue != "" {
+			status.Complete = false
+			status.Issues = append(status.Issues, raw.ownerIssue)
+		} else if raw.owner != "" && raw.owner != application {
 			status.Issues = append(status.Issues, fmt.Sprintf("host is owned by application %s", raw.owner))
 		}
 	}
 
 	var parseWarning *StatusWarning
-	if complete(statusProxyCertificatesRead) {
+	// A refused store leaves raw.acme empty, and CertExpiries reads empty
+	// input as "no certificates" without error — so today this gate changes
+	// no output: the certificate list is empty either way and Complete is
+	// already false. It is here so the empty-input coincidence is not what
+	// keeps the snapshot honest. Should CertExpiries ever report on partial
+	// input, the ungated form would answer "nothing is near expiry" about a
+	// store it never opened.
+	if complete(statusProxyCertificatesRead) && raw.acmeIssue == "" {
 		certs, err := proxy.CertExpiries([]byte(raw.acme))
 		if err != nil {
 			status.Complete = false

@@ -18,6 +18,10 @@ permanently. The overlay is stripped, so the file is ordinary Compose — not
 Compose with Onebox labels you would then have to unpick — and your workloads are
 repointed at it with your comments intact.
 
+`--out` chooses the destination. It defaults to a free name beside the project,
+so an existing file is stepped around rather than written over. An explicit
+`--out` that already exists is refused; `--overwrite` is the way past that.
+
 ## Why the exit is a command
 
 A tool that generates your runtime is asking for trust in proportion to how hard
@@ -44,7 +48,7 @@ ob eject            # write it out and hand it over
 
 | Code | Means |
 | --- | --- |
-| `eject_destination_exists` | The destination already exists |
+| `eject_destination_exists` | An explicit `--out` path already exists; `--overwrite` replaces it |
 | `eject_nothing_to_do` | Every workload already references a Compose file |
 | `eject_failed` | The runtime could not be handed over |
 

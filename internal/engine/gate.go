@@ -115,7 +115,7 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
 	safeByDeclaration := e.jobDataEffect(job) == app.DataEffectNone
-	resultDir := remoteDir + "/.job-" + job + "-result"
+	resultDir := remoteDir + "/" + jobResultDirName(job)
 	resultFile := resultDir + "/result"
 	const containerResultFile = "/run/onebox/job-result"
 	containerized := true

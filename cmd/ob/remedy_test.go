@@ -88,3 +88,54 @@ func TestEveryFlagNamedInAnErrorStringExistsOnThatCommand(t *testing.T) {
 		}
 	}
 }
+
+// Loader guidance is authored per error code, so unlike the lifecycle table it
+// carries no structural guarantee that it is a command at all. It is published
+// in next_command/diagnostic_command/resolving_command, which the contract
+// documents as safe Onebox commands an agent may run — so every value has to be
+// one, or be dropped before it reaches the envelope.
+func TestEveryLoaderGuidanceValueIsASafeCommand(t *testing.T) {
+	// Next is authored at each errf call site, not per code, so the contract has
+	// to be checked against the source.
+	call := regexp.MustCompile(`errf\(\s*"([a-z_]+)"\s*,\s*(?:"(?:[^"\\]|\\.)*"|[^,\n]+)\s*,\s*"((?:[^"\\]|\\.)*)"`)
+	root := filepath.Join("..", "..", "internal", "app")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range call.FindAllStringSubmatch(string(body), -1) {
+			next := match[2]
+			if next == "" {
+				continue
+			}
+			checked++
+			if !onebox.SafeGuidanceCommand(next) {
+				t.Errorf("%s: code %q publishes %q as guidance, which is not a safe command", entry.Name(), match[1], next)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("scanned no guidance values; the pattern no longer matches errf call sites")
+	}
+}
+
+func TestUnsafeGuidanceIsDroppedRatherThanPublished(t *testing.T) {
+	result := &cliPublicError{Code: "secrets_withdrawn"}
+	setCommandGuidance(result, "runtime.env_files: [{file: <path>, provider: sops}]")
+	if result.NextCommand != "" || result.DiagnosticCommand != "" || result.ResolvingCommand != "" {
+		t.Fatalf("prose reached a guidance field: %+v", result)
+	}
+	setCommandGuidance(result, "ob validate")
+	if result.DiagnosticCommand != "ob validate" {
+		t.Fatalf("a real command was not published: %+v", result)
+	}
+}

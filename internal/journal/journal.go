@@ -235,16 +235,42 @@ const journalMarker = "@@ob-journal@@"
 func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string, map[string][]Record, error) {
 	// A missing journal directory is a valid never-deployed state. Existing but
 	// unreadable directories/files fail so status cannot report false completeness.
+	// -e follows symlinks, so the -L arm is what keeps a dangling journal-dir
+	// link out of the "never deployed" answer — the false completeness above.
 	// The `echo` after each `cat` guarantees a newline before the next marker:
 	// a crash can leave a journal's last record un-terminated, and without it
 	// that record's line would swallow the following file's marker, losing an
 	// entire deploy's records to one torn write.
 	cmd := "if [ -d " + q(dir(n)) + " ]; then cd " + q(dir(n)) + " || exit; " +
-		"for f in *.jsonl; do [ -f \"$f\" ] || continue; echo " + q(journalMarker) +
-		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ]; then exit 2; fi"
+		// Searchable but not readable: cd succeeds and the glob cannot
+		// enumerate, so the loop never runs and the read looks like a
+		// never-deployed host. Same false completeness, one step over.
+		"[ -r . ] || exit 2; " +
+		"for f in *.jsonl; do if [ ! -f \"$f\" ]; then " +
+		// Any non-regular entry is the directory's problem one level down:
+		// skipping it drops that deploy's records, and FindIncomplete then
+		// reports nothing incomplete — the same false completeness. -e
+		// catches a directory or device sitting where a journal belongs;
+		// -L catches the dangling link -e cannot see.
+		"if [ -e \"$f\" ] || [ -L \"$f\" ]; then exit 2; fi; continue; fi; echo " + q(journalMarker) +
+		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ] || [ -L " + q(dir(n)) + " ]; then exit 2; else " +
+		// An unsearchable ancestor hides the directory as thoroughly as a
+		// missing one, and answering "never deployed" there strands an
+		// interrupted deploy: FindIncomplete reports nothing to resume.
+		app.UndeterminedArm(dir(n)) + "true; fi"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err
+	}
+	// The script's own refusals carry no stderr, so the generic form below
+	// would print an exit code and no cause.
+	switch res.ExitCode {
+	case 2:
+		return nil, nil, fmt.Errorf("read deployment journals failed: %s exists but a journal there could not be read; inspect the deployment state directory", dir(n))
+	case app.ProbeStatePathNotDirectory:
+		return nil, nil, fmt.Errorf("read deployment journals failed: the path that should hold %s is not a directory; inspect the deployment state directory", dir(n))
+	case app.ProbeUndetermined:
+		return nil, nil, fmt.Errorf("read deployment journals failed: a directory holding %s cannot be searched, so a never-deployed host cannot be told from an unreadable one; verify access, then retry", dir(n))
 	}
 	if res.ExitCode != 0 {
 		return nil, nil, fmt.Errorf("read deployment journals failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
@@ -353,6 +379,18 @@ type Summary struct {
 // decision. Resume uses it to preserve the aggregate result across retries.
 const DoneGateRecorded = "gate:recorded"
 
+// DoneActivation marks a durably recorded successful activation. It is the
+// evidence that separates the two halves of a deploy: before it, an interrupted
+// operation never took effect and resume replays the choreography; after it,
+// the release is the truth and only the post-activation steps remain.
+const DoneActivation = "activation"
+
+// FinalizeSubStepPrefix marks the post-activation steps. They are journaled
+// individually — and deliberately not as rollback effects, which belong to the
+// choreography that runs before activation — so a finalize replay repeats none
+// that already recorded a successful result.
+const FinalizeSubStepPrefix = "finalize:"
+
 // EffectBaselineSubStep is written durably before transfer or any effect can
 // start. Later job/hook attempts join the aggregate and may close it; if the
 // runner dies during upload, the journal still proves rollback is safe.
@@ -430,11 +468,19 @@ func Summarize(recs []Record) Summary {
 		switch r.Event {
 		case "start":
 			if deployRecord {
-				s.Started = true
-				s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
-				if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
-					s.PrevRelease = v
+				// Only the FIRST start describes what this operation superseded.
+				// Every resume appends its own start with the live current
+				// pointer, and once activation has moved that pointer it names
+				// the release being resumed — so a later start would rewrite the
+				// operation's predecessor to itself, and abort and finalize both
+				// read this field as durable evidence of what came before.
+				if !s.Started {
+					s.Operator, s.GitSHA, s.StartedAt = r.Operator, r.GitSHA, r.TS
+					if v, ok := strings.CutPrefix(r.Detail, "prev="); ok {
+						s.PrevRelease = v
+					}
 				}
+				s.Started = true
 			}
 		case "finish":
 			if deployRecord && r.Status == "ok" {
@@ -459,6 +505,10 @@ func Summarize(recs []Record) Summary {
 			switch {
 			case r.Phase == "transfer":
 				s.Done["transfer"] = true
+			case r.Phase == "activation":
+				s.Done[DoneActivation] = true
+			case strings.HasPrefix(r.SubStep, FinalizeSubStepPrefix):
+				s.Done[r.SubStep] = true
 			case r.SubStep == MigrationBackupSubStep:
 				s.Done[MigrationBackupSubStep] = true
 			case strings.HasPrefix(r.SubStep, "job:"):

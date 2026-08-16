@@ -220,6 +220,23 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return fmt.Errorf("release manifest: %w", manifestErr)
 	}
 
+	// A serving manifest means activation already completed durably, so this
+	// operation is past the seam: nothing before activation may run again, and
+	// only the post-activation steps remain. A fresh deploy always stages its
+	// own manifest, so this is reachable from resume alone — and finalize
+	// refuses anyway unless the journal proves this operation activated it.
+	if manifest.State == release.StateServing {
+		return e.finalizeActivated(ctx, jw, &manifest, done, remoteDir, remoteCompose)
+	}
+
+	// Anything else the host has already settled — superseded by a manual
+	// rollback, or terminally failed or aborted — is refused HERE, before a job
+	// runs or a role rolls. Activation would refuse it anyway, but by then this
+	// deploy would have started containers of a release the host moved past.
+	if !activationResumable(manifest.State) {
+		return &ActivationRefusedError{ReleaseID: releaseID, State: manifest.State}
+	}
+
 	// Before any job runs: a job can need a database as readily as an
 	// application can, and both read a file that only exists once it is
 	// written.
@@ -291,8 +308,8 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	if err := jw.Append(ctx, journal.Record{Phase: "verify", Event: "result", Status: "ok"}); err != nil {
 		return fmt.Errorf("journal verify result: %w", err)
 	}
-	if manifest.State != release.StateStaged {
-		return fmt.Errorf("release %s cannot activate from manifest state %s", releaseID, manifest.State)
+	if !activationResumable(manifest.State) {
+		return &ActivationRefusedError{ReleaseID: releaseID, State: manifest.State}
 	}
 	e.progress("verification", "succeeded", "")
 
@@ -322,26 +339,37 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	}); err != nil {
 		fin(err)
 		e.progress("activation", "failed", "activation succeeded but its evidence could not be persisted")
-		return fmt.Errorf("journal activation result: %w", err)
+		// The checkpoint stays open on purpose: recovery reconciles an open
+		// checkpoint, and clearing it here would strand a live release whose
+		// activation nothing recorded.
+		//
+		// Through failedOutcome like every other exit past activation:
+		// Transition(StateServing) already stamped the manifest succeeded,
+		// and an interrupt here would otherwise report "cancelled, nothing
+		// was changed" for a generation that is live.
+		return e.failedOutcome(ctx, &manifest, fmt.Errorf("journal activation result: %w", err))
+	}
+	// Evidence is durable, so the checkpoint has done its job. Typed, because
+	// the release is already live: an interrupt here returns ctx.Err()
+	// verbatim, and an untyped one ships as "cancelled, nothing was changed"
+	// for a deploy whose new generation is serving.
+	if err := e.clearActivationCheckpoint(ctx); err != nil {
+		// Activation itself succeeded — symlink switched, manifest serving,
+		// journal recorded. Reporting phase=activation status=failed would
+		// have a stream consumer conclude the new generation never took
+		// effect and roll back a healthy, live release.
+		fin(nil)
+		e.progress("activation", "succeeded", "")
+		e.progress("cleanup", "failed", "the release is serving; its activation checkpoint could not be cleared")
+		// Through failedOutcome like every other post-activation exit:
+		// Transition(StateServing) set the outcome to succeeded, and leaving
+		// it there would have the manifest claim a finished operation for one
+		// that failed.
+		return e.failedOutcome(ctx, &manifest, fmt.Errorf("clear activation checkpoint: %w", err))
 	}
 	fin(nil)
 	e.progress("activation", "succeeded", "")
-	e.progress("cleanup", "started", "")
-	if err := e.pruneRetention(ctx); err != nil {
-		e.progress("cleanup", "failed", "retention cleanup failed after activation; inspect journal evidence")
-		return fmt.Errorf("prune: %w", err)
-	}
-	e.progress("cleanup", "succeeded", "")
-	// After activation, because a timer invokes the job through `current` and
-	// that pointer has only just moved. Before the post-deploy hook, so a hook
-	// that inspects the schedule sees the one this release declares.
-	if err := e.SyncSchedules(ctx); err != nil {
-		return fmt.Errorf("schedules: %w", err)
-	}
-	if err := e.RunHook(ctx, "post_deploy", remoteDir, remoteCompose); err != nil {
-		return fmt.Errorf("post-deploy: %w", err)
-	}
-	return nil
+	return e.runPostActivation(ctx, jw, &manifest, done, remoteDir, remoteCompose)
 }
 
 // runRollbackEffectHook journals untyped lifecycle hooks as rollback-unknown
@@ -386,12 +414,20 @@ func (e *Engine) activate(ctx context.Context, id string) error {
 	return nil
 }
 
+// retentionSkipped is the durable, value-free note that retention declined to
+// act. The reason can carry host stderr, which the journal contract keeps off
+// durable evidence, so the detail stays on the trusted local path and only this
+// stable phrase is journaled.
+const retentionSkipped = "release-store cleanup skipped: retention evidence is incomplete"
+
 // pruneRetention removes releases beyond retain and journals beyond twice
-// that window because a journal outlives its release.
-func (e *Engine) pruneRetention(ctx context.Context) error {
+// that window because a journal outlives its release. It returns the skip note
+// when it deliberately declined to delete anything, so that the journal records
+// a skip rather than an unqualified success.
+func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 	journalIDs, err := journal.List(ctx, e.T, e.names())
 	if err != nil {
-		return err
+		return "", err
 	}
 	policy := release.DefaultRetentionPolicy(e.Spec.Deployment.RetainReleases, e.Opts.Now())
 	policy.EvidenceIDs = make(map[string]bool, len(journalIDs))
@@ -399,30 +435,46 @@ func (e *Engine) pruneRetention(ctx context.Context) error {
 		policy.EvidenceIDs[id] = true
 	}
 	decision, err := release.RetentionCandidates(ctx, e.T, e.names(), policy)
-	if err != nil {
-		return err
-	}
-	if len(decision.Reported) > 0 {
-		e.warnf("%d release-store entr(ies) were preserved for inspection: %v", len(decision.Reported), decision.Reported)
-	}
-	for _, id := range decision.Victims {
-		if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
-			return err
+	var evidence *release.RetentionEvidenceError
+	switch {
+	case errors.As(err, &evidence):
+		// Refusing to delete on incomplete evidence is the contract. Failing the
+		// operation over it is not: the release is healthy and serving, and a
+		// deploy that cannot reach a terminal state is a worse outcome than a
+		// release store that keeps one directory too many.
+		//
+		// Nothing else in this run may delete either. Journals are the evidence
+		// that protects release directories with no readable manifest, so
+		// pruning them during the one run that just said the evidence is
+		// incomplete would leave the store LESS protected than a clean run.
+		// The whole of retention declines together and a later run does both.
+		e.warnf("release-store cleanup skipped — %v", evidence)
+		return retentionSkipped, nil
+	case err != nil:
+		return "", err
+	default:
+		if len(decision.Reported) > 0 {
+			e.warnf("%d release-store entr(ies) were preserved for inspection: %v", len(decision.Reported), decision.Reported)
 		}
-	}
-	if len(decision.Victims) > 0 {
-		e.logf("pruned %d expired release-store entries", len(decision.Victims))
+		for _, id := range decision.Victims {
+			if err := e.mutateChecked(ctx, "prune release "+id, "rm -rf "+q(release.PathsFor(e.names()).Releases+"/"+id)); err != nil {
+				return "", err
+			}
+		}
+		if len(decision.Victims) > 0 {
+			e.logf("pruned %d expired release-store entries", len(decision.Victims))
+		}
 	}
 	jvictims, err := journal.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases*2)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, id := range jvictims {
 		if err := e.mutateChecked(ctx, "prune journal "+id, "rm -f "+q(release.PathsFor(e.names()).Base+"/journal/"+id+".jsonl")); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return "", nil
 }
 
 // Rollback re-releases the previous release dir: its compose.yaml pins the
@@ -445,7 +497,7 @@ func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if observedCurrent == "" {
-		return "", fmt.Errorf("no rollback target: there is no current release")
+		return "", &release.RollbackTargetMissingError{Reason: "there is no current release"}
 	}
 	epoch, err := e.AcquireLock(ctx, observedCurrent, e.Opts.ForceLock)
 	if err != nil {
@@ -504,6 +556,27 @@ func (e *Engine) rollbackTo(ctx context.Context, prev, current string, epoch int
 	}
 	if err := e.reactivateManifest(ctx, &target, current); err != nil {
 		return fmt.Errorf("rollback activation: %w", err)
+	}
+	// Same reasoning as the deploy path: the rollback target is already
+	// serving by the time this runs.
+	if err := e.clearActivationCheckpoint(ctx); err != nil {
+		if outcomeErr := e.recordOutcome(ctx, &target, release.OutcomeFailed); outcomeErr != nil {
+			// Carries the same override as the branch below: without it
+			// GuidanceCommand falls back to `ob resume`, which fixes forward
+			// against the release this rollback just undid.
+			return errors.Join(outcomeErr, &PostActivationFailedError{
+				ReleaseID: target.ID,
+				Err:       fmt.Errorf("rollback activation: clear activation checkpoint: %w", err),
+				Guidance:  "ob status --output json",
+			})
+		}
+		return &PostActivationFailedError{
+			ReleaseID: target.ID,
+			Err:       fmt.Errorf("rollback activation: clear activation checkpoint: %w", err),
+			// Not `ob resume`: the rollback target is serving, and resume
+			// would try to finalize the deploy this rollback undid.
+			Guidance: "ob status --output json",
+		}
 	}
 	return nil
 }

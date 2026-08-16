@@ -152,7 +152,13 @@ payload change requires a new plan.
 
 `ob init` is a starting point, not permission to deploy. Review workload
 types, persistence semantics, readiness, job data effects, and the environment
-server before running a plan. The
+server before running a plan.
+
+Two rules catch most first drafts. A job with no explicit `when` defaults to
+`manual`, so it never runs during a deploy — declare `when: pre_release` or
+`when: post_release` for a migration. And a rolling workload cannot publish a
+host port, because two replicas cannot hold the same port during a roll: use
+`strategy: recreate`, or route through the proxy. The
 [project file reference](site/src/content/docs/reference/project-file.mdx)
 documents the accepted fields and representative examples.
 
@@ -189,6 +195,23 @@ and errors exit 1. NDJSON adds monotonic sequences and exactly one terminal
 record. Errors distinguish `diagnostic_command`, `next_command`, and
 `resolving_command`; diagnostics stay on stderr.
 
+Error codes come in three families, all published in the
+[error code reference](site/src/content/docs/reference/errors.mdx): validation
+codes raised while the project file is read, operation codes raised while a
+command runs, and the lifecycle failure contract. Branch on the code, never on
+the sentence.
+
+There is no generic `--force`. Each override grants exactly one capability and
+is named for it:
+
+| Flag | Grants |
+| --- | --- |
+| `--break-lock` | break a stale application or host lock after inspecting its holder |
+| `--break-migration-gate` | abort past a closed migration gate you have judged safe |
+| `--allow-destructive-mounts` | apply a service change that detaches or replaces a data volume |
+| `--no-rollback` | leave a failed deploy in place instead of recovering it |
+| `--redeploy` | replace workloads that a no-op deploy would otherwise leave alone |
+
 Logs and exec accept workloads and Onebox-run services through the same target
 namespace. Follow mode is NDJSON-only; finite logs may be JSON. Their output is
 operator-controlled passthrough and may contain secrets, so Onebox tags stdout
@@ -212,6 +235,20 @@ checkpoint instead of inferring state from directory names.
 `ob secrets push` rotates the complete declared secret graph as one opaque
 generation. All affected workloads finish on the new generation or recovery
 returns them all to the old one; declaration changes require a normal deploy.
+Rotation is graph-wide: changing one encrypted file replaces every workload that
+reads any declared secret, not only the ones whose values moved.
+
+`ob secrets list` shows the declared graph and each entry's identifier.
+`ob secrets edit <entry-id>` opens one encrypted source through SOPS; the
+identifier is required whenever more than one editable source exists, because
+guessing which one you meant is not a decision the tool should make.
+
+A host belongs to exactly one application. `ob bootstrap` records the owner, and
+every mutating command checks it before touching anything; a second application
+is refused with `host_owner_mismatch`. The record is released once nothing of the
+application remains — volumes removed, and the proxy too if it is managed — so a
+partial destroy keeps it and `ob destroy` names the command that frees the host.
+`ob preflight` reports the current owner and passes on an unclaimed host.
 
 When environment policy sets `require_migration_backup: true`, the executable
 plan binds protected resources, report age, restore-test requirements, and
@@ -302,3 +339,17 @@ The opt-in Docker end-to-end suite is run with:
 ```sh
 OB_E2E=1 go test ./e2e/
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the verification gate, and
+the standard a change has to meet. Contributions require accepting the
+[Contributor License Agreement](CLA.md).
+
+Security issues go to [SECURITY.md](SECURITY.md), never to a public issue.
+
+## License
+
+Onebox is licensed under the [Apache License, Version 2.0](LICENSE).
+
+Copyright 2026 LabStack LLC.

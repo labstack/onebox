@@ -410,3 +410,100 @@ func TestSecretGenerationIncompleteRecoveryStaysRetryable(t *testing.T) {
 		t.Fatalf("fresh retry after recovery = %#v, %v", result, err)
 	}
 }
+
+// A cleanup failure after a verified commit must not be mistaken for a failed
+// rotation. Recovering there would roll live workloads back off secrets that
+// are already applied.
+func TestSecretGenerationPostCommitSweepFailureKeepsTheNewGeneration(t *testing.T) {
+	fake, state := newGenerationFake(t, false)
+	base := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "rm -rf") && strings.Contains(command, "/.ob-secret-generations/"+oldSecretGeneration) {
+			return transport.Result{ExitCode: 73, Stderr: "injected retired generation sweep failure"}, true
+		}
+		return base(command)
+	}
+	engine := generationEngine(t, fake, &bytes.Buffer{})
+
+	result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+	var pending *SecretCleanupPendingError
+	if !errors.As(err, &pending) {
+		t.Fatalf("error = %v, want secret_cleanup_pending", err)
+	}
+	if result.Generation != newSecretGeneration {
+		t.Fatalf("result generation = %q, want the applied new generation", result.Generation)
+	}
+	for workload, identifier := range state.containers {
+		if state.generations[identifier] != newSecretGeneration {
+			t.Fatalf("%s was rolled back to %q despite a verified commit", workload, state.generations[identifier])
+		}
+	}
+	// The checkpoint is cleared before the sweep, so a sweep failure leaves no
+	// transaction to resume — only an orphaned directory, which the next push
+	// sweeps on entry.
+	if _, checkpointErr := release.ReadSecretCheckpoint(context.Background(), fake, engine.Names()); checkpointErr == nil {
+		t.Fatal("a sweep failure retained the checkpoint; recovery could later target a swept generation")
+	}
+	if !strings.Contains(strings.Join(fake.Commands, "\n"), `"phase":"secrets-push","event":"finish","status":"ok"`) {
+		t.Fatal("a committed rotation was journaled as a failed transition")
+	}
+
+	fake.Dynamic = base
+	before := len(fake.Commands)
+	result, err = engine.SecretsPushBatch(context.Background(), generationPayloads())
+	if err != nil || result.Generation != newSecretGeneration {
+		t.Fatalf("cleanup retry = %#v, %v", result, err)
+	}
+	// The checkpoint was already cleared, so this retry is a fresh rotation
+	// rather than a resumed one. What matters is that the orphan left by the
+	// failed sweep is collected on entry.
+	retry := strings.Join(fake.Commands[before:], "\n")
+	if !strings.Contains(retry, oldSecretGeneration) {
+		t.Fatalf("retry did not sweep the orphaned generation:\n%s", retry)
+	}
+}
+
+// The other half of the same guard: when clearing the checkpoint fails the
+// rotation is still applied, and the retained checkpoint must resume cleanup
+// rather than roll a live, verified generation back.
+func TestSecretGenerationCheckpointClearFailureResumesCleanup(t *testing.T) {
+	fake, state := newGenerationFake(t, false)
+	base := fake.Dynamic
+	fail := true
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		// Match only the clear, not the temp-file cleanup inside the write.
+		if fail && strings.Contains(command, "rm -f") && strings.Contains(command, "secret-activation.json'") && !strings.Contains(command, ".tmp") {
+			return transport.Result{ExitCode: 73, Stderr: "injected checkpoint clear failure"}, true
+		}
+		return base(command)
+	}
+	engine := generationEngine(t, fake, &bytes.Buffer{})
+
+	result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+	var pending *SecretCleanupPendingError
+	if !errors.As(err, &pending) || result.Generation != newSecretGeneration {
+		t.Fatalf("clear failure = %#v, %v; want secret_cleanup_pending on the new generation", result, err)
+	}
+	for workload, identifier := range state.containers {
+		if state.generations[identifier] != newSecretGeneration {
+			t.Fatalf("%s was rolled back to %q despite a verified commit", workload, state.generations[identifier])
+		}
+	}
+	checkpoint, checkpointErr := release.ReadSecretCheckpoint(context.Background(), fake, engine.Names())
+	if checkpointErr != nil || checkpoint.Phase != release.SecretCommitted {
+		t.Fatalf("checkpoint = %#v, %v; want a retained committed checkpoint", checkpoint, checkpointErr)
+	}
+
+	fail = false
+	before := len(fake.Commands)
+	result, err = engine.SecretsPushBatch(context.Background(), generationPayloads())
+	if err != nil || result.Generation != newSecretGeneration {
+		t.Fatalf("cleanup retry = %#v, %v", result, err)
+	}
+	if retry := strings.Join(fake.Commands[before:], "\n"); strings.Contains(retry, "--force-recreate") {
+		t.Fatalf("cleanup retry replaced a workload:\n%s", retry)
+	}
+	if _, err := release.ReadSecretCheckpoint(context.Background(), fake, engine.Names()); err == nil {
+		t.Fatal("cleanup retry left the checkpoint in place")
+	}
+}

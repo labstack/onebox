@@ -5,13 +5,25 @@ export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 APP="$1"; PORT="$2"; PATHQ="$3"; WL="${4:-}"
 NAME="ob-e2e-$APP"
 S=${OB_E2E_SCRATCH:-/tmp}
-REPO=/Users/v/Projects/labstack/onebox
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# The provisioning account is the operator's, not the repository's. The SSH key
+# is whatever name `hcloud ssh-key list` shows for the key that can reach the
+# host; the rest have defaults that are only a starting point.
+OB_E2E_SSH_KEY="${OB_E2E_SSH_KEY:-}"
+if [ -z "$OB_E2E_SSH_KEY" ]; then
+  echo "OB_E2E_SSH_KEY must name an SSH key registered with hcloud (see: hcloud ssh-key list)" >&2
+  exit 2
+fi
+OB_E2E_SERVER_TYPE="${OB_E2E_SERVER_TYPE:-cpx22}"
+OB_E2E_IMAGE="${OB_E2E_IMAGE:-ubuntu-24.04}"
+OB_E2E_LOCATION="${OB_E2E_LOCATION:-fsn1}"
 
 cleanup() { hcloud server delete "$NAME" >/dev/null 2>&1; }
 trap cleanup EXIT
 
-hcloud server create --name "$NAME" --type cpx22 --image ubuntu-24.04 --location fsn1 \
-  --ssh-key "v@labstack.com" --label purpose=onebox-e2e --label ephemeral=true >/dev/null 2>&1 || { echo "  provision FAILED"; exit 1; }
+hcloud server create --name "$NAME" --type "$OB_E2E_SERVER_TYPE" --image "$OB_E2E_IMAGE" --location "$OB_E2E_LOCATION" \
+  --ssh-key "$OB_E2E_SSH_KEY" --label purpose=onebox-e2e --label ephemeral=true >/dev/null 2>&1 || { echo "  provision FAILED"; exit 1; }
 IP=$(hcloud server ip "$NAME")
 # Cloud providers recycle addresses. A stale host key from a destroyed server
 # makes ob refuse the connection, which is correct of it and unhelpful here.

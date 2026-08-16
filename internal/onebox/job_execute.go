@@ -30,7 +30,7 @@ func (s *Service) executeJob(
 	}
 	now := s.now().UTC()
 	if expiresAt.Before(now) {
-		return "", nil, fmt.Errorf("job plan expired at %s — re-plan", expiresAt.Format(time.RFC3339))
+		return "", nil, &PlanExpiredError{Kind: PlanKindJob, Job: plan.Artifact.Job, ExpiresAt: expiresAt}
 	}
 	if createdAt.After(now.Add(time.Minute)) {
 		return "", nil, errors.New("job plan was created in the future — check the runner clock and re-plan")

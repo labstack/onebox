@@ -237,6 +237,11 @@ func (n Names) ReleaseDir(id string) string {
 func (n Names) CurrentLink() string { return path.Join(n.AppDir(), "current") }
 func (n Names) HostDir() string     { return path.Join(n.BasePath, HostNamespace) }
 
+// HostOwnerPath is where the host owner record lives. Preflight and the engine
+// both probe it, and a preflight that reads a different path than the mutation
+// it precedes would report an owned host as unclaimed.
+func (n Names) HostOwnerPath() string { return n.HostDir() + "/owner" }
+
 // All returns every container-runtime name a project derives, sorted. Preflight
 // checks each against foreign resources on the target, and the golden test pins
 // the set so a change that would rename an existing volume fails loudly.

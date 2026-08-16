@@ -66,13 +66,13 @@ cannot drift from what `ob validate` accepts.
 | `<name>.logging.driver` | string | — | Container runtime logging driver. Expects a log driver name such as local, json-file or an org/plugin:tag. |
 | `<name>.logging.options` | map | — | Driver-specific logging options passed to the container runtime. |
 | `<name>.needs` | list | — | Workload or supporting-service prerequisites and optional connection-variable mappings. |
-| `<name>.needs[].condition` | `started` · `healthy` · `completed` | — | Prerequisite condition: started or healthy. |
+| `<name>.needs[].condition` | `started` · `healthy` · `completed` | — | Prerequisite condition: started, healthy, or completed. |
 | `<name>.needs[].env` | map | — | Maps application environment-variable names to service connection parts such as host, port, user, password, database, or url. |
 | `<name>.needs[].name` | string | — | Name of a workload or supporting service that must start first. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.persistence` | object | — | Declares whether this workload holds data that must outlive releases. |
 | `<name>.persistence.mode` | `durable` · `ephemeral` · `external` | `durable` | Data lifetime: durable, ephemeral, or external. |
 | `<name>.port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
-| `<name>.published_ports` | list | — | Host ports published outside the proxy. They bind to loopback by default. |
+| `<name>.published_ports` | list | — | Host ports published outside the proxy. They bind to loopback by default. A rolling workload cannot publish one, because two replicas cannot hold the same host port during a roll: set strategy: recreate, or route through the proxy instead. |
 | `<name>.published_ports[].bind` | string | `127.0.0.1` | Host address on which the published port listens. |
 | `<name>.published_ports[].container` | integer | — | Port receiving traffic inside the container. |
 | `<name>.published_ports[].host` | integer | — | Port exposed on the host. |

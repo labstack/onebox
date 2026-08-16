@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -153,6 +154,160 @@ func TestRetentionUsesSeparateAgeAndEvidenceRules(t *testing.T) {
 		if !slices.Contains(decision.Preserve, preserved) {
 			t.Errorf("protected/recent %s not preserved: %+v", preserved, decision)
 		}
+	}
+}
+
+// "No manifest" and "the manifest could not be read" are different evidence.
+// Age can retire the first; deleting on the second destroys the release whose
+// own record is what an operator would need to diagnose it — and the -L guard
+// that distinguishes the two is worth nothing if retention collapses them.
+func TestRetentionKeepsReleasesWhoseManifestIsUnreadable(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	danglingID := "20260104-000000-dangling"  // manifest is a broken symlink
+	missingID := "20260104-000000-nomanifest" // manifest genuinely absent
+	entries := []string{danglingID, missingID}
+
+	target := &transport.Fake{}
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: strings.Join(entries, "\n") + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{}, true // no current release
+		case strings.Contains(command, ManifestPath(names, danglingID)):
+			return transport.Result{ExitCode: 4}, true // present, not a regular file
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(decision.Victims, danglingID) {
+		t.Errorf("release with an unreadable manifest was collected for deletion: %+v", decision)
+	}
+	if !slices.Contains(decision.Preserve, danglingID) || !slices.Contains(decision.Reported, danglingID) {
+		t.Errorf("release with an unreadable manifest was not preserved and reported: %+v", decision)
+	}
+	// The distinction has to cut both ways, or it is just a blanket refusal
+	// to ever delete.
+	if !slices.Contains(decision.Victims, missingID) {
+		t.Errorf("expired release with no manifest was not collected: %+v", decision)
+	}
+}
+
+// A command that fails outright is the least evidence of all: nothing was read,
+// so a transient transport error must not hand a release to rm -rf.
+func TestRetentionKeepsReleasesWhoseManifestCommandFailed(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	unreachableID := "20260104-000000-unreachable"
+
+	target := &transport.Fake{}
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: unreachableID + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+	// A bare, untyped error from the command itself — not a *ManifestError.
+	target.Err = func(command string) error {
+		if strings.Contains(command, ManifestPath(names, unreachableID)) {
+			return errors.New("connection reset")
+		}
+		return nil
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, now))
+	if err != nil {
+		// Refusing the whole run is also acceptable; deleting is not.
+		return
+	}
+	if slices.Contains(decision.Victims, unreachableID) {
+		t.Errorf("release whose manifest command failed was collected for deletion: %+v", decision)
+	}
+}
+
+// A schema this binary does not support is "cannot read", not "is wrong".
+// After a downgrade past a schema bump every release the newer binary wrote
+// reads this way, and retiring them by age deletes exactly the releases an
+// operator would roll forward to.
+func TestRetentionKeepsReleasesWrittenByANewerSchema(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	futureID := "20260104-000000-future"
+
+	target := &transport.Fake{}
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: futureID + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{}, true
+		case strings.Contains(command, ManifestPath(names, futureID)):
+			return transport.Result{Stdout: "mode=600\n{\"schema_version\":\"onebox.run/v99\"}\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, now))
+	if err != nil {
+		return // refusing the run is also acceptable; deleting is not
+	}
+	if slices.Contains(decision.Victims, futureID) {
+		t.Errorf("release written by a newer schema was collected for deletion: %+v", decision)
+	}
+}
+
+// A manifest that was read and found wrong is a verdict, not a failed read.
+// Preserving on it strands the release forever: the condition never heals, so
+// every GC run repeats the same unactionable report and nothing is reclaimed.
+func TestRetentionStillRetiresReleasesWithABadManifest(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	corruptID := "20260104-000000-corrupt"
+
+	target := &transport.Fake{}
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: corruptID + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{}, true
+		case strings.Contains(command, ManifestPath(names, corruptID)):
+			// Read fine, mode fine, body is not a manifest.
+			return transport.Result{Stdout: "mode=600\nnot-json\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names, DefaultRetentionPolicy(2, now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(decision.Victims, corruptID) {
+		t.Errorf("expired release with a corrupt manifest was not collected: %+v", decision)
 	}
 }
 

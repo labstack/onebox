@@ -153,7 +153,7 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())
 			if report.Status == doctorFail {
 				if isStructuredOutput(g) {
-					publicErr := &cliPublicError{Code: "doctor_failed", SafeMessage: "doctor found failing checks", Details: report}
+					publicErr := &cliPublicError{Code: "doctor_failed", SafeMessage: safeMessageForCode("doctor_failed", "doctor found failing checks"), Details: report}
 					if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
 						return err
 					}

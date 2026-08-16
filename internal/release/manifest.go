@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,14 +70,20 @@ type Manifest struct {
 
 // ManifestError is safe to expose in status and structured command output. It
 // identifies the failed evidence without including manifest bytes.
+// ManifestError carries a branchable code. The code is a method rather than a
+// bare field because publicError matches on `interface{ Code() string }`: as a
+// field it was invisible to that dispatch, so every manifest failure reached
+// the operator as the generic operation_failed envelope.
 type ManifestError struct {
-	Code      string
+	ErrCode   string
 	ReleaseID string
 	Detail    string
 }
 
+func (err *ManifestError) Code() string { return err.ErrCode }
+
 func (err *ManifestError) Error() string {
-	message := err.Code
+	message := err.ErrCode
 	if err.ReleaseID != "" {
 		message += ": release " + err.ReleaseID
 	}
@@ -184,7 +191,7 @@ func (manifest *Manifest) RecordOperationOutcome(outcome OperationOutcome, at ti
 
 func (manifest Manifest) Validate() error {
 	if manifest.SchemaVersion != ManifestSchemaVersion {
-		return &ManifestError{Code: "manifest_schema_unknown", ReleaseID: manifest.ID, Detail: fmt.Sprintf("schema %q is not supported", manifest.SchemaVersion)}
+		return &ManifestError{ErrCode: "manifest_schema_unknown", ReleaseID: manifest.ID, Detail: fmt.Sprintf("schema %q is not supported", manifest.SchemaVersion)}
 	}
 	if !IsID(manifest.ID) {
 		return manifestInvalid(manifest.ID, "identifier is invalid")
@@ -283,7 +290,7 @@ func outcomeForState(kind ManifestKind, state State, current OperationOutcome) O
 func timestamp(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
 
 func manifestInvalid(id, detail string) error {
-	return &ManifestError{Code: "manifest_invalid", ReleaseID: id, Detail: detail}
+	return &ManifestError{ErrCode: "manifest_invalid", ReleaseID: id, Detail: detail}
 }
 
 func EncodeManifest(manifest Manifest) ([]byte, error) {
@@ -302,10 +309,10 @@ func DecodeManifest(body []byte) (Manifest, error) {
 	decoder.DisallowUnknownFields()
 	var manifest Manifest
 	if err := decoder.Decode(&manifest); err != nil {
-		return Manifest{}, &ManifestError{Code: "manifest_invalid", Detail: "manifest is not valid closed JSON"}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_invalid", Detail: "manifest is not valid closed JSON"}
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return Manifest{}, &ManifestError{Code: "manifest_invalid", ReleaseID: manifest.ID, Detail: "manifest contains trailing data"}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_invalid", ReleaseID: manifest.ID, Detail: "manifest contains trailing data"}
 	}
 	if err := manifest.Validate(); err != nil {
 		return Manifest{}, err
@@ -347,19 +354,24 @@ func WriteManifest(ctx context.Context, target transport.Transport, n app.Names,
 		if detail == "" {
 			detail = strings.TrimSpace(result.Stdout)
 		}
-		return &ManifestError{Code: "manifest_write_failed", ReleaseID: manifest.ID, Detail: detail}
+		return &ManifestError{ErrCode: "manifest_write_failed", ReleaseID: manifest.ID, Detail: detail}
 	}
 	return nil
 }
+
+// probeStatFailed is this package's own code for "neither stat form worked".
+// It sits above app's Probe* range because the checkpoint readers emit both:
+// app.ProbeUndetermined took 5, which this used to occupy.
+const probeStatFailed = 7
 
 func ReadManifest(ctx context.Context, target transport.Transport, n app.Names, id string) (Manifest, error) {
 	if !IsID(id) {
 		return Manifest{}, manifestInvalid(id, "identifier is invalid")
 	}
 	path := ManifestPath(n, id)
-	command := `if [ ! -e ` + q(path) + ` ]; then exit 3; fi; ` +
+	command := `if [ ! -e ` + q(path) + ` ] && [ ! -L ` + q(path) + ` ]; then ` + app.UndeterminedArm(path) + `exit 3; fi; ` +
 		`if [ ! -f ` + q(path) + ` ]; then exit 4; fi; ` +
-		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit 5; ` +
+		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit ` + strconv.Itoa(probeStatFailed) + `; ` +
 		`printf 'mode=%s\n' "$mode"; cat ` + q(path)
 	result, err := target.Run(ctx, command)
 	if err != nil {
@@ -368,15 +380,29 @@ func ReadManifest(ctx context.Context, target transport.Transport, n app.Names, 
 	switch result.ExitCode {
 	case 0:
 	case 3:
-		return Manifest{}, &ManifestError{Code: "manifest_missing", ReleaseID: id, Detail: "release has no manifest"}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_missing", ReleaseID: id, Detail: "release has no manifest"}
+	// These three are read failures, not verdicts on the manifest's content:
+	// manifest_invalid says the document is wrong, and retention is entitled
+	// to retire that by age. Nothing was read here, so the code has to say so
+	// — retention preserves on manifest_read_failed alone.
 	case 4:
-		return Manifest{}, &ManifestError{Code: "manifest_invalid", ReleaseID: id, Detail: "manifest path is not a regular file"}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "manifest path is not a regular file"}
+	case app.ProbeStatePathNotDirectory:
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "the path that should hold the manifest is not a directory"}
+	case app.ProbeUndetermined:
+		// Not manifest_missing: absence was never established, and
+		// retention deletes on that answer.
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "a directory holding the manifest cannot be searched; verify access, then retry"}
+	case probeStatFailed:
+		// Both stat forms send their own stderr to /dev/null, so the
+		// generic branch below would report this with no cause at all.
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: "the manifest's mode could not be read; neither stat form worked on this host"}
 	default:
-		return Manifest{}, &ManifestError{Code: "manifest_read_failed", ReleaseID: id, Detail: strings.TrimSpace(result.Stderr)}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_read_failed", ReleaseID: id, Detail: strings.TrimSpace(result.Stderr)}
 	}
 	mode, body, found := strings.Cut(result.Stdout, "\n")
 	if !found || mode != "mode=600" {
-		return Manifest{}, &ManifestError{Code: "manifest_mode_unsafe", ReleaseID: id, Detail: "manifest must have mode 0600"}
+		return Manifest{}, &ManifestError{ErrCode: "manifest_mode_unsafe", ReleaseID: id, Detail: "manifest must have mode 0600"}
 	}
 	manifest, err := DecodeManifest([]byte(body))
 	if err != nil {

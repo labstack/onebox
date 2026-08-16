@@ -214,8 +214,10 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 			if follow && g.Output == "json" {
 				err := errors.New("--follow cannot be represented as one JSON document; use --output ndjson")
 				publicErr := &cliPublicError{
-					Code: "output_mode_incompatible", SafeMessage: "follow mode requires streaming output",
-					NextCommand: "ob logs <workload|service> --follow --output ndjson",
+					Code: "output_mode_incompatible", SafeMessage: safeMessageForCode("output_mode_incompatible", "follow mode requires streaming output"),
+					// Must satisfy SafeGuidanceCommand: one placeholder hole,
+					// no alternation. An agent is told this is safe to run.
+					NextCommand: "ob logs <workload> --follow --output ndjson",
 				}
 				if writeErr := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); writeErr != nil {
 					return writeErr

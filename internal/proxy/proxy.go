@@ -62,7 +62,7 @@ func HostPaths(n app.Names) Paths {
 		ConfigDir: base + "/proxy/config",
 		Acme:      base + "/proxy/acme",
 		Hash:      base + "/proxy/config.hash",
-		Owner:     base + "/owner",
+		Owner:     n.HostOwnerPath(),
 	}
 }
 

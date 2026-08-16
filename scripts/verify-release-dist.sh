@@ -135,6 +135,10 @@ if ! grep -Fq 'cask "onebox" do' "$cask" || ! grep -Fq 'binary "ob"' "$cask"; th
   echo "Homebrew Cask does not install ob." >&2
   exit 1
 fi
+if ! grep -Fqx "  version \"${release_version}\"" "$cask"; then
+  echo "Homebrew Cask version does not match ${release_version}." >&2
+  exit 1
+fi
 # The cask holds a url and sha256 for macOS AND Linux, on Intel and ARM. A
 # file-wide grep therefore still passes when two of them are swapped, which is a
 # cask that hands every user the wrong digest — so read each block on its own.
@@ -142,11 +146,15 @@ for pair in intel:amd64 arm:arm64; do
   cask_arch=${pair%%:*}
   artifact_arch=${pair##*:}
   block=$(awk '/on_macos do/,/^  end$/' "$cask" | awk "/on_${cask_arch} do/,/end/")
-  # The cask interpolates the file name from its own version, so the fixed part
-  # to assert is the release the URL points at and the architecture it serves.
-  url=$(grep -m 1 '^ *url "' <<< "$block")
-  if [[ "$url" != *"/download/${release_tag}/"* || "$url" != *"_darwin_${artifact_arch}.tar.gz"* ]]; then
-    echo "Homebrew Cask ${artifact_arch} URL does not point at ${release_tag} for that architecture: ${url}" >&2
+  # GoReleaser writes Ruby interpolation into a release Cask (`#{version}`),
+  # while snapshots may carry a literal version. Resolve the one supported
+  # interpolation only after binding the Cask's version above, then compare the
+  # complete URL so neither form can hide the wrong release or repository.
+  url=$(sed -n 's/^ *url "\([^"]*\)".*/\1/p' <<< "$block" | head -n 1)
+  url=${url//'#{version}'/$release_version}
+  expected_url="https://github.com/labstack/onebox/releases/download/${release_tag}/onebox_${release_version}_darwin_${artifact_arch}.tar.gz"
+  if [ "$url" != "$expected_url" ]; then
+    echo "Homebrew Cask ${artifact_arch} URL = ${url}, want ${expected_url}." >&2
     exit 1
   fi
   if ! grep -Fq "$(artifact_hash "onebox_${release_version}_darwin_${artifact_arch}.tar.gz")" <<< "$block"; then

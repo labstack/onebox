@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `platform` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `registry` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `platform` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `registry` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -85,6 +85,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.routes` | list | — | Ingress routes exposed by this workload. |
 | `<name>.routes[].domain` | string | — | DNS name matched by the proxy. |
 | `<name>.routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
+| `<name>.routes[].middlewares` | list | — | Ordered provider-qualified middleware references applied to this route. |
 | `<name>.routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |
 | `<name>.routes[].port` | integer | — | Container port receiving routed traffic. |
 | `<name>.routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |

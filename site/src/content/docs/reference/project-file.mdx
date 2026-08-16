@@ -104,6 +104,36 @@ foreign resource already holding a derived name is refused, not adopted.
 **The proxy** — if anything is routed, Onebox runs Traefik and writes its static
 configuration. Declare `proxy.config` to own that configuration instead.
 
+### Route middleware
+
+Attach dynamic proxy middleware to the exact route that needs it with an
+ordered, provider-qualified reference:
+
+```yaml
+proxy: {config: traefik}
+
+workloads:
+  web:
+    image: ghcr.io/acme/shop:1.4.0
+    routes:
+      - domain: shop.example.com
+        path: /admin
+        port: 8080
+        middlewares:
+          - admin-auth@file
+          - secure-headers@file
+```
+
+The definitions belong to the provider named by the suffix. For example,
+`admin-auth@file` names `http.middlewares.admin-auth` in the dynamic Traefik
+configuration supplied through `proxy.config`; that configuration must enable
+the file provider. A Onebox-managed proxy therefore requires `proxy.config`
+when a route names middleware. With `proxy.managed: false`, the operator-owned
+proxy provides the referenced resources instead. Onebox preserves list order
+when it attaches the chain to the generated router. HTTP and TCP routes both
+support middleware references; the referenced middleware must match the
+route's protocol.
+
 :::caution[Compose is an output, not an input]
 A Compose file you wrote cannot be the contract — the declaration is, and Onebox
 generates the runtime from it. Individual services can still be adopted with

@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `path` · `platform` · `port` · `protocol` · `pull` · `reference` · `registry` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
+`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `middlewares` · `path` · `platform` · `port` · `protocol` · `pull` · `reference` · `registry` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
 
 ## Reference
 
@@ -53,6 +53,7 @@ cannot drift from what `ob validate` accepts.
 | `routes` | list | — | Ingress routes exposed by this workload. |
 | `routes[].domain` | string | — | DNS name matched by the proxy. |
 | `routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
+| `routes[].middlewares` | list | — | Ordered provider-qualified middleware references applied to this route. |
 | `routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |
 | `routes[].port` | integer | — | Container port receiving routed traffic. |
 | `routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |

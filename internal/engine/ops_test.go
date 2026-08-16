@@ -233,7 +233,7 @@ func TestDestroyKeepsHostProxyWithoutFlag(t *testing.T) {
 	if strings.Contains(seq, "/proxy/apps") {
 		t.Fatalf("destroy must not consult a cross-application proxy registry:\n%s", seq)
 	}
-	if strings.Contains(seq, "-p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
+	if strings.Contains(seq, "-p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
 		t.Fatalf("without --proxy the host proxy must survive:\n%s", seq)
 	}
 }
@@ -245,7 +245,7 @@ func TestDestroyProxyTeardownForSoleOwner(t *testing.T) {
 		t.Fatalf("destroy --proxy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
+	if !strings.Contains(seq, "docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
 		t.Fatalf("sole owner with --proxy must tear the proxy down:\n%s", seq)
 	}
 	if !strings.Contains(seq, "rm -rf '/var/lib/ob/_host/proxy'") {

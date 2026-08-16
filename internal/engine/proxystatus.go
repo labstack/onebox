@@ -150,7 +150,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			if localCfg != "" && !filepath.IsAbs(localCfg) {
 				localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 			}
-			staging, err := os.MkdirTemp("", "ob-proxy-status")
+			staging, err := os.MkdirTemp("", "onebox-proxy-status")
 			if err != nil {
 				return err
 			}

@@ -40,7 +40,7 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 	return e, hash, &out
 }
 
-// proxyPS answers container queries for the ob-proxy project: present only
+// proxyPS answers container queries for the onebox-proxy project: present only
 // after `up -d` (or from the start when preRunning).
 func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result, bool) {
 	upRan := func() bool {
@@ -52,7 +52,7 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 		return false
 	}
 	return func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project='ob-proxy'") {
+		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project='onebox-proxy'") {
 			if preRunning || upRan() {
 				return transport.Result{Stdout: "PX1\n"}, true
 			}
@@ -76,7 +76,7 @@ func TestEnsureProxyFreshHost(t *testing.T) {
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/_host/proxy") {
 		t.Fatalf("payload must upload to the host proxy dir: %v", f.Uploads)
 	}
-	if !strings.Contains(seq, "docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d") {
+	if !strings.Contains(seq, "docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d") {
 		t.Fatalf("fresh host must up the proxy project:\n%s", seq)
 	}
 	if strings.Contains(seq, "/proxy/apps") {
@@ -160,7 +160,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	// converge by observation: up -d is the no-op probe (container matches the
 	// compose file, so it doesn't recreate) and the restart loads the config
 	iUp := strings.Index(seq, "up -d")
-	iRestart := strings.Index(seq, "docker restart ob-proxy")
+	iRestart := strings.Index(seq, "docker restart onebox-proxy")
 	if iUp < 0 || iRestart < 0 || iRestart < iUp {
 		t.Fatalf("config-only change must up (no-op) then restart:\n%s", seq)
 	}

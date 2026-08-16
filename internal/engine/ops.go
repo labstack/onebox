@@ -160,7 +160,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			//
 			// "Already gone" is a fact about the containers, not about the
 			// config file. Skipping teardown when only the file is missing
-			// releases host ownership while ob-proxy still holds :80/:443,
+			// releases host ownership while onebox-proxy still holds :80/:443,
 			// and nothing ob can run afterwards removes it: the next
 			// application claims the host and then cannot bind. Fall back to
 			// the project label, which is what the compose file would have
@@ -180,7 +180,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// orphan, which is the only container ob created.
 			//
 			// It matches ob's own fixed container name, not the project
-			// label: `docker compose -p ob-proxy up` run by a user for their
+			// label: `docker compose -p onebox-proxy up` run by a user for their
 			// own reasons carries that label too, and force-removing their
 			// containers is the foreign-resource seizure preflight refuses
 			// everywhere else. The compose file declares exactly one service
@@ -193,7 +193,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// Reaching here implies the proxy is managed: Destroy refuses
 			// --proxy for an unmanaged one before any of this runs. That is
 			// what makes the name sweep safe — on an unmanaged host ob never
-			// created an ob-proxy container, so anything answering to the
+			// created a onebox-proxy container, so anything answering to the
 			// name would be the operator's.
 			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
 				"orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$) || exit $?; " +

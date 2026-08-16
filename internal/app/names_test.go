@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -41,15 +42,15 @@ func TestDerivedNamesGolden(t *testing.T) {
 	}
 	want := []string{
 		"ledger",
-		"ledger_migrate",
-		"ledger_migrate_new",
-		"ledger_postgres",
-		"ledger_web",
-		"ledger_web_2",
-		"ledger_web_3",
-		"ledger_web_new",
-		"ledger_worker",
-		"ledger_worker_new",
+		"ledger-migrate-1",
+		"ledger-migrate-new",
+		"ledger-postgres-1",
+		"ledger-web-1",
+		"ledger-web-2",
+		"ledger-web-3",
+		"ledger-web-new",
+		"ledger-worker-1",
+		"ledger-worker-new",
 		"ob_ledger_postgres",
 		"ob_ledger_postgres_data",
 		"ob_ledger_postgres_wal",
@@ -117,14 +118,50 @@ func TestBasePathPerEnvironment(t *testing.T) {
 	}
 }
 
-// TestSingleReplicaContainerHasNoIndex keeps the common case readable.
-func TestSingleReplicaContainerHasNoIndex(t *testing.T) {
+// TestEveryContainerHasAnOrdinal keeps the runtime grammar uniform for users,
+// scripts, and language models.
+func TestEveryContainerHasAnOrdinal(t *testing.T) {
 	n := Names{App: "ledger"}
-	if got := n.Container("web", 1); got != "ledger_web" {
-		t.Errorf("single replica = %q, want ledger_web", got)
+	if got := n.Container("web", 1); got != "ledger-web-1" {
+		t.Errorf("single replica = %q, want ledger-web-1", got)
 	}
-	if got := n.Container("web", 2); got != "ledger_web_2" {
-		t.Errorf("second replica = %q, want ledger_web_2", got)
+	if got := n.Container("web", 2); got != "ledger-web-2" {
+		t.Errorf("second replica = %q, want ledger-web-2", got)
+	}
+}
+
+func TestContainerNamesEscapeSegmentHyphens(t *testing.T) {
+	n := Names{App: "help-desk"}
+	if got := n.Container("web-api", 1); got != "help--desk-web--api-1" {
+		t.Errorf("hyphenated container = %q, want help--desk-web--api-1", got)
+	}
+	if got := n.TransientContainer("web-api"); got != "help--desk-web--api-new" {
+		t.Errorf("hyphenated transient = %q, want help--desk-web--api-new", got)
+	}
+	if restore, workload := n.ProtectionRestoreContainer("database"), n.Container("database-restore", 1); restore == workload {
+		t.Fatalf("restore container collides with declared workload: %q", restore)
+	}
+}
+
+func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
+	idents := []string{"a", "a-b", "a--b", "b", "b-c", "restore", "web-1"}
+	seen := map[string]string{}
+	add := func(name, source string) {
+		t.Helper()
+		if previous, exists := seen[name]; exists {
+			t.Fatalf("runtime name %q derives from both %s and %s", name, previous, source)
+		}
+		seen[name] = source
+	}
+	for _, application := range idents {
+		n := Names{App: application}
+		for _, component := range idents {
+			for replica := 1; replica <= 3; replica++ {
+				add(n.Container(component, replica), fmt.Sprintf("container %s/%s/%d", application, component, replica))
+			}
+			add(n.TransientContainer(component), "transient "+application+"/"+component)
+			add(n.ProtectionRestoreContainer(component), "restore "+application+"/"+component)
+		}
 	}
 }
 

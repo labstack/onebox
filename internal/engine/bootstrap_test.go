@@ -182,7 +182,7 @@ func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
 		"docker login 'ghcr.io'",
-		"docker compose -p ob-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d",
+		"docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d",
 		"docker compose -p 'ob_sample_postgres'",
 	}
 	last := -1

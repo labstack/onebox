@@ -37,7 +37,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	if localCfg != "" && !filepath.IsAbs(localCfg) {
 		localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
 	}
-	staging, err := os.MkdirTemp("", "ob-proxy")
+	staging, err := os.MkdirTemp("", "onebox-proxy")
 	if err != nil {
 		return err
 	}

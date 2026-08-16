@@ -9,17 +9,18 @@ import (
 
 // Derived names are contract. Once a volume exists its name can never change
 // without moving data, so every pattern here is fixed and pinned by a golden
-// test.
+// test. Runtime containers use the human-facing <app>-<component>-<replica>
+// grammar; persistent and provider-internal names use the injective join below.
 //
-// Underscore joins identifiers. Hyphen cannot: identifiers may themselves
-// contain hyphens, so `ob-<app>-<service>` maps both (a-b, c) and (a, b-c) to
-// `ob-a-b-c`. Underscore is excluded from the identifier grammar and accepted by
-// the container runtime in project and volume names, which makes the derivation
-// injective. Application identifiers additionally may not begin `ob-`, which
-// reserves the two pre-existing hyphenated host-scoped names.
+// Persistent and provider-internal identifiers are joined with underscores.
+// Hyphens would be ambiguous there: `ob-<app>-<service>` maps both (a-b, c) and
+// (a, b-c) to `ob-a-b-c`. Underscore is excluded from the identifier grammar and
+// accepted in project and volume names, which makes that derivation injective.
+// Runtime segments escape an authored hyphen as `--`, leaving a single hyphen as
+// an unambiguous separator while ordinary names retain the simple form.
 const (
-	// ProxyProject and IngressNetwork are host-scoped and predate this contract.
-	ProxyProject   = "ob-proxy"
+	// ProxyProject and IngressNetwork are host-scoped.
+	ProxyProject   = "onebox-proxy"
 	IngressNetwork = "ob-ingress"
 
 	// HostNamespace holds state shared by everything on the box.
@@ -60,11 +61,10 @@ func (n Names) ServiceProject(service string) string {
 	return join("ob", n.App, service)
 }
 
-// ServiceContainer is a service's container name. It is fixed — unlike a
-// workload, a service is never replaced by a second copy running beside it, so
-// there is no handover that a fixed name would forbid.
+// ServiceContainer is a service's stable singleton slot. The explicit ordinal
+// keeps every application-owned runtime name in one predictable grammar.
 func (n Names) ServiceContainer(service string) string {
-	return join(n.App, service)
+	return containerName(n.App, service, 1)
 }
 
 // ServiceNetwork joins the application to its services. It is one network per
@@ -162,7 +162,7 @@ func (n Names) ProtectionRestoreProject(service string) string {
 }
 
 func (n Names) ProtectionRestoreContainer(service string) string {
-	return join(n.App, service, "restore")
+	return runtimeName(n.App, service, "restore", "1")
 }
 
 func (n Names) ProtectionRestoreNetwork(service string) string {
@@ -181,20 +181,18 @@ func (n Names) ProtectionTimerForEnvironment(environment, service, operation str
 	return "ob-" + n.App + "-" + environment + "-" + service + "-" + operation + ".timer"
 }
 
-// Container is the stable name of a workload's container. Container names are
-// host-global in the container runtime, so every one carries the application.
+// Container is a workload's stable runtime slot. Container names are
+// host-global, so every one carries the application, component, and a
+// one-based replica ordinal — including singleton workloads.
 func (n Names) Container(workload string, replica int) string {
-	if replica <= 1 {
-		return join(n.App, workload)
-	}
-	return join(n.App, workload, fmt.Sprint(replica))
+	return containerName(n.App, workload, replica)
 }
 
 // TransientContainer is the name a rollout gives a new container before it takes
 // a stable slot. It is application-scoped like every other name, and belongs in
 // the preflight collision check.
 func (n Names) TransientContainer(workload string) string {
-	return join(n.App, workload, "new")
+	return runtimeName(n.App, workload, "new")
 }
 
 // Router and ProxyService name the proxy's routing objects. They are part of the
@@ -310,4 +308,19 @@ func join(parts ...string) string {
 		out += p
 	}
 	return out
+}
+
+func containerName(app, component string, replica int) string {
+	if replica < 1 {
+		panic("container replica ordinal must be positive")
+	}
+	return runtimeName(app, component, fmt.Sprint(replica))
+}
+
+func runtimeName(parts ...string) string {
+	escaped := make([]string, len(parts))
+	for i, part := range parts {
+		escaped[i] = strings.ReplaceAll(part, "-", "--")
+	}
+	return strings.Join(escaped, "-")
 }

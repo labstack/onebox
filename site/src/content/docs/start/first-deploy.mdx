@@ -108,10 +108,12 @@ nothing, or is explicit about what it changes.
   - services/ supporting services, outside every release
 </FileTree>
 
-Container and volume names are derived and stable: `shop_web`, `shop_web_2`,
-`shop_postgres`, `ob_shop_postgres_data`, `ob_shop` for the service network,
-`ob-ingress` for the host proxy network. Once a volume exists, its name cannot
-change without moving data.
+Container and volume names are derived and stable. Application containers are
+`shop-web-1`, `shop-web-2`, and `shop-postgres-1`; the host proxy is
+`onebox-proxy`. Persistent and provider resources include
+`ob_shop_postgres_data`, `ob_shop` for the service network, and `ob-ingress` for
+the host proxy network. Once a volume exists, its name cannot change without
+moving data.
 
 ## Why plan and local confirmation are separate
 

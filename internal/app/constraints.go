@@ -182,7 +182,7 @@ var (
 // application taking one of them would derive names that collide with the
 // proxy's or the host namespace's, and the collision would appear as a
 // container that vanishes rather than as an error.
-var reservedAppNames = []string{"ob", "proxy", "_host"}
+var reservedAppNames = []string{"ob", "onebox-proxy", "_host"}
 
 // checkAppName is the identifier grammar plus the reservations.
 func checkAppName(name string) error {

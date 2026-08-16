@@ -227,7 +227,7 @@ func (e *Engine) drainGuarded(ctx context.Context, id string) (bool, error) {
 }
 
 // reslot gives each new-release container a clean, stable slot name: the plain
-// service name for a single replica, or <service>-1..<service>-N for a fleet.
+// <app>-<component>-1..<app>-<component>-N for every replica count.
 // A slot still held by an old container counts as taken, so names never clash;
 // as olds retire their slots free and the next reslot fills them.
 func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int) error {

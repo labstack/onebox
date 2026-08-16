@@ -15,7 +15,7 @@ func TestProtectedServiceReservesRestoreRuntimeNames(t *testing.T) {
 	all := spec.All("production")
 	for _, reserved := range []string{
 		"ob_example_database_restore",
-		"example_database_restore",
+		"example-database-restore-1",
 		"ob_example_database_restore-net",
 		"ob_example_database_restore-stage",
 	} {

@@ -2,6 +2,7 @@ package scripts_test
 
 import (
 	_ "embed"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,13 +22,13 @@ type testRepository struct {
 	head   string
 }
 
-func TestReleaseSequence(t *testing.T) {
+func TestReleaseRevision(t *testing.T) {
 	requireReleaseTools(t)
 
 	t.Run("first release in UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
-		month := utcMonth()
-		tag := "v" + month + ".1"
+		month := utcPeriod()
+		tag := "v" + month + ".0"
 
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
@@ -37,9 +38,9 @@ func TestReleaseSequence(t *testing.T) {
 		assertPublishedRelease(t, repo, tag)
 	})
 
-	t.Run("sequence compares integers across nine to ten", func(t *testing.T) {
+	t.Run("revision compares integers across nine to ten", func(t *testing.T) {
 		repo := newTestRepository(t)
-		month := utcMonth()
+		month := utcPeriod()
 		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9", "v" + month + ".08", "v" + month + ".09", "v" + month + ".010", "v" + month + ".invalid"} {
 			runGit(t, repo.work, "tag", tag, repo.head)
 		}
@@ -54,15 +55,19 @@ func TestReleaseSequence(t *testing.T) {
 		assertPublishedRelease(t, repo, tag)
 	})
 
-	t.Run("sequence resets in a new UTC month", func(t *testing.T) {
+	t.Run("revision resets in a new UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
 		now := time.Now().UTC()
-		month := now.Format("2006.01")
-		previousMonth := now.AddDate(0, -1, 0).Format("2006.01")
+		month := releasePeriod(now)
+		// The last day of the previous month, not AddDate(0, -1, 0): from the
+		// 31st that normalizes back into the current month, which silently
+		// turns this into a same-month test — and fails outright on the days
+		// where the normalization lands on today.
+		previousMonth := releasePeriod(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1))
 		runGit(t, repo.work, "tag", "v"+previousMonth+".41", repo.head)
 		runGit(t, repo.work, "push", "origin", "--tags")
 
-		tag := "v" + month + ".1"
+		tag := "v" + month + ".0"
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
 		if err != nil {
@@ -72,10 +77,30 @@ func TestReleaseSequence(t *testing.T) {
 	})
 }
 
+func TestReleaseRejectsMalformedUTCCalendar(t *testing.T) {
+	requireReleaseTools(t)
+	for _, calendar := range []string{"26:08", "2026:8", "2026:13"} {
+		t.Run(calendar, func(t *testing.T) {
+			repo := newTestRepository(t)
+			output, err := runReleaseAt(t, repo, normalJustShim, nil, calendar)
+			if err == nil {
+				t.Fatalf("release unexpectedly accepted %s:\n%s", calendar, output)
+			}
+			if !strings.Contains(output, "could not determine the UTC release month") {
+				t.Fatalf("release did not explain the invalid UTC calendar:\n%s", output)
+			}
+			if tags := gitOutput(t, repo.work, "tag", "--list", "v*"); tags != "" {
+				t.Fatalf("release created tags after refusing the year: %s", tags)
+			}
+			assertRemoteMain(t, repo, repo.head)
+		})
+	}
+}
+
 func TestReleaseRejectsMainAdvanceDuringChecks(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
+	month := utcPeriod()
 	shim := `#!/bin/sh
 set -eu
 if [ "${1:-}" = "docs-check" ]; then
@@ -99,8 +124,8 @@ fi
 func TestReleaseRejectsMainAdvanceBeforeAtomicPublication(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
-	tag := "v" + month + ".1"
+	month := utcPeriod()
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" fetch origin main
@@ -125,8 +150,8 @@ git -C "$RACER_REPO" push origin main
 func TestNoOpBranchRefMissesMainAdvanceAfterAdvertisement(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
-	tag := "v" + month + ".1"
+	month := utcPeriod()
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" fetch origin main
@@ -157,8 +182,8 @@ git -C "$RACER_REPO" push origin main
 func TestReleaseLosesCompetingTagRaceWithoutReplacingWinner(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
-	tag := "v" + month + ".1"
+	month := utcPeriod()
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" commit --allow-empty -m competing-tag
@@ -179,8 +204,8 @@ git -C "$RACER_REPO" push origin "refs/tags/$RELEASE_TEST_TAG:refs/tags/$RELEASE
 func TestReleaseFailsClosedWhenBranchPolicyRejectsMainUpdate(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	month := utcMonth()
-	tag := "v" + month + ".1"
+	month := utcPeriod()
+	tag := "v" + month + ".0"
 	hook := `#!/bin/sh
 set -eu
 while read -r old_object new_object ref_name; do
@@ -253,11 +278,29 @@ func configureGitIdentity(t *testing.T, dir string) {
 
 func runRelease(t *testing.T, repo testRepository, justShim string, prePushHook *string, extraEnv ...string) (string, error) {
 	t.Helper()
+	return runReleaseAt(t, repo, justShim, prePushHook, "", extraEnv...)
+}
+
+func runReleaseAt(t *testing.T, repo testRepository, justShim string, prePushHook *string, calendar string, extraEnv ...string) (string, error) {
+	t.Helper()
 	binDir := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	writeExecutable(t, filepath.Join(binDir, "just"), justShim)
+	// A gh that reports the previous release as published, so the in-flight gate
+	// is exercised by the tests that care about it and inert everywhere else.
+	ghShim := "#!/usr/bin/env bash\nexit 0\n"
+	for _, entry := range extraEnv {
+		if value, ok := strings.CutPrefix(entry, "RELEASE_TEST_GH="); ok {
+			ghShim = value
+		}
+	}
+	writeExecutable(t, filepath.Join(binDir, "gh"), ghShim)
+	if calendar != "" {
+		writeExecutable(t, filepath.Join(binDir, "date"), "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$RELEASE_TEST_CALENDAR\"\n")
+		extraEnv = append(extraEnv, "RELEASE_TEST_CALENDAR="+calendar)
+	}
 	if prePushHook != nil {
 		writeExecutable(t, filepath.Join(repo.work, ".git", "hooks", "pre-push"), *prePushHook)
 	}
@@ -378,13 +421,107 @@ func remoteRef(t *testing.T, repo testRepository, ref string) string {
 	return fields[0]
 }
 
-func utcMonth() string {
-	return time.Now().UTC().Format("2006.01")
+func utcPeriod() string {
+	return releasePeriod(time.Now().UTC())
+}
+
+func releasePeriod(value time.Time) string {
+	return fmt.Sprintf("%d.%d", value.Year(), int(value.Month()))
 }
 
 func skipIfUTCMonthChanged(t *testing.T, start string) {
 	t.Helper()
-	if end := utcMonth(); end != start {
+	if end := utcPeriod(); end != start {
 		t.Skipf("UTC month changed during test from %s to %s", start, end)
+	}
+}
+
+// A nineteen-digit revision is valid, and one past the widest machine integer is
+// still valid: the contract bounds the width, not the arithmetic, so the creator
+// carries by hand rather than refusing a range it is supposed to serve.
+func TestReleaseIncrementsARevisionWiderThanMachineArithmetic(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	month := utcPeriod()
+	// One past the signed 64-bit maximum, so plain arithmetic would wrap.
+	runGit(t, repo.work, "tag", "v"+month+".9223372036854775808", repo.head)
+	runGit(t, repo.work, "push", "origin", "--tags")
+
+	output, err := runRelease(t, repo, normalJustShim, nil)
+	skipIfUTCMonthChanged(t, month)
+	if err != nil {
+		t.Fatalf("release failed: %v\n%s", err, output)
+	}
+	assertPublishedRelease(t, repo, "v"+month+".9223372036854775809")
+}
+
+// Bash arithmetic is signed 64-bit, so incrementing a revision the grammar still
+// admits can wrap negative and tag garbage. The creator refuses instead.
+func TestReleaseRefusesWhenTheRevisionSpaceIsExhausted(t *testing.T) {
+	requireReleaseTools(t)
+	repo := newTestRepository(t)
+	month := utcPeriod()
+	exhausted := "v" + month + ".9999999999999999999"
+	runGit(t, repo.work, "tag", exhausted, repo.head)
+	runGit(t, repo.work, "push", "origin", "--tags")
+
+	output, err := runRelease(t, repo, normalJustShim, nil)
+	skipIfUTCMonthChanged(t, month)
+	if err == nil {
+		t.Fatalf("release created a tag past the representable revision:\n%s", output)
+	}
+	if !strings.Contains(output, "revision space for") {
+		t.Fatalf("release did not explain the refusal:\n%s", output)
+	}
+	if tags := gitOutput(t, repo.origin, "tag", "--list"); tags != exhausted {
+		t.Fatalf("a refused release must publish no new tag, got:\n%s", tags)
+	}
+}
+
+// Only one release may be in flight, because GitHub orders queued runs by when
+// they start waiting rather than by tag age: two tags created close together can
+// publish out of order, and the older one is then correctly refused at publish
+// time — a release nobody gets. This refuses to create the second tag instead.
+//
+// Terminality is the question, not publication: a run that failed before it
+// published is precisely the case the contract repairs under the next revision,
+// so waiting for a release it will never create would block that repair forever.
+func TestReleaseWaitsForThePreviousReleaseRunToFinish(t *testing.T) {
+	requireReleaseTools(t)
+	for _, test := range []struct {
+		name    string
+		status  string
+		wantErr string
+	}{
+		{name: "previous run succeeded", status: "completed"},
+		{name: "previous run failed before publishing", status: "completed"},
+		{name: "previous run never started", status: ""},
+		{name: "previous run is queued", status: "queued", wantErr: "is queued"},
+		{name: "previous run is in progress", status: "in_progress", wantErr: "is in_progress"},
+		{name: "run state is unreadable", status: "api-failure", wantErr: "cannot read the"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newTestRepository(t)
+			month := utcPeriod()
+			runGit(t, repo.work, "tag", "v"+month+".0", repo.head)
+			runGit(t, repo.work, "push", "origin", "--tags")
+
+			stub := "#!/usr/bin/env bash\nprintf '%s\\n' '" + test.status + "'\n"
+			if test.status == "api-failure" {
+				stub = "#!/usr/bin/env bash\necho 'HTTP 502' >&2\nexit 1\n"
+			}
+			output, err := runRelease(t, repo, normalJustShim, nil, "OB_RELEASE_REPOSITORY=labstack/onebox", "RELEASE_TEST_GH="+stub)
+			skipIfUTCMonthChanged(t, month)
+			switch {
+			case test.wantErr == "" && err != nil:
+				t.Fatalf("release failed: %v\n%s", err, output)
+			case test.wantErr == "":
+				assertPublishedRelease(t, repo, "v"+month+".1")
+			case err == nil:
+				t.Fatalf("release created a tag while the previous run was %s:\n%s", test.status, output)
+			case !strings.Contains(output, test.wantErr):
+				t.Fatalf("release did not explain the refusal:\n%s", output)
+			}
+		})
 	}
 }

@@ -1,7 +1,7 @@
 ---
 title: Install
-description: Build the ob binary, confirm which runner will execute plans, and check the local safety setup.
-summary: Build or install the ob binary, then verify with ob version and ob doctor which runner will execute plans.
+description: Install a released ob binary or package, verify it, and confirm the local safety setup.
+summary: Install ob from GitHub Releases, Homebrew, Scoop, or source, verify it, then confirm the runner.
 sidebar:
   order: 2
 read_when:
@@ -13,15 +13,12 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 <Steps>
 
-1. **Build the binary into `~/.local/bin`.**
+1. **Install a released binary or build from source.**
 
-   ```sh
-   just build
-   ```
-
-   `just install` is an alias for the same target. Ensure `~/.local/bin` is on
-   `PATH`, or set `OB_BIN_DIR` to another destination. Run `just --list` to see
-   the available build, test, formatting and check targets.
+   GitHub Releases provide archives for Linux, macOS and Windows, plus Debian
+   and RPM packages for Linux. Homebrew and Scoop provide package-manager
+   installation. The exact commands are below. Ensure the chosen install
+   directory is on `PATH`.
 
 2. **Confirm which runner will execute plans.**
 
@@ -29,9 +26,10 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
    ob version
    ```
 
-   Releases use `vYEAR.MONTH.SEQUENCE`, for example `v2026.08.1`; the sequence
-   increases for each release in a UTC calendar month. Checkout builds use
-   Git-derived provenance and stay visibly distinct from a release.
+   Releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first release
+   in August 2026. The year is four digits, months are unpadded, and each UTC
+   calendar month starts at revision zero. Checkout builds use Git-derived
+   provenance and stay visibly distinct from a release.
 
 3. **Check the local safety setup.**
 
@@ -52,6 +50,133 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 </Steps>
 
 Both commands take `--output json`.
+
+## Install from a GitHub Release
+
+:::note[Releases begin at the first tag]
+Every download below, including the assets Homebrew and Scoop fetch, comes from
+a published `vYYYY.M.REVISION` release. If
+[the releases page](https://github.com/labstack/onebox/releases) is empty, or
+lists nothing for your platform, build from source instead.
+:::
+
+Set `version` to the release without its leading `v`. The asset name uses that
+value, while the download URL uses the full `vYYYY.M.REVISION` tag.
+
+<Tabs>
+  <TabItem label="macOS with Homebrew">
+
+  ```sh
+  brew install labstack/tap/onebox
+  ```
+
+  Homebrew verifies the archive digest. The installed `ob` binary is signed
+  with LabStack's Developer ID and accepted by Apple's notarization service.
+
+  </TabItem>
+  <TabItem label="macOS">
+
+  ```sh
+  version=2026.8.0
+  arch=arm64 # use amd64 on Intel Macs
+  asset="onebox_${version}_darwin_${arch}.tar.gz"
+  curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/${asset}"
+  curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/onebox_${version}_checksums.txt"
+  grep "  ${asset}$" "onebox_${version}_checksums.txt" | shasum -a 256 -c -
+  tar -xzf "$asset"
+  mkdir -p "$HOME/.local/bin"
+  install -m 0755 ob "$HOME/.local/bin/ob"
+  ```
+
+  </TabItem>
+  <TabItem label="Linux archive">
+
+  ```sh
+  version=2026.8.0
+  arch=amd64 # use arm64 on 64-bit ARM
+  asset="onebox_${version}_linux_${arch}.tar.gz"
+  curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/${asset}"
+  curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/onebox_${version}_checksums.txt"
+  grep "  ${asset}$" "onebox_${version}_checksums.txt" | sha256sum --check
+  tar -xzf "$asset"
+  mkdir -p "$HOME/.local/bin"
+  install -m 0755 ob "$HOME/.local/bin/ob"
+  ```
+
+  </TabItem>
+  <TabItem label="Windows PowerShell">
+
+  ```powershell
+  $Version = "2026.8.0"
+  $Arch = "amd64" # use arm64 on Windows on ARM
+  $Asset = "onebox_${Version}_windows_${Arch}.zip"
+  $Base = "https://github.com/labstack/onebox/releases/download/v${Version}"
+  Invoke-WebRequest "$Base/$Asset" -OutFile $Asset
+  Invoke-WebRequest "$Base/onebox_${Version}_checksums.txt" -OutFile "checksums.txt"
+  $Expected = ((Get-Content checksums.txt | Select-String "  $Asset$").Line -split ' ')[0]
+  $Actual = (Get-FileHash $Asset -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($Actual -ne $Expected) { throw "checksum mismatch for $Asset" }
+  Expand-Archive $Asset -DestinationPath onebox
+  New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
+  Copy-Item "onebox\ob.exe" "$HOME\bin\ob.exe"
+  ```
+
+  </TabItem>
+  <TabItem label="Windows with Scoop">
+
+  ```powershell
+  scoop bucket add labstack https://github.com/labstack/scoop-bucket
+  scoop install labstack/onebox
+  ```
+
+  Scoop verifies the selected Windows archive against the SHA-256 digest in
+  the bucket manifest. Future releases are available through `scoop update
+  onebox`.
+
+  </TabItem>
+</Tabs>
+
+The checksum manifest covers every archive and Linux package in the release.
+It detects corruption. macOS binaries additionally carry LabStack's Developer
+ID signature and Apple notarization; other platforms do not yet publish an
+independent signature or provenance attestation.
+
+### Debian and RPM packages
+
+Download the package and checksum manifest from the same GitHub Release, verify
+the package entry as above, then install the local file:
+
+```sh
+# Debian or Ubuntu (choose amd64 or arm64)
+sudo apt install ./onebox_2026.8.0_linux_amd64.deb
+
+# Fedora or RHEL (choose amd64 or arm64)
+sudo dnf install ./onebox_2026.8.0_linux_amd64.rpm
+```
+
+These are downloadable package files, not hosted APT or RPM repositories.
+WinGet is not published yet. Homebrew and Scoop metadata live in the dedicated
+`labstack/homebrew-tap` and `labstack/scoop-bucket` repositories rather than the
+Onebox source repository.
+
+:::caution[`go install` is not a release channel]
+The application tag `v2026.8.0` is intentionally CalVer-shaped, but the Go module
+path does not declare a `/v2026` module major. Use a precompiled release asset or
+build from source; `go install github.com/labstack/onebox/cmd/ob@v2026.8.0` is not
+a supported installation contract.
+:::
+
+## Build from source
+
+From a checked-out repository:
+
+```sh
+just build
+```
+
+`just install` is an alias for the same target and installs into
+`~/.local/bin`. Set `OB_BIN_DIR` to another destination. Run `just --list` to
+see the available build, test, formatting and check targets.
 
 :::note[Why a checkout build can be refused]
 When an environment sets `minimum_onebox_version`, commit-derived and dirty

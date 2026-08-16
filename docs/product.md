@@ -31,6 +31,11 @@ generated runtime, and any host proxy or supporting services selected in the
 project. It does not silently claim infrastructure or protection it has not
 actually established.
 
+Owned application containers have one visible grammar:
+`<app>-<component>-<replica>`, with a one-based replica ordinal that is never
+omitted. The managed host proxy is `onebox-proxy`. These names are generated
+identity, not user configuration.
+
 The broader managed-operations goal is direction, not an inventory. Owned today:
 host bootstrap, the container runtime check, the proxy and its TLS, the host
 ingress network, release

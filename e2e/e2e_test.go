@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -133,6 +134,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	if err := deploy("v1"); err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
+	assertContainerNames(t, "obe2e", "web", "obe2e-web-1")
 	waitBody(t, "http://localhost:18080/", "v1\n", 30*time.Second)
 	assertPayloadDigestsAgree("after v1")
 
@@ -173,6 +175,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy v2: %v", err)
 	}
+	assertContainerNames(t, "obe2e", "web", "obe2e-web-1")
 
 	// The redeploy case matters more than the first: this release directory now
 	// sits alongside a predecessor and carries the manifest the lifecycle wrote
@@ -197,6 +200,29 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	}
 	waitBody(t, "http://localhost:18080/", "v2\n", 10*time.Second)
 	fmt.Printf("zero-downtime proven: %d requests, 0 failures\n", total.Load())
+}
+
+func assertContainerNames(t *testing.T, project, service string, want ...string) {
+	t.Helper()
+	ids, err := exec.Command("docker", "ps", "-q",
+		"--filter", "label=com.docker.compose.project="+project,
+		"--filter", "label=com.docker.compose.service="+service).Output()
+	if err != nil {
+		t.Fatalf("list %s/%s containers: %v", project, service, err)
+	}
+	var got []string
+	for _, id := range strings.Fields(string(ids)) {
+		name, err := exec.Command("docker", "inspect", "-f", "{{.Name}}", id).Output()
+		if err != nil {
+			t.Fatalf("inspect %s/%s container %s: %v", project, service, id, err)
+		}
+		got = append(got, strings.TrimPrefix(strings.TrimSpace(string(name)), "/"))
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("%s/%s container names = %v, want %v", project, service, got, want)
+	}
 }
 
 func waitHealthy(t *testing.T, project, svc string, budget time.Duration) {

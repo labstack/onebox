@@ -67,7 +67,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "project='ob-proxy'"): // proxy id + health in one ps
+		case strings.Contains(cmd, "project='onebox-proxy'"): // proxy id + health in one ps
 			return transport.Result{Stdout: "PX1|Up 2 days (" + proxyHealth + ")\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
@@ -157,7 +157,7 @@ func TestStatusManagedProxyUnhealthy(t *testing.T) {
 // mirroring projectContainers' guard.
 func TestProxyContainerRejectsSuspiciousID(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "project='ob-proxy'") {
+		if strings.Contains(cmd, "project='onebox-proxy'") {
 			return transport.Result{Stdout: "PX1;rm -rf|Up (healthy)\n"}, true
 		}
 		return transport.Result{}, false
@@ -175,7 +175,7 @@ func TestStatusManagedProxyNotRunning(t *testing.T) {
 	e, f, out, _ := statusProxyEngine(t, &applied, "", "healthy")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "project='ob-proxy'") {
+		if strings.Contains(cmd, "project='onebox-proxy'") {
 			return transport.Result{Stdout: ""}, true
 		}
 		return base(cmd)

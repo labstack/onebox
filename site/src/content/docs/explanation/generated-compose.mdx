@@ -33,7 +33,9 @@ becomes a question rather than a fact.
 
 ## What generation buys
 
-- **Derived, stable names.** `shop_web`, `ob_shop_postgres_data`, `ob_shop`,
+- **Derived, stable names.** Application containers use the uniform
+  `<app>-<component>-<replica>` grammar, such as `shop-web-1`; persistent and
+  provider resources include `ob_shop_postgres_data`, `ob_shop`, and
   `ob-ingress`. Once a volume exists its name cannot change without moving data,
   and a foreign resource already holding a derived name is refused rather than
   adopted.

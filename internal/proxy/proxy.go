@@ -29,11 +29,11 @@ import (
 
 const (
 	DefaultImage   = "traefik:v3.7"
-	DefaultNetwork = "ob-ingress"
+	DefaultNetwork = app.IngressNetwork
 	// Project is the compose project name; ContainerName the fixed container
 	// name — both host-global, which is the point.
-	Project       = "ob-proxy"
-	ContainerName = "ob-proxy"
+	Project       = app.ProxyProject
+	ContainerName = app.ProxyProject
 )
 
 // Paths is the host-scoped layout, sibling of the sole application directory.

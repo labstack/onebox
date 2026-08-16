@@ -124,7 +124,7 @@ func TestPreflightOnlyReads(t *testing.T) {
 func TestPreflightReportsEveryProblem(t *testing.T) {
 	run := healthyRunner()
 	run.answers["-w"] = transport.Result{ExitCode: 1, Stdout: "/var/lib\n"}
-	run.answers["docker ps"] = transport.Result{Stdout: "ledger_web\t\n"}
+	run.answers["docker ps"] = transport.Result{Stdout: "ledger-web-1\t\n"}
 	run.answers["docker network inspect"] = transport.Result{ExitCode: 1}
 
 	rep := preflight(t, run, preflightProject)
@@ -146,7 +146,7 @@ func TestPreflightReportsEveryProblem(t *testing.T) {
 // normal case. Treating it as a conflict would make the second deploy fail.
 func TestPreviousReleaseIsNotACollision(t *testing.T) {
 	run := healthyRunner()
-	run.answers["docker ps"] = transport.Result{Stdout: "ledger_web\tledger\n"}
+	run.answers["docker ps"] = transport.Result{Stdout: "ledger-web-1\tledger\n"}
 
 	rep := preflight(t, run, preflightProject)
 	for _, c := range rep.Failures() {

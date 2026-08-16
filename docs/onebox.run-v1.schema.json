@@ -108,7 +108,7 @@
             "const": "ob"
           },
           {
-            "const": "proxy"
+            "const": "onebox-proxy"
           },
           {
             "const": "_host"

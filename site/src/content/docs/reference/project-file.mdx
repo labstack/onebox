@@ -94,10 +94,12 @@ Full explanation, including why level four outranks the rest:
 
 ## What Onebox generates
 
-**Names** — `shop_web`, `shop_web_2`, `ob_shop_postgres`,
-`ob_shop_postgres_data`, `ob_shop` (the service network), `ob-ingress`. These are
-contract: once a volume exists its name cannot change without moving data. A
-foreign resource already holding a derived name is refused, not adopted.
+**Names** — application containers are uniformly numbered:
+`shop-web-1`, `shop-web-2`, and `shop-postgres-1`. The managed proxy is
+`onebox-proxy`. Persistent and provider names include `ob_shop_postgres`,
+`ob_shop_postgres_data`, `ob_shop` (the service network), and `ob-ingress`.
+These are contract: once a volume exists its name cannot change without moving
+data. A foreign resource already holding a derived name is refused, not adopted.
 
 **Layout** — `/var/lib/ob/<app>/releases/<id>`, plus `current`, `journal`, and
 `services`. Configurable per environment with `base_path`.

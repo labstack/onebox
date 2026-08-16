@@ -51,6 +51,26 @@ managed: false                   # state
 `30s`, `5m`, `1h30m`, `14d`. No field carries its unit in its name, and no
 duration is an integer.
 
+## Runtime resources
+
+**Every application container is `<app>-<component>-<replica>`.** Replica
+ordinals are one-based and never omitted, including for a singleton. A
+three-replica `server` workload in the `monk` application is therefore
+`monk-server-1`, `monk-server-2`, and `monk-server-3`; singleton components are
+`monk-feed-1`, `monk-postgres-1`, and `monk-redis-1`.
+
+A hyphen authored inside `app` or a component is doubled in the runtime name,
+so the separator remains unambiguous: app `help-desk` and component `web-api`
+produce `help--desk-web--api-1`.
+
+The temporary container joining a rollout is `<app>-<component>-new`. It takes
+the stable numbered slot only after the previous occupant has drained and been
+removed. The host-scoped managed proxy is `onebox-proxy`.
+
+Container names are the human-facing runtime grammar. Persistent volumes,
+Compose projects, networks, and proxy-provider objects use their own derived
+names because they have different collision and data-lifetime constraints.
+
 ## Commands
 
 **A command is an imperative verb, or a noun that prints.** Nothing in between.

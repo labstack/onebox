@@ -103,7 +103,7 @@ func TestPinImagesFailsClosedWhenRegistryCannotResolveDigest(t *testing.T) {
 		t.Fatalf("error = %v, want ImageResolutionError", err)
 	}
 	if resolution.Code() != "image_unresolved" || resolution.Workload == "" ||
-		!strings.Contains(resolution.ResolvingCommand, "ob deploy --image "+resolution.Workload+"=") {
+		!strings.Contains(resolution.ResolvingCommand, "ob plan --image "+resolution.Workload+"=") {
 		t.Fatalf("typed resolution error = %#v", resolution)
 	}
 }
@@ -486,5 +486,20 @@ func TestPayloadExclusionsCoverJobsOnly(t *testing.T) {
 	want := []string{"compose.yaml", release.ManifestFileName, jobResultDirName("migrate")}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("exclusions = %v, want %v", names, want)
+	}
+}
+
+// Guidance that immediately refuses is worse than none. A structured `ob deploy`
+// without --plan is rejected with plan_required, so the resolving command for an
+// unresolved image must name the step that actually unblocks the caller. Built
+// through the constructor on purpose: a literal here would pass whatever the
+// constructor produces.
+func TestImageResolutionGuidanceDoesNotRefuseWithoutAPlan(t *testing.T) {
+	command := imageResolutionError("web", "app:latest", "no digest").GuidanceCommand()
+	if strings.HasPrefix(command, "ob deploy") {
+		t.Fatalf("resolving command %q is a deploy; a structured deploy without --plan is refused", command)
+	}
+	if !strings.HasPrefix(command, "ob plan --image web=") {
+		t.Fatalf("resolving command = %q, want an ob plan --image form naming the workload", command)
 	}
 }

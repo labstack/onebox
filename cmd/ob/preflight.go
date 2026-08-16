@@ -62,7 +62,7 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 				// pipeline without parsing anything.
 				preflightErr := fmt.Errorf("%d of %d checks failed", len(report.Failures()), len(report.Checks))
 				if isStructuredOutput(g) {
-					publicErr := &cliPublicError{Code: "preflight_failed", SafeMessage: "one or more preflight checks failed", Details: report}
+					publicErr := &cliPublicError{Code: "preflight_failed", SafeMessage: safeMessageForCode("preflight_failed", "one or more preflight checks failed"), Details: report}
 					if err := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); err != nil {
 						return err
 					}

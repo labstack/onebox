@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/engine"
 )
 
 // codeLiteral matches the two ways a code reaches an operator: a Code() method
@@ -180,8 +181,54 @@ func TestPlanExpiredGuidanceNamesTheRightReplanCommand(t *testing.T) {
 func TestNoPublishedGuidanceIsAStructuredDeployWithoutAPlan(t *testing.T) {
 	for _, code := range OperationFailureCodes() {
 		failure, _ := OperationFailureFor(code)
-		if failure.Command == "ob deploy --output ndjson" || failure.Command == "ob deploy --output json" {
+		if refusesWithoutPlan(failure.Command) {
 			t.Errorf("code %q publishes %q, which refuses without --plan", code, failure.Command)
 		}
+	}
+}
+
+// The registry is not the only source of published guidance: a typed error can
+// override it through GuidanceCommand(), and publicError prefers the override.
+// Those bypass the loop above entirely.
+func TestNoTypedOverrideIsAStructuredDeployWithoutAPlan(t *testing.T) {
+	for name, command := range typedGuidanceOverrides() {
+		if refusesWithoutPlan(command) {
+			t.Errorf("%s overrides guidance with %q, which refuses without --plan", name, command)
+		}
+		if command != "" && !SafeGuidanceCommand(command) {
+			t.Errorf("%s overrides guidance with %q, which is not a safe Onebox command", name, command)
+		}
+	}
+}
+
+// Any `ob deploy` is a dead end for a structured caller, whether or not the
+// published string already carries --output: an agent adds it, and a deploy
+// without --plan is then refused with plan_required. Requiring the literal
+// --output is what let the loader's own image_unresolved guidance through.
+func refusesWithoutPlan(command string) bool {
+	return strings.HasPrefix(command, "ob deploy") && !strings.Contains(command, "--plan")
+}
+
+// typedGuidanceOverrides enumerates every error that overrides published
+// guidance through GuidanceCommand(). It is hand-maintained on purpose: adding
+// an override without adding it here is what let the image-resolution command
+// publish a structured deploy that refuses.
+func typedGuidanceOverrides() map[string]string {
+	return map[string]string{
+		// ImageResolutionError's real command is pinned in package engine,
+		// where its constructor lives — a literal here would pass no matter
+		// what the constructor produces.
+		"engine.MigrationGateClosedError (abort)": (&engine.MigrationGateClosedError{
+			InterruptedID: "R1", Refused: "abort",
+		}).GuidanceCommand(),
+		"engine.MigrationGateClosedError (recovery)": (&engine.MigrationGateClosedError{
+			InterruptedID: "R1", Refused: "recovery",
+		}).GuidanceCommand(),
+		"engine.PostActivationFailedError": (&engine.PostActivationFailedError{
+			ReleaseID: "R1",
+		}).GuidanceCommand(),
+		"engine.PostActivationFailedError (rollback)": (&engine.PostActivationFailedError{
+			ReleaseID: "R1", Guidance: "ob status --output json",
+		}).GuidanceCommand(),
 	}
 }

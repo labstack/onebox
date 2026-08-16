@@ -240,14 +240,48 @@ func TestRefreshLockNeverResurrectsDeletedLock(t *testing.T) {
 	}
 }
 
+// A lock nobody can observe must not read as absent: taking it over on that
+// answer puts two mutators on one host, the one false absence whose cost is
+// corruption rather than a misleading report.
+func TestLockAgeCmdFailsClosedWhenUnobservable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root searches every directory, so the permission arm cannot be exercised")
+	}
+	dir := t.TempDir()
+	held := dir + "/held"
+	if err := os.Mkdir(held, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock := held + "/lock"
+	if err := os.WriteFile(lock, []byte("held"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(held, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(held, 0o700) })
+
+	res, err := transport.NewLocal().Run(context.Background(), lockAgeCmd(lock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	age, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+	if err != nil {
+		t.Fatalf("non-numeric age %q", res.Stdout)
+	}
+	if age != 0 {
+		t.Fatalf("unobservable lock read as age %d; want 0 so the caller refuses", age)
+	}
+}
+
 func TestLockAgeCmdIsPortable(t *testing.T) {
-	got := lockAgeCmd("'/var/lib/ob/sample/lock'")
+	got := lockAgeCmd("/var/lib/ob/sample/lock")
 	for _, want := range []string{
 		"[ -L '/var/lib/ob/sample/lock' ] && [ ! -e '/var/lib/ob/sample/lock' ]", // dangling symlink → refuse, portably
 		"stat -c %Y '/var/lib/ob/sample/lock'",                                   // GNU
 		"stat -f %m '/var/lib/ob/sample/lock'",                                   // BSD/macOS fallback
 		"[ -e '/var/lib/ob/sample/lock' ] || [ -L '/var/lib/ob/sample/lock' ]",   // present → refuse (echo 0)
-		"else date +%s; fi", // truly absent → take over
+		"then date +%s; else echo 0; fi",                                         // absence established → take over; not established → refuse
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lockAgeCmd missing %q:\n%s", want, got)
@@ -261,7 +295,7 @@ func TestLockAgeCmdIsPortable(t *testing.T) {
 func TestLockAgeCmdBehavior(t *testing.T) {
 	dir := t.TempDir()
 	age := func(path string) int {
-		res, err := transport.NewLocal().Run(context.Background(), lockAgeCmd(q(path)))
+		res, err := transport.NewLocal().Run(context.Background(), lockAgeCmd(path))
 		if err != nil {
 			t.Fatal(err)
 		}

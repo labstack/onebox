@@ -241,8 +241,13 @@ func (e *Engine) completeActivation(ctx context.Context, manifest *release.Manif
 	if err := e.writeActivationCheckpoint(ctx, *checkpoint); err != nil {
 		return fmt.Errorf("checkpoint predecessor superseded: %w", err)
 	}
-	if err := e.clearActivationCheckpoint(ctx); err != nil {
-		return err
-	}
+	// The checkpoint is NOT cleared here. Callers clear it once the operation's
+	// own journal records the activation, because those two writes bracket the
+	// only unrecoverable window in the sequence: cleared checkpoint + serving
+	// manifest + no journal evidence is a state finalize refuses on every
+	// retry ("its journal records no successful activation") while the release
+	// is healthy and live, and the refusal's guidance would roll it back.
+	// Clearing last leaves the opposite window instead — checkpoint open,
+	// activation journalled — which recovery is built to reconcile.
 	return nil
 }

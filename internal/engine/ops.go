@@ -157,7 +157,47 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// An earlier `ob destroy --proxy` removes this directory, so a repeat
 			// run must treat "already gone" as done. Failing here left the owner
 			// record in place with no command able to remove it.
-			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down; fi"
+			//
+			// "Already gone" is a fact about the containers, not about the
+			// config file. Skipping teardown when only the file is missing
+			// releases host ownership while ob-proxy still holds :80/:443,
+			// and nothing ob can run afterwards removes it: the next
+			// application claims the host and then cannot bind. Fall back to
+			// the project label, which is what the compose file would have
+			// selected anyway.
+			// The sweep runs in BOTH branches, not just when the compose
+			// file is missing. `down` only removes services the
+			// current file declares, so a container carrying the project
+			// label that the file no longer names survives it and `down`
+			// still exits 0 — the same end state as the missing-file case:
+			// ownership released with something still holding :80/:443, and
+			// the compose file deleted so no ob command can reach it.
+			//
+			// --remove-orphans is deliberately absent for the same reason
+			// the sweep is name-anchored: it removes every container carrying
+			// the project label that the file does not declare, which is the
+			// seizure described below. The sweep already covers ob's own
+			// orphan, which is the only container ob created.
+			//
+			// It matches ob's own fixed container name, not the project
+			// label: `docker compose -p ob-proxy up` run by a user for their
+			// own reasons carries that label too, and force-removing their
+			// containers is the foreign-resource seizure preflight refuses
+			// everywhere else. The compose file declares exactly one service
+			// with this container_name, so the name is complete for ob.
+			//
+			// Without `|| exit $?` a failed docker ps yields an empty list,
+			// the if is skipped, and teardown "succeeds" — the very outcome
+			// this exists to prevent.
+			//
+			// Reaching here implies the proxy is managed: Destroy refuses
+			// --proxy for an unmanaged one before any of this runs. That is
+			// what makes the name sweep safe — on an unmanaged host ob never
+			// created an ob-proxy container, so anything answering to the
+			// name would be the operator's.
+			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
+				"orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$) || exit $?; " +
+				"if [ -n \"$orphans\" ]; then docker rm -f $orphans; fi"
 			if res, err := e.hostMutate(ctx, down); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
@@ -186,8 +226,13 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		}
 	}
 	if !releaseOwner {
+		// releaseOwner is removeVolumes && (!Managed || removeProxy), so with
+		// a managed proxy --proxy is ALWAYS part of the answer — including on
+		// the run that just passed it and kept volumes. Keying the suffix on
+		// !removeProxy told that operator to run `ob destroy --volumes`,
+		// which retains ownership again.
 		e.logf("host ownership kept for %s — run `ob destroy --volumes%s` to remove what remains and release the host",
-			e.Spec.Name, map[bool]string{true: " --proxy", false: ""}[e.Spec.Proxy.Managed && !removeProxy])
+			e.Spec.Name, map[bool]string{true: " --proxy", false: ""}[e.Spec.Proxy.Managed])
 	}
 	e.logf("destroyed %s (volumes %s)", e.Spec.Name, map[bool]string{true: "REMOVED", false: "kept"}[removeVolumes])
 	return nil

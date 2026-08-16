@@ -339,7 +339,33 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	}); err != nil {
 		fin(err)
 		e.progress("activation", "failed", "activation succeeded but its evidence could not be persisted")
-		return fmt.Errorf("journal activation result: %w", err)
+		// The checkpoint stays open on purpose: recovery reconciles an open
+		// checkpoint, and clearing it here would strand a live release whose
+		// activation nothing recorded.
+		//
+		// Through failedOutcome like every other exit past activation:
+		// Transition(StateServing) already stamped the manifest succeeded,
+		// and an interrupt here would otherwise report "cancelled, nothing
+		// was changed" for a generation that is live.
+		return e.failedOutcome(ctx, &manifest, fmt.Errorf("journal activation result: %w", err))
+	}
+	// Evidence is durable, so the checkpoint has done its job. Typed, because
+	// the release is already live: an interrupt here returns ctx.Err()
+	// verbatim, and an untyped one ships as "cancelled, nothing was changed"
+	// for a deploy whose new generation is serving.
+	if err := e.clearActivationCheckpoint(ctx); err != nil {
+		// Activation itself succeeded — symlink switched, manifest serving,
+		// journal recorded. Reporting phase=activation status=failed would
+		// have a stream consumer conclude the new generation never took
+		// effect and roll back a healthy, live release.
+		fin(nil)
+		e.progress("activation", "succeeded", "")
+		e.progress("cleanup", "failed", "the release is serving; its activation checkpoint could not be cleared")
+		// Through failedOutcome like every other post-activation exit:
+		// Transition(StateServing) set the outcome to succeeded, and leaving
+		// it there would have the manifest claim a finished operation for one
+		// that failed.
+		return e.failedOutcome(ctx, &manifest, fmt.Errorf("clear activation checkpoint: %w", err))
 	}
 	fin(nil)
 	e.progress("activation", "succeeded", "")
@@ -530,6 +556,27 @@ func (e *Engine) rollbackTo(ctx context.Context, prev, current string, epoch int
 	}
 	if err := e.reactivateManifest(ctx, &target, current); err != nil {
 		return fmt.Errorf("rollback activation: %w", err)
+	}
+	// Same reasoning as the deploy path: the rollback target is already
+	// serving by the time this runs.
+	if err := e.clearActivationCheckpoint(ctx); err != nil {
+		if outcomeErr := e.recordOutcome(ctx, &target, release.OutcomeFailed); outcomeErr != nil {
+			// Carries the same override as the branch below: without it
+			// GuidanceCommand falls back to `ob resume`, which fixes forward
+			// against the release this rollback just undid.
+			return errors.Join(outcomeErr, &PostActivationFailedError{
+				ReleaseID: target.ID,
+				Err:       fmt.Errorf("rollback activation: clear activation checkpoint: %w", err),
+				Guidance:  "ob status --output json",
+			})
+		}
+		return &PostActivationFailedError{
+			ReleaseID: target.ID,
+			Err:       fmt.Errorf("rollback activation: clear activation checkpoint: %w", err),
+			// Not `ob resume`: the rollback target is serving, and resume
+			// would try to finalize the deploy this rollback undid.
+			Guidance: "ob status --output json",
+		}
 	}
 	return nil
 }

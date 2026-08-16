@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -159,9 +160,9 @@ func ActivationCheckpointWrite(n app.Names, checkpoint ActivationCheckpoint) (co
 
 func ReadActivationCheckpoint(ctx context.Context, target transport.Transport, n app.Names) (ActivationCheckpoint, error) {
 	path := ActivationCheckpointPath(n)
-	command := `if [ ! -e ` + q(path) + ` ]; then exit 3; fi; ` +
+	command := `if [ ! -e ` + q(path) + ` ] && [ ! -L ` + q(path) + ` ]; then ` + app.UndeterminedArm(path) + `exit 3; fi; ` +
 		`if [ ! -f ` + q(path) + ` ]; then exit 4; fi; ` +
-		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit 5; ` +
+		`mode=$(stat -c '%a' ` + q(path) + ` 2>/dev/null || stat -f '%Lp' ` + q(path) + ` 2>/dev/null) || exit ` + strconv.Itoa(probeStatFailed) + `; ` +
 		`printf 'mode=%s\n' "$mode"; cat ` + q(path)
 	result, err := target.Run(ctx, command)
 	if err != nil {
@@ -173,6 +174,12 @@ func ReadActivationCheckpoint(ctx context.Context, target transport.Transport, n
 		return ActivationCheckpoint{}, ErrActivationCheckpointMissing
 	case 4:
 		return ActivationCheckpoint{}, fmt.Errorf("activation checkpoint is not a regular file")
+	case app.ProbeStatePathNotDirectory:
+		return ActivationCheckpoint{}, fmt.Errorf("the path that should hold the activation checkpoint is not a directory")
+	case app.ProbeUndetermined:
+		return ActivationCheckpoint{}, fmt.Errorf("a directory holding the activation checkpoint cannot be searched, so a missing checkpoint cannot be told from an unreadable one; verify access, then retry")
+	case probeStatFailed:
+		return ActivationCheckpoint{}, fmt.Errorf("the activation checkpoint's mode could not be read; neither stat form worked on this host")
 	default:
 		return ActivationCheckpoint{}, fmt.Errorf("activation checkpoint read failed: %s", strings.TrimSpace(result.Stderr))
 	}

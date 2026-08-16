@@ -347,6 +347,24 @@ func TestPreflightRefusesAnUnreadableHostOwnerRecord(t *testing.T) {
 	}
 }
 
+// An exit the probe never emits means the command itself failed. Reusing the
+// unreadable-record sentence names a cause preflight never observed.
+func TestPreflightSeparatesACommandFailureFromAReadFailure(t *testing.T) {
+	run := healthyRunner()
+	run.answers["/_host/owner"] = transport.Result{ExitCode: 127}
+	report := preflight(t, run, preflightProject)
+	if report.OK() {
+		t.Fatal("a failed command passed preflight")
+	}
+	detail := report.Failures()[0].Detail
+	if strings.Contains(detail, "could not be read") {
+		t.Fatalf("a command failure was diagnosed as an unreadable record: %q", detail)
+	}
+	if !strings.Contains(detail, "127") {
+		t.Fatalf("the unexpected status was not surfaced: %q", detail)
+	}
+}
+
 func TestPreflightRefusesAnEmptyHostOwnerRecord(t *testing.T) {
 	run := healthyRunner()
 	run.answers["/_host/owner"] = transport.Result{Stdout: "\n"}

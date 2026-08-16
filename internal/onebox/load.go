@@ -97,6 +97,22 @@ func (s *Service) loadObservedProject(ctx context.Context, lenient bool, images 
 	return lp, nil
 }
 
+// lifecycleStateProbe classifies a service's lifecycle state file by marker:
+// present (with the record on the following line), invalid, or missing.
+//
+// -e follows symlinks, so the -L arm is what keeps a dangling link out of the
+// 'missing' answer; reporting a broken link as no state at all would drop the
+// service's protection silently. An unsearchable ancestor hides it the same
+// way, which is what UndeterminedArm's exit 5 is for. A live symlink to a
+// regular file is still read through as 'present': -f follows it, and refusing
+// symlinked state would be a new rule, not a fix.
+func lifecycleStateProbe(path string) string {
+	p := quote(path)
+	return "if [ -f " + p + " ]; then printf 'present\\n'; cat " + p +
+		"; elif [ -e " + p + " ] || [ -L " + p + " ]; then printf 'invalid\\n'; else " +
+		app.UndeterminedArm(path) + "printf 'missing\\n'; fi"
+}
+
 func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app.Resolved) (map[string]app.ServiceRuntimeState, error) {
 	if resolved == nil || len(resolved.Services) == 0 {
 		return nil, nil
@@ -115,9 +131,18 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 	states := map[string]app.ServiceRuntimeState{}
 	for _, service := range sortedNames(resolved.Services) {
 		statePath := names.ProtectionLifecycleStateFile(service)
-		result, err := target.Run(ctx, "if [ -f "+quote(statePath)+" ]; then printf 'present\\n'; cat "+quote(statePath)+"; elif [ -e "+quote(statePath)+" ]; then printf 'invalid\\n'; else printf 'missing\\n'; fi")
+		result, err := target.Run(ctx, lifecycleStateProbe(statePath))
 		if err != nil {
 			return nil, fmt.Errorf("observe service %s lifecycle state: %w", service, err)
+		}
+		// The probe's refusals carry no stderr. Letting them fall into the
+		// generic failure below would drop the one fact that tells an
+		// operator what to fix.
+		switch result.ExitCode {
+		case app.ProbeStatePathNotDirectory:
+			return nil, fmt.Errorf("service %s lifecycle state: the path that should hold it is not a directory", service)
+		case app.ProbeUndetermined:
+			return nil, fmt.Errorf("service %s lifecycle state: a directory holding it cannot be searched, so missing state cannot be told from unreadable state; verify access, then retry", service)
 		}
 		if result.ExitCode != 0 {
 			return nil, fmt.Errorf("observe service %s lifecycle state failed", service)

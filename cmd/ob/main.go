@@ -17,6 +17,11 @@ import (
 
 var version = buildinfo.Read().Version
 
+const (
+	defaultProjectFile   = "ob.yml"
+	alternateProjectFile = "ob.yaml"
+)
+
 type globalFlags struct {
 	Verbose    bool
 	Env        string
@@ -33,19 +38,23 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ob",
 		Short:         "onebox — one application, one host",
-		Long:          "onebox (ob) — plan-before-apply production operations for one application on one server.\n\nYou describe what the application is in ob.yml; Onebox generates the Compose\nruntime, the names, the routing and the supporting services. Agentless over\nSSH, health-gated, journaled and fenced.",
+		Long:          "onebox (ob) — plan-before-apply production operations for one application on one server.\n\nYou describe what the application is in ob.yml (or ob.yaml); Onebox generates\nthe Compose runtime, the names, the routing and the supporting services.\nAgentless over SSH, health-gated, journaled and fenced.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE:          showCommandHelp,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return validateOutputMode(cmd, g)
+			if err := validateOutputMode(cmd, g); err != nil {
+				return err
+			}
+			resolveDefaultConfigPath(cmd, g)
+			return nil
 		},
 	}
 	root.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "print every remote command")
 	root.PersistentFlags().StringVarP(&g.Env, "env", "e", "production", "environment name")
-	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", "ob.yml", "path to ob.yml")
+	root.PersistentFlags().StringVarP(&g.ConfigPath, "config", "c", defaultProjectFile, "path to the project YAML file")
 	root.PersistentFlags().StringVar(&g.Output, "output", "human", "output mode for supported commands: human|json|ndjson (see the CLI reference)")
 	addVersionCommand(root, g)
 	addDoctorCommand(root, g)
@@ -59,6 +68,21 @@ func newRootCmd() *cobra.Command {
 	addEjectCommand(root, g)
 	addConfigCommand(root, g)
 	return root
+}
+
+// resolveDefaultConfigPath keeps ob.yml canonical while allowing the other
+// standard YAML spelling without a flag. An explicit -c is exact authority:
+// it must never be silently redirected to a different file.
+func resolveDefaultConfigPath(cmd *cobra.Command, g *globalFlags) {
+	if g.ConfigPath != defaultProjectFile || cmd.Flags().Changed("config") {
+		return
+	}
+	if _, err := os.Stat(defaultProjectFile); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if info, err := os.Stat(alternateProjectFile); err == nil && !info.IsDir() {
+		g.ConfigPath = alternateProjectFile
+	}
 }
 
 // showCommandHelp makes command groups participate in Cobra's execution

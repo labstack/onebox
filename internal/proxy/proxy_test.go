@@ -121,10 +121,32 @@ func TestStage(t *testing.T) {
 	}
 }
 
-func TestStageRequiresTraefikYML(t *testing.T) {
+func TestStageRequiresTraefikConfig(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"})
-	if _, err := Stage(cfgDir, t.TempDir(), "", ""); err == nil || !strings.Contains(err.Error(), "traefik.yml") {
-		t.Fatalf("want traefik.yml contract error, got %v", err)
+	if _, err := Stage(cfgDir, t.TempDir(), "", ""); err == nil ||
+		!strings.Contains(err.Error(), "traefik.yml") || !strings.Contains(err.Error(), "traefik.yaml") {
+		t.Fatalf("want both supported static config names in the contract error, got %v", err)
+	}
+}
+
+func TestStageAcceptsTraefikYAML(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{"traefik.yaml": "ping: {}\n"})
+	staging := t.TempDir()
+	if _, err := Stage(cfgDir, staging, "", ""); err != nil {
+		t.Fatalf("traefik.yaml must be accepted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(staging, "config", "traefik.yaml")); err != nil {
+		t.Fatalf("traefik.yaml was not staged: %v", err)
+	}
+}
+
+func TestStageRejectsAmbiguousTraefikConfig(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{
+		"traefik.yml":  "ping: {}\n",
+		"traefik.yaml": "ping: {}\n",
+	})
+	if _, err := Stage(cfgDir, t.TempDir(), "", ""); err == nil || !strings.Contains(err.Error(), "both") {
+		t.Fatalf("two static config files must be refused as ambiguous: %v", err)
 	}
 }
 
@@ -208,7 +230,7 @@ func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
 }
 
 // A declared directory still owns the configuration entirely, and one missing
-// the file it must contain says what to do about it.
+// either supported static file says what to do about it.
 func TestDeclaredConfigStillOwnsItAndSaysWhatIsMissing(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "other.yml"), []byte("x: 1\n"), 0o600); err != nil {
@@ -216,7 +238,7 @@ func TestDeclaredConfigStillOwnsItAndSaysWhatIsMissing(t *testing.T) {
 	}
 	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress")
 	if err == nil {
-		t.Fatal("a declared config directory without traefik.yml must be refused")
+		t.Fatal("a declared config directory without traefik.yml or traefik.yaml must be refused")
 	}
 	if !strings.Contains(err.Error(), "Remove proxy.config") {
 		t.Errorf("the refusal must say how to resolve it: %v", err)

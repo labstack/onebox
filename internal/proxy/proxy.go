@@ -4,8 +4,9 @@
 // a name no app can take (app names match ^[a-z][a-z0-9-]*$).
 //
 // The app supplies the Traefik configuration as a flat dir (proxy.config):
-// traefik.yml required (static config; must declare ping: {} — the container
-// healthcheck gates on it — and ACME storage at /letsencrypt/acme.json);
+// traefik.yml or traefik.yaml required (static config; must declare ping: {} —
+// the container healthcheck gates on it — and ACME storage at
+// /letsencrypt/acme.json);
 // dynamic.yml and .env optional. ob renders the compose around it.
 package proxy
 
@@ -199,22 +200,27 @@ func Stage(localCfgDir, stagingDir, image, network string) (string, error) {
 		return "", fmt.Errorf("proxy.config: %w", err)
 	}
 	names := make([]string, 0, len(entries))
-	hasTraefik, hasEnv := false, false
+	staticConfigs := make([]string, 0, 2)
+	hasEnv := false
 	for _, e := range entries {
 		if e.IsDir() {
 			return "", fmt.Errorf("proxy.config must be a flat dir of config files; %s/ is a directory", e.Name())
 		}
 		names = append(names, e.Name())
-		if e.Name() == "traefik.yml" {
-			hasTraefik = true
+		if e.Name() == "traefik.yml" || e.Name() == "traefik.yaml" {
+			staticConfigs = append(staticConfigs, e.Name())
 		}
 		if e.Name() == ".env" {
 			hasEnv = true
 		}
 	}
-	if !hasTraefik {
-		return "", fmt.Errorf("proxy.config: %s contains no traefik.yml. "+
-			"Remove proxy.config to use the configuration Onebox writes, or add the file to own it",
+	if len(staticConfigs) == 0 {
+		return "", fmt.Errorf("proxy.config: %s contains neither traefik.yml nor traefik.yaml. "+
+			"Remove proxy.config to use the configuration Onebox writes, or add one of those files to own it",
+			localCfgDir)
+	}
+	if len(staticConfigs) > 1 {
+		return "", fmt.Errorf("proxy.config: %s contains both traefik.yml and traefik.yaml; keep exactly one static configuration file",
 			localCfgDir)
 	}
 	sort.Strings(names)

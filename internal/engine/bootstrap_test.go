@@ -20,7 +20,7 @@ func TestBootstrapSequence(t *testing.T) {
 	cfg.Registries = map[string]app.Registry{"default": {Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}}
 	t.Setenv("TEST_GHCR_TOKEN", "s3cret")
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
-	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID, t.TempDir()); err != nil {
+	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID); err != nil {
 		t.Fatalf("bootstrap: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -44,6 +44,12 @@ func TestBootstrapSequence(t *testing.T) {
 	if strings.Contains(seq, "s3cret") {
 		t.Fatal("password must never appear in a command string")
 	}
+	if strings.Contains(seq, "COMPOSE_FILE=") {
+		t.Fatal("the host-only bootstrap hook must not receive an application Compose file")
+	}
+	if len(f.Uploads) != 0 {
+		t.Fatalf("bootstrap must not upload an application payload: %v", f.Uploads)
+	}
 	found := false
 	for _, in := range f.Inputs {
 		if strings.Contains(in, "s3cret") {
@@ -59,6 +65,22 @@ func TestBootstrapSequence(t *testing.T) {
 	}
 }
 
+func TestBootstrapRefusesExistingEvidenceIdentity(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "mkdir -m 700") && strings.Contains(command, "/releases/"+engineTestBootstrapReleaseID) {
+			return transport.Result{ExitCode: 1, Stderr: "File exists"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
+	if err == nil || !strings.Contains(err.Error(), "bootstrap evidence directory") {
+		t.Fatalf("existing bootstrap evidence identity was not refused: %v", err)
+	}
+}
+
 func TestBootstrapStopsWhenJournalStartFails(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
@@ -71,7 +93,7 @@ func TestBootstrapStopsWhenJournalStartFails(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks["bootstrap"] = app.Command{Run: "touch /tmp/bootstrap-ran"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID, t.TempDir())
+	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
 	if err == nil || !strings.Contains(err.Error(), "journal bootstrap start") {
 		t.Fatalf("bootstrap error = %v", err)
 	}
@@ -98,7 +120,7 @@ func TestBootstrapInstallsMissingRuntime(t *testing.T) {
 		return base(cmd)
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID, t.TempDir()); err != nil {
+	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID); err != nil {
 		t.Fatalf("bootstrap with runtime install: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -110,7 +132,7 @@ func TestBootstrapInstallsMissingRuntime(t *testing.T) {
 func TestBootstrapSkipsInstallWhenRuntimePresent(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID, t.TempDir()); err != nil {
+	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(strings.Join(f.Commands, "\n"), "get.docker.com") {
@@ -123,7 +145,7 @@ func TestBootstrapFailsEarlyWithoutPassword(t *testing.T) {
 	cfg := testConfig()
 	cfg.Registries = map[string]app.Registry{"default": {Server: "ghcr.io", Username: "v", PasswordEnv: "NOPE_UNSET_VAR"}}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.Bootstrap(context.Background(), engineTestDeployReleaseID, t.TempDir())
+	err := e.Bootstrap(context.Background(), engineTestDeployReleaseID)
 	if err == nil || !strings.Contains(err.Error(), "NOPE_UNSET_VAR") {
 		t.Fatalf("want early env error, got %v (commands: %v)", err, f.Commands)
 	}
@@ -154,7 +176,7 @@ func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 	cfg.Registries = map[string]app.Registry{"default": {Server: "ghcr.io", Username: "vishr", PasswordEnv: "TEST_GHCR_TOKEN"}}
 	t.Setenv("TEST_GHCR_TOKEN", "s3cret")
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
-	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID, t.TempDir()); err != nil {
+	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID); err != nil {
 		t.Fatalf("bootstrap: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")

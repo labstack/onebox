@@ -122,7 +122,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		return finish(jobErr)
 	}
 
-	lenient := request.Kind == KindProxyApply || request.Kind == KindDestroy
+	lenient := operationUsesInspectionRuntime(request.Kind)
 	lp, err := s.loadProject(ctx, lenient)
 	if err != nil {
 		return finish(fmt.Errorf("load project: %w", err))
@@ -162,21 +162,9 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.EvidenceID, err = e.RollbackWithJournalID(ctx)
 		result.ReleaseID = result.EvidenceID
 	case KindBootstrap:
-		var staging string
-		var cleanupStaging func()
-		secretGeneration := ""
-		if len(lp.resolved.SecretDeclarationGraph()) > 0 {
-			secretGeneration, err = s.newSecretGeneration()
-		}
-		if err == nil {
-			staging, cleanupStaging, err = stageExecution(ctx, lp, s.environment, operationID, secretGeneration, s.images)
-		}
-		if err == nil {
-			defer cleanupStaging()
-			result.ReleaseID = operationID
-			result.EvidenceID = operationID
-			err = e.Bootstrap(ctx, operationID, staging)
-		}
+		result.ReleaseID = operationID
+		result.EvidenceID = operationID
+		err = e.Bootstrap(ctx, operationID)
 	case KindServiceApply:
 		// Services are not staged into a release: they are their own Compose
 		// projects, and nothing a release can remove.

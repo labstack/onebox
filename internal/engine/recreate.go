@@ -93,11 +93,12 @@ func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteCom
 }
 
 // RunHook executes a user hook verbatim. Hooks are unplannable
-// commands — the operator's own, same trust level as their shell). Host
-// hooks get compose env exported so `docker compose ...` targets this
-// release; local hooks run on the runner (publish-style steps) with OB_*
-// env. A nonzero exit halts the deploy; migration-gate evaluation determines
-// whether later automatic rollback remains safe.
+// commands — the operator's own, same trust level as their shell). Release
+// hooks get compose env exported so `docker compose ...` targets that release;
+// the host-only bootstrap hook has no application Compose file. Local hooks run
+// on the runner (publish-style steps) with OB_* env. A nonzero exit halts the
+// deploy; migration-gate evaluation determines whether later automatic
+// rollback remains safe.
 func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComposePath string) error {
 	hook, ok := e.Spec.Hooks[name]
 	if !ok || hook.Run == "" {
@@ -111,9 +112,12 @@ func (e *Engine) RunHook(ctx context.Context, name, remoteReleaseDir, remoteComp
 		return err
 	}
 	st := e.ui.Step("hook "+name, true)
-	cmd := "cd " + q(remoteReleaseDir) +
-		" && COMPOSE_PROJECT_NAME=" + e.Spec.Name +
-		" COMPOSE_FILE=" + q(remoteComposePath) + " " + hook.Run
+	cmd := "cd " + q(remoteReleaseDir) + " && "
+	if remoteComposePath != "" {
+		cmd += "COMPOSE_PROJECT_NAME=" + e.Spec.Name +
+			" COMPOSE_FILE=" + q(remoteComposePath) + " "
+	}
+	cmd += hook.Run
 	res, err := e.mutate(ctx, cmd)
 	if err != nil {
 		st(err)

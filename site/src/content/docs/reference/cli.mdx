@@ -37,9 +37,9 @@ answers "would this deploy work?" from a different place.
 ```
 onebox (ob) — plan-before-apply production operations for one application on one server.
 
-You describe what the application is in ob.yml; Onebox generates the Compose
-runtime, the names, the routing and the supporting services. Agentless over
-SSH, health-gated, journaled and fenced.
+You describe what the application is in ob.yml (or ob.yaml); Onebox generates
+the Compose runtime, the names, the routing and the supporting services.
+Agentless over SSH, health-gated, journaled and fenced.
 
 Usage:
   ob [flags]
@@ -75,7 +75,7 @@ Available Commands:
   version     print version and build provenance
 
 Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
   -h, --help            help for ob
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
@@ -103,7 +103,7 @@ Flags:
   -h, --help                   help for abort
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -129,7 +129,7 @@ Flags:
       --plan string            executable plan artifact to approve
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -153,7 +153,7 @@ Flags:
   -h, --help        help for audit
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -166,8 +166,8 @@ Prepare a host: install what the deploy needs, create the layout, log in to
 registries, start the proxy, and start supporting services.
 
 Run once per host before the first deploy. It is safe to run again — each
-step converges rather than repeats. It does not release the application;
-`ob deploy` does that.
+step converges rather than repeats. Application images, source and environment
+payloads are not required or staged; `ob deploy` binds and releases them.
 
 Usage:
   ob bootstrap [flags]
@@ -177,7 +177,7 @@ Flags:
   -h, --help         help for bootstrap
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -201,7 +201,7 @@ Flags:
       --origins-only   list every value's origin instead of the document
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -236,7 +236,7 @@ Flags:
   -y, --yes                                skip the confirmation prompt
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -262,7 +262,7 @@ Flags:
       --volumes   also remove named volumes (DATA LOSS)
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -287,7 +287,7 @@ Flags:
   -h, --help   help for doctor
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -314,7 +314,7 @@ Flags:
       --overwrite           replace an existing file at the destination
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -343,7 +343,7 @@ Flags:
       --reason string   single-line operational justification (max 256 bytes; journaled)
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -365,7 +365,7 @@ Flags:
   -h, --help   help for init
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -392,7 +392,7 @@ Flags:
   -h, --help   help for job
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -417,7 +417,7 @@ Flags:
   -o, --out string                 job plan artifact path (default "ob-job-plan.json")
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -444,7 +444,7 @@ Flags:
       --plan string                        apply a saved job plan artifact
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -467,7 +467,7 @@ Flags:
       --tail int   lines per service (default 100)
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -494,7 +494,7 @@ Flags:
   -o, --out string                 plan artifact path (default "ob-plan.json")
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -517,7 +517,7 @@ Flags:
   -h, --help   help for preflight
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -543,7 +543,7 @@ Flags:
       --release string      release identity to stamp (default "preview")
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -568,7 +568,7 @@ Flags:
   -h, --help   help for proxy
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -592,7 +592,7 @@ Flags:
   -h, --help         help for apply
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -615,7 +615,7 @@ Flags:
   -h, --help   help for resume
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -640,7 +640,7 @@ Flags:
   -h, --help   help for rollback
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -667,7 +667,7 @@ Flags:
   -o, --out string   write to this path instead of standard output
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -697,7 +697,7 @@ Flags:
   -h, --help   help for secrets
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -720,7 +720,7 @@ Flags:
   -h, --help   help for edit
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -742,7 +742,7 @@ Flags:
   -h, --help   help for list
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -766,7 +766,7 @@ Flags:
   -h, --help   help for push
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -793,7 +793,7 @@ Flags:
   -h, --help   help for service
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -821,7 +821,7 @@ Flags:
   -h, --help                       help for apply
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -844,7 +844,7 @@ Flags:
   -h, --help   help for status
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -856,8 +856,10 @@ Global Flags:
 Load the project, expand shorthand, apply defaults and the environment's
 overrides, and check every rule the contract states.
 
-Contacts nothing and writes nothing. A failure names the field, the line and
-the constraint; `ob canonical` shows what was understood.
+Contacts nothing and writes nothing. Build metadata is valid before CI supplies
+a release image; plan and deploy require that image via `--image`. A failure
+names the field, the line and the constraint; `ob canonical` shows what was
+understood.
 
 Usage:
   ob validate [flags]
@@ -866,7 +868,7 @@ Flags:
   -h, --help   help for validate
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command
@@ -887,7 +889,7 @@ Flags:
   -h, --help   help for version
 
 Global Flags:
-  -c, --config string   path to ob.yml (default "ob.yml")
+  -c, --config string   path to the project YAML file (default "ob.yml")
   -e, --env string      environment name (default "production")
       --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
   -v, --verbose         print every remote command

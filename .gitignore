@@ -1,6 +1,7 @@
 /ob
 /ob-docgen
 /bin/
+/dist/
 
 # Local assistant and editor state. These are per-developer and per-machine,
 # and one of them (.claude/settings.local.json) accumulates a permission

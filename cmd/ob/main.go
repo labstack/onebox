@@ -37,7 +37,7 @@ func newRootCmd() *cobra.Command {
 	g := &globalFlags{}
 	root := &cobra.Command{
 		Use:           "ob",
-		Short:         "onebox — one application, one host",
+		Short:         "onebox — one application, one server",
 		Long:          "onebox (ob) — plan-before-apply production operations for one application on one server.\n\nYou describe what the application is in ob.yml (or ob.yaml); Onebox generates\nthe Compose runtime, the names, the routing and the supporting services.\nAgentless over SSH, health-gated, journaled and fenced.",
 		Version:       version,
 		SilenceUsage:  true,

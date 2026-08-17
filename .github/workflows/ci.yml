@@ -44,7 +44,30 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
 
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      # just is installed from its pinned release asset rather than through
+      # extractions/setup-just. That action resolves the version through the
+      # GitHub releases API on every run, and when that lookup returns nothing —
+      # rate limiting is the usual cause on shared runners — it fails with
+      # `no release for just matching version specifier`, before a line of this
+      # repository is compiled. Pinning the version did not help: the lookup is
+      # what breaks, not the version. A direct URL has no lookup to fail.
+      #
+      # The checksum is the point of doing it this way rather than piping a
+      # script from the internet into a shell: what CI executes is exactly the
+      # artifact this line names, or the job stops.
+      - name: Install just
+        run: |
+          set -euo pipefail
+          version=1.58.0
+          archive=just-${version}-x86_64-unknown-linux-musl.tar.gz
+          sha=4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/casey/just/releases/download/${version}/${archive}"
+          echo "${sha}  ${archive}" | sha256sum --check --strict -
+          tar -xzf "$archive" just
+          install -m 0755 just /usr/local/bin/just
+          rm -f "$archive" just
+          just --version
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -146,7 +169,30 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      # just is installed from its pinned release asset rather than through
+      # extractions/setup-just. That action resolves the version through the
+      # GitHub releases API on every run, and when that lookup returns nothing —
+      # rate limiting is the usual cause on shared runners — it fails with
+      # `no release for just matching version specifier`, before a line of this
+      # repository is compiled. Pinning the version did not help: the lookup is
+      # what breaks, not the version. A direct URL has no lookup to fail.
+      #
+      # The checksum is the point of doing it this way rather than piping a
+      # script from the internet into a shell: what CI executes is exactly the
+      # artifact this line names, or the job stops.
+      - name: Install just
+        run: |
+          set -euo pipefail
+          version=1.58.0
+          archive=just-${version}-x86_64-unknown-linux-musl.tar.gz
+          sha=4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/casey/just/releases/download/${version}/${archive}"
+          echo "${sha}  ${archive}" | sha256sum --check --strict -
+          tar -xzf "$archive" just
+          install -m 0755 just /usr/local/bin/just
+          rm -f "$archive" just
+          just --version
 
       - name: Confirm the Docker daemon is usable
         run: docker version

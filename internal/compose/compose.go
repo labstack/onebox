@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/cli"

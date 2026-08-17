@@ -3,6 +3,34 @@ title: Onebox
 description: Production operations for an application intentionally running on one server.
 summary: Landing page. What Onebox is, who it is for, and the fastest path into it.
 template: splash
+# This page's own title is the site title, so Starlight's
+# "<page title> <delimiter> <site title>" pattern rendered it as "Onebox ·
+# Onebox". titleDelimiter in astro.config.mjs chose the separator; it cannot
+# know both halves are the same word.
+#
+# Overriding here is the mechanism that works. Emitting a <title> from the Head
+# component instead produces two of them, with Starlight's own — the wrong one —
+# first; that was measured, not assumed. Starlight dedupes a frontmatter `title`
+# tag against its default, so this one replaces it rather than joining it.
+#
+# og:title is set too. Starlight defaults it to the bare page title, so without
+# this the link renders in Slack, X and LinkedIn as a card called "Onebox" —
+# identified by its own name and nothing else, which is the problem this block
+# exists to fix.
+#
+# The wording is the three beats the repository already uses on itself: the
+# GitHub description reads "plan-before-apply, zero-downtime deploys for one
+# box". As one sentence that is 61 characters and long enough to be cut short in
+# search results, so it is split into clauses rather than trimmed — every idea
+# survives. Search engines cut on rendered width rather than a character count,
+# so 59 is shorter, not guaranteed safe.
+head:
+  - tag: title
+    content: "Onebox · Plan-before-apply deploys. Zero downtime. One box."
+  - tag: meta
+    attrs:
+      property: og:title
+      content: "Onebox · Plan-before-apply deploys. Zero downtime. One box."
 hero:
   tagline: |
     Production operations for an application intentionally running on one server.

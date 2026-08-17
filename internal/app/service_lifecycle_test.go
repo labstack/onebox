@@ -76,3 +76,33 @@ func TestProtectedPatchTransitionsAreExact(t *testing.T) {
 		t.Fatal("protected patch transition without continuity probes was accepted")
 	}
 }
+
+// nonGraduatingTestLifecycleCapability is the internal driver that exercises
+// every generic seam — external-helper delivery, an explicit protected patch
+// transition, restart-gated preconditions — without entering the runtime/schema
+// catalogue or ever graduating to Managed.
+//
+// It lives here rather than beside the real records because it is a fixture, and
+// a fake driver defined in production code is a fake driver compiled into the
+// shipped binary. The `_test_lifecycle` name is still known to
+// lifecycleCapabilityRecord.validate, which is what lets this record validate
+// without being a real driver; that exemption is the seam this fixture uses, and
+// removing it would mean the test could no longer check the thing it exists to
+// check.
+func nonGraduatingTestLifecycleCapability() lifecycleCapabilityRecord {
+	record := lifecycleRecord(
+		"_test_lifecycle", true, "pitr", deliveryExternalHelper, repositoryArtifact, "client-side", "artifact", "1m",
+		"^1$", artifact("example.invalid/test-service", "test-service", '4'), helperArtifact("example.invalid/test-helper", "test-helper", '5'),
+		[]lifecyclePrecondition{{Code: "test-topology", Consistency: "test-consistency", Topology: "test-topology", RestartRequired: true}},
+		[]string{"TEST_DATABASE_PASSWORD", "TEST_REPOSITORY_PASSWORD"}, []string{"test-data", "test-replay"},
+		lifecycleOperations{Backup: "test-backup", Restore: "test-restore", Verify: "test-verify"},
+	)
+	record.patchTransitions = []protectedPatchTransition{{
+		CurrentServiceDigest: seededDigest('4'), CandidateServiceDigest: seededDigest('6'),
+		CurrentHelperDigest: seededDigest('5'), CandidateHelperDigest: seededDigest('7'),
+		MaintenanceRange: "1.x", CompatibilityProbes: []string{"format-check"},
+		ContinuityProbes: []string{"replay-check"}, RollbackLimit: "before-write",
+	}}
+	record.graduated = false
+	return record
+}

@@ -17,12 +17,21 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Onebox",
-      // Without this the landing page, whose own title is also "Onebox",
-      // renders as "Onebox | Onebox".
+      // The separator between a page's title and the site's: "Install · Onebox".
+      // It was added for the landing page, which is titled "Onebox" like the
+      // site and so read as "Onebox | Onebox" — that it still read as
+      // "Onebox · Onebox" afterwards is the part the original note missed. The
+      // landing page now sets its own title outright and does not pass through
+      // here at all; every other page does, which is what this is for.
       titleDelimiter: "·",
       description:
         "Production operations for an application intentionally running on one server.",
-      tagline: "One application. One box. Evidence-backed operations.",
+      // The project tagline, in the same words as the GitHub description and the
+      // landing page's title. Starlight renders this only on a splash page that
+      // does not supply its own hero tagline; index.mdx supplies one, so today
+      // this has no output. It is kept in step anyway, because the day a second
+      // splash page exists is not the day to discover the tagline drifted.
+      tagline: "Plan-before-apply deploys. Zero downtime. One box.",
       social: [
         {
           icon: "github",

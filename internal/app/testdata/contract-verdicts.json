@@ -537,7 +537,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "03c61add17f60397b761451f5e606c70afc2ac75828057ddc21914db3e546d63 postgres=e70cc45c347098f9"
+    "digest": "b190e64ca141e0af31a7a2e831cc218a43abdbcd554e1b0c7cf01cf9657daf42 postgres=e70cc45c347098f9"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "18a233974b5da06809ade7b9f6f3f5f9ce2b5eddd6fd67c50bb04202e0ffc296 postgres=809549d286e2dbdc redis=f88af25243b8688b"
+    "digest": "d9b22f801a91ee7c4f6e9d24811e9454374067466263cc08cbc18cb9aefc8241 postgres=809549d286e2dbdc redis=f88af25243b8688b"
   },
   {
     "case": "corpus/ext-paperless.yml",
@@ -637,7 +637,7 @@
   {
     "case": "corpus/uptime-kuma.yml",
     "loads": true,
-    "digest": "74caadd21082cd47163319949b67d17ff1665382e59ddbc88c8cbdd38d765263"
+    "digest": "539c9c46853a6e942dcec9a2fee116f0492b223128c5f6d664a70c746a37b7b6"
   },
   {
     "case": "corpus/vaultwarden.yml",

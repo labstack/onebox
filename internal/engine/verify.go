@@ -300,7 +300,18 @@ func (e *Engine) Verify(ctx context.Context) error {
 			if strings.ContainsAny(ip, ";|&$`'\"") {
 				return fmt.Errorf("verify %s: suspicious address %q", chk.Workload, ip)
 			}
-			cres, err := e.T.Run(ctx, fmt.Sprintf("curl -fsS -m 5 http://%s:%d%s", ip, port, chk.HTTP))
+			// The whole URL goes in as one quoted argument, because the path is
+			// authored. The project grammar for a URL path refuses quotes, `$`,
+			// backticks and spaces, but permits `;`, `>` and `|` — enough for
+			// `/healthz;id>/tmp/x` to end the probe and run a second command as
+			// whoever deploys.
+			//
+			// That covers the address too, which makes the check above redundant
+			// against injection. It stays anyway: a container address holding a
+			// shell metacharacter means the inspect returned something this code
+			// does not understand, and refusing says so where quoting would carry
+			// on and fail later as a confusing curl error.
+			cres, err := e.T.Run(ctx, "curl -fsS -m 5 "+q(fmt.Sprintf("http://%s:%d%s", ip, port, chk.HTTP)))
 			if err != nil {
 				return err
 			}

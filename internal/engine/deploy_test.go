@@ -18,7 +18,7 @@ import (
 // drain guard first, so a rollout can take the container out of rotation before
 // it stops it. A rollout probes for this, and a fake that did not answer would
 // exercise the unguardable path in every test.
-const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS http://127.0.0.1:80/"]`
+const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
 func seedStagedApplicationManifest(f *transport.Fake, releaseID string) {
 	manifest, err := release.NewManifest(releaseID, release.KindApplication, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -302,12 +302,12 @@ func TestDeployPhaseOrder(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	phases := []string{
-		"docker version",                                // preflight
-		"run --rm --no-deps",                            // pre-release: the migrate job
-		"--scale web=2 web",                             // release: web rolls first (order)
-		"--force-recreate --timeout 30 worker",          // then worker recreates
-		"curl -fsS -m 5 http://172.20.0.5:7500/healthz", // verify
-		"ln -sfn 'releases/20260101-000000-aaa111'",     // finalize: activate
+		"docker version",                                  // preflight
+		"run --rm --no-deps",                              // pre-release: the migrate job
+		"--scale web=2 web",                               // release: web rolls first (order)
+		"--force-recreate --timeout 30 worker",            // then worker recreates
+		"curl -fsS -m 5 'http://172.20.0.5:7500/healthz'", // verify
+		"ln -sfn 'releases/20260101-000000-aaa111'",       // finalize: activate
 	}
 	last := -1
 	for _, p := range phases {

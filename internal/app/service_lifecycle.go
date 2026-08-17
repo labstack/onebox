@@ -114,6 +114,17 @@ func (record lifecycleCapabilityRecord) supportsVersion(version string) bool {
 }
 
 func (record lifecycleCapabilityRecord) validate() error {
+	// `_test_lifecycle` is the one name exempt from being a real runtime driver.
+	// It belongs to the fixture in service_lifecycle_test.go, which exercises
+	// every generic seam without entering the runtime catalogue — so the seams
+	// stay tested even while no shipped driver uses all of them.
+	//
+	// The exemption is not a hole a project can reach. A record is only ever
+	// constructed in this repository — by buildLifecycleCapabilities and by that
+	// fixture — and this method has exactly two callers: the fixture, and
+	// validateLifecycleCatalogue over the fixed catalogue. An authored `driver`
+	// is a key looked up in lifecycleCapabilities by lifecycleCapabilityFor; it
+	// never builds a record, so it never arrives here whatever it is named.
 	if _, ok := drivers[record.driver]; !ok && record.driver != "_test_lifecycle" {
 		return fmt.Errorf("lifecycle driver %q is not a runtime driver", record.driver)
 	}

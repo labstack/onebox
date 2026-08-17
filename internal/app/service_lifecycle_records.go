@@ -133,24 +133,3 @@ func nextHex(seed byte) byte {
 	}
 	return digits[(index+1)%len(digits)]
 }
-
-// The internal driver exercises every generic seam, including an explicit
-// protected patch transition, without entering the runtime/schema catalogue or
-// ever graduating to Managed.
-func nonGraduatingTestLifecycleCapability() lifecycleCapabilityRecord {
-	record := lifecycleRecord(
-		"_test_lifecycle", true, "pitr", deliveryExternalHelper, repositoryArtifact, "client-side", "artifact", "1m",
-		"^1$", artifact("example.invalid/test-service", "test-service", '4'), helperArtifact("example.invalid/test-helper", "test-helper", '5'),
-		[]lifecyclePrecondition{{Code: "test-topology", Consistency: "test-consistency", Topology: "test-topology", RestartRequired: true}},
-		[]string{"TEST_DATABASE_PASSWORD", "TEST_REPOSITORY_PASSWORD"}, []string{"test-data", "test-replay"},
-		lifecycleOperations{Backup: "test-backup", Restore: "test-restore", Verify: "test-verify"},
-	)
-	record.patchTransitions = []protectedPatchTransition{{
-		CurrentServiceDigest: seededDigest('4'), CandidateServiceDigest: seededDigest('6'),
-		CurrentHelperDigest: seededDigest('5'), CandidateHelperDigest: seededDigest('7'),
-		MaintenanceRange: "1.x", CompatibilityProbes: []string{"format-check"},
-		ContinuityProbes: []string{"replay-check"}, RollbackLimit: "before-write",
-	}}
-	record.graduated = false
-	return record
-}

@@ -1,5 +1,25 @@
 package onebox
 
+// Staged work, kept deliberately. Nothing outside this file calls into it —
+// statusIssueCodes and statusDigest are reached only from tests, and
+// canonicalStatus only from statusDigest. That is a state a dead-code pass
+// reads as "delete me", and it would be wrong twice over:
+//
+//   - `statusIssueCodes` is one half of a contract. The other half is the issue
+//     prose in internal/engine/proxystatus.go, whose comment says every sentence
+//     leads with its component *because* this function matches on it. Delete
+//     this and the reason that prose is stable disappears with it.
+//   - The rest is status output written against a structured status shape the
+//     engine does not yet emit, for the same proposal that
+//     DeploymentProposal.Preconditions belongs to.
+//
+// Whether that work is still coming is a product question, tracked with the
+// rest of the part-built surface. Until it is answered, this file stays, and
+// this comment is here so the next person to run `unused` does not have to
+// rediscover why.
+//
+// See #63.
+
 import (
 	"encoding/json"
 	"strings"

@@ -300,7 +300,14 @@ func (e *Engine) Verify(ctx context.Context) error {
 			if strings.ContainsAny(ip, ";|&$`'\"") {
 				return fmt.Errorf("verify %s: suspicious address %q", chk.Workload, ip)
 			}
-			cres, err := e.T.Run(ctx, fmt.Sprintf("curl -fsS -m 5 http://%s:%d%s", ip, port, chk.HTTP))
+			// Quoted as one argument, because the path is authored. The project
+			// grammar for a URL path refuses quotes, `$`, backticks and spaces,
+			// but permits `;`, `>` and `|` — enough for `/healthz;id>/tmp/x` to
+			// end the probe and run a second command as whoever deploys. The
+			// address is checked above rather than quoted here as well, because a
+			// container address that needs quoting is a fact worth refusing on
+			// rather than escaping past.
+			cres, err := e.T.Run(ctx, "curl -fsS -m 5 "+q(fmt.Sprintf("http://%s:%d%s", ip, port, chk.HTTP)))
 			if err != nil {
 				return err
 			}

@@ -567,7 +567,11 @@ func healthcheck(h *Health) map[string]any {
 			return nil
 		}
 	case h.HTTP != "":
-		url := fmt.Sprintf("http://127.0.0.1:%d%s", h.Port, h.HTTP)
+		// Quoted, unlike the exec string above. That form is a command the author
+		// wrote and means to run; this one is a path, and the URL grammar permits
+		// `;`, `>` and `|` — so an unquoted `/healthz;id>/tmp/x` would end the
+		// probe and run whatever follows, on every health check, forever.
+		url := shellQuote(fmt.Sprintf("http://127.0.0.1:%d%s", h.Port, h.HTTP))
 		test = []string{"CMD-SHELL",
 			drainGuarded(fmt.Sprintf("curl -fsS %s || wget -qO- %s || exit 1", url, url))}
 	case h.TCP:

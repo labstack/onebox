@@ -471,10 +471,9 @@ environments: {production: {server: root@h}}
 workloads:
   web: {role: application, image: x:1, health: {http: `+injected+`, port: 8080}}
 `))
-	if !strings.Contains(out, shellQuote("http://127.0.0.1:8080"+injected)) {
-		t.Fatalf("the authored health path must reach the check as one quoted argument:\n%s", out)
-	}
-	if strings.Contains(out, "8080"+injected+" ") || strings.Contains(out, "8080"+injected+"\n") {
-		t.Fatalf("the authored health path reached the check unquoted:\n%s", out)
+	// Twice, because the check tries curl and falls back to wget. Counting is
+	// what catches a half-fix that quotes one arm and leaves the other open.
+	if quoted := strings.Count(out, shellQuote("http://127.0.0.1:8080"+injected)); quoted != 2 {
+		t.Fatalf("the authored health path is quoted in %d of the check's 2 arms:\n%s", quoted, out)
 	}
 }

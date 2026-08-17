@@ -571,9 +571,13 @@ func healthcheck(h *Health) map[string]any {
 		// wrote and means to run; this one is a path, and the URL grammar permits
 		// `;`, `>` and `|` — so an unquoted `/healthz;id>/tmp/x` would end the
 		// probe and run whatever follows, on every health check, forever.
-		url := shellQuote(fmt.Sprintf("http://127.0.0.1:%d%s", h.Port, h.HTTP))
+		//
+		// Named for what it holds rather than what it means: this is shell
+		// syntax, not a URL, and using it anywhere but inside this command would
+		// carry the quotes along with it.
+		quotedURL := shellQuote(fmt.Sprintf("http://127.0.0.1:%d%s", h.Port, h.HTTP))
 		test = []string{"CMD-SHELL",
-			drainGuarded(fmt.Sprintf("curl -fsS %s || wget -qO- %s || exit 1", url, url))}
+			drainGuarded(fmt.Sprintf("curl -fsS %s || wget -qO- %s || exit 1", quotedURL, quotedURL))}
 	case h.TCP:
 		test = []string{"CMD-SHELL", drainGuarded(fmt.Sprintf("nc -z 127.0.0.1 %d || exit 1", h.Port))}
 	default:

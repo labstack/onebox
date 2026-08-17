@@ -1,4 +1,4 @@
-# Onebox — production operations for one application on one box
+# Onebox — production operations for one application on one server
 
 > Status: product direction
 >

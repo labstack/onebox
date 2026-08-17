@@ -457,3 +457,23 @@ workloads:
 		}
 	}
 }
+
+// An HTTP health path is data the author writes, and it lands in a shell string
+// the container runs. gURLPath refuses quotes, `$`, backticks and spaces but
+// permits `;`, so `/healthz;id>/tmp/x` is a legal path that also ends the probe
+// and starts a second command. The exec string form above is deliberately a
+// command and stays unquoted; a path is not, and must be one argument.
+func TestHTTPHealthPathIsQuotedInsideItsShellCheck(t *testing.T) {
+	const injected = "/healthz;id>/tmp/ob-owned"
+	out := string(render(t, `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, health: {http: `+injected+`, port: 8080}}
+`))
+	// Twice, because the check tries curl and falls back to wget. Counting is
+	// what catches a half-fix that quotes one arm and leaves the other open.
+	if quoted := strings.Count(out, shellQuote("http://127.0.0.1:8080"+injected)); quoted != 2 {
+		t.Fatalf("the authored health path is quoted in %d of the check's 2 arms:\n%s", quoted, out)
+	}
+}

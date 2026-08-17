@@ -1,6 +1,7 @@
 ---
 import Default from "@astrojs/starlight/components/Head.astro";
 import { getCollection } from "astro:content";
+import Analytics from "./Analytics.astro";
 
 // Every documentation page advertises its Markdown alternate in the head, so an
 // agent that reads the head never has to parse the rendered body.
@@ -19,6 +20,7 @@ const markdownHref = ids.has(id)
 ---
 
 <Default><slot /></Default>
+<Analytics />
 {
   markdownHref && (
     <>

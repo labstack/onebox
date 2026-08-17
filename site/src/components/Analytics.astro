@@ -1,0 +1,95 @@
+---
+// Google Analytics 4, on the terms this product argues for everywhere else.
+//
+// A documentation site for a tool whose pitch is "we do not silently claim
+// anything" cannot ship tracking that behaves like everyone else's. Four rules
+// follow from that, and each is enforced here rather than left to a setting in
+// a console nobody in this repository can read:
+//
+//   1. Absent unless configured. No measurement id, no script, no requests.
+//      That is the state for `npm run dev`, for `just check`, for CI, and for
+//      anyone who builds this site from a fork. Analytics belongs to whoever
+//      runs onebox.run, not to the source.
+//   2. Cookieless. `client_storage: "none"` keeps GA4 from writing `_ga`, which
+//      is what makes a consent banner necessary in the first place. Page views
+//      still count; returning readers are simply not re-identified. A banner
+//      asking permission to do something the site does not need to do would be
+//      the same failure this product refuses elsewhere.
+//   3. No advertising signals. Google Signals and ad personalisation are off,
+//      so the traffic here is not joined to an advertising profile.
+//   4. Do Not Track and Global Privacy Control are honoured before the script
+//      loads, not after. A reader who has asked not to be measured generates no
+//      request to Google at all.
+//
+// The query string is dropped from the recorded location. Documentation URLs
+// carry nothing sensitive today, but this repository's whole position on
+// secrets is that "nothing sensitive is in there today" is not a property you
+// get to assume — verifyURL redacts queries for exactly this reason.
+//
+// The script body below is written as the element's plain text content, with no
+// `{...}` expression and no backticks around it. Astro treats script children as
+// raw text, so a JSX-style wrapper is emitted verbatim: the whole IIFE becomes a
+// template literal inside a block statement — valid JavaScript that evaluates to
+// a discarded string, loads nothing, and raises no console error to notice. The
+// tag looked correctly installed and measured nothing.
+//
+// Uppercased before validating and before use: GA4 ids are conventionally
+// uppercase and gtag compares them case-sensitively, so a copy-paste that lost
+// its case should be corrected rather than rejected with a message claiming it
+// is not a measurement id at all.
+const measurementId = import.meta.env.PUBLIC_GA_MEASUREMENT_ID?.trim().toUpperCase();
+
+// A malformed id is a silent no-op in gtag: the script loads, the requests go
+// nowhere, and the dashboard stays empty while everything looks wired. Fail the
+// build instead, where somebody is present to read the message.
+if (measurementId && !/^G-[A-Z0-9]{6,}$/.test(measurementId)) {
+  throw new Error(
+    `PUBLIC_GA_MEASUREMENT_ID is ${JSON.stringify(measurementId)}, which is not a GA4 measurement id.\n` +
+      `Expected the G-XXXXXXXXXX form shown in Admin → Data streams. ` +
+      `Leave the variable unset to build the site without analytics.`,
+  );
+}
+
+// Development builds stay silent even when the id is present, so a local
+// preview never appears in the numbers for the published site.
+const enabled = Boolean(measurementId) && import.meta.env.PROD;
+---
+
+{
+  enabled && (
+    <script is:inline define:vars={{ measurementId }}>
+      (function () {
+        // Asked not to be tracked, in any of the spellings a browser uses.
+        // Firefox before 32 and Safari answered "yes" where everything modern
+        // answers "1", and a reader who opted out on an older browser is
+        // exactly the reader least willing to be measured. Checked before the
+        // tag is inserted, so honouring the request means no request rather
+        // than a discarded one.
+        var signals = [navigator.doNotTrack, window.doNotTrack, navigator.msDoNotTrack];
+        for (var i = 0; i < signals.length; i++) {
+          if (signals[i] === "1" || signals[i] === "yes") return;
+        }
+        if (navigator.globalPrivacyControl === true) return;
+
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { window.dataLayer.push(arguments); }
+        window.gtag = gtag;
+        gtag("js", new Date());
+        gtag("config", measurementId, {
+          // No cookie, so no consent banner, so nothing to click past.
+          client_storage: "none",
+          allow_google_signals: false,
+          allow_ad_personalization_signals: false,
+          // The path without its query string. See the note in the component
+          // source for why the query goes even though nothing secret is in it.
+          page_location: window.location.origin + window.location.pathname,
+        });
+
+        var tag = document.createElement("script");
+        tag.async = true;
+        tag.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(measurementId);
+        document.head.appendChild(tag);
+      })();
+    </script>
+  )
+}

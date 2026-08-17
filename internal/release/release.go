@@ -199,18 +199,6 @@ func manifestProvesServing(manifest Manifest) bool {
 	return false
 }
 
-func Activate(ctx context.Context, t transport.Transport, n app.Names, id string) error {
-	p := PathsFor(n)
-	res, err := t.Run(ctx, "ln -sfn "+q("releases/"+id)+" "+q(p.Current))
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("activate: %s", res.Stderr)
-	}
-	return nil
-}
-
 // PruneCandidates returns releases beyond retain, never the current target,
 // along with the entries it did not recognise as release ids. Removal is the
 // caller's job (the engine fences it). Images are deliberately NOT pruned,

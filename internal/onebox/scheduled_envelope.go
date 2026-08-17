@@ -385,14 +385,6 @@ func DecodeScheduledOperationEnvelope(encoded []byte) (ScheduledOperationEnvelop
 	return envelope, nil
 }
 
-func SaveScheduledOperationEnvelope(path string, envelope ScheduledOperationEnvelope) error {
-	encoded, err := EncodeScheduledOperationEnvelope(envelope)
-	if err != nil {
-		return err
-	}
-	return writeDurableArtifact(path, ".scheduled-envelope-*", encoded)
-}
-
 func LoadScheduledOperationEnvelope(path string) (ScheduledOperationEnvelope, error) {
 	encoded, err := os.ReadFile(path)
 	if err != nil {

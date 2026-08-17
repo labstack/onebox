@@ -102,17 +102,6 @@ func deploymentGraph(cfg *app.Resolved, releaseID string) ([]OperationStep, erro
 	return steps, nil
 }
 
-func orderedComponents(cfg *app.Resolved, componentType string) []string {
-	names := make([]string, 0, len(cfg.Workloads))
-	for name, component := range cfg.Workloads {
-		if component.Role == componentType {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
 func workloadOrder(cfg *app.Resolved) []string {
 	if len(cfg.Deployment.Order) > 0 {
 		return append([]string(nil), cfg.Deployment.Order...)

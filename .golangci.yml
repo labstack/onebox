@@ -13,16 +13,14 @@ version: "2"
 linters:
   default: standard
 
-  disable:
-    # Held back: helpers that exist without a caller.
-    #
-    #   golangci-lint run --enable-only unused ./...
-    #
-    # Most are status-output sanitisation in internal/onebox/status.go — written
-    # against a status shape the engine does not yet emit — plus two recovery-kind
-    # helpers in internal/app/service_lifecycle.go. Deleting them is a judgement
-    # about whether that work is still coming, which is not this gate's call.
-    - unused
+  # `unused` was held back while a pile of callerless helpers waited on work that
+  # might still arrive. That call has been made and the helpers are gone, so the
+  # linter is on: a helper without a caller now fails the build it was added in,
+  # which is the only point at which anyone can say whether it is coming or not.
+  #
+  # It does not see exported identifiers. Those are checked separately by
+  # `just dead-exports`, which is not part of this gate because a package's API
+  # may legitimately lead its callers.
 
   settings:
     staticcheck:

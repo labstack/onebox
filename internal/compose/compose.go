@@ -15,15 +15,13 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
+
+	"strings"
 
 	"github.com/compose-spec/compose-go/v2/cli"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
-	"strings"
 )
-
-var ident = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 func Load(ctx context.Context, composePath, projectName string, envFiles ...string) (*types.Project, error) {
 	return load(ctx, composePath, projectName, envFiles...)

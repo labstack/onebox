@@ -143,10 +143,6 @@ func (record ActiveVolumeRecord) ValidateEpoch(minimum int) error {
 	return nil
 }
 
-func (record ActiveVolumeRecord) Selection() ActiveVolumeSelection {
-	return ActiveVolumeSelection{DockerVolume: record.SelectedVolume, OperationID: record.SelectionOperation, Epoch: record.Epoch}
-}
-
 func EncodeActiveVolumeRecord(record ActiveVolumeRecord) ([]byte, error) {
 	if err := record.Validate(); err != nil {
 		return nil, err

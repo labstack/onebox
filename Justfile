@@ -85,6 +85,41 @@ lint:
     golangci-lint config verify
     golangci-lint run ./...
 
+# Exported identifiers under internal/ that nothing references. `unused` cannot
+# see these — it treats every exported name as a package boundary — so they
+# accumulate silently, which is how a superseded function survives its own
+# replacement.
+#
+# Deliberately not part of `check` or `ci`, for two reasons. An exported helper
+# may legitimately land before the caller that needs it, and a gate cannot tell
+# that apart from something left behind. And this matches on the identifier
+# alone, so two types with a same-named method are counted as one — a report
+# that under-counts is fine as a prompt to go and look, and wrong as a rule that
+# fails a build. Read the output, then confirm each hit before deleting.
+dead-exports:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Definitions come from non-test files only: a Test/Benchmark/Fuzz function is
+    # called by the testing package, not by name, and would report as unreferenced
+    # every time. References are counted across tests too, because a helper a test
+    # exercises is used.
+    names=$(grep -rhoE '^func (\([^)]*\) )?[A-Z][A-Za-z0-9_]*\(' internal/ \
+      --include='*.go' --exclude='*_test.go' \
+      | sed -E 's/^func (\([^)]*\) )?//; s/\($//' | sort -u)
+    if [ -z "${names}" ]; then
+      echo "no exported identifiers found under internal/ — check this recipe's pattern" >&2
+      exit 1
+    fi
+    dead=0
+    while read -r name; do
+      # One occurrence is the definition itself; anything more is a reference.
+      if [ "$(grep -rhoE "\\b${name}\\(" internal/ cmd/ e2e/ --include='*.go' | wc -l)" -le 1 ]; then
+        echo "no references: ${name}"
+        dead=$((dead + 1))
+      fi
+    done <<< "${names}"
+    echo "checked $(echo "${names}" | wc -l | tr -d ' ') exported identifiers, ${dead} unreferenced"
+
 # Scan reachable code against the official vulnerability database.
 vuln:
     govulncheck ./...

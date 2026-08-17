@@ -14,8 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	ctypes "github.com/compose-spec/compose-go/v2/types"
-
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/engine"
@@ -164,14 +162,6 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	}
 	e := engine.New(lp.resolved, lp.compose, t, engineOpts)
 	return e, func() { _ = t.Close() }, target, nil
-}
-
-func serviceImage(p *ctypes.Project, name string) string {
-	svc, ok := p.Services[name]
-	if !ok {
-		return ""
-	}
-	return svc.Image
 }
 
 func ensureEnvironment(cfg *app.Resolved, name string) error {

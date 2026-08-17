@@ -925,17 +925,6 @@ func (o MigrationBackupOverride) Save(path string) error {
 	return nil
 }
 
-func LoadMigrationBackupOverride(path string) (*MigrationBackupOverride, error) {
-	var override MigrationBackupOverride
-	if err := loadBackupArtifact(path, &override); err != nil {
-		return nil, fmt.Errorf("load migration backup override: %w", err)
-	}
-	if err := override.Validate(); err != nil {
-		return nil, fmt.Errorf("validate migration backup override: %w", err)
-	}
-	return &override, nil
-}
-
 func loadBackupArtifact(path string, value any) error {
 	file, err := os.Open(path)
 	if err != nil {

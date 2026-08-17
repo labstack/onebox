@@ -453,11 +453,6 @@ func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (str
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(res.Stdout), "-")), nil
 }
 
-// deploySeam is the set of hook names a deploy runs (see RunHook calls in
-// deploy.go). Hooks keyed by any other name — e.g. bootstrap — belong to a
-// different lifecycle and never run during a deploy.
-var deploySeam = map[string]bool{"pre_release": true, "post_release": true, "post_deploy": true}
-
 // Describe renders the choreography as the exact command list with runtime
 // branches as branches. Placeholders <old>/<new> resolve at apply time.
 func (e *Engine) Describe(remoteCompose string) []string {

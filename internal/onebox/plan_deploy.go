@@ -15,7 +15,6 @@ import (
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
 	"github.com/labstack/onebox/internal/engine"
-	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/secrets"
 )
@@ -415,13 +414,6 @@ func externalConnectionProjections(r *app.Resolved) []app.ExternalConnectionProj
 		out = append(out, r.Spec.ExternalConnectionProjections(workloadName, r.Workloads[workloadName])...)
 	}
 	return out
-}
-
-func managedProxyNetwork(cfg *app.Resolved) string {
-	if cfg.Proxy.Network != "" {
-		return cfg.Proxy.Network
-	}
-	return proxy.DefaultNetwork
 }
 
 // applyPinnedImages records the plan's resolved digests on the parsed runtime

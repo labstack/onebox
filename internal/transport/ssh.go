@@ -40,10 +40,6 @@ func ParseAddr(addr string) (user, host, port string) {
 	return parsed.User, parsed.Host, parsed.Port
 }
 
-func NewSSH(addr string) (*SSH, error) {
-	return NewSSHContext(context.Background(), addr)
-}
-
 // NewSSHContext dials and completes the SSH handshake within the caller's
 // cancellation/deadline. A bounded fallback prevents an MCP tool from hanging
 // indefinitely when its target is unreachable or stops during handshake.

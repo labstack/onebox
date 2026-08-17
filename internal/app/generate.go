@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -29,11 +28,6 @@ type Rendered struct {
 	// describes a release rather than being one.
 	Unresolved []string
 }
-
-// Runnable reports whether this runtime can be deployed. A rendering with an
-// unresolved image describes what a release would look like once the image
-// exists; running it would start a placeholder.
-func (r *Rendered) Runnable() bool { return len(r.Unresolved) == 0 }
 
 // UnresolvedImage is what an unresolved build stands in as. It is not a real
 // reference and no registry serves it, so a runtime carrying it fails at the
@@ -733,16 +727,6 @@ func toNode(v any) (*yaml.Node, error) {
 		}
 		return n, nil
 	}
-}
-
-// SortedRouteKeys is exported for tests that assert label determinism.
-func SortedRouteKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // inspectionKey marks a render as being for reading rather than running. It is

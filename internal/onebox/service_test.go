@@ -212,24 +212,3 @@ func TestPlanDeployRetainsComposeBuildImageForBoundReplay(t *testing.T) {
 		}
 	}
 }
-
-func jobOnlyProject(t *testing.T, hooks map[string]app.Command) *app.Resolved {
-	t.Helper()
-	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@h}}
-workloads:
-  web:     {role: application, image: x:1}
-  migrate: {role: job, image: x:1, data_effect: migration}
-`), "ob.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := spec.Resolve("production")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolved.Hooks = hooks
-	return resolved
-}

@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -294,24 +293,6 @@ func replaceAt(doc map[string]any, path []string, alternative map[string]any, no
 		"description": description,
 		"anyOf":       []any{alternative, full},
 	}
-}
-
-func sortedStringKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func hasPrefixAny(s string, prefixes ...string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return true
-		}
-	}
-	return false
 }
 
 // schemaConstraints carries each grammar, enum and bound to the place in the

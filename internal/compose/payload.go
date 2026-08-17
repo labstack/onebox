@@ -140,10 +140,6 @@ func isScalarEnd(b byte) bool {
 	}
 }
 
-func copyTree(src, dst string) error {
-	return copyTreeContext(context.Background(), src, dst)
-}
-
 func copyTreeContext(ctx context.Context, src, dst string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -184,10 +180,6 @@ func copyTreeContext(ctx context.Context, src, dst string) error {
 		}
 		return copyFileContext(ctx, path, target, fi.Mode())
 	})
-}
-
-func copyFile(src, dst string, mode os.FileMode) error {
-	return copyFileContext(context.Background(), src, dst, mode)
 }
 
 func copyFileContext(ctx context.Context, src, dst string, mode os.FileMode) error {

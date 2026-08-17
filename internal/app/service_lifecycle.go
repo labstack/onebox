@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
 )
 
 type serviceDeliveryClass string
@@ -273,17 +272,4 @@ func validateLifecycleCatalogue() error {
 		}
 	}
 	return nil
-}
-
-func sortedRecoveryKinds(kinds map[string]bool) []string {
-	values := make([]string, 0, len(kinds))
-	for kind := range kinds {
-		values = append(values, kind)
-	}
-	sort.Strings(values)
-	return values
-}
-
-func joinedRecoveryKinds(kinds map[string]bool) string {
-	return strings.Join(sortedRecoveryKinds(kinds), ", ")
 }

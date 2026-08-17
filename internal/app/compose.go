@@ -352,25 +352,6 @@ func resolveRepoPath(dir, rel string) (string, error) {
 	return joined, nil
 }
 
-// ComposeRefsOf lists every referenced file, so callers can stage them.
-func (p *Spec) ComposeRefsOf() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, name := range sortedKeys(p.Workloads) {
-		ref := p.Workloads[name].Compose
-		if ref == "" {
-			continue
-		}
-		file, _, _ := strings.Cut(ref, "#")
-		if !seen[file] {
-			seen[file] = true
-			out = append(out, file)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // refuseConnectionClaims rejects a referenced service that sets a variable a
 // managed-service connection supplies to this workload.
 //

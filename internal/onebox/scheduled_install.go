@@ -122,26 +122,6 @@ func ApplyScheduledInstall(ctx context.Context, target ScheduledArtifactTarget, 
 	return nil
 }
 
-func ScheduledArtifactsAsProtectionResources(plan ScheduledInstallPlan, referencedRunner bool) ([]ProtectionResource, error) {
-	if err := plan.Validate(); err != nil {
-		return nil, err
-	}
-	resources := make([]ProtectionResource, 0, len(plan.Artifacts))
-	for _, artifact := range plan.Artifacts {
-		kind := ProtectionResourceEnvelope
-		referenced := false
-		if artifact.Class == "runner" {
-			kind = ProtectionResourceRunner
-			referenced = referencedRunner
-		}
-		resources = append(resources, ProtectionResource{
-			Identity: artifact.Path, Kind: kind, OwnerApplication: plan.Application,
-			OwnerEnvironment: plan.Environment, Service: plan.Service, Referenced: referenced,
-		})
-	}
-	return resources, nil
-}
-
 func ApplyAuthorizedScheduledRemoval(ctx context.Context, target ScheduledArtifactTarget, plan ProtectionRemovalPlan, authorization ProtectionRemovalAuthorization) error {
 	if target == nil {
 		return errors.New("scheduled artifact target is nil")

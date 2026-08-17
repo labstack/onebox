@@ -173,10 +173,6 @@ func (n Names) ProtectionRestoreVolume(service string) string {
 	return join("ob", n.App, service, "restore-stage")
 }
 
-func (n Names) ProtectionTimer(service, operation string) string {
-	return "ob-" + n.App + "-" + service + "-" + operation + ".timer"
-}
-
 func (n Names) ProtectionTimerForEnvironment(environment, service, operation string) string {
 	return "ob-" + n.App + "-" + environment + "-" + service + "-" + operation + ".timer"
 }

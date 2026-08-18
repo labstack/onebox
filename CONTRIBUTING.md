@@ -119,3 +119,6 @@ Do not open a public issue for a security vulnerability. See
 Be straightforward and civil. Critique the change, not the person. Maintainers
 may remove comments, close issues, and block accounts that make the project
 worse to participate in.
+
+The full text, including how to report conduct, is in
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

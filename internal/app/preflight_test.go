@@ -410,3 +410,51 @@ func TestPreflightOwnerProbeCarriesTheEngineGuards(t *testing.T) {
 		}
 	}
 }
+
+// Preflight exists to predict what the engine will do, so it must accept
+// exactly the records the engine's parser accepts. It used to read the first
+// two fields and ignore the rest: a three-field record passed preflight and
+// then failed every mutation on the parser the engine actually uses.
+func TestHostOwnerRecordParsesTheSameForPreflightAndEngine(t *testing.T) {
+	for _, tc := range []struct {
+		record string
+		ok     bool
+	}{
+		{"sample", true},
+		{"sample production", true},
+		{"  sample   production  ", true},
+		{"sample production extra", false},
+		{"Sample production", false},
+		{"sample Production", false},
+		{"sample prod_east", false},
+		{"", false},
+	} {
+		if _, ok := ParseHostOwnerRecord(tc.record); ok != tc.ok {
+			t.Fatalf("ParseHostOwnerRecord(%q) ok = %v, want %v", tc.record, ok, tc.ok)
+		}
+	}
+}
+
+// An environment name the loader accepts but the owner-record grammar rejects
+// claims a host no later command can operate: bootstrap writes the record, and
+// every mutation after it refuses a record it cannot parse.
+func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
+	for _, name := range []string{"Staging", "prod_east", "staging replica", "-lead", "trail-"} {
+		src := "api_version: onebox.run/v1\napp: sample\nenvironments:\n  \"" + name +
+			"\": {server: root@h}\nworkloads:\n  web: {role: application, image: x:1}\n"
+		if _, err := LoadBytes([]byte(src), "ob.yml"); err == nil {
+			t.Fatalf("environment name %q was accepted by the loader but cannot round-trip the owner record", name)
+		}
+	}
+	// And the ones that are legal stay legal.
+	for _, name := range []string{"production", "staging", "prod-east"} {
+		src := "api_version: onebox.run/v1\napp: sample\nenvironments:\n  " + name +
+			": {server: root@h}\nworkloads:\n  web: {role: application, image: x:1}\n"
+		if _, err := LoadBytes([]byte(src), "ob.yml"); err != nil {
+			t.Fatalf("environment name %q should be accepted: %v", name, err)
+		}
+		if _, ok := ParseHostOwnerRecord("sample " + name); !ok {
+			t.Fatalf("environment name %q is accepted by the loader but not by the owner-record parser", name)
+		}
+	}
+}

@@ -62,21 +62,14 @@ type hostOwner struct {
 func (o hostOwner) legacy() bool { return o.Environment == "" }
 
 func parseHostOwner(record string) (hostOwner, bool) {
-	fields := strings.Fields(record)
-	switch len(fields) {
-	case 1:
-		if !appNameRe.MatchString(fields[0]) {
-			return hostOwner{}, false
-		}
-		return hostOwner{App: fields[0]}, true
-	case 2:
-		if !appNameRe.MatchString(fields[0]) || !appNameRe.MatchString(fields[1]) {
-			return hostOwner{}, false
-		}
-		return hostOwner{App: fields[0], Environment: fields[1]}, true
-	default:
+	// One parser, shared with preflight. Two readings of the same file drift,
+	// and the drift showed: preflight read the first two fields and ignored the
+	// rest, so a three-field record passed there and failed here.
+	parsed, ok := app.ParseHostOwnerRecord(record)
+	if !ok {
 		return hostOwner{}, false
 	}
+	return hostOwner{App: parsed.Application, Environment: parsed.Environment}, true
 }
 
 func (o hostOwner) record() string {
@@ -126,7 +119,10 @@ func (e *Engine) readHostOwner(ctx context.Context) (hostOwner, error) {
 		if record == "" {
 			return hostOwner{}, fmt.Errorf("host owner record %s is present but empty, which no ob command can repair; remove it on the host, then run `ob bootstrap`", path)
 		}
-		return hostOwner{}, fmt.Errorf("host owner record %s is invalid; inspect it before retrying", path)
+		// Say what repairs it. An unparseable record refuses every mutation for
+		// as long as it exists, and no ob command rewrites one it cannot read —
+		// the same dead end the empty record above has, which does say so.
+		return hostOwner{}, fmt.Errorf("host owner record %s is not a record Onebox wrote, and no ob command can repair it; remove it on the host, then run `ob bootstrap`", path)
 	}
 	return owner, nil
 }

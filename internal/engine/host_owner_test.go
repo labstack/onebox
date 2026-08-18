@@ -116,8 +116,18 @@ func TestHostOwnerInvalidRecordFailsClosed(t *testing.T) {
 		return transport.Result{}, false
 	}}
 	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := engine.RequireHostOwner(context.Background()); err == nil || !strings.Contains(err.Error(), "record") || !strings.Contains(err.Error(), "invalid") {
-		t.Fatalf("invalid owner record was accepted: %v", err)
+	// The refusal must name the record and say what repairs it. An unparseable
+	// record blocks every mutation for as long as it exists, and no ob command
+	// rewrites one it cannot read, so an operator who is not told to remove it
+	// has no way forward.
+	err := engine.RequireHostOwner(context.Background())
+	if err == nil {
+		t.Fatal("invalid owner record was accepted")
+	}
+	for _, want := range []string{"record", "remove it", "ob bootstrap"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal does not mention %q: %v", want, err)
+		}
 	}
 }
 

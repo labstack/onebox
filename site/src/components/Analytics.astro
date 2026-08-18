@@ -74,10 +74,23 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
         window.dataLayer = window.dataLayer || [];
         function gtag() { window.dataLayer.push(arguments); }
         window.gtag = gtag;
+
+        // Consent Mode, declared before anything else, is what actually stops
+        // GA4 writing cookies. Passing `client_storage: "none"` to config does
+        // not: gtag does not recognise it there and forwards it as a custom
+        // event parameter, so every hit carried `ep.client_storage=none` while
+        // `_ga` and `_ga_<id>` were set anyway. Measured in a real browser, not
+        // assumed — the first version of this file claimed to be cookieless and
+        // was not.
+        gtag("consent", "default", {
+          analytics_storage: "denied",
+          ad_storage: "denied",
+          ad_user_data: "denied",
+          ad_personalization: "denied",
+        });
+
         gtag("js", new Date());
         gtag("config", measurementId, {
-          // No cookie, so no consent banner, so nothing to click past.
-          client_storage: "none",
           allow_google_signals: false,
           allow_ad_personalization_signals: false,
           // The path without its query string. See the note in the component

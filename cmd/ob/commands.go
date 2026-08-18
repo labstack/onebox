@@ -662,15 +662,22 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 	attachTransportLogger(t, u.Cmd)
 	cfgBytes, _ := os.ReadFile(g.ConfigPath)
 	e := engine.New(cfg, p, t, engine.Options{
-		Verbose:    g.Verbose,
-		UI:         u,
-		Out:        commandOutput(cmd, g),
-		LocalDir:   filepath.Dir(g.ConfigPath),
-		NoRollback: g.NoRollback,
-		ForceLock:  false,
-		GitSHA:     gitShortSHA(filepath.Dir(g.ConfigPath)),
-		ConfigHash: engine.HashBytes(cfgBytes),
-		Runner:     onebox.CurrentRunnerProvenance(),
+		Verbose: g.Verbose,
+		UI:      u,
+		Out:     commandOutput(cmd, g),
+		// Without this the engine derives every path from the project default
+		// rather than the selected environment, so `ob status --env staging`
+		// against an environment with its own base_path reported on
+		// /var/lib/ob/<app> while staging lives in /srv/staging/<app>. It also
+		// leaves Environment empty on the host-ownership check, which now
+		// compares it.
+		Environment: g.Env,
+		LocalDir:    filepath.Dir(g.ConfigPath),
+		NoRollback:  g.NoRollback,
+		ForceLock:   false,
+		GitSHA:      gitShortSHA(filepath.Dir(g.ConfigPath)),
+		ConfigHash:  engine.HashBytes(cfgBytes),
+		Runner:      onebox.CurrentRunnerProvenance(),
 	})
 	return e, func() { _ = t.Close() }, nil
 }

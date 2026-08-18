@@ -2,7 +2,7 @@ api_version: onebox.run/v1
 app: fanout
 environments:
   production:
-    server: root@fanout.labstack.net
+    server: root@fanout.example.com
     policy: {require_approval: true}
 workloads:
   site:

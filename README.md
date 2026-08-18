@@ -25,8 +25,12 @@ be adopted with `compose: docker-compose.yml#service`.
 
 ## Documentation
 
-The full documentation lives in [`site/`](site) and is published as the
-documentation website. Build it with `just site-build`, or serve it locally with
+**[onebox.run](https://onebox.run)** is the documentation, published from
+[`site/`](site) in this repository. Every page is also served as clean Markdown
+at `<path>.md`, and [llms.txt](https://onebox.run/llms.txt) maps the whole site
+for agents.
+
+Build it from a checkout with `just site-build`, or serve it locally with
 `just site`.
 
 - **Start here** — [your first deploy](site/src/content/docs/start/first-deploy.mdx)
@@ -87,7 +91,7 @@ are shipped; Onebox still does not create or store the backup itself.
 Released archives and Linux packages are installed from GitHub Releases,
 macOS users can install through Homebrew, and Windows users can install through
 Scoop. Follow the verified steps in the
-[installation guide](site/src/content/docs/start/install.mdx).
+[installation guide](https://onebox.run/start/install).
 To build the binary from a checkout into `~/.local/bin`:
 
 ```sh

@@ -1,0 +1,35 @@
+# Redaction tests need something that looks exactly like a leaked credential,
+# because what they assert is that it never reaches output. Every fingerprint
+# below is an invented fixture that has never been valid anywhere, kept so that
+# a real leak would fail the test rather than pass unnoticed.
+#
+# Listed by fingerprint rather than by path, so this cannot quietly widen into a
+# blanket exemption: a genuine secret added to either file later produces a new
+# fingerprint and is still reported.
+#
+# Two files, two states:
+#   internal/compose/redact_test.go   present today; asserts a fake Stripe key
+#                                     never reaches rendered Compose output
+#   internal/onebox/memory_test.go    deleted in 7ad7671; the entries remain
+#                                     because the blobs stay reachable in history
+#
+# Regenerate with:
+#   gitleaks detect --no-banner --redact -v            # history
+#   gitleaks detect --no-banner --redact --no-git -v   # working tree
+
+internal/compose/redact_test.go:stripe-access-token:67
+internal/compose/redact_test.go:stripe-access-token:74
+
+4403ea605e13b8488545113c265f8e9536c5e3cd:internal/compose/redact_test.go:stripe-access-token:67
+4403ea605e13b8488545113c265f8e9536c5e3cd:internal/compose/redact_test.go:stripe-access-token:74
+842d7ae17ee7851987762106f83bf24f5ff641be:internal/compose/redact_test.go:stripe-access-token:67
+842d7ae17ee7851987762106f83bf24f5ff641be:internal/compose/redact_test.go:stripe-access-token:74
+
+091fe5765f4e2729b682c2b5df3151e321dc960b:internal/onebox/memory_test.go:generic-api-key:189
+091fe5765f4e2729b682c2b5df3151e321dc960b:internal/onebox/memory_test.go:generic-api-key:191
+091fe5765f4e2729b682c2b5df3151e321dc960b:internal/onebox/memory_test.go:jwt:199
+091fe5765f4e2729b682c2b5df3151e321dc960b:internal/onebox/memory_test.go:private-key:200
+983b111d6290bedf7720c99e4ca921d65634b892:internal/onebox/memory_test.go:generic-api-key:189
+983b111d6290bedf7720c99e4ca921d65634b892:internal/onebox/memory_test.go:generic-api-key:191
+983b111d6290bedf7720c99e4ca921d65634b892:internal/onebox/memory_test.go:jwt:199
+983b111d6290bedf7720c99e4ca921d65634b892:internal/onebox/memory_test.go:private-key:200

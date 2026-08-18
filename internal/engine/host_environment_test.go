@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -102,5 +103,39 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 		if ok && got.record() != strings.Join(strings.Fields(tc.record), " ") {
 			t.Fatalf("record() = %q, does not round-trip %q", got.record(), tc.record)
 		}
+	}
+}
+
+// The engine derives every host path from Opts.Environment, so an engine built
+// without one silently reports on the project's default base_path instead of
+// the environment's. cmd/ob's connect() omitted it, which meant `ob status`,
+// `ob audit` and `ob logs` read the wrong directory for any environment with a
+// base_path override — and would have compared an empty environment against the
+// host owner record.
+func TestEnvironmentSelectsTheBasePath(t *testing.T) {
+	spec, err := app.LoadBytes([]byte(`
+api_version: onebox.run/v1
+app: sample
+base_path: /var/lib/ob
+environments:
+  production: {server: root@h}
+  staging: {server: root@h2, base_path: /srv/staging}
+workloads:
+  web: {role: application, image: x:1}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging := New(resolved, nil, nil, Options{Out: io.Discard, Environment: "staging"}).names().AppDir()
+	if staging != "/srv/staging/sample" {
+		t.Fatalf("staging AppDir = %q, want /srv/staging/sample", staging)
+	}
+	empty := New(resolved, nil, nil, Options{Out: io.Discard}).names().AppDir()
+	if empty == staging {
+		t.Fatal("an engine with no environment resolved the same path as staging; this test can no longer detect the defect")
 	}
 }

@@ -2,7 +2,7 @@ api_version: onebox.run/v1
 app: pursue
 environments:
   production:
-    server: root@167.233.193.130
+    server: root@203.0.113.10
     policy: {require_approval: true, allow_agent_proposals: true}
 workloads:
   server:

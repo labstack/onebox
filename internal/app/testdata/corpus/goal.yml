@@ -2,7 +2,7 @@ api_version: onebox.run/v1
 app: goal
 environments:
   production:
-    server: root@goal.labstack.net
+    server: root@goal.example.com
     policy: {require_approval: true, allow_agent_proposals: true}
 workloads:
   server:

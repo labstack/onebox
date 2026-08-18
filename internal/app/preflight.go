@@ -99,7 +99,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 2. The base path. Checked without creating anything: preflight that
 	// mutates is not preflight.
 	report.Checks = append(report.Checks, basePathCheck(ctx, run, n.BasePath))
-	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostOwnerPath(), p.Name))
+	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostOwnerPath(), p.Name, r.Env))
 
 	// 3. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
@@ -127,7 +127,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 // exists but cannot be read is never reported as an unclaimed host — the two
 // answers lead to opposite actions, and the wrong one adopts a machine that
 // already belongs to somebody else.
-func hostOwnerCheck(ctx context.Context, run Runner, path, application string) Check {
+func hostOwnerCheck(ctx context.Context, run Runner, path, application, environment string) Check {
 	// The same probe the engine's readHostOwner uses, including the
 	// regular-file and symlink guards.
 	res, err := run.Run(ctx, HostOwnerProbe(path))
@@ -135,7 +135,7 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application string) C
 		return Check{Name: "host owner", Detail: "could not read the host owner record", Remedy: "verify target access, then retry"}
 	}
 	if res.ExitCode == ProbeAbsent {
-		return Check{Name: "host owner", OK: true, Detail: "unclaimed — ob bootstrap will claim it for " + application}
+		return Check{Name: "host owner", OK: true, Detail: "unclaimed — ob bootstrap will claim it for " + application + "/" + environment}
 	}
 	// Absence that could not be established is not absence. Passing this as
 	// unclaimed is how one application adopts a host that already has an owner.
@@ -180,19 +180,35 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application string) C
 			Remedy: "verify target access and that a POSIX shell is available, then retry",
 		}
 	}
-	owner := strings.TrimSpace(res.Stdout)
-	switch owner {
-	case application:
-		return Check{Name: "host owner", OK: true, Detail: application}
-	case "":
+	record := strings.TrimSpace(res.Stdout)
+	if record == "" {
 		return Check{
 			Name:   "host owner",
 			Detail: "the host owner record is present but empty",
 			Remedy: "inspect the host state directory; an empty record is not a valid claim",
 		}
-	default:
-		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", owner), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
 	}
+	// The record is "<application>" or "<application> <environment>". The first
+	// form predates the environment field; it still identifies the application,
+	// so it passes the check it can answer and says what it cannot.
+	fields := strings.Fields(record)
+	if fields[0] != application {
+		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", fields[0]), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
+	}
+	if len(fields) < 2 {
+		return Check{Name: "host owner", OK: true, Detail: application + " (claimed before environments were recorded; ob bootstrap will complete it)"}
+	}
+	if fields[1] != environment {
+		// Every runtime name is application-scoped, so a second environment on
+		// this host would reuse the first one's containers and volumes rather
+		// than collide with them. Nothing downstream can see the difference.
+		return Check{
+			Name:   "host owner",
+			Detail: fmt.Sprintf("host is claimed by the %s environment of %s", fields[1], application),
+			Remedy: "choose a host for this environment; two environments on one host would share container and volume names",
+		}
+	}
+	return Check{Name: "host owner", OK: true, Detail: application + "/" + environment}
 }
 
 func basePathCheck(ctx context.Context, run Runner, base string) Check {

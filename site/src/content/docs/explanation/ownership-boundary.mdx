@@ -43,9 +43,23 @@ application is doing the owning. Two Onebox applications on one host would both
 believe they own the proxy, the shared network, the release store and the host
 lock — and the second one to converge would quietly undo the first.
 
-So ownership is written down. `ob bootstrap` records the owning application on
-the host, and every mutating command reads that record before it does anything.
-A different application is refused with `host_owner_mismatch`.
+So ownership is written down. `ob bootstrap` records the owning application and
+the environment that claimed the host, and every mutating command reads that
+record before it does anything. A different application is refused with
+`host_owner_mismatch`.
+
+A different *environment* of the same application is refused too, with
+`host_environment_mismatch`, and that refusal is the less obvious one. Every
+runtime name Onebox derives — the Compose project, container names, volume
+names — carries the application and not the environment, because one box runs
+one application. Point staging at production's server and nothing collides:
+staging finds names that look like its own and adopts production's containers
+and volumes. The owner record is the only place that difference is visible,
+which is why it records the environment.
+
+A host claimed before environments were recorded carries the application alone.
+That still identifies the owner, so it is honoured rather than refused; the next
+`ob bootstrap` completes the record.
 
 `ob bootstrap` is the one mutation that may claim an unowned host — that is what
 it is for. Every other mutation requires the record to exist and to name this

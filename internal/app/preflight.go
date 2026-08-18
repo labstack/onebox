@@ -188,23 +188,30 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application, environm
 			Remedy: "inspect the host state directory; an empty record is not a valid claim",
 		}
 	}
-	// The record is "<application>" or "<application> <environment>". The first
-	// form predates the environment field; it still identifies the application,
-	// so it passes the check it can answer and says what it cannot.
-	fields := strings.Fields(record)
-	if fields[0] != application {
-		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", fields[0]), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
+	// The engine's parser, not a second reading of the same file. Preflight
+	// exists to predict what the engine will do, so anything it accepts that the
+	// engine rejects is a green light for a refused deploy.
+	owner, ok := ParseHostOwnerRecord(record)
+	if !ok {
+		return Check{
+			Name:   "host owner",
+			Detail: "the host owner record is present but is not a record Onebox wrote",
+			Remedy: "inspect it on the host; no ob command repairs an unparseable record, so remove it and run ob bootstrap",
+		}
 	}
-	if len(fields) < 2 {
+	if owner.Application != application {
+		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", owner.Application), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
+	}
+	if owner.Legacy() {
 		return Check{Name: "host owner", OK: true, Detail: application + " (claimed before environments were recorded; ob bootstrap will complete it)"}
 	}
-	if fields[1] != environment {
+	if owner.Environment != environment {
 		// Every runtime name is application-scoped, so a second environment on
 		// this host would reuse the first one's containers and volumes rather
 		// than collide with them. Nothing downstream can see the difference.
 		return Check{
 			Name:   "host owner",
-			Detail: fmt.Sprintf("host is claimed by the %s environment of %s", fields[1], application),
+			Detail: fmt.Sprintf("host is claimed by the %s environment of %s", owner.Environment, application),
 			Remedy: "choose a host for this environment; two environments on one host would share container and volume names",
 		}
 	}

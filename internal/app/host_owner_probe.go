@@ -1,6 +1,9 @@
 package app
 
-import "path"
+import (
+	"path"
+	"strings"
+)
 
 // Probe exit codes. They are a contract between these scripts and every caller
 // that classifies their answer — preflight, the engine's readHostOwner, status,
@@ -83,4 +86,56 @@ func HostOwnerProbe(recordPath string) string {
 		// callers that render a report lose everything else on the host to
 		// one unreadable file.
 		"if [ ! -r " + p + " ]; then exit 2; fi; cat " + p
+}
+
+// HostOwnerRecord is the parsed content of the host owner record: the
+// application that claimed the host, and the environment it claimed it for.
+//
+// The record is a single line, "<application>" or "<application> <environment>".
+// The first form predates the environment field; it still identifies the owner,
+// so it parses rather than failing, and Environment is empty.
+type HostOwnerRecord struct {
+	Application string
+	Environment string
+}
+
+// Legacy reports a record written before the environment was recorded.
+func (r HostOwnerRecord) Legacy() bool { return r.Environment == "" }
+
+// String renders the record as it is written to the host.
+func (r HostOwnerRecord) String() string {
+	if r.Legacy() {
+		return r.Application
+	}
+	return r.Application + " " + r.Environment
+}
+
+// ParseHostOwnerRecord reads a host owner record.
+//
+// It lives here, beside the probe that reads the file, because the engine and
+// preflight must agree about it exactly. They did not: preflight used to read
+// the first two fields and ignore anything after them, so a three-field record
+// passed preflight and then failed every mutation on the parser the engine
+// actually uses. Preflight exists to predict the engine's answer, and a check
+// more permissive than the thing it predicts is worse than no check.
+//
+// Both names are held to gIdent, the grammar the loader applies to an
+// application and — since environment names are validated too — to an
+// environment. Anything else is not a record this tool wrote.
+func ParseHostOwnerRecord(record string) (HostOwnerRecord, bool) {
+	fields := strings.Fields(record)
+	switch len(fields) {
+	case 1:
+		if !gIdent.pattern.MatchString(fields[0]) {
+			return HostOwnerRecord{}, false
+		}
+		return HostOwnerRecord{Application: fields[0]}, true
+	case 2:
+		if !gIdent.pattern.MatchString(fields[0]) || !gIdent.pattern.MatchString(fields[1]) {
+			return HostOwnerRecord{}, false
+		}
+		return HostOwnerRecord{Application: fields[0], Environment: fields[1]}, true
+	default:
+		return HostOwnerRecord{}, false
+	}
 }

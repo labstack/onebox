@@ -18,6 +18,16 @@ func validateSpec(p *Spec) error {
 	}
 
 	for _, name := range sortedKeys(p.Environments) {
+		// The name, not only the block under it. Every other map here checks its
+		// key, and this one did not — which was harmless while the environment
+		// was a lookup key and nothing else. It is now written into the host
+		// owner record and read back through a grammar, so a name this validator
+		// accepts and that parser rejects claims a host no later command can
+		// operate: bootstrap writes the record, and every mutation after it
+		// refuses an owner record it cannot parse.
+		if err := gIdent.check("environments."+name, name); err != nil {
+			return err
+		}
 		if err := validateEnvironment(p.Environments[name], "environments."+name); err != nil {
 			return err
 		}

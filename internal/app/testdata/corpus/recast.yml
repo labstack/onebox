@@ -2,7 +2,7 @@ api_version: onebox.run/v1
 app: recast
 environments:
   production:
-    server: root@recast.labstack.net
+    server: root@recast.example.com
     policy:
       require_approval: true
       allow_agent_proposals: true

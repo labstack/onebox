@@ -2,7 +2,7 @@ api_version: onebox.run/v1
 app: monk
 environments:
   production:
-    server: root@monk.labstack.net
+    server: root@monk.example.com
     policy: {require_approval: true, allow_agent_proposals: true}
 workloads:
   server:

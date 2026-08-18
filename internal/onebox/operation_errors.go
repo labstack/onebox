@@ -101,6 +101,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "the release cannot be finalized because the recorded activation evidence disagrees with the live host",
 		Command: "ob status --output json",
 	},
+	"host_environment_mismatch": {
+		Message: "this host is claimed by a different environment of the same application, which would share its container and volume names",
+		Command: "ob preflight --output json",
+	},
 	"host_owner_mismatch": {
 		Message: "this host is owned by a different Onebox application, and one host has one owner",
 		Command: "ob preflight --output json",

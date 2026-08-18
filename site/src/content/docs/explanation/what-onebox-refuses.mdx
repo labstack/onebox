@@ -69,6 +69,12 @@ already belongs to one. Not a load-time refusal: it comes from the host itself,
 before anything changes. See [the ownership
 boundary](/explanation/ownership-boundary).
 
+**`host_environment_mismatch`** — a second *environment* of the same application
+trying to mutate a host another environment claimed. Container and volume names
+carry the application, not the environment, so the two would not collide: the
+newcomer would adopt what is already there. See [the ownership
+boundary](/explanation/ownership-boundary).
+
 ## Where a refusal is about safety, not tidiness
 
 Application rollback, data recovery, and reversal of an external side effect are

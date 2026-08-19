@@ -84,6 +84,14 @@ type driver struct {
 	urlUser string
 	// settings maps declared settings onto the driver's own mechanism.
 	settings settingsForm
+	// persistenceOptions are the server options this driver derives from
+	// persistence.mode, keyed by mode. They are defaults: an authored setting of
+	// the same name replaces the value rather than being appended beside it, so
+	// the rendered command carries one value per option.
+	//
+	// A driver with none leaves its server's own defaults alone; the mode still
+	// decides whether Onebox gives it a durable volume.
+	persistenceOptions map[string]map[string]string
 }
 
 type settingsForm int
@@ -99,6 +107,20 @@ const (
 	// rather than accepting values it would then ignore.
 	settingsUnsupported
 )
+
+// serviceIsEphemeral reports a service the author declared disposable.
+//
+// persistence.mode is the declaration Onebox can act on, and until now no
+// managed service consulted it: every driver rendered a durable volume whatever
+// the mode said, so `mode: ephemeral` changed nothing at all. The mode owns
+// this decision and a driver setting cannot override it — a server flag has no
+// business redefining what Onebox claims about data lifetime.
+//
+// Omitted persistence stays durable, which is what defaults.go already fills in,
+// so existing projects render exactly as before.
+func serviceIsEphemeral(s Service) bool {
+	return s.Persistence != nil && s.Persistence.Mode == "ephemeral"
+}
 
 // drivers is the catalogue. A name that is not here is refused by the loader.
 var drivers = map[string]driver{
@@ -134,18 +156,31 @@ var drivers = map[string]driver{
 		// rollout converges onto it. SET proves the write path; EX bounds the
 		// key so the probe cannot accumulate one.
 		health:    []string{"CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" set ob:health 1 EX 30 | grep -qx OK"},
-		command:   []string{"sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"},
+		command:   []string{"sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\""},
 		secretEnv: []string{"REDIS_PASSWORD"},
 		urlUser:   "default", scheme: "redis", settings: settingsRedisFlag,
+		// Durable keeps the append-only log this driver has always run with.
+		// Ephemeral turns off both persistence mechanisms: a service declared
+		// disposable should not pay an fsync per write, nor grow an AOF in a
+		// container layer nothing intends to read back.
+		persistenceOptions: map[string]map[string]string{
+			"durable":   {"appendonly": "yes"},
+			"ephemeral": {"appendonly": "no", "save": ""},
+		},
 	},
 	"valkey": {
 		majorUpgradeInPlace: true,
 		image:               "valkey/valkey", port: 6379, dataPath: "/data",
 		// Same failure mode and the same probe as redis; see the note there.
 		health:    []string{"CMD-SHELL", "valkey-cli -a \"$REDIS_PASSWORD\" set ob:health 1 EX 30 | grep -qx OK"},
-		command:   []string{"sh", "-c", "exec valkey-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"},
+		command:   []string{"sh", "-c", "exec valkey-server --requirepass \"$REDIS_PASSWORD\""},
 		secretEnv: []string{"REDIS_PASSWORD"},
 		urlUser:   "default", scheme: "redis", settings: settingsRedisFlag,
+		// Same contract as redis; see the note there.
+		persistenceOptions: map[string]map[string]string{
+			"durable":   {"appendonly": "yes"},
+			"ephemeral": {"appendonly": "no", "save": ""},
+		},
 	},
 	"mongodb": {
 		database: true,
@@ -315,7 +350,7 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 	}
 	command := append([]string(nil), d.command...)
 
-	if err := applySettings(name, d, s.Settings, env, &command); err != nil {
+	if err := applySettings(name, d, s, s.Settings, env, &command); err != nil {
 		return nil, err
 	}
 	if len(env) > 0 {
@@ -332,7 +367,7 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 	}
 
 	volumes := map[string]any{}
-	if d.dataPath != "" {
+	if d.dataPath != "" && !serviceIsEphemeral(s) {
 		vol := dataVolume(s)
 		full := n.ServiceVolume(name, vol)
 		svc["volumes"] = []string{full + ":" + d.dataPath}
@@ -396,10 +431,32 @@ func identityEnv(key string, d driver, app string) map[string]any {
 // applySettings puts declared settings where the driver actually reads them.
 // A driver with no safe mechanism refuses rather than accepting values it
 // would silently ignore.
-func applySettings(name string, d driver, settings map[string]any, env map[string]any, command *[]string) error {
-	if len(settings) == 0 {
+func applySettings(name string, d driver, s Service, settings map[string]any, env map[string]any, command *[]string) error {
+	// The mode's options first, then the authored ones over them. Merging here
+	// rather than appending is what keeps one value per option in the rendered
+	// command: appending produced `--appendonly yes --appendonly no` for an
+	// author who set the flag the driver had already fixed.
+	effective := map[string]any{}
+	mode := "durable"
+	if s.Persistence != nil && s.Persistence.Mode != "" {
+		mode = s.Persistence.Mode
+	}
+	for k, v := range d.persistenceOptions[mode] {
+		effective[k] = v
+	}
+	for k, v := range settings {
+		effective[k] = v
+	}
+	if len(effective) == 0 {
 		return nil
 	}
+	// A driver with no mechanism refuses only what the author asked for. Mode
+	// options are Onebox's own and are never declared for such a driver, so
+	// this cannot refuse a project that set nothing.
+	if d.settings == settingsUnsupported && len(settings) == 0 {
+		return nil
+	}
+	settings = effective
 	keys := make([]string, 0, len(settings))
 	for k := range settings {
 		keys = append(keys, k)

@@ -560,7 +560,7 @@ func crossFieldRules(p *Spec) error {
 		// Materialise the durable volume in the project rather than only in the
 		// generated runtime, so the canonical form, the preflight collision
 		// check and the renderer all name the same volume.
-		if d.dataPath != "" && len(svc.Volumes) == 0 {
+		if d.dataPath != "" && len(svc.Volumes) == 0 && !serviceIsEphemeral(svc) {
 			svc.Volumes = []string{"data"}
 			p.Services[name] = svc
 			p.derivedPaths["services."+name+".volumes"] = OriginDefault

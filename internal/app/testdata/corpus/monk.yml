@@ -50,7 +50,9 @@ hooks:
   bootstrap: {run: 'scripts/bootstrap.sh "$OB_SERVER"', local: true}
   pre_release: {run: "cd web && bun install --frozen-lockfile && bun run build && rsync -az dist/ $OB_SERVER:/data/monk/web/", local: true}
   post_deploy: {run: "rsync -az web/dist/index.html $OB_SERVER:/data/monk/web/index.html", local: true}
-verifications:
-  - {workload: server, http: /healthz, port: 7500}
-  - {url: "https://monk.trade/healthz", advisory: true}
-  - {url: "https://monk.trade/", contains: 'id="root"', advisory: true}
+checks:
+  http:
+    - {workload: server, path: /healthz, port: 7500}
+  url:
+    - {url: "https://monk.trade/healthz", advisory: true}
+    - {url: "https://monk.trade/", contains: 'id="root"', advisory: true}

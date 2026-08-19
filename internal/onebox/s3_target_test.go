@@ -15,13 +15,13 @@ import (
 func testS3Target() app.BackupTarget {
 	return app.BackupTarget{
 		Kind: "s3-compatible", Endpoint: "https://objects.example.net", Bucket: "onebox-backups",
-		Prefix: "production/shop", Region: "us-east-1", TLS: "required",
+		Prefix: "production/shop", Region: "us-east-1", TLS: "verify",
 		FailureDomain: app.FailureDomain{Identity: "provider-a/us-east-1/account-42", Host: "objects.example.net"},
 		Credentials: app.CredentialReference{
 			File: "secrets/backup.env", Provider: "sops", AccessKeyEntry: "BACKUP_ACCESS_KEY_ID",
 			SecretKeyEntry: "BACKUP_SECRET_ACCESS_KEY", SessionTokenEntry: "BACKUP_SESSION_TOKEN",
 		},
-		Encryption: app.TargetEncryption{PITR: "archive-password", Snapshot: "client-side"},
+		Encryption: app.TargetEncryption{PITR: "client-side", Snapshot: "client-side"},
 	}
 }
 
@@ -41,7 +41,7 @@ func successfulS3Observation() S3TargetProbeObservation {
 		EndpointHost: "objects.example.net", EndpointAddresses: []string{"198.51.100.24"},
 		FailureDomainIdentity: "provider-a/us-east-1/account-42",
 		Reachable:             true, Authorized: true, BucketPresent: true, TLSVerified: true, OffHost: true,
-		EncryptionMode: "archive-password", EncryptionEvidenceID: "walg-libsodium-secretbox",
+		EncryptionMode: "client-side", EncryptionEvidenceID: "walg-libsodium-secretbox",
 		ProbeEvidenceID: "s3-probe-20260807T120000Z",
 	}
 }
@@ -62,7 +62,7 @@ func TestS3TargetAdapterProjectsClosedSecretFreeContractAndProbeEvidence(t *test
 		t.Fatal(err)
 	}
 	if target.Endpoint != "https://objects.example.net" || target.Bucket != "onebox-backups" || target.Prefix != "production/shop" ||
-		target.Region != "us-east-1" || target.TLS != "required" || target.EncryptionMode != "archive-password" {
+		target.Region != "us-east-1" || target.TLS != "verify" || target.EncryptionMode != "client-side" {
 		t.Fatalf("target adapter = %#v", target)
 	}
 

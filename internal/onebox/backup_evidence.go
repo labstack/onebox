@@ -60,7 +60,7 @@ type MigrationBackupResource struct {
 }
 
 func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []OperationStep) (*MigrationBackupRequirement, error) {
-	if !policy.RequireMigrationBackup || !hasMigrationStep(steps) {
+	if !policy.Migrations.RequireBackup || !hasMigrationStep(steps) {
 		return nil, nil
 	}
 	resources := make([]MigrationBackupResource, 0, len(cfg.Workloads)+len(cfg.Services))
@@ -110,11 +110,11 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	if len(resources) == 0 {
 		return nil, errors.New("migration backup policy is enabled but nothing holds data to back up: no workload has a managed volume or declares durable or external persistence, and no supporting service is declared")
 	}
-	keyMaterial := append([]string(nil), policy.MigrationBackupKeyMaterial...)
+	keyMaterial := append([]string(nil), policy.Migrations.BackupKeyMaterial...)
 	sort.Strings(keyMaterial)
 	requirement := &MigrationBackupRequirement{
-		MaximumAge:          policy.MigrationBackupMaximumAge,
-		RequireRestoreTest:  policy.RequireMigrationRestoreTest,
+		MaximumAge:          policy.Migrations.BackupMaximumAge,
+		RequireRestoreTest:  policy.Migrations.RequireRestoreTest,
 		Resources:           resources,
 		RequiredKeyMaterial: keyMaterial,
 	}

@@ -13,21 +13,21 @@ import (
 
 func protectionStateProjection() app.ProtectionEffectiveProjection {
 	return app.ProtectionEffectiveProjection{
-		Policy: app.ProtectionPolicy{
+		Policy: app.BackupPolicy{
 			Target: "offsite", RecoveryKind: "pitr", MaximumDataLoss: "5m",
 			Schedule:  app.Schedule{Cron: "17 */6 * * *", Timezone: "UTC"},
-			Retention: app.ProtectionRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
-			RestoreDrill: app.RestoreDrillPolicy{
+			Retention: app.BackupRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
+			RestoreDrill: app.RestoreDrill{
 				Schedule: app.Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"}, ProofMaximumAge: "7d",
 			},
 		},
 		Target: app.BackupTarget{
 			Kind: "s3-compatible", Endpoint: "https://objects.example.test", Bucket: "onebox-backups",
-			TLS: "required", FailureDomain: app.FailureDomain{Identity: "provider-a/us-east-1/account-42"},
+			TLS: "verify", FailureDomain: app.FailureDomain{Identity: "provider-a/us-east-1/account-42"},
 			Credentials: app.CredentialReference{
 				File: "secrets/backup.env", Provider: "sops", AccessKeyEntry: "BACKUP_ACCESS_KEY_ID", SecretKeyEntry: "BACKUP_SECRET_ACCESS_KEY",
 			},
-			Encryption: app.TargetEncryption{PITR: "archive-password"},
+			Encryption: app.TargetEncryption{PITR: "client-side"},
 		},
 	}
 }

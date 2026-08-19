@@ -38,9 +38,9 @@ cannot drift from what `ob validate` accepts.
 | `<name>.credentials.secret_key_entry` | string | — | Variable name containing the destination secret key. Expects a variable name of letters, digits and underscores, not starting with a digit. |
 | `<name>.credentials.session_token_entry` | string | — | Optional variable name containing a temporary destination session token. Expects a variable name of letters, digits and underscores, not starting with a digit. |
 | `<name>.encryption` | object | — | Required encryption mode for each recovery kind this target may store. |
-| `<name>.encryption.cold` | `client-side` · `archive-password` · `server-side-sse` | — | Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse. |
-| `<name>.encryption.pitr` | `client-side` · `archive-password` · `server-side-sse` | — | Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse. |
-| `<name>.encryption.snapshot` | `client-side` · `archive-password` · `server-side-sse` | — | Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse. |
+| `<name>.encryption.cold` | `client-side` · `server-side` | — | Encryption mode required for cold recovery: client-side or server-side. |
+| `<name>.encryption.pitr` | `client-side` · `server-side` | — | Encryption mode required for point-in-time recovery: client-side or server-side. |
+| `<name>.encryption.snapshot` | `client-side` · `server-side` | — | Encryption mode required for snapshot recovery: client-side or server-side. |
 | `<name>.endpoint` | string | — | Destination API endpoint. HTTPS is required unless tls is explicitly insecure. Expects an http or https URL. |
 | `<name>.failure_domain` | object | — | Operator-declared identity used to prove the destination does not share the protected host. |
 | `<name>.failure_domain.host` | string | — | Destination host identity used to refuse a target on the protected host. Expects a stable identifier of letters, digits, dots, colons, slashes, underscores and hyphens. |
@@ -48,4 +48,4 @@ cannot drift from what `ob validate` accepts.
 | `<name>.kind` | `s3-compatible` | — | Destination kind. Only s3-compatible is supported. |
 | `<name>.prefix` | string | — | Non-secret object prefix reserved for Onebox protection data. Expects a relative object prefix with no empty leading component or shell metacharacter. |
 | `<name>.region` | string | — | S3-compatible region when the endpoint requires one. Expects a lower-case S3-compatible region of letters, digits and hyphens. |
-| `<name>.tls` | `required` · `insecure` | `required` | TLS verification policy: required or insecure. |
+| `<name>.tls` | `verify` · `skip-verify` | `required` | TLS verification policy: required or insecure. |

@@ -113,7 +113,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "prune <service>",
 		Short: "expire backups outside the declared retention",
 		Long: "Expire everything the policy no longer promises to keep.\n\n" +
-			"Retention comes from services.<name>.protection.retention.minimum_generations,\n" +
+			"Retention comes from services.<name>.backup.retention.keep,\n" +
 			"so this never removes more than the project says it may keep fewer of.\n\n" +
 			"WAL older than the oldest retained backup goes with it: WAL that cannot be\n" +
 			"replayed onto any surviving base backup recovers nothing and only costs storage.",

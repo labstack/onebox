@@ -572,8 +572,8 @@ func crossFieldRules(p *Spec) error {
 		// Protection is a contract about recovering durable data. An ephemeral
 		// service has none: seeding the active volume fails at apply time on a
 		// volume that was never created, and the sealed identity would name it.
-		if serviceIsEphemeral(svc) && svc.Protection != nil {
-			return errf("project_invalid", "services."+name+".protection", "",
+		if serviceIsEphemeral(svc) && svc.Backup != nil {
+			return errf("project_invalid", "services."+name+".backup", "",
 				"%q declares protection and persistence.mode: ephemeral; there is no durable data to protect, "+
 					"so declare durable persistence or remove the protection policy", name)
 		}

@@ -11,7 +11,7 @@ import (
 func protectedIdentityConfig(serviceName string, withPolicy bool) *app.Resolved {
 	service := app.Service{Driver: "postgres", Version: 17, Volumes: []string{"data"}}
 	if withPolicy {
-		service.Protection = &app.ProtectionPolicy{Target: "offsite", RecoveryKind: "pitr"}
+		service.Backup = &app.BackupPolicy{Target: "offsite", RecoveryKind: "pitr"}
 	}
 	return &app.Resolved{
 		Spec: &app.Spec{Name: "example", BasePath: "/var/lib/ob", Services: map[string]app.Service{serviceName: service}},

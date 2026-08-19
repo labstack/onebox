@@ -13,7 +13,7 @@ services:
       IMMICH_WORKERS_INCLUDE: api
     volumes:
       - ./library:/usr/src/app/upload
-    ports:
+    published_ports:
       - 2283:2283
 
   immich-machine-learning:

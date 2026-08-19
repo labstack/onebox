@@ -74,8 +74,8 @@ func validateBackupEndpoint(endpoint, tls, path string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return errf("project_invalid", path+".endpoint", "ob validate", "a backup endpoint may not contain userinfo, query credentials, or a fragment")
 	}
-	if u.Scheme != "https" && tls != "insecure" {
-		return errf("project_invalid", path+".endpoint", "ob validate", "an http backup endpoint requires tls: insecure; use https for verified transport")
+	if u.Scheme != "https" && tls != "skip-verify" {
+		return errf("project_invalid", path+".endpoint", "ob validate", "an http backup endpoint requires tls: skip-verify; use https for verified transport")
 	}
 	return nil
 }
@@ -111,7 +111,7 @@ func validateTargetEncryption(encryption TargetEncryption, path string) error {
 	return nil
 }
 
-func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
+func validateProtectionPolicy(policy BackupPolicy, path string) error {
 	if err := gIdent.check(path+".target", policy.Target); err != nil {
 		return err
 	}
@@ -129,37 +129,37 @@ func validateProtectionPolicy(policy ProtectionPolicy, path string) error {
 		return err
 	}
 	if policy.Retention.MinimumGenerations <= 0 {
-		return errf("backup_retention_unsupported", path+".retention.minimum_generations", "ob validate", "minimum_generations must be a positive whole number")
+		return errf("backup_retention_unsupported", path+".retention.keep", "ob validate", "keep must be a positive whole number")
 	}
 	if _, err := PositiveDuration(policy.Retention.RecoveryWindow); err != nil {
-		return errf("backup_retention_unsupported", path+".retention.recovery_window", "ob validate", "recovery_window must be a positive duration: %v", err)
+		return errf("backup_retention_unsupported", path+".retention.window", "ob validate", "window must be a positive duration: %v", err)
 	}
-	if err := validateSchedule(&policy.RestoreDrill.Schedule, path+".restore_drill.schedule"); err != nil {
+	if err := validateSchedule(&policy.RestoreDrill.Schedule, path+".drill.schedule"); err != nil {
 		return err
 	}
 	proofAge, err := PositiveDuration(policy.RestoreDrill.ProofMaximumAge)
 	if err != nil {
-		return errf("project_invalid", path+".restore_drill.proof_maximum_age", "ob validate", "proof_maximum_age must be a positive duration: %v", err)
+		return errf("project_invalid", path+".drill.maximum_age", "ob validate", "maximum_age must be a positive duration: %v", err)
 	}
 	gap, exact := maximumCronGap(policy.RestoreDrill.Schedule.Cron)
 	if !exact {
-		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against proof_maximum_age; use a daily or weekday-based schedule")
+		return errf("drill_schedule_too_sparse", path+".drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against maximum_age; use a daily or weekday-based schedule")
 	}
 	if gap >= proofAge {
-		return errf("restore_drill_schedule_too_sparse", path+".restore_drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds proof_maximum_age %s; use a more frequent schedule", gap, proofAge)
+		return errf("drill_schedule_too_sparse", path+".drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds maximum_age %s; use a more frequent schedule", gap, proofAge)
 	}
-	if err := gAbsPath.checkOptional(path+".restore_drill.staging_filesystem", policy.RestoreDrill.StagingFilesystem); err != nil {
+	if err := gAbsPath.checkOptional(path+".drill.staging_filesystem", policy.RestoreDrill.StagingFilesystem); err != nil {
 		return err
 	}
 	return nil
 }
 
 func validateProtectionSelection(p *Spec, serviceName, driverName string, service Service) error {
-	if service.Protection == nil {
+	if service.Backup == nil {
 		return nil
 	}
-	path := "services." + serviceName + ".protection"
-	policy := service.Protection
+	path := "services." + serviceName + ".backup"
+	policy := service.Backup
 	target, ok := p.BackupTargets[policy.Target]
 	if !ok {
 		return errf("backup_target_unknown", path+".target", "ob validate", "protection target %q is not declared in backup_targets", policy.Target)
@@ -174,7 +174,7 @@ func validateProtectionSelection(p *Spec, serviceName, driverName string, servic
 		return errf("recovery_objective_unsupported", path+".recovery_kind", "ob validate", "driver %q version %q does not support recovery kind %q in its qualified contract", driverName, version, policy.RecoveryKind)
 	}
 	if policy.RecoveryKind == "cold" && !policy.AllowBackupInterruption {
-		return errf("backup_interruption_not_authorized", path+".allow_backup_interruption", "ob validate", "driver %q requires an explicitly permitted recurring stopped-service backup window", driverName)
+		return errf("backup_interruption_not_authorized", path+".allow_downtime", "ob validate", "driver %q requires an explicitly permitted recurring stopped-service backup window", driverName)
 	}
 	if target.Kind != "s3-compatible" {
 		return errf("recovery_objective_unsupported", path+".target", "ob validate", "%s recovery requires an s3-compatible repository target", policy.RecoveryKind)
@@ -350,68 +350,68 @@ func sameEndpointHost(host, endpoint string) bool {
 // Target, recovery kind, interruption authority, proof age, and staging
 // identity remain project-level intent and cannot change by environment.
 func prepareServiceOverride(path string, service Service, patch map[string]any) (map[string]any, error) {
-	protectionValue, present := patch["protection"]
+	protectionValue, present := patch["backup"]
 	if !present {
 		return patch, nil
 	}
-	if service.Protection == nil {
-		return nil, errf("override_not_permitted", path+".protection", "ob validate", "an environment cannot enable protection for a service that has no project-level policy")
+	if service.Backup == nil {
+		return nil, errf("override_not_permitted", path+".backup", "ob validate", "an environment cannot enable protection for a service that has no project-level policy")
 	}
 	protectionPatch, ok := protectionValue.(map[string]any)
 	if !ok {
-		return nil, errf("override_invalid", path+".protection", "ob validate", "a protection override must be a mapping")
+		return nil, errf("override_invalid", path+".backup", "ob validate", "a protection override must be a mapping")
 	}
-	allowed := map[string]bool{"schedule": true, "retention": true, "restore_drill": true}
+	allowed := map[string]bool{"schedule": true, "retention": true, "drill": true}
 	for _, key := range sortedKeys(protectionPatch) {
 		if !allowed[key] {
-			return nil, errf("override_not_permitted", path+".protection."+key, "ob validate", "%q may not be overridden per environment; protection overrides may tune only schedules and retention", key)
+			return nil, errf("override_not_permitted", path+".backup."+key, "ob validate", "%q may not be overridden per environment; protection overrides may tune only schedules and retention", key)
 		}
 	}
 
-	base, err := toGeneric(*service.Protection)
+	base, err := toGeneric(*service.Backup)
 	if err != nil {
 		return nil, err
 	}
 	if value, ok := protectionPatch["schedule"]; ok {
-		merged, err := mergeClosedOverride(path+".protection.schedule", base["schedule"], value, map[string]bool{"cron": true, "timezone": true})
+		merged, err := mergeClosedOverride(path+".backup.schedule", base["schedule"], value, map[string]bool{"cron": true, "timezone": true})
 		if err != nil {
 			return nil, err
 		}
 		base["schedule"] = merged
 	}
 	if value, ok := protectionPatch["retention"]; ok {
-		merged, err := mergeClosedOverride(path+".protection.retention", base["retention"], value, map[string]bool{"minimum_generations": true, "recovery_window": true})
+		merged, err := mergeClosedOverride(path+".backup.retention", base["retention"], value, map[string]bool{"keep": true, "window": true})
 		if err != nil {
 			return nil, err
 		}
 		base["retention"] = merged
 	}
-	if value, ok := protectionPatch["restore_drill"]; ok {
+	if value, ok := protectionPatch["drill"]; ok {
 		drillPatch, ok := value.(map[string]any)
 		if !ok {
-			return nil, errf("override_invalid", path+".protection.restore_drill", "ob validate", "a restore_drill override must be a mapping")
+			return nil, errf("override_invalid", path+".backup.drill", "ob validate", "a drill override must be a mapping")
 		}
 		for _, key := range sortedKeys(drillPatch) {
 			if key != "schedule" {
-				return nil, errf("override_not_permitted", path+".protection.restore_drill."+key, "ob validate", "%q may not be overridden per environment; only the drill schedule may vary", key)
+				return nil, errf("override_not_permitted", path+".backup.drill."+key, "ob validate", "%q may not be overridden per environment; only the drill schedule may vary", key)
 			}
 		}
-		drillBase, _ := base["restore_drill"].(map[string]any)
+		drillBase, _ := base["drill"].(map[string]any)
 		if schedule, ok := drillPatch["schedule"]; ok {
-			merged, err := mergeClosedOverride(path+".protection.restore_drill.schedule", drillBase["schedule"], schedule, map[string]bool{"cron": true, "timezone": true})
+			merged, err := mergeClosedOverride(path+".backup.drill.schedule", drillBase["schedule"], schedule, map[string]bool{"cron": true, "timezone": true})
 			if err != nil {
 				return nil, err
 			}
 			drillBase["schedule"] = merged
 		}
-		base["restore_drill"] = drillBase
+		base["drill"] = drillBase
 	}
 
 	out := make(map[string]any, len(patch))
 	for key, value := range patch {
 		out[key] = value
 	}
-	out["protection"] = base
+	out["backup"] = base
 	return out, nil
 }
 

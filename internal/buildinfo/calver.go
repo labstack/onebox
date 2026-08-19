@@ -7,7 +7,7 @@ import (
 )
 
 // ReleaseVersionPattern is the one grammar for a release identity. It is
-// exported so the project loader validates `minimum_onebox_version` against the
+// exported so the project loader validates `min_version` against the
 // same expression this package parses: a loader that accepted a version no tag
 // can carry would fail closed on a release that is perfectly valid.
 var ReleaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$`)

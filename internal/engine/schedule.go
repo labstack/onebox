@@ -50,7 +50,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		unit := strings.TrimSpace(line)
 		// Protection owns its own namespace and reconciles it separately. Its
 		// units begin "ob-protection-", which also begins with this prefix when
-		// the application is literally named "protection" — belt and braces,
+		// the application is literally named "backup" — belt and braces,
 		// because the failure mode is a deploy silently deleting every
 		// scheduled backup.
 		if strings.HasPrefix(unit, app.ProtectionUnitPrefix) {

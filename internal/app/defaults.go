@@ -58,9 +58,9 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		// absence produced an untyped complaint about an empty duration for a
 		// field the author had never heard of. A default is the answer the
 		// evolution rules already allow.
-		if e.Policy.RequireMigrationBackup && e.Policy.MigrationBackupMaximumAge == "" {
-			e.Policy.MigrationBackupMaximumAge = "24h"
-			mark(path + ".policy.migration_backup_maximum_age")
+		if e.Policy.Migrations.RequireBackup && e.Policy.Migrations.BackupMaximumAge == "" {
+			e.Policy.Migrations.BackupMaximumAge = "24h"
+			mark(path + ".policy.migrations.backup_maximum_age")
 		}
 		p.Environments[name] = e
 	}
@@ -163,34 +163,34 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			s.Persistence.Mode = "durable"
 			mark(path + ".persistence.mode")
 		}
-		if s.Protection != nil {
-			if s.Protection.Schedule.Cron == "" {
-				s.Protection.Schedule.Cron = "0 2 * * *"
-				mark(path + ".protection.schedule.cron")
+		if s.Backup != nil {
+			if s.Backup.Schedule.Cron == "" {
+				s.Backup.Schedule.Cron = "0 2 * * *"
+				mark(path + ".backup.schedule.cron")
 			}
-			if s.Protection.Schedule.Timezone == "" {
-				s.Protection.Schedule.Timezone = "UTC"
-				mark(path + ".protection.schedule.timezone")
+			if s.Backup.Schedule.Timezone == "" {
+				s.Backup.Schedule.Timezone = "UTC"
+				mark(path + ".backup.schedule.timezone")
 			}
-			if s.Protection.Retention.MinimumGenerations == 0 && !stated(raw, path+".protection.retention.minimum_generations") {
-				s.Protection.Retention.MinimumGenerations = 7
-				mark(path + ".protection.retention.minimum_generations")
+			if s.Backup.Retention.MinimumGenerations == 0 && !stated(raw, path+".backup.retention.keep") {
+				s.Backup.Retention.MinimumGenerations = 7
+				mark(path + ".backup.retention.keep")
 			}
-			if s.Protection.Retention.RecoveryWindow == "" {
-				s.Protection.Retention.RecoveryWindow = "7d"
-				mark(path + ".protection.retention.recovery_window")
+			if s.Backup.Retention.RecoveryWindow == "" {
+				s.Backup.Retention.RecoveryWindow = "7d"
+				mark(path + ".backup.retention.window")
 			}
-			if s.Protection.RestoreDrill.Schedule.Cron == "" {
-				s.Protection.RestoreDrill.Schedule.Cron = "0 3 * * 0,3"
-				mark(path + ".protection.restore_drill.schedule.cron")
+			if s.Backup.RestoreDrill.Schedule.Cron == "" {
+				s.Backup.RestoreDrill.Schedule.Cron = "0 3 * * 0,3"
+				mark(path + ".backup.drill.schedule.cron")
 			}
-			if s.Protection.RestoreDrill.Schedule.Timezone == "" {
-				s.Protection.RestoreDrill.Schedule.Timezone = "UTC"
-				mark(path + ".protection.restore_drill.schedule.timezone")
+			if s.Backup.RestoreDrill.Schedule.Timezone == "" {
+				s.Backup.RestoreDrill.Schedule.Timezone = "UTC"
+				mark(path + ".backup.drill.schedule.timezone")
 			}
-			if s.Protection.RestoreDrill.ProofMaximumAge == "" {
-				s.Protection.RestoreDrill.ProofMaximumAge = "7d"
-				mark(path + ".protection.restore_drill.proof_maximum_age")
+			if s.Backup.RestoreDrill.ProofMaximumAge == "" {
+				s.Backup.RestoreDrill.ProofMaximumAge = "7d"
+				mark(path + ".backup.drill.maximum_age")
 			}
 		}
 		p.Services[name] = s
@@ -200,7 +200,7 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		target := p.BackupTargets[name]
 		path := "backup_targets." + name
 		if target.TLS == "" {
-			target.TLS = "required"
+			target.TLS = "verify"
 			mark(path + ".tls")
 		}
 		if target.Credentials.Provider == "" {

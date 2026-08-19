@@ -9,7 +9,7 @@ func TestProtectedServiceReservesRestoreRuntimeNames(t *testing.T) {
 	spec := &Spec{
 		Name: "example",
 		Services: map[string]Service{
-			"database": {Driver: "postgres", Version: 17, Volumes: []string{"data"}, Protection: &ProtectionPolicy{Target: "offsite"}},
+			"database": {Driver: "postgres", Version: 17, Volumes: []string{"data"}, Backup: &BackupPolicy{Target: "offsite"}},
 		},
 	}
 	all := spec.All("production")

@@ -31,13 +31,13 @@ func buildLifecycleCapabilities() map[string]lifecycleCapability {
 			[]string{"MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD", "RESTIC_PASSWORD"}, []string{"data-volume", "binary-log"},
 			lifecycleOperations{Backup: "mariadb-backup", Restore: "mariadb-restore", Verify: "mariadb-verify"}),
 		"mongodb": lifecycleRecord(
-			"mongodb", false, "pitr", deliveryExternalHelper, repositoryNativeDirect, "server-side-sse", "pbm", "5m",
+			"mongodb", false, "pitr", deliveryExternalHelper, repositoryNativeDirect, "server-side", "pbm", "5m",
 			"^8[.]0([.][0-9]+)*$", artifact("mongo", "mongodb", '6'), helperArtifact("percona/percona-backup-mongodb", "pbm", '7'),
 			[]lifecyclePrecondition{{Code: "replica-set", Consistency: "pbm-oplog", Topology: "single-node-replica-set"}},
 			[]string{"MONGO_INITDB_ROOT_PASSWORD", "PBM_STORAGE_CREDENTIAL"}, []string{"data-volume", "oplog", "replica-set-identity"},
 			lifecycleOperations{Backup: "pbm-backup", Restore: "pbm-restore", Verify: "mongodb-verify"}),
 		"clickhouse": lifecycleRecord(
-			"clickhouse", false, "snapshot", deliveryUpstreamDigest, repositoryNativeDirect, "server-side-sse", "clickhouse-chain", "30m",
+			"clickhouse", false, "snapshot", deliveryUpstreamDigest, repositoryNativeDirect, "server-side", "clickhouse-chain", "30m",
 			"^25([.][0-9]+)*$", artifact("clickhouse/clickhouse-server", "clickhouse", '8'), nil,
 			[]lifecyclePrecondition{{Code: "named-collection", Consistency: "native-backup", Topology: "single-server", RestartRequired: true}},
 			[]string{"CLICKHOUSE_PASSWORD", "CLICKHOUSE_BACKUP_CREDENTIAL"}, []string{"data-volume", "named-collection"},

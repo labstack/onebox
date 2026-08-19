@@ -42,6 +42,7 @@ runtime:
   env_checks:
     - {file: fanout/.env, require: [FANOUT_SECRET]}
     - {file: traefik/.env, require: [CF_DNS_API_TOKEN]}
-verifications:
-  - {url: "https://fanout.run/"}
-  - {url: "https://fanout.labstack.com/healthz"}
+checks:
+  url:
+    - {url: "https://fanout.run/"}
+    - {url: "https://fanout.labstack.com/healthz"}

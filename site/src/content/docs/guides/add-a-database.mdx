@@ -157,10 +157,15 @@ using either will connect, authenticate, and *then* fail — in its own logs, no
 in anything Onebox says. If you need one, run a `daemon` workload you own.
 :::
 
-:::danger[Onebox does not take backups]
-`ob doctor` reports every workload and service holding durable data as unbacked,
-because silence there would read as approval. Until the
-[protection layer](/status/capabilities) ships, backing up a declared service is
+:::caution[Back it up]
+A `postgres` service can declare `protection` and Onebox will keep a continuous
+off-host archive it can recover to a point in time — see
+[backups](/guides/back-up-a-database). Declaring the policy is not enough on its
+own: `ob backup enable` is what establishes it, and until then the service
+renders as an ordinary unprotected server.
+
+Every other driver declares `policy_qualified: false`, so a protection policy on
+it is refused rather than quietly ignored, and copying its data off the box is
 your responsibility — a `job` workload on a `schedule` is the usual answer.
 :::
 

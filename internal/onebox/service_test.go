@@ -55,9 +55,11 @@ runtime:
   env_files: [app.env]
 hooks:
   post_deploy: "echo ` + testSecret + `"
-verifications:
-  - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
-  - { workload: web, http: "/private/` + testSecret + `" }
+checks:
+  url:
+    - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
+  http:
+    - { workload: web, path: "/private/` + testSecret + `" }
 observability:
   logs: { enabled: true, retention: 14d }
   metrics: { enabled: true }

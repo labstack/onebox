@@ -530,8 +530,8 @@ services:
 // never created, and the sealed identity names it anyway.
 func TestEphemeralServiceCannotDeclareProtection(t *testing.T) {
 	src := strings.Replace(validProtectionProject,
-		"  postgres:\n    version: 17\n    protection:",
-		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    protection:", 1)
+		"  postgres:\n    version: 17\n    backup:",
+		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    backup:", 1)
 	_, err := LoadBytes([]byte(src), "ob.yml")
 	if err == nil {
 		t.Fatal("an ephemeral service declaring protection was accepted")

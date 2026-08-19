@@ -110,7 +110,7 @@ func NewS3TargetAdapter(name, recoveryKind, credentialFile string, target app.Ba
 		return S3TargetAdapter{}, errors.New("S3 target adapter requires an s3-compatible target")
 	}
 	mode := app.BackupTargetEncryptionMode(target, recoveryKind)
-	if !oneOf(mode, "client-side", "archive-password", "server-side-sse") {
+	if !oneOf(mode, "client-side", "server-side") {
 		return S3TargetAdapter{}, lifecycleFailure("backup_encryption_unverified")
 	}
 	adapter := S3TargetAdapter{
@@ -142,7 +142,7 @@ func (target S3TargetAdapter) Validate() error {
 	if target.RecoveryKind != "snapshot" && target.RecoveryKind != "pitr" && target.RecoveryKind != "cold" {
 		return errors.New("S3 target recovery kind must be snapshot, pitr, or cold")
 	}
-	if !oneOf(target.EncryptionMode, "client-side", "archive-password", "server-side-sse") {
+	if !oneOf(target.EncryptionMode, "client-side", "server-side") {
 		return lifecycleFailure("backup_encryption_unverified")
 	}
 	encryption := app.TargetEncryption{}

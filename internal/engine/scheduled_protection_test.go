@@ -63,7 +63,7 @@ func TestExecuteScheduledProtectionUsesCanonicalLocksFencesAndJournal(t *testing
 		return "backup-generation-1", nil
 	})
 	if err != nil {
-		t.Fatalf("execute scheduled protection: %v", err)
+		t.Fatalf("execute scheduled backup: %v", err)
 	}
 	if actionCalls != 1 {
 		t.Fatalf("action calls = %d, want 1", actionCalls)

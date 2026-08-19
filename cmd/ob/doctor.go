@@ -147,7 +147,7 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check local runner provenance and deployment safety capabilities",
-		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that has no backup — Onebox does not take backups, and silence\nthere would read as approval. In structured output, automation should gate on\nthe report status: data.status for pass or warn, and error.details.status for\na failing diagnosis.",
+		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that nothing is copying off the box, because silence there would\nread as approval. A service declaring `protection` is reported as declaring it;\nwhat the repository can actually recover is `ob backup status`. In structured output, automation should gate on\nthe report status: data.status for pass or warn, and error.details.status for\na failing diagnosis.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())
@@ -481,7 +481,8 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	}
 
 	// Durable data with nothing copying it off the box is worth saying out
-	// loud. Onebox does not take backups, and a workload whose data only
+	// loud. Onebox backs up protected *services*; a workload's own volume is
+	// not something it copies anywhere, and a workload whose data only
 	// exists on one machine is one disk away from gone — silence here would
 	// read as approval.
 	componentNames := make([]string, 0, len(cfg.Workloads))
@@ -492,7 +493,7 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	for _, name := range componentNames {
 		w := cfg.Workloads[name]
 		if w.HoldsDurableData() {
-			message := "holds durable data and Onebox takes no backups; copy it off this host yourself"
+			message := "holds durable data that Onebox does not copy off this host; back it up yourself, or hold the state in a managed service that declares protection"
 			switch {
 			case w.Replicas > 1:
 				// Do not suggest declaring durable here: the loader refuses a
@@ -528,18 +529,18 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	// command that reads the repository itself.
 	for _, name := range cfg.ServiceNames() {
 		service := cfg.Services[name]
-		if service.Protection == nil {
+		if service.Backup == nil {
 			report.Checks = append(report.Checks, doctorProtectionCheck{
 				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
 				Message: "managed service data lives only on this host; declare services." + name +
-					".protection to copy it off, or accept that one disk is all there is",
+					".backup to copy it off, or accept that one disk is all there is",
 			})
 			continue
 		}
 		report.Checks = append(report.Checks, doctorProtectionCheck{
 			Status: doctorPass, Workload: name, Mechanism: "backup", Available: true,
-			Message: "declares " + service.Protection.RecoveryKind + " protection to target " +
-				service.Protection.Target + "; run `ob backup status " + name +
+			Message: "declares " + service.Backup.RecoveryKind + " protection to target " +
+				service.Backup.Target + "; run `ob backup status " + name +
 				"` to see what the repository can actually recover",
 		})
 	}

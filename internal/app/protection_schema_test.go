@@ -32,7 +32,7 @@ backup_targets:
 services:
   postgres:
     version: 17
-    protection:
+    backup:
       target: offsite
       recovery_kind: pitr
       maximum_data_loss: 15m
@@ -43,7 +43,7 @@ func TestProtectionIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := p.Services["postgres"].Protection
+	policy := p.Services["postgres"].Backup
 	if policy == nil {
 		t.Fatal("protection policy was not decoded")
 	}
@@ -56,7 +56,7 @@ func TestProtectionIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 	if policy.RestoreDrill.Schedule.Cron != "0 3 * * 0,3" || policy.RestoreDrill.ProofMaximumAge != "7d" {
 		t.Fatalf("restore drill = %#v, want exact twice-weekly schedule and seven-day proof age", policy.RestoreDrill)
 	}
-	if got := p.BackupTargets["offsite"]; got.TLS != "required" || got.Credentials.Provider != "sops" {
+	if got := p.BackupTargets["offsite"]; got.TLS != "verify" || got.Credentials.Provider != "sops" {
 		t.Fatalf("target defaults = %#v", got)
 	}
 }
@@ -77,7 +77,7 @@ backup_targets:
 services:
   minio:
     version: RELEASE.2026-07-31T00-00-00Z
-    protection: {target: offsite, recovery_kind: cold, maximum_data_loss: 24h, allow_backup_interruption: true}
+    backup: {target: offsite, recovery_kind: cold, maximum_data_loss: 24h, allow_downtime: true}
 `
 	if _, err := LoadBytes([]byte(project), "ob.yml"); err != nil {
 		t.Fatal(err)
@@ -154,13 +154,13 @@ func TestProtectionIntentRefusals(t *testing.T) {
 		},
 		{
 			name: "restore drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        proof_maximum_age: 7d\n", 1),
-			code: "restore_drill_schedule_too_sparse",
+			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        maximum_age: 7d\n", 1),
+			code: "drill_schedule_too_sparse",
 		},
 		{
 			name: "stepped weekday drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        proof_maximum_age: 36h\n", 1),
-			code: "restore_drill_schedule_too_sparse",
+			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        maximum_age: 36h\n", 1),
+			code: "drill_schedule_too_sparse",
 		},
 		{
 			name: "sub-minute replay objective",
@@ -169,7 +169,7 @@ func TestProtectionIntentRefusals(t *testing.T) {
 		},
 		{
 			name: "unsupported retention",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {minimum_generations: 0, recovery_window: 7d}\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1),
 			code: "backup_retention_unsupported",
 		},
 		{
@@ -194,10 +194,10 @@ func TestProtectionEnvironmentOverridesTuneOnlySchedulesAndRetention(t *testing.
     overrides:
       services:
         postgres:
-          protection:
+          backup:
             schedule: {cron: '0 4 * * *'}
-            retention: {minimum_generations: 10}
-            restore_drill: {schedule: {cron: '0 5 * * 1,4'}}
+            retention: {keep: 10}
+            drill: {schedule: {cron: '0 5 * * 1,4'}}
 `, 1)
 	p, err := LoadBytes([]byte(valid), "ob.yml")
 	if err != nil {
@@ -207,7 +207,7 @@ func TestProtectionEnvironmentOverridesTuneOnlySchedulesAndRetention(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := resolved.Services["postgres"].Protection
+	policy := resolved.Services["postgres"].Backup
 	if policy.Target != "offsite" || policy.Schedule.Cron != "0 4 * * *" || policy.Retention.MinimumGenerations != 10 || policy.Retention.RecoveryWindow != "7d" || policy.RestoreDrill.Schedule.Cron != "0 5 * * 1,4" {
 		t.Fatalf("resolved safe override = %#v", policy)
 	}
@@ -216,7 +216,7 @@ func TestProtectionEnvironmentOverridesTuneOnlySchedulesAndRetention(t *testing.
     overrides:
       services:
         postgres:
-          protection: {target: another-repository}
+          backup: {target: another-repository}
 `, 1)
 	p, err = LoadBytes([]byte(unsafe), "ob.yml")
 	if err != nil {

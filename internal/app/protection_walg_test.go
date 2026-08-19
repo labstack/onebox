@@ -18,9 +18,9 @@ func TestWalgRetainCountSatisfiesBothRetentionFloors(t *testing.T) {
 		{"sparse schedule falls back to the declared minimum", "0 2 * * *", "1h", 5, 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := WalgRetainCount(ProtectionPolicy{
+			got, err := WalgRetainCount(BackupPolicy{
 				Schedule:  Schedule{Cron: tc.cron},
-				Retention: ProtectionRetention{MinimumGenerations: tc.minimum, RecoveryWindow: tc.window},
+				Retention: BackupRetention{MinimumGenerations: tc.minimum, RecoveryWindow: tc.window},
 			})
 			if err != nil {
 				t.Fatal(err)

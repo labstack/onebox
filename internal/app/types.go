@@ -50,7 +50,7 @@ type Spec struct {
 	// closedness check reads the contract's fields from these tags.
 	envDefault    []EnvFile
 	Hooks         map[string]Command      `json:"hooks,omitempty" description:"Lifecycle commands keyed by seam: bootstrap, pre_release, post_release, or post_deploy."`
-	Verifications []Verification          `json:"verifications,omitempty" description:"Checks that must pass before a release becomes current unless marked advisory."`
+	Checks        Checks                  `json:"checks,omitzero" description:"Assertions that must pass before a release becomes current unless marked advisory."`
 	Notifications map[string]Notification `json:"notifications,omitempty" description:"Named webhooks that receive selected operation outcomes."`
 	Registries    map[string]Registry     `json:"registries,omitempty" description:"Named container registries and the environment variables holding their credentials."`
 	Proxy         Proxy                   `json:"proxy" description:"Ownership and configuration of the host ingress proxy."`
@@ -87,14 +87,21 @@ type Server struct {
 }
 
 type Policy struct {
-	RequireApproval             bool     `json:"require_approval" description:"Require a plan-bound local confirmation before mutating this environment." default:"true"`
-	AllowAgentProposals         bool     `json:"allow_agent_proposals" description:"Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated." default:"true"`
-	MinimumOneboxVersion        string   `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.8.0"`
-	MinimumPlanSchema           string   `json:"minimum_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
-	RequireMigrationBackup      bool     `json:"require_migration_backup" description:"Require a plan-bound backup report before a release with migration risk." default:"false"`
-	MigrationBackupMaximumAge   string   `json:"migration_backup_maximum_age,omitempty" description:"Maximum age of a backup report accepted for a migration." default:"24h" example:"24h"`
-	RequireMigrationRestoreTest bool     `json:"require_migration_restore_test" description:"Require the backup report to state that a restore test succeeded." default:"false"`
-	MigrationBackupKeyMaterial  []string `json:"migration_backup_key_material,omitempty" description:"Names of key material whose usability must be covered by the migration backup report."`
+	RequireApproval      bool   `json:"require_approval" description:"Require a plan-bound local confirmation before mutating this environment." default:"true"`
+	AllowAgentProposals  bool   `json:"allow_agent_proposals" description:"Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated." default:"true"`
+	MinimumOneboxVersion string `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.8.0"`
+	MinimumPlanSchema    string `json:"minimum_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
+	// Migrations groups what this environment demands of a release that carries
+	// migration risk. Grouped rather than four flat keys each repeating the
+	// word: the prefix is the block's name now.
+	Migrations MigrationPolicy `json:"migrations,omitzero" description:"What this environment requires of a release carrying migration risk."`
+}
+
+type MigrationPolicy struct {
+	RequireBackup      bool     `json:"require_backup" description:"Require a plan-bound backup report before a release with migration risk." default:"false"`
+	BackupMaximumAge   string   `json:"backup_maximum_age,omitempty" description:"Maximum age of a backup report accepted for a migration." default:"24h" example:"24h"`
+	RequireRestoreTest bool     `json:"require_restore_test" description:"Require the backup report to state that a restore test succeeded." default:"false"`
+	BackupKeyMaterial  []string `json:"backup_key_material,omitempty" description:"Key-material identities the backup report must name." example:"BACKUP_ACCESS_KEY_ID"`
 }
 
 type Overrides struct {
@@ -250,13 +257,13 @@ type Schedule struct {
 }
 
 type Service struct {
-	Driver      string            `json:"driver,omitempty" description:"Built-in service driver. Defaults to the service map key." example:"postgres"`
-	Version     any               `json:"version" description:"Driver version or image tag to run." example:"17"`
-	Volumes     []string          `json:"volumes,omitempty" description:"Additional driver-defined persistent volume names."`
-	Persistence *Persistence      `json:"persistence,omitempty" description:"Data-lifetime declaration for this supporting service."`
-	Resources   *Resources        `json:"resources,omitempty" description:"Memory and CPU limits for this supporting service."`
-	Settings    map[string]any    `json:"settings,omitempty" description:"Driver-specific settings validated by the selected service driver."`
-	Protection  *ProtectionPolicy `json:"protection,omitempty" description:"Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection."`
+	Driver      string         `json:"driver,omitempty" description:"Built-in service driver. Defaults to the service map key." example:"postgres"`
+	Version     any            `json:"version" description:"Driver version or image tag to run." example:"17"`
+	Volumes     []string       `json:"volumes,omitempty" description:"Additional driver-defined persistent volume names."`
+	Persistence *Persistence   `json:"persistence,omitempty" description:"Data-lifetime declaration for this supporting service."`
+	Resources   *Resources     `json:"resources,omitempty" description:"Memory and CPU limits for this supporting service."`
+	Settings    map[string]any `json:"settings,omitempty" description:"Driver-specific settings validated by the selected service driver."`
+	Backup      *BackupPolicy  `json:"backup,omitempty" description:"Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection."`
 }
 
 // BackupTarget is a closed S3-compatible destination declaration. It accepts
@@ -290,29 +297,29 @@ type CredentialReference struct {
 }
 
 type TargetEncryption struct {
-	Snapshot string `json:"snapshot,omitempty" description:"Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse."`
-	PITR     string `json:"pitr,omitempty" description:"Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse."`
-	Cold     string `json:"cold,omitempty" description:"Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse."`
+	Snapshot string `json:"snapshot,omitempty" description:"Encryption mode required for snapshot recovery: client-side or server-side."`
+	PITR     string `json:"pitr,omitempty" description:"Encryption mode required for point-in-time recovery: client-side or server-side."`
+	Cold     string `json:"cold,omitempty" description:"Encryption mode required for cold recovery: client-side or server-side."`
 }
 
-type ProtectionPolicy struct {
-	Target                  string              `json:"target" description:"Name of a project-level backup target." example:"offsite"`
-	RecoveryKind            string              `json:"recovery_kind" description:"Required recovery envelope: snapshot, pitr, or cold." example:"pitr"`
-	MaximumDataLoss         string              `json:"maximum_data_loss" description:"Maximum tolerable interval between the latest recoverable point and failure." example:"15m"`
-	AllowBackupInterruption bool                `json:"allow_backup_interruption" description:"Whether recurring backup operations may use the driver-declared stopped-service window." default:"false"`
-	Schedule                Schedule            `json:"schedule" description:"Exact recurring base-backup schedule."`
-	Retention               ProtectionRetention `json:"retention" description:"Portable minimum recovery history that the selected native driver must be able to preserve."`
-	RestoreDrill            RestoreDrillPolicy  `json:"restore_drill" description:"Exact isolated restore-test schedule, proof age, and optional staging filesystem."`
+type BackupPolicy struct {
+	Target                  string          `json:"target" description:"Name of a project-level backup target." example:"offsite"`
+	RecoveryKind            string          `json:"recovery_kind" description:"Required recovery envelope: snapshot, pitr, or cold." example:"pitr"`
+	MaximumDataLoss         string          `json:"maximum_data_loss" description:"Maximum tolerable interval between the latest recoverable point and failure." example:"15m"`
+	AllowBackupInterruption bool            `json:"allow_downtime" description:"Whether recurring backup operations may use the driver-declared stopped-service window." default:"false"`
+	Schedule                Schedule        `json:"schedule" description:"Exact recurring base-backup schedule."`
+	Retention               BackupRetention `json:"retention" description:"Portable minimum recovery history that the selected native driver must be able to preserve."`
+	RestoreDrill            RestoreDrill    `json:"drill" description:"Exact isolated restore-test schedule, proof age, and optional staging filesystem."`
 }
 
-type ProtectionRetention struct {
-	MinimumGenerations int    `json:"minimum_generations" description:"Minimum number of independently recoverable base generations to retain." default:"7" example:"7"`
-	RecoveryWindow     string `json:"recovery_window" description:"Minimum continuous recovery history the native retention mapping must preserve." default:"7d" example:"7d"`
+type BackupRetention struct {
+	MinimumGenerations int    `json:"keep" description:"Minimum number of independently recoverable base generations to retain." default:"7" example:"7"`
+	RecoveryWindow     string `json:"window" description:"Minimum continuous recovery history the native retention mapping must preserve." default:"7d" example:"7d"`
 }
 
-type RestoreDrillPolicy struct {
+type RestoreDrill struct {
 	Schedule          Schedule `json:"schedule" description:"Exact recurring isolated restore-test schedule."`
-	ProofMaximumAge   string   `json:"proof_maximum_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
+	ProofMaximumAge   string   `json:"maximum_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
 	StagingFilesystem string   `json:"staging_filesystem,omitempty" description:"Absolute filesystem path used for isolated restore materialization instead of the host default." example:"/srv/onebox-restore"`
 }
 
@@ -361,18 +368,86 @@ type Command struct {
 	Local bool   `json:"local" description:"Run on the operator machine instead of the server." default:"false"`
 }
 
+// Checks are the post-release assertions, grouped by kind.
+//
+// Grouped rather than one list of four shapes. The flat form was an untagged
+// union — `status_codes`, `required_headers`, `contains`, and `json_assertions`
+// were legal only alongside `url`, and nothing said so until validation. A group
+// per kind lets the schema type each one, so an editor can complete it and a
+// wrong field is a wrong field rather than a runtime refusal.
+type Checks struct {
+	HTTP       []HTTPCheck      `json:"http,omitempty" description:"HTTP paths probed inside a named workload."`
+	URL        []URLCheck       `json:"url,omitempty" description:"External URLs probed from the operator side."`
+	Exec       []ExecCheck      `json:"exec,omitempty" description:"Commands run inside a named workload."`
+	Migrations []MigrationCheck `json:"migrations,omitempty" description:"Migration revisions checked against captured job evidence."`
+}
+
+type HTTPCheck struct {
+	Workload string `json:"workload" description:"Workload the path is probed inside." example:"web"`
+	Path     string `json:"path" description:"HTTP path verified inside the workload." example:"/healthz"`
+	Port     int    `json:"port,omitempty" description:"Container port to probe." example:"3000"`
+	Advisory bool   `json:"advisory,omitempty" description:"Report a failure without blocking release activation." default:"false"`
+}
+
+type URLCheck struct {
+	URL             string            `json:"url" description:"External HTTP or HTTPS URL verified from the operator side." example:"https://shop.example.com/healthz"`
+	StatusCodes     []int             `json:"status_codes,omitempty" description:"Allowed response status codes. A successful 2xx response is expected when omitted."`
+	RequiredHeaders map[string]string `json:"required_headers,omitempty" description:"Exact response headers required for success."`
+	Contains        string            `json:"contains,omitempty" description:"Text the response body must contain."`
+	JSONAssertions  []JSONAssertion   `json:"json_assertions,omitempty" description:"Scalar JSON response values that must match exactly."`
+	Advisory        bool              `json:"advisory,omitempty" description:"Report a failure without blocking release activation." default:"false"`
+}
+
+type ExecCheck struct {
+	Workload string `json:"workload" description:"Workload the command runs inside." example:"web"`
+	Run      string `json:"run" description:"Shell command verified inside the workload." example:"test -f /srv/ready"`
+	Advisory bool   `json:"advisory,omitempty" description:"Report a failure without blocking release activation." default:"false"`
+}
+
+type MigrationCheck struct {
+	Job              string   `json:"job" description:"Job workload whose captured evidence is checked." example:"migrate"`
+	Provider         string   `json:"provider" description:"Migration tool that produced the revisions." example:"alembic"`
+	AppliedRevisions []string `json:"applied_revisions" description:"Revisions the job must report as applied."`
+	Advisory         bool     `json:"advisory,omitempty" description:"Report a failure without blocking release activation." default:"false"`
+}
+
+// Verification is the flat form every check is executed as. Authors never write
+// it; Checks.All produces it, so the runner keeps one shape to run.
 type Verification struct {
-	Workload           string            `json:"workload,omitempty" description:"Workload in which an internal HTTP or exec verification runs."`
-	HTTP               string            `json:"http,omitempty" description:"HTTP path verified inside the named workload." example:"/healthz"`
-	Exec               string            `json:"exec,omitempty" description:"Shell command verified inside the named workload."`
-	Port               int               `json:"port,omitempty" description:"Container port used by an internal HTTP verification." example:"3000"`
-	URL                string            `json:"url,omitempty" description:"External HTTP or HTTPS URL verified from the operator side." example:"https://shop.example.com/healthz"`
-	StatusCodes        []int             `json:"status_codes,omitempty" description:"Allowed HTTP response status codes. A successful 2xx response is expected when omitted."`
-	RequiredHeaders    map[string]string `json:"required_headers,omitempty" description:"Exact HTTP response headers required for success."`
-	Contains           string            `json:"contains,omitempty" description:"Text that the HTTP response body must contain."`
-	JSONAssertions     []JSONAssertion   `json:"json_assertions,omitempty" description:"Scalar JSON response values that must match exactly."`
-	MigrationRevisions *MigrationRevs    `json:"migration_revisions,omitempty" description:"Expected migration provider and applied revisions, checked against captured job evidence."`
-	Advisory           bool              `json:"advisory" description:"Report a failed check without blocking release activation." default:"false"`
+	Workload           string
+	HTTP               string
+	Exec               string
+	Port               int
+	URL                string
+	StatusCodes        []int
+	RequiredHeaders    map[string]string
+	Contains           string
+	JSONAssertions     []JSONAssertion
+	MigrationRevisions *MigrationRevs
+	Advisory           bool
+}
+
+// All flattens the grouped checks into the order they are declared in: every
+// HTTP check, then URL, then exec, then migrations.
+func (c Checks) All() []Verification {
+	out := make([]Verification, 0, len(c.HTTP)+len(c.URL)+len(c.Exec)+len(c.Migrations))
+	for _, check := range c.HTTP {
+		out = append(out, Verification{Workload: check.Workload, HTTP: check.Path, Port: check.Port, Advisory: check.Advisory})
+	}
+	for _, check := range c.URL {
+		out = append(out, Verification{
+			URL: check.URL, StatusCodes: check.StatusCodes, RequiredHeaders: check.RequiredHeaders,
+			Contains: check.Contains, JSONAssertions: check.JSONAssertions, Advisory: check.Advisory,
+		})
+	}
+	for _, check := range c.Exec {
+		out = append(out, Verification{Workload: check.Workload, Exec: check.Run, Advisory: check.Advisory})
+	}
+	for _, check := range c.Migrations {
+		revisions := MigrationRevs{Job: check.Job, Provider: check.Provider, AppliedRevisions: check.AppliedRevisions}
+		out = append(out, Verification{MigrationRevisions: &revisions, Advisory: check.Advisory})
+	}
+	return out
 }
 
 type JSONAssertion struct {

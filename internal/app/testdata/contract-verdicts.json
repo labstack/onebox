@@ -150,6 +150,11 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/http check without a path",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/image reference with registry port",
     "loads": true,
     "digest": "4f17d1c2310f306e61106858d29aaf3c80f276b09f8c36d6db1264955733fe7d"
@@ -302,7 +307,7 @@
   {
     "case": "conformance/protection sparse drill",
     "loads": false,
-    "code": "restore_drill_schedule_too_sparse"
+    "code": "drill_schedule_too_sparse"
   },
   {
     "case": "conformance/protection unsupported objective",
@@ -465,19 +470,14 @@
     "code": "project_invalid"
   },
   {
-    "case": "conformance/verifications url contains advisory",
+    "case": "conformance/url check carrying an exec field",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
+    "case": "conformance/url check with contains and advisory",
     "loads": true,
     "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
-  },
-  {
-    "case": "conformance/verifications url with exec",
-    "loads": false,
-    "code": "project_invalid"
-  },
-  {
-    "case": "conformance/verifications workload without probe",
-    "loads": false,
-    "code": "project_invalid"
   },
   {
     "case": "conformance/volume scalar with a path",
@@ -542,7 +542,7 @@
   {
     "case": "corpus/ext-immich-sourced.yml",
     "loads": true,
-    "digest": "b852204b8ab417c0b5ca7c162108f95189829c69f8b7284d58120fe1e17c47d9 postgres=76af15324857fa90 redis=c7c8bf8044d5342a"
+    "digest": "unparseable:compose parse: validating compose.yaml: services.immich-server additional properties 'published_ports' not allowed"
   },
   {
     "case": "corpus/ext-immich.yml",

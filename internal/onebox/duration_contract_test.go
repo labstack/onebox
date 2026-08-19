@@ -9,7 +9,7 @@ import (
 //
 // The contract's grammar admits a `d` suffix (`gDur`, and the reference says
 // "30s, 5m, 1h30m or 14d"), but time.ParseDuration does not. Parsing policy
-// durations with the standard library meant `migration_backup_maximum_age: 14d`
+// durations with the standard library meant `migrations: {backup_maximum_age: 14d}`
 // passed `ob validate` and then failed at plan time with "must be a positive
 // duration" — telling the author their value is not a duration when it is the
 // syntax the reference gives as an example.

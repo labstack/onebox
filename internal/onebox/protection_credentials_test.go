@@ -23,7 +23,7 @@ func TestProtectionSecretSlotsContainReferencesOnly(t *testing.T) {
 				},
 			},
 			Services: map[string]app.Service{
-				"database": {Driver: "postgres", Version: 17, Protection: &app.ProtectionPolicy{Target: "offsite"}},
+				"database": {Driver: "postgres", Version: 17, Backup: &app.BackupPolicy{Target: "offsite"}},
 			},
 		},
 		Env: "production",

@@ -74,9 +74,9 @@ workloads:
     role: application
     image: ghcr.io/x/app:v2
     health: {http: /healthz, port: 7500, interval: 5s, start_period: 5s, within: 120s}
-verifications:
-  - workload: web
-    http: `+path+`
+checks:
+  http:
+    - {workload: web, path: `+path+`}
 `), "ob.yml")
 	if err != nil {
 		t.Fatalf("the project grammar rejected %q, so this path cannot reach the engine: %v", path, err)

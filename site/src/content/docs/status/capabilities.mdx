@@ -100,9 +100,13 @@ does not report the block at all — not even as declared.
 
 ## Not owned at all
 
-**Backups.** Onebox does not take them. `ob doctor` reports the absence for every
-workload and service holding durable data, because silence there would read as
-approval.
+**Workload volumes.** A workload's own durable data is not copied anywhere.
+`ob doctor` reports it for every workload holding some, because silence there
+would read as approval. Managed services are different: one declaring
+`protection` is backed up continuously and recoverable to a point in time — see
+the backup reference. Only the `postgres` driver has an executable contract
+today; every other driver declares `policy_qualified: false` and its protection
+policy is refused rather than accepted and ignored.
 
 **Restore proof.** No drill is run, and no service can currently prove a backup
 would restore.

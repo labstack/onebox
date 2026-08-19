@@ -18,7 +18,7 @@ import (
 
 // Executable protection for the postgres driver.
 //
-// Everything above this file describes protection: the project declares intent,
+// Everything above this file describes backup: the project declares intent,
 // the catalogue declares what each driver could support, the lifecycle state
 // records whether it was ever established, and the artifact set records what a
 // protected service should look like. None of it runs anything. This file and

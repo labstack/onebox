@@ -50,7 +50,7 @@ var errorCodes = map[string]string{
 	"backup_retention_unsupported":         "the declared recovery history cannot map to supported retention semantics",
 	"backup_interruption_not_authorized":   "the selected recovery contract needs a recurring stopped-service window the author did not permit",
 	"recovery_objective_unsupported":       "the service driver, target, or version cannot execute the declared recovery kind",
-	"restore_drill_schedule_too_sparse":    "the restore-drill cadence cannot keep restore proof current",
+	"drill_schedule_too_sparse":    "the restore-drill cadence cannot keep restore proof current",
 	"protected_service_patch_unsupported":  "no exact qualified protected current-to-candidate image transition exists",
 	"protection_image_revert_unsafe":       "tag rendering would strand an effective protection prerequisite",
 	"protection_state_incomplete":          "a protected service does not record what it is protected by",

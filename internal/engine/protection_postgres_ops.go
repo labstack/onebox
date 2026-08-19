@@ -35,7 +35,7 @@ type ProtectionStatus struct {
 // protectedService resolves a service to its policy and driver, refusing every
 // service this file cannot actually protect. It is the single gate: no caller
 // below reaches wal-g without passing through it.
-func (e *Engine) protectedService(service string) (app.Service, *app.ProtectionPolicy, error) {
+func (e *Engine) protectedService(service string) (app.Service, *app.BackupPolicy, error) {
 	declared, ok := e.Spec.Services[service]
 	if !ok {
 		return app.Service{}, nil, fmt.Errorf("service %s is not declared in this project", service)
@@ -48,9 +48,9 @@ func (e *Engine) protectedService(service string) (app.Service, *app.ProtectionP
 		return app.Service{}, nil, fmt.Errorf(
 			"service %s runs the %s driver; executable protection exists for postgres only today", service, driver)
 	}
-	if declared.Protection == nil {
+	if declared.Backup == nil {
 		return app.Service{}, nil, fmt.Errorf(
-			"service %s declares no protection policy; add services.%s.protection to the project first", service, service)
+			"service %s declares no protection policy; add services.%s.backup to the project first", service, service)
 	}
 	// Declared is not established. Without this the command reaches into a
 	// container that mounts neither wal-g nor its credentials, and the operator
@@ -61,7 +61,7 @@ func (e *Engine) protectedService(service string) (app.Service, *app.ProtectionP
 			"service %s declares protection but it has never been established, or it was disabled; run `ob backup enable %s` first",
 			service, service)
 	}
-	return declared, declared.Protection, nil
+	return declared, declared.Backup, nil
 }
 
 // runWalg executes one wal-g operation inside the service container, as the
@@ -160,8 +160,8 @@ func (e *Engine) BackupService(ctx context.Context, service string) error {
 // PruneServiceBackups expires everything outside the declared retention.
 //
 // Retention has two bounds and they are not the same promise.
-// minimum_generations says how many independently recoverable base backups to
-// keep; recovery_window says how far back a point-in-time recovery must be able
+// keep says how many independently recoverable base backups to
+// keep; window says how far back a point-in-time recovery must be able
 // to reach. On a busy database the count is the binding one; on a quiet one the
 // window is, because N backups might span an afternoon. Honouring only the
 // count quietly shortens the window the policy promised, and nobody finds out

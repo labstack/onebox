@@ -172,9 +172,9 @@ var (
 	eRole              = []string{RoleApplication, RoleWorker, RoleDaemon, RoleJob}
 	eConnectionPart    = []string{"url", "host", "port", "user", "password", "database"}
 	eBackupTargetKind  = []string{"s3-compatible"}
-	eBackupTLS         = []string{"required", "insecure"}
+	eBackupTLS         = []string{"verify", "skip-verify"}
 	eRecoveryKind      = []string{"snapshot", "pitr", "cold"}
-	eEncryptionMode    = []string{"client-side", "archive-password", "server-side-sse"}
+	eEncryptionMode    = []string{"client-side", "server-side"}
 	eExternalProbeKind = []string{"driver-health"}
 )
 

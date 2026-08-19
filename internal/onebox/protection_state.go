@@ -530,7 +530,7 @@ func SaveProtectionLifecycleState(path string, state ProtectionLifecycleState) e
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	return saveBackupArtifact(path, ".protection-state-*", state)
+	return saveBackupArtifact(path, ".backup-state-*", state)
 }
 
 func LoadProtectionLifecycleState(path string) (ProtectionLifecycleState, error) {
@@ -628,7 +628,7 @@ func effectiveProtectionSchedules(projection app.ProtectionEffectiveProjection, 
 	return schedules
 }
 
-func replayArchiveSchedule(policy app.ProtectionPolicy) app.Schedule {
+func replayArchiveSchedule(policy app.BackupPolicy) app.Schedule {
 	duration, ok := app.ParseDuration(policy.MaximumDataLoss)
 	if !ok || duration <= 0 {
 		return policy.Schedule

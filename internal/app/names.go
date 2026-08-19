@@ -350,3 +350,14 @@ func runtimeName(parts ...string) string {
 	}
 	return strings.Join(escaped, "-")
 }
+
+// ProtectionRunLock is the mutex over actual repository work for one service.
+//
+// It exists because Onebox's protection lock is a value written to a file and
+// verified by comparing it — a protocol a systemd unit's shell cannot join. So
+// scheduled units and the engine's own wal-g invocations both take this flock
+// instead, which makes it the one thing serialising a timer against an operator
+// running `ob backup` at the same moment.
+func (n Names) ProtectionRunLock(service string) string {
+	return path.Join(n.AppDir(), "protection", "run-"+service+".lock")
+}

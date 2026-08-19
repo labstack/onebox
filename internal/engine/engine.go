@@ -80,11 +80,15 @@ type Engine struct {
 	// Spec is what the author declared; Compose is what Compose parsed from
 	// the rendered runtime. Both are named for their source so that "project"
 	// never stands for two different things in this package.
-	Spec    *app.Resolved
-	Compose *ctypes.Project
-	T       transport.Transport
-	Opts    Options
-	ui      *ui.UI
+	Spec *app.Resolved
+	// flockProbed/flockPresent cache whether the target has flock, which every
+	// wal-g invocation needs to know and which cannot change mid-operation.
+	flockProbed  bool
+	flockPresent bool
+	Compose      *ctypes.Project
+	T            transport.Transport
+	Opts         Options
+	ui           *ui.UI
 
 	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
 	// mutate() guards every mutating command with it.

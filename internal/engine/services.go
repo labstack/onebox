@@ -143,6 +143,11 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 			return fmt.Errorf("service %s: cannot record its version: %w", name, err)
 		}
 	}
+	// After the services are up, because a timer that fires against a container
+	// that is not running yet is a failed backup in the journal for no reason.
+	if err := e.SyncProtectionSchedules(ctx); err != nil {
+		return fmt.Errorf("cannot converge the protection schedules: %w", err)
+	}
 	return nil
 }
 

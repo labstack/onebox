@@ -363,7 +363,7 @@ func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingReportBefo
 	}
 	configText := strings.Replace(string(configBytes),
 		"      allow_agent_proposals: true\n",
-		"      allow_agent_proposals: true\n      require_migration_backup: true\n      migration_backup_maximum_age: 24h\n      require_migration_restore_test: true\n      migration_backup_key_material: [application_encryption_key]\n", 1)
+		"      allow_agent_proposals: true\n      migrations: {require_backup: true, backup_maximum_age: 24h, require_restore_test: true, backup_key_material: [application_encryption_key]}\n", 1)
 	configText = strings.Replace(configText,
 		"  database:\n",
 		"  migrate:\n    role: job\n    image: ghcr.io/example/app:migrate\n    when: pre_release\n    data_effect: migration\n  database:\n", 1)

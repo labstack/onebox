@@ -121,7 +121,7 @@ func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, 
 		// Written down rather than left implicit.
 		env["AWS_REGION"] = "us-east-1"
 	}
-	if target.TLS == "insecure" {
+	if target.TLS == "skip-verify" {
 		env["AWS_S3_FORCE_HTTP"] = "true"
 	}
 	return env, nil
@@ -264,7 +264,7 @@ func (r *Resolved) protectionForRender(n Names, serviceName string) (*servicePro
 		// catalogue but has no executable renderer yet. Refusing here is the
 		// difference between "not implemented" and a service that runs as if
 		// the policy had never been written.
-		return nil, errf("backup_driver_unsupported", "services."+serviceName+".protection", "ob validate",
+		return nil, errf("backup_driver_unsupported", "services."+serviceName+".backup", "ob validate",
 			"driver %q has no executable protection renderer; only postgres is executable today", driverName)
 	}
 	projection, err := r.renderProtectionProjection(serviceName, service, state)
@@ -336,7 +336,7 @@ func (r *Resolved) renderProtectionProjection(serviceName string, service Servic
 	}
 	projection, _, err := r.effectiveProtectionProjection(serviceName, service)
 	if err != nil {
-		return ProtectionEffectiveProjection{}, errf("protection_state_incomplete", "services."+serviceName+".protection", "ob backup status "+serviceName,
+		return ProtectionEffectiveProjection{}, errf("protection_state_incomplete", "services."+serviceName+".backup", "ob backup status "+serviceName,
 			"service %s is protected but neither its durable state nor the project says what it is protected by; restore the policy or disable protection", serviceName)
 	}
 	return projection, nil
@@ -429,7 +429,7 @@ const (
 // WalgRetainCount is how many base backups must be kept to honour both
 // retention bounds at once.
 //
-// minimum_generations and recovery_window are both *minimums*: at least this
+// keep and window are both *minimums*: at least this
 // many recoverable bases, and at least this much continuous history. Retention
 // must therefore satisfy whichever is larger, and on a frequent schedule that is
 // the window — a service backing up every five minutes under a seven-day window
@@ -441,7 +441,7 @@ const (
 // rather than taken from the help text. `retain FULL n` does work, and both
 // bounds are known from the policy alone, so the arithmetic the policy already
 // implies is done up front and expressed as a count.
-func WalgRetainCount(policy ProtectionPolicy) (int, error) {
+func WalgRetainCount(policy BackupPolicy) (int, error) {
 	window, err := PositiveDuration(policy.Retention.RecoveryWindow)
 	if err != nil {
 		return 0, err

@@ -304,7 +304,7 @@ func (p *Spec) All(env string) []string {
 		for _, v := range p.Services[s].Volumes {
 			out = append(out, n.ServiceVolume(s, v))
 		}
-		if p.Services[s].Protection != nil {
+		if p.Services[s].Backup != nil {
 			out = append(out,
 				n.ProtectionRestoreProject(s),
 				n.ProtectionRestoreContainer(s),

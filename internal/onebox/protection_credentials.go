@@ -15,10 +15,10 @@ func ProtectionSecretSlots(cfg *app.Resolved, serviceName string) ([]SecretSlotR
 		return nil, errors.New("protection credential config is required")
 	}
 	service, ok := cfg.Services[serviceName]
-	if !ok || service.Protection == nil {
+	if !ok || service.Backup == nil {
 		return nil, errors.New("protected service is required")
 	}
-	target, ok := cfg.BackupTargets[service.Protection.Target]
+	target, ok := cfg.BackupTargets[service.Backup.Target]
 	if !ok {
 		return nil, errors.New("protection target is not declared")
 	}
@@ -39,7 +39,7 @@ func ProtectionSecretSlots(cfg *app.Resolved, serviceName string) ([]SecretSlotR
 	}
 	sort.Strings(entries)
 	entries = uniqueNonEmpty(entries)
-	file := cfg.NamesFor(cfg.Env).ProtectionCredentialFile(serviceName, service.Protection.Target)
+	file := cfg.NamesFor(cfg.Env).ProtectionCredentialFile(serviceName, service.Backup.Target)
 	slots := make([]SecretSlotReference, 0, len(entries))
 	for _, entry := range entries {
 		slots = append(slots, SecretSlotReference{Slot: "credential:" + entry, File: file, Entry: entry})

@@ -48,6 +48,7 @@ command.
 | `compose_traefik_label` | a referenced service carries routing labels while also declaring a route |
 | `connection_variable_claimed` | an authored value claims a name a managed-service connection supplies |
 | `derived_name_too_long` | a name Onebox derives exceeds the runtime's limit |
+| `drill_schedule_too_sparse` | the restore-drill cadence cannot keep restore proof current |
 | `eject_destination_exists` | the ejection destination already exists |
 | `eject_failed` | the runtime could not be handed over |
 | `eject_nothing_to_do` | every workload already references a Compose file |
@@ -78,7 +79,6 @@ command.
 | `protection_state_incomplete` | a protected service does not record what it is protected by |
 | `recovery_objective_unsupported` | the service driver, target, or version cannot execute the declared recovery kind |
 | `render_failed` | the runtime could not be rendered |
-| `restore_drill_schedule_too_sparse` | the restore-drill cadence cannot keep restore proof current |
 | `route_collision` | two workloads claim the same address |
 | `route_without_proxy` | a route is declared with nothing to route it |
 | `routing_exclusive` | the domain shorthand and the routes list say the same thing twice |
@@ -190,6 +190,7 @@ detail stays in restricted local evidence, never in the public record.
 | `backup_target_unreachable` | yes | the selected backup target cannot be reached | next | `ob plan --output json` |
 | `disk_pressure_critical` | reserved | a relevant filesystem lacks safe headroom for a space-increasing mutation | diagnostic | `ob status --output json` |
 | `drill_deferred_capacity` | reserved | a restore drill was deferred before materialization because aggregate staging headroom is insufficient | diagnostic | `ob status --output json` |
+| `drill_schedule_too_sparse` | yes | the restore-drill cadence cannot keep restore proof current | diagnostic | `ob validate --output json` |
 | `external_service_not_owned` | reserved | the requested lifecycle mutation targets a dependency Onebox does not own | diagnostic | `ob status --output json` |
 | `external_service_state_stale` | reserved | an external-service observation changed after planning | next | `ob plan --output json` |
 | `protected_service_identity_changed` | yes | a protected service name would orphan durable recovery identity | diagnostic | `ob validate --output json` |
@@ -207,7 +208,6 @@ detail stays in restricted local evidence, never in the public record.
 | `protection_service_patch_required` | reserved | protection enablement requires a separate qualified same-major service patch first | resolving | `ob service apply --output ndjson` |
 | `recovery_objective_unsupported` | yes | the selected driver, version, or target cannot execute the declared recovery kind | diagnostic | `ob validate --output json` |
 | `replay_continuity_broken` | reserved | the native replay sequence has a gap inside the required recovery window | next | `ob plan --output json` |
-| `restore_drill_schedule_too_sparse` | yes | the restore-drill cadence cannot keep restore proof current | diagnostic | `ob validate --output json` |
 | `restore_state_stale` | reserved | live service, volume, or repository state changed after restore planning | diagnostic | `ob status --output json` |
 | `service_image_digest_unavailable` | yes | the exact immutable service image required by recovery is unavailable | diagnostic | `ob status --output json` |
 | `service_image_patch_disable_pending` | yes | service image refresh is refused while safe protection disablement is pending | diagnostic | `ob status --output json` |

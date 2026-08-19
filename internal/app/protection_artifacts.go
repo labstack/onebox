@@ -5,7 +5,7 @@ package app
 // so a service keeps archiving to the repository it was bound to even if the
 // project's intent is later edited.
 type ProtectionEffectiveProjection struct {
-	Policy ProtectionPolicy `json:"policy"`
+	Policy BackupPolicy `json:"policy"`
 	Target BackupTarget     `json:"target"`
 }
 
@@ -31,14 +31,14 @@ func (r *Resolved) effectiveProtectionProjection(serviceName string, service Ser
 		}
 		return *state.LastEffective, "last-effective", nil
 	}
-	if service.Protection == nil {
-		return ProtectionEffectiveProjection{}, "", errf("project_invalid", "services."+serviceName+".protection", "ob validate", "service has no protection intent or retained projection")
+	if service.Backup == nil {
+		return ProtectionEffectiveProjection{}, "", errf("project_invalid", "services."+serviceName+".backup", "ob validate", "service has no protection intent or retained projection")
 	}
-	target, ok := r.BackupTargets[service.Protection.Target]
+	target, ok := r.BackupTargets[service.Backup.Target]
 	if !ok {
-		return ProtectionEffectiveProjection{}, "", errf("backup_target_unknown", "services."+serviceName+".protection.target", "ob validate", "protection target is not declared")
+		return ProtectionEffectiveProjection{}, "", errf("backup_target_unknown", "services."+serviceName+".backup.target", "ob validate", "protection target is not declared")
 	}
-	return ProtectionEffectiveProjection{Policy: *service.Protection, Target: target}, "project-intent", nil
+	return ProtectionEffectiveProjection{Policy: *service.Backup, Target: target}, "project-intent", nil
 }
 
 // EffectiveProtectionProjection is the policy and target a service is actually

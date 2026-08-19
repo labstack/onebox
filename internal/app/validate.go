@@ -137,10 +137,8 @@ func validateTopLevel(p *Spec) error {
 			}
 		}
 	}
-	for i, v := range p.Verifications {
-		if err := validateVerification(v, indexed("verifications", i)); err != nil {
-			return err
-		}
+	if err := validateChecks(p.Checks); err != nil {
+		return err
 	}
 	if p.Observability != nil {
 		// Each sub-block is optional and independent. Checking one behind the
@@ -192,7 +190,7 @@ func validateEnvironment(e Environment, path string) error {
 	if err := validateEnvFiles(e.EnvFiles, path+".env_files"); err != nil {
 		return err
 	}
-	if err := gDur.checkOptional(path+".policy.migration_backup_maximum_age", e.Policy.MigrationBackupMaximumAge); err != nil {
+	if err := gDur.checkOptional(path+".policy.migrations.backup_maximum_age", e.Policy.Migrations.BackupMaximumAge); err != nil {
 		return err
 	}
 	if err := gPlanSchema.checkOptional(path+".policy.minimum_plan_schema", e.Policy.MinimumPlanSchema); err != nil {
@@ -345,7 +343,7 @@ func validateWorkload(w Workload, path string) error {
 		}
 	}
 	for i, port := range w.PublishedPorts {
-		pp := indexed(path+".published_ports", i)
+		pp := indexed(path+".ports", i)
 		if err := checkPort(pp+".host", port.Host); err != nil {
 			return err
 		}
@@ -357,8 +355,8 @@ func validateWorkload(w Workload, path string) error {
 		}
 	}
 	if len(w.PublishedPorts) > 0 && w.Mode() == "rolling" {
-		return errf("project_invalid", path+".published_ports", "",
-			"rolling workloads cannot publish fixed host ports because the serving and replacement replicas must coexist; remove published_ports or set strategy to recreate")
+		return errf("project_invalid", path+".ports", "",
+			"rolling workloads cannot publish fixed host ports because the serving and replacement replicas must coexist; remove ports or set strategy to recreate")
 	}
 	if w.Persistence != nil {
 		if err := checkEnum(path+".persistence.mode", w.Persistence.Mode, ePersistence); err != nil {
@@ -463,8 +461,8 @@ func validateService(s Service, path string) error {
 			return err
 		}
 	}
-	if s.Protection != nil {
-		if err := validateProtectionPolicy(*s.Protection, path+".protection"); err != nil {
+	if s.Backup != nil {
+		if err := validateProtectionPolicy(*s.Backup, path+".backup"); err != nil {
 			return err
 		}
 	}
@@ -513,61 +511,55 @@ func itoa(i int) string {
 // validateVerification enforces that a check is exactly one kind. The four
 // kinds probe different things and carry different fields; a check that named
 // two would have to be run as one of them, and nothing would say which.
-func validateVerification(v Verification, path string) error {
-	kinds := 0
-	for _, present := range []bool{v.HTTP != "", v.Exec != "", v.URL != "", v.MigrationRevisions != nil} {
-		if present {
-			kinds++
-		}
-	}
-	if kinds != 1 {
-		return errf("project_invalid", path, "",
-			"a verification declares exactly one of http, exec, url or migration_revisions (found %d)", kinds)
-	}
-
-	// A container probe runs inside a workload, so it has to name one.
-	if v.HTTP != "" || v.Exec != "" {
-		if v.Workload == "" {
-			return errf("project_invalid", path+".workload", "",
-				"an http or exec check runs inside a workload and must name it")
-		}
-		if err := gIdent.check(path+".workload", v.Workload); err != nil {
+// validateChecks validates each group against its own shape.
+//
+// The union check this replaced — "exactly one of http, exec, url or
+// migration_revisions" — is gone because the shape can no longer express more
+// than one. So is the rule that response assertions belong to a url check: they
+// are now fields of URLCheck and nowhere else, which the schema enforces before
+// this function runs.
+func validateChecks(c Checks) error {
+	for i, check := range c.HTTP {
+		path := indexed("checks.http", i)
+		if err := gIdent.check(path+".workload", check.Workload); err != nil {
 			return err
 		}
-	} else if v.Workload != "" {
-		return errf("project_invalid", path+".workload", "",
-			"a url or migration check does not run inside a workload")
-	}
-
-	if err := gURLPath.checkOptional(path+".http", v.HTTP); err != nil {
-		return err
-	}
-	if v.URL != "" {
-		if err := gHTTPURL.check(path+".url", v.URL); err != nil {
+		if err := gURLPath.check(path+".path", check.Path); err != nil {
 			return err
 		}
-	}
-	if v.Port != 0 {
-		if err := checkPort(path+".port", v.Port); err != nil {
-			return err
+		if check.Port != 0 {
+			if err := checkPort(path+".port", check.Port); err != nil {
+				return err
+			}
 		}
 	}
-	for _, code := range v.StatusCodes {
-		if code < 100 || code > 599 {
-			return errf("project_invalid", path+".status_codes", "",
-				"%d is not an HTTP status code", code)
+	for i, check := range c.URL {
+		path := indexed("checks.url", i)
+		if err := gHTTPURL.check(path+".url", check.URL); err != nil {
+			return err
+		}
+		for _, code := range check.StatusCodes {
+			if code < 100 || code > 599 {
+				return errf("project_invalid", path+".status_codes", "", "%d is not an HTTP status code", code)
+			}
 		}
 	}
-	// Response-shape assertions describe a response, which only a url check
-	// receives; on any other kind they would be silently ignored.
-	if v.URL == "" && (len(v.StatusCodes) > 0 || len(v.RequiredHeaders) > 0 ||
-		len(v.JSONAssertions) > 0 || v.Contains != "") {
-		return errf("project_invalid", path, "",
-			"status_codes, required_headers, json_assertions and contains describe a response, so they belong to a url check")
-	}
-	if v.MigrationRevisions != nil {
-		if err := gIdent.check(path+".migration_revisions.job", v.MigrationRevisions.Job); err != nil {
+	for i, check := range c.Exec {
+		path := indexed("checks.exec", i)
+		if err := gIdent.check(path+".workload", check.Workload); err != nil {
 			return err
+		}
+		if strings.TrimSpace(check.Run) == "" {
+			return errf("project_invalid", path+".run", "", "an exec check must name a command to run")
+		}
+	}
+	for i, check := range c.Migrations {
+		path := indexed("checks.migrations", i)
+		if err := gIdent.check(path+".job", check.Job); err != nil {
+			return err
+		}
+		if strings.TrimSpace(check.Provider) == "" {
+			return errf("project_invalid", path+".provider", "", "a migration check must name the provider that produced the revisions")
 		}
 	}
 	return nil

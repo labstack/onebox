@@ -54,7 +54,7 @@ var lifecycleFailureDefinitions = map[string]lifecycleFailureDefinition{
 	"protection_service_patch_required":            {"protection enablement requires a separate qualified same-major service patch first", "ob service apply --output ndjson"},
 	"recovery_objective_unsupported":               {"the selected driver, version, or target cannot execute the declared recovery kind", "ob validate --output json"},
 	"replay_continuity_broken":                     {"the native replay sequence has a gap inside the required recovery window", "ob plan --output json"},
-	"restore_drill_schedule_too_sparse":            {"the restore-drill cadence cannot keep restore proof current", "ob validate --output json"},
+	"drill_schedule_too_sparse":            {"the restore-drill cadence cannot keep restore proof current", "ob validate --output json"},
 	"restore_state_stale":                          {"live service, volume, or repository state changed after restore planning", "ob status --output json"},
 	"service_image_digest_unavailable":             {"the exact immutable service image required by recovery is unavailable", "ob status --output json"},
 	"service_image_patch_disable_pending":          {"service image refresh is refused while safe protection disablement is pending", "ob status --output json"},

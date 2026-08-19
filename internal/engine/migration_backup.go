@@ -59,7 +59,7 @@ func (e *Engine) migrationBackupRequired() bool {
 		return false
 	}
 	environment, ok := e.Spec.Environments[e.Opts.Environment]
-	return ok && environment.Policy.RequireMigrationBackup
+	return ok && environment.Policy.Migrations.RequireBackup
 }
 
 func (e *Engine) hasPendingMigration(done map[string]bool) bool {

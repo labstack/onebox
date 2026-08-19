@@ -18,32 +18,32 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_backup_interruption` · `cpus` · `cron` · `driver` · `maximum_data_loss` · `memory` · `minimum_generations` · `mode` · `persistence` · `proof_maximum_age` · `protection` · `recovery_kind` · `recovery_window` · `resources` · `restore_drill` · `retention` · `schedule` · `settings` · `staging_filesystem` · `target` · `timezone` · `version` · `volumes`
+`allow_downtime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `keep` · `maximum_age` · `maximum_data_loss` · `memory` · `mode` · `persistence` · `recovery_kind` · `resources` · `retention` · `schedule` · `settings` · `staging_filesystem` · `target` · `timezone` · `version` · `volumes` · `window`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `<name>.backup` | object | — | Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection. |
+| `<name>.backup.allow_downtime` | boolean | `false` | Whether recurring backup operations may use the driver-declared stopped-service window. |
+| `<name>.backup.drill` | object | — | Exact isolated restore-test schedule, proof age, and optional staging filesystem. |
+| `<name>.backup.drill.maximum_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.drill.schedule` | object | — | Exact recurring isolated restore-test schedule. |
+| `<name>.backup.drill.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
+| `<name>.backup.drill.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
+| `<name>.backup.drill.staging_filesystem` | string | — | Absolute filesystem path used for isolated restore materialization instead of the host default. Expects an absolute path with no control character or shell metacharacter. |
+| `<name>.backup.maximum_data_loss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.recovery_kind` | `snapshot` · `pitr` · `cold` | — | Required recovery envelope: snapshot, pitr, or cold. |
+| `<name>.backup.retention` | object | — | Portable minimum recovery history that the selected native driver must be able to preserve. |
+| `<name>.backup.retention.keep` | integer | `7` | Minimum number of independently recoverable base generations to retain. |
+| `<name>.backup.retention.window` | string | `7d` | Minimum continuous recovery history the native retention mapping must preserve. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.schedule` | object | — | Exact recurring base-backup schedule. |
+| `<name>.backup.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
+| `<name>.backup.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
+| `<name>.backup.target` | string | — | Name of a project-level backup target. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.driver` | string | — | Built-in service driver. Defaults to the service map key. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.persistence` | object | — | Data-lifetime declaration for this supporting service. |
 | `<name>.persistence.mode` | `durable` · `ephemeral` · `external` | `durable` | Data lifetime: durable, ephemeral, or external. |
-| `<name>.protection` | object | — | Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection. |
-| `<name>.protection.allow_backup_interruption` | boolean | `false` | Whether recurring backup operations may use the driver-declared stopped-service window. |
-| `<name>.protection.maximum_data_loss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.protection.recovery_kind` | `snapshot` · `pitr` · `cold` | — | Required recovery envelope: snapshot, pitr, or cold. |
-| `<name>.protection.restore_drill` | object | — | Exact isolated restore-test schedule, proof age, and optional staging filesystem. |
-| `<name>.protection.restore_drill.proof_maximum_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.protection.restore_drill.schedule` | object | — | Exact recurring isolated restore-test schedule. |
-| `<name>.protection.restore_drill.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
-| `<name>.protection.restore_drill.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
-| `<name>.protection.restore_drill.staging_filesystem` | string | — | Absolute filesystem path used for isolated restore materialization instead of the host default. Expects an absolute path with no control character or shell metacharacter. |
-| `<name>.protection.retention` | object | — | Portable minimum recovery history that the selected native driver must be able to preserve. |
-| `<name>.protection.retention.minimum_generations` | integer | `7` | Minimum number of independently recoverable base generations to retain. |
-| `<name>.protection.retention.recovery_window` | string | `7d` | Minimum continuous recovery history the native retention mapping must preserve. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.protection.schedule` | object | — | Exact recurring base-backup schedule. |
-| `<name>.protection.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
-| `<name>.protection.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
-| `<name>.protection.target` | string | — | Name of a project-level backup target. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.resources` | object | — | Memory and CPU limits for this supporting service. |
 | `<name>.resources.cpus` | string | — | Container CPU limit expressed as a positive decimal count. Expects a number of CPUs such as 0.5 or 2. |
 | `<name>.resources.memory` | string | — | Container memory limit. Expects a size such as 512MB or 1.5GB. |

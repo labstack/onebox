@@ -41,7 +41,7 @@ func NewProtectedServiceIdentity(cfg *app.Resolved, serviceName string, manifest
 	if !ok {
 		return ProtectedServiceIdentity{}, protectedIdentityFailure()
 	}
-	if service.Protection == nil && !manifestBound {
+	if service.Backup == nil && !manifestBound {
 		return ProtectedServiceIdentity{}, errors.New("service identity is not yet protection-bound")
 	}
 	driver := service.Driver

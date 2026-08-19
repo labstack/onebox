@@ -184,7 +184,7 @@ func walgExec(container string, args ...string) string {
 // pruneExec applies retention, with the count derived from both declared
 // bounds. See app.WalgRetainCount for why the window becomes a count rather
 // than a timestamp.
-func pruneExec(container string, policy app.ProtectionPolicy) (string, error) {
+func pruneExec(container string, policy app.BackupPolicy) (string, error) {
 	retain, err := app.WalgRetainCount(policy)
 	if err != nil {
 		return "", err

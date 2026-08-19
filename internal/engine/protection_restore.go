@@ -177,7 +177,7 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 		"--entrypoint", "sleep",
 		"-v", q(staging + ":/var/lib/postgresql/data"),
 		"-v", q(n.ProtectionRuntimeDir(service) + ":" + app.WalgMountPath + ":ro"),
-		"--env-file", q(n.ProtectionCredentialFile(service, e.Spec.Services[service].Protection.Target)),
+		"--env-file", q(n.ProtectionCredentialFile(service, e.Spec.Services[service].Backup.Target)),
 	}
 	for _, key := range sortedEnvKeys(environment) {
 		args = append(args, "-e", q(fmt.Sprintf("%s=%v", key, environment[key])))

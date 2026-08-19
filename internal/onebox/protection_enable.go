@@ -63,9 +63,9 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 		return fmt.Errorf(
 			"service %s runs the %s driver; executable protection exists for postgres only today", service, driver)
 	}
-	if declared.Protection == nil {
+	if declared.Backup == nil {
 		return fmt.Errorf(
-			"service %s declares no protection policy; add services.%s.protection to the project first", service, service)
+			"service %s declares no protection policy; add services.%s.backup to the project first", service, service)
 	}
 	projection, err := resolved.EffectiveProtectionProjection(service)
 	if err != nil {
@@ -107,7 +107,7 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 		return err
 	}
 	defer stopHeartbeat()
-	if _, err := e.InstallProtectionCredentialFile(ctx, service, declared.Protection.Target,
+	if _, err := e.InstallProtectionCredentialFile(ctx, service, declared.Backup.Target,
 		app.WalgCredentialEntries(projection.Target), plaintext); err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// before starting anything that mounts them, then restarts the server with
 	// archive_mode on.
 	if err := e.ApplyServices(ctx); err != nil {
-		return fmt.Errorf("service %s could not restart under protection: %w", service, err)
+		return fmt.Errorf("service %s could not restart under backup: %w", service, err)
 	}
 	return e.BackupService(ctx, service)
 }

@@ -82,8 +82,7 @@ var beyondJSONSchema = map[string]string{
 	// Exclusivity within one object that a schema could express, and does not
 	// here because the resulting document would be harder to read than the
 	// rule it encodes.
-	"verifications url with exec":          "a verification is exactly one kind",
-	"verifications workload without probe": "an http or exec check names the workload it runs in",
+	"http check without a path":            "a grouped http check still needs its path",
 }
 
 func TestPublishedSchemaMatchesTheLoader(t *testing.T) {

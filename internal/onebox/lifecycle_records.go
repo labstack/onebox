@@ -331,7 +331,7 @@ func (recovery RecoveryEnvelope) validate() error {
 	if !oneOf(recovery.Kind, "snapshot", "pitr", "cold") {
 		return errors.New("recovery kind is invalid")
 	}
-	if !oneOf(recovery.EncryptionMode, "client-side", "archive-password", "server-side-sse") {
+	if !oneOf(recovery.EncryptionMode, "client-side", "server-side") {
 		return errors.New("recovery encryption_mode is invalid")
 	}
 	if recovery.ExpectedInterruption == "" {

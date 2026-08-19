@@ -32,7 +32,7 @@ map named for the thing it configures.
 | `workloads` `services` `registries` `environments` `hooks` `notifications` `backup_targets` `external_services` | `runtime` `deployment` `proxy` `observability` |
 
 Arrays are plural too: `routes`, `env_files`, `volumes`, `published_ports`,
-`needs`, `verifications`, `env_checks`. Four are not, because the singular reads
+`needs`, `checks`, `env_checks`. Four are not, because the singular reads
 as the thing being stated rather than a list: `order`, `on`, `require`,
 `present`.
 
@@ -142,7 +142,7 @@ New codes should be subject-first.
 ```
 backup_target_unreachable
 protection_disable_pending
-restore_drill_schedule_too_sparse
+drill_schedule_too_sparse
 routing_incomplete
 ```
 

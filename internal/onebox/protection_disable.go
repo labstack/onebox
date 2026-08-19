@@ -61,7 +61,7 @@ func executeProtectionDisable(ctx context.Context, e *engine.Engine, resolved *a
 	// Restarts the service without archive_mode and removes its timers, because
 	// SyncProtectionSchedules removes what is no longer protected.
 	if err := e.ApplyServices(ctx); err != nil {
-		return fmt.Errorf("service %s could not restart without protection: %w", service, err)
+		return fmt.Errorf("service %s could not restart without backup: %w", service, err)
 	}
 	// The destination keys have no further use here, and a credential that is
 	// not needed is one that should not be lying around. The repository is

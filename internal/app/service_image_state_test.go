@@ -9,7 +9,7 @@ import (
 func serviceImageTestResolved(withPolicy bool) *Resolved {
 	service := Service{Driver: "postgres", Version: 17}
 	if withPolicy {
-		service.Protection = protectionTestPolicy()
+		service.Backup = protectionTestPolicy()
 	}
 	return &Resolved{
 		Spec: &Spec{
@@ -21,22 +21,22 @@ func serviceImageTestResolved(withPolicy bool) *Resolved {
 	}
 }
 
-func protectionTestPolicy() *ProtectionPolicy {
-	return &ProtectionPolicy{
+func protectionTestPolicy() *BackupPolicy {
+	return &BackupPolicy{
 		Target: "offsite", RecoveryKind: "pitr", MaximumDataLoss: "15m",
-		Retention: ProtectionRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
+		Retention: BackupRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
 	}
 }
 
 func protectionTestTarget() BackupTarget {
 	return BackupTarget{
 		Kind: "s3-compatible", Endpoint: "https://objects.example.net",
-		Bucket: "onebox-backups", Prefix: "production/example", Region: "us-east-1", TLS: "required",
+		Bucket: "onebox-backups", Prefix: "production/example", Region: "us-east-1", TLS: "verify",
 		Credentials: CredentialReference{
 			File: "secrets/backup.env", Provider: "sops",
 			AccessKeyEntry: "BACKUP_ACCESS_KEY_ID", SecretKeyEntry: "BACKUP_SECRET_ACCESS_KEY",
 		},
-		Encryption: TargetEncryption{PITR: "archive-password"},
+		Encryption: TargetEncryption{PITR: "client-side"},
 	}
 }
 

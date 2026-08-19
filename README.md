@@ -289,16 +289,17 @@ headers, and scalar JSON values. Migration verification can bind the expected
 provider and applied revisions to the captured job-result evidence:
 
 ```yaml
-verifications:
-  - url: https://app.example.com/healthz
-    status_codes: [200]
-    required_headers:
-      X-App-Ready: "yes"
-    json_assertions:
-      - path: service.ready
-        equals: true
-  - migration_revisions:
-      job: migrate
+checks:
+  url:
+    - url: https://app.example.com/healthz
+      status_codes: [200]
+      required_headers:
+        X-App-Ready: "yes"
+      json_assertions:
+        - path: service.ready
+          equals: true
+  migrations:
+    - job: migrate
       provider: atlas
       applied_revisions: ["202607130001"]
 ```

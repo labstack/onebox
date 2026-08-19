@@ -107,7 +107,7 @@ func TestResumeUsesInterruptedReleaseSnapshotAfterConfigEdit(t *testing.T) {
 	cfg.Workloads = map[string]app.Workload{"web": cfg.Workloads["web"]}
 	cfg.Deployment.Order = []string{"web"}
 	cfg.Services = nil
-	cfg.Verifications = nil
+	cfg.Checks = app.Checks{}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Resume(context.Background()); err != nil {
 		t.Fatalf("resume: %v\n%s", err, strings.Join(f.Commands, "\n"))
@@ -396,7 +396,7 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 	cfg.Workloads = map[string]app.Workload{"migrate": cfg.Workloads["migrate"]}
 	cfg.Deployment.Order = nil
 	cfg.Services = nil
-	cfg.Verifications = nil
+	cfg.Checks = app.Checks{}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Abort(context.Background(), false); err != nil {
 		t.Fatalf("abort: %v\n%s", err, strings.Join(f.Commands, "\n"))

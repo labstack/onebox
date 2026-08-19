@@ -191,29 +191,26 @@
             },
             "properties": {
               "cold": {
-                "description": "Encryption mode required for cold recovery: client-side, archive-password, or server-side-sse.",
+                "description": "Encryption mode required for cold recovery: client-side or server-side.",
                 "enum": [
                   "client-side",
-                  "archive-password",
-                  "server-side-sse"
+                  "server-side"
                 ],
                 "type": "string"
               },
               "pitr": {
-                "description": "Encryption mode required for point-in-time recovery: client-side, archive-password, or server-side-sse.",
+                "description": "Encryption mode required for point-in-time recovery: client-side or server-side.",
                 "enum": [
                   "client-side",
-                  "archive-password",
-                  "server-side-sse"
+                  "server-side"
                 ],
                 "type": "string"
               },
               "snapshot": {
-                "description": "Encryption mode required for snapshot recovery: client-side, archive-password, or server-side-sse.",
+                "description": "Encryption mode required for snapshot recovery: client-side or server-side.",
                 "enum": [
                   "client-side",
-                  "archive-password",
-                  "server-side-sse"
+                  "server-side"
                 ],
                 "type": "string"
               }
@@ -284,8 +281,8 @@
             "default": "required",
             "description": "TLS verification policy: required or insecure.",
             "enum": [
-              "required",
-              "insecure"
+              "verify",
+              "skip-verify"
             ],
             "type": "string"
           }
@@ -353,6 +350,198 @@
         }
       ],
       "description": "Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path."
+    },
+    "checks": {
+      "additionalProperties": false,
+      "description": "Assertions that must pass before a release becomes current unless marked advisory.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "exec": {
+          "description": "Commands run inside a named workload.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "advisory": {
+                "default": false,
+                "description": "Report a failure without blocking release activation.",
+                "type": "boolean"
+              },
+              "run": {
+                "description": "Shell command verified inside the workload.",
+                "examples": [
+                  "test -f /srv/ready"
+                ],
+                "type": "string"
+              },
+              "workload": {
+                "description": "Workload the command runs inside.",
+                "examples": [
+                  "web"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "http": {
+          "description": "HTTP paths probed inside a named workload.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "advisory": {
+                "default": false,
+                "description": "Report a failure without blocking release activation.",
+                "type": "boolean"
+              },
+              "path": {
+                "description": "HTTP path verified inside the workload. Expects a path beginning with /.",
+                "examples": [
+                  "/healthz"
+                ],
+                "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
+                "type": "string"
+              },
+              "port": {
+                "description": "Container port to probe.",
+                "examples": [
+                  3000
+                ],
+                "maximum": 65535,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "workload": {
+                "description": "Workload the path is probed inside.",
+                "examples": [
+                  "web"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "migrations": {
+          "description": "Migration revisions checked against captured job evidence.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "advisory": {
+                "default": false,
+                "description": "Report a failure without blocking release activation.",
+                "type": "boolean"
+              },
+              "applied_revisions": {
+                "description": "Revisions the job must report as applied.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "job": {
+                "description": "Job workload whose captured evidence is checked.",
+                "examples": [
+                  "migrate"
+                ],
+                "type": "string"
+              },
+              "provider": {
+                "description": "Migration tool that produced the revisions.",
+                "examples": [
+                  "alembic"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "url": {
+          "description": "External URLs probed from the operator side.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "advisory": {
+                "default": false,
+                "description": "Report a failure without blocking release activation.",
+                "type": "boolean"
+              },
+              "contains": {
+                "description": "Text the response body must contain.",
+                "type": "string"
+              },
+              "json_assertions": {
+                "description": "Scalar JSON response values that must match exactly.",
+                "items": {
+                  "additionalProperties": false,
+                  "patternProperties": {
+                    "^x-": {}
+                  },
+                  "properties": {
+                    "equals": {
+                      "description": "Exact scalar value required at path."
+                    },
+                    "path": {
+                      "description": "Dot-separated path to a scalar value in the JSON response.",
+                      "examples": [
+                        "service.ready"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "required_headers": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Exact response headers required for success.",
+                "type": "object"
+              },
+              "status_codes": {
+                "description": "Allowed response status codes. A successful 2xx response is expected when omitted.",
+                "items": {
+                  "maximum": 599,
+                  "minimum": 100,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "url": {
+                "description": "External HTTP or HTTPS URL verified from the operator side. Expects an http or https URL.",
+                "examples": [
+                  "https://shop.example.com/healthz"
+                ],
+                "pattern": "^https?://",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     },
     "compose": {
       "description": "Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service.",
@@ -497,21 +686,44 @@
                 "description": "Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated.",
                 "type": "boolean"
               },
-              "migration_backup_key_material": {
-                "description": "Names of key material whose usability must be covered by the migration backup report.",
-                "items": {
-                  "type": "string"
+              "migrations": {
+                "additionalProperties": false,
+                "description": "What this environment requires of a release carrying migration risk.",
+                "patternProperties": {
+                  "^x-": {}
                 },
-                "type": "array"
-              },
-              "migration_backup_maximum_age": {
-                "default": "24h",
-                "description": "Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-                "examples": [
-                  "24h"
-                ],
-                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-                "type": "string"
+                "properties": {
+                  "backup_key_material": {
+                    "description": "Key-material identities the backup report must name.",
+                    "examples": [
+                      "BACKUP_ACCESS_KEY_ID"
+                    ],
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "backup_maximum_age": {
+                    "default": "24h",
+                    "description": "Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "24h"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  },
+                  "require_backup": {
+                    "default": false,
+                    "description": "Require a plan-bound backup report before a release with migration risk.",
+                    "type": "boolean"
+                  },
+                  "require_restore_test": {
+                    "default": false,
+                    "description": "Require the backup report to state that a restore test succeeded.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
               },
               "minimum_onebox_version": {
                 "description": "Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.8.0.",
@@ -532,16 +744,6 @@
               "require_approval": {
                 "default": true,
                 "description": "Require a plan-bound local confirmation before mutating this environment.",
-                "type": "boolean"
-              },
-              "require_migration_backup": {
-                "default": false,
-                "description": "Require a plan-bound backup report before a release with migration risk.",
-                "type": "boolean"
-              },
-              "require_migration_restore_test": {
-                "default": false,
-                "description": "Require the backup report to state that a restore test succeeded.",
                 "type": "boolean"
               }
             },
@@ -1250,74 +1452,26 @@
               "^x-": {}
             },
             "properties": {
-              "driver": {
-                "description": "Built-in service driver. Defaults to the service map key. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
-                "examples": [
-                  "postgres"
-                ],
-                "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
-                "type": "string"
-              },
-              "persistence": {
-                "additionalProperties": false,
-                "description": "Data-lifetime declaration for this supporting service.",
-                "patternProperties": {
-                  "^x-": {}
-                },
-                "properties": {
-                  "mode": {
-                    "default": "durable",
-                    "description": "Data lifetime: durable, ephemeral, or external.",
-                    "enum": [
-                      "durable",
-                      "ephemeral",
-                      "external"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              },
-              "protection": {
+              "backup": {
                 "additionalProperties": false,
                 "description": "Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection.",
                 "patternProperties": {
                   "^x-": {}
                 },
                 "properties": {
-                  "allow_backup_interruption": {
+                  "allow_downtime": {
                     "default": false,
                     "description": "Whether recurring backup operations may use the driver-declared stopped-service window.",
                     "type": "boolean"
                   },
-                  "maximum_data_loss": {
-                    "description": "Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-                    "examples": [
-                      "15m"
-                    ],
-                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-                    "type": "string"
-                  },
-                  "recovery_kind": {
-                    "description": "Required recovery envelope: snapshot, pitr, or cold.",
-                    "enum": [
-                      "snapshot",
-                      "pitr",
-                      "cold"
-                    ],
-                    "examples": [
-                      "pitr"
-                    ],
-                    "type": "string"
-                  },
-                  "restore_drill": {
+                  "drill": {
                     "additionalProperties": false,
                     "description": "Exact isolated restore-test schedule, proof age, and optional staging filesystem.",
                     "patternProperties": {
                       "^x-": {}
                     },
                     "properties": {
-                      "proof_maximum_age": {
+                      "maximum_age": {
                         "default": "7d",
                         "description": "Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                         "examples": [
@@ -1364,6 +1518,26 @@
                     },
                     "type": "object"
                   },
+                  "maximum_data_loss": {
+                    "description": "Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "15m"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  },
+                  "recovery_kind": {
+                    "description": "Required recovery envelope: snapshot, pitr, or cold.",
+                    "enum": [
+                      "snapshot",
+                      "pitr",
+                      "cold"
+                    ],
+                    "examples": [
+                      "pitr"
+                    ],
+                    "type": "string"
+                  },
                   "retention": {
                     "additionalProperties": false,
                     "description": "Portable minimum recovery history that the selected native driver must be able to preserve.",
@@ -1371,7 +1545,7 @@
                       "^x-": {}
                     },
                     "properties": {
-                      "minimum_generations": {
+                      "keep": {
                         "default": 7,
                         "description": "Minimum number of independently recoverable base generations to retain.",
                         "examples": [
@@ -1380,7 +1554,7 @@
                         "minimum": 1,
                         "type": "integer"
                       },
-                      "recovery_window": {
+                      "window": {
                         "default": "7d",
                         "description": "Minimum continuous recovery history the native retention mapping must preserve. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                         "examples": [
@@ -1425,6 +1599,34 @@
                       "offsite"
                     ],
                     "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "driver": {
+                "description": "Built-in service driver. Defaults to the service map key. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
+                "examples": [
+                  "postgres"
+                ],
+                "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
+                "type": "string"
+              },
+              "persistence": {
+                "additionalProperties": false,
+                "description": "Data-lifetime declaration for this supporting service.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "mode": {
+                    "default": "durable",
+                    "description": "Data lifetime: durable, ephemeral, or external.",
+                    "enum": [
+                      "durable",
+                      "ephemeral",
+                      "external"
+                    ],
                     "type": "string"
                   }
                 },
@@ -1487,131 +1689,6 @@
       },
       "description": "Supporting services managed outside application releases, such as databases and caches.",
       "type": "object"
-    },
-    "verifications": {
-      "description": "Checks that must pass before a release becomes current unless marked advisory.",
-      "items": {
-        "additionalProperties": false,
-        "patternProperties": {
-          "^x-": {}
-        },
-        "properties": {
-          "advisory": {
-            "default": false,
-            "description": "Report a failed check without blocking release activation.",
-            "type": "boolean"
-          },
-          "contains": {
-            "description": "Text that the HTTP response body must contain.",
-            "type": "string"
-          },
-          "exec": {
-            "description": "Shell command verified inside the named workload.",
-            "type": "string"
-          },
-          "http": {
-            "description": "HTTP path verified inside the named workload. Expects a path beginning with /.",
-            "examples": [
-              "/healthz"
-            ],
-            "pattern": "^/[^\\x00-\\x1f'\"$` \\\\]*$",
-            "type": "string"
-          },
-          "json_assertions": {
-            "description": "Scalar JSON response values that must match exactly.",
-            "items": {
-              "additionalProperties": false,
-              "patternProperties": {
-                "^x-": {}
-              },
-              "properties": {
-                "equals": {
-                  "description": "Exact scalar value required at path."
-                },
-                "path": {
-                  "description": "Dot-separated path to a scalar value in the JSON response.",
-                  "examples": [
-                    "service.ready"
-                  ],
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "migration_revisions": {
-            "additionalProperties": false,
-            "description": "Expected migration provider and applied revisions, checked against captured job evidence.",
-            "patternProperties": {
-              "^x-": {}
-            },
-            "properties": {
-              "applied_revisions": {
-                "description": "Ordered migration revisions expected to be applied.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "job": {
-                "description": "Migration job whose result evidence is checked.",
-                "examples": [
-                  "migrate"
-                ],
-                "type": "string"
-              },
-              "provider": {
-                "description": "Migration provider expected in the job result.",
-                "examples": [
-                  "atlas"
-                ],
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "port": {
-            "description": "Container port used by an internal HTTP verification.",
-            "examples": [
-              3000
-            ],
-            "maximum": 65535,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "required_headers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Exact HTTP response headers required for success.",
-            "type": "object"
-          },
-          "status_codes": {
-            "description": "Allowed HTTP response status codes. A successful 2xx response is expected when omitted.",
-            "items": {
-              "maximum": 599,
-              "minimum": 100,
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "url": {
-            "description": "External HTTP or HTTPS URL verified from the operator side. Expects an http or https URL.",
-            "examples": [
-              "https://shop.example.com/healthz"
-            ],
-            "pattern": "^https?://",
-            "type": "string"
-          },
-          "workload": {
-            "description": "Workload in which an internal HTTP or exec verification runs.",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "type": "array"
     },
     "workloads": {
       "additionalProperties": {

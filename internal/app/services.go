@@ -127,7 +127,13 @@ var drivers = map[string]driver{
 	"redis": {
 		majorUpgradeInPlace: true,
 		image:               "redis", port: 6379, dataPath: "/data",
-		health:    []string{"CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"},
+		// A write, not a PING. Redis answers PONG while refusing every write when
+		// a background save has failed and stop-writes-on-bgsave-error is on —
+		// which is its own default — so a connection-only probe reports healthy
+		// exactly when the thing callers need is gone, and a health-gated
+		// rollout converges onto it. SET proves the write path; EX bounds the
+		// key so the probe cannot accumulate one.
+		health:    []string{"CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" set ob:health 1 EX 30 | grep -qx OK"},
 		command:   []string{"sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"},
 		secretEnv: []string{"REDIS_PASSWORD"},
 		urlUser:   "default", scheme: "redis", settings: settingsRedisFlag,
@@ -135,7 +141,8 @@ var drivers = map[string]driver{
 	"valkey": {
 		majorUpgradeInPlace: true,
 		image:               "valkey/valkey", port: 6379, dataPath: "/data",
-		health:    []string{"CMD-SHELL", "valkey-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"},
+		// Same failure mode and the same probe as redis; see the note there.
+		health:    []string{"CMD-SHELL", "valkey-cli -a \"$REDIS_PASSWORD\" set ob:health 1 EX 30 | grep -qx OK"},
 		command:   []string{"sh", "-c", "exec valkey-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"},
 		secretEnv: []string{"REDIS_PASSWORD"},
 		urlUser:   "default", scheme: "redis", settings: settingsRedisFlag,

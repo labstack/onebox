@@ -51,6 +51,15 @@ func (e *Engine) protectedService(service string) (app.Service, *app.ProtectionP
 		return app.Service{}, nil, fmt.Errorf(
 			"service %s declares no protection policy; add services.%s.protection to the project first", service, service)
 	}
+	// Declared is not established. Without this the command reaches into a
+	// container that mounts neither wal-g nor its credentials, and the operator
+	// gets an OCI runtime error about a missing path instead of being told the
+	// service is not protected.
+	if !e.Spec.ServiceIsProtected(service) {
+		return app.Service{}, nil, fmt.Errorf(
+			"service %s declares protection but it has never been established, or it was disabled; run `ob backup enable %s` first",
+			service, service)
+	}
 	return declared, declared.Protection, nil
 }
 

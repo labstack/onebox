@@ -682,3 +682,39 @@ func protectionStateContainsRemoteDeletion(value any) bool {
 	text := strings.ToLower(string(encoded))
 	return strings.Contains(text, "delete-remote") || strings.Contains(text, "purge-remote")
 }
+
+// DisableProtection takes a service out of protection in one step.
+//
+// The multi-phase disablement above — request, plan, authorize, advance — is a
+// larger apparatus for a decision that does not need it: stopping a backup is
+// not a data migration, and every phase of it would be a place to leave a
+// service half-disabled. This transitions straight to disabled and keeps
+// LastEffective, so the record still says what the service was protected by
+// when it stopped.
+//
+// It says nothing about the repository, and deliberately: disabling protection
+// must never delete backups. The history that already exists is the reason
+// anyone took it, and someone turning archiving off today may still need to
+// recover from last week.
+func DisableProtection(current ProtectionLifecycleState, operationID string, nextEpoch int) (ProtectionLifecycleState, error) {
+	if err := current.Validate(); err != nil {
+		return ProtectionLifecycleState{}, err
+	}
+	if current.State == ProtectionDisabled || current.State == ProtectionNeverEnabled {
+		return current, nil
+	}
+	if !safeLifecycleMetadata(operationID) || nextEpoch <= current.Epoch {
+		return ProtectionLifecycleState{}, errors.New("protection disablement operation or fencing epoch is invalid")
+	}
+	next := current
+	next.State, next.Phase, next.Epoch = ProtectionDisabled, ProtectionPhaseIdle, nextEpoch
+	next.OperationID, next.DisablePlanDigest, next.RequestedAt, next.ActionDeadline = "", "", "", ""
+	next.PrerequisiteEffective, next.LocalSupportInstalled = false, false
+	// Every schedule stops. A timer left active would keep pushing to a
+	// repository the project no longer describes.
+	next.Schedules = nil
+	if err := next.Seal(); err != nil {
+		return ProtectionLifecycleState{}, err
+	}
+	return next, nil
+}

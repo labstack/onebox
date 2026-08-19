@@ -180,6 +180,9 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindBackupCreate:
 		result.EvidenceID = operationID
 		err = e.BackupService(ctx, request.Service)
+	case KindProtectionDisable:
+		result.EvidenceID = operationID
+		err = executeProtectionDisable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
 	case KindBackupPrune:
 		result.EvidenceID = operationID
 		err = e.PruneServiceBackups(ctx, request.Service)

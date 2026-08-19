@@ -65,34 +65,8 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 		}
 	}
 
-	protected := protectedServiceNames(e.Spec)
-	if len(protected) > 0 {
-		// Checked before anything else, because every later step assumes
-		// systemd exists. Refused rather than skipped: a host with no systemd
-		// can run a protected database perfectly well and will never take a
-		// scheduled backup, and a warning at the bottom of an otherwise green
-		// apply is how that goes unnoticed until it matters.
-		probe, err := e.T.Run(ctx, "command -v systemctl >/dev/null 2>&1 && echo ok")
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(probe.Stdout) != "ok" {
-			return fmt.Errorf(
-				"this host has no systemctl, so the backup schedules declared for %s cannot be installed "+
-					"and no backup would ever run unattended.\n"+
-					"Run them from elsewhere on the declared cadence (`ob backup create`, `ob backup prune`, "+
-					"`ob backup verify`), or use a host with systemd",
-				strings.Join(protected, ", "))
-		}
-		// The units serialise themselves with flock. A host that schedules but
-		// cannot lock would run a backup and a retention pass over the same
-		// repository at once.
-		if !e.hasFlock(ctx) {
-			return fmt.Errorf(
-				"this host has systemd but no flock, so the scheduled backups for %s could run over each other. "+
-					"Install util-linux",
-				strings.Join(protected, ", "))
-		}
+	if err := e.RequireProtectionScheduling(ctx, protectedServiceNames(e.Spec)); err != nil {
+		return err
 	}
 
 	type wantedUnit struct {
@@ -272,4 +246,43 @@ func protectedServiceNames(resolved *app.Resolved) []string {
 		}
 	}
 	return out
+}
+
+// RequireProtectionScheduling refuses a host that cannot run the schedules a
+// protected service needs.
+//
+// Called by enablement before anything durable happens, as well as by the
+// schedule sync itself. Discovering it only at the sync would mean finding out
+// after the service had already been recorded as protected and restarted
+// archiving — a half-applied enablement whose only symptom is a failed command.
+func (e *Engine) RequireProtectionScheduling(ctx context.Context, protected []string) error {
+	if len(protected) == 0 {
+		return nil
+	}
+	// Refused rather than skipped. A host with no systemd can run a protected
+	// database perfectly well and will never take a scheduled backup, and a
+	// warning at the foot of an otherwise green apply is how that goes
+	// unnoticed until it matters.
+	probe, err := e.T.Run(ctx, "command -v systemctl >/dev/null 2>&1 && echo ok")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(probe.Stdout) != "ok" {
+		return fmt.Errorf(
+			"this host has no systemctl, so the backup schedules declared for %s cannot be installed "+
+				"and no backup would ever run unattended.\n"+
+				"Run them from elsewhere on the declared cadence (`ob backup create`, `ob backup prune`, "+
+				"`ob backup verify`), or use a host with systemd",
+			strings.Join(protected, ", "))
+	}
+	// The units serialise themselves with flock. A host that schedules but
+	// cannot lock would run a backup and a retention pass over the same
+	// repository at once.
+	if !e.hasFlock(ctx) {
+		return fmt.Errorf(
+			"this host has systemd but no flock, so the scheduled backups for %s could run over each other. "+
+				"Install util-linux",
+			strings.Join(protected, ", "))
+	}
+	return nil
 }

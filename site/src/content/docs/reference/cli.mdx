@@ -179,6 +179,7 @@ Usage:
 
 Available Commands:
   create      take a base backup now
+  disable     stop archiving; keep every backup already taken
   drill       prove the repository recovers, without touching anything
   enable      establish protection — restarts the service, creates the stanza, takes the first backup
   prune       expire backups outside the declared retention
@@ -216,6 +217,37 @@ Usage:
 Flags:
       --break-lock   break a stale operation lock after inspecting its holder
   -h, --help         help for create
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup disable
+
+```
+Take a service out of protection.
+
+Archiving stops, the schedules are removed, the service restarts as an
+ordinary unprotected one, and its destination credentials are removed from
+the host.
+
+The repository is not touched. The backups already taken are the reason
+anyone turned protection on, and someone disabling it today may still need
+to recover from last week — `ob backup status` still reads them and
+`ob backup restore` can still recover from them.
+
+What does stop is the recovery window advancing: from here on there is no
+new WAL, so the newest recoverable point is the moment this ran.
+
+Usage:
+  ob backup disable <service> [flags]
+
+Flags:
+  -h, --help   help for disable
+      --yes    confirm that archiving may stop
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

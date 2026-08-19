@@ -121,6 +121,14 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// starting a new one. The epoch is a fence: reusing or lowering it would let
 	// an operation launched against the old state still be accepted, which is
 	// precisely what the fence exists to prevent.
+	// The host must be able to run the schedules this policy declares, and that
+	// is checked before anything durable happens. Finding out at the schedule
+	// sync would mean finding out after the service had been recorded as
+	// protected and restarted archiving, leaving an enablement half-applied.
+	if err := e.RequireProtectionScheduling(ctx, []string{service}); err != nil {
+		return err
+	}
+
 	// Staged before anything durable claims the service is protected. A failure
 	// here — an unreachable release, a checksum that does not match, a host
 	// architecture with no verified build — must leave the service exactly as

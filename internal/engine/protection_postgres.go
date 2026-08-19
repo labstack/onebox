@@ -300,3 +300,35 @@ func sortedPaths(m map[string][]byte) []string {
 	}
 	return out
 }
+
+// RemoveProtectionCredentials deletes the target-side credential file for a
+// service that is no longer protected. The repository it pointed at is left
+// exactly as it is.
+func (e *Engine) RemoveProtectionCredentials(ctx context.Context, service string, last *app.ProtectionEffectiveProjection) error {
+	if last == nil {
+		return nil
+	}
+	path := e.names().ProtectionCredentialFile(service, last.Policy.Target)
+	res, err := e.T.Run(ctx, "rm -f "+q(path))
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("cannot remove the protection credential file %s", path)
+	}
+	return nil
+}
+
+// ReportDisabled says what disablement did and, more usefully, what it did not.
+//
+// The second line used to promise that `ob backup status` and `ob backup
+// restore` still worked. They do not: both run wal-g inside the service
+// container, and an unprotected service mounts neither the binary nor the
+// credentials. The backups themselves are untouched, which is the part that
+// matters, and the way back to them is to enable protection again.
+func (e *Engine) ReportDisabled(service string) {
+	e.ui.Successf("%s is no longer archiving; its schedules are removed", service)
+	e.ui.Infof("every backup already taken is untouched in the repository. Reading or recovering from them "+
+		"needs protection enabled again (`ob backup enable %s`), because the tooling and credentials that "+
+		"reach the repository live in the protected service", service)
+}

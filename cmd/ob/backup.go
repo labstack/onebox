@@ -78,6 +78,35 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	createCmd.Flags().BoolVar(&createBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(createCmd)
 
+	var disableYes bool
+	disableCmd := &cobra.Command{
+		Use:   "disable <service>",
+		Short: "stop archiving; keep every backup already taken",
+		Long: "Take a service out of protection.\n\n" +
+			"Archiving stops, the schedules are removed, the service restarts as an\n" +
+			"ordinary unprotected one, and its destination credentials are removed from\n" +
+			"the host.\n\n" +
+			"The repository is not touched. The backups already taken are the reason\n" +
+			"anyone turned protection on, and someone disabling it today may still need\n" +
+			"to recover from last week — `ob backup status` still reads them and\n" +
+			"`ob backup restore` can still recover from them.\n\n" +
+			"What does stop is the recovery window advancing: from here on there is no\n" +
+			"new WAL, so the newest recoverable point is the moment this ran.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !disableYes {
+				return fmt.Errorf(
+					"disabling protection for %s stops archiving, so the recovery window stops advancing from now.\nRe-run with --yes once you mean it",
+					args[0])
+			}
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindProtectionDisable, Service: args[0],
+			}, "backup disable")
+		},
+	}
+	disableCmd.Flags().BoolVar(&disableYes, "yes", false, "confirm that archiving may stop")
+	backupCmd.AddCommand(disableCmd)
+
 	var pruneBreakLock bool
 	pruneCmd := &cobra.Command{
 		Use:   "prune <service>",

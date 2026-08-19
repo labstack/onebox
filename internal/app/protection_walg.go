@@ -364,3 +364,48 @@ func normalizeMachine(machine string) string {
 		return strings.TrimSpace(machine)
 	}
 }
+
+// ValidateWalgCredentials checks decrypted credential material against what the
+// repository needs, before any of it reaches the target.
+//
+// Every problem is reported at once. An operator fixing a SOPS file one error
+// message at a time is an operator doing four decrypt-edit-encrypt cycles to
+// learn what could have been said in one.
+func ValidateWalgCredentials(plaintext []byte, target BackupTarget) error {
+	values := map[string]string{}
+	for index, line := range strings.Split(string(plaintext), "\n") {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			return errf("backup_credentials_invalid", "backup_targets."+target.Credentials.File, "ob backup enable",
+				"the decrypted credential file has no name=value on line %d", index+1)
+		}
+		values[strings.TrimSpace(name)] = strings.TrimSpace(value)
+	}
+
+	var missing []string
+	for _, entry := range WalgCredentialEntries(target) {
+		if values[entry] == "" {
+			missing = append(missing, entry)
+		}
+	}
+	if len(missing) > 0 {
+		return errf("backup_credentials_invalid", "backup_targets."+target.Credentials.File, "ob backup enable",
+			"the credential file does not define %s", strings.Join(missing, ", "))
+	}
+
+	// The repository key is checked here rather than discovered by wal-g at the
+	// first backup. It is read as hex, so a passphrase-shaped value is not a
+	// weak key — it is a key wal-g refuses outright, and finding that out from
+	// a failed backup is finding it out too late.
+	key := values[WalgRepositoryKeyEntry]
+	if len(key) != 64 || strings.TrimLeft(strings.ToLower(key), "0123456789abcdef") != "" {
+		return errf("backup_credentials_invalid", "backup_targets."+target.Credentials.File, "ob backup enable",
+			"%s must be exactly 64 hexadecimal characters — it is a 32-byte key, not a passphrase. Generate one with `openssl rand -hex 32`",
+			WalgRepositoryKeyEntry)
+	}
+	return nil
+}

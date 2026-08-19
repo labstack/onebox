@@ -366,13 +366,12 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 	// a server whose archive_mode an author turned back off would keep running
 	// while its recovery window silently stopped advancing.
 	if protection != nil {
-		// The entry *names* only. Values live in the mode-0600 credential file
-		// on the host and are read by the image's entrypoint, so no secret
-		// enters this document or its digest.
-		env["OB_S3_KEY_ENTRY"] = protection.KeyEntry
-		env["OB_S3_SECRET_ENTRY"] = protection.SecretEntry
-		if protection.SessionEntry != "" {
-			env["OB_S3_SESSION_TOKEN_ENTRY"] = protection.SessionEntry
+		// Where the repository is, never how to open it. The credential entry
+		// *names* are here too; their values live in the mode-0600 file on the
+		// host and are read by the wrapper, so no secret enters this document
+		// or its digest.
+		for key, value := range protection.Environment {
+			env[key] = value
 		}
 		if len(command) == 0 {
 			// The official entrypoint dispatches on argv[0], so the server has
@@ -405,12 +404,11 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		full := n.ServiceVolume(name, vol)
 		mounts := []string{full + ":" + d.dataPath}
 		if protection != nil {
-			// The directory, not the file — see ServiceProtectionConfigDir for
-			// why an atomically replaced file vanishes from a running
-			// container. Read-only, because a container that could rewrite its
-			// own configuration could point its repository somewhere the
-			// project never declared.
-			mounts = append(mounts, protection.ConfigHostDir+":"+PgBackRestConfDir+":ro")
+			// The directory, not the files — see ProtectionRuntimeDir for why
+			// an atomically replaced file vanishes from a running container.
+			// Read-only, because a container that could rewrite the binary it
+			// archives with could send the archive anywhere.
+			mounts = append(mounts, protection.RuntimeHostDir+":"+WalgMountPath+":ro")
 		}
 		svc["volumes"] = mounts
 		volumes[full] = map[string]any{

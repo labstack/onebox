@@ -47,11 +47,14 @@ func TestGenerateProtectionArtifactsIsDeterministicRedactedAndComplete(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Artifacts) != 11 || len(second.Artifacts) != len(first.Artifacts) {
-		t.Fatalf("artifact counts = %d and %d, want 11", len(first.Artifacts), len(second.Artifacts))
+	// Twelve rather than eleven: postgres protection is external-helper
+	// delivery, so the set carries the wal-g helper's provenance beside the
+	// service image's.
+	if len(first.Artifacts) != 12 || len(second.Artifacts) != len(first.Artifacts) {
+		t.Fatalf("artifact counts = %d and %d, want 12", len(first.Artifacts), len(second.Artifacts))
 	}
 	wantClasses := []string{
-		"archive-hook", "backup-schedule", "disablement", "drill-schedule", "enablement", "inputs",
+		"archive-hook", "backup-schedule", "disablement", "drill-schedule", "enablement", "helper", "inputs",
 		"lifecycle-state", "provenance-sbom", "restore-template", "retention", "service-image",
 	}
 	seen := make(map[string]bool, len(first.Artifacts))
@@ -74,8 +77,15 @@ func TestGenerateProtectionArtifactsIsDeterministicRedactedAndComplete(t *testin
 			t.Errorf("missing artifact class %q", class)
 		}
 	}
-	if seen["helper"] {
-		t.Fatal("derived-image PostgreSQL unexpectedly received an external helper artifact")
+	// The helper's provenance must be exact, because it is the checksum the
+	// download is verified against rather than a description of it.
+	helper := string(artifactContent(t, first, "helper"))
+	if !strings.Contains(helper, `"repository":"github.com/wal-g/wal-g"`) ||
+		!strings.Contains(helper, `"digest":"sha256:`+strings.Repeat("", 0)) {
+		t.Fatalf("helper provenance does not identify the pinned wal-g release: %s", helper)
+	}
+	if strings.Contains(helper, strings.Repeat("1", 64)) {
+		t.Fatal("helper provenance carries a placeholder digest")
 	}
 	if got := string(artifactContent(t, first, "backup-schedule")); !strings.Contains(got, `"cron":"17 */6 * * *"`) {
 		t.Fatalf("backup schedule is not exact: %s", got)

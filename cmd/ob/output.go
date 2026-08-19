@@ -89,6 +89,8 @@ var cliOutputMatrix = map[string]cliOutputClass{
 	"ob init":          {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob backup create": {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob backup enable": {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
+	"ob backup prune":  {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
+	"ob backup verify": {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob backup status": {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob job plan":      {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob job run":       {Class: cliClassFiniteStream, JSON: true, NDJSON: true},

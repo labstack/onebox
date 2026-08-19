@@ -149,7 +149,7 @@ func validLifecycleResultRecord(kind LifecycleKind, service string) LifecycleRec
 
 func validNativeEvidence() *NativeEvidenceIdentity {
 	return &NativeEvidenceIdentity{
-		Driver: "postgres", Method: "pgbackrest", RepositoryID: "repository-1",
+		Driver: "postgres", Method: "walg", RepositoryID: "repository-1",
 		GenerationID: "generation-42", ReplayStart: "wal:100", ReplayEnd: "wal:200",
 	}
 }

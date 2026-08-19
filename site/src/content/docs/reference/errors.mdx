@@ -163,9 +163,9 @@ step to complete rather than a line to run verbatim.
 
 ## Lifecycle failure codes
 
-:::caution[Belongs to the proposed protection layer]
-These codes are defined and drift-tested in the binary, but the operations that
-raise most of them are not yet executable. A row marked **reserved** is one no
+:::caution[Most of these are still reserved]
+These codes are defined and drift-tested in the binary. Backup, restore and drill
+are executable for the postgres driver; the rest are not. A row marked **reserved** is one no
 path raises today: the code is fixed so it stays stable when the capability
 lands, but you cannot cause it. The set is computed from the source, not
 maintained by hand.

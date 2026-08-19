@@ -39,9 +39,9 @@ published reference on the first line of a scaffolded project.
 | `proxy` | Who runs the proxy and what routes. | [proxy](/reference/fields/proxy) |
 | `runtime` | Environment files and local environment-file checks. | [runtime](/reference/fields/runtime) |
 | `hooks` | Commands at lifecycle seams. | [hooks](/reference/fields/hooks) |
-| `verifications` | What must be true for a release to activate. | [verifications](/reference/fields/verifications) |
+| `checks` | What must be true for a release to activate, grouped by kind. | [checks](/reference/fields/checks) |
 | `external_services` | Dependencies operated outside Onebox, and how a workload reaches them. | [external_services](/reference/fields/external_services) |
-| `backup_targets` | Off-host repositories the proposed protection layer would write to. | [backup_targets](/reference/fields/backup_targets) |
+| `backup_targets` | Off-host repositories a protected service writes its backups to. | [backup_targets](/reference/fields/backup_targets) |
 | `registries` `notifications` `observability` | Named maps. | [registries](/reference/fields/registries) · [notifications](/reference/fields/notifications) · [observability](/reference/fields/observability) |
 
 `external_services` and `backup_targets` are published in the JSON Schema and

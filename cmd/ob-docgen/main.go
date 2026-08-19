@@ -311,9 +311,9 @@ var blocks = []block{
 	{Key: "observability", Title: "observability", Order: 110, Status: statusIntentOnly,
 		Summary:  "Declared logging, metric and alerting intent. Validated and planned, but the local engine runs nothing continuous for it.",
 		ReadWhen: []string{"Recording observability intent that another system will act on"}},
-	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusSchemaOnly,
-		Summary:  "User-owned off-host S3-compatible repositories available to service protection policies. Accepted by the loader; not yet executable.",
-		ReadWhen: []string{"Evaluating the proposed protection layer", "Understanding why Onebox refuses a backup target that shares the protected host"}},
+	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusShipped,
+		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",
+		ReadWhen: []string{"Declaring where a database's backups go", "Understanding why Onebox refuses a backup target that shares the protected host"}},
 	{Key: "external_services", Title: "external_services", Order: 210, Status: statusSchemaOnly,
 		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and protection stay external. Accepted by the loader; not yet executable.",
 		ReadWhen: []string{"Modelling an RDS, Neon, Supabase or Upstash dependency"}},
@@ -888,9 +888,9 @@ func renderErrorPage() string {
 
 	fmt.Fprintln(&buf, "## Lifecycle failure codes")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, ":::caution[Belongs to the proposed protection layer]")
-	fmt.Fprintln(&buf, "These codes are defined and drift-tested in the binary, but the operations that")
-	fmt.Fprintln(&buf, "raise most of them are not yet executable. A row marked **reserved** is one no")
+	fmt.Fprintln(&buf, ":::caution[Most of these are still reserved]")
+	fmt.Fprintln(&buf, "These codes are defined and drift-tested in the binary. Backup, restore and drill")
+	fmt.Fprintln(&buf, "are executable for the postgres driver; the rest are not. A row marked **reserved** is one no")
 	fmt.Fprintln(&buf, "path raises today: the code is fixed so it stays stable when the capability")
 	fmt.Fprintln(&buf, "lands, but you cannot cause it. The set is computed from the source, not")
 	fmt.Fprintln(&buf, "maintained by hand.")

@@ -36,8 +36,12 @@ func TestProtectedServiceIdentityBindsEveryGeneratedName(t *testing.T) {
 		t.Fatalf("protected timers = %#v", record.Timers)
 	}
 	for _, timer := range record.Timers {
-		if !strings.HasPrefix(timer, "ob-example-production-database-") {
-			t.Fatalf("timer is not environment-scoped: %q", timer)
+		// Environment-scoped, and inside protection's own systemd namespace.
+		// The prefix is load-bearing: the job scheduler removes every unit
+		// named "ob-<app>-*" that is no longer declared, so a protection timer
+		// named that way is deleted by the next deploy.
+		if !strings.HasPrefix(timer, app.ProtectionUnitPrefix+"example-production-database-") {
+			t.Fatalf("timer is not environment-scoped inside the protection namespace: %q", timer)
 		}
 	}
 }

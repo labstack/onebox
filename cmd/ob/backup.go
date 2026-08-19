@@ -78,7 +78,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	createCmd.Flags().BoolVar(&createBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(createCmd)
 
-	var disableYes bool
+	var disableConfirm string
 	disableCmd := &cobra.Command{
 		Use:   "disable <service>",
 		Short: "stop archiving; keep every backup already taken",
@@ -94,17 +94,18 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"new WAL, so the newest recoverable point is the moment this ran.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !disableYes {
+			if disableConfirm != args[0] {
 				return fmt.Errorf(
-					"disabling protection for %s stops archiving, so the recovery window stops advancing from now.\nRe-run with --yes once you mean it",
-					args[0])
+					"disabling protection for %s stops archiving, so the recovery window stops advancing from now.\n"+
+						"Re-run with --confirm %s once you mean it",
+					args[0], args[0])
 			}
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindProtectionDisable, Service: args[0],
 			}, "backup disable")
 		},
 	}
-	disableCmd.Flags().BoolVar(&disableYes, "yes", false, "confirm that archiving may stop")
+	disableCmd.Flags().StringVar(&disableConfirm, "confirm", "", "name of the service whose archiving may stop")
 	backupCmd.AddCommand(disableCmd)
 
 	var pruneBreakLock bool
@@ -143,8 +144,8 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	}
 	backupCmd.AddCommand(verifyCmd)
 
-	var restoreTo string
-	var restoreYes, restoreBreakLock bool
+	var restoreTo, restoreConfirm string
+	var restoreBreakLock bool
 	restoreCmd := &cobra.Command{
 		Use:   "restore <service>",
 		Short: "recover to a point in time and put it in service",
@@ -157,13 +158,18 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"The data being replaced is copied aside first, under a dated volume name,\n" +
 			"and never deleted. A restore is run on a day that is already going badly;\n" +
 			"it must not be the step that makes it unrecoverable.\n\n" +
-			"Without --to, recovery goes to the newest recoverable point.",
+			"Without --to, recovery goes to the newest recoverable point.\n\n" +
+			"The service name has to be typed back with --confirm. Onebox's approval flow\n" +
+			"binds a recorded confirmation to an exact plan, and a recovery has no plan to\n" +
+			"bind to — so the guard is the name of the thing being replaced, which cannot\n" +
+			"be given by accident or by a shell history entry meant for another service.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !restoreYes {
+			if restoreConfirm != args[0] {
 				return fmt.Errorf(
-					"restoring replaces the live data of service %s.\nRe-run with --yes once you mean it, or use `ob backup drill %s` to prove the repository recovers without touching anything",
-					args[0], args[0])
+					"restoring replaces the live data of service %s.\n"+
+						"Re-run with --confirm %s once you mean it, or use `ob backup drill %s` to prove the repository recovers without touching anything",
+					args[0], args[0], args[0])
 			}
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindRestoreCutover, Service: args[0],
@@ -172,7 +178,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		},
 	}
 	restoreCmd.Flags().StringVar(&restoreTo, "to", "", "RFC 3339 point in time to recover to (default: the newest recoverable point)")
-	restoreCmd.Flags().BoolVar(&restoreYes, "yes", false, "confirm that the live data may be replaced")
+	restoreCmd.Flags().StringVar(&restoreConfirm, "confirm", "", "name of the service whose live data may be replaced")
 	restoreCmd.Flags().BoolVar(&restoreBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(restoreCmd)
 
@@ -216,6 +222,9 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "service     %s\nrepository  %s\n", status.Service, status.Repository)
+			for _, issue := range status.RuntimeIssues {
+				fmt.Fprintf(out, "drift       %s\n", issue)
+			}
 			if len(status.Generations) == 0 {
 				fmt.Fprintln(out, "\nno recoverable base backup yet")
 				return nil

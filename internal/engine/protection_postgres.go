@@ -332,3 +332,53 @@ func (e *Engine) ReportDisabled(service string) {
 		"needs protection enabled again (`ob backup enable %s`), because the tooling and credentials that "+
 		"reach the repository live in the protected service", service)
 }
+
+// VerifyProtectionRuntime asks the target whether what is staged there is still
+// what Onebox expects.
+//
+// This is the drift question that matters, and it is asked of the target
+// directly: the binary that pushes the backups must be the one whose checksum
+// is pinned in this release, and the wrapper that gives it credentials must be
+// the one the project renders. A descriptor written beside them saying what they
+// ought to be would only be somewhere for the two to disagree.
+func (e *Engine) VerifyProtectionRuntime(ctx context.Context, service string) ([]string, error) {
+	n := e.names()
+	var issues []string
+
+	machine, err := e.targetMachine(ctx)
+	if err != nil {
+		return nil, err
+	}
+	_, expected, err := app.WalgAssetFor(machine)
+	if err != nil {
+		return nil, err
+	}
+	matches, err := e.fileHasChecksum(ctx, n.ProtectionBinaryFile(service), expected)
+	if err != nil {
+		return nil, err
+	}
+	if !matches {
+		issues = append(issues, fmt.Sprintf(
+			"the wal-g binary at %s is not the %s build this release pins; re-run `ob service apply` to replace it",
+			n.ProtectionBinaryFile(service), app.WalgVersion))
+	}
+
+	wrappers, err := e.Spec.RenderServiceProtectionWrappers(e.Opts.Environment)
+	if err != nil {
+		return nil, err
+	}
+	wanted, ok := wrappers[n.ProtectionWrapperFile(service)]
+	if !ok {
+		return issues, nil
+	}
+	res, err := e.T.Run(ctx, "cat "+q(n.ProtectionWrapperFile(service))+" 2>/dev/null || true")
+	if err != nil {
+		return nil, err
+	}
+	if res.Stdout != string(wanted) {
+		issues = append(issues, fmt.Sprintf(
+			"the credential wrapper at %s is not what this project renders; re-run `ob service apply` to replace it",
+			n.ProtectionWrapperFile(service)))
+	}
+	return issues, nil
+}

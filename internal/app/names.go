@@ -203,9 +203,20 @@ func (n Names) ProtectionRestoreVolume(service string) string {
 	return join("ob", n.App, service, "restore-stage")
 }
 
+// ProtectionTimerForEnvironment names a protection timer.
+//
+// The "ob-protection-" prefix keeps it out of the namespace SyncSchedules owns.
+// That is not cosmetic: the job scheduler treats every unit named "ob-<app>-*"
+// as its own and removes the ones no longer declared, so protection timers named
+// that way were deleted by the next deploy — every scheduled backup silently
+// stopped, and the only trace was a line in the deploy output saying the
+// schedule was "no longer declared".
 func (n Names) ProtectionTimerForEnvironment(environment, service, operation string) string {
-	return "ob-" + n.App + "-" + environment + "-" + service + "-" + operation + ".timer"
+	return ProtectionUnitPrefix + n.App + "-" + environment + "-" + service + "-" + operation + ".timer"
 }
+
+// ProtectionUnitPrefix is the systemd namespace protection owns outright.
+const ProtectionUnitPrefix = "ob-protection-"
 
 // Container is a workload's stable runtime slot. Container names are
 // host-global, so every one carries the application, component, and a

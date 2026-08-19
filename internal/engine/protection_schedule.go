@@ -45,7 +45,7 @@ import (
 // project no longer describes, and nothing in the project would explain why.
 func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 	n := e.names()
-	prefix := "ob-" + e.Spec.Spec.Name + "-" + e.Opts.Environment + "-"
+	prefix := app.ProtectionUnitPrefix + e.Spec.Spec.Name + "-" + e.Opts.Environment + "-"
 	// flock creates the lock file but not the directory holding it.
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/protection")); err != nil {
 		return err

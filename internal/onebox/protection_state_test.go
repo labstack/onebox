@@ -202,21 +202,14 @@ func TestProtectionDisableRejectsCompetingInFlightOperation(t *testing.T) {
 	}
 }
 
-func TestProtectionDisableRuntimeProjectionTreatsRetainedArtifactsAsDesired(t *testing.T) {
+// A service whose project intent has been removed but whose durable state is
+// disable-pending must still resolve to the projection it was enabled with.
+// Rendering depends on it: the server is still archiving to that repository, and
+// resolving from the edited project would point it somewhere its own history is
+// not.
+func TestProtectionDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T) {
 	pending, _, _, _ := pendingProtectionState(t)
 	projection := protectionStateProjection()
-	withIntent := &app.Resolved{
-		Spec: &app.Spec{
-			Name: "example", BasePath: "/var/lib/onebox",
-			Services:      map[string]app.Service{"database": {Driver: "postgres", Version: 17, Protection: &projection.Policy}},
-			BackupTargets: map[string]app.BackupTarget{"offsite": projection.Target},
-		},
-		Env: "production",
-	}
-	original, err := withIntent.GenerateProtectionArtifacts("database")
-	if err != nil {
-		t.Fatal(err)
-	}
 	withoutIntent := &app.Resolved{
 		Spec: &app.Spec{Name: "example", BasePath: "/var/lib/onebox", Services: map[string]app.Service{
 			"database": {Driver: "postgres", Version: 17},
@@ -227,16 +220,12 @@ func TestProtectionDisableRuntimeProjectionTreatsRetainedArtifactsAsDesired(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	desired, err := retained.GenerateProtectionArtifacts("database")
+	resolved, err := retained.EffectiveProtectionProjection("database")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("retained pending projection is unresolvable: %v", err)
 	}
-	observed := make(map[string]string, len(original.Artifacts))
-	for _, artifact := range original.Artifacts {
-		observed[artifact.Class] = artifact.Digest
-	}
-	if drift := app.CompareProtectionArtifacts(desired, observed); len(drift) != 0 {
-		t.Fatalf("retained pending projection reported drift: %#v", drift)
+	if resolved.Policy.Target != projection.Policy.Target || resolved.Target.Bucket != projection.Target.Bucket {
+		t.Fatalf("retained projection = %#v, want the one enablement recorded", resolved)
 	}
 }
 

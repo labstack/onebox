@@ -31,7 +31,10 @@ func (s *Service) ResolveExecutionBinding(ctx context.Context, kind OperationKin
 func operationUsesInspectionRuntime(kind OperationKind) bool {
 	switch kind {
 	case KindResume, KindAbort, KindRollback, KindBootstrap, KindServiceApply,
-		KindProxyApply, KindSecretsPush, KindDestroy:
+		KindProxyApply, KindSecretsPush, KindDestroy,
+		// Protection operates on a service's data, never on the application's
+		// release images, so a placeholder image must not stop a backup.
+		KindProtectionEnable, KindBackupCreate:
 		return true
 	default:
 		return false

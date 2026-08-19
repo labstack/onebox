@@ -284,3 +284,22 @@ func validateLifecycleCatalogue() error {
 	}
 	return nil
 }
+
+// ProtectedImageRepository is the derived image a driver runs under protection.
+// It is the repository only: the exact bytes are pinned at enablement from what
+// the host actually pulled, because a tag is not a pin and the image running
+// over a live data directory must not change because a tag moved.
+func ProtectedImageRepository(driverName string) (string, bool) {
+	capability, ok := lifecycleCapabilityFor(driverName)
+	if !ok {
+		return "", false
+	}
+	record := capability.Record()
+	if record.delivery != deliveryDerivedImage {
+		return "", false
+	}
+	return record.serviceArtifact.Repository, true
+}
+
+// VersionString renders a declared version for use in an image reference.
+func VersionString(version any) string { return versionString(version) }

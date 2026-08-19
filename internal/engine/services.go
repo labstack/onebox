@@ -81,6 +81,10 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Before anything starts that mounts it.
+	if err := e.writeProtectionConfigs(ctx); err != nil {
+		return err
+	}
 	if err := e.EnsureServiceConnections(ctx); err != nil {
 		return err
 	}

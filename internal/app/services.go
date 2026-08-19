@@ -307,7 +307,7 @@ func (p *Spec) serviceHasHealth(name string) bool {
 
 // renderService generates one service's Compose document. It is its own
 // project, so it survives every release of the application beside it.
-func (p *Spec) renderService(n Names, name string, s Service, selectedImage string) ([]byte, error) {
+func (p *Spec) renderService(n Names, name string, s Service, selectedImage string, protection *serviceProtection) ([]byte, error) {
 	key, d, ok := driverOf(name, s)
 	if !ok {
 		return nil, errf("unknown_service_driver", "services."+name, "", strings.Join([]string{
@@ -339,6 +339,13 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		"env_file": []string{n.ServiceSecretFile(name)},
 	}
 
+	// The protection credential file comes second so its entries are present
+	// alongside the service credential, not instead of it: Compose applies each
+	// env_file over the ones before it, and the two name disjoint variables.
+	if protection != nil {
+		svc["env_file"] = []string{n.ServiceSecretFile(name), protection.CredentialFile}
+	}
+
 	env := map[string]any{}
 	for k, v := range d.env {
 		env[k] = v
@@ -352,6 +359,32 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 
 	if err := applySettings(name, d, s, s.Settings, env, &command); err != nil {
 		return nil, err
+	}
+
+	// Protection is applied over authored settings rather than under them. The
+	// archive configuration is not a default a project may prefer differently:
+	// a server whose archive_mode an author turned back off would keep running
+	// while its recovery window silently stopped advancing.
+	if protection != nil {
+		// The entry *names* only. Values live in the mode-0600 credential file
+		// on the host and are read by the image's entrypoint, so no secret
+		// enters this document or its digest.
+		env["OB_S3_KEY_ENTRY"] = protection.KeyEntry
+		env["OB_S3_SECRET_ENTRY"] = protection.SecretEntry
+		if protection.SessionEntry != "" {
+			env["OB_S3_SESSION_TOKEN_ENTRY"] = protection.SessionEntry
+		}
+		if len(command) == 0 {
+			// The official entrypoint dispatches on argv[0], so the server has
+			// to be named again once this document supplies a command at all.
+			command = []string{"postgres"}
+		}
+		command = append(command,
+			"-c", "archive_mode=on",
+			"-c", "archive_command="+protection.ArchiveCommand,
+			"-c", "archive_timeout="+protection.ArchiveTimeout,
+			"-c", "wal_level=replica",
+		)
 	}
 	if len(env) > 0 {
 		svc["environment"] = env
@@ -370,7 +403,16 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 	if d.dataPath != "" && !serviceIsEphemeral(s) {
 		vol := dataVolume(s)
 		full := n.ServiceVolume(name, vol)
-		svc["volumes"] = []string{full + ":" + d.dataPath}
+		mounts := []string{full + ":" + d.dataPath}
+		if protection != nil {
+			// The directory, not the file — see ServiceProtectionConfigDir for
+			// why an atomically replaced file vanishes from a running
+			// container. Read-only, because a container that could rewrite its
+			// own configuration could point its repository somewhere the
+			// project never declared.
+			mounts = append(mounts, protection.ConfigHostDir+":"+PgBackRestConfDir+":ro")
+		}
+		svc["volumes"] = mounts
 		volumes[full] = map[string]any{
 			"name":   full,
 			"labels": map[string]any{"ob.app": p.Name, "ob.service": name},

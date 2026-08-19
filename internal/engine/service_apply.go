@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
@@ -93,6 +94,15 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, allowDestru
 			// per-release payload binds live under the releases tree and
 			// change every release by construction — not data
 			if strings.Contains(src[1], "/releases/") {
+				continue
+			}
+			// The generated protection configuration is mounted read-only and
+			// is regenerated from the project every apply. Treating it as data
+			// would make the first apply of every protected service demand
+			// --allow-destructive-mounts to detach a file Onebox wrote itself,
+			// which teaches operators to pass that flag by reflex — the exact
+			// habit it exists to prevent.
+			if strings.HasPrefix(src[1], path.Join(n.AppDir(), "protection", "config")+"/") {
 				continue
 			}
 			if !newSet[m] {

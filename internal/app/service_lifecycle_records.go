@@ -10,7 +10,7 @@ func buildLifecycleCapabilities() map[string]lifecycleCapability {
 			"postgres", true, "pitr", deliveryDerivedImage, repositoryNativeDirect, "archive-password", "pgbackrest", "5m",
 			"^17([.][0-9]+)*$", artifact("ghcr.io/labstack/onebox-postgres-pgbackrest", "postgres", '1'), nil,
 			[]lifecyclePrecondition{{Code: "archive-mode", Consistency: "physical-base-wal", Topology: "single-primary", RestartRequired: true}},
-			[]string{"POSTGRES_PASSWORD", "PGBACKREST_REPO_PASSWORD"}, []string{"data-volume", "wal-stream"},
+			[]string{"POSTGRES_PASSWORD", "OB_REPOSITORY_PASSPHRASE"}, []string{"data-volume", "wal-stream"},
 			lifecycleOperations{Backup: "pgbackrest-backup", Restore: "pgbackrest-restore", Verify: "pgbackrest-check"}),
 		"mysql": lifecycleRecord(
 			"mysql", false, "pitr", deliveryExternalHelper, repositoryArtifact, "client-side", "artifact", "5m",

@@ -184,3 +184,17 @@ func CompareProtectionArtifacts(desired ProtectionArtifactSet, observed map[stri
 	}
 	return drift
 }
+
+// EffectiveProtectionProjection is the policy and target a service is actually
+// protected by: its project intent normally, and the retained last-effective
+// projection while disablement is pending. Callers outside this package need it
+// to record what an enablement bound, so the record and the render can never
+// describe different repositories.
+func (r *Resolved) EffectiveProtectionProjection(serviceName string) (ProtectionEffectiveProjection, error) {
+	service, ok := r.Services[serviceName]
+	if !ok {
+		return ProtectionEffectiveProjection{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
+	}
+	projection, _, err := r.effectiveProtectionProjection(serviceName, service)
+	return projection, err
+}

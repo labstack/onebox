@@ -164,7 +164,7 @@ func (record lifecycleCapabilityRecord) validate() error {
 			return fmt.Errorf("lifecycle driver %q has no valid encryption mode for %q", record.driver, kind)
 		}
 	}
-	if !contains([]string{"pgbackrest", "pbm", "clickhouse-chain", "artifact", "snapshot"}, record.retentionMapping) {
+	if !contains([]string{"walg", "pgbackrest", "pbm", "clickhouse-chain", "artifact", "snapshot"}, record.retentionMapping) {
 		return fmt.Errorf("lifecycle driver %q has invalid native retention mapping", record.driver)
 	}
 	if _, err := PositiveDuration(record.achievableRPO); err != nil {

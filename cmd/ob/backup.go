@@ -58,27 +58,61 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	enableCmd.Flags().BoolVar(&enableBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(enableCmd)
 
-	var backupType string
 	var createBreakLock bool
 	createCmd := &cobra.Command{
 		Use:   "create <service>",
 		Short: "take a base backup now",
 		Long: "Take a base backup of a protected service.\n\n" +
-			"Retention counts full generations, so only --type full starts a new one; a\n" +
-			"diff or incr backup extends the newest full and is expired with it.\n\n" +
-			"WAL archiving runs continuously and is not this command: between backups the\n" +
-			"recoverable point keeps advancing on its own.",
+			"Every base backup is complete: the space between them is covered by the WAL\n" +
+			"stream rather than by differential backups, so there is no type to choose.\n\n" +
+			"WAL archiving runs continuously and is not this command. Between backups the\n" +
+			"recoverable point keeps advancing on its own; a base backup bounds how much\n" +
+			"WAL a recovery has to replay, and how far back the window reaches.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindBackupCreate, Service: args[0],
-				BackupType: backupType, BreakLock: createBreakLock,
+				Kind: onebox.KindBackupCreate, Service: args[0], BreakLock: createBreakLock,
 			}, "backup create")
 		},
 	}
-	createCmd.Flags().StringVar(&backupType, "type", "full", "full, diff, or incr")
 	createCmd.Flags().BoolVar(&createBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(createCmd)
+
+	var pruneBreakLock bool
+	pruneCmd := &cobra.Command{
+		Use:   "prune <service>",
+		Short: "expire backups outside the declared retention",
+		Long: "Expire everything the policy no longer promises to keep.\n\n" +
+			"Retention comes from services.<name>.protection.retention.minimum_generations,\n" +
+			"so this never removes more than the project says it may keep fewer of.\n\n" +
+			"WAL older than the oldest retained backup goes with it: WAL that cannot be\n" +
+			"replayed onto any surviving base backup recovers nothing and only costs storage.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindBackupPrune, Service: args[0], BreakLock: pruneBreakLock,
+			}, "backup prune")
+		},
+	}
+	pruneCmd.Flags().BoolVar(&pruneBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	backupCmd.AddCommand(pruneCmd)
+
+	verifyCmd := &cobra.Command{
+		Use:   "verify <service>",
+		Short: "prove the archived WAL forms an unbroken chain",
+		Long: "Check that the WAL in the repository is continuous.\n\n" +
+			"This is the check worth running on a schedule, and it is not implied by a\n" +
+			"backup that exited zero. A base backup with a gapped WAL stream recovers to\n" +
+			"the backup and no further — a nightly snapshot wearing the label of\n" +
+			"point-in-time recovery — and nothing else notices until someone needs it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindAssuranceCheck, Service: args[0],
+			}, "backup verify")
+		},
+	}
+	backupCmd.AddCommand(verifyCmd)
 
 	statusCmd := &cobra.Command{
 		Use:   "status <service>",
@@ -99,21 +133,17 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 				return encoder.Encode(status)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "service   %s\nstanza    %s\nstate     %s\n", status.Service, status.Stanza, status.State)
-			if status.ArchiveMin != "" {
-				fmt.Fprintf(out, "wal       %s .. %s\n", status.ArchiveMin, status.ArchiveMax)
-			}
+			fmt.Fprintf(out, "service     %s\nrepository  %s\n", status.Service, status.Repository)
 			if len(status.Generations) == 0 {
-				fmt.Fprintln(out, "\nno recoverable generation yet")
+				fmt.Fprintln(out, "\nno recoverable base backup yet")
 				return nil
 			}
-			fmt.Fprintln(out)
+			fmt.Fprintf(out, "recoverable to  %s or later, as far as the archived WAL reaches\n\n", status.RecoverableTo)
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "LABEL\tTYPE\tCOMPLETED\tWAL")
+			fmt.Fprintln(w, "BACKUP\tCOMPLETED\tFROM WAL")
 			for _, generation := range status.Generations {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s..%s\n", generation.Label, generation.Type,
-					time.Unix(generation.StoppedAt, 0).UTC().Format(time.RFC3339),
-					generation.WALStart, generation.WALStop)
+				fmt.Fprintf(w, "%s\t%s\t%s\n", generation.Label,
+					time.Unix(generation.StoppedAt, 0).UTC().Format(time.RFC3339), generation.WALStart)
 			}
 			return w.Flush()
 		},

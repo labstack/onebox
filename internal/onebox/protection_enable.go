@@ -11,17 +11,21 @@ import (
 
 // executeProtectionEnable turns a declared policy into an established one.
 //
-// The order is not a preference. PostgreSQL cannot archive to a stanza that
-// does not exist, and pgBackRest cannot create a stanza against a server that
-// is not already archiving — so the sequence is forced: check the credentials,
-// pin the image, record the state that makes rendering produce a protected
-// server, restart under it, then initialise the repository.
+// The order is forced: check the credentials, pin the image, record the state
+// that makes rendering produce a protected server, restart under it — which is
+// also what places the verified wal-g binary and turns archive_mode on — and
+// only then take the base backup the recovery window is measured from.
 //
-// It is not finished until a base backup exists. A stanza with no backup is a
-// repository that can recover nothing, and a command that returned success
-// there would be telling the operator their database is protected at the exact
-// moment it is not — which is the failure this whole product is arranged to
-// refuse.
+// Re-running it on an already-enabled service re-converges rather than
+// refusing: the runtime is re-staged, the server re-applied, and another base
+// backup taken. That is what an operator does after a partial failure, and
+// making it an error would only teach them to delete state by hand.
+//
+// It is not finished until a base backup exists. WAL archiving with no base
+// backup recovers nothing — there is no starting point to replay onto — so a
+// command that returned success there would be telling the operator their
+// database is protected at the exact moment it is not, which is the failure
+// this whole product is arranged to refuse.
 func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *app.Resolved, environment, service, operationID string) error {
 	if service == "" {
 		return fmt.Errorf("protection enable requires a service name")
@@ -54,7 +58,7 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// already running with archive_mode on is a database whose WAL cannot
 	// drain, which is a much worse place to learn it.
 	if err := e.VerifyProtectionCredentials(ctx, service, declared.Protection.Target,
-		app.PgBackRestCredentialEntries(projection.Target)); err != nil {
+		app.WalgCredentialEntries(projection.Target)); err != nil {
 		return err
 	}
 
@@ -67,13 +71,26 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// starting a new one. The epoch is a fence: reusing or lowering it would let
 	// an operation launched against the old state still be accepted, which is
 	// precisely what the fence exists to prevent.
+	// Staged before anything durable claims the service is protected. A failure
+	// here — an unreachable release, a checksum that does not match, a host
+	// architecture with no verified build — must leave the service exactly as
+	// it was, not recorded as enabled with no binary to archive with. The
+	// earlier ordering did the opposite, and a single failed enablement left a
+	// state that refused every retry.
+	if err := e.StageProtectionRuntime(ctx, service, app.RenderWalgWrapper(projection.Target)); err != nil {
+		return fmt.Errorf("service %s: cannot place its protection runtime: %w", service, err)
+	}
+
 	current, err := currentProtectionLifecycleState(ctx, e, resolved.Spec.Name, environment, service)
 	if err != nil {
 		return err
 	}
-	next, err := EnableProtection(current, projection, image, operationID, true, current.Epoch+1)
-	if err != nil {
-		return err
+	next := current
+	if current.State != ProtectionEnabled {
+		next, err = EnableProtection(current, projection, image, operationID, true, current.Epoch+1)
+		if err != nil {
+			return err
+		}
 	}
 	body, err := encodeProtectionLifecycleState(next)
 	if err != nil {
@@ -90,13 +107,13 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	if err := e.RebindServiceRuntimeStates(map[string]app.ServiceRuntimeState{service: runtime}); err != nil {
 		return err
 	}
+	// ApplyServices stages the verified wal-g binary and the generated wrapper
+	// before starting anything that mounts them, then restarts the server with
+	// archive_mode on.
 	if err := e.ApplyServices(ctx); err != nil {
 		return fmt.Errorf("service %s could not restart under protection: %w", service, err)
 	}
-	if err := e.CreateProtectionStanza(ctx, service); err != nil {
-		return err
-	}
-	return e.BackupService(ctx, service, "full")
+	return e.BackupService(ctx, service)
 }
 
 // encodeProtectionLifecycleState renders a validated record as the single JSON

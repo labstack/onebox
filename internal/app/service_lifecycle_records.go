@@ -6,12 +6,18 @@ var lifecycleCapabilities = buildLifecycleCapabilities()
 
 func buildLifecycleCapabilities() map[string]lifecycleCapability {
 	return map[string]lifecycleCapability{
+		// The service image is the official upstream one, unmodified. wal-g is
+		// the helper, staged onto the host as a verified binary and mounted in
+		// beside it — so this is external-helper delivery even though nothing
+		// runs in a second container. Its provenance is exact: the digest is
+		// the SHA-256 of the release asset, checked before the binary is ever
+		// placed on a host.
 		"postgres": lifecycleRecord(
-			"postgres", true, "pitr", deliveryDerivedImage, repositoryNativeDirect, "archive-password", "pgbackrest", "5m",
-			"^17([.][0-9]+)*$", artifact("ghcr.io/labstack/onebox-postgres-pgbackrest", "postgres", '1'), nil,
+			"postgres", true, "pitr", deliveryExternalHelper, repositoryNativeDirect, "client-side", "walg", "5m",
+			"^1[78]([.][0-9]+)*$", artifact("postgres", "postgres", '1'), walgHelperArtifact(),
 			[]lifecyclePrecondition{{Code: "archive-mode", Consistency: "physical-base-wal", Topology: "single-primary", RestartRequired: true}},
-			[]string{"POSTGRES_PASSWORD", "OB_REPOSITORY_PASSPHRASE"}, []string{"data-volume", "wal-stream"},
-			lifecycleOperations{Backup: "pgbackrest-backup", Restore: "pgbackrest-restore", Verify: "pgbackrest-check"}),
+			[]string{"POSTGRES_PASSWORD", WalgRepositoryKeyEntry}, []string{"data-volume", "wal-stream"},
+			lifecycleOperations{Backup: "walg-backup-push", Restore: "walg-backup-fetch", Verify: "walg-wal-verify"}),
 		"mysql": lifecycleRecord(
 			"mysql", false, "pitr", deliveryExternalHelper, repositoryArtifact, "client-side", "artifact", "5m",
 			"^8[.](0|4)([.][0-9]+)*$", artifact("mysql", "mysql", '2'), helperArtifact("percona/percona-xtrabackup", "xtrabackup", '3'),
@@ -132,4 +138,26 @@ func nextHex(seed byte) byte {
 		return '0'
 	}
 	return digits[(index+1)%len(digits)]
+}
+
+// walgHelperArtifact is the pinned wal-g release. Unlike every other provenance
+// record here it carries a real digest rather than a placeholder: it is the
+// checksum StageProtectionRuntime verifies the download against, so a wrong
+// value fails the enablement instead of merely describing it wrongly.
+//
+// amd64 is named because a provenance record identifies one artifact and the
+// release publishes one per architecture; the checksum actually enforced is
+// chosen by the target's own reported architecture.
+func walgHelperArtifact() *lifecycleArtifactProvenance {
+	asset, digest, err := WalgAssetFor("x86_64")
+	if err != nil {
+		panic("wal-g provenance is missing its amd64 checksum: " + err.Error())
+	}
+	return &lifecycleArtifactProvenance{
+		Repository:     "github.com/wal-g/wal-g",
+		Digest:         "sha256:" + digest,
+		UpstreamDigest: "sha256:" + digest,
+		SBOMDigest:     "sha256:" + digest,
+		ProvenanceID:   "wal-g/" + WalgVersion + "/" + asset,
+	}
 }

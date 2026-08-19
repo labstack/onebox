@@ -144,7 +144,7 @@ func TestProtectionIntentRefusals(t *testing.T) {
 		},
 		{
 			name: "author selects backup tool",
-			yaml: strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: pgbackrest\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1),
 			code: "unknown_field",
 		},
 		{

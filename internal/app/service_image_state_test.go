@@ -84,7 +84,7 @@ func TestUnprotectedServiceKeepsTagRenderingOffline(t *testing.T) {
 }
 
 func TestProtectedServiceRenderingUsesDurableDigestNotPolicyOrMovedTag(t *testing.T) {
-	image := pinnedServiceImage("ghcr.io/labstack/onebox-postgres-pgbackrest", 'a')
+	image := pinnedServiceImage("postgres", 'a')
 	state := ServiceRuntimeState{
 		ProtectionState: "enabled", ServiceImage: image, LastEffective: protectionTestProjection(),
 		PublicationVerified: true, DigestAvailable: true,

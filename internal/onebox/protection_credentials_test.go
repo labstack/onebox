@@ -32,7 +32,7 @@ func TestProtectionSecretSlotsContainReferencesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve protection slots: %v", err)
 	}
-	wantEntries := []string{"BACKUP_ACCESS_KEY_ID", "BACKUP_SECRET_ACCESS_KEY", "OB_REPOSITORY_PASSPHRASE", "POSTGRES_PASSWORD"}
+	wantEntries := []string{"BACKUP_ACCESS_KEY_ID", "BACKUP_SECRET_ACCESS_KEY", "OB_REPOSITORY_KEY", "POSTGRES_PASSWORD"}
 	if len(slots) != len(wantEntries) {
 		t.Fatalf("slots = %#v", slots)
 	}

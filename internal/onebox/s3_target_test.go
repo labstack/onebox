@@ -41,7 +41,7 @@ func successfulS3Observation() S3TargetProbeObservation {
 		EndpointHost: "objects.example.net", EndpointAddresses: []string{"198.51.100.24"},
 		FailureDomainIdentity: "provider-a/us-east-1/account-42",
 		Reachable:             true, Authorized: true, BucketPresent: true, TLSVerified: true, OffHost: true,
-		EncryptionMode: "archive-password", EncryptionEvidenceID: "pgbackrest-repo-cipher-aes-256-cbc",
+		EncryptionMode: "archive-password", EncryptionEvidenceID: "walg-libsodium-secretbox",
 		ProbeEvidenceID: "s3-probe-20260807T120000Z",
 	}
 }

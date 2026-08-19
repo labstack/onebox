@@ -142,7 +142,7 @@ func conformanceCases() []conformanceCase {
 		{"service protection policy", validProtectionProject, true},
 		{"external service connection", validExternalServiceProject, true},
 		{"protection inline secret", strings.Replace(validProtectionProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext\n", 1), false},
-		{"protection authored tool", strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: pgbackrest\n", 1), false},
+		{"protection authored tool", strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1), false},
 		{"protection self target", strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
 		{"protection unsupported objective", strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
 		{"protection unsupported retention", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {minimum_generations: 0, recovery_window: 7d}\n", 1), false},

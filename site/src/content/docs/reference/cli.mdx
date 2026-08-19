@@ -180,7 +180,9 @@ Usage:
 Available Commands:
   create      take a base backup now
   enable      establish protection — restarts the service, creates the stanza, takes the first backup
+  prune       expire backups outside the declared retention
   status      what the repository can recover, read from the repository
+  verify      prove the archived WAL forms an unbroken chain
 
 Flags:
   -h, --help   help for backup
@@ -199,19 +201,19 @@ Use "ob backup [command] --help" for more information about a command.
 ```
 Take a base backup of a protected service.
 
-Retention counts full generations, so only --type full starts a new one; a
-diff or incr backup extends the newest full and is expired with it.
+Every base backup is complete: the space between them is covered by the WAL
+stream rather than by differential backups, so there is no type to choose.
 
-WAL archiving runs continuously and is not this command: between backups the
-recoverable point keeps advancing on its own.
+WAL archiving runs continuously and is not this command. Between backups the
+recoverable point keeps advancing on its own; a base backup bounds how much
+WAL a recovery has to replay, and how far back the window reaches.
 
 Usage:
   ob backup create <service> [flags]
 
 Flags:
-      --break-lock    break a stale operation lock after inspecting its holder
-  -h, --help          help for create
-      --type string   full, diff, or incr (default "full")
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for create
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")
@@ -248,6 +250,31 @@ Global Flags:
   -v, --verbose         print every remote command
 ```
 
+### ob backup prune
+
+```
+Expire everything the policy no longer promises to keep.
+
+Retention comes from services.<name>.protection.retention.minimum_generations,
+so this never removes more than the project says it may keep fewer of.
+
+WAL older than the oldest retained backup goes with it: WAL that cannot be
+replayed onto any surviving base backup recovers nothing and only costs storage.
+
+Usage:
+  ob backup prune <service> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for prune
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
 ### ob backup status
 
 ```
@@ -262,6 +289,29 @@ Usage:
 
 Flags:
   -h, --help   help for status
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup verify
+
+```
+Check that the WAL in the repository is continuous.
+
+This is the check worth running on a schedule, and it is not implied by a
+backup that exited zero. A base backup with a gapped WAL stream recovers to
+the backup and no further — a nightly snapshot wearing the label of
+point-in-time recovery — and nothing else notices until someone needs it.
+
+Usage:
+  ob backup verify <service> [flags]
+
+Flags:
+  -h, --help   help for verify
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

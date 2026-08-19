@@ -86,30 +86,34 @@ func (n Names) ServiceFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".yaml")
 }
 
-// ServiceProtectionConfigDir holds the generated protection configuration for
-// one service, and holds nothing else.
+// ProtectionRuntimeDir holds what a protected service needs at run time: the
+// verified wal-g binary and the generated wrapper that puts its credentials in
+// scope. The whole directory is mounted read-only into the container.
 //
-// A directory rather than a file beside the Compose document, and that is not
-// tidiness. Onebox replaces generated files atomically, by writing a temporary
-// file and renaming it over the target — which gives the path a new inode. A
-// Docker bind-mount of a *file* is bound to the inode, so an atomically
-// replaced file silently disappears from inside the running container: the
-// mount still points at the inode that was unlinked. Mounting the directory
-// keeps the mount stable across replacement, so a configuration change is
-// visible to the next pgBackRest invocation instead of never.
+// A directory rather than two file mounts, and that is not tidiness. Onebox
+// replaces generated files atomically, by writing a temporary file and renaming
+// it over the target — which gives the path a new inode. A Docker bind-mount of
+// a *file* is bound to the inode, so an atomically replaced file silently
+// disappears from inside the running container: the mount still points at the
+// inode that was unlinked. Mounting the directory keeps the mount stable.
 //
-// It is also why this is not under protection/secrets: the whole directory is
-// mounted into the container, and it holds no secret precisely so that is safe.
-// Every credential reaches the container through the environment instead.
-func (n Names) ServiceProtectionConfigDir(service string) string {
-	return path.Join(n.AppDir(), "protection", "config", service)
+// It is keyed by wal-g version, so upgrading the pinned version changes the
+// mount path and the container is recreated onto the new binary rather than
+// having it swapped underneath a running server.
+func (n Names) ProtectionRuntimeDir(service string) string {
+	return path.Join(n.AppDir(), "protection", "runtime", service, WalgVersion)
 }
 
-// ServiceProtectionConfigFile is the generated configuration itself. The name
-// is pgBackRest's default, so the container needs no option naming it and the
-// server's archive_command stays a bare invocation.
-func (n Names) ServiceProtectionConfigFile(service string) string {
-	return path.Join(n.ServiceProtectionConfigDir(service), "pgbackrest.conf")
+// ProtectionBinaryFile is the verified wal-g binary on the target.
+func (n Names) ProtectionBinaryFile(service string) string {
+	return path.Join(n.ProtectionRuntimeDir(service), "wal-g")
+}
+
+// ProtectionWrapperFile is the generated credential wrapper. It sits beside the
+// binary and holds no secret: it names the credential entries and reads their
+// values from the environment.
+func (n Names) ProtectionWrapperFile(service string) string {
+	return path.Join(n.ProtectionRuntimeDir(service), "ob-wal-g")
 }
 
 // ServiceSecretFile holds the credential Onebox generates on the target. It is

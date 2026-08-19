@@ -81,9 +81,20 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Before anything starts that mounts it.
-	if err := e.writeProtectionConfigs(ctx); err != nil {
+	// Before anything starts that mounts them. Protected services only; this
+	// is a no-op for every service that is not.
+	wrappers, err := e.Spec.RenderServiceProtectionWrappers(e.Opts.Environment)
+	if err != nil {
 		return err
+	}
+	staging := e.Spec.NamesFor(e.Opts.Environment)
+	for _, name := range names {
+		if !e.Spec.ServiceIsProtected(name) {
+			continue
+		}
+		if err := e.StageProtectionRuntime(ctx, name, wrappers[staging.ProtectionWrapperFile(name)]); err != nil {
+			return fmt.Errorf("service %s: cannot place its protection runtime: %w", name, err)
+		}
 	}
 	if err := e.EnsureServiceConnections(ctx); err != nil {
 		return err

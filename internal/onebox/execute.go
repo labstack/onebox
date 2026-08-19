@@ -179,7 +179,13 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		err = executeProtectionEnable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
 	case KindBackupCreate:
 		result.EvidenceID = operationID
-		err = e.BackupService(ctx, request.Service, request.BackupType)
+		err = e.BackupService(ctx, request.Service)
+	case KindBackupPrune:
+		result.EvidenceID = operationID
+		err = e.PruneServiceBackups(ctx, request.Service)
+	case KindAssuranceCheck:
+		result.EvidenceID = operationID
+		err = e.VerifyServiceArchive(ctx, request.Service)
 	case KindProxyApply:
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID)

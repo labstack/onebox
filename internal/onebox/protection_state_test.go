@@ -38,7 +38,7 @@ func pendingProtectionState(t *testing.T) (ProtectionLifecycleState, ProtectionD
 	if err != nil {
 		t.Fatal(err)
 	}
-	image := "ghcr.io/labstack/onebox-postgres-pgbackrest@sha256:" + strings.Repeat("a", 64)
+	image := "postgres@sha256:" + strings.Repeat("a", 64)
 	enabled, err := EnableProtection(initial, protectionStateProjection(), image, "enable-op", true, 2)
 	if err != nil {
 		t.Fatal(err)

@@ -504,6 +504,8 @@ func TestLeafOutputMatrixIsClosedAndHasNoAliases(t *testing.T) {
 		"ob job plan":      {Class: "finite_envelope", JSON: true},
 		"ob backup create": {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob backup enable": {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob backup prune":  {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob backup verify": {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob backup status": {Class: "finite_envelope", JSON: true},
 		"ob job run":       {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob logs":          {Class: "operator_passthrough", JSON: true, NDJSON: true},

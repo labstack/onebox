@@ -179,8 +179,10 @@ Usage:
 
 Available Commands:
   create      take a base backup now
+  drill       prove the repository recovers, without touching anything
   enable      establish protection — restarts the service, creates the stanza, takes the first backup
   prune       expire backups outside the declared retention
+  restore     recover to a point in time and put it in service
   status      what the repository can recover, read from the repository
   verify      prove the archived WAL forms an unbroken chain
 
@@ -214,6 +216,32 @@ Usage:
 Flags:
       --break-lock   break a stale operation lock after inspecting its holder
   -h, --help         help for create
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup drill
+
+```
+Recover into a throwaway volume, prove the cluster opens and answers, then
+discard it. The live service is never touched.
+
+This runs the same code as `ob backup restore` and stops before the last
+step, which is the point: a drill that exercised a different path would
+prove the drill works rather than that the backups do.
+
+A backup nobody has restored is a hypothesis.
+
+Usage:
+  ob backup drill <service> [flags]
+
+Flags:
+  -h, --help        help for drill
+      --to string   RFC 3339 point in time to prove recoverable (default: the newest recoverable point)
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")
@@ -267,6 +295,39 @@ Usage:
 Flags:
       --break-lock   break a stale operation lock after inspecting its holder
   -h, --help         help for prune
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup restore
+
+```
+Recover a protected service from its repository.
+
+The recovered cluster is always built beside the live one, never over it:
+the base backup is fetched into a fresh volume, WAL is replayed to the
+requested point, and the result has to start and answer a query before
+anything touches the running database. A repository that cannot recover
+fails while the database it would have replaced is still serving.
+
+The data being replaced is copied aside first, under a dated volume name,
+and never deleted. A restore is run on a day that is already going badly;
+it must not be the step that makes it unrecoverable.
+
+Without --to, recovery goes to the newest recoverable point.
+
+Usage:
+  ob backup restore <service> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for restore
+      --to string    RFC 3339 point in time to recover to (default: the newest recoverable point)
+      --yes          confirm that the live data may be replaced
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

@@ -34,7 +34,8 @@ func operationUsesInspectionRuntime(kind OperationKind) bool {
 		KindProxyApply, KindSecretsPush, KindDestroy,
 		// Protection operates on a service's data, never on the application's
 		// release images, so a placeholder image must not stop a backup.
-		KindProtectionEnable, KindBackupCreate, KindBackupPrune, KindAssuranceCheck:
+		KindProtectionEnable, KindBackupCreate, KindBackupPrune, KindAssuranceCheck,
+		KindRestoreTest, KindRestoreCutover:
 		return true
 	default:
 		return false

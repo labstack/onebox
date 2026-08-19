@@ -27,6 +27,7 @@ type ProtectionStatus struct {
 	Service       string             `json:"service"`
 	Repository    string             `json:"repository"`
 	Generations   []BackupGeneration `json:"generations"`
+	RuntimeIssues []string           `json:"runtime_issues,omitempty"`
 	LatestBackup  *BackupGeneration  `json:"latest_backup,omitempty"`
 	RecoverableTo string             `json:"recoverable_to,omitempty"`
 }
@@ -277,6 +278,12 @@ func (e *Engine) ProtectionStatusFor(ctx context.Context, service string) (Prote
 		Service:    service,
 		Repository: app.WalgPrefix(target, e.Spec.Spec.Name, service),
 	}
+
+	issues, err := e.VerifyProtectionRuntime(ctx, service)
+	if err != nil {
+		return status, err
+	}
+	status.RuntimeIssues = issues
 
 	out, err := e.runWalg(ctx, service, "backup-list", "--detail", "--json")
 	if err != nil {

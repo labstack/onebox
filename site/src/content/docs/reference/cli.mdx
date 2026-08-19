@@ -246,8 +246,8 @@ Usage:
   ob backup disable <service> [flags]
 
 Flags:
-  -h, --help   help for disable
-      --yes    confirm that archiving may stop
+      --confirm string   name of the service whose archiving may stop
+  -h, --help             help for disable
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")
@@ -352,14 +352,19 @@ it must not be the step that makes it unrecoverable.
 
 Without --to, recovery goes to the newest recoverable point.
 
+The service name has to be typed back with --confirm. Onebox's approval flow
+binds a recorded confirmation to an exact plan, and a recovery has no plan to
+bind to — so the guard is the name of the thing being replaced, which cannot
+be given by accident or by a shell history entry meant for another service.
+
 Usage:
   ob backup restore <service> [flags]
 
 Flags:
-      --break-lock   break a stale operation lock after inspecting its holder
-  -h, --help         help for restore
-      --to string    RFC 3339 point in time to recover to (default: the newest recoverable point)
-      --yes          confirm that the live data may be replaced
+      --break-lock       break a stale operation lock after inspecting its holder
+      --confirm string   name of the service whose live data may be replaced
+  -h, --help             help for restore
+      --to string        RFC 3339 point in time to recover to (default: the newest recoverable point)
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

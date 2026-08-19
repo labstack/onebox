@@ -437,11 +437,17 @@ func applySettings(name string, d driver, s Service, settings map[string]any, en
 	// command: appending produced `--appendonly yes --appendonly no` for an
 	// author who set the flag the driver had already fixed.
 	effective := map[string]any{}
-	mode := "durable"
-	if s.Persistence != nil && s.Persistence.Mode != "" {
-		mode = s.Persistence.Mode
+	// Only ephemeral turns persistence off. Every other mode — durable,
+	// external, and any mode added later — keeps the durable options, because a
+	// mode this table does not know about must not silently disable a server's
+	// persistence. `external` is exactly that case: it means the operator covers
+	// this data, and reading it as "no options" rendered a durable volume with
+	// the append-only log switched off.
+	options := d.persistenceOptions["durable"]
+	if serviceIsEphemeral(s) {
+		options = d.persistenceOptions["ephemeral"]
 	}
-	for k, v := range d.persistenceOptions[mode] {
+	for k, v := range options {
 		effective[k] = v
 	}
 	for k, v := range settings {

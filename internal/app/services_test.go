@@ -478,3 +478,27 @@ services:
 		t.Fatalf("a driver setting overrode the declared data lifetime:\n%s", doc)
 	}
 }
+
+// Only ephemeral turns persistence off. `external` means the operator covers
+// this data, and a mode table that did not know the word rendered a durable
+// volume with the append-only log silently switched off — a durability
+// downgrade on the one mode that says the data matters.
+func TestOnlyEphemeralDisablesServerPersistence(t *testing.T) {
+	for _, mode := range []string{"durable", "external"} {
+		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
+			"services:\n  redis: {version: 8-alpine, persistence: {mode: "+mode+"}}\n")
+		doc := string(rendered["redis"])
+		if !strings.Contains(doc, `--appendonly "yes"`) {
+			t.Fatalf("mode %q disabled the append-only log:\n%s", mode, doc)
+		}
+		if !strings.Contains(doc, "_redis_data") {
+			t.Fatalf("mode %q lost its volume:\n%s", mode, doc)
+		}
+	}
+	// Every value the grammar permits is covered above or by the ephemeral
+	// tests, so a new mode cannot be added without this failing.
+	if len(ePersistence) != 3 {
+		t.Fatalf("persistence modes changed to %v; extend these tests before shipping", ePersistence)
+	}
+}

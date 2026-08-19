@@ -516,10 +516,31 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 			})
 		}
 	}
+	// A service that declares protection is not the same as one that does not,
+	// and this said otherwise for both — it warned that "Onebox takes no
+	// backups yet" over a database archiving to an off-host repository. A
+	// doctor that reports a healthy thing as broken is a doctor people stop
+	// reading.
+	//
+	// What it still cannot say is whether protection was ever *enabled*: that
+	// is durable state on the target and this check is local. So a declared
+	// policy is reported as declared, and the operator is pointed at the one
+	// command that reads the repository itself.
 	for _, name := range cfg.ServiceNames() {
+		service := cfg.Services[name]
+		if service.Protection == nil {
+			report.Checks = append(report.Checks, doctorProtectionCheck{
+				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
+				Message: "managed service data lives only on this host; declare services." + name +
+					".protection to copy it off, or accept that one disk is all there is",
+			})
+			continue
+		}
 		report.Checks = append(report.Checks, doctorProtectionCheck{
-			Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
-			Message: "managed service data lives only on this host; Onebox takes no backups yet",
+			Status: doctorPass, Workload: name, Mechanism: "backup", Available: true,
+			Message: "declares " + service.Protection.RecoveryKind + " protection to target " +
+				service.Protection.Target + "; run `ob backup status " + name +
+				"` to see what the repository can actually recover",
 		})
 	}
 

@@ -336,3 +336,58 @@ func TestCredentialWritesAreAtomic(t *testing.T) {
 		t.Errorf("script still truncates a live file in place:\n%s", script)
 	}
 }
+
+// Redis answers PONG while refusing every write when a background save has
+// failed and stop-writes-on-bgsave-error is enabled — its own default. A
+// connection-only probe therefore reports the service healthy exactly when the
+// behaviour callers depend on is unavailable, and a health-gated rollout
+// converges onto a dependency that cannot store anything.
+func TestRedisFamilyHealthChecksProveAWrite(t *testing.T) {
+	rendered := renderServices(t, `api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1}
+services:
+  redis: {version: 8-alpine}
+  valkey: {version: 8-alpine}
+`)
+	for _, driver := range []string{"redis", "valkey"} {
+		doc := string(rendered[driver])
+		if !strings.Contains(doc, "set ob:health") {
+			t.Fatalf("%s health check does not write:\n%s", driver, doc)
+		}
+		// A PING-only probe is the regression this guards.
+		if strings.Contains(doc, "ping | grep") {
+			t.Fatalf("%s health check regressed to a connection-only ping:\n%s", driver, doc)
+		}
+		// Bounded, so the probe cannot accumulate keys.
+		if !strings.Contains(doc, "EX 30") {
+			t.Fatalf("%s health-check key has no TTL:\n%s", driver, doc)
+		}
+		// The generated credential still reaches the container unexpanded on the
+		// host: Compose reads `$$` and passes `$`.
+		if !strings.Contains(doc, `-a "$$REDIS_PASSWORD"`) {
+			t.Fatalf("%s health check lost its escaped credential reference:\n%s", driver, doc)
+		}
+		// No bare `$` of our own, which Compose would interpolate away.
+		probe := doc[strings.Index(doc, driver+"-cli"):]
+		probe = probe[:strings.Index(probe, "\n")]
+		if strings.Count(probe, "$")-strings.Count(probe, "$$")*2 != 0 {
+			t.Fatalf("%s health check carries an unescaped dollar: %s", driver, probe)
+		}
+	}
+}
+
+func renderServices(t *testing.T, src string) map[string][]byte {
+	t.Helper()
+	spec, err := LoadBytes([]byte(src), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := spec.Render("production", "rel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r.Services
+}

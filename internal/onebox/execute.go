@@ -176,7 +176,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		// not finish until the first base backup exists, because a stanza with
 		// no backup is a repository that can recover nothing.
 		result.EvidenceID = operationID
-		err = executeProtectionEnable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
+		err = executeProtectionEnable(ctx, e, lp.resolved, lp.configPath, s.environment, request.Service, operationID)
 	case KindBackupCreate:
 		result.EvidenceID = operationID
 		err = e.BackupService(ctx, request.Service)

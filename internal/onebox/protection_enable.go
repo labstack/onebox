@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/secrets"
 )
 
 // executeProtectionEnable turns a declared policy into an established one.
@@ -26,10 +28,29 @@ import (
 // command that returned success there would be telling the operator their
 // database is protected at the exact moment it is not, which is the failure
 // this whole product is arranged to refuse.
-func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *app.Resolved, environment, service, operationID string) error {
+func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *app.Resolved, configPath, environment, service, operationID string) error {
 	if service == "" {
 		return fmt.Errorf("protection enable requires a service name")
 	}
+	if err := e.RequireHostOwner(ctx); err != nil {
+		return err
+	}
+	// The application lock, taken here for the same reason every other mutation
+	// takes one: this restarts a database. ApplyServices does not take it — the
+	// engine's own ServiceApply does, and enablement drives ApplyServices
+	// directly — so without this a deploy and an enablement could interleave on
+	// the same service.
+	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
+	if err != nil {
+		return err
+	}
+	defer e.ReleaseLock(ctx)
+	if err := e.WriteFence(ctx, operationID, epoch); err != nil {
+		return err
+	}
+	stopAppHeartbeat := e.StartHeartbeat(ctx)
+	defer stopAppHeartbeat()
+
 	declared, ok := resolved.Services[service]
 	if !ok {
 		return fmt.Errorf("service %s is not declared in this project", service)
@@ -54,11 +75,40 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 		return fmt.Errorf("service %s runs a %s version with no qualified protection contract", service, driver)
 	}
 
-	// Before anything restarts. A missing entry discovered after the server is
-	// already running with archive_mode on is a database whose WAL cannot
-	// drain, which is a much worse place to learn it.
-	if err := e.VerifyProtectionCredentials(ctx, service, declared.Protection.Target,
-		app.WalgCredentialEntries(projection.Target)); err != nil {
+	// The credential file is installed here, not assumed to be present.
+	//
+	// It was previously the operator's job, and the error message told them to
+	// "stage it through the trusted secret flow" — a flow that does not reach
+	// protection credentials, so the instruction pointed at nothing. Onebox
+	// already knows which encrypted file the target names and already has the
+	// machinery to place a mode-0600 file under the service lock, so it does.
+	//
+	// Decrypted and checked on this machine before any of it crosses to the
+	// target: a missing entry discovered after the server has restarted with
+	// archive_mode on is a database whose WAL cannot drain, which is a far
+	// worse place to learn it.
+	plaintext, err := secrets.RenderContext(ctx, filepath.Dir(configPath), projection.Target.Credentials.File)
+	if err != nil {
+		return fmt.Errorf("decrypt the backup credentials for service %s: %w", service, err)
+	}
+	if err := app.ValidateWalgCredentials(plaintext, projection.Target); err != nil {
+		return err
+	}
+	// The install is a protection mutation, so it needs the service lock as
+	// well as the application lock. Taking it here also closes a gap that had
+	// nothing to do with credentials: enablement restarts a database and took
+	// no per-service lock at all, so two of them could interleave.
+	if _, err := e.AcquireProtectionLock(ctx, service, operationID, 0); err != nil {
+		return err
+	}
+	defer e.ReleaseProtectionLock(service)
+	stopHeartbeat, err := e.StartProtectionHeartbeat(ctx, service)
+	if err != nil {
+		return err
+	}
+	defer stopHeartbeat()
+	if _, err := e.InstallProtectionCredentialFile(ctx, service, declared.Protection.Target,
+		app.WalgCredentialEntries(projection.Target), plaintext); err != nil {
 		return err
 	}
 

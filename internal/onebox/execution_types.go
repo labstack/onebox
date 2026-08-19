@@ -294,13 +294,18 @@ type ExecuteRequest struct {
 	MigrationBackupOverride *MigrationBackupOverride
 	BreakLock               bool
 	AllowDestructiveMounts  bool
-	BreakMigrationGate      bool
-	NoRollback              bool
-	Redeploy                bool
-	RemoveVolumes           bool
-	RemoveProxy             bool
-	ExpectedBinding         *ExecutionBinding
-	Events                  EventSink
+	// Service and BackupType carry the protection operations' one argument
+	// each. They are inputs to a mutation rather than a plan, because a backup
+	// stages nothing into a release and has nothing to roll back.
+	Service            string
+	BackupType         string
+	BreakMigrationGate bool
+	NoRollback         bool
+	Redeploy           bool
+	RemoveVolumes      bool
+	RemoveProxy        bool
+	ExpectedBinding    *ExecutionBinding
+	Events             EventSink
 }
 
 // Validate rejects ambiguous plans, mismatched operation kinds, and safety or

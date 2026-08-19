@@ -9,12 +9,42 @@ import (
 func serviceImageTestResolved(withPolicy bool) *Resolved {
 	service := Service{Driver: "postgres", Version: 17}
 	if withPolicy {
-		service.Protection = &ProtectionPolicy{Target: "offsite"}
+		service.Protection = protectionTestPolicy()
 	}
 	return &Resolved{
-		Spec: &Spec{Name: "example", BasePath: "/var/lib/ob", Services: map[string]Service{"database": service}},
-		Env:  "production",
+		Spec: &Spec{
+			Name: "example", BasePath: "/var/lib/ob",
+			Services:      map[string]Service{"database": service},
+			BackupTargets: map[string]BackupTarget{"offsite": protectionTestTarget()},
+		},
+		Env: "production",
 	}
+}
+
+func protectionTestPolicy() *ProtectionPolicy {
+	return &ProtectionPolicy{
+		Target: "offsite", RecoveryKind: "pitr", MaximumDataLoss: "15m",
+		Retention: ProtectionRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
+	}
+}
+
+func protectionTestTarget() BackupTarget {
+	return BackupTarget{
+		Kind: "s3-compatible", Endpoint: "https://objects.example.net",
+		Bucket: "onebox-backups", Prefix: "production/example", Region: "us-east-1", TLS: "required",
+		Credentials: CredentialReference{
+			File: "secrets/backup.env", Provider: "sops",
+			AccessKeyEntry: "BACKUP_ACCESS_KEY_ID", SecretKeyEntry: "BACKUP_SECRET_ACCESS_KEY",
+		},
+		Encryption: TargetEncryption{PITR: "archive-password"},
+	}
+}
+
+// protectionTestProjection is what enablement records. A runtime state that
+// says "enabled" without one describes a service that is archiving somewhere
+// nothing can name, which is not a state enablement can produce.
+func protectionTestProjection() *ProtectionEffectiveProjection {
+	return &ProtectionEffectiveProjection{Policy: *protectionTestPolicy(), Target: protectionTestTarget()}
 }
 
 func pinnedServiceImage(repository string, digit byte) string {
@@ -56,7 +86,7 @@ func TestUnprotectedServiceKeepsTagRenderingOffline(t *testing.T) {
 func TestProtectedServiceRenderingUsesDurableDigestNotPolicyOrMovedTag(t *testing.T) {
 	image := pinnedServiceImage("ghcr.io/labstack/onebox-postgres-pgbackrest", 'a')
 	state := ServiceRuntimeState{
-		ProtectionState: "enabled", ServiceImage: image,
+		ProtectionState: "enabled", ServiceImage: image, LastEffective: protectionTestProjection(),
 		PublicationVerified: true, DigestAvailable: true,
 		TagObservedDigest: "sha256:" + strings.Repeat("b", 64),
 	}

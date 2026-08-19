@@ -86,6 +86,32 @@ func (n Names) ServiceFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".yaml")
 }
 
+// ServiceProtectionConfigDir holds the generated protection configuration for
+// one service, and holds nothing else.
+//
+// A directory rather than a file beside the Compose document, and that is not
+// tidiness. Onebox replaces generated files atomically, by writing a temporary
+// file and renaming it over the target — which gives the path a new inode. A
+// Docker bind-mount of a *file* is bound to the inode, so an atomically
+// replaced file silently disappears from inside the running container: the
+// mount still points at the inode that was unlinked. Mounting the directory
+// keeps the mount stable across replacement, so a configuration change is
+// visible to the next pgBackRest invocation instead of never.
+//
+// It is also why this is not under protection/secrets: the whole directory is
+// mounted into the container, and it holds no secret precisely so that is safe.
+// Every credential reaches the container through the environment instead.
+func (n Names) ServiceProtectionConfigDir(service string) string {
+	return path.Join(n.AppDir(), "protection", "config", service)
+}
+
+// ServiceProtectionConfigFile is the generated configuration itself. The name
+// is pgBackRest's default, so the container needs no option naming it and the
+// server's archive_command stays a bare invocation.
+func (n Names) ServiceProtectionConfigFile(service string) string {
+	return path.Join(n.ServiceProtectionConfigDir(service), "pgbackrest.conf")
+}
+
 // ServiceSecretFile holds the credential Onebox generates on the target. It is
 // written once and never travels: not in the project, not in the rendered
 // runtime, not in the digest.

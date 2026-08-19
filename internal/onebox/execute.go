@@ -171,6 +171,15 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.ReleaseID = operationID
 		result.EvidenceID = operationID
 		err = e.ServiceApply(ctx, operationID, request.AllowDestructiveMounts)
+	case KindProtectionEnable:
+		// Enablement restarts the service under the protected image and does
+		// not finish until the first base backup exists, because a stanza with
+		// no backup is a repository that can recover nothing.
+		result.EvidenceID = operationID
+		err = executeProtectionEnable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
+	case KindBackupCreate:
+		result.EvidenceID = operationID
+		err = e.BackupService(ctx, request.Service, request.BackupType)
 	case KindProxyApply:
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID)

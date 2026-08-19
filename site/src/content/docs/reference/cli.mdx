@@ -49,6 +49,7 @@ Available Commands:
   abort       revert an interrupted deploy to the previous release (migration-gated)
   approve     record a local human confirmation for one exact executable plan
   audit       who deployed what, when, from which SHA — incl. failed runs
+  backup      protect a data service and inspect what can be recovered
   bootstrap   first contact: host setup, registry login, and supporting/data services
   canonical   print the canonical form Onebox understood, with where each value came from
   completion  Generate the autocompletion script for the specified shell
@@ -151,6 +152,116 @@ Usage:
 Flags:
   -n, --count int   journals to show (default 10)
   -h, --help        help for audit
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+## ob backup
+
+```
+Backup and recovery for the data services this project declares.
+
+Protection is physical: a base backup plus continuous WAL archiving to the
+off-host repository the project's backup_targets name, which is what makes
+recovery to a point in time possible rather than recovery to last night.
+
+Declaring a policy does not establish it. `ob backup enable` restarts the
+service under the protected image, creates the repository stanza, and takes
+the first base backup; only then does the service render as protected.
+
+Usage:
+  ob backup [flags]
+  ob backup [command]
+
+Available Commands:
+  create      take a base backup now
+  enable      establish protection — restarts the service, creates the stanza, takes the first backup
+  status      what the repository can recover, read from the repository
+
+Flags:
+  -h, --help   help for backup
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+
+Use "ob backup [command] --help" for more information about a command.
+```
+
+### ob backup create
+
+```
+Take a base backup of a protected service.
+
+Retention counts full generations, so only --type full starts a new one; a
+diff or incr backup extends the newest full and is expired with it.
+
+WAL archiving runs continuously and is not this command: between backups the
+recoverable point keeps advancing on its own.
+
+Usage:
+  ob backup create <service> [flags]
+
+Flags:
+      --break-lock    break a stale operation lock after inspecting its holder
+  -h, --help          help for create
+      --type string   full, diff, or incr (default "full")
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup enable
+
+```
+Make a declared protection policy real.
+
+The order is forced by PostgreSQL: a server cannot archive to a stanza that
+does not exist, and a stanza cannot be created against a server that is not
+already archiving. So this pins the protected image, writes the repository
+configuration, restarts the server with archiving on, creates the stanza,
+and takes a full backup.
+
+The restart is a real restart of the database. It is not complete until the
+first backup exists, because a stanza with no backup can recover nothing.
+
+Usage:
+  ob backup enable <service> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for enable
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup status
+
+```
+Report what is actually recoverable.
+
+Every figure comes from the repository rather than from the project: the
+policy states what should be true, and this states what is. A service whose
+policy is declared but never enabled has no repository to ask, and says so.
+
+Usage:
+  ob backup status <service> [flags]
+
+Flags:
+  -h, --help   help for status
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

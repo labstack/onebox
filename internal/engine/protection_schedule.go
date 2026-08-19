@@ -85,6 +85,10 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 			return err
 		}
 		container := n.ServiceContainer(service)
+		prune, err := pruneExec(container, projection.Policy)
+		if err != nil {
+			return fmt.Errorf("service %s retention: %w", service, err)
+		}
 		for _, unit := range []struct {
 			operation string
 			schedule  app.Schedule
@@ -93,7 +97,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 			{"backup", projection.Policy.Schedule, []string{
 				walgExec(container, "backup-push", app.PgDataPath),
 				// Retention after the new generation exists, never before.
-				pruneExec(container, projection.Policy),
+				prune,
 			}},
 			{"verify", projection.Policy.RestoreDrill.Schedule, []string{
 				walgExec(container, "wal-verify", "integrity", "timeline"),
@@ -177,13 +181,15 @@ func walgExec(container string, args ...string) string {
 	return strings.Join(append(parts, args...), " ")
 }
 
-// pruneExec applies the generation bound only. The recovery-window bound needs
-// the backup list to compute, which is `ob backup prune` on the machine that
-// has the project — so the unattended path keeps the conservative half, and the
-// window is enforced whenever prune is run with the project in hand.
-func pruneExec(container string, policy app.ProtectionPolicy) string {
-	return walgExec(container, "delete", "retain", "FULL",
-		fmt.Sprint(policy.Retention.MinimumGenerations), "--confirm")
+// pruneExec applies retention, with the count derived from both declared
+// bounds. See app.WalgRetainCount for why the window becomes a count rather
+// than a timestamp.
+func pruneExec(container string, policy app.ProtectionPolicy) (string, error) {
+	retain, err := app.WalgRetainCount(policy)
+	if err != nil {
+		return "", err
+	}
+	return walgExec(container, "delete", "retain", "FULL", fmt.Sprint(retain), "--confirm"), nil
 }
 
 // protectionServiceUnit runs the operation's commands in order, under a lock.

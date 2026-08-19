@@ -162,83 +162,37 @@ func (e *Engine) BackupService(ctx context.Context, service string) error {
 // Retention has two bounds and they are not the same promise.
 // minimum_generations says how many independently recoverable base backups to
 // keep; recovery_window says how far back a point-in-time recovery must be able
-// to reach. On a busy database the generation count is the binding one; on a
-// quiet one the window is, because N backups might span an afternoon. Honouring
-// only the count — which is what this did — quietly shortens the window the
-// policy promised, and nobody finds out until they try to recover to last
-// Tuesday.
+// to reach. On a busy database the count is the binding one; on a quiet one the
+// window is, because N backups might span an afternoon. Honouring only the
+// count quietly shortens the window the policy promised, and nobody finds out
+// until they try to recover to last Tuesday.
 //
-// So both are computed and the more conservative wins: keep the newest N, and
-// keep whatever else the window needs, including the one backup *older* than
-// the cutoff, because recovering to a point in time replays WAL forward from
-// the last base backup taken before it.
+// wal-g expresses both in one command: `retain FULL n --after t` keeps the n
+// most recent full backups *and* everything taken since t. Letting it apply
+// both is better than computing the cut here — the tool that owns the
+// repository layout decides what a backup depends on.
 //
-// It is separate from taking a backup because the order matters: expiring first
-// would mean briefly holding one generation fewer than the policy promises.
+// Separate from taking a backup because the order matters: expiring first would
+// briefly hold one generation fewer than the policy promises.
 func (e *Engine) PruneServiceBackups(ctx context.Context, service string) error {
 	_, policy, err := e.protectedService(service)
 	if err != nil {
 		return err
 	}
-	window, err := app.PositiveDuration(policy.Retention.RecoveryWindow)
+	retain, err := app.WalgRetainCount(*policy)
 	if err != nil {
 		return fmt.Errorf("service %s: %w", service, err)
 	}
-	status, err := e.ProtectionStatusFor(ctx, service)
-	if err != nil {
-		return err
-	}
-	oldest := retainedFrom(status.Generations, policy.Retention.MinimumGenerations, time.Now().UTC().Add(-window))
-	if oldest == "" {
-		// Nothing is outside both bounds, so there is nothing to expire. Said
-		// rather than silently skipped: "no backup was old enough to expire" and
-		// "expiry did not run" look identical from outside.
-		e.ui.Step("prune "+service+" (nothing outside retention)", false)(nil)
-		return nil
-	}
-	label := fmt.Sprintf("prune %s (keep %d generations and %s of history)",
-		service, policy.Retention.MinimumGenerations, policy.Retention.RecoveryWindow)
+	label := fmt.Sprintf("prune %s (keep %d generations — %d declared, %s of history)",
+		service, retain, policy.Retention.MinimumGenerations, policy.Retention.RecoveryWindow)
 	st := e.ui.Step(label, false)
-	// `delete before` removes everything preceding the named backup and keeps
-	// the named one, along with the WAL needed to replay forward from it.
-	if _, err := e.runWalg(ctx, service, "delete", "before", oldest, "--confirm"); err != nil {
+	if _, err := e.runWalg(ctx, service, "delete", "retain", "FULL",
+		fmt.Sprint(retain), "--confirm"); err != nil {
 		st(err)
 		return err
 	}
 	st(nil)
 	return nil
-}
-
-// retainedFrom is the oldest backup that must survive, or "" when every backup
-// must. Generations arrive oldest-first.
-//
-// The window's answer is the newest backup at or before the cutoff, not the
-// oldest one after it. A point-in-time recovery starts from a base backup taken
-// *before* the target and replays WAL forward, so discarding everything older
-// than the cutoff leaves the earliest part of the promised window with nothing
-// to replay onto.
-func retainedFrom(generations []BackupGeneration, minimumGenerations int, cutoff time.Time) string {
-	if len(generations) <= minimumGenerations || minimumGenerations <= 0 {
-		return ""
-	}
-	byCount := len(generations) - minimumGenerations
-
-	byWindow := 0
-	for index, generation := range generations {
-		if time.Unix(generation.StoppedAt, 0).After(cutoff) {
-			break
-		}
-		byWindow = index
-	}
-
-	oldestIndex := byCount
-	if byWindow < oldestIndex {
-		oldestIndex = byWindow
-	}
-	if oldestIndex <= 0 {
-		return ""
-	}
-	return generations[oldestIndex].Label
 }
 
 // VerifyServiceArchive checks that the WAL segments in the repository form an

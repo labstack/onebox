@@ -2,8 +2,10 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -414,3 +416,102 @@ func ValidateWalgCredentials(plaintext []byte, target BackupTarget) error {
 // generated runtime names it. Recovery needs it because putting recovered data
 // in service means replacing exactly that volume and nothing else.
 func DataVolumeFor(s Service) string { return dataVolume(s) }
+
+// WalgRetentionTimeLayout is how wal-g's `delete retain --after` reads a
+// timestamp, and WalgRetentionDateFormat is the same shape for `date` on the
+// target. They must agree: the scheduled unit computes the cutoff with one and
+// wal-g parses it with the other.
+const (
+	WalgRetentionTimeLayout = "2006-01-02T15:04:05"
+	WalgRetentionDateFormat = `%Y-%m-%dT%H:%M:%S`
+)
+
+// WalgRetainCount is how many base backups must be kept to honour both
+// retention bounds at once.
+//
+// minimum_generations and recovery_window are both *minimums*: at least this
+// many recoverable bases, and at least this much continuous history. Retention
+// must therefore satisfy whichever is larger, and on a frequent schedule that is
+// the window — a service backing up every five minutes under a seven-day window
+// needs far more than the handful of generations the count alone would keep.
+//
+// It is computed here rather than at run time because wal-g offers no working
+// time bound. Its `--after` flag is documented and ignored, and `delete before
+// FIND_FULL <timestamp>` deletes nothing; both were measured against 3.0.8
+// rather than taken from the help text. `retain FULL n` does work, and both
+// bounds are known from the policy alone, so the arithmetic the policy already
+// implies is done up front and expressed as a count.
+func WalgRetainCount(policy ProtectionPolicy) (int, error) {
+	window, err := PositiveDuration(policy.Retention.RecoveryWindow)
+	if err != nil {
+		return 0, err
+	}
+	dayGap, exact := maximumCronGap(policy.Schedule.Cron)
+	perDay, counted := cronRunsPerFiringDay(policy.Schedule.Cron)
+	if !exact || dayGap <= 0 || !counted || perDay <= 0 {
+		// A schedule whose spacing cannot be bounded cannot say how many backups
+		// a window holds. The generation floor is what remains, and it is the
+		// operator's declared minimum rather than a guess.
+		return policy.Retention.MinimumGenerations, nil
+	}
+	// Backups in the window = firing days in the window × runs per firing day.
+	// Plus one, because the oldest backup kept must be *older* than the window:
+	// recovering to the window's earliest moment replays forward from the base
+	// taken before it.
+	firingDays := float64(window) / float64(dayGap)
+	needed := int(math.Ceil(firingDays*float64(perDay))) + 1
+	if needed < policy.Retention.MinimumGenerations {
+		return policy.Retention.MinimumGenerations, nil
+	}
+	return needed, nil
+}
+
+// cronRunsPerFiringDay counts how many times a schedule fires on a day it fires
+// at all, from its minute and hour fields.
+//
+// maximumCronGap deliberately ignores those fields — it answers a different
+// question, the longest gap in *days*, which is what a drill cadence is checked
+// against. Using it alone as a backup interval reads "*/5 * * * *" as daily and
+// retains two generations for a service that takes 288 a day.
+func cronRunsPerFiringDay(expression string) (int, bool) {
+	fields := strings.Fields(expression)
+	if len(fields) != 5 {
+		return 0, false
+	}
+	minutes, ok := cronFieldCount(fields[0], 60)
+	if !ok {
+		return 0, false
+	}
+	hours, ok := cronFieldCount(fields[1], 24)
+	if !ok {
+		return 0, false
+	}
+	return minutes * hours, true
+}
+
+// cronFieldCount counts the values one cron field selects, over the forms a
+// schedule realistically uses: every value, a step, a list, or one value.
+func cronFieldCount(field string, size int) (int, bool) {
+	if field == "*" {
+		return size, true
+	}
+	if step, ok := strings.CutPrefix(field, "*/"); ok {
+		every, err := strconv.Atoi(step)
+		if err != nil || every <= 0 || every > size {
+			return 0, false
+		}
+		return (size + every - 1) / every, true
+	}
+	count := 0
+	for _, part := range strings.Split(field, ",") {
+		value, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || value < 0 || value >= size {
+			return 0, false
+		}
+		count++
+	}
+	if count == 0 {
+		return 0, false
+	}
+	return count, true
+}

@@ -297,8 +297,11 @@ type ExecuteRequest struct {
 	// Service and BackupType carry the protection operations' one argument
 	// each. They are inputs to a mutation rather than a plan, because a backup
 	// stages nothing into a release and has nothing to roll back.
-	Service            string
-	BackupType         string
+	Service    string
+	BackupType string
+	// RecoveryTarget is the RFC 3339 point in time a recovery aims at. Empty
+	// means the newest recoverable point.
+	RecoveryTarget     string
 	BreakMigrationGate bool
 	NoRollback         bool
 	Redeploy           bool

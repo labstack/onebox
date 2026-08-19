@@ -114,6 +114,59 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	}
 	backupCmd.AddCommand(verifyCmd)
 
+	var restoreTo string
+	var restoreYes, restoreBreakLock bool
+	restoreCmd := &cobra.Command{
+		Use:   "restore <service>",
+		Short: "recover to a point in time and put it in service",
+		Long: "Recover a protected service from its repository.\n\n" +
+			"The recovered cluster is always built beside the live one, never over it:\n" +
+			"the base backup is fetched into a fresh volume, WAL is replayed to the\n" +
+			"requested point, and the result has to start and answer a query before\n" +
+			"anything touches the running database. A repository that cannot recover\n" +
+			"fails while the database it would have replaced is still serving.\n\n" +
+			"The data being replaced is copied aside first, under a dated volume name,\n" +
+			"and never deleted. A restore is run on a day that is already going badly;\n" +
+			"it must not be the step that makes it unrecoverable.\n\n" +
+			"Without --to, recovery goes to the newest recoverable point.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !restoreYes {
+				return fmt.Errorf(
+					"restoring replaces the live data of service %s.\nRe-run with --yes once you mean it, or use `ob backup drill %s` to prove the repository recovers without touching anything",
+					args[0], args[0])
+			}
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindRestoreCutover, Service: args[0],
+				RecoveryTarget: restoreTo, BreakLock: restoreBreakLock,
+			}, "backup restore")
+		},
+	}
+	restoreCmd.Flags().StringVar(&restoreTo, "to", "", "RFC 3339 point in time to recover to (default: the newest recoverable point)")
+	restoreCmd.Flags().BoolVar(&restoreYes, "yes", false, "confirm that the live data may be replaced")
+	restoreCmd.Flags().BoolVar(&restoreBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	backupCmd.AddCommand(restoreCmd)
+
+	var drillTo string
+	drillCmd := &cobra.Command{
+		Use:   "drill <service>",
+		Short: "prove the repository recovers, without touching anything",
+		Long: "Recover into a throwaway volume, prove the cluster opens and answers, then\n" +
+			"discard it. The live service is never touched.\n\n" +
+			"This runs the same code as `ob backup restore` and stops before the last\n" +
+			"step, which is the point: a drill that exercised a different path would\n" +
+			"prove the drill works rather than that the backups do.\n\n" +
+			"A backup nobody has restored is a hypothesis.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindRestoreTest, Service: args[0], RecoveryTarget: drillTo,
+			}, "backup drill")
+		},
+	}
+	drillCmd.Flags().StringVar(&drillTo, "to", "", "RFC 3339 point in time to prove recoverable (default: the newest recoverable point)")
+	backupCmd.AddCommand(drillCmd)
+
 	statusCmd := &cobra.Command{
 		Use:   "status <service>",
 		Short: "what the repository can recover, read from the repository",

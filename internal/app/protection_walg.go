@@ -409,3 +409,8 @@ func ValidateWalgCredentials(plaintext []byte, target BackupTarget) error {
 	}
 	return nil
 }
+
+// DataVolumeFor is the durable volume a service's data lives in, as the
+// generated runtime names it. Recovery needs it because putting recovered data
+// in service means replacing exactly that volume and nothing else.
+func DataVolumeFor(s Service) string { return dataVolume(s) }

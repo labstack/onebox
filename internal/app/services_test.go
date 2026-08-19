@@ -391,3 +391,152 @@ func renderServices(t *testing.T, src string) map[string][]byte {
 	}
 	return r.Services
 }
+
+// persistence.mode was declared, validated, defaulted — and then ignored by
+// every managed service. `mode: ephemeral` rendered the same durable volume as
+// a service that declared nothing, and redis and valkey additionally fsynced
+// every write into it through a hardcoded --appendonly yes.
+func TestEphemeralServicesOwnNoDurableVolume(t *testing.T) {
+	for _, svc := range []string{
+		"postgres", "mysql", "mariadb", "mongodb", "clickhouse",
+		"redis", "valkey", "rabbitmq", "meilisearch", "nats",
+	} {
+		version := map[string]string{
+			"postgres": "17", "mysql": "8.0", "mariadb": "11.4", "mongodb": "8.0",
+			"clickhouse": "25.3", "redis": "8-alpine", "valkey": "8-alpine",
+			"rabbitmq": "4", "meilisearch": "1.10", "nats": "2.10",
+		}[svc]
+		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
+			"services:\n  "+svc+":\n    version: \""+version+"\"\n    persistence: {mode: ephemeral}\n")
+		if strings.Contains(string(rendered[svc]), "_"+svc+"_data") {
+			t.Fatalf("%s declared ephemeral still owns a durable volume:\n%s", svc, rendered[svc])
+		}
+	}
+}
+
+// Omitted persistence stays durable, so a project that never declared it keeps
+// the volume and the append-only log it has always had.
+func TestDurableRedisKeepsItsVolumeAndAppendOnlyLog(t *testing.T) {
+	for _, decl := range []string{
+		"  redis: {version: 8-alpine}\n",
+		"  redis: {version: 8-alpine, persistence: {mode: durable}}\n",
+	} {
+		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\nservices:\n"+decl)
+		doc := string(rendered["redis"])
+		if !strings.Contains(doc, "_redis_data") {
+			t.Fatalf("durable redis lost its volume:\n%s", doc)
+		}
+		if !strings.Contains(doc, `--appendonly "yes"`) {
+			t.Fatalf("durable redis lost its append-only log:\n%s", doc)
+		}
+	}
+}
+
+// A disposable cache should not pay an fsync per write, nor grow a log nothing
+// intends to read back.
+func TestEphemeralRedisFamilyDisablesBothPersistenceMechanisms(t *testing.T) {
+	for _, svc := range []string{"redis", "valkey"} {
+		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
+			"services:\n  "+svc+": {version: 8-alpine, persistence: {mode: ephemeral}}\n")
+		doc := string(rendered[svc])
+		if !strings.Contains(doc, `--appendonly "no"`) {
+			t.Fatalf("ephemeral %s still runs the append-only log:\n%s", svc, doc)
+		}
+		if !strings.Contains(doc, `--save ""`) {
+			t.Fatalf("ephemeral %s still snapshots:\n%s", svc, doc)
+		}
+	}
+}
+
+// An authored setting replaces the mode's default rather than being appended
+// beside it. Appending produced `--appendonly yes --appendonly no`, which is
+// what made an author compensate for the driver in the first place.
+func TestAuthoredSettingOverridesTheModeDefaultExactlyOnce(t *testing.T) {
+	rendered := renderServices(t, `api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1}
+services:
+  redis:
+    version: 8-alpine
+    persistence: {mode: ephemeral}
+    settings: {appendonly: "yes"}
+`)
+	doc := string(rendered["redis"])
+	if n := strings.Count(doc, "--appendonly"); n != 1 {
+		t.Fatalf("--appendonly appears %d times, want exactly 1:\n%s", n, doc)
+	}
+	if !strings.Contains(doc, `--appendonly "yes"`) {
+		t.Fatalf("the authored setting did not win:\n%s", doc)
+	}
+	// The mode still owns storage: an explicit server flag does not buy a volume.
+	if strings.Contains(doc, "_redis_data") {
+		t.Fatalf("a driver setting overrode the declared data lifetime:\n%s", doc)
+	}
+}
+
+// Only ephemeral turns persistence off. `external` means the operator covers
+// this data, and a mode table that did not know the word rendered a durable
+// volume with the append-only log silently switched off — a durability
+// downgrade on the one mode that says the data matters.
+func TestOnlyEphemeralDisablesServerPersistence(t *testing.T) {
+	for _, mode := range []string{"durable", "external"} {
+		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
+			"services:\n  redis: {version: 8-alpine, persistence: {mode: "+mode+"}}\n")
+		doc := string(rendered["redis"])
+		if !strings.Contains(doc, `--appendonly "yes"`) {
+			t.Fatalf("mode %q disabled the append-only log:\n%s", mode, doc)
+		}
+		if !strings.Contains(doc, "_redis_data") {
+			t.Fatalf("mode %q lost its volume:\n%s", mode, doc)
+		}
+	}
+	// Every value the grammar permits is covered above or by the ephemeral
+	// tests, so a new mode cannot be added without this failing.
+	if len(ePersistence) != 3 {
+		t.Fatalf("persistence modes changed to %v; extend these tests before shipping", ePersistence)
+	}
+}
+
+// An ephemeral service owns no durable volume. A volume the author names would
+// still reach the canonical form, Spec.All's preflight collision check, and the
+// protected-identity record, while nothing ever created or mounted it — the
+// declaration would be silently ignored rather than refused.
+func TestEphemeralServiceCannotDeclareVolumes(t *testing.T) {
+	src := `api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1}
+services:
+  redis: {version: 8-alpine, persistence: {mode: ephemeral}, volumes: [cache]}
+`
+	_, err := LoadBytes([]byte(src), "ob.yml")
+	if err == nil {
+		t.Fatal("an ephemeral service declaring volumes was accepted")
+	}
+	if !strings.Contains(err.Error(), "owns no durable volume") {
+		t.Fatalf("refusal does not explain itself: %v", err)
+	}
+}
+
+// Protection is a contract about recovering durable data. With no volume
+// rendered, seeding the active volume fails at apply time against one that was
+// never created, and the sealed identity names it anyway.
+func TestEphemeralServiceCannotDeclareProtection(t *testing.T) {
+	src := strings.Replace(validProtectionProject,
+		"  postgres:\n    version: 17\n    protection:",
+		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    protection:", 1)
+	_, err := LoadBytes([]byte(src), "ob.yml")
+	if err == nil {
+		t.Fatal("an ephemeral service declaring protection was accepted")
+	}
+	if !strings.Contains(err.Error(), "no durable data to protect") {
+		t.Fatalf("refusal does not explain itself: %v", err)
+	}
+}

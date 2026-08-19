@@ -382,7 +382,7 @@
   {
     "case": "conformance/settings key that is a real driver flag",
     "loads": true,
-    "digest": "37ef191260abddc6f674ea8bed3bb82970358f8395df2d5a7f5b9b5142268b47 redis=69fece9ab514b04f"
+    "digest": "37ef191260abddc6f674ea8bed3bb82970358f8395df2d5a7f5b9b5142268b47 redis=f5e4171f39cd0dcb"
   },
   {
     "case": "conformance/settings key with a shell metacharacter",
@@ -517,12 +517,12 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "6d3a2518ab077033b35018bb81aa9702a641a2ad7433468afacb6070083d60a8 postgres=dc4f8448b8b82b4a redis=191161a0c85c6c0d"
+    "digest": "6d3a2518ab077033b35018bb81aa9702a641a2ad7433468afacb6070083d60a8 postgres=dc4f8448b8b82b4a redis=d2660eeb4faa49fe"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "f6b0b547d0bc7d55b8309e57f4f928a57e2ce44dd4fecc773599c9785580083f postgres=dc4f8448b8b82b4a redis=191161a0c85c6c0d"
+    "digest": "f6b0b547d0bc7d55b8309e57f4f928a57e2ce44dd4fecc773599c9785580083f postgres=dc4f8448b8b82b4a redis=d2660eeb4faa49fe"
   },
   {
     "case": "corpus/ext-authentik.yml",
@@ -542,7 +542,7 @@
   {
     "case": "corpus/ext-immich-sourced.yml",
     "loads": true,
-    "digest": "b852204b8ab417c0b5ca7c162108f95189829c69f8b7284d58120fe1e17c47d9 postgres=76af15324857fa90 redis=0281e909253b33c5"
+    "digest": "b852204b8ab417c0b5ca7c162108f95189829c69f8b7284d58120fe1e17c47d9 postgres=76af15324857fa90 redis=c7c8bf8044d5342a"
   },
   {
     "case": "corpus/ext-immich.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "d9b22f801a91ee7c4f6e9d24811e9454374067466263cc08cbc18cb9aefc8241 postgres=809549d286e2dbdc redis=3cef59e7d2733f0a"
+    "digest": "d9b22f801a91ee7c4f6e9d24811e9454374067466263cc08cbc18cb9aefc8241 postgres=809549d286e2dbdc redis=86933b446609e6d8"
   },
   {
     "case": "corpus/ext-paperless.yml",
@@ -612,7 +612,7 @@
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "10d0d86d56452027d9d317f6d77d0a696ed95eb2595e9cf039db6d187ff338e6 postgres=fc584b1b50db23a6 redis=be4534525f623f76"
+    "digest": "10d0d86d56452027d9d317f6d77d0a696ed95eb2595e9cf039db6d187ff338e6 postgres=fc584b1b50db23a6 redis=fcccb6a023ae5734"
   },
   {
     "case": "corpus/pursue.yml",

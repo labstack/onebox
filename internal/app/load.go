@@ -560,7 +560,24 @@ func crossFieldRules(p *Spec) error {
 		// Materialise the durable volume in the project rather than only in the
 		// generated runtime, so the canonical form, the preflight collision
 		// check and the renderer all name the same volume.
-		if d.dataPath != "" && len(svc.Volumes) == 0 {
+		// A service declared disposable owns no durable volume, so a volume the
+		// author named would be carried through the canonical form and the
+		// preflight collision check while nothing ever created or mounted it.
+		// Refuse rather than ignore the declaration.
+		if serviceIsEphemeral(svc) && len(svc.Volumes) > 0 {
+			return errf("project_invalid", "services."+name+".volumes", "",
+				"%q declares volumes and persistence.mode: ephemeral; an ephemeral service owns no durable volume, "+
+					"so declare durable persistence or remove the volumes", name)
+		}
+		// Protection is a contract about recovering durable data. An ephemeral
+		// service has none: seeding the active volume fails at apply time on a
+		// volume that was never created, and the sealed identity would name it.
+		if serviceIsEphemeral(svc) && svc.Protection != nil {
+			return errf("project_invalid", "services."+name+".protection", "",
+				"%q declares protection and persistence.mode: ephemeral; there is no durable data to protect, "+
+					"so declare durable persistence or remove the protection policy", name)
+		}
+		if d.dataPath != "" && len(svc.Volumes) == 0 && !serviceIsEphemeral(svc) {
 			svc.Volumes = []string{"data"}
 			p.Services[name] = svc
 			p.derivedPaths["services."+name+".volumes"] = OriginDefault

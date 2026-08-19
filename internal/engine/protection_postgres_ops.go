@@ -62,7 +62,20 @@ func (e *Engine) protectedService(service string) (app.Service, *app.ProtectionP
 // higher level, and routing them through the application's release machinery
 // would tie a backup to a deploy that has nothing to do with it.
 func (e *Engine) runWalg(ctx context.Context, service string, args ...string) (string, error) {
-	command := []string{"docker", "exec", "-u", "postgres", q(e.names().ServiceContainer(service)), app.WalgBinary}
+	// Under the same flock the scheduled units take, so an operator running a
+	// backup by hand and a timer firing cannot talk to the repository at once.
+	//
+	// Absent flock the command runs unwrapped, and that is not a silent
+	// degradation: flock ships with util-linux on every host that can run
+	// systemd, and a host that cannot run systemd has no timers, so there is
+	// nothing for the lock to serialise against. SyncProtectionSchedules
+	// refuses such a host outright rather than leaving backups unscheduled.
+	n := e.names()
+	var command []string
+	if e.hasFlock(ctx) {
+		command = append(command, "flock", "-w", "3600", q(n.ProtectionRunLock(service)))
+	}
+	command = append(command, "docker", "exec", "-u", "postgres", q(n.ServiceContainer(service)), app.WalgBinary)
 	for _, arg := range args {
 		command = append(command, q(arg))
 	}
@@ -306,4 +319,17 @@ func lastLines(text string, count int) string {
 		lines = lines[len(lines)-count:]
 	}
 	return strings.TrimSpace(strings.Join(lines, "; "))
+}
+
+// hasFlock probes the target once and remembers. Every wal-g invocation asks,
+// and a round trip per backup command to learn something that cannot change
+// mid-operation is waste.
+func (e *Engine) hasFlock(ctx context.Context) bool {
+	if e.flockProbed {
+		return e.flockPresent
+	}
+	res, err := e.T.Run(ctx, "command -v flock >/dev/null 2>&1 && echo ok")
+	e.flockProbed = true
+	e.flockPresent = err == nil && strings.TrimSpace(res.Stdout) == "ok"
+	return e.flockPresent
 }

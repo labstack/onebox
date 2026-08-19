@@ -96,13 +96,25 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, allowDestru
 			if strings.Contains(src[1], "/releases/") {
 				continue
 			}
-			// The generated protection configuration is mounted read-only and
-			// is regenerated from the project every apply. Treating it as data
-			// would make the first apply of every protected service demand
-			// --allow-destructive-mounts to detach a file Onebox wrote itself,
+			// Everything Onebox stages for protection — the verified wal-g
+			// binary and the generated credential wrapper — is mounted
+			// read-only and replaced from the project on every apply. Treating
+			// it as data would make each apply of a protected service demand
+			// --allow-destructive-mounts to detach files Onebox wrote itself,
 			// which teaches operators to pass that flag by reflex — the exact
-			// habit it exists to prevent.
-			if strings.HasPrefix(src[1], path.Join(n.AppDir(), "protection", "config")+"/") {
+			// habit it exists to prevent. The path is keyed by wal-g version,
+			// so an upgrade legitimately changes it.
+			if strings.HasPrefix(src[1], path.Join(n.AppDir(), "protection")+"/") {
+				continue
+			}
+			// Anonymous volumes are Docker's, not the project's. The official
+			// PostgreSQL image declares VOLUME /var/lib/postgresql while
+			// Onebox mounts the data one level below it, so every container
+			// gets a scratch volume holding an otherwise empty directory. It
+			// is named with a 64-character hex id nothing declares, it is
+			// recreated whenever the container is, and reporting it as data
+			// about to detach is a false alarm on every single apply.
+			if isAnonymousVolume(src[0], src[1]) {
 				continue
 			}
 			if !newSet[m] {
@@ -192,4 +204,11 @@ func (e *Engine) refuseUnsafeMajorUpgrade(ctx context.Context, n app.Names) erro
 			name, runningVersion, declared, name, app.MajorOf(runningVersion), app.MajorOf(declared))
 	}
 	return nil
+}
+
+func isAnonymousVolume(kind, name string) bool {
+	if kind != "volume" || len(name) != 64 {
+		return false
+	}
+	return strings.TrimLeft(name, "0123456789abcdef") == ""
 }

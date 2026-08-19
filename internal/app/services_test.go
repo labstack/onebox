@@ -502,3 +502,41 @@ func TestOnlyEphemeralDisablesServerPersistence(t *testing.T) {
 		t.Fatalf("persistence modes changed to %v; extend these tests before shipping", ePersistence)
 	}
 }
+
+// An ephemeral service owns no durable volume. A volume the author names would
+// still reach the canonical form, Spec.All's preflight collision check, and the
+// protected-identity record, while nothing ever created or mounted it — the
+// declaration would be silently ignored rather than refused.
+func TestEphemeralServiceCannotDeclareVolumes(t *testing.T) {
+	src := `api_version: onebox.run/v1
+app: sample
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1}
+services:
+  redis: {version: 8-alpine, persistence: {mode: ephemeral}, volumes: [cache]}
+`
+	_, err := LoadBytes([]byte(src), "ob.yml")
+	if err == nil {
+		t.Fatal("an ephemeral service declaring volumes was accepted")
+	}
+	if !strings.Contains(err.Error(), "owns no durable volume") {
+		t.Fatalf("refusal does not explain itself: %v", err)
+	}
+}
+
+// Protection is a contract about recovering durable data. With no volume
+// rendered, seeding the active volume fails at apply time against one that was
+// never created, and the sealed identity names it anyway.
+func TestEphemeralServiceCannotDeclareProtection(t *testing.T) {
+	src := strings.Replace(validProtectionProject,
+		"  postgres:\n    version: 17\n    protection:",
+		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    protection:", 1)
+	_, err := LoadBytes([]byte(src), "ob.yml")
+	if err == nil {
+		t.Fatal("an ephemeral service declaring protection was accepted")
+	}
+	if !strings.Contains(err.Error(), "no durable data to protect") {
+		t.Fatalf("refusal does not explain itself: %v", err)
+	}
+}

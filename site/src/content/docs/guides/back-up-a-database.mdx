@@ -1,0 +1,157 @@
+---
+title: Back up a database
+description: Continuous off-host backups for PostgreSQL, and how to prove they restore.
+summary: How to declare a backup policy and a repository, what `ob backup enable` actually does, and why a backup nobody has restored is a hypothesis.
+sidebar:
+  order: 3
+read_when:
+  - "Protecting a managed PostgreSQL service"
+  - "Working out what a declared backup policy does and does not do on its own"
+  - "Proving a repository can actually be recovered from"
+---
+
+```yaml
+services:
+  database:
+    driver: postgres
+    version: "18"
+    persistence: {mode: durable}
+    backup:
+      target: offsite
+      recovery_kind: pitr
+      maximum_data_loss: 15m
+      schedule: {cron: "0 2 * * *", timezone: UTC}
+      drill:
+        schedule: {cron: "0 4 * * *", timezone: UTC}
+
+backup_targets:
+  offsite:
+    kind: s3-compatible
+    endpoint: https://objects.example.net
+    bucket: onebox-backups
+    failure_domain: {identity: provider-b/eu-central-1}
+    credentials:
+      file: secrets/backup.env
+      access_key_entry: BACKUP_ACCESS_KEY_ID
+      secret_key_entry: BACKUP_SECRET_ACCESS_KEY
+    encryption: {pitr: client-side}
+```
+
+Two blocks: the intent sits on the service, the destination is declared once at
+the top level and referenced by name, so several services can share a repository
+and changing its endpoint is one edit.
+
+## Declaring is not enabling
+
+A `backup` block is a request. Until `ob backup enable` succeeds, the service
+renders as an ordinary unprotected server — `ob validate` accepts the policy and
+nothing archives.
+
+```console
+$ ob backup enable database
+✓ protected image postgres:18
+✓ protection runtime wal-g v3.0.8 (aarch64)
+✓ service database
+→ protection schedule: ob-protection-shop-production-database-backup at 0 2 * * *
+✓ backup database
+```
+
+That one command pins the image by registry digest, stages a checksum-verified
+wal-g onto the host, decrypts and installs the destination credentials, restarts
+the server with WAL archiving on, installs the timers, and takes the first base
+backup. **It is not finished until that base backup exists** — WAL archiving with
+nothing to replay onto recovers nothing, and reporting success there would be
+telling you the database is protected at the moment it is not.
+
+The restart is a real restart. Enabling is a maintenance action, not a
+configuration change.
+
+## The credential file
+
+The encrypted file your target names needs three entries — the two you named,
+plus the repository key:
+
+```sh
+BACKUP_ACCESS_KEY_ID=...
+BACKUP_SECRET_ACCESS_KEY=...
+OB_REPOSITORY_KEY=$(openssl rand -hex 32)
+```
+
+`OB_REPOSITORY_KEY` is a 32-byte key read as hex, so exactly 64 hex characters.
+A passphrase-shaped value is refused before anything restarts. You do not stage
+this file yourself: `ob backup enable` decrypts it and installs it mode-0600 on
+the host.
+
+## Retention is derived
+
+`retention` has two floors and Onebox keeps whichever is larger — the number of
+generations, or enough of them to span the window at your schedule's rate:
+
+| schedule | window | generations kept |
+| --- | --- | --- |
+| `0 2 * * *` | `7d` | 8 |
+| `0 */6 * * *` | `7d` | 29 |
+| `*/5 * * * *` | `7d` | 2017 |
+
+`ob backup prune` prints the number it is using before it costs you storage.
+
+## Prove it restores
+
+```console
+$ ob backup drill database
+✓ recovery: fetch base backup
+✓ recovery: replay to the newest recoverable point
+✓ recovery: verify the recovered cluster answers
+✓ drill passed: database recovered from base_000000010000000000000007 and answered. Nothing was changed.
+```
+
+A drill recovers into a throwaway volume, proves the cluster opens and answers a
+query, then discards it. The live service is never touched. It runs the same code
+as a real restore and stops before the last step — a drill exercising its own
+path would prove the drill works, not the backups.
+
+:::caution[The scheduled drill verifies; it does not restore]
+The timer installed from `drill.schedule` runs an archive-continuity check, not a
+full recovery: the orchestration lives in `ob`, and Onebox puts no agent on your
+host. Run `ob backup drill` from CI on the cadence your policy declares. A backup
+nobody has restored is a hypothesis.
+:::
+
+## Recovering
+
+```console
+$ ob backup restore database --to 2026-08-19T17:31:44Z --confirm database
+```
+
+The recovered cluster is built beside the live one and has to start, promote and
+answer a query before anything touches the running database — so a repository
+that cannot recover fails while the database it would have replaced is still
+serving. The data being replaced is copied aside under a dated volume name and
+never deleted.
+
+The service name is typed back with `--confirm` because a recovery has no plan
+for the approval flow to bind to, so the guard is the name of the thing being
+replaced.
+
+Without `--to`, recovery goes to the newest recoverable point.
+
+## Stopping
+
+```console
+$ ob backup disable database --confirm database
+```
+
+Archiving stops, the timers go, the service restarts unprotected, and the
+destination credentials are removed from the host. **The repository is not
+touched** — but reading or recovering from it needs protection enabled again,
+because the tooling and credentials that reach it live in the protected service.
+
+## What is not covered
+
+Only the `postgres` driver has an executable contract, on versions 17 and 18.
+Every other driver refuses a `backup` policy at validate rather than accepting
+one it cannot honour. A workload's own volume is never copied anywhere — `ob
+doctor` names every workload holding durable data.
+
+Full field list: [`services`](/reference/fields/services) and
+[`backup_targets`](/reference/fields/backup_targets).

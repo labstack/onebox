@@ -185,15 +185,15 @@ detail stays in restricted local evidence, never in the public record.
 | `backup_retention_unsupported` | yes | the declared recovery history cannot map to qualified native retention semantics | diagnostic | `ob validate --output json` |
 | `backup_stale` | reserved | the latest recoverable point is older than policy permits | next | `ob plan --output json` |
 | `backup_target_not_independent` | yes | the backup target shares the protected failure domain | diagnostic | `ob validate --output json` |
-| `backup_target_unauthorized` | yes | the backup target credentials are unavailable, unsafe, or unauthorized | next | `ob plan --output json` |
+| `backup_target_unauthorized` | reserved | the backup target credentials are unavailable, unsafe, or unauthorized | next | `ob plan --output json` |
 | `backup_target_unknown` | yes | the protection policy selects no declared backup target | diagnostic | `ob validate --output json` |
-| `backup_target_unreachable` | yes | the selected backup target cannot be reached | next | `ob plan --output json` |
+| `backup_target_unreachable` | reserved | the selected backup target cannot be reached | next | `ob plan --output json` |
 | `disk_pressure_critical` | reserved | a relevant filesystem lacks safe headroom for a space-increasing mutation | diagnostic | `ob status --output json` |
 | `drill_deferred_capacity` | reserved | a restore drill was deferred before materialization because aggregate staging headroom is insufficient | diagnostic | `ob status --output json` |
 | `drill_schedule_too_sparse` | yes | the restore-drill cadence cannot keep restore proof current | diagnostic | `ob validate --output json` |
 | `external_service_not_owned` | reserved | the requested lifecycle mutation targets a dependency Onebox does not own | diagnostic | `ob status --output json` |
 | `external_service_state_stale` | reserved | an external-service observation changed after planning | next | `ob plan --output json` |
-| `protected_service_identity_changed` | yes | a protected service name would orphan durable recovery identity | diagnostic | `ob validate --output json` |
+| `protected_service_identity_changed` | reserved | a protected service name would orphan durable recovery identity | diagnostic | `ob validate --output json` |
 | `protected_service_patch_incompatible` | reserved | the candidate protected service or helper cannot prove repository and runtime compatibility | diagnostic | `ob status --output json` |
 | `protected_service_patch_unsupported` | yes | no exact qualified protected current-to-candidate transition exists | diagnostic | `ob status --output json` |
 | `protection_disable_pending` | yes | protection removal is waiting for an authorized safe prerequisite reversal | diagnostic | `ob status --output json` |

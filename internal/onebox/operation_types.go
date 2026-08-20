@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -502,4 +503,25 @@ func validDataEffect(effect DataEffectClass) bool {
 	default:
 		return false
 	}
+}
+
+// lifecycleGraphDigest is the shape every sealed lifecycle digest takes. It
+// lives here rather than beside the operation graph that used to define it,
+// because the graph is gone and four live callers still bind digests.
+var lifecycleGraphDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// Metadata that lands in a lifecycle record or a sealed identity is restricted
+// to a safe grammar, so an operator-supplied name cannot smuggle punctuation
+// into evidence a machine parses.
+var lifecycleMetadata = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$`)
+
+func safeLifecycleMetadata(value string) bool { return lifecycleMetadata.MatchString(value) }
+
+func oneOf(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

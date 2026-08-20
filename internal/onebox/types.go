@@ -143,6 +143,6 @@ type DeploymentProposal struct {
 	HookBodiesRedacted        bool                         `json:"hook_bodies_redacted" jsonschema:"Whether operator-authored command bodies were hidden"`
 	FidelityContract          string                       `json:"fidelity_contract" jsonschema:"What the current planner can and cannot promise"`
 	Risk                      RiskSummary                  `json:"risk" jsonschema:"Current risk and recovery summary"`
-	Verifications             []string                     `json:"verifications" jsonschema:"Redaction-safe verification summary"`
+	Checks                    []string                     `json:"checks" jsonschema:"Redaction-safe summary of the release checks"`
 	Warnings                  []string                     `json:"warnings,omitempty" jsonschema:"Planning limitations or unpinned image warnings"`
 }

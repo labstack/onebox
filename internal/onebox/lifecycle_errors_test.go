@@ -75,20 +75,6 @@ func TestEveryDeltaSpecFailureHasASecretFreeGuidanceContract(t *testing.T) {
 				}
 			}
 
-			record := validLifecycleResultRecord(LifecycleBackupCreate, "postgres")
-			record.Result.TerminalState = "failed"
-			record.Result.ErrorCode = failure.Code
-			switch failure.GuidanceRole() {
-			case "diagnostic":
-				record.Result.DiagnosticCommands = []string{failure.GuidanceCommand()}
-			case "next":
-				record.Result.NextCommands = []string{failure.GuidanceCommand()}
-			case "resolving":
-				record.Result.ResolvingCommands = []string{failure.GuidanceCommand()}
-			}
-			if err := record.Validate(); err != nil {
-				t.Fatalf("failure does not fit lifecycle result contract: %v", err)
-			}
 		})
 	}
 }

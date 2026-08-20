@@ -192,6 +192,12 @@ var reservedLifecycleFailures = map[string]struct{}{
 	"backup_stale":            {},
 	"disk_pressure_critical":  {},
 	"drill_deferred_capacity": {},
+	// Raised only by the S3 target adapter and the protected-identity record,
+	// both unreachable and now removed. `ob backup enable` reaches the
+	// repository through wal-g and reports its own failure.
+	"backup_target_unauthorized":         {},
+	"backup_target_unreachable":          {},
+	"protected_service_identity_changed": {},
 	// Disablement is two states and needs no separate authorization step; the
 	// multi-phase apparatus that raised this was never reachable and is gone.
 	"protection_disablement_not_authorized":        {},

@@ -831,5 +831,6 @@ func declaresAtLeastReplicaWAL(settings map[string]any) bool {
 	if !ok {
 		return false
 	}
-	return fmt.Sprint(value) == "logical"
+	level := fmt.Sprint(value)
+	return level == "replica" || level == "logical"
 }

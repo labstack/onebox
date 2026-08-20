@@ -53,12 +53,15 @@ const WalgBinary = WalgMountPath + "/ob-wal-g"
 // is no backup_targets field to indirect through.
 const WalgRepositoryKeyEntry = "OB_REPOSITORY_KEY"
 
-// WalgPrefix is the repository location for one protected service. It carries
-// the application and the service, so two projects sharing a bucket cannot
-// write over each other, and it is stable by construction: it *is* the
-// repository layout, so changing it later orphans every backup taken before.
+// WalgPrefix is the repository location for one protected service.
+//
+// The application and service are joined with the injective rule the rest of
+// the derived names use, not a hyphen. Hyphens are legal in both, so `a-b`/`c`
+// and `a`/`b-c` would land on the same prefix and interleave two clusters' base
+// backups and WAL — and this string is unversioned by design, so it could not
+// be corrected later without orphaning every backup taken before the fix.
 func WalgPrefix(target BackupTarget, app, service string) string {
-	segments := []string{strings.Trim(target.Prefix, "/"), app + "-" + service}
+	segments := []string{strings.Trim(target.Prefix, "/"), Join(app, service)}
 	if segments[0] == "" {
 		segments = segments[1:]
 	}
@@ -343,10 +346,9 @@ func (r *Resolved) RenderServiceProtectionWrappers(env string) (map[string][]byt
 // its own history is not in. The project's intent takes effect at the next
 // enablement, which is where the change can be made deliberately.
 func (r *Resolved) renderProtectionProjection(serviceName string, service Service, state ServiceRuntimeState) (ProtectionEffectiveProjection, error) {
-	if state.LastEffective != nil {
-		return *state.LastEffective, nil
-	}
-	projection, _, err := r.effectiveProtectionProjection(serviceName, service)
+	_ = service
+	_ = state
+	projection, err := r.EffectiveProtectionProjection(serviceName)
 	if err != nil {
 		return ProtectionEffectiveProjection{}, errf("protection_state_incomplete", "services."+serviceName+".backup", "ob backup status "+serviceName,
 			"service %s is protected but neither its durable state nor the project says what it is protected by; restore the policy or disable protection", serviceName)
@@ -397,7 +399,11 @@ func ValidateWalgCredentials(plaintext []byte, target BackupTarget) error {
 			return errf("backup_credentials_invalid", "backup_targets."+target.Credentials.File, "ob backup enable",
 				"the decrypted credential file has no name=value on line %d", index+1)
 		}
-		values[strings.TrimSpace(name)] = strings.TrimSpace(value)
+		// Quotes are stripped here for the same reason the installer strips
+		// them: a shell-sourced dotenv commonly carries them, and judging the
+		// quoted form would reject a perfectly good 64-character key for being
+		// 66 characters — with a message about hex that says nothing true.
+		values[strings.TrimSpace(name)] = unquoteCredentialValue(value)
 	}
 
 	var missing []string
@@ -526,4 +532,15 @@ func cronFieldCount(field string, size int) (int, bool) {
 		return 0, false
 	}
 	return count, true
+}
+
+// unquoteCredentialValue removes one matched pair of surrounding quotes, which
+// is what a shell would do when sourcing the file and what the installer does
+// when normalising it.
+func unquoteCredentialValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		return value[1 : len(value)-1]
+	}
+	return value
 }

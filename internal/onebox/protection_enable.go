@@ -143,12 +143,17 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	if err != nil {
 		return err
 	}
-	next := current
-	if current.State != ProtectionEnabled {
-		next, err = EnableProtection(current, projection, image, operationID, true, current.Epoch+1)
-		if err != nil {
-			return err
-		}
+	// Rebound every time, including when the service is already enabled.
+	//
+	// `ob backup enable` is the one command that binds a service to a
+	// repository, and re-running it after editing the policy or the target is
+	// how an operator moves it. Skipping the transition when already enabled
+	// discarded the freshly pinned image and the new projection, so the service
+	// went on archiving to the original repository with no command able to
+	// change it — while the edited project sat there looking applied.
+	next, err := rebindProtection(current, projection, image, operationID)
+	if err != nil {
+		return err
 	}
 	body, err := encodeProtectionLifecycleState(next)
 	if err != nil {
@@ -210,4 +215,18 @@ func currentProtectionLifecycleState(ctx context.Context, e *engine.Engine, appl
 		return ProtectionLifecycleState{}, fmt.Errorf("service %s lifecycle state belongs to a different protected identity", service)
 	}
 	return state, nil
+}
+
+// rebindProtection produces the enabled state for this run, from whichever
+// state the service is in. An already-enabled service is taken back to
+// never-enabled first, because EnableProtection is the single place that
+// decides what an enabled record contains and it refuses to transition from
+// enabled — the alternative is a second, divergent copy of that logic.
+func rebindProtection(current ProtectionLifecycleState, projection app.ProtectionEffectiveProjection, image, operationID string) (ProtectionLifecycleState, error) {
+	source := current
+	if current.State == ProtectionEnabled {
+		source.State = ProtectionDisabled
+		source.Phase = ProtectionPhaseIdle
+	}
+	return EnableProtection(source, projection, image, operationID, true, current.Epoch+1)
 }

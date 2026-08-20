@@ -78,6 +78,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	backupCmd.AddCommand(createCmd)
 
 	var disableConfirm string
+	var disableBreakLock bool
 	disableCmd := &cobra.Command{
 		Use:   "disable <service>",
 		Short: "stop archiving; keep every backup already taken",
@@ -100,11 +101,15 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 					args[0], args[0])
 			}
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindProtectionDisable, Service: args[0],
+				Kind: onebox.KindProtectionDisable, Service: args[0], BreakLock: disableBreakLock,
 			}, "backup disable")
 		},
 	}
 	disableCmd.Flags().StringVar(&disableConfirm, "confirm", "", "name of the service whose archiving may stop")
+	// Without this a stale lock leaves no way to stop archiving, which is the
+	// one operation an operator reaches for when something has already gone
+	// wrong.
+	disableCmd.Flags().BoolVar(&disableBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(disableCmd)
 
 	var pruneBreakLock bool

@@ -73,6 +73,17 @@ func (e *Engine) protectedService(service string) (app.Service, *app.BackupPolic
 // higher level, and routing them through the application's release machinery
 // would tie a backup to a deploy that has nothing to do with it.
 func (e *Engine) runWalg(ctx context.Context, service string, args ...string) (string, error) {
+	return e.runWalgLocked(ctx, service, e.walgLockPrefix(ctx, service), args...)
+}
+
+// runWalgRead is for commands that only read the repository. It waits briefly
+// on a shared lock instead of an hour on an exclusive one, so status answers
+// while a backup is running rather than blocking behind it.
+func (e *Engine) runWalgRead(ctx context.Context, service string, args ...string) (string, error) {
+	return e.runWalgLocked(ctx, service, e.walgReadLockPrefix(ctx, service), args...)
+}
+
+func (e *Engine) runWalgLocked(ctx context.Context, service, lockPrefix string, args ...string) (string, error) {
 	// Under the same flock the scheduled units take, so an operator running a
 	// backup by hand and a timer firing cannot talk to the repository at once.
 	//
@@ -83,8 +94,8 @@ func (e *Engine) runWalg(ctx context.Context, service string, args ...string) (s
 	// refuses such a host outright rather than leaving backups unscheduled.
 	n := e.names()
 	var command []string
-	if e.hasFlock(ctx) {
-		command = append(command, "flock", "-w", "3600", q(n.ProtectionRunLock(service)))
+	if lockPrefix != "" {
+		command = append(command, strings.TrimSpace(lockPrefix))
 	}
 	command = append(command, "docker", "exec", "-u", "postgres", q(n.ServiceContainer(service)), app.WalgBinary)
 	for _, arg := range args {
@@ -207,7 +218,7 @@ func (e *Engine) ProtectionStatusFor(ctx context.Context, service string) (Prote
 	}
 	status.RuntimeIssues = issues
 
-	out, err := e.runWalg(ctx, service, "backup-list", "--detail", "--json")
+	out, err := e.runWalgRead(ctx, service, "backup-list", "--detail", "--json")
 	if err != nil {
 		return status, err
 	}
@@ -283,4 +294,27 @@ func (e *Engine) hasFlock(ctx context.Context) bool {
 	e.flockProbed = true
 	e.flockPresent = err == nil && strings.TrimSpace(res.Stdout) == "ok"
 	return e.flockPresent
+}
+
+// walgLockPrefix is the flock every repository operation runs behind, as a
+// command prefix so callers that build their own docker exec can use it too.
+// Empty when the host has no flock — see hasFlock for why that is not a silent
+// degradation.
+//
+// Read-only listing takes it too but must not wait an hour behind a running
+// backup: `ob backup status` promises to answer while other work is in flight,
+// and an operator who has to wait to find out whether they are recoverable is
+// one who stops asking.
+func (e *Engine) walgLockPrefix(ctx context.Context, service string) string {
+	if !e.hasFlock(ctx) {
+		return ""
+	}
+	return "flock -w 3600 " + q(e.names().ProtectionRunLock(service)) + " "
+}
+
+func (e *Engine) walgReadLockPrefix(ctx context.Context, service string) string {
+	if !e.hasFlock(ctx) {
+		return ""
+	}
+	return "flock -s -w 15 " + q(e.names().ProtectionRunLock(service)) + " "
 }

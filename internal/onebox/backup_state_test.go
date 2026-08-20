@@ -224,3 +224,50 @@ func TestRecoveryIsRefusedWhileDisablementIsPending(t *testing.T) {
 		t.Fatalf("refusal does not carry a usable code and message: %+v", failure)
 	}
 }
+
+// The pending record has to outlive the work it describes.
+//
+// Disable wrote `disabled` immediately after `disable-pending`, before the
+// server was restarted without archive_mode and before the timers were removed
+// — so the pending state lasted between two consecutive writes and covered
+// nothing, while the window that can actually be interrupted ran under a record
+// already claiming the service had stopped archiving. Killing a real disable
+// 1.5s in produced exactly that: `disabled` on disk, archiving still on, timers
+// still installed.
+//
+// The transition itself is what this test pins: pending is a state a record can
+// be left in and recovered from, in both directions.
+func TestADisablementLeftPendingCanBeFinishedOrAbandoned(t *testing.T) {
+	fresh, err := NewBackupLifecycleState("shop", "production", "database", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := "postgres@sha256:" + strings.Repeat("a", 64)
+	enabled, err := EnableBackup(fresh, backupStateProjection(), pin, "postgres:18", "op-1", true, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := BeginBackupDisable(enabled, "op-2", time.Now().UTC(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.State != BackupDisablePending {
+		t.Fatalf("state = %q, want disable-pending", pending.State)
+	}
+
+	finished, err := DisableBackup(pending, "op-2", pending.Epoch+1)
+	if err != nil {
+		t.Fatalf("finishing an interrupted disablement: %v", err)
+	}
+	if finished.State != BackupDisabled {
+		t.Fatalf("finished state = %q, want disabled", finished.State)
+	}
+
+	abandoned, err := rebindBackup(pending, backupStateProjection(), pin, "postgres:18", "op-3")
+	if err != nil {
+		t.Fatalf("re-enabling out of a pending disablement: %v", err)
+	}
+	if abandoned.State != BackupEnabled {
+		t.Fatalf("re-enabled state = %q, want enabled", abandoned.State)
+	}
+}

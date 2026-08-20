@@ -101,8 +101,14 @@ the backup reference. Only the `postgres` driver has an executable contract
 today; every other driver declares `policy_qualified: false` and its backup
 policy is refused rather than accepted and ignored.
 
-**Restore proof.** No drill is run, and no service can currently prove a backup
-would restore.
+**Restore proof.** `ob backup drill` proves it on demand: it recovers the
+repository into a throwaway volume, waits for the cluster to promote, and makes
+it answer a query — the same code a real restore runs, stopped before the last
+step. What is *not* run is an unattended drill. Onebox puts no agent on the
+host, so the timer from `drill.schedule` runs the archive-continuity check
+instead, and the full proof is yours to run from CI on the cadence your policy
+declares. No proof age is recorded, so nothing tells you the last drill has gone
+stale.
 
 **Log rotation.** Container logs are not bounded by Onebox today.
 

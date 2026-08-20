@@ -261,6 +261,20 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service string) (str
 		return "", err
 	}
 	st := e.ui.Step("protected image "+reference.Image, false)
+	// A digest already on the host is not pulled again. The reference is
+	// immutable by construction, so a second pull cannot return different bytes
+	// — it only spends registry quota and turns a re-enable into a failure on a
+	// host that is offline or rate-limited while holding exactly what it needs.
+	// A tag still resolves through the registry, because a tag can move.
+	present, err := e.imagePresentByDigest(ctx, reference.Image)
+	if err != nil {
+		st(err)
+		return "", err
+	}
+	if present {
+		st(nil)
+		return reference.Image, nil
+	}
 	res, err := e.T.Run(ctx, "docker pull "+q(reference.Image))
 	if err != nil {
 		st(err)
@@ -277,7 +291,7 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service string) (str
 		return "", err
 	}
 	pinned := strings.TrimSpace(res.Stdout)
-	if res.ExitCode != 0 || !strings.Contains(pinned, "@sha256:") {
+	if res.ExitCode != 0 || !containsDigest(pinned) {
 		err := fmt.Errorf(
 			"%s has no registry digest on this host; a protected service runs an image pinned by digest, so it must come from a registry rather than a local build",
 			reference.Image)
@@ -369,3 +383,22 @@ func (e *Engine) VerifyProtectionRuntime(ctx context.Context, service string) ([
 	}
 	return issues, nil
 }
+
+// imagePresentByDigest reports whether a digest-pinned reference is already on
+// the host. A tag always answers false: it may point somewhere else now, which
+// is the reason protection pins in the first place.
+func (e *Engine) imagePresentByDigest(ctx context.Context, reference string) (bool, error) {
+	if !containsDigest(reference) {
+		return false, nil
+	}
+	res, err := e.T.Run(ctx, "docker image inspect "+q(reference)+" >/dev/null 2>&1 && echo present || echo absent")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(res.Stdout) == "present", nil
+}
+
+// containsDigest reports whether a reference names exact bytes rather than a
+// tag. It is the one place that decides, so the pull-skipping guard and the
+// pinning check cannot disagree about what "pinned" means.
+func containsDigest(reference string) bool { return strings.Contains(reference, "@sha256:") }

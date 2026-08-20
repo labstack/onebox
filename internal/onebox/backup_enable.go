@@ -67,7 +67,12 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 		return fmt.Errorf(
 			"service %s declares no backup policy; add services.%s.backup to the project first", service, service)
 	}
-	projection, err := resolved.EffectiveBackupProjection(service)
+	// The declared projection, because this command is where the project's
+	// intent takes effect. Everything else — rendering, recovery, status,
+	// retention — resolves the recorded one, so a target edited after
+	// enablement cannot silently redirect a restore at a repository the history
+	// is not in.
+	projection, err := resolved.DeclaredBackupProjection(service)
 	if err != nil {
 		return err
 	}
@@ -189,6 +194,23 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	if err := e.ApplyServices(ctx); err != nil {
 		return fmt.Errorf("service %s could not restart under backup: %w", service, err)
 	}
+	// A target that moved is a new history, and the operator is told rather than
+	// left to notice: the base backup below is the first one in the new
+	// repository, so the declared window starts from now. What the old
+	// repository holds is untouched and stays where it is.
+	// Compared as repositories, not as target names. Editing the bucket or the
+	// endpoint inside a target called "offsite" moves the history just as
+	// surely as pointing the service at a target called something else, and the
+	// name would not have changed.
+	if previous := previousBackupRepository(current, resolved.Spec.Name, service); previous != "" &&
+		previous != app.WalgPrefix(projection.Target, resolved.Spec.Name, service) {
+		e.ReportTargetMoved(service, previous, app.WalgPrefix(projection.Target, resolved.Spec.Name, service))
+		// The credential file is named for the target it belongs to, so the old
+		// one would otherwise sit there holding keys nothing uses.
+		if err := e.RemoveBackupCredentials(ctx, service, current.LastEffective); err != nil {
+			return err
+		}
+	}
 	return e.BackupService(ctx, service)
 }
 
@@ -251,4 +273,13 @@ func rebindBackup(current BackupLifecycleState, projection app.BackupEffectivePr
 		}
 	}
 	return EnableBackup(source, projection, image, imageReference, operationID, true, current.Epoch+1)
+}
+
+// previousBackupRepository is the repository a service was last archiving to,
+// or empty when it has never been enabled.
+func previousBackupRepository(state BackupLifecycleState, application, service string) string {
+	if state.LastEffective == nil {
+		return ""
+	}
+	return app.WalgPrefix(state.LastEffective.Target, application, service)
 }

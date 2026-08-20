@@ -110,3 +110,72 @@ func TestNoRequestedPointStillUsesLatest(t *testing.T) {
 		t.Fatalf("did not fetch LATEST: %v", fake.Commands)
 	}
 }
+
+// wal-g reports a broken WAL chain and exits 0. It prints the integrity table,
+// says "integrity check status: WARNING", lists the ranges it could not find —
+// and returns success, so a check that reads only the exit code reports green
+// over a repository with holes in it. Two segments deleted from the middle of a
+// live repository produced exactly that, and the scheduled unit had the same
+// blind spot.
+func TestABrokenWALChainIsNotAPassingVerification(t *testing.T) {
+	report := `[wal-verify] integrity check status: FAILURE
+[wal-verify] integrity check details:
++-----+--------------------------+--------------------------+----------------+-------------------+
+| TLI | START                    | END                      | SEGMENTS COUNT |            STATUS |
++-----+--------------------------+--------------------------+----------------+-------------------+
+|   3 | 000000030000000000000027 | 00000003000000000000002A |              4 |             FOUND |
+|   3 | 00000003000000000000002B | 00000003000000000000002B |              1 |      MISSING_LOST |
+|   3 | 00000003000000000000002C | 00000003000000000000002E |              3 |             FOUND |
++-----+--------------------------+--------------------------+----------------+-------------------+
+[wal-verify] timeline check status: OK`
+	err := walVerifyResult(report)
+	if err == nil {
+		t.Fatal("a gap in the middle of the chain passed verification")
+	}
+	if !strings.Contains(err.Error(), "00000003000000000000002B") {
+		t.Fatalf("the failure does not name the missing range: %v", err)
+	}
+}
+
+// A segment still uploading is not yet a hole, wherever it sits in the table.
+// On a database taking backups in a loop, three segments were in flight while
+// later ones had already arrived — so failing on in-flight ranges would fail
+// every check that lands mid-upload.
+func TestASegmentStillUploadingIsNotAGap(t *testing.T) {
+	report := `[wal-verify] integrity check status: WARNING
+| TLI | START                    | END                      | SEGMENTS COUNT |            STATUS |
+|   3 | 000000030000000000000027 | 00000003000000000000002D |              7 |             FOUND |
+|   3 | 00000003000000000000002E | 000000030000000000000030 |              3 | MISSING_UPLOADING |
+|   3 | 000000030000000000000031 | 000000030000000000000031 |              1 |             FOUND |
+[wal-verify] timeline check status: OK`
+	if err := walVerifyResult(report); err != nil {
+		t.Fatalf("segments in flight were treated as a gap: %v", err)
+	}
+}
+
+// A lost segment is a hole wherever it sits.
+func TestALostSegmentAtTheHeadIsAGap(t *testing.T) {
+	report := `[wal-verify] integrity check status: FAILURE
+| TLI | START                    | END                      | SEGMENTS COUNT |            STATUS |
+|   3 | 000000030000000000000027 | 00000003000000000000002D |              7 |             FOUND |
+|   3 | 00000003000000000000002E | 00000003000000000000002E |              1 |      MISSING_LOST |
+[wal-verify] timeline check status: OK`
+	if err := walVerifyResult(report); err == nil {
+		t.Fatal("a lost segment at the head passed verification")
+	}
+}
+
+// A healthy chain passes, and a report whose table this parser does not
+// recognise still fails on the status line rather than reading as clean.
+func TestAHealthyChainPassesAndAnUnreadableReportDoesNot(t *testing.T) {
+	healthy := `[wal-verify] integrity check status: OK
+| TLI | START                    | END                      | SEGMENTS COUNT | STATUS |
+|   3 | 000000030000000000000027 | 00000003000000000000002E |              8 |  FOUND |
+[wal-verify] timeline check status: OK`
+	if err := walVerifyResult(healthy); err != nil {
+		t.Fatalf("a healthy chain failed verification: %v", err)
+	}
+	if err := walVerifyResult("[wal-verify] timeline check status: FAILURE"); err == nil {
+		t.Fatal("a failing check with no table read as clean")
+	}
+}

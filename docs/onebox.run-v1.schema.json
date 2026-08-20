@@ -334,13 +334,6 @@
               "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
               "type": "string"
             },
-            "platform": {
-              "description": "Target image platform for the external build.",
-              "examples": [
-                "linux/amd64"
-              ],
-              "type": "string"
-            },
             "target": {
               "description": "Named Dockerfile stage to build.",
               "type": "string"
@@ -1044,13 +1037,6 @@
             "^x-": {}
           },
           "properties": {
-            "platform": {
-              "description": "Platform selected when the image is multi-platform.",
-              "examples": [
-                "linux/amd64"
-              ],
-              "type": "string"
-            },
             "pull": {
               "default": "missing",
               "description": "Image pull policy: missing, always, or never.",
@@ -1067,10 +1053,6 @@
                 "ghcr.io/acme/shop:1.4.0"
               ],
               "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
-              "type": "string"
-            },
-            "registry": {
-              "description": "Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login.",
               "type": "string"
             }
           },
@@ -1118,72 +1100,6 @@
         "type": "object"
       },
       "description": "Named webhooks that receive selected operation outcomes.",
-      "type": "object"
-    },
-    "observability": {
-      "additionalProperties": false,
-      "description": "Declared logging, metrics, and alerting intent. Continuous management is not currently provided.",
-      "patternProperties": {
-        "^x-": {}
-      },
-      "properties": {
-        "alerts": {
-          "additionalProperties": false,
-          "description": "Declared alerting intent. Continuous management is not currently provided.",
-          "patternProperties": {
-            "^x-": {}
-          },
-          "properties": {
-            "unhealthy_after": {
-              "description": "Desired duration of unhealthy state before alerting. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-              "examples": [
-                "5m"
-              ],
-              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "logs": {
-          "additionalProperties": false,
-          "description": "Declared log-retention intent. Continuous management is not currently provided.",
-          "patternProperties": {
-            "^x-": {}
-          },
-          "properties": {
-            "enabled": {
-              "default": false,
-              "description": "Declare that log collection is desired.",
-              "type": "boolean"
-            },
-            "retention": {
-              "description": "Desired log-retention period. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-              "examples": [
-                "30d"
-              ],
-              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "metrics": {
-          "additionalProperties": false,
-          "description": "Declared metric-collection intent. Continuous management is not currently provided.",
-          "patternProperties": {
-            "^x-": {}
-          },
-          "properties": {
-            "enabled": {
-              "default": false,
-              "description": "Declare that metric collection is desired.",
-              "type": "boolean"
-            }
-          },
-          "type": "object"
-        }
-      },
       "type": "object"
     },
     "port": {
@@ -1506,14 +1422,6 @@
                           }
                         },
                         "type": "object"
-                      },
-                      "staging_filesystem": {
-                        "description": "Absolute filesystem path used for isolated restore materialization instead of the host default. Expects an absolute path with no control character or shell metacharacter.",
-                        "examples": [
-                          "/srv/onebox-restore"
-                        ],
-                        "pattern": "^/[^\\x00-\\x1f'\"$`\\\\]*$",
-                        "type": "string"
                       }
                     },
                     "type": "object"
@@ -1937,13 +1845,6 @@
                     "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
                     "type": "string"
                   },
-                  "platform": {
-                    "description": "Target image platform for the external build.",
-                    "examples": [
-                      "linux/amd64"
-                    ],
-                    "type": "string"
-                  },
                   "target": {
                     "description": "Named Dockerfile stage to build.",
                     "type": "string"
@@ -2208,13 +2109,6 @@
                   "^x-": {}
                 },
                 "properties": {
-                  "platform": {
-                    "description": "Platform selected when the image is multi-platform.",
-                    "examples": [
-                      "linux/amd64"
-                    ],
-                    "type": "string"
-                  },
                   "pull": {
                     "default": "missing",
                     "description": "Image pull policy: missing, always, or never.",
@@ -2231,10 +2125,6 @@
                       "ghcr.io/acme/shop:1.4.0"
                     ],
                     "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",
-                    "type": "string"
-                  },
-                  "registry": {
-                    "description": "Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login.",
                     "type": "string"
                   }
                 },

@@ -51,7 +51,7 @@ command.
 | `compose_traefik_label` | a referenced service carries routing labels while also declaring a route |
 | `connection_variable_claimed` | an authored value claims a name a managed-service connection supplies |
 | `derived_name_too_long` | a name Onebox derives exceeds the runtime's limit |
-| `drill_schedule_too_sparse` | the restore-drill cadence cannot keep restore proof current |
+| `drill_schedule_too_sparse` | the declared drill cadence is too sparse to keep restore proof within its maximum age |
 | `eject_destination_exists` | the ejection destination already exists |
 | `eject_failed` | the runtime could not be handed over |
 | `eject_nothing_to_do` | every workload already references a Compose file |
@@ -163,52 +163,29 @@ step to complete rather than a line to run verbatim.
 
 ## Lifecycle failure codes
 
-:::caution[Most of these are still reserved]
-These codes are defined and drift-tested in the binary. Backup, restore and drill
-are executable for the postgres driver; the rest are not. A row marked **reserved** is one no
-path raises today: the code is fixed so it stays stable when the capability
-lands, but you cannot cause it. The set is computed from the source, not
-maintained by hand.
-:::
+Every code here is raised by a path in the shipped binary, checked against the
+source by a test in both directions. The table is computed, not maintained by
+hand.
 
 The failure contract shared by plans, event streams, terminal results, status and
 doctor. Each carries a stable code and one safe command in its semantic role; diagnostic
 detail stays in restricted local evidence, never in the public record.
 
-| Code | Reachable | Means | Guidance role | Command |
-| --- | --- | --- | --- | --- |
-| `assurance_stale` | reserved | continuous assurance evidence is no longer current | diagnostic | `ob status --output json` |
-| `backup_conflict` | yes | another protected-service operation holds the serialization boundary | diagnostic | `ob status --output json` |
-| `backup_disable_pending` | yes | backup removal is waiting for an authorized safe prerequisite reversal | diagnostic | `ob status --output json` |
-| `backup_disablement_not_authorized` | reserved | backup disablement requires a fresh local confirmation bound to current state | diagnostic | `ob status --output json` |
-| `backup_disablement_overdue` | yes | backup disablement remains pending beyond its action deadline | diagnostic | `ob status --output json` |
-| `backup_driver_unsupported` | yes | the service driver has no qualified executable backup contract | diagnostic | `ob validate --output json` |
-| `backup_enablement_restart_not_authorized` | reserved | a restart-bound backup prerequisite lacks fresh local confirmation | diagnostic | `ob validate --output json` |
-| `backup_encryption_unverified` | yes | the selected backup destination cannot prove its required encryption mode | diagnostic | `ob validate --output json` |
-| `backup_image_revert_unsafe` | yes | the requested image reversion would strand an effective backup prerequisite | diagnostic | `ob status --output json` |
-| `backup_image_update_overdue` | reserved | a qualified protected service image publication missed its maintenance target | diagnostic | `ob status --output json` |
-| `backup_interruption_not_authorized` | yes | the recovery contract requires a recurring stopped-service window the author did not permit | diagnostic | `ob validate --output json` |
-| `backup_prerequisite_drifted` | reserved | a live prerequisite no longer matches the verified backup configuration | diagnostic | `ob validate --output json` |
-| `backup_retention_unsupported` | yes | the declared recovery history cannot map to qualified native retention semantics | diagnostic | `ob validate --output json` |
-| `backup_service_image_unpublished` | yes | no qualified immutable backup image is published for the observed service base | diagnostic | `ob status --output json` |
-| `backup_service_patch_available` | reserved | a qualified exact protected service image transition is available | resolving | `ob service apply --output ndjson` |
-| `backup_service_patch_required` | reserved | backup enablement requires a separate qualified same-major service patch first | resolving | `ob service apply --output ndjson` |
-| `backup_stale` | reserved | the latest recoverable point is older than policy permits | next | `ob plan --output json` |
-| `backup_target_not_independent` | yes | the backup target shares the protected failure domain | diagnostic | `ob validate --output json` |
-| `backup_target_unauthorized` | reserved | the backup target credentials are unavailable, unsafe, or unauthorized | next | `ob plan --output json` |
-| `backup_target_unknown` | yes | the backup policy selects no declared backup target | diagnostic | `ob validate --output json` |
-| `backup_target_unreachable` | reserved | the selected backup target cannot be reached | next | `ob plan --output json` |
-| `disk_pressure_critical` | reserved | a relevant filesystem lacks safe headroom for a space-increasing mutation | diagnostic | `ob status --output json` |
-| `drill_deferred_capacity` | reserved | a restore drill was deferred before materialization because aggregate staging headroom is insufficient | diagnostic | `ob status --output json` |
-| `drill_schedule_too_sparse` | yes | the restore-drill cadence cannot keep restore proof current | diagnostic | `ob validate --output json` |
-| `external_service_not_owned` | reserved | the requested lifecycle mutation targets a dependency Onebox does not own | diagnostic | `ob status --output json` |
-| `external_service_state_stale` | reserved | an external-service observation changed after planning | next | `ob plan --output json` |
-| `recovery_objective_unsupported` | yes | the selected driver, version, or target cannot execute the declared recovery kind | diagnostic | `ob validate --output json` |
-| `replay_continuity_broken` | reserved | the native replay sequence has a gap inside the required recovery window | next | `ob plan --output json` |
-| `restore_state_stale` | reserved | live service, volume, or repository state changed after restore planning | diagnostic | `ob status --output json` |
-| `service_identity_changed` | reserved | a protected service name would orphan durable recovery identity | diagnostic | `ob validate --output json` |
-| `service_image_digest_unavailable` | yes | the exact immutable service image required by recovery is unavailable | diagnostic | `ob status --output json` |
-| `service_image_patch_disable_pending` | yes | service image refresh is refused while safe backup disablement is pending | diagnostic | `ob status --output json` |
-| `service_major_upgrade_unsupported` | reserved | the requested service image transition crosses an unsupported major version | diagnostic | `ob status --output json` |
-| `service_patch_incompatible` | reserved | the candidate protected service or helper cannot prove repository and runtime compatibility | diagnostic | `ob status --output json` |
-| `service_patch_unsupported` | yes | no exact qualified protected current-to-candidate transition exists | diagnostic | `ob status --output json` |
+| Code | Means | Guidance role | Command |
+| --- | --- | --- | --- |
+| `backup_conflict` | another protected-service operation holds the serialization boundary | diagnostic | `ob status --output json` |
+| `backup_disable_pending` | backup removal is waiting for an authorized safe prerequisite reversal | diagnostic | `ob status --output json` |
+| `backup_disablement_overdue` | backup disablement remains pending beyond its action deadline | diagnostic | `ob status --output json` |
+| `backup_driver_unsupported` | the service driver has no qualified executable backup contract | diagnostic | `ob validate --output json` |
+| `backup_encryption_unverified` | the selected backup destination cannot prove its required encryption mode | diagnostic | `ob validate --output json` |
+| `backup_image_revert_unsafe` | the requested image reversion would strand an effective backup prerequisite | diagnostic | `ob status --output json` |
+| `backup_interruption_not_authorized` | the recovery contract requires a recurring stopped-service window the author did not permit | diagnostic | `ob validate --output json` |
+| `backup_retention_unsupported` | the declared recovery history cannot map to qualified native retention semantics | diagnostic | `ob validate --output json` |
+| `backup_service_image_unpublished` | no qualified immutable backup image is published for the observed service base | diagnostic | `ob status --output json` |
+| `backup_target_not_independent` | the backup target shares the protected failure domain | diagnostic | `ob validate --output json` |
+| `backup_target_unknown` | the backup policy selects no declared backup target | diagnostic | `ob validate --output json` |
+| `drill_schedule_too_sparse` | the declared drill cadence is too sparse to keep restore proof within its maximum age | diagnostic | `ob validate --output json` |
+| `recovery_objective_unsupported` | the selected driver, version, or target cannot execute the declared recovery kind | diagnostic | `ob validate --output json` |
+| `service_image_digest_unavailable` | the exact immutable service image required by recovery is unavailable | diagnostic | `ob status --output json` |
+| `service_image_patch_disable_pending` | service image refresh is refused while safe backup disablement is pending | diagnostic | `ob status --output json` |
+| `service_patch_unsupported` | no exact qualified protected current-to-candidate transition exists | diagnostic | `ob status --output json` |

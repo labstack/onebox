@@ -25,11 +25,6 @@
     "code": "project_invalid"
   },
   {
-    "case": "conformance/alerts without logs",
-    "loads": true,
-    "digest": "2687af022cbd5bbc2daa11a9a9fe0aad37933378d5d5a4f759f5fec4331915bc"
-  },
-  {
     "case": "conformance/app starting ob-",
     "loads": false,
     "code": "project_invalid"
@@ -231,16 +226,6 @@
   },
   {
     "case": "conformance/log option with a shell metacharacter",
-    "loads": false,
-    "code": "project_invalid"
-  },
-  {
-    "case": "conformance/log retention as an integer",
-    "loads": false,
-    "code": "project_invalid"
-  },
-  {
-    "case": "conformance/log retention without alerts",
     "loads": false,
     "code": "project_invalid"
   },

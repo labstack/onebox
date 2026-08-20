@@ -1,3 +1,5 @@
+// Package onebox exposes the typed product service shared by agent-facing
+// adapters. It deliberately contains no protocol or presentation code.
 package onebox
 
 import (
@@ -119,7 +121,7 @@ func EnableBackup(current BackupLifecycleState, projection app.BackupEffectivePr
 	next.ServiceImageReference = serviceImageReference
 	next.ServiceImagePublicationVerified = publicationVerified
 	next.LastEffective = cloneBackupProjection(&projection)
-	next.Schedules = effectiveBackupSchedules(projection, true)
+	next.Schedules = effectiveBackupSchedules(projection)
 	if err := next.Seal(); err != nil {
 		return BackupLifecycleState{}, err
 	}
@@ -169,7 +171,7 @@ func (state BackupLifecycleState) Status(now time.Time) (BackupLifecycleStatus, 
 	}
 	status := BackupLifecycleStatus{State: state.State, Phase: state.Phase, Schedules: append([]BackupScheduleState(nil), state.Schedules...)}
 	for _, schedule := range state.Schedules {
-		if schedule.Active && schedule.Kind != "restore-drill" {
+		if schedule.Active {
 			status.StorageContinues = true
 		}
 	}
@@ -266,9 +268,6 @@ func (state BackupLifecycleState) validateContent() error {
 		if !safeLifecycleMetadata(schedule.Kind) || (previous != "" && schedule.Kind <= previous) {
 			return errors.New("backup schedules must have unique sorted safe kinds")
 		}
-		if schedule.Kind == "restore-drill" && state.State == BackupDisablePending && schedule.Active {
-			return errors.New("restore drills must stop during disable-pending")
-		}
 		previous = schedule.Kind
 	}
 	return nil
@@ -340,11 +339,21 @@ func validBackupStatePhase(state BackupState, phase BackupDisablePhase) bool {
 	}
 }
 
-func effectiveBackupSchedules(projection app.BackupEffectiveProjection, drillsActive bool) []BackupScheduleState {
+// effectiveBackupSchedules lists what the host itself runs, which is what an
+// operator reading `ob backup status` is entitled to assume it means.
+//
+// It used to also list a "restore-drill" as active on the drill cadence. No such
+// timer is ever installed: onebox is agentless, a real drill is orchestrated by
+// `ob`, and the unattended half the host can honestly run is the archive
+// verification (see the note in engine/backup_schedule.go). The entry was a
+// claim of protection that nothing performed — the one thing this product says
+// it does not do. `ob backup drill` remains the whole proof, run on the declared
+// cadence from CI or a workstation.
+func effectiveBackupSchedules(projection app.BackupEffectiveProjection) []BackupScheduleState {
 	schedules := []BackupScheduleState{
 		{Kind: "backup-create", Schedule: projection.Policy.Schedule, Active: true},
 		{Kind: "backup-prune", Schedule: projection.Policy.Schedule, Active: true},
-		{Kind: "restore-drill", Schedule: projection.Policy.Drill.Schedule, Active: drillsActive},
+		{Kind: "backup-verify", Schedule: projection.Policy.Drill.Schedule, Active: true},
 	}
 	if projection.Policy.RecoveryKind == "pitr" {
 		schedules = append(schedules, BackupScheduleState{Kind: "replay-archive", Schedule: replayArchiveSchedule(projection.Policy), Active: true})
@@ -418,7 +427,7 @@ func BeginBackupDisable(current BackupLifecycleState, operationID string, now ti
 	// Backups keep running until the work completes, so the recovery window has
 	// no hole in it while the disablement is in flight.
 	if current.LastEffective != nil {
-		next.Schedules = effectiveBackupSchedules(*current.LastEffective, false)
+		next.Schedules = effectiveBackupSchedules(*current.LastEffective)
 	}
 	// Still archiving, still holding its runtime — that is the point of the
 	// pending state, and rendering keeps producing the protected server until

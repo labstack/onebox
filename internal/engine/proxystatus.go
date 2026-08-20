@@ -188,10 +188,11 @@ func readableFileProbe(path string) string {
 // file — and that stays a failed read so the snapshot reports the component as
 // incomplete rather than quietly asserting it was checked.
 func statusFileIssue(component, path string, result transport.Result) (string, bool) {
-	// Every sentence leads with the component. statusIssueCodes derives a
-	// branchable code by matching this prose, and a message that led with the
-	// path instead collapsed to the generic <component>_diverged — the same
-	// indistinguishability the owner refusal was given a code to avoid.
+	// Every sentence leads with the component, so a reader — or a consumer
+	// matching on the text — can tell which one a message is about without
+	// parsing the rest of it. (An unreachable classifier in internal/onebox
+	// used to depend on this and was the stated reason for the rule; the rule
+	// is worth keeping on its own, which is why the prose has not changed.)
 	switch result.ExitCode {
 	case app.ProbeUnreadable:
 		return fmt.Sprintf("%s exists but could not be read; verify the file and its permissions", component), true

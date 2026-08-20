@@ -308,9 +308,6 @@ var blocks = []block{
 	{Key: "notifications", Title: "notifications", Order: 100, Status: statusShipped,
 		Summary:  "Named webhooks that receive selected operation outcomes.",
 		ReadWhen: []string{"Sending deploy outcomes to Slack, Discord or an incident tool"}},
-	{Key: "observability", Title: "observability", Order: 110, Status: statusIntentOnly,
-		Summary:  "Declared logging, metric and alerting intent. Validated and planned, but the local engine runs nothing continuous for it.",
-		ReadWhen: []string{"Recording observability intent that another system will act on"}},
 	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusShipped,
 		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",
 		ReadWhen: []string{"Declaring where a database's backups go", "Understanding why Onebox refuses a backup target that shares the protected host"}},
@@ -888,20 +885,16 @@ func renderErrorPage() string {
 
 	fmt.Fprintln(&buf, "## Lifecycle failure codes")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, ":::caution[Most of these are still reserved]")
-	fmt.Fprintln(&buf, "These codes are defined and drift-tested in the binary. Backup, restore and drill")
-	fmt.Fprintln(&buf, "are executable for the postgres driver; the rest are not. A row marked **reserved** is one no")
-	fmt.Fprintln(&buf, "path raises today: the code is fixed so it stays stable when the capability")
-	fmt.Fprintln(&buf, "lands, but you cannot cause it. The set is computed from the source, not")
-	fmt.Fprintln(&buf, "maintained by hand.")
-	fmt.Fprintln(&buf, ":::")
+	fmt.Fprintln(&buf, "Every code here is raised by a path in the shipped binary, checked against the")
+	fmt.Fprintln(&buf, "source by a test in both directions. The table is computed, not maintained by")
+	fmt.Fprintln(&buf, "hand.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "The failure contract shared by plans, event streams, terminal results, status and")
 	fmt.Fprintln(&buf, "doctor. Each carries a stable code and one safe command in its semantic role; diagnostic")
 	fmt.Fprintln(&buf, "detail stays in restricted local evidence, never in the public record.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "| Code | Reachable | Means | Guidance role | Command |")
-	fmt.Fprintln(&buf, "| --- | --- | --- | --- | --- |")
+	fmt.Fprintln(&buf, "| Code | Means | Guidance role | Command |")
+	fmt.Fprintln(&buf, "| --- | --- | --- | --- |")
 	for _, code := range onebox.LifecycleFailureCodes() {
 		// A code that will not resolve is a defect in the contract, not a row to
 		// drop: a shorter table is one nobody can tell is incomplete.
@@ -909,11 +902,7 @@ func renderErrorPage() string {
 		if err != nil {
 			panic(fmt.Sprintf("lifecycle code %q does not resolve: %v", code, err))
 		}
-		reach := "yes"
-		if onebox.LifecycleFailureReserved(code) {
-			reach = "reserved"
-		}
-		fmt.Fprintf(&buf, "| `%s` | %s | %s | %s | `%s` |\n", code, reach, escapeCell(failure.Message), failure.GuidanceRole(), failure.GuidanceCommand())
+		fmt.Fprintf(&buf, "| `%s` | %s | %s | `%s` |\n", code, escapeCell(failure.Message), failure.GuidanceRole(), failure.GuidanceCommand())
 	}
 
 	return buf.String()

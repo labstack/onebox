@@ -157,9 +157,6 @@ func validateBackupPolicy(policy BackupPolicy, path string) error {
 	if gap >= proofAge {
 		return errf("drill_schedule_too_sparse", path+".drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds max_age %s; use a more frequent schedule", gap, proofAge)
 	}
-	if err := gAbsPath.checkOptional(path+".drill.staging_filesystem", policy.Drill.StagingFilesystem); err != nil {
-		return err
-	}
 	return nil
 }
 

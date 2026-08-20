@@ -197,7 +197,7 @@ detail stays in restricted local evidence, never in the public record.
 | `protected_service_patch_incompatible` | reserved | the candidate protected service or helper cannot prove repository and runtime compatibility | diagnostic | `ob status --output json` |
 | `protected_service_patch_unsupported` | yes | no exact qualified protected current-to-candidate transition exists | diagnostic | `ob status --output json` |
 | `protection_disable_pending` | yes | protection removal is waiting for an authorized safe prerequisite reversal | diagnostic | `ob status --output json` |
-| `protection_disablement_not_authorized` | yes | protection disablement requires a fresh local confirmation bound to current state | diagnostic | `ob status --output json` |
+| `protection_disablement_not_authorized` | reserved | protection disablement requires a fresh local confirmation bound to current state | diagnostic | `ob status --output json` |
 | `protection_disablement_overdue` | yes | protection disablement remains pending beyond its action deadline | diagnostic | `ob status --output json` |
 | `protection_enablement_restart_not_authorized` | reserved | a restart-bound protection prerequisite lacks fresh local confirmation | diagnostic | `ob validate --output json` |
 | `protection_image_revert_unsafe` | yes | the requested image reversion would strand an effective protection prerequisite | diagnostic | `ob status --output json` |

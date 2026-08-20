@@ -54,7 +54,7 @@ var lifecycleFailureDefinitions = map[string]lifecycleFailureDefinition{
 	"protection_service_patch_required":            {"protection enablement requires a separate qualified same-major service patch first", "ob service apply --output ndjson"},
 	"recovery_objective_unsupported":               {"the selected driver, version, or target cannot execute the declared recovery kind", "ob validate --output json"},
 	"replay_continuity_broken":                     {"the native replay sequence has a gap inside the required recovery window", "ob plan --output json"},
-	"drill_schedule_too_sparse":            {"the restore-drill cadence cannot keep restore proof current", "ob validate --output json"},
+	"drill_schedule_too_sparse":                    {"the restore-drill cadence cannot keep restore proof current", "ob validate --output json"},
 	"restore_state_stale":                          {"live service, volume, or repository state changed after restore planning", "ob status --output json"},
 	"service_image_digest_unavailable":             {"the exact immutable service image required by recovery is unavailable", "ob status --output json"},
 	"service_image_patch_disable_pending":          {"service image refresh is refused while safe protection disablement is pending", "ob status --output json"},
@@ -182,16 +182,19 @@ func safeGuidanceCommand(command string) bool {
 }
 
 // reservedLifecycleFailures are codes the contract enumerates that no path
-// raises today. The operations behind them exist in the model — protection
-// enable and disable among them — but are wired to no CLI verb, so an operator
-// cannot reach them. They are kept so the code set is stable when those land,
+// raises today. Backup, restore, drill and disable are wired now; what remains
+// reserved is either an operation still unbuilt or a check the shipped path
+// does not need. They are kept so the code set is stable when those land,
 // and named here so the reference can mark them rather than presenting a
 // failure that cannot occur.
 var reservedLifecycleFailures = map[string]struct{}{
-	"assurance_stale":                              {},
-	"backup_stale":                                 {},
-	"disk_pressure_critical":                       {},
-	"drill_deferred_capacity":                      {},
+	"assurance_stale":         {},
+	"backup_stale":            {},
+	"disk_pressure_critical":  {},
+	"drill_deferred_capacity": {},
+	// Disablement is two states and needs no separate authorization step; the
+	// multi-phase apparatus that raised this was never reachable and is gone.
+	"protection_disablement_not_authorized":        {},
 	"external_service_not_owned":                   {},
 	"external_service_state_stale":                 {},
 	"protected_service_patch_incompatible":         {},

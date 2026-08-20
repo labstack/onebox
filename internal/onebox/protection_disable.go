@@ -3,6 +3,7 @@ package onebox
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
@@ -40,12 +41,26 @@ func executeProtectionDisable(ctx context.Context, e *engine.Engine, resolved *a
 	if current.State != ProtectionEnabled && current.State != ProtectionDisablePending {
 		return fmt.Errorf("service %s is not protected, so there is nothing to disable", service)
 	}
-	next, err := DisableProtection(current, operationID, current.Epoch+1)
+	// Pending first, so a failure halfway through leaves a record that says the
+	// decision was made and the work is not finished — rather than one claiming
+	// the service stopped archiving while it still is.
+	pending, err := BeginProtectionDisable(current, operationID, time.Now(), current.Epoch+1)
 	if err != nil {
 		return err
 	}
-	body, err := encodeProtectionLifecycleState(next)
+	body, err := encodeProtectionLifecycleState(pending)
 	if err != nil {
+		return err
+	}
+	if err := e.WriteProtectionLifecycleState(ctx, service, body); err != nil {
+		return err
+	}
+
+	next, err := DisableProtection(pending, operationID, pending.Epoch+1)
+	if err != nil {
+		return err
+	}
+	if body, err = encodeProtectionLifecycleState(next); err != nil {
 		return err
 	}
 	if err := e.WriteProtectionLifecycleState(ctx, service, body); err != nil {

@@ -72,34 +72,6 @@ type ProtectionLifecycleState struct {
 	StateDigest                     string                             `json:"state_digest"`
 }
 
-type ProtectionDisableStep struct {
-	Phase        ProtectionDisablePhase `json:"phase"`
-	Mutation     bool                   `json:"mutation"`
-	Rollbackable bool                   `json:"rollbackable"`
-}
-
-type ProtectionDisablePlan struct {
-	SchemaVersion    string                  `json:"schema_version"`
-	OperationID      string                  `json:"operation_id"`
-	Application      string                  `json:"application"`
-	Environment      string                  `json:"environment"`
-	Service          string                  `json:"service"`
-	StateDigest      string                  `json:"state_digest"`
-	Epoch            int                     `json:"epoch"`
-	Approval         ApprovalClass           `json:"approval"`
-	Interruption     bool                    `json:"interruption"`
-	RemoteDataAction string                  `json:"remote_data_action"`
-	Steps            []ProtectionDisableStep `json:"steps"`
-	PlanDigest       string                  `json:"plan_digest"`
-}
-
-type ProtectionDisableAuthorization struct {
-	OperationID string `json:"operation_id"`
-	PlanDigest  string `json:"plan_digest"`
-	StateDigest string `json:"state_digest"`
-	Strong      bool   `json:"strong"`
-}
-
 type ProtectionLifecycleStatus struct {
 	State            ProtectionState           `json:"state"`
 	Phase            ProtectionDisablePhase    `json:"phase"`
@@ -140,143 +112,6 @@ func EnableProtection(current ProtectionLifecycleState, projection app.Protectio
 	next.ServiceImagePublicationVerified = publicationVerified
 	next.LastEffective = cloneProtectionProjection(&projection)
 	next.Schedules = effectiveProtectionSchedules(projection, true)
-	if err := next.Seal(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	return next, nil
-}
-
-func RequestProtectionDisable(current ProtectionLifecycleState, operationID string, now time.Time, nextEpoch int) (ProtectionLifecycleState, error) {
-	if err := current.Validate(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if current.State == ProtectionDisablePending {
-		if current.OperationID == operationID {
-			return current, nil
-		}
-		failure, _ := NewLifecycleFailure("backup_conflict")
-		return ProtectionLifecycleState{}, failure
-	}
-	if current.State != ProtectionEnabled || current.LastEffective == nil {
-		return ProtectionLifecycleState{}, fmt.Errorf("cannot request protection disablement from %q", current.State)
-	}
-	if !safeLifecycleMetadata(operationID) || nextEpoch <= current.Epoch {
-		return ProtectionLifecycleState{}, errors.New("protection disablement operation or fencing epoch is invalid")
-	}
-	now = now.UTC()
-	next := current
-	next.State, next.Phase, next.Epoch = ProtectionDisablePending, ProtectionPhaseRequested, nextEpoch
-	next.OperationID, next.DisablePlanDigest = operationID, ""
-	next.RequestedAt = now.Format(time.RFC3339Nano)
-	next.ActionDeadline = now.Add(ProtectionDisableActionWindow).Format(time.RFC3339Nano)
-	next.Schedules = effectiveProtectionSchedules(*current.LastEffective, false)
-	if err := next.Seal(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	return next, nil
-}
-
-func NewProtectionDisablePlan(state ProtectionLifecycleState) (ProtectionDisablePlan, error) {
-	if err := state.Validate(); err != nil {
-		return ProtectionDisablePlan{}, err
-	}
-	if state.State != ProtectionDisablePending || state.Phase != ProtectionPhaseRequested {
-		return ProtectionDisablePlan{}, errors.New("protection disable plan requires newly requested disable-pending state")
-	}
-	plan := ProtectionDisablePlan{
-		SchemaVersion: ProtectionDisablePlanSchemaVersion, OperationID: state.OperationID,
-		Application: state.Application, Environment: state.Environment, Service: state.Service,
-		StateDigest: state.StateDigest, Epoch: state.Epoch, Approval: ApprovalStrong, Interruption: true,
-		RemoteDataAction: "handback-preserve",
-		Steps: []ProtectionDisableStep{
-			{Phase: ProtectionPhasePrerequisiteReversed, Mutation: true, Rollbackable: true},
-			{Phase: ProtectionPhasePrerequisiteAbsent, Rollbackable: true},
-			{Phase: ProtectionPhaseRuntimeReverted, Mutation: true},
-			{Phase: ProtectionPhaseLocalSupportRemoved, Mutation: true},
-			{Phase: ProtectionPhaseComplete, Mutation: true},
-		},
-	}
-	if err := plan.Seal(); err != nil {
-		return ProtectionDisablePlan{}, err
-	}
-	return plan, nil
-}
-
-func AdvanceProtectionDisable(current ProtectionLifecycleState, plan ProtectionDisablePlan, authorization ProtectionDisableAuthorization, completed ProtectionDisablePhase, nextEpoch int) (ProtectionLifecycleState, error) {
-	if err := current.Validate(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if err := plan.Validate(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if err := validateProtectionDisableAuthority(current, plan, authorization); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if current.State != ProtectionDisablePending {
-		return ProtectionLifecycleState{}, fmt.Errorf("cannot advance disablement from %q", current.State)
-	}
-	// A disconnected caller may retry the phase whose commit it did not see.
-	if current.Phase == completed {
-		return current, nil
-	}
-	expected, ok := nextProtectionDisablePhase(current.Phase)
-	if !ok || completed != expected {
-		return ProtectionLifecycleState{}, fmt.Errorf("disablement phase %q cannot follow %q", completed, current.Phase)
-	}
-	if nextEpoch <= current.Epoch {
-		return ProtectionLifecycleState{}, errors.New("protection disablement update has a stale fencing epoch")
-	}
-	next := current
-	next.Phase, next.Epoch, next.DisablePlanDigest = completed, nextEpoch, plan.PlanDigest
-	switch completed {
-	case ProtectionPhasePrerequisiteAbsent:
-		next.PrerequisiteEffective = false
-	case ProtectionPhaseRuntimeReverted:
-		if next.PrerequisiteEffective {
-			failure, _ := NewLifecycleFailure("protection_image_revert_unsafe")
-			return ProtectionLifecycleState{}, failure
-		}
-	case ProtectionPhaseLocalSupportRemoved:
-		if next.PrerequisiteEffective {
-			failure, _ := NewLifecycleFailure("protection_image_revert_unsafe")
-			return ProtectionLifecycleState{}, failure
-		}
-		next.LocalSupportInstalled = false
-	case ProtectionPhaseComplete:
-		if next.PrerequisiteEffective || next.LocalSupportInstalled {
-			return ProtectionLifecycleState{}, errors.New("disablement cannot complete before prerequisite and local support removal")
-		}
-		next.State = ProtectionDisabled
-		next.ServiceImage = ""
-		next.Schedules = inactiveProtectionSchedules(next.Schedules)
-	}
-	if err := next.Seal(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	return next, nil
-}
-
-func RollbackProtectionDisable(current ProtectionLifecycleState, plan ProtectionDisablePlan, authorization ProtectionDisableAuthorization, nextEpoch int) (ProtectionLifecycleState, error) {
-	if err := current.Validate(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if err := plan.Validate(); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if err := validateProtectionDisableAuthority(current, plan, authorization); err != nil {
-		return ProtectionLifecycleState{}, err
-	}
-	if current.State != ProtectionDisablePending || (current.Phase != ProtectionPhaseRequested && current.Phase != ProtectionPhasePrerequisiteReversed) {
-		return ProtectionLifecycleState{}, errors.New("disablement rollback is no longer safe after prerequisite absence was verified")
-	}
-	if nextEpoch <= current.Epoch {
-		return ProtectionLifecycleState{}, errors.New("protection rollback has a stale fencing epoch")
-	}
-	next := current
-	next.State, next.Phase, next.Epoch = ProtectionEnabled, ProtectionPhaseIdle, nextEpoch
-	next.OperationID, next.DisablePlanDigest, next.RequestedAt, next.ActionDeadline = "", "", "", ""
-	next.PrerequisiteEffective, next.LocalSupportInstalled = true, true
-	next.Schedules = effectiveProtectionSchedules(*next.LastEffective, true)
 	if err := next.Seal(); err != nil {
 		return ProtectionLifecycleState{}, err
 	}
@@ -350,20 +185,6 @@ func (state ProtectionLifecycleState) Status(now time.Time) (ProtectionLifecycle
 	return status, nil
 }
 
-func (state ProtectionLifecycleState) RemovalRequest(mode OperationKind) (ProtectionRemovalRequest, error) {
-	if err := state.Validate(); err != nil {
-		return ProtectionRemovalRequest{}, err
-	}
-	if state.State != ProtectionDisabled || state.PrerequisiteEffective || state.LocalSupportInstalled {
-		failure, _ := NewLifecycleFailure("protection_disable_pending")
-		return ProtectionRemovalRequest{}, failure
-	}
-	return ProtectionRemovalRequest{
-		Mode: mode, Application: state.Application, Environment: state.Environment, Service: state.Service,
-		ProtectionState: string(state.State), StateDigest: state.StateDigest, PrerequisitesVerifiedAbsent: true,
-	}, nil
-}
-
 func (state *ProtectionLifecycleState) Seal() error {
 	if state == nil {
 		return errors.New("protection lifecycle state is nil")
@@ -431,9 +252,6 @@ func (state ProtectionLifecycleState) validateContent() error {
 		if err != nil || deadline.Sub(requested) != ProtectionDisableActionWindow {
 			return errors.New("disable-pending action deadline must be exactly 24 hours")
 		}
-		if state.Phase != ProtectionPhaseRequested && !lifecycleGraphDigest.MatchString(state.DisablePlanDigest) {
-			return errors.New("advanced disable-pending state requires a sealed plan digest")
-		}
 	}
 	previous := ""
 	for _, schedule := range state.Schedules {
@@ -451,73 +269,6 @@ func (state ProtectionLifecycleState) validateContent() error {
 func (state ProtectionLifecycleState) computeDigest() (string, error) {
 	copy := state
 	copy.StateDigest = ""
-	encoded, err := json.Marshal(copy)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(encoded)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
-func (plan *ProtectionDisablePlan) Seal() error {
-	if plan == nil {
-		return errors.New("protection disable plan is nil")
-	}
-	if err := plan.validateContent(); err != nil {
-		return err
-	}
-	digest, err := plan.computeDigest()
-	if err != nil {
-		return err
-	}
-	plan.PlanDigest = digest
-	return nil
-}
-
-func (plan ProtectionDisablePlan) Validate() error {
-	if err := plan.validateContent(); err != nil {
-		return err
-	}
-	expected, err := plan.computeDigest()
-	if err != nil {
-		return err
-	}
-	if plan.PlanDigest != expected {
-		return errors.New("protection disable plan digest mismatch")
-	}
-	return nil
-}
-
-func (plan ProtectionDisablePlan) validateContent() error {
-	if plan.SchemaVersion != ProtectionDisablePlanSchemaVersion || plan.Approval != ApprovalStrong || !plan.Interruption || plan.RemoteDataAction != "handback-preserve" {
-		return errors.New("protection disable plan safety contract is invalid")
-	}
-	for _, value := range []string{plan.OperationID, plan.Application, plan.Environment, plan.Service} {
-		if !safeLifecycleMetadata(value) {
-			return errors.New("protection disable plan metadata is invalid")
-		}
-	}
-	if !lifecycleGraphDigest.MatchString(plan.StateDigest) || plan.Epoch <= 0 {
-		return errors.New("protection disable plan state binding is invalid")
-	}
-	want := []ProtectionDisablePhase{
-		ProtectionPhasePrerequisiteReversed, ProtectionPhasePrerequisiteAbsent, ProtectionPhaseRuntimeReverted,
-		ProtectionPhaseLocalSupportRemoved, ProtectionPhaseComplete,
-	}
-	if len(plan.Steps) != len(want) {
-		return errors.New("protection disable plan has an incomplete phase graph")
-	}
-	for index, phase := range want {
-		if plan.Steps[index].Phase != phase {
-			return errors.New("protection disable plan phase graph is not canonical")
-		}
-	}
-	return nil
-}
-
-func (plan ProtectionDisablePlan) computeDigest() (string, error) {
-	copy := plan
-	copy.PlanDigest = ""
 	encoded, err := json.Marshal(copy)
 	if err != nil {
 		return "", err
@@ -566,24 +317,6 @@ func DecodeProtectionLifecycleState(encoded []byte) (ProtectionLifecycleState, e
 	return state, nil
 }
 
-func validateProtectionDisableAuthority(state ProtectionLifecycleState, plan ProtectionDisablePlan, authorization ProtectionDisableAuthorization) error {
-	if !authorization.Strong || authorization.OperationID != plan.OperationID || authorization.PlanDigest != plan.PlanDigest || authorization.StateDigest != plan.StateDigest {
-		failure, _ := NewLifecycleFailure("protection_disablement_not_authorized")
-		return failure
-	}
-	if state.OperationID != plan.OperationID || state.Application != plan.Application || state.Environment != plan.Environment || state.Service != plan.Service {
-		return errors.New("protection disable plan does not match lifecycle state")
-	}
-	if state.Phase == ProtectionPhaseRequested {
-		if state.StateDigest != plan.StateDigest {
-			return errors.New("protection disable plan state binding is stale")
-		}
-	} else if state.DisablePlanDigest != plan.PlanDigest {
-		return errors.New("protection disable plan does not own the in-flight state")
-	}
-	return nil
-}
-
 func nextProtectionDisablePhase(current ProtectionDisablePhase) (ProtectionDisablePhase, bool) {
 	switch current {
 	case ProtectionPhaseRequested:
@@ -606,8 +339,9 @@ func validProtectionStatePhase(state ProtectionState, phase ProtectionDisablePha
 	case ProtectionNeverEnabled, ProtectionEnabled:
 		return phase == ProtectionPhaseIdle
 	case ProtectionDisablePending:
-		return phase == ProtectionPhaseRequested || phase == ProtectionPhasePrerequisiteReversed ||
-			phase == ProtectionPhasePrerequisiteAbsent || phase == ProtectionPhaseRuntimeReverted || phase == ProtectionPhaseLocalSupportRemoved
+		// One phase, because disablement is one step now. The intermediate
+		// phases belonged to the multi-phase apparatus this replaced.
+		return phase == ProtectionPhaseRequested
 	case ProtectionDisabled:
 		return phase == ProtectionPhaseComplete || phase == ProtectionPhaseIdle
 	default:
@@ -683,14 +417,59 @@ func protectionStateContainsRemoteDeletion(value any) bool {
 	return strings.Contains(text, "delete-remote") || strings.Contains(text, "purge-remote")
 }
 
-// DisableProtection takes a service out of protection in one step.
+// BeginProtectionDisable records the intent before any of the work happens.
 //
-// The multi-phase disablement above — request, plan, authorize, advance — is a
-// larger apparatus for a decision that does not need it: stopping a backup is
-// not a data migration, and every phase of it would be a place to leave a
-// service half-disabled. This transitions straight to disabled and keeps
-// LastEffective, so the record still says what the service was protected by
-// when it stopped.
+// Disablement stops archiving, restarts the service unprotected and removes the
+// destination credentials, and those steps take time and can fail. Writing
+// "disabled" first would claim the work was done before it was: a failure
+// halfway leaves a record saying the service is not archiving while it still is.
+// disable-pending is the state that says the decision is made and the work is
+// not finished, which is what a resumed or retried run needs to read.
+func BeginProtectionDisable(current ProtectionLifecycleState, operationID string, now time.Time, nextEpoch int) (ProtectionLifecycleState, error) {
+	if err := current.Validate(); err != nil {
+		return ProtectionLifecycleState{}, err
+	}
+	if current.State == ProtectionDisablePending {
+		return current, nil
+	}
+	if current.State != ProtectionEnabled {
+		return ProtectionLifecycleState{}, fmt.Errorf("cannot begin disablement from %q", current.State)
+	}
+	if !safeLifecycleMetadata(operationID) || nextEpoch <= current.Epoch {
+		return ProtectionLifecycleState{}, errors.New("protection disablement operation or fencing epoch is invalid")
+	}
+	next := current
+	next.State, next.Phase, next.Epoch = ProtectionDisablePending, ProtectionPhaseRequested, nextEpoch
+	next.OperationID = operationID
+	// The deadline is what makes a stalled disablement visible: `ob backup
+	// status` reports a pending state past it as overdue rather than as a
+	// service quietly still archiving after somebody asked it to stop.
+	next.RequestedAt = now.UTC().Format(time.RFC3339Nano)
+	next.ActionDeadline = now.UTC().Add(ProtectionDisableActionWindow).Format(time.RFC3339Nano)
+	// Drills stop the moment disablement is requested. A drill materialises a
+	// whole recovered cluster; running one for a service somebody has just asked
+	// to stop protecting is work nobody wants and capacity nobody budgeted.
+	// Backups keep running until the work completes, so the recovery window has
+	// no hole in it while the disablement is in flight.
+	if current.LastEffective != nil {
+		next.Schedules = effectiveProtectionSchedules(*current.LastEffective, false)
+	}
+	// Still archiving, still holding its runtime — that is the point of the
+	// pending state, and rendering keeps producing the protected server until
+	// the work actually completes.
+	if err := next.Seal(); err != nil {
+		return ProtectionLifecycleState{}, err
+	}
+	return next, nil
+}
+
+// DisableProtection records that the work is done.
+//
+// The multi-phase apparatus this replaced — request, plan, authorize, advance,
+// roll back — was never reachable and is gone. Stopping a backup is not a data
+// migration, and every phase of it was another place to leave a service half
+// disabled. Two states carry what is actually needed: pending while the work
+// runs, disabled once it has.
 //
 // It says nothing about the repository, and deliberately: disabling protection
 // must never delete backups. The history that already exists is the reason

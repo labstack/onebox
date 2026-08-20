@@ -39,7 +39,7 @@ end-to-end suite.
 
 ```sh
 just site-install   # once, on a fresh clone: installs site/node_modules
-just build          # builds ob into $OB_BIN_DIR, or ~/.local/bin
+just build          # builds ob into ./bin, which is not on PATH
 ```
 
 ## The verification gate

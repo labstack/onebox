@@ -88,15 +88,21 @@ Released archives and Linux packages are installed from GitHub Releases,
 macOS users can install through Homebrew, and Windows users can install through
 Scoop. Follow the verified steps in the
 [installation guide](https://onebox.run/start/install).
-To build the binary from a checkout into `~/.local/bin`:
+To build the binary from a checkout:
 
 ```sh
 just build
 ```
 
-`just install` is an alias for the same target. Ensure `~/.local/bin` is on
-`PATH`; set `OB_BIN_DIR` to use another destination. Run `just --list` to see
-the available build, test, formatting, and check targets.
+It lands in `./bin/ob`, which is deliberately not on `PATH`: a checkout build
+that shadows an installed release makes `ob` mean the working tree, and the
+difference only surfaces when someone is already confused about which binary
+produced a result.
+
+`just install` is the deliberate step that copies it to `~/.local/bin` and
+prints what it will answer to; `just clean` removes both. `OB_BIN_DIR` changes
+where the build lands and `OB_INSTALL_DIR` where the install goes. Run `just
+--list` to see the available build, test, formatting, and check targets.
 
 Onebox releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first
 release in August 2026. The year is four digits, months are unpadded, and each

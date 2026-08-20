@@ -419,6 +419,73 @@ func (e *Engine) VerifyBackupRuntime(ctx context.Context, service string) ([]str
 			"the credential wrapper at %s is not what this project renders; re-run `ob service apply` to replace it",
 			n.BackupWrapperFile(service)))
 	}
+	archiving, err := e.archivingIssues(ctx, service)
+	if err != nil {
+		return nil, err
+	}
+	return append(issues, archiving...), nil
+}
+
+// archivingIssues asks the running server whether it is still archiving, and
+// whether it is doing so often enough for the loss the policy tolerates.
+//
+// The binary and the wrapper being correct says the tooling is in place. It
+// says nothing about whether the server is using it: `archive_mode` can be
+// turned off, `archive_command` can be replaced, and `archive_timeout` can be
+// raised past the declared maximum data loss — each of which leaves every
+// existing backup intact and quietly stops the recovery point advancing the way
+// the policy promises. That is a state worth naming, because nothing else here
+// notices it.
+func (e *Engine) archivingIssues(ctx context.Context, service string) ([]string, error) {
+	projection, err := e.Spec.EffectiveBackupProjection(service)
+	if err != nil {
+		return nil, err
+	}
+	n := e.names()
+	// Connected as the role the driver creates, against the database that always
+	// exists.
+	//
+	// Two earlier spellings of this line both failed and were both read by the
+	// exit-code branch below as "the server is down", so the check silently did
+	// nothing on a perfectly healthy server: asking as the OS user reaches a
+	// role that does not exist, and asking as the right role without a database
+	// reaches one named after the role, which does not exist either. Only
+	// running it against a live server showed that — the unit tests were happy
+	// with a command that never worked.
+	read := "docker exec -u postgres " + q(n.ServiceContainer(service)) +
+		" psql -U " + q(app.PgSuperuser) + " -d postgres -Atc " + q("show archive_mode;") +
+		" -Atc " + q("show archive_command;") +
+		" -Atc " + q("show archive_timeout;")
+	res, err := e.T.Run(ctx, read)
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		// Not an assertion that archiving is broken: the server may simply be
+		// down, which every other part of status already reports.
+		return nil, nil
+	}
+	fields := strings.Split(strings.TrimSpace(res.Stdout), "\n")
+	if len(fields) < 3 {
+		return nil, nil
+	}
+	mode, command, timeout := strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1]), strings.TrimSpace(fields[2])
+	var issues []string
+	if mode != "on" {
+		issues = append(issues, fmt.Sprintf(
+			"the server has archive_mode %q, so no write-ahead log is reaching the repository and the recovery point stopped advancing; re-run `ob backup enable %s`", mode, service))
+	}
+	if !strings.Contains(command, app.WalgBinary) {
+		issues = append(issues, fmt.Sprintf(
+			"the server's archive_command is not the one Onebox installed, so where the write-ahead log goes is not what this project describes; re-run `ob backup enable %s`", service))
+	}
+	if declared, ok := app.ParseDuration(projection.Policy.MaxDataLoss); ok {
+		if observed, parsed := app.ParsePostgresDuration(timeout); parsed && observed > declared {
+			issues = append(issues, fmt.Sprintf(
+				"the server closes a write-ahead log segment every %s, but the policy tolerates losing at most %s; an idle database can lose more than the policy permits",
+				timeout, projection.Policy.MaxDataLoss))
+		}
+	}
 	return issues, nil
 }
 

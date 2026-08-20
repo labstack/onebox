@@ -205,10 +205,16 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	if previous := previousBackupRepository(current, resolved.Spec.Name, service); previous != "" &&
 		previous != app.WalgPrefix(projection.Target, resolved.Spec.Name, service) {
 		e.ReportTargetMoved(service, previous, app.WalgPrefix(projection.Target, resolved.Spec.Name, service))
-		// The credential file is named for the target it belongs to, so the old
-		// one would otherwise sit there holding keys nothing uses.
-		if err := e.RemoveBackupCredentials(ctx, service, current.LastEffective); err != nil {
-			return err
+		// The credential file is named for the target it belongs to, so a move
+		// to a *differently named* target leaves the old file holding keys
+		// nothing uses. Editing the bucket inside a target keeps the name, and
+		// therefore the path — and removing it then would delete the file this
+		// very run just installed. It did: the next command that needed the
+		// repository failed with "--env-file: no such file or directory".
+		if retiresCredentialFile(current.LastEffective, projection) {
+			if err := e.RemoveBackupCredentials(ctx, service, current.LastEffective); err != nil {
+				return err
+			}
 		}
 	}
 	return e.BackupService(ctx, service)
@@ -282,4 +288,16 @@ func previousBackupRepository(state BackupLifecycleState, application, service s
 		return ""
 	}
 	return app.WalgPrefix(state.LastEffective.Target, application, service)
+}
+
+// retiresCredentialFile reports whether the previous binding left a credential
+// file this one will not overwrite.
+//
+// The file is named for the target, so a move to a differently named target
+// strands the old one. Editing the bucket inside a target keeps the name and
+// therefore the path, and retiring it there deletes the file the same run just
+// installed — which is what happened: the next command that needed the
+// repository failed with "--env-file: no such file or directory".
+func retiresCredentialFile(previous *app.BackupEffectiveProjection, next app.BackupEffectiveProjection) bool {
+	return previous != nil && previous.Policy.Target != next.Policy.Target
 }

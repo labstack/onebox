@@ -117,7 +117,7 @@ func (w Workload) IsJob() bool { return w.Role == RoleJob }
 //
 // The contract publishes `persistence.mode` defaulting to durable, but the
 // block is optional, so the default was unreachable unless it was written —
-// and doctor, the migration-backup requirement and the protection gate each
+// and doctor, the migration-backup requirement and the backup gate each
 // read an absent block as "not durable". A workload with a managed named
 // volume holds data that outlives the release whether or not it says so.
 //

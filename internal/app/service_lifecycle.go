@@ -26,7 +26,7 @@ const (
 // record never inherits volume-copy or generic-helper behavior.
 type lifecycleCapability interface {
 	DriverName() string
-	ProtectionQualified(version string) bool
+	BackupQualified(version string) bool
 	SupportsRecoveryKind(version, recoveryKind string) bool
 	Record() lifecycleCapabilityRecord
 }
@@ -95,12 +95,12 @@ func (record lifecycleCapabilityRecord) DriverName() string { return record.driv
 
 func (record lifecycleCapabilityRecord) Record() lifecycleCapabilityRecord { return record }
 
-func (record lifecycleCapabilityRecord) ProtectionQualified(version string) bool {
+func (record lifecycleCapabilityRecord) BackupQualified(version string) bool {
 	return record.policyQualified && record.supportsVersion(version)
 }
 
 func (record lifecycleCapabilityRecord) SupportsRecoveryKind(version, recoveryKind string) bool {
-	return record.ProtectionQualified(version) && record.recoveryKinds[recoveryKind]
+	return record.BackupQualified(version) && record.recoveryKinds[recoveryKind]
 }
 
 func (record lifecycleCapabilityRecord) supportsVersion(version string) bool {
@@ -261,7 +261,7 @@ func lifecycleCapabilityFor(driverName string) (lifecycleCapability, bool) {
 // trusted target-side credential file. Values never cross this catalogue API.
 func LifecycleCredentialSlots(driverName, version string) ([]string, bool) {
 	capability, ok := lifecycleCapabilityFor(driverName)
-	if !ok || !capability.ProtectionQualified(version) {
+	if !ok || !capability.BackupQualified(version) {
 		return nil, false
 	}
 	slots := append([]string(nil), capability.Record().credentialSlots...)

@@ -190,13 +190,13 @@ func validateEnvironment(e Environment, path string) error {
 	if err := validateEnvFiles(e.EnvFiles, path+".env_files"); err != nil {
 		return err
 	}
-	if err := gDur.checkOptional(path+".policy.migrations.backup_max_age", e.Policy.Migrations.BackupMaximumAge); err != nil {
+	if err := gDur.checkOptional(path+".policy.migrations.backup_max_age", e.Policy.Migrations.BackupMaxAge); err != nil {
 		return err
 	}
-	if err := gPlanSchema.checkOptional(path+".policy.min_plan_schema", e.Policy.MinimumPlanSchema); err != nil {
+	if err := gPlanSchema.checkOptional(path+".policy.min_plan_schema", e.Policy.MinPlanSchema); err != nil {
 		return err
 	}
-	return gCalVer.checkOptional(path+".policy.min_onebox_version", e.Policy.MinimumOneboxVersion)
+	return gCalVer.checkOptional(path+".policy.min_onebox_version", e.Policy.MinOneboxVersion)
 }
 
 func validateWorkload(w Workload, path string) error {
@@ -462,7 +462,7 @@ func validateService(s Service, path string) error {
 		}
 	}
 	if s.Backup != nil {
-		if err := validateProtectionPolicy(*s.Backup, path+".backup"); err != nil {
+		if err := validateBackupPolicy(*s.Backup, path+".backup"); err != nil {
 			return err
 		}
 	}

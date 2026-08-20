@@ -138,7 +138,7 @@ func TestContainerNamesEscapeSegmentHyphens(t *testing.T) {
 	if got := n.TransientContainer("web-api"); got != "help--desk-web--api-new" {
 		t.Errorf("hyphenated transient = %q, want help--desk-web--api-new", got)
 	}
-	if restore, workload := n.ProtectionRestoreContainer("database"), n.Container("database-restore", 1); restore == workload {
+	if restore, workload := n.BackupRestoreContainer("database"), n.Container("database-restore", 1); restore == workload {
 		t.Fatalf("restore container collides with declared workload: %q", restore)
 	}
 }
@@ -160,7 +160,7 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 				add(n.Container(component, replica), fmt.Sprintf("container %s/%s/%d", application, component, replica))
 			}
 			add(n.TransientContainer(component), "transient "+application+"/"+component)
-			add(n.ProtectionRestoreContainer(component), "restore "+application+"/"+component)
+			add(n.BackupRestoreContainer(component), "restore "+application+"/"+component)
 		}
 	}
 }

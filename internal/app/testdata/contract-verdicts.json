@@ -45,6 +45,41 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/backup authored tool",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
+    "case": "conformance/backup inline secret",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
+    "case": "conformance/backup is no longer a field",
+    "loads": false,
+    "code": "unknown_field"
+  },
+  {
+    "case": "conformance/backup self target",
+    "loads": false,
+    "code": "backup_target_not_independent"
+  },
+  {
+    "case": "conformance/backup sparse drill",
+    "loads": false,
+    "code": "drill_schedule_too_sparse"
+  },
+  {
+    "case": "conformance/backup unsupported objective",
+    "loads": false,
+    "code": "recovery_objective_unsupported"
+  },
+  {
+    "case": "conformance/backup unsupported retention",
+    "loads": false,
+    "code": "backup_retention_unsupported"
+  },
+  {
     "case": "conformance/bad protocol",
     "loads": false,
     "code": "project_invalid"
@@ -285,41 +320,6 @@
     "code": "project_invalid"
   },
   {
-    "case": "conformance/protection authored tool",
-    "loads": false,
-    "code": "unknown_field"
-  },
-  {
-    "case": "conformance/protection inline secret",
-    "loads": false,
-    "code": "unknown_field"
-  },
-  {
-    "case": "conformance/protection is no longer a field",
-    "loads": false,
-    "code": "unknown_field"
-  },
-  {
-    "case": "conformance/protection self target",
-    "loads": false,
-    "code": "backup_target_not_independent"
-  },
-  {
-    "case": "conformance/protection sparse drill",
-    "loads": false,
-    "code": "drill_schedule_too_sparse"
-  },
-  {
-    "case": "conformance/protection unsupported objective",
-    "loads": false,
-    "code": "recovery_objective_unsupported"
-  },
-  {
-    "case": "conformance/protection unsupported retention",
-    "loads": false,
-    "code": "backup_retention_unsupported"
-  },
-  {
     "case": "conformance/provider-qualified route middlewares",
     "loads": true,
     "digest": "d1be2e35c3638c2532e28f43043520b085bdc091815355023ee02a1d535e26cf"
@@ -375,7 +375,7 @@
     "digest": "e81a245edbe89dd02c6cf76ef2aed249272f4d13739311afde5c37cea88d3b7e"
   },
   {
-    "case": "conformance/service protection policy",
+    "case": "conformance/service backup policy",
     "loads": true,
     "digest": "235dcc9445a139b939e7a13950f90e69cd5bf67621cc9f4588f04ec2a013af5c postgres=c1475eb63145a73b"
   },

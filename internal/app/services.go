@@ -307,7 +307,7 @@ func (p *Spec) serviceHasHealth(name string) bool {
 
 // renderService generates one service's Compose document. It is its own
 // project, so it survives every release of the application beside it.
-func (p *Spec) renderService(n Names, name string, s Service, selectedImage string, protection *serviceProtection) ([]byte, error) {
+func (p *Spec) renderService(n Names, name string, s Service, selectedImage string, backup *serviceBackup) ([]byte, error) {
 	key, d, ok := driverOf(name, s)
 	if !ok {
 		return nil, errf("unknown_service_driver", "services."+name, "", strings.Join([]string{
@@ -339,11 +339,11 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		"env_file": []string{n.ServiceSecretFile(name)},
 	}
 
-	// The protection credential file comes second so its entries are present
+	// The backup credential file comes second so its entries are present
 	// alongside the service credential, not instead of it: Compose applies each
 	// env_file over the ones before it, and the two name disjoint variables.
-	if protection != nil {
-		svc["env_file"] = []string{n.ServiceSecretFile(name), protection.CredentialFile}
+	if backup != nil {
+		svc["env_file"] = []string{n.ServiceSecretFile(name), backup.CredentialFile}
 	}
 
 	env := map[string]any{}
@@ -361,16 +361,16 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		return nil, err
 	}
 
-	// Protection is applied over authored settings rather than under them. The
+	// Backup is applied over authored settings rather than under them. The
 	// archive configuration is not a default a project may prefer differently:
 	// a server whose archive_mode an author turned back off would keep running
 	// while its recovery window silently stopped advancing.
-	if protection != nil {
+	if backup != nil {
 		// Where the repository is, never how to open it. The credential entry
 		// *names* are here too; their values live in the mode-0600 file on the
 		// host and are read by the wrapper, so no secret enters this document
 		// or its digest.
-		for key, value := range protection.Environment {
+		for key, value := range backup.Environment {
 			env[key] = value
 		}
 		if len(command) == 0 {
@@ -380,8 +380,8 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		}
 		command = append(command,
 			"-c", "archive_mode=on",
-			"-c", "archive_command="+protection.ArchiveCommand,
-			"-c", "archive_timeout="+protection.ArchiveTimeout,
+			"-c", "archive_command="+backup.ArchiveCommand,
+			"-c", "archive_timeout="+backup.ArchiveTimeout,
 		)
 		// wal_level=replica is the floor archiving needs, so it is raised to
 		// rather than set. Appending it unconditionally would override an
@@ -410,12 +410,12 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		vol := dataVolume(s)
 		full := n.ServiceVolume(name, vol)
 		mounts := []string{full + ":" + d.dataPath}
-		if protection != nil {
-			// The directory, not the files — see ProtectionRuntimeDir for why
+		if backup != nil {
+			// The directory, not the files — see BackupRuntimeDir for why
 			// an atomically replaced file vanishes from a running container.
 			// Read-only, because a container that could rewrite the binary it
 			// archives with could send the archive anywhere.
-			mounts = append(mounts, protection.RuntimeHostDir+":"+WalgMountPath+":ro")
+			mounts = append(mounts, backup.RuntimeHostDir+":"+WalgMountPath+":ro")
 		}
 		svc["volumes"] = mounts
 		volumes[full] = map[string]any{
@@ -824,7 +824,7 @@ func shellQuote(s string) string {
 // declaresAtLeastReplicaWAL reports whether the project already asks for a WAL
 // level that carries everything archiving needs. `logical` is a superset of
 // `replica`; `minimal` is not, and is refused rather than silently raised
-// because a project asking for minimal has asked for something protection
+// because a project asking for minimal has asked for something backup
 // cannot deliver.
 func declaresAtLeastReplicaWAL(settings map[string]any) bool {
 	value, ok := settings["wal_level"]

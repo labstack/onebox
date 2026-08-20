@@ -1,10 +1,10 @@
 package app
 
-// ProtectionEffectiveProjection is the policy and target a service is protected
+// BackupEffectiveProjection is the policy and target a service is protected
 // by. It is recorded at enablement and carried in the durable lifecycle state,
 // so a service keeps archiving to the repository it was bound to even if the
 // project's intent is later edited.
-type ProtectionEffectiveProjection struct {
+type BackupEffectiveProjection struct {
 	Policy BackupPolicy `json:"policy"`
 	Target BackupTarget `json:"target"`
 }
@@ -12,7 +12,7 @@ type ProtectionEffectiveProjection struct {
 // The projection a protected service is actually running under.
 //
 // This file used to also generate a set of twelve JSON descriptors — schedules,
-// retention, provenance, restore templates — describing what protection *should*
+// retention, provenance, restore templates — describing what backup *should*
 // look like on the target, together with a digest comparison to detect drift.
 // None of it ever had a caller, and the design it described no longer exists:
 // the schedules are systemd units derived from the policy, retention is applied
@@ -21,27 +21,27 @@ type ProtectionEffectiveProjection struct {
 // ever placed on a host.
 //
 // Drift is now asked of the target directly rather than of a descriptor written
-// beside it — see VerifyProtectionRuntime. A second description of the truth is
+// beside it — see VerifyBackupRuntime. A second description of the truth is
 // only somewhere for the two to disagree.
 
-func (r *Resolved) effectiveProtectionProjection(serviceName string, service Service) (ProtectionEffectiveProjection, string, error) {
-	if state, ok := r.serviceRuntime[serviceName]; ok && state.ProtectionState == "disable-pending" {
+func (r *Resolved) effectiveBackupProjection(serviceName string, service Service) (BackupEffectiveProjection, string, error) {
+	if state, ok := r.serviceRuntime[serviceName]; ok && state.BackupState == "disable-pending" {
 		if state.LastEffective == nil {
-			return ProtectionEffectiveProjection{}, "", errf("protection_image_revert_unsafe", "services."+serviceName, "ob protection disable --output ndjson", "disable-pending state has no durable last-effective protection projection")
+			return BackupEffectiveProjection{}, "", errf("backup_image_revert_unsafe", "services."+serviceName, "ob backup disable --output ndjson", "disable-pending state has no durable last-effective backup projection")
 		}
 		return *state.LastEffective, "last-effective", nil
 	}
 	if service.Backup == nil {
-		return ProtectionEffectiveProjection{}, "", errf("project_invalid", "services."+serviceName+".backup", "ob validate", "service has no protection intent or retained projection")
+		return BackupEffectiveProjection{}, "", errf("project_invalid", "services."+serviceName+".backup", "ob validate", "service has no backup intent or retained projection")
 	}
 	target, ok := r.BackupTargets[service.Backup.Target]
 	if !ok {
-		return ProtectionEffectiveProjection{}, "", errf("backup_target_unknown", "services."+serviceName+".backup.target", "ob validate", "protection target is not declared")
+		return BackupEffectiveProjection{}, "", errf("backup_target_unknown", "services."+serviceName+".backup.target", "ob validate", "backup target is not declared")
 	}
-	return ProtectionEffectiveProjection{Policy: *service.Backup, Target: target}, "project-intent", nil
+	return BackupEffectiveProjection{Policy: *service.Backup, Target: target}, "project-intent", nil
 }
 
-// EffectiveProtectionProjection is the repository a service is actually
+// EffectiveBackupProjection is the repository a service is actually
 // archiving to, which is not always the one the project currently names.
 //
 // The recorded projection wins whenever there is one. Enablement writes down
@@ -54,14 +54,14 @@ func (r *Resolved) effectiveProtectionProjection(serviceName string, service Ser
 // is one rule rather than four that can drift. The project's intent takes
 // effect at the next `ob backup enable`, which is where the change is made
 // deliberately.
-func (r *Resolved) EffectiveProtectionProjection(serviceName string) (ProtectionEffectiveProjection, error) {
+func (r *Resolved) EffectiveBackupProjection(serviceName string) (BackupEffectiveProjection, error) {
 	service, ok := r.Services[serviceName]
 	if !ok {
-		return ProtectionEffectiveProjection{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
+		return BackupEffectiveProjection{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
 	}
 	if state, observed := r.serviceRuntime[serviceName]; observed && state.LastEffective != nil {
 		return *state.LastEffective, nil
 	}
-	projection, _, err := r.effectiveProtectionProjection(serviceName, service)
+	projection, _, err := r.effectiveBackupProjection(serviceName, service)
 	return projection, err
 }

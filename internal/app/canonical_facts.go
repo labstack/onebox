@@ -21,7 +21,7 @@ type CanonicalHygieneFacts struct {
 }
 
 type CanonicalServiceFacts struct {
-	ProtectionState        CanonicalFact               `json:"protection_state"`
+	BackupState            CanonicalFact               `json:"backup_state"`
 	Tier                   CanonicalFact               `json:"tier"`
 	RecoveryKind           CanonicalFact               `json:"recovery_kind"`
 	ServiceImageDigest     CanonicalFact               `json:"service_image_digest"`
@@ -92,7 +92,7 @@ func validateCanonicalFacts(facts CanonicalFacts) error {
 			fact  CanonicalFact
 			valid *regexp.Regexp
 		}{
-			{"protection_state", service.ProtectionState, enumPattern("undeclared", "declared", "enabled", "disable-pending", "disabled")},
+			{"backup_state", service.BackupState, enumPattern("undeclared", "declared", "enabled", "disable-pending", "disabled")},
 			{"tier", service.Tier, enumPattern("Run", "Managed", "External")},
 			{"recovery_kind", service.RecoveryKind, enumPattern(eRecoveryKind...)},
 			{"service_image_digest", service.ServiceImageDigest, canonicalDigest},

@@ -33,7 +33,7 @@ func validateExternalService(external ExternalService, path string) error {
 			}
 		}
 	}
-	if err := gProtectionOwner.check(path+".protection_owner", external.ProtectionOwner); err != nil {
+	if err := gBackupOwner.check(path+".backup_owner", external.BackupOwner); err != nil {
 		return err
 	}
 	if external.Probe != nil {
@@ -43,7 +43,7 @@ func validateExternalService(external ExternalService, path string) error {
 		if _, err := PositiveDuration(external.Probe.Timeout); err != nil {
 			return errf("project_invalid", path+".probe.timeout", "ob validate", "probe timeout must be a positive duration: %v", err)
 		}
-		if _, err := PositiveDuration(external.Probe.MaximumAge); err != nil {
+		if _, err := PositiveDuration(external.Probe.MaxAge); err != nil {
 			return errf("project_invalid", path+".probe.max_age", "ob validate", "probe max_age must be a positive duration: %v", err)
 		}
 	}

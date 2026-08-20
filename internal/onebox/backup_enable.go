@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/onebox/internal/secrets"
 )
 
-// executeProtectionEnable turns a declared policy into an established one.
+// executeBackupEnable turns a declared policy into an established one.
 //
 // The order is forced: check the credentials, pin the image, record the state
 // that makes rendering produce a protected server, restart under it — which is
@@ -28,9 +28,9 @@ import (
 // command that returned success there would be telling the operator their
 // database is protected at the exact moment it is not, which is the failure
 // this whole product is arranged to refuse.
-func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *app.Resolved, configPath, environment, service, operationID string) error {
+func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Resolved, configPath, environment, service, operationID string) error {
 	if service == "" {
-		return fmt.Errorf("protection enable requires a service name")
+		return fmt.Errorf("backup enable requires a service name")
 	}
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err
@@ -61,25 +61,25 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	}
 	if driver != "postgres" {
 		return fmt.Errorf(
-			"service %s runs the %s driver; executable protection exists for postgres only today", service, driver)
+			"service %s runs the %s driver; executable backup exists for postgres only today", service, driver)
 	}
 	if declared.Backup == nil {
 		return fmt.Errorf(
-			"service %s declares no protection policy; add services.%s.backup to the project first", service, service)
+			"service %s declares no backup policy; add services.%s.backup to the project first", service, service)
 	}
-	projection, err := resolved.EffectiveProtectionProjection(service)
+	projection, err := resolved.EffectiveBackupProjection(service)
 	if err != nil {
 		return err
 	}
 	if _, ok := app.LifecycleCredentialSlots(driver, resolved.DeclaredVersion(service)); !ok {
-		return fmt.Errorf("service %s runs a %s version with no qualified protection contract", service, driver)
+		return fmt.Errorf("service %s runs a %s version with no qualified backup contract", service, driver)
 	}
 
 	// The credential file is installed here, not assumed to be present.
 	//
 	// It was previously the operator's job, and the error message told them to
 	// "stage it through the trusted secret flow" — a flow that does not reach
-	// protection credentials, so the instruction pointed at nothing. Onebox
+	// backup credentials, so the instruction pointed at nothing. Onebox
 	// already knows which encrypted file the target names and already has the
 	// machinery to place a mode-0600 file under the service lock, so it does.
 	//
@@ -94,20 +94,20 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	if err := app.ValidateWalgCredentials(plaintext, projection.Target); err != nil {
 		return err
 	}
-	// The install is a protection mutation, so it needs the service lock as
+	// The install is a backup mutation, so it needs the service lock as
 	// well as the application lock. Taking it here also closes a gap that had
 	// nothing to do with credentials: enablement restarts a database and took
 	// no per-service lock at all, so two of them could interleave.
-	if _, err := e.AcquireProtectionLock(ctx, service, operationID, 0); err != nil {
+	if _, err := e.AcquireBackupLock(ctx, service, operationID, 0); err != nil {
 		return err
 	}
-	defer e.ReleaseProtectionLock(service)
-	stopHeartbeat, err := e.StartProtectionHeartbeat(ctx, service)
+	defer e.ReleaseBackupLock(service)
+	stopHeartbeat, err := e.StartBackupHeartbeat(ctx, service)
 	if err != nil {
 		return err
 	}
 	defer stopHeartbeat()
-	if _, err := e.InstallProtectionCredentialFile(ctx, service, declared.Backup.Target,
+	if _, err := e.InstallBackupCredentialFile(ctx, service, declared.Backup.Target,
 		app.WalgCredentialEntries(projection.Target), plaintext); err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// is checked before anything durable happens. Finding out at the schedule
 	// sync would mean finding out after the service had been recorded as
 	// protected and restarted archiving, leaving an enablement half-applied.
-	if err := e.RequireProtectionScheduling(ctx, []string{service}); err != nil {
+	if err := e.RequireBackupScheduling(ctx, []string{service}); err != nil {
 		return err
 	}
 
@@ -135,11 +135,11 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// it was, not recorded as enabled with no binary to archive with. The
 	// earlier ordering did the opposite, and a single failed enablement left a
 	// state that refused every retry.
-	if err := e.StageProtectionRuntime(ctx, service, app.RenderWalgWrapper(projection.Target)); err != nil {
-		return fmt.Errorf("service %s: cannot place its protection runtime: %w", service, err)
+	if err := e.StageBackupRuntime(ctx, service, app.RenderWalgWrapper(projection.Target)); err != nil {
+		return fmt.Errorf("service %s: cannot place its backup runtime: %w", service, err)
 	}
 
-	current, err := currentProtectionLifecycleState(ctx, e, resolved.Spec.Name, environment, service)
+	current, err := currentBackupLifecycleState(ctx, e, resolved.Spec.Name, environment, service)
 	if err != nil {
 		return err
 	}
@@ -151,15 +151,15 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	// discarded the freshly pinned image and the new projection, so the service
 	// went on archiving to the original repository with no command able to
 	// change it — while the edited project sat there looking applied.
-	next, err := rebindProtection(current, projection, image, operationID)
+	next, err := rebindBackup(current, projection, image, operationID)
 	if err != nil {
 		return err
 	}
-	body, err := encodeProtectionLifecycleState(next)
+	body, err := encodeBackupLifecycleState(next)
 	if err != nil {
 		return err
 	}
-	if err := e.WriteProtectionLifecycleState(ctx, service, body); err != nil {
+	if err := e.WriteBackupLifecycleState(ctx, service, body); err != nil {
 		return err
 	}
 	// The project was loaded before this service was protected, so without
@@ -179,10 +179,10 @@ func executeProtectionEnable(ctx context.Context, e *engine.Engine, resolved *ap
 	return e.BackupService(ctx, service)
 }
 
-// encodeProtectionLifecycleState renders a validated record as the single JSON
+// encodeBackupLifecycleState renders a validated record as the single JSON
 // line the observation probe expects: it reads the marker from the first line
 // and the record from the rest, and refuses more than one JSON value.
-func encodeProtectionLifecycleState(state ProtectionLifecycleState) ([]byte, error) {
+func encodeBackupLifecycleState(state BackupLifecycleState) ([]byte, error) {
 	if err := state.Validate(); err != nil {
 		return nil, err
 	}
@@ -193,40 +193,40 @@ func encodeProtectionLifecycleState(state ProtectionLifecycleState) ([]byte, err
 	return append(body, '\n'), nil
 }
 
-// currentProtectionLifecycleState returns the record the target holds, or a
-// fresh never-enabled one when protection has never been established here.
+// currentBackupLifecycleState returns the record the target holds, or a
+// fresh never-enabled one when backup has never been established here.
 //
 // The starting epoch is 1 rather than 0 because the schema treats a
 // non-positive epoch as unsealed state: an epoch of 0 is how an uninitialised
 // record is told apart from a real one, so it cannot also be a real one.
-func currentProtectionLifecycleState(ctx context.Context, e *engine.Engine, application, environment, service string) (ProtectionLifecycleState, error) {
-	encoded, err := e.ReadProtectionLifecycleState(ctx, service)
+func currentBackupLifecycleState(ctx context.Context, e *engine.Engine, application, environment, service string) (BackupLifecycleState, error) {
+	encoded, err := e.ReadBackupLifecycleState(ctx, service)
 	if err != nil {
-		return ProtectionLifecycleState{}, err
+		return BackupLifecycleState{}, err
 	}
 	if len(encoded) == 0 {
-		return NewProtectionLifecycleState(application, environment, service, 1)
+		return NewBackupLifecycleState(application, environment, service, 1)
 	}
-	state, err := DecodeProtectionLifecycleState(encoded)
+	state, err := DecodeBackupLifecycleState(encoded)
 	if err != nil {
-		return ProtectionLifecycleState{}, fmt.Errorf("service %s lifecycle state: %w", service, err)
+		return BackupLifecycleState{}, fmt.Errorf("service %s lifecycle state: %w", service, err)
 	}
 	if state.Application != application || state.Environment != environment || state.Service != service {
-		return ProtectionLifecycleState{}, fmt.Errorf("service %s lifecycle state belongs to a different protected identity", service)
+		return BackupLifecycleState{}, fmt.Errorf("service %s lifecycle state belongs to a different protected identity", service)
 	}
 	return state, nil
 }
 
-// rebindProtection produces the enabled state for this run, from whichever
+// rebindBackup produces the enabled state for this run, from whichever
 // state the service is in. An already-enabled service is taken back to
-// never-enabled first, because EnableProtection is the single place that
+// never-enabled first, because EnableBackup is the single place that
 // decides what an enabled record contains and it refuses to transition from
 // enabled — the alternative is a second, divergent copy of that logic.
-func rebindProtection(current ProtectionLifecycleState, projection app.ProtectionEffectiveProjection, image, operationID string) (ProtectionLifecycleState, error) {
+func rebindBackup(current BackupLifecycleState, projection app.BackupEffectiveProjection, image, operationID string) (BackupLifecycleState, error) {
 	source := current
-	if current.State == ProtectionEnabled {
-		source.State = ProtectionDisabled
-		source.Phase = ProtectionPhaseIdle
+	if current.State == BackupEnabled {
+		source.State = BackupDisabled
+		source.Phase = BackupPhaseIdle
 	}
-	return EnableProtection(source, projection, image, operationID, true, current.Epoch+1)
+	return EnableBackup(source, projection, image, operationID, true, current.Epoch+1)
 }

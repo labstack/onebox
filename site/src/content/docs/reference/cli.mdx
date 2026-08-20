@@ -165,7 +165,7 @@ Global Flags:
 ```
 Backup and recovery for the data services this project declares.
 
-Protection is physical: a base backup plus continuous WAL archiving to the
+Backup is physical: a base backup plus continuous WAL archiving to the
 off-host repository the project's backup_targets name, which is what makes
 recovery to a point in time possible rather than recovery to last night.
 
@@ -181,7 +181,7 @@ Available Commands:
   create      take a base backup now
   disable     stop archiving; keep every backup already taken
   drill       prove the repository recovers, without touching anything
-  enable      establish protection — restarts the service archiving and takes the first backup
+  enable      establish backup — restarts the service archiving and takes the first backup
   prune       expire backups outside the declared retention
   restore     recover to a point in time and put it in service
   status      what the repository can recover, read from the repository
@@ -228,14 +228,14 @@ Global Flags:
 ### ob backup disable
 
 ```
-Take a service out of protection.
+Take a service out of backup.
 
 Archiving stops, the schedules are removed, the service restarts as an
 ordinary unprotected one, and its destination credentials are removed from
 the host.
 
 The repository is not touched: every backup already taken stays where it
-is. Reading or recovering from them needs protection enabled again,
+is. Reading or recovering from them needs backup enabled again,
 because the binary and credentials that reach the repository live in the
 protected service.
 
@@ -286,7 +286,7 @@ Global Flags:
 ### ob backup enable
 
 ```
-Make a declared protection policy real.
+Make a declared backup policy real.
 
 The order is forced: the credentials are checked, the image is pinned by
 registry digest, the verified wal-g binary is staged on the host, and only
@@ -535,7 +535,7 @@ Check this runner and the safety capabilities of the environment it targets.
 Reports the runner's provenance and whether it satisfies the environment's
 minimum version and plan schema, and names every workload and service holding
 durable data that nothing is copying off the box, because silence there would
-read as approval. A service declaring `protection` is reported as declaring it;
+read as approval. A service declaring `backup` is reported as declaring it;
 what the repository can actually recover is `ob backup status`. In structured output, automation should gate on
 the report status: data.status for pass or warn, and error.details.status for
 a failing diagnosis.
@@ -672,7 +672,7 @@ Usage:
   ob job plan <id> [flags]
 
 Flags:
-      --backup-report-out string   write a plan-bound backup report template when migration protection is required
+      --backup-report-out string   write a plan-bound backup report template when migration backup is required
   -h, --help                       help for plan
   -o, --out string                 job plan artifact path (default "ob-job-plan.json")
 
@@ -748,7 +748,7 @@ Usage:
   ob plan [flags]
 
 Flags:
-      --backup-report-out string   write a plan-bound backup report template when migration protection is required
+      --backup-report-out string   write a plan-bound backup report template when migration backup is required
   -h, --help                       help for plan
       --image stringArray          resolved image as workload=reference, for build-sourced workloads (repeatable)
   -o, --out string                 plan artifact path (default "ob-plan.json")

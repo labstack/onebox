@@ -70,7 +70,7 @@ func ValidateBackupTarget(name string, target BackupTarget) error {
 
 // BackupTargetEncryptionMode returns the authored mode for one recovery kind.
 // An empty result is deliberately not a default: the lifecycle adapter must
-// refuse protection whose encryption evidence cannot be established.
+// refuse backup whose encryption evidence cannot be established.
 func BackupTargetEncryptionMode(target BackupTarget, recoveryKind string) string {
 	return encryptionFor(target.Encryption, recoveryKind)
 }
@@ -120,14 +120,14 @@ func validateTargetEncryption(encryption TargetEncryption, path string) error {
 	return nil
 }
 
-func validateProtectionPolicy(policy BackupPolicy, path string) error {
+func validateBackupPolicy(policy BackupPolicy, path string) error {
 	if err := gIdent.check(path+".target", policy.Target); err != nil {
 		return err
 	}
 	if err := checkEnum(path+".recovery_kind", policy.RecoveryKind, eRecoveryKind); err != nil {
 		return err
 	}
-	maximumDataLoss, err := PositiveDuration(policy.MaximumDataLoss)
+	maximumDataLoss, err := PositiveDuration(policy.MaxDataLoss)
 	if err != nil {
 		return errf("project_invalid", path+".max_data_loss", "ob validate", "max_data_loss must be a positive duration: %v", err)
 	}
@@ -137,33 +137,33 @@ func validateProtectionPolicy(policy BackupPolicy, path string) error {
 	if err := validateSchedule(&policy.Schedule, path+".schedule"); err != nil {
 		return err
 	}
-	if policy.Retention.MinimumGenerations <= 0 {
+	if policy.Retention.Keep <= 0 {
 		return errf("backup_retention_unsupported", path+".retention.keep", "ob validate", "keep must be a positive whole number")
 	}
-	if _, err := PositiveDuration(policy.Retention.RecoveryWindow); err != nil {
+	if _, err := PositiveDuration(policy.Retention.Window); err != nil {
 		return errf("backup_retention_unsupported", path+".retention.window", "ob validate", "window must be a positive duration: %v", err)
 	}
-	if err := validateSchedule(&policy.RestoreDrill.Schedule, path+".drill.schedule"); err != nil {
+	if err := validateSchedule(&policy.Drill.Schedule, path+".drill.schedule"); err != nil {
 		return err
 	}
-	proofAge, err := PositiveDuration(policy.RestoreDrill.ProofMaximumAge)
+	proofAge, err := PositiveDuration(policy.Drill.MaxAge)
 	if err != nil {
 		return errf("project_invalid", path+".drill.max_age", "ob validate", "max_age must be a positive duration: %v", err)
 	}
-	gap, exact := maximumCronGap(policy.RestoreDrill.Schedule.Cron)
+	gap, exact := maximumCronGap(policy.Drill.Schedule.Cron)
 	if !exact {
 		return errf("drill_schedule_too_sparse", path+".drill.schedule.cron", "ob validate", "restore drill cadence cannot be proven against max_age; use a daily or weekday-based schedule")
 	}
 	if gap >= proofAge {
 		return errf("drill_schedule_too_sparse", path+".drill.schedule.cron", "ob validate", "restore drill maximum interval %s reaches or exceeds max_age %s; use a more frequent schedule", gap, proofAge)
 	}
-	if err := gAbsPath.checkOptional(path+".drill.staging_filesystem", policy.RestoreDrill.StagingFilesystem); err != nil {
+	if err := gAbsPath.checkOptional(path+".drill.staging_filesystem", policy.Drill.StagingFilesystem); err != nil {
 		return err
 	}
 	return nil
 }
 
-func validateProtectionSelection(p *Spec, serviceName, driverName string, service Service) error {
+func validateBackupSelection(p *Spec, serviceName, driverName string, service Service) error {
 	if service.Backup == nil {
 		return nil
 	}
@@ -171,29 +171,29 @@ func validateProtectionSelection(p *Spec, serviceName, driverName string, servic
 	policy := service.Backup
 	target, ok := p.BackupTargets[policy.Target]
 	if !ok {
-		return errf("backup_target_unknown", path+".target", "ob validate", "protection target %q is not declared in backup_targets", policy.Target)
+		return errf("backup_target_unknown", path+".target", "ob validate", "backup target %q is not declared in backup_targets", policy.Target)
 	}
 
 	// Archiving needs at least `replica`. A project asking for `minimal` has
-	// asked for something protection cannot deliver, so it is refused rather
+	// asked for something backup cannot deliver, so it is refused rather
 	// than silently raised — the same reason an authored `logical` is left
 	// alone rather than forced down.
 	if level, ok := service.Settings["wal_level"]; ok {
 		if spelled := fmt.Sprint(level); spelled != "replica" && spelled != "logical" {
 			return errf("project_invalid", "services."+serviceName+".settings.wal_level", "ob validate",
-				"wal_level %q cannot carry the write-ahead log a backup replays; protection needs replica or logical", spelled)
+				"wal_level %q cannot carry the write-ahead log a backup replays; backup needs replica or logical", spelled)
 		}
 	}
 
 	capability, exists := lifecycleCapabilityFor(driverName)
 	version := versionString(service.Version)
-	if !exists || !capability.ProtectionQualified(version) {
-		return errf("backup_driver_unsupported", path, "ob validate", "driver %q version %q is runnable but has no qualified executable protection contract; remove the policy or choose a qualified driver version", driverName, version)
+	if !exists || !capability.BackupQualified(version) {
+		return errf("backup_driver_unsupported", path, "ob validate", "driver %q version %q is runnable but has no qualified executable backup contract; remove the policy or choose a qualified driver version", driverName, version)
 	}
 	if !capability.SupportsRecoveryKind(version, policy.RecoveryKind) {
 		return errf("recovery_objective_unsupported", path+".recovery_kind", "ob validate", "driver %q version %q does not support recovery kind %q in its qualified contract", driverName, version, policy.RecoveryKind)
 	}
-	if policy.RecoveryKind == "cold" && !policy.AllowBackupInterruption {
+	if policy.RecoveryKind == "cold" && !policy.AllowDowntime {
 		return errf("backup_interruption_not_authorized", path+".allow_downtime", "ob validate", "driver %q requires an explicitly permitted recurring stopped-service backup window", driverName)
 	}
 	if target.Kind != "s3-compatible" {
@@ -245,7 +245,7 @@ func PositiveDuration(value string) (time.Duration, error) {
 }
 
 // maximumCronGap recognizes the exact daily/weekly/monthly shapes accepted by
-// the protection contract. Unknown advanced expressions remain executable but
+// the backup contract. Unknown advanced expressions remain executable but
 // are not used to prove a sparse schedule safe until the scheduler owns a full
 // next-occurrence calculation.
 func maximumCronGap(expression string) (time.Duration, bool) {
@@ -366,25 +366,25 @@ func sameEndpointHost(host, endpoint string) bool {
 	return err == nil && sameHost(host, u.Hostname())
 }
 
-// prepareServiceOverride permits only operational tuning beneath protection.
+// prepareServiceOverride permits only operational tuning beneath backup.
 // Target, recovery kind, interruption authority, proof age, and staging
 // identity remain project-level intent and cannot change by environment.
 func prepareServiceOverride(path string, service Service, patch map[string]any) (map[string]any, error) {
-	protectionValue, present := patch["backup"]
+	backupValue, present := patch["backup"]
 	if !present {
 		return patch, nil
 	}
 	if service.Backup == nil {
-		return nil, errf("override_not_permitted", path+".backup", "ob validate", "an environment cannot enable protection for a service that has no project-level policy")
+		return nil, errf("override_not_permitted", path+".backup", "ob validate", "an environment cannot enable backup for a service that has no project-level policy")
 	}
-	protectionPatch, ok := protectionValue.(map[string]any)
+	backupPatch, ok := backupValue.(map[string]any)
 	if !ok {
-		return nil, errf("override_invalid", path+".backup", "ob validate", "a protection override must be a mapping")
+		return nil, errf("override_invalid", path+".backup", "ob validate", "a backup override must be a mapping")
 	}
 	allowed := map[string]bool{"schedule": true, "retention": true, "drill": true}
-	for _, key := range sortedKeys(protectionPatch) {
+	for _, key := range sortedKeys(backupPatch) {
 		if !allowed[key] {
-			return nil, errf("override_not_permitted", path+".backup."+key, "ob validate", "%q may not be overridden per environment; protection overrides may tune only schedules and retention", key)
+			return nil, errf("override_not_permitted", path+".backup."+key, "ob validate", "%q may not be overridden per environment; backup overrides may tune only schedules and retention", key)
 		}
 	}
 
@@ -392,21 +392,21 @@ func prepareServiceOverride(path string, service Service, patch map[string]any) 
 	if err != nil {
 		return nil, err
 	}
-	if value, ok := protectionPatch["schedule"]; ok {
+	if value, ok := backupPatch["schedule"]; ok {
 		merged, err := mergeClosedOverride(path+".backup.schedule", base["schedule"], value, map[string]bool{"cron": true, "timezone": true})
 		if err != nil {
 			return nil, err
 		}
 		base["schedule"] = merged
 	}
-	if value, ok := protectionPatch["retention"]; ok {
+	if value, ok := backupPatch["retention"]; ok {
 		merged, err := mergeClosedOverride(path+".backup.retention", base["retention"], value, map[string]bool{"keep": true, "window": true})
 		if err != nil {
 			return nil, err
 		}
 		base["retention"] = merged
 	}
-	if value, ok := protectionPatch["drill"]; ok {
+	if value, ok := backupPatch["drill"]; ok {
 		drillPatch, ok := value.(map[string]any)
 		if !ok {
 			return nil, errf("override_invalid", path+".backup.drill", "ob validate", "a drill override must be a mapping")

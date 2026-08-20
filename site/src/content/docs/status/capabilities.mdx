@@ -84,7 +84,7 @@ Nothing behind them executes.
 | Block | Reality today |
 | --- | --- |
 | [`backup_targets`](/reference/fields/backup_targets) | Declaring a target creates no repository and no schedule. |
-| [`services.<name>.protection`](/reference/fields/services) | Declaring recovery intent establishes no protection. No backup is taken, no drill is run, and no service reports `Managed`. |
+
 | [`external_services`](/reference/fields/external_services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
 
 The [lifecycle failure codes](/reference/errors#lifecycle-failure-codes) are
@@ -103,9 +103,9 @@ does not report the block at all — not even as declared.
 **Workload volumes.** A workload's own durable data is not copied anywhere.
 `ob doctor` reports it for every workload holding some, because silence there
 would read as approval. Managed services are different: one declaring
-`protection` is backed up continuously and recoverable to a point in time — see
+`backup` is backed up continuously and recoverable to a point in time — see
 the backup reference. Only the `postgres` driver has an executable contract
-today; every other driver declares `policy_qualified: false` and its protection
+today; every other driver declares `policy_qualified: false` and its backup
 policy is refused rather than accepted and ignored.
 
 **Restore proof.** No drill is run, and no service can currently prove a backup

@@ -63,19 +63,19 @@ func TestRemoveSchedulesRejectsFailedDisable(t *testing.T) {
 	}
 }
 
-// A deploy must not delete the protection timers.
+// A deploy must not delete the backup timers.
 //
 // SyncSchedules owns "ob-<app>-*" and removes what the project no longer
-// declares. Protection timers were named inside that namespace, so every deploy
+// declares. Backup timers were named inside that namespace, so every deploy
 // reclaimed them as stale and silently stopped all scheduled backups — the only
 // trace being a line saying the schedule was "no longer declared".
-func TestSyncSchedulesLeavesProtectionTimersAlone(t *testing.T) {
-	if !strings.HasPrefix(app.ProtectionUnitPrefix, "ob-") {
-		t.Fatalf("protection prefix %q is expected to sit under the ob- namespace", app.ProtectionUnitPrefix)
+func TestSyncSchedulesLeavesBackupTimersAlone(t *testing.T) {
+	if !strings.HasPrefix(app.BackupUnitPrefix, "ob-") {
+		t.Fatalf("backup prefix %q is expected to sit under the ob- namespace", app.BackupUnitPrefix)
 	}
-	protectionTimer := app.Names{App: "example", BasePath: "/var/lib/ob"}.
-		ProtectionTimerForEnvironment("production", "database", "backup")
-	if strings.HasPrefix(protectionTimer, "ob-example-") {
-		t.Fatalf("protection timer %q is inside the job scheduler's namespace and a deploy would delete it", protectionTimer)
+	backupTimer := app.Names{App: "example", BasePath: "/var/lib/ob"}.
+		BackupTimerForEnvironment("production", "database", "backup")
+	if strings.HasPrefix(backupTimer, "ob-example-") {
+		t.Fatalf("backup timer %q is inside the job scheduler's namespace and a deploy would delete it", backupTimer)
 	}
 }

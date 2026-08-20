@@ -158,13 +158,13 @@ in anything Onebox says. If you need one, run a `daemon` workload you own.
 :::
 
 :::caution[Back it up]
-A `postgres` service can declare `protection` and Onebox will keep a continuous
+A `postgres` service can declare `backup` and Onebox will keep a continuous
 off-host archive it can recover to a point in time — see
 [backups](/guides/back-up-a-database). Declaring the policy is not enough on its
 own: `ob backup enable` is what establishes it, and until then the service
 renders as an ordinary unprotected server.
 
-Every other driver declares `policy_qualified: false`, so a protection policy on
+Every other driver declares `policy_qualified: false`, so a backup policy on
 it is refused rather than quietly ignored, and copying its data off the box is
 your responsibility — a `job` workload on a `schedule` is the usual answer.
 :::

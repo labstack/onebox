@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// wal-g is the protection engine for the postgres driver: a physical base
+// wal-g is the backup engine for the postgres driver: a physical base
 // backup plus continuous WAL archiving, which is the only combination that can
 // honour the point-in-time recovery the policy declares. A logical dump cannot,
 // and a copy of a running data directory is the generic live-volume archive the
@@ -38,7 +38,7 @@ const PgDataPath = "/var/lib/postgresql/data/pgdata"
 // WalgMountPath is where the staged binary and its wrapper are mounted inside
 // the container, read-only. Outside /usr/local/bin deliberately: the mount must
 // not shadow anything the official image ships.
-const WalgMountPath = "/opt/onebox/protection"
+const WalgMountPath = "/opt/onebox/backup"
 
 // WalgBinary is the wrapper Onebox stages beside wal-g, and what every caller
 // invokes. It exists because wal-g reads its credentials from fixed AWS_* names
@@ -81,18 +81,18 @@ func WalgArchiveCommand() string { return WalgBinary + " wal-push %p" }
 // destination's location, not its keys.
 func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, error) {
 	if target.Kind != "s3-compatible" {
-		return nil, fmt.Errorf("protection for %q: unsupported target kind %q", service, target.Kind)
+		return nil, fmt.Errorf("backup for %q: unsupported target kind %q", service, target.Kind)
 	}
 	endpoint, err := url.Parse(target.Endpoint)
 	if err != nil || endpoint.Host == "" {
-		return nil, fmt.Errorf("protection for %q: endpoint %q is not a URL naming a host", service, target.Endpoint)
+		return nil, fmt.Errorf("backup for %q: endpoint %q is not a URL naming a host", service, target.Endpoint)
 	}
 	if endpoint.Scheme == "https" && target.TLS == "skip-verify" {
 		// wal-g offers no way to skip certificate verification: its only
 		// transport controls are the endpoint protocol and a CA file. Accepting
 		// this would mean verifying anyway while the project says otherwise.
 		return nil, errf("recovery_objective_unsupported", "backup_targets.tls", "ob validate",
-			"protection for %q cannot skip certificate verification on an https endpoint: wal-g has no such option. "+
+			"backup for %q cannot skip certificate verification on an https endpoint: wal-g has no such option. "+
 				"Install the certificate authority on the host so the certificate verifies, or use an http endpoint if the destination is on a trusted network",
 			service)
 	}
@@ -229,24 +229,24 @@ func WalgAssetFor(machine string) (asset, sha256 string, err error) {
 	entry, ok := walgChecksums[normalizeMachine(machine)]
 	if !ok {
 		return "", "", fmt.Errorf(
-			"no verified wal-g build for machine architecture %q; protection supports x86_64 and aarch64", machine)
+			"no verified wal-g build for machine architecture %q; backup supports x86_64 and aarch64", machine)
 	}
 	return entry.Asset, entry.SHA256, nil
 }
 
-// WalgDownloadURL is where the pinned asset comes from. Verification is by the
+// WalgDownloadURL is where the pinned asset comes from. Check is by the
 // checksum above, not by trusting this location.
 func WalgDownloadURL(asset string) string {
 	return "https://github.com/wal-g/wal-g/releases/download/" + WalgVersion + "/" + asset
 }
 
-// serviceProtection is everything renderService needs to run a service under
-// protection. It is derived from observed durable lifecycle state rather than
+// serviceBackup is everything renderService needs to run a service under
+// backup. It is derived from observed durable lifecycle state rather than
 // from the presence of a policy, for the same reason image selection is: a
-// declared intent is not an established protection, and rendering a server with
+// declared intent is not an established backup, and rendering a server with
 // an archive_command pointing at a repository that was never initialised would
 // take the database down at its next WAL switch.
-type serviceProtection struct {
+type serviceBackup struct {
 	RuntimeHostDir string
 	CredentialFile string
 	ArchiveCommand string
@@ -254,16 +254,16 @@ type serviceProtection struct {
 	Environment    map[string]any
 }
 
-// protectionForRender returns the rendering inputs for a protected service, or
-// nil when the service is not running under established protection.
+// backupForRender returns the rendering inputs for a protected service, or
+// nil when the service is not running under established backup.
 //
 // Both live states qualify: `enabled` is the ordinary case, and
 // `disable-pending` still archives, because disablement has not completed and
 // stopping the archive first would put a gap in the recovery window that the
 // retained history claims is continuous.
-func (r *Resolved) protectionForRender(n Names, serviceName string) (*serviceProtection, error) {
+func (r *Resolved) backupForRender(n Names, serviceName string) (*serviceBackup, error) {
 	state, observed := r.serviceRuntime[serviceName]
-	if !observed || (state.ProtectionState != "enabled" && state.ProtectionState != "disable-pending") {
+	if !observed || (state.BackupState != "enabled" && state.BackupState != "disable-pending") {
 		return nil, nil
 	}
 	service, ok := r.Services[serviceName]
@@ -275,14 +275,14 @@ func (r *Resolved) protectionForRender(n Names, serviceName string) (*servicePro
 		driverName = serviceName
 	}
 	if driverName != "postgres" {
-		// Every other driver's protection is declared in the lifecycle
+		// Every other driver's backup is declared in the lifecycle
 		// catalogue but has no executable renderer yet. Refusing here is the
 		// difference between "not implemented" and a service that runs as if
 		// the policy had never been written.
 		return nil, errf("backup_driver_unsupported", "services."+serviceName+".backup", "ob validate",
-			"driver %q has no executable protection renderer; only postgres is executable today", driverName)
+			"driver %q has no executable backup renderer; only postgres is executable today", driverName)
 	}
-	projection, err := r.renderProtectionProjection(serviceName, service, state)
+	projection, err := r.renderBackupProjection(serviceName, service, state)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +291,7 @@ func (r *Resolved) protectionForRender(n Names, serviceName string) (*servicePro
 	// can trail by hours whatever the policy says. Forcing a segment switch at
 	// the declared interval is what makes max_data_loss a bound rather than
 	// an aspiration.
-	maximumDataLoss, err := PositiveDuration(projection.Policy.MaximumDataLoss)
+	maximumDataLoss, err := PositiveDuration(projection.Policy.MaxDataLoss)
 	if err != nil {
 		return nil, err
 	}
@@ -301,41 +301,41 @@ func (r *Resolved) protectionForRender(n Names, serviceName string) (*servicePro
 	}
 	environment["OB_S3_KEY_ENTRY"] = projection.Target.Credentials.AccessKeyEntry
 	environment["OB_S3_SECRET_ENTRY"] = projection.Target.Credentials.SecretKeyEntry
-	return &serviceProtection{
-		RuntimeHostDir: n.ProtectionRuntimeDir(serviceName),
-		CredentialFile: n.ProtectionCredentialFile(serviceName, projection.Policy.Target),
+	return &serviceBackup{
+		RuntimeHostDir: n.BackupRuntimeDir(serviceName),
+		CredentialFile: n.BackupCredentialFile(serviceName, projection.Policy.Target),
 		ArchiveCommand: WalgArchiveCommand(),
 		ArchiveTimeout: fmt.Sprintf("%ds", int(maximumDataLoss.Seconds())),
 		Environment:    environment,
 	}, nil
 }
 
-// RenderServiceProtectionWrappers generates the credential wrapper for every
-// service running under established protection, keyed by the host path it must
+// RenderServiceBackupWrappers generates the credential wrapper for every
+// service running under established backup, keyed by the host path it must
 // be written to. It is separate from RenderServices because the two are placed
 // separately: the wrapper and the binary beside it must be in place before the
 // container that mounts them starts.
-func (r *Resolved) RenderServiceProtectionWrappers(env string) (map[string][]byte, error) {
+func (r *Resolved) RenderServiceBackupWrappers(env string) (map[string][]byte, error) {
 	n := r.Spec.NamesFor(env)
 	out := map[string][]byte{}
 	for _, name := range sortedKeys(r.Spec.Services) {
-		protection, err := r.protectionForRender(n, name)
+		backup, err := r.backupForRender(n, name)
 		if err != nil {
 			return nil, err
 		}
-		if protection == nil {
+		if backup == nil {
 			continue
 		}
-		projection, err := r.renderProtectionProjection(name, r.Services[name], r.serviceRuntime[name])
+		projection, err := r.renderBackupProjection(name, r.Services[name], r.serviceRuntime[name])
 		if err != nil {
 			return nil, err
 		}
-		out[n.ProtectionWrapperFile(name)] = RenderWalgWrapper(projection.Target)
+		out[n.BackupWrapperFile(name)] = RenderWalgWrapper(projection.Target)
 	}
 	return out, nil
 }
 
-// renderProtectionProjection is the policy and target a *running* protected
+// renderBackupProjection is the policy and target a *running* protected
 // service is archiving under.
 //
 // The recorded projection wins over the project's current intent, and that
@@ -345,22 +345,22 @@ func (r *Resolved) RenderServiceProtectionWrappers(env string) (map[string][]byt
 // rendering from the edited project would point a live server at a repository
 // its own history is not in. The project's intent takes effect at the next
 // enablement, which is where the change can be made deliberately.
-func (r *Resolved) renderProtectionProjection(serviceName string, service Service, state ServiceRuntimeState) (ProtectionEffectiveProjection, error) {
+func (r *Resolved) renderBackupProjection(serviceName string, service Service, state ServiceRuntimeState) (BackupEffectiveProjection, error) {
 	_ = service
 	_ = state
-	projection, err := r.EffectiveProtectionProjection(serviceName)
+	projection, err := r.EffectiveBackupProjection(serviceName)
 	if err != nil {
-		return ProtectionEffectiveProjection{}, errf("protection_state_incomplete", "services."+serviceName+".backup", "ob backup status "+serviceName,
-			"service %s is protected but neither its durable state nor the project says what it is protected by; restore the policy or disable protection", serviceName)
+		return BackupEffectiveProjection{}, errf("backup_state_incomplete", "services."+serviceName+".backup", "ob backup status "+serviceName,
+			"service %s is protected but neither its durable state nor the project says what it is protected by; restore the policy or disable backup", serviceName)
 	}
 	return projection, nil
 }
 
 // ServiceIsProtected reports whether a service runs under established
-// protection, from durable state rather than from the project's intent.
+// backup, from durable state rather than from the project's intent.
 func (r *Resolved) ServiceIsProtected(serviceName string) bool {
 	state, observed := r.serviceRuntime[serviceName]
-	return observed && (state.ProtectionState == "enabled" || state.ProtectionState == "disable-pending")
+	return observed && (state.BackupState == "enabled" || state.BackupState == "disable-pending")
 }
 
 // normalizeMachine folds the spellings of one architecture onto a single name.
@@ -460,7 +460,7 @@ const (
 // bounds are known from the policy alone, so the arithmetic the policy already
 // implies is done up front and expressed as a count.
 func WalgRetainCount(policy BackupPolicy) (int, error) {
-	window, err := PositiveDuration(policy.Retention.RecoveryWindow)
+	window, err := PositiveDuration(policy.Retention.Window)
 	if err != nil {
 		return 0, err
 	}
@@ -470,7 +470,7 @@ func WalgRetainCount(policy BackupPolicy) (int, error) {
 		// A schedule whose spacing cannot be bounded cannot say how many backups
 		// a window holds. The generation floor is what remains, and it is the
 		// operator's declared minimum rather than a guess.
-		return policy.Retention.MinimumGenerations, nil
+		return policy.Retention.Keep, nil
 	}
 	// Backups in the window = firing days in the window × runs per firing day.
 	// Plus one, because the oldest backup kept must be *older* than the window:
@@ -478,8 +478,8 @@ func WalgRetainCount(policy BackupPolicy) (int, error) {
 	// taken before it.
 	firingDays := float64(window) / float64(dayGap)
 	needed := int(math.Ceil(firingDays*float64(perDay))) + 1
-	if needed < policy.Retention.MinimumGenerations {
-		return policy.Retention.MinimumGenerations, nil
+	if needed < policy.Retention.Keep {
+		return policy.Retention.Keep, nil
 	}
 	return needed, nil
 }

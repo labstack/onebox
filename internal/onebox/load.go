@@ -102,7 +102,7 @@ func (s *Service) loadObservedProject(ctx context.Context, lenient bool, images 
 //
 // -e follows symlinks, so the -L arm is what keeps a dangling link out of the
 // 'missing' answer; reporting a broken link as no state at all would drop the
-// service's protection silently. An unsearchable ancestor hides it the same
+// service's backup silently. An unsearchable ancestor hides it the same
 // way, which is what UndeterminedArm's exit 5 is for. A live symlink to a
 // regular file is still read through as 'present': -f follows it, and refusing
 // symlinked state would be a new rule, not a fix.
@@ -130,7 +130,7 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 	names := resolved.NamesFor(resolved.Env)
 	states := map[string]app.ServiceRuntimeState{}
 	for _, service := range sortedNames(resolved.Services) {
-		statePath := names.ProtectionLifecycleStateFile(service)
+		statePath := names.BackupLifecycleStateFile(service)
 		result, err := target.Run(ctx, lifecycleStateProbe(statePath))
 		if err != nil {
 			return nil, fmt.Errorf("observe service %s lifecycle state: %w", service, err)
@@ -157,7 +157,7 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 		default:
 			return nil, fmt.Errorf("service %s lifecycle state observation is invalid", service)
 		}
-		state, err := DecodeProtectionLifecycleState([]byte(encoded))
+		state, err := DecodeBackupLifecycleState([]byte(encoded))
 		if err != nil {
 			return nil, fmt.Errorf("service %s lifecycle state: %w", service, err)
 		}

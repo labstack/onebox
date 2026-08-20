@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/onebox/internal/onebox"
 )
 
-// `ob backup` is the operator's whole view of protection.
+// `ob backup` is the operator's whole view of backup.
 //
 // Three verbs, and the split between them is the point. `enable` is the one
 // that changes what the server is — it restarts the database under the
@@ -19,7 +19,7 @@ import (
 // `create` takes another one. `status` asks the repository, not the project,
 // what can actually be recovered; every figure comes from the repository itself.
 //
-// There is deliberately no verb that reports protection as established from the
+// There is deliberately no verb that reports backup as established from the
 // project alone. A policy in `ob.yml` is a request, and until `enable` has
 // succeeded the service renders as an ordinary unprotected server.
 func addBackupCommands(root *cobra.Command, g *globalFlags) {
@@ -27,7 +27,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		Use:   "backup",
 		Short: "protect a data service and inspect what can be recovered",
 		Long: "Backup and recovery for the data services this project declares.\n\n" +
-			"Protection is physical: a base backup plus continuous WAL archiving to the\n" +
+			"Backup is physical: a base backup plus continuous WAL archiving to the\n" +
 			"off-host repository the project's backup_targets name, which is what makes\n" +
 			"recovery to a point in time possible rather than recovery to last night.\n\n" +
 			"Declaring a policy does not establish it. `ob backup enable` restarts the\n" +
@@ -39,8 +39,8 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	var enableBreakLock bool
 	enableCmd := &cobra.Command{
 		Use:   "enable <service>",
-		Short: "establish protection — restarts the service archiving and takes the first backup",
-		Long: "Make a declared protection policy real.\n\n" +
+		Short: "establish backup — restarts the service archiving and takes the first backup",
+		Long: "Make a declared backup policy real.\n\n" +
 			"The order is forced: the credentials are checked, the image is pinned by\n" +
 			"registry digest, the verified wal-g binary is staged on the host, and only\n" +
 			"then does the server restart with archiving on.\n\n" +
@@ -50,7 +50,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindProtectionEnable, Service: args[0], BreakLock: enableBreakLock,
+				Kind: onebox.KindBackupEnable, Service: args[0], BreakLock: enableBreakLock,
 			}, "backup enable")
 		},
 	}
@@ -82,12 +82,12 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	disableCmd := &cobra.Command{
 		Use:   "disable <service>",
 		Short: "stop archiving; keep every backup already taken",
-		Long: "Take a service out of protection.\n\n" +
+		Long: "Take a service out of backup.\n\n" +
 			"Archiving stops, the schedules are removed, the service restarts as an\n" +
 			"ordinary unprotected one, and its destination credentials are removed from\n" +
 			"the host.\n\n" +
 			"The repository is not touched: every backup already taken stays where it\n" +
-			"is. Reading or recovering from them needs protection enabled again,\n" +
+			"is. Reading or recovering from them needs backup enabled again,\n" +
 			"because the binary and credentials that reach the repository live in the\n" +
 			"protected service.\n\n" +
 			"What does stop is the recovery window advancing: from here on there is no\n" +
@@ -96,12 +96,12 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if disableConfirm != args[0] {
 				return fmt.Errorf(
-					"disabling protection for %s stops archiving, so the recovery window stops advancing from now.\n"+
+					"disabling backup for %s stops archiving, so the recovery window stops advancing from now.\n"+
 						"Re-run with --confirm %s once you mean it",
 					args[0], args[0])
 			}
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindProtectionDisable, Service: args[0], BreakLock: disableBreakLock,
+				Kind: onebox.KindBackupDisable, Service: args[0], BreakLock: disableBreakLock,
 			}, "backup disable")
 		},
 	}
@@ -215,7 +215,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"policy is declared but never enabled has no repository to ask, and says so.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := operationsService(cmd, g).ProtectionStatus(cmd.Context(), args[0])
+			status, err := operationsService(cmd, g).BackupStatus(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}

@@ -30,7 +30,7 @@ func TestExactServiceImageCachedRequiresMatchingRepositoryDigest(t *testing.T) {
 				}
 				return transport.Result{}, false
 			}}
-			engine := protectionLockTestEngine(fake)
+			engine := backupLockTestEngine(fake)
 			got, err := engine.ExactServiceImageCached(context.Background(), image)
 			if err != nil && test.name != "configuration-id-only" {
 				t.Fatal(err)
@@ -47,7 +47,7 @@ func TestExactServiceImageCachedRequiresMatchingRepositoryDigest(t *testing.T) {
 
 func TestExactServiceImageCachedRejectsMutableTag(t *testing.T) {
 	fake := &transport.Fake{}
-	engine := protectionLockTestEngine(fake)
+	engine := backupLockTestEngine(fake)
 	if _, err := engine.ExactServiceImageCached(context.Background(), "postgres:17"); err == nil {
 		t.Fatal("mutable tag was accepted for exact cache evidence")
 	}

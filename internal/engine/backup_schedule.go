@@ -8,7 +8,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-// Protection schedules.
+// Backup schedules.
 //
 // A backup policy is a promise about time. Declaring `schedule: {cron: "0 2 *
 // * *"}` and then only ever backing up when somebody types the command is not
@@ -37,20 +37,20 @@ import (
 // remains the whole proof, to be run from CI or a workstation on the same
 // cadence the policy declares.
 
-// SyncProtectionSchedules installs a timer for every protected service and
+// SyncBackupSchedules installs a timer for every protected service and
 // removes the timers of services that are no longer protected.
 //
 // Removal matters as much as installation. A timer left behind for a service
-// whose protection was disabled would keep pushing backups to a repository the
+// whose backup was disabled would keep pushing backups to a repository the
 // project no longer describes, and nothing in the project would explain why.
-func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
+func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	n := e.names()
-	prefix := app.ProtectionUnitPrefix + e.Spec.Spec.Name + "-" + e.Opts.Environment + "-"
+	prefix := app.BackupUnitPrefix + e.Spec.Spec.Name + "-" + e.Opts.Environment + "-"
 	// flock creates the lock file but not the directory holding it.
-	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/protection")); err != nil {
+	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/backup")); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("cannot create the protection directory: %s", strings.TrimSpace(res.Stderr))
+		return fmt.Errorf("cannot create the backup directory: %s", strings.TrimSpace(res.Stderr))
 	}
 
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
@@ -65,7 +65,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 		}
 	}
 
-	if err := e.RequireProtectionScheduling(ctx, protectedServiceNames(e.Spec)); err != nil {
+	if err := e.RequireBackupScheduling(ctx, backedUpServiceNames(e.Spec)); err != nil {
 		return err
 	}
 
@@ -80,7 +80,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 		if !e.Spec.ServiceIsProtected(service) {
 			continue
 		}
-		projection, err := e.Spec.EffectiveProtectionProjection(service)
+		projection, err := e.Spec.EffectiveBackupProjection(service)
 		if err != nil {
 			return err
 		}
@@ -99,7 +99,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 				// Retention after the new generation exists, never before.
 				prune,
 			}},
-			{"verify", projection.Policy.RestoreDrill.Schedule, []string{
+			{"verify", projection.Policy.Drill.Schedule, []string{
 				walgExec(container, "wal-verify", "integrity", "timeline"),
 			}},
 		} {
@@ -122,10 +122,10 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 					service, expression, unit.schedule.Cron)
 			}
 			wanted = append(wanted, wantedUnit{
-				name:     n.ProtectionUnitForEnvironment(e.Opts.Environment, service, unit.operation),
+				name:     n.BackupUnitForEnvironment(e.Opts.Environment, service, unit.operation),
 				calendar: expression,
 				cron:     unit.schedule.Cron,
-				body:     protectionServiceUnit(e.Spec.Spec.Name, service, unit.operation, n.ProtectionRunLock(service), unit.commands),
+				body:     backupServiceUnit(e.Spec.Spec.Name, service, unit.operation, n.BackupRunLock(service), unit.commands),
 			})
 		}
 	}
@@ -137,7 +137,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 			return fmt.Errorf("cannot install %s: %w", unit.name, err)
 		}
 		if err := e.writeServiceFile(ctx, "/etc/systemd/system/"+unit.name+".timer",
-			[]byte(protectionTimerUnit(unit.name, unit.calendar))); err != nil {
+			[]byte(backupTimerUnit(unit.name, unit.calendar))); err != nil {
 			return fmt.Errorf("cannot install %s timer: %w", unit.name, err)
 		}
 	}
@@ -149,12 +149,12 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 		}
 	}
 	for _, unit := range sortedNames(setOf(stale)) {
-		if err := e.mutateChecked(ctx, "remove protection schedule "+unit, fmt.Sprintf(
+		if err := e.mutateChecked(ctx, "remove backup schedule "+unit, fmt.Sprintf(
 			"systemctl disable --now %s.timer >/dev/null 2>&1 && rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
 			unit, unit, unit)); err != nil {
 			return err
 		}
-		e.logf("protection schedule: removed %s (no longer protected)", unit)
+		e.logf("backup schedule: removed %s (no longer protected)", unit)
 	}
 
 	if len(wanted) == 0 && len(stale) == 0 {
@@ -171,7 +171,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 		} else if res.ExitCode != 0 {
 			return fmt.Errorf("cannot start %s: %s", unit.name, strings.TrimSpace(res.Stderr))
 		}
-		e.logf("protection schedule: %s at %s", unit.name, unit.cron)
+		e.logf("backup schedule: %s at %s", unit.name, unit.cron)
 	}
 	return nil
 }
@@ -192,20 +192,20 @@ func pruneExec(container string, policy app.BackupPolicy) (string, error) {
 	return walgExec(container, "delete", "retain", "FULL", fmt.Sprint(retain), "--confirm"), nil
 }
 
-// protectionServiceUnit runs the operation's commands in order, under a lock.
+// backupServiceUnit runs the operation's commands in order, under a lock.
 //
 // flock is what keeps a timer from running while an interactive `ob backup`
-// command is already talking to the same repository. Onebox's own protection
+// command is already talking to the same repository. Onebox's own backup
 // lock is a value written to a file and cannot be taken from a shell, so both
 // sides take this one instead: the engine wraps every wal-g invocation in the
 // same flock, which makes it the single mutex over actual repository work.
 //
 // -w rather than -n: a backup that waits for a running one is late, and a
 // backup that gives up is missing.
-func protectionServiceUnit(application, service, operation, lockPath string, commands []string) string {
+func backupServiceUnit(application, service, operation, lockPath string, commands []string) string {
 	lines := []string{
 		"[Unit]",
-		"Description=Onebox protection " + operation + " for " + service + " (" + application + ")",
+		"Description=Onebox backup " + operation + " for " + service + " (" + application + ")",
 		"# Written by Onebox. Edits are overwritten on the next apply.",
 		"After=docker.service",
 		"Requires=docker.service",
@@ -219,10 +219,10 @@ func protectionServiceUnit(application, service, operation, lockPath string, com
 	return strings.Join(append(lines, ""), "\n")
 }
 
-func protectionTimerUnit(unit, calendar string) string {
+func backupTimerUnit(unit, calendar string) string {
 	return strings.Join([]string{
 		"[Unit]",
-		"Description=Onebox protection schedule " + unit,
+		"Description=Onebox backup schedule " + unit,
 		"# Written by Onebox. Edits are overwritten on the next apply.",
 		"",
 		"[Timer]",
@@ -244,7 +244,7 @@ func protectionTimerUnit(unit, calendar string) string {
 	}, "\n")
 }
 
-func protectedServiceNames(resolved *app.Resolved) []string {
+func backedUpServiceNames(resolved *app.Resolved) []string {
 	var out []string
 	for _, service := range resolved.ServiceNames() {
 		if resolved.ServiceIsProtected(service) {
@@ -254,14 +254,14 @@ func protectedServiceNames(resolved *app.Resolved) []string {
 	return out
 }
 
-// RequireProtectionScheduling refuses a host that cannot run the schedules a
+// RequireBackupScheduling refuses a host that cannot run the schedules a
 // protected service needs.
 //
 // Called by enablement before anything durable happens, as well as by the
 // schedule sync itself. Discovering it only at the sync would mean finding out
 // after the service had already been recorded as protected and restarted
 // archiving — a half-applied enablement whose only symptom is a failed command.
-func (e *Engine) RequireProtectionScheduling(ctx context.Context, protected []string) error {
+func (e *Engine) RequireBackupScheduling(ctx context.Context, protected []string) error {
 	if len(protected) == 0 {
 		return nil
 	}

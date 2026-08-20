@@ -406,7 +406,7 @@ var schemaConstraints = []struct {
 	{[]string{"external_services", "*", "connection", "source", "file"}, pattern(gRepoPath)},
 	{[]string{"external_services", "*", "connection", "source", "provider"}, enum(eSecretProvider)},
 	{[]string{"external_services", "*", "connection", "entries", "*"}, pattern(gEnvName)},
-	{[]string{"external_services", "*", "protection_owner"}, pattern(gProtectionOwner)},
+	{[]string{"external_services", "*", "backup_owner"}, pattern(gBackupOwner)},
 	{[]string{"external_services", "*", "probe", "kind"}, enum(eExternalProbeKind)},
 	{[]string{"external_services", "*", "probe", "timeout"}, pattern(gDur)},
 	{[]string{"external_services", "*", "probe", "max_age"}, pattern(gDur)},

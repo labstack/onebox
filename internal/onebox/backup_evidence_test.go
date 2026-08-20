@@ -28,7 +28,7 @@ func backupEvidenceTestPlan(t *testing.T, base time.Time) DeployPlan {
 		t.Fatal(err)
 	}
 	plan.MigrationBackup = &MigrationBackupRequirement{
-		MaximumAge:         "24h",
+		MaxAge:             "24h",
 		RequireRestoreTest: true,
 		Resources: []MigrationBackupResource{{
 			Component: "database", Service: "postgres", Type: "postgres",

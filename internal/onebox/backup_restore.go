@@ -31,15 +31,15 @@ func executeRecovery(ctx context.Context, e *engine.Engine, service, target stri
 	stopAppHeartbeat := e.StartHeartbeat(ctx)
 	defer stopAppHeartbeat()
 
-	if _, err := e.AcquireProtectionLock(ctx, service, operationID, 0); err != nil {
+	if _, err := e.AcquireBackupLock(ctx, service, operationID, 0); err != nil {
 		return err
 	}
-	defer e.ReleaseProtectionLock(service)
-	stopProtectionHeartbeat, err := e.StartProtectionHeartbeat(ctx, service)
+	defer e.ReleaseBackupLock(service)
+	stopBackupHeartbeat, err := e.StartBackupHeartbeat(ctx, service)
 	if err != nil {
 		return err
 	}
-	defer stopProtectionHeartbeat()
+	defer stopBackupHeartbeat()
 
 	outcome, err := e.RecoverService(ctx, service, target, promote)
 	if err != nil {

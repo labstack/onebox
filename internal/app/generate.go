@@ -143,11 +143,11 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 			if err != nil {
 				return nil, err
 			}
-			protection, err := r.protectionForRender(n, name)
+			backup, err := r.backupForRender(n, name)
 			if err != nil {
 				return nil, err
 			}
-			doc, err := p.renderService(n, name, p.Services[name], selection.Image, protection)
+			doc, err := p.renderService(n, name, p.Services[name], selection.Image, backup)
 			if err != nil {
 				return nil, err
 			}
@@ -856,11 +856,11 @@ func (r *Resolved) RenderServices(env string) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		protection, err := r.protectionForRender(n, name)
+		backup, err := r.backupForRender(n, name)
 		if err != nil {
 			return nil, err
 		}
-		doc, err := p.renderService(n, name, service, selection.Image, protection)
+		doc, err := p.renderService(n, name, service, selection.Image, backup)
 		if err != nil {
 			return nil, err
 		}

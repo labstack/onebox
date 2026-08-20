@@ -86,7 +86,7 @@ func (n Names) ServiceFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".yaml")
 }
 
-// ProtectionRuntimeDir holds what a protected service needs at run time: the
+// BackupRuntimeDir holds what a protected service needs at run time: the
 // verified wal-g binary and the generated wrapper that puts its credentials in
 // scope. The whole directory is mounted read-only into the container.
 //
@@ -100,20 +100,20 @@ func (n Names) ServiceFile(service string) string {
 // It is keyed by wal-g version, so upgrading the pinned version changes the
 // mount path and the container is recreated onto the new binary rather than
 // having it swapped underneath a running server.
-func (n Names) ProtectionRuntimeDir(service string) string {
-	return path.Join(n.AppDir(), "protection", "runtime", service, WalgVersion)
+func (n Names) BackupRuntimeDir(service string) string {
+	return path.Join(n.AppDir(), "backup", "runtime", service, WalgVersion)
 }
 
-// ProtectionBinaryFile is the verified wal-g binary on the target.
-func (n Names) ProtectionBinaryFile(service string) string {
-	return path.Join(n.ProtectionRuntimeDir(service), "wal-g")
+// BackupBinaryFile is the verified wal-g binary on the target.
+func (n Names) BackupBinaryFile(service string) string {
+	return path.Join(n.BackupRuntimeDir(service), "wal-g")
 }
 
-// ProtectionWrapperFile is the generated credential wrapper. It sits beside the
+// BackupWrapperFile is the generated credential wrapper. It sits beside the
 // binary and holds no secret: it names the credential entries and reads their
 // values from the environment.
-func (n Names) ProtectionWrapperFile(service string) string {
-	return path.Join(n.ProtectionRuntimeDir(service), "ob-wal-g")
+func (n Names) BackupWrapperFile(service string) string {
+	return path.Join(n.BackupRuntimeDir(service), "ob-wal-g")
 }
 
 // ServiceSecretFile holds the credential Onebox generates on the target. It is
@@ -123,25 +123,25 @@ func (n Names) ServiceSecretFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".secret.env")
 }
 
-// ProtectionSecretDir contains lifecycle-only mode-0600 credential files on
+// BackupSecretDir contains lifecycle-only mode-0600 credential files on
 // the target. Plans and units refer to these paths and named entries only.
-func (n Names) ProtectionSecretDir() string {
-	return path.Join(n.AppDir(), "protection", "secrets")
+func (n Names) BackupSecretDir() string {
+	return path.Join(n.AppDir(), "backup", "secrets")
 }
 
-func (n Names) ProtectionCredentialFile(service, target string) string {
-	return path.Join(n.ProtectionSecretDir(), service+"-"+target+".env")
+func (n Names) BackupCredentialFile(service, target string) string {
+	return path.Join(n.BackupSecretDir(), service+"-"+target+".env")
 }
 
 func (n Names) ActiveVolumeFile(service string) string {
-	return path.Join(n.AppDir(), "protection", "state", service+".active-volume.json")
+	return path.Join(n.AppDir(), "backup", "state", service+".active-volume.json")
 }
 
-// ProtectionLifecycleStateFile is the durable target-side source used before
+// BackupLifecycleStateFile is the durable target-side source used before
 // rendering a managed service. It is separate from active-volume selection:
 // one binds lifecycle/image policy, the other binds the physical data volume.
-func (n Names) ProtectionLifecycleStateFile(service string) string {
-	return path.Join(n.AppDir(), "protection", "state", service+".lifecycle.json")
+func (n Names) BackupLifecycleStateFile(service string) string {
+	return path.Join(n.AppDir(), "backup", "state", service+".lifecycle.json")
 }
 
 // ServiceVersionFile records the version that last ran successfully. The
@@ -178,42 +178,42 @@ func (n Names) ServiceVolume(service, volume string) string {
 	return join("ob", n.App, service, volume)
 }
 
-func (n Names) ProtectionRestoreProject(service string) string {
+func (n Names) BackupRestoreProject(service string) string {
 	return join("ob", n.App, service, "restore")
 }
 
-func (n Names) ProtectionRestoreContainer(service string) string {
+func (n Names) BackupRestoreContainer(service string) string {
 	return runtimeName(n.App, service, "restore", "1")
 }
 
-func (n Names) ProtectionRestoreNetwork(service string) string {
+func (n Names) BackupRestoreNetwork(service string) string {
 	return join("ob", n.App, service, "restore-net")
 }
 
-func (n Names) ProtectionRestoreVolume(service string) string {
+func (n Names) BackupRestoreVolume(service string) string {
 	return join("ob", n.App, service, "restore-stage")
 }
 
-// ProtectionTimerForEnvironment names a protection timer.
+// BackupTimerForEnvironment names a backup timer.
 //
-// The "ob-protection-" prefix keeps it out of the namespace SyncSchedules owns.
+// The "ob-backup-" prefix keeps it out of the namespace SyncSchedules owns.
 // That is not cosmetic: the job scheduler treats every unit named "ob-<app>-*"
-// as its own and removes the ones no longer declared, so protection timers named
+// as its own and removes the ones no longer declared, so backup timers named
 // that way were deleted by the next deploy — every scheduled backup silently
 // stopped, and the only trace was a line in the deploy output saying the
 // schedule was "no longer declared".
-func (n Names) ProtectionTimerForEnvironment(environment, service, operation string) string {
-	return n.ProtectionUnitForEnvironment(environment, service, operation) + ".timer"
+func (n Names) BackupTimerForEnvironment(environment, service, operation string) string {
+	return n.BackupUnitForEnvironment(environment, service, operation) + ".timer"
 }
 
-// ProtectionUnitForEnvironment is the systemd unit name without its suffix, so
+// BackupUnitForEnvironment is the systemd unit name without its suffix, so
 // the .service and .timer that pair together cannot be spelled differently.
-func (n Names) ProtectionUnitForEnvironment(environment, service, operation string) string {
-	return ProtectionUnitPrefix + n.App + "-" + environment + "-" + service + "-" + operation
+func (n Names) BackupUnitForEnvironment(environment, service, operation string) string {
+	return BackupUnitPrefix + n.App + "-" + environment + "-" + service + "-" + operation
 }
 
-// ProtectionUnitPrefix is the systemd namespace protection owns outright.
-const ProtectionUnitPrefix = "ob-protection-"
+// BackupUnitPrefix is the systemd namespace backup owns outright.
+const BackupUnitPrefix = "ob-backup-"
 
 // Container is a workload's stable runtime slot. Container names are
 // host-global, so every one carries the application, component, and a
@@ -303,10 +303,10 @@ func (p *Spec) All(env string) []string {
 		}
 		if p.Services[s].Backup != nil {
 			out = append(out,
-				n.ProtectionRestoreProject(s),
-				n.ProtectionRestoreContainer(s),
-				n.ProtectionRestoreNetwork(s),
-				n.ProtectionRestoreVolume(s),
+				n.BackupRestoreProject(s),
+				n.BackupRestoreContainer(s),
+				n.BackupRestoreNetwork(s),
+				n.BackupRestoreVolume(s),
 			)
 		}
 	}
@@ -363,13 +363,13 @@ func runtimeName(parts ...string) string {
 	return strings.Join(escaped, "-")
 }
 
-// ProtectionRunLock is the mutex over actual repository work for one service.
+// BackupRunLock is the mutex over actual repository work for one service.
 //
-// It exists because Onebox's protection lock is a value written to a file and
+// It exists because Onebox's backup lock is a value written to a file and
 // verified by comparing it — a protocol a systemd unit's shell cannot join. So
 // scheduled units and the engine's own wal-g invocations both take this flock
 // instead, which makes it the one thing serialising a timer against an operator
 // running `ob backup` at the same moment.
-func (n Names) ProtectionRunLock(service string) string {
-	return path.Join(n.AppDir(), "protection", "run-"+service+".lock")
+func (n Names) BackupRunLock(service string) string {
+	return path.Join(n.AppDir(), "backup", "run-"+service+".lock")
 }

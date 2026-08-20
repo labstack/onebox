@@ -142,7 +142,7 @@ func nextHex(seed byte) byte {
 
 // walgHelperArtifact is the pinned wal-g release. Unlike every other provenance
 // record here it carries a real digest rather than a placeholder: it is the
-// checksum StageProtectionRuntime verifies the download against, so a wrong
+// checksum StageBackupRuntime verifies the download against, so a wrong
 // value fails the enablement instead of merely describing it wrongly.
 //
 // amd64 is named because a provenance record identifies one artifact and the

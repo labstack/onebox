@@ -48,12 +48,12 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	installed := map[string]bool{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		unit := strings.TrimSpace(line)
-		// Protection owns its own namespace and reconciles it separately. Its
-		// units begin "ob-protection-", which also begins with this prefix when
+		// Backups own their own namespace and reconciles it separately. Its
+		// units begin "ob-backup-", which also begins with this prefix when
 		// the application is literally named "backup" — belt and braces,
 		// because the failure mode is a deploy silently deleting every
 		// scheduled backup.
-		if strings.HasPrefix(unit, app.ProtectionUnitPrefix) {
+		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
 			continue
 		}
 		if strings.HasPrefix(unit, prefix) && strings.HasSuffix(unit, ".timer") {

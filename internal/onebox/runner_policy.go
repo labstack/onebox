@@ -19,7 +19,7 @@ func CheckRunnerCompatibility(policy app.Policy, runner buildinfo.Runner) error 
 }
 
 func enforceRunnerPolicy(policy app.Policy, runner buildinfo.Runner, planSchema string) error {
-	if minimum := strings.TrimSpace(policy.MinimumOneboxVersion); minimum != "" {
+	if minimum := strings.TrimSpace(policy.MinOneboxVersion); minimum != "" {
 		minimumVersion, err := buildinfo.ParseReleaseVersion(minimum)
 		if err != nil {
 			return fmt.Errorf("environment minimum Onebox version is invalid: %w", err)
@@ -40,7 +40,7 @@ func enforceRunnerPolicy(policy app.Policy, runner buildinfo.Runner, planSchema 
 			)
 		}
 	}
-	if minimum := strings.TrimSpace(policy.MinimumPlanSchema); minimum != "" {
+	if minimum := strings.TrimSpace(policy.MinPlanSchema); minimum != "" {
 		atLeast, err := executableSchemaAtLeast(planSchema, minimum)
 		if err != nil {
 			return err

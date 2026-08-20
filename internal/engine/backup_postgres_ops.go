@@ -21,10 +21,10 @@ type BackupGeneration struct {
 	SizeBytes int64  `json:"size_bytes,omitempty"`
 }
 
-// ProtectionStatus is what the repository can actually recover, read from the
+// BackupStatus is what the repository can actually recover, read from the
 // repository rather than from the project. The distinction is the whole point:
 // a policy says what should be true, and only the repository says what is.
-type ProtectionStatus struct {
+type BackupStatus struct {
 	Service       string             `json:"service"`
 	Repository    string             `json:"repository"`
 	Generations   []BackupGeneration `json:"generations"`
@@ -33,10 +33,10 @@ type ProtectionStatus struct {
 	RecoverableTo string             `json:"recoverable_to,omitempty"`
 }
 
-// protectedService resolves a service to its policy and driver, refusing every
+// backedUpService resolves a service to its policy and driver, refusing every
 // service this file cannot actually protect. It is the single gate: no caller
 // below reaches wal-g without passing through it.
-func (e *Engine) protectedService(service string) (app.Service, *app.BackupPolicy, error) {
+func (e *Engine) backedUpService(service string) (app.Service, *app.BackupPolicy, error) {
 	declared, ok := e.Spec.Services[service]
 	if !ok {
 		return app.Service{}, nil, fmt.Errorf("service %s is not declared in this project", service)
@@ -47,11 +47,11 @@ func (e *Engine) protectedService(service string) (app.Service, *app.BackupPolic
 	}
 	if driver != "postgres" {
 		return app.Service{}, nil, fmt.Errorf(
-			"service %s runs the %s driver; executable protection exists for postgres only today", service, driver)
+			"service %s runs the %s driver; executable backup exists for postgres only today", service, driver)
 	}
 	if declared.Backup == nil {
 		return app.Service{}, nil, fmt.Errorf(
-			"service %s declares no protection policy; add services.%s.backup to the project first", service, service)
+			"service %s declares no backup policy; add services.%s.backup to the project first", service, service)
 	}
 	// Declared is not established. Without this the command reaches into a
 	// container that mounts neither wal-g nor its credentials, and the operator
@@ -59,7 +59,7 @@ func (e *Engine) protectedService(service string) (app.Service, *app.BackupPolic
 	// service is not protected.
 	if !e.Spec.ServiceIsProtected(service) {
 		return app.Service{}, nil, fmt.Errorf(
-			"service %s declares protection but it has never been established, or it was disabled; run `ob backup enable %s` first",
+			"service %s declares backup but it has never been established, or it was disabled; run `ob backup enable %s` first",
 			service, service)
 	}
 	return declared, declared.Backup, nil
@@ -90,7 +90,7 @@ func (e *Engine) runWalgLocked(ctx context.Context, service, lockPrefix string, 
 	// Absent flock the command runs unwrapped, and that is not a silent
 	// degradation: flock ships with util-linux on every host that can run
 	// systemd, and a host that cannot run systemd has no timers, so there is
-	// nothing for the lock to serialise against. SyncProtectionSchedules
+	// nothing for the lock to serialise against. SyncBackupSchedules
 	// refuses such a host outright rather than leaving backups unscheduled.
 	n := e.names()
 	var command []string
@@ -121,7 +121,7 @@ func (e *Engine) runWalgLocked(ctx context.Context, service, lockPrefix string, 
 // the WAL stream rather than by differential backups. So there is no type to
 // choose, and retention counts backups directly.
 func (e *Engine) BackupService(ctx context.Context, service string) error {
-	if _, _, err := e.protectedService(service); err != nil {
+	if _, _, err := e.backedUpService(service); err != nil {
 		return err
 	}
 	st := e.ui.Step("backup "+service, false)
@@ -150,10 +150,10 @@ func (e *Engine) BackupService(ctx context.Context, service string) error {
 // Separate from taking a backup because the order matters: expiring first would
 // briefly hold one generation fewer than the policy promises.
 func (e *Engine) PruneServiceBackups(ctx context.Context, service string) error {
-	if _, _, err := e.protectedService(service); err != nil {
+	if _, _, err := e.backedUpService(service); err != nil {
 		return err
 	}
-	projection, err := e.Spec.EffectiveProtectionProjection(service)
+	projection, err := e.Spec.EffectiveBackupProjection(service)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (e *Engine) PruneServiceBackups(ctx context.Context, service string) error 
 		return fmt.Errorf("service %s: %w", service, err)
 	}
 	label := fmt.Sprintf("prune %s (keep %d generations — %d declared, %s of history)",
-		service, retain, policy.Retention.MinimumGenerations, policy.Retention.RecoveryWindow)
+		service, retain, policy.Retention.Keep, policy.Retention.Window)
 	st := e.ui.Step(label, false)
 	if _, err := e.runWalg(ctx, service, "delete", "retain", "FULL",
 		fmt.Sprint(retain), "--confirm"); err != nil {
@@ -182,7 +182,7 @@ func (e *Engine) PruneServiceBackups(ctx context.Context, service string) error 
 // backup and no further, which is a nightly snapshot wearing the label of
 // point-in-time recovery — and nothing else notices until a restore.
 func (e *Engine) VerifyServiceArchive(ctx context.Context, service string) error {
-	if _, _, err := e.protectedService(service); err != nil {
+	if _, _, err := e.backedUpService(service); err != nil {
 		return err
 	}
 	st := e.ui.Step("verify "+service+" archive", false)
@@ -194,25 +194,25 @@ func (e *Engine) VerifyServiceArchive(ctx context.Context, service string) error
 	return nil
 }
 
-// ProtectionStatusFor reads what the repository holds. Everything it reports
+// BackupStatusFor reads what the repository holds. Everything it reports
 // comes from wal-g, not from the project: the project's claim about retention
 // and recovery window is exactly the claim this is here to check.
-func (e *Engine) ProtectionStatusFor(ctx context.Context, service string) (ProtectionStatus, error) {
-	if _, _, err := e.protectedService(service); err != nil {
-		return ProtectionStatus{}, err
+func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupStatus, error) {
+	if _, _, err := e.backedUpService(service); err != nil {
+		return BackupStatus{}, err
 	}
 	// The recorded projection, so status reports the repository the service is
 	// actually archiving to rather than one the project was edited to name.
-	projection, err := e.Spec.EffectiveProtectionProjection(service)
+	projection, err := e.Spec.EffectiveBackupProjection(service)
 	if err != nil {
-		return ProtectionStatus{}, err
+		return BackupStatus{}, err
 	}
-	status := ProtectionStatus{
+	status := BackupStatus{
 		Service:    service,
 		Repository: app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service),
 	}
 
-	issues, err := e.VerifyProtectionRuntime(ctx, service)
+	issues, err := e.VerifyBackupRuntime(ctx, service)
 	if err != nil {
 		return status, err
 	}
@@ -309,12 +309,12 @@ func (e *Engine) walgLockPrefix(ctx context.Context, service string) string {
 	if !e.hasFlock(ctx) {
 		return ""
 	}
-	return "flock -w 3600 " + q(e.names().ProtectionRunLock(service)) + " "
+	return "flock -w 3600 " + q(e.names().BackupRunLock(service)) + " "
 }
 
 func (e *Engine) walgReadLockPrefix(ctx context.Context, service string) string {
 	if !e.hasFlock(ctx) {
 		return ""
 	}
-	return "flock -s -w 15 " + q(e.names().ProtectionRunLock(service)) + " "
+	return "flock -s -w 15 " + q(e.names().BackupRunLock(service)) + " "
 }

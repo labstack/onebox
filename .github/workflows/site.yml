@@ -1,0 +1,94 @@
+# Publishing the documentation site.
+#
+# It used to have no publication at all. The pages were generated, committed,
+# gate-checked on every pull request — and then never left the repository: the
+# live site was serving a schema that had been renamed weeks earlier, a
+# capability page describing a drill that by then existed, and a 404 for the
+# backup guide. Documentation that is verified and unpublished is documentation
+# nobody reads.
+#
+# It deploys from main rather than from a release tag. The generated reference
+# is regenerated from the binary at HEAD and committed alongside it, so main is
+# where the documentation and the code it describes agree; pinning publication
+# to tags would republish whatever the last tag happened to carry and reopen the
+# same gap on a slower clock.
+name: Site
+
+on:
+  push:
+    branches: [main]
+    # The whole site is one build, but only these inputs can change it.
+    paths:
+      - "site/**"
+      - "docs/**"
+      - ".github/workflows/site.yml"
+  # Publishing the current main on demand, without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One publication at a time, and a superseded one is cancelled rather than
+  # queued: the newer build already contains everything the older one had.
+  group: site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        working-directory: site
+        run: npm ci
+
+      # The same build the gate runs: `astro check`, the build itself, and
+      # check-tables.mjs. A page that would ship a table outside its scroll
+      # container fails here too, rather than being published because this
+      # workflow was in a hurry.
+      - name: Build
+        working-directory: site
+        env:
+          SITE_URL: https://onebox.run
+        run: npm run build
+
+      # The published site must be the documentation for the binary it
+      # describes. The reference pages are generated and committed, and the gate
+      # fails a pull request that changes one without regenerating — so a build
+      # whose committed pages do not match is a repository state that should
+      # never reach main, and is not something to publish quietly.
+      - name: Refuse a site whose reference pages are not the committed ones
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- docs site/src/content/docs; then
+            echo "the build modified committed documentation; publish is refused" >&2
+            git --no-pager diff --stat -- docs site/src/content/docs >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

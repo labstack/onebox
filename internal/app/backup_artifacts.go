@@ -54,6 +54,32 @@ func (r *Resolved) effectiveBackupProjection(serviceName string, service Service
 // is one rule rather than four that can drift. The project's intent takes
 // effect at the next `ob backup enable`, which is where the change is made
 // deliberately.
+// DeclaredBackupProjection is what the project currently asks for, with no
+// regard for what the service was last bound to.
+//
+// Exactly one caller wants this: `ob backup enable`, which is where the
+// project's intent is supposed to take effect. Resolving enable through
+// EffectiveBackupProjection instead meant the recorded projection won there
+// too, so editing a target and re-running enable — the documented way to move a
+// service to a different repository — reported success, rebound the service to
+// the repository it was already using, and left the operator believing their
+// backups had moved. Measured against a live host: bucket edited, enable green,
+// every subsequent backup still going to the old bucket.
+func (r *Resolved) DeclaredBackupProjection(serviceName string) (BackupEffectiveProjection, error) {
+	service, ok := r.Services[serviceName]
+	if !ok {
+		return BackupEffectiveProjection{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
+	}
+	if service.Backup == nil {
+		return BackupEffectiveProjection{}, errf("project_invalid", "services."+serviceName+".backup", "ob validate", "service declares no backup policy")
+	}
+	target, ok := r.BackupTargets[service.Backup.Target]
+	if !ok {
+		return BackupEffectiveProjection{}, errf("backup_target_unknown", "services."+serviceName+".backup.target", "ob validate", "backup target is not declared")
+	}
+	return BackupEffectiveProjection{Policy: *service.Backup, Target: target}, nil
+}
+
 func (r *Resolved) EffectiveBackupProjection(serviceName string) (BackupEffectiveProjection, error) {
 	service, ok := r.Services[serviceName]
 	if !ok {

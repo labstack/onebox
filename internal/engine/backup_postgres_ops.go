@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -114,6 +115,27 @@ func (e *Engine) runWalgLocked(ctx context.Context, service, lockPrefix string, 
 	return res.Stdout, nil
 }
 
+// runWalgReport is for commands whose *report* is the answer rather than their
+// exit code. wal-g writes its tables and status lines across both streams, so a
+// caller that judges the report needs both; the JSON-producing commands must
+// not have stderr folded in, which is a parse failure waiting to happen.
+func (e *Engine) runWalgReport(ctx context.Context, service string, args ...string) (string, error) {
+	n := e.names()
+	command := []string{strings.TrimSpace(e.walgLockPrefix(ctx, service)),
+		"docker", "exec", "-u", "postgres", q(n.ServiceContainer(service)), app.WalgBinary}
+	for _, arg := range args {
+		command = append(command, q(arg))
+	}
+	res, err := e.T.Run(ctx, strings.TrimSpace(strings.Join(command, " ")))
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("wal-g %s: %s", strings.Join(args, " "), lastLines(res.Stderr+res.Stdout, 6))
+	}
+	return res.Stdout + res.Stderr, nil
+}
+
 // BackupService takes one base backup.
 //
 // wal-g has no incremental base backup for PostgreSQL in the sense pgBackRest
@@ -186,12 +208,99 @@ func (e *Engine) VerifyServiceArchive(ctx context.Context, service string) error
 		return err
 	}
 	st := e.ui.Step("verify "+service+" archive", false)
-	if _, err := e.runWalg(ctx, service, "wal-verify", "integrity", "timeline"); err != nil {
+	out, err := e.runWalgReport(ctx, service, "wal-verify", "integrity", "timeline")
+	if err != nil {
+		st(err)
+		return err
+	}
+	// wal-g's exit code is not the answer. It prints the integrity table, says
+	// "integrity check status: WARNING", lists the segments it could not find —
+	// and exits 0. Two segments deleted out of the middle of a live repository
+	// produced exactly that, and onebox reported a green check over a WAL chain
+	// with holes in it. The scheduled unit had the same blind spot: systemd saw
+	// exit 0 and nothing was ever raised.
+	if err := walVerifyResult(out); err != nil {
 		st(err)
 		return err
 	}
 	st(nil)
 	return nil
+}
+
+// walVerifyStatus is one row of wal-g's integrity table: a contiguous range of
+// WAL segments and what it found there.
+type walVerifyStatus struct {
+	start, end, status string
+}
+
+var walVerifyStatusLine = regexp.MustCompile(`\[wal-verify\] (integrity|timeline) check status: (\w+)`)
+
+// walVerifyResult turns wal-g's report into a verdict.
+//
+// A missing range is a hole in the chain, and a base backup plus a gapped WAL
+// stream recovers to the backup and no further — so any point after the first
+// hole is not recoverable, whatever the exit code said.
+//
+// MISSING_UPLOADING is the one status that is not yet a hole. wal-g classifies a
+// segment that way while it is inside the window where the server could still be
+// uploading it, and reclassifies it as MISSING_LOST once that window passes:
+// segments deleted from a live repository here were reported as UPLOADING at
+// first and as LOST minutes later. Treating UPLOADING as a hole would fail every
+// check that lands mid-upload — measured on a database taking backups in a loop,
+// where three segments were in flight while later ones had already arrived, so
+// position in the table decides nothing either. A genuine hole is reported on
+// the next run, which for a scheduled check is the next day at the latest.
+func walVerifyResult(out string) error {
+	rows := parseWalVerifyRows(out)
+	var holes []string
+	for _, row := range rows {
+		if row.status == "FOUND" || row.status == "MISSING_UPLOADING" {
+			continue
+		}
+		holes = append(holes, fmt.Sprintf("%s..%s %s", row.start, row.end, strings.ToLower(row.status)))
+	}
+	if len(holes) > 0 {
+		return fmt.Errorf(
+			"the archived WAL has %d gap(s) — %s. A base backup plus a gapped WAL stream recovers to the backup and no further, so any point after the first gap is not recoverable",
+			len(holes), strings.Join(holes, ", "))
+	}
+	// The status lines are the backstop: a future wal-g may report a problem in
+	// a shape this table parser does not recognise, and "no rows parsed" must
+	// not read as "nothing wrong".
+	for _, match := range walVerifyStatusLine.FindAllStringSubmatch(out, -1) {
+		if match[2] != "OK" {
+			if match[1] == "integrity" && len(rows) > 0 {
+				// Already judged by the rows above, which know which range is
+				// the newest and which is a real hole.
+				continue
+			}
+			return fmt.Errorf("wal-g reports the %s check as %s: %s", match[1], match[2], lastLines(out, 12))
+		}
+	}
+	return nil
+}
+
+// parseWalVerifyRows reads the rows of wal-g's integrity table, which is drawn
+// as `| TLI | START | END | COUNT | STATUS |`.
+func parseWalVerifyRows(out string) []walVerifyStatus {
+	var rows []walVerifyStatus
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) < 7 {
+			continue
+		}
+		start := strings.TrimSpace(fields[2])
+		end := strings.TrimSpace(fields[3])
+		status := strings.TrimSpace(fields[5])
+		if start == "START" || status == "STATUS" || status == "" {
+			continue
+		}
+		rows = append(rows, walVerifyStatus{start: start, end: end, status: status})
+	}
+	return rows
 }
 
 // BackupStatusFor reads what the repository holds. Everything it reports

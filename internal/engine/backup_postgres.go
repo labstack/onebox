@@ -362,6 +362,16 @@ func (e *Engine) ReportDisabled(service string) {
 		"reach the repository live in the protected service", service)
 }
 
+// ReportTargetMoved says that this enablement bound the service to a different
+// repository from the one it was archiving to, which is a fact with a
+// consequence: the new repository starts at the backup this run is about to
+// take, so the declared recovery window begins now.
+func (e *Engine) ReportTargetMoved(service, from, to string) {
+	e.ui.Infof("%s now archives to backup target %q. What %q holds is untouched, but this repository "+
+		"starts from the backup being taken now, so the declared recovery window begins here",
+		service, to, from)
+}
+
 // VerifyBackupRuntime asks the target whether what is staged there is still
 // what Onebox expects.
 //

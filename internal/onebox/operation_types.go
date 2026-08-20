@@ -516,12 +516,3 @@ var lifecycleGraphDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 var lifecycleMetadata = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$`)
 
 func safeLifecycleMetadata(value string) bool { return lifecycleMetadata.MatchString(value) }
-
-func oneOf(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
-}

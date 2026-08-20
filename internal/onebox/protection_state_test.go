@@ -130,15 +130,6 @@ func TestProtectionDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T
 	}
 }
 
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
 func TestRuntimeStateDoesNotInferImageEvidenceFromReference(t *testing.T) {
 	state, err := NewProtectionLifecycleState("example", "production", "database", 1)
 	if err != nil {

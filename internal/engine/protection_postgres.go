@@ -288,19 +288,6 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service string) (str
 	return pinned, nil
 }
 
-func sortedPaths(m map[string][]byte) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
-	}
-	return out
-}
-
 // RemoveProtectionCredentials deletes the target-side credential file for a
 // service that is no longer protected. The repository it pointed at is left
 // exactly as it is.

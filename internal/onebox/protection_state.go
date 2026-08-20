@@ -10,7 +10,6 @@ import (
 	"io"
 	"regexp"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
@@ -317,23 +316,6 @@ func DecodeProtectionLifecycleState(encoded []byte) (ProtectionLifecycleState, e
 	return state, nil
 }
 
-func nextProtectionDisablePhase(current ProtectionDisablePhase) (ProtectionDisablePhase, bool) {
-	switch current {
-	case ProtectionPhaseRequested:
-		return ProtectionPhasePrerequisiteReversed, true
-	case ProtectionPhasePrerequisiteReversed:
-		return ProtectionPhasePrerequisiteAbsent, true
-	case ProtectionPhasePrerequisiteAbsent:
-		return ProtectionPhaseRuntimeReverted, true
-	case ProtectionPhaseRuntimeReverted:
-		return ProtectionPhaseLocalSupportRemoved, true
-	case ProtectionPhaseLocalSupportRemoved:
-		return ProtectionPhaseComplete, true
-	default:
-		return "", false
-	}
-}
-
 func validProtectionStatePhase(state ProtectionState, phase ProtectionDisablePhase) bool {
 	switch state {
 	case ProtectionNeverEnabled, ProtectionEnabled:
@@ -384,37 +366,12 @@ func replayArchiveSchedule(policy app.BackupPolicy) app.Schedule {
 	return app.Schedule{Cron: cron, Timezone: policy.Schedule.Timezone}
 }
 
-func inactiveProtectionSchedules(schedules []ProtectionScheduleState) []ProtectionScheduleState {
-	copy := append([]ProtectionScheduleState(nil), schedules...)
-	for index := range copy {
-		copy[index].Active = false
-	}
-	return copy
-}
-
 func cloneProtectionProjection(projection *app.ProtectionEffectiveProjection) *app.ProtectionEffectiveProjection {
 	if projection == nil {
 		return nil
 	}
 	copy := *projection
 	return &copy
-}
-
-func (state ProtectionLifecycleState) activeScheduleKinds() []string {
-	var kinds []string
-	for _, schedule := range state.Schedules {
-		if schedule.Active {
-			kinds = append(kinds, schedule.Kind)
-		}
-	}
-	sort.Strings(kinds)
-	return kinds
-}
-
-func protectionStateContainsRemoteDeletion(value any) bool {
-	encoded, _ := json.Marshal(value)
-	text := strings.ToLower(string(encoded))
-	return strings.Contains(text, "delete-remote") || strings.Contains(text, "purge-remote")
 }
 
 // BeginProtectionDisable records the intent before any of the work happens.

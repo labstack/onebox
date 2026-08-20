@@ -28,5 +28,19 @@ func (s *Service) BackupStatus(ctx context.Context, service string) (engine.Back
 		return engine.BackupStatus{}, fmt.Errorf("connect target: %w", err)
 	}
 	defer cleanup()
+	// A half-finished disablement is answered as itself. The runtime that reads
+	// the repository is removed partway through disabling, so a status read in
+	// that state used to surface wal-g's own message — "stat
+	// /opt/onebox/backup/ob-wal-g: no such file or directory" — which describes
+	// a missing file rather than the state the service is in or the way out of
+	// it.
+	current, err := currentBackupLifecycleState(ctx, e, lp.resolved.Spec.Name, s.environment, service)
+	if err == nil && current.State == BackupDisablePending {
+		failure, ferr := NewLifecycleFailure("backup_disable_pending")
+		if ferr != nil {
+			return engine.BackupStatus{}, ferr
+		}
+		return engine.BackupStatus{}, failure
+	}
 	return e.BackupStatusFor(ctx, service)
 }

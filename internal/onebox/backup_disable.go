@@ -60,14 +60,21 @@ func executeBackupDisable(ctx context.Context, e *engine.Engine, resolved *app.R
 	if err != nil {
 		return err
 	}
-	if body, err = encodeBackupLifecycleState(next); err != nil {
-		return err
-	}
-	if err := e.WriteBackupLifecycleState(ctx, service, body); err != nil {
-		return err
-	}
-	// Rebound before applying, so the render that follows produces the ordinary
-	// server rather than the protected one this run started from.
+	// The record stays pending across the work below and is only written as
+	// disabled once that work has actually happened.
+	//
+	// It used to be written here, before the restart and the schedule removal —
+	// so the pending state lasted between two consecutive writes, covering
+	// nothing, while the window that can really be interrupted (restarting the
+	// server without archive_mode, removing the timers, removing the
+	// credentials) ran under a record already claiming the service had stopped
+	// archiving. A run killed there left exactly the lie the pending state
+	// exists to prevent: `disabled` on disk, archive_mode still on, timers still
+	// installed.
+	//
+	// The in-memory disabled runtime is still what the render below binds,
+	// because that render must produce the ordinary server; only the durable
+	// record waits.
 	if err := e.RebindServiceRuntimeStates(map[string]app.ServiceRuntimeState{
 		service: next.RuntimeState(),
 	}); err != nil {
@@ -82,6 +89,13 @@ func executeBackupDisable(ctx context.Context, e *engine.Engine, resolved *app.R
 	// not needed is one that should not be lying around. The repository is
 	// untouched; re-enabling stages them again from the encrypted file.
 	if err := e.RemoveBackupCredentials(ctx, service, current.LastEffective); err != nil {
+		return err
+	}
+	// The work is done, so the record can say so.
+	if body, err = encodeBackupLifecycleState(next); err != nil {
+		return err
+	}
+	if err := e.WriteBackupLifecycleState(ctx, service, body); err != nil {
 		return err
 	}
 	e.ReportDisabled(service)

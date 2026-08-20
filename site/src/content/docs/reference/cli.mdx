@@ -49,6 +49,7 @@ Available Commands:
   abort       revert an interrupted deploy to the previous release (migration-gated)
   approve     record a local human confirmation for one exact executable plan
   audit       who deployed what, when, from which SHA — incl. failed runs
+  backup      protect a data service and inspect what can be recovered
   bootstrap   first contact: host setup, registry login, and supporting/data services
   canonical   print the canonical form Onebox understood, with where each value came from
   completion  Generate the autocompletion script for the specified shell
@@ -151,6 +152,264 @@ Usage:
 Flags:
   -n, --count int   journals to show (default 10)
   -h, --help        help for audit
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+## ob backup
+
+```
+Backup and recovery for the data services this project declares.
+
+Backup is physical: a base backup plus continuous WAL archiving to the
+off-host repository the project's backup_targets name, which is what makes
+recovery to a point in time possible rather than recovery to last night.
+
+Declaring a policy does not establish it. `ob backup enable` restarts the
+service with archiving on, stages the verified backup tooling, and takes
+the first base backup; only then does the service render as protected.
+
+Usage:
+  ob backup [flags]
+  ob backup [command]
+
+Available Commands:
+  create      take a base backup now
+  disable     stop archiving; keep every backup already taken
+  drill       prove the repository recovers, without touching anything
+  enable      establish backup — restarts the service archiving and takes the first backup
+  prune       expire backups outside the declared retention
+  restore     recover to a point in time and put it in service
+  status      what the repository can recover, read from the repository
+  verify      prove the archived WAL forms an unbroken chain
+
+Flags:
+  -h, --help   help for backup
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+
+Use "ob backup [command] --help" for more information about a command.
+```
+
+### ob backup create
+
+```
+Take a base backup of a protected service.
+
+Every base backup is complete: the space between them is covered by the WAL
+stream rather than by differential backups, so there is no type to choose.
+
+WAL archiving runs continuously and is not this command. Between backups the
+recoverable point keeps advancing on its own; a base backup bounds how much
+WAL a recovery has to replay, and how far back the window reaches.
+
+Usage:
+  ob backup create <service> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for create
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup disable
+
+```
+Take a service out of backup.
+
+Archiving stops, the schedules are removed, the service restarts as an
+ordinary unprotected one, and its destination credentials are removed from
+the host.
+
+The repository is not touched: every backup already taken stays where it
+is. Reading or recovering from them needs backup enabled again,
+because the binary and credentials that reach the repository live in the
+protected service.
+
+What does stop is the recovery window advancing: from here on there is no
+new WAL, so the newest recoverable point is the moment this ran.
+
+Usage:
+  ob backup disable <service> [flags]
+
+Flags:
+      --break-lock       break a stale operation lock after inspecting its holder
+      --confirm string   name of the service whose archiving may stop
+  -h, --help             help for disable
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup drill
+
+```
+Recover into a throwaway volume, prove the cluster opens and answers, then
+discard it. The live service is never touched.
+
+This runs the same code as `ob backup restore` and stops before the last
+step, which is the point: a drill that exercised a different path would
+prove the drill works rather than that the backups do.
+
+A backup nobody has restored is a hypothesis.
+
+Usage:
+  ob backup drill <service> [flags]
+
+Flags:
+  -h, --help        help for drill
+      --to string   RFC 3339 point in time to prove recoverable (default: the newest recoverable point)
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup enable
+
+```
+Make a declared backup policy real.
+
+The order is forced: the credentials are checked, the image is pinned by
+registry digest, the verified wal-g binary is staged on the host, and only
+then does the server restart with archiving on.
+
+The restart is a real restart of the database. It is not complete until the
+first base backup exists, because WAL archiving with nothing to replay onto
+can recover nothing.
+
+Usage:
+  ob backup enable <service> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for enable
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup prune
+
+```
+Expire everything the policy no longer promises to keep.
+
+Retention comes from services.<name>.backup.retention.keep,
+so this never removes more than the project says it may keep fewer of.
+
+WAL older than the oldest retained backup goes with it: WAL that cannot be
+replayed onto any surviving base backup recovers nothing and only costs storage.
+
+Usage:
+  ob backup prune <service> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for prune
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup restore
+
+```
+Recover a protected service from its repository.
+
+The recovered cluster is always built beside the live one, never over it:
+the base backup is fetched into a fresh volume, WAL is replayed to the
+requested point, and the result has to start and answer a query before
+anything touches the running database. A repository that cannot recover
+fails while the database it would have replaced is still serving.
+
+The data being replaced is copied aside first, under a dated volume name,
+and never deleted. A restore is run on a day that is already going badly;
+it must not be the step that makes it unrecoverable.
+
+Without --to, recovery goes to the newest recoverable point.
+
+The service name has to be typed back with --confirm. Onebox's approval flow
+binds a recorded confirmation to an exact plan, and a recovery has no plan to
+bind to — so the guard is the name of the thing being replaced, which cannot
+be given by accident or by a shell history entry meant for another service.
+
+Usage:
+  ob backup restore <service> [flags]
+
+Flags:
+      --break-lock       break a stale operation lock after inspecting its holder
+      --confirm string   name of the service whose live data may be replaced
+  -h, --help             help for restore
+      --to string        RFC 3339 point in time to recover to (default: the newest recoverable point)
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup status
+
+```
+Report what is actually recoverable.
+
+Every figure comes from the repository rather than from the project: the
+policy states what should be true, and this states what is. A service whose
+policy is declared but never enabled has no repository to ask, and says so.
+
+Usage:
+  ob backup status <service> [flags]
+
+Flags:
+  -h, --help   help for status
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob backup verify
+
+```
+Check that the WAL in the repository is continuous.
+
+This is the check worth running on a schedule, and it is not implied by a
+backup that exited zero. A base backup with a gapped WAL stream recovers to
+the backup and no further — a nightly snapshot wearing the label of
+point-in-time recovery — and nothing else notices until someone needs it.
+
+Usage:
+  ob backup verify <service> [flags]
+
+Flags:
+  -h, --help   help for verify
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")
@@ -275,8 +534,9 @@ Check this runner and the safety capabilities of the environment it targets.
 
 Reports the runner's provenance and whether it satisfies the environment's
 minimum version and plan schema, and names every workload and service holding
-durable data that has no backup — Onebox does not take backups, and silence
-there would read as approval. In structured output, automation should gate on
+durable data that nothing is copying off the box, because silence there would
+read as approval. A service declaring `backup` is reported as declaring it;
+what the repository can actually recover is `ob backup status`. In structured output, automation should gate on
 the report status: data.status for pass or warn, and error.details.status for
 a failing diagnosis.
 
@@ -412,7 +672,7 @@ Usage:
   ob job plan <id> [flags]
 
 Flags:
-      --backup-report-out string   write a plan-bound backup report template when migration protection is required
+      --backup-report-out string   write a plan-bound backup report template when migration backup is required
   -h, --help                       help for plan
   -o, --out string                 job plan artifact path (default "ob-job-plan.json")
 
@@ -488,7 +748,7 @@ Usage:
   ob plan [flags]
 
 Flags:
-      --backup-report-out string   write a plan-bound backup report template when migration protection is required
+      --backup-report-out string   write a plan-bound backup report template when migration backup is required
   -h, --help                       help for plan
       --image stringArray          resolved image as workload=reference, for build-sourced workloads (repeatable)
   -o, --out string                 plan artifact path (default "ob-plan.json")

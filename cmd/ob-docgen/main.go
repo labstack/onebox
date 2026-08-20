@@ -293,8 +293,8 @@ var blocks = []block{
 	{Key: "deployment", Title: "deployment", Order: 50, Status: statusShipped,
 		Summary:  "Release ordering, how many releases are retained for rollback, and the migration policy.",
 		ReadWhen: []string{"Changing release order, retention or migration gating"}},
-	{Key: "verifications", Title: "verifications", Order: 60, Status: statusShipped,
-		Summary:  "What must be true before a release becomes current: external URLs, in-workload checks, or migration revision evidence.",
+	{Key: "checks", Title: "checks", Order: 60, Status: statusShipped,
+		Summary:  "What must be true before a release becomes current, grouped by kind: external URLs, in-workload HTTP or exec probes, or migration revision evidence.",
 		ReadWhen: []string{"Gating release activation on a health endpoint or a smoke test"}},
 	{Key: "proxy", Title: "proxy", Order: 70, Status: statusShipped,
 		Summary:  "Who owns the ingress proxy, which image runs it, and how TLS is resolved.",
@@ -308,14 +308,11 @@ var blocks = []block{
 	{Key: "notifications", Title: "notifications", Order: 100, Status: statusShipped,
 		Summary:  "Named webhooks that receive selected operation outcomes.",
 		ReadWhen: []string{"Sending deploy outcomes to Slack, Discord or an incident tool"}},
-	{Key: "observability", Title: "observability", Order: 110, Status: statusIntentOnly,
-		Summary:  "Declared logging, metric and alerting intent. Validated and planned, but the local engine runs nothing continuous for it.",
-		ReadWhen: []string{"Recording observability intent that another system will act on"}},
-	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusSchemaOnly,
-		Summary:  "User-owned off-host S3-compatible repositories available to service protection policies. Accepted by the loader; not yet executable.",
-		ReadWhen: []string{"Evaluating the proposed protection layer", "Understanding why Onebox refuses a backup target that shares the protected host"}},
+	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusShipped,
+		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",
+		ReadWhen: []string{"Declaring where a database's backups go", "Understanding why Onebox refuses a backup target that shares the protected host"}},
 	{Key: "external_services", Title: "external_services", Order: 210, Status: statusSchemaOnly,
-		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and protection stay external. Accepted by the loader; not yet executable.",
+		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable.",
 		ReadWhen: []string{"Modelling an RDS, Neon, Supabase or Upstash dependency"}},
 }
 
@@ -888,20 +885,16 @@ func renderErrorPage() string {
 
 	fmt.Fprintln(&buf, "## Lifecycle failure codes")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, ":::caution[Belongs to the proposed protection layer]")
-	fmt.Fprintln(&buf, "These codes are defined and drift-tested in the binary, but the operations that")
-	fmt.Fprintln(&buf, "raise most of them are not yet executable. A row marked **reserved** is one no")
-	fmt.Fprintln(&buf, "path raises today: the code is fixed so it stays stable when the capability")
-	fmt.Fprintln(&buf, "lands, but you cannot cause it. The set is computed from the source, not")
-	fmt.Fprintln(&buf, "maintained by hand.")
-	fmt.Fprintln(&buf, ":::")
+	fmt.Fprintln(&buf, "Every code here is raised by a path in the shipped binary, checked against the")
+	fmt.Fprintln(&buf, "source by a test in both directions. The table is computed, not maintained by")
+	fmt.Fprintln(&buf, "hand.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "The failure contract shared by plans, event streams, terminal results, status and")
 	fmt.Fprintln(&buf, "doctor. Each carries a stable code and one safe command in its semantic role; diagnostic")
 	fmt.Fprintln(&buf, "detail stays in restricted local evidence, never in the public record.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "| Code | Reachable | Means | Guidance role | Command |")
-	fmt.Fprintln(&buf, "| --- | --- | --- | --- | --- |")
+	fmt.Fprintln(&buf, "| Code | Means | Guidance role | Command |")
+	fmt.Fprintln(&buf, "| --- | --- | --- | --- |")
 	for _, code := range onebox.LifecycleFailureCodes() {
 		// A code that will not resolve is a defect in the contract, not a row to
 		// drop: a shorter table is one nobody can tell is incomplete.
@@ -909,11 +902,7 @@ func renderErrorPage() string {
 		if err != nil {
 			panic(fmt.Sprintf("lifecycle code %q does not resolve: %v", code, err))
 		}
-		reach := "yes"
-		if onebox.LifecycleFailureReserved(code) {
-			reach = "reserved"
-		}
-		fmt.Fprintf(&buf, "| `%s` | %s | %s | %s | `%s` |\n", code, reach, escapeCell(failure.Message), failure.GuidanceRole(), failure.GuidanceCommand())
+		fmt.Fprintf(&buf, "| `%s` | %s | %s | `%s` |\n", code, escapeCell(failure.Message), failure.GuidanceRole(), failure.GuidanceCommand())
 	}
 
 	return buf.String()

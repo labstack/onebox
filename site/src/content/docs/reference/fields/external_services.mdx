@@ -1,7 +1,7 @@
 ---
 title: "external_services"
-description: "Typed dependencies operated outside Onebox, whose lifecycle and protection stay external. Accepted by the loader; not yet executable."
-summary: "Typed dependencies operated outside Onebox, whose lifecycle and protection stay external. Accepted by the loader; not yet executable."
+description: "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable."
+summary: "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable."
 status: schema-only
 generated: true
 sidebar:
@@ -23,12 +23,13 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`connection` · `driver` · `entries` · `file` · `kind` · `maximum_age` · `probe` · `protection_owner` · `provider` · `source` · `timeout`
+`backup_owner` · `connection` · `driver` · `entries` · `file` · `kind` · `max_age` · `probe` · `provider` · `source` · `timeout`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `<name>.backup_owner` | string | — | Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens. |
 | `<name>.connection` | object | — | Trusted connection source and driver-shaped entry mapping. |
 | `<name>.connection.entries` | map | — | Maps driver connection parts such as host, port, user, password, database, or url to variable names in the trusted source. |
 | `<name>.connection.source` | object | — | Trusted encrypted file containing the connection values. |
@@ -37,6 +38,5 @@ cannot drift from what `ob validate` accepts.
 | `<name>.driver` | `clickhouse` · `mariadb` · `meilisearch` · `minio` · `mongodb` · `mysql` · `nats` · `postgres` · `rabbitmq` · `redis` · `valkey` | — | Built-in connection shape used to validate and project this dependency. |
 | `<name>.probe` | object | — | Optional bounded read-only health observation; it never creates or repairs provider resources. |
 | `<name>.probe.kind` | `driver-health` | `driver-health` | Read-only observation kind: driver-health. |
-| `<name>.probe.maximum_age` | string | `5m` | Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.probe.max_age` | string | `5m` | Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.probe.timeout` | string | `5s` | Maximum duration of one read-only probe. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.protection_owner` | string | — | Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens. |

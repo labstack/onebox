@@ -21,7 +21,7 @@ external_services:
     connection:
       source: {file: secrets/database.env, provider: sops}
       entries: {url: DATABASE_URL}
-    protection_owner: platform-team/rds
+    backup_owner: platform-team/rds
     probe: {}
 `
 
@@ -48,7 +48,7 @@ external_services:
     connection:
       source: {file: secrets/database.env, provider: sops}
       entries: {url: DATABASE_URL}
-    protection_owner: platform-team/rds
+    backup_owner: platform-team/rds
 `,
 			code: "identifier_collision",
 		},
@@ -65,7 +65,7 @@ external_services:
     connection:
       source: {file: secrets/database.env, provider: sops}
       entries: {url: DATABASE_URL}
-    protection_owner: platform-team/rds
+    backup_owner: platform-team/rds
 `,
 			code: "unknown_field",
 		},
@@ -82,13 +82,13 @@ external_services:
 				t.Fatal(err)
 			}
 			external := project.ExternalServices["database"]
-			if external.Driver != "postgres" || external.ProtectionOwner != "platform-team/rds" {
+			if external.Driver != "postgres" || external.BackupOwner != "platform-team/rds" {
 				t.Fatalf("external service = %#v", external)
 			}
 			if external.Connection.Source.Provider != "sops" || external.Connection.Entries["url"] != "DATABASE_URL" {
 				t.Fatalf("trusted connection = %#v", external.Connection)
 			}
-			if external.Probe == nil || external.Probe.Kind != "driver-health" || external.Probe.Timeout != "5s" || external.Probe.MaximumAge != "5m" {
+			if external.Probe == nil || external.Probe.Kind != "driver-health" || external.Probe.Timeout != "5s" || external.Probe.MaxAge != "5m" {
 				t.Fatalf("read-only probe defaults = %#v", external.Probe)
 			}
 		})

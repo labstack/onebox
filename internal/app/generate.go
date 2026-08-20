@@ -143,7 +143,11 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 			if err != nil {
 				return nil, err
 			}
-			doc, err := p.renderService(n, name, p.Services[name], selection.Image)
+			backup, err := r.backupForRender(n, name)
+			if err != nil {
+				return nil, err
+			}
+			doc, err := p.renderService(n, name, p.Services[name], selection.Image, backup)
 			if err != nil {
 				return nil, err
 			}
@@ -199,6 +203,14 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 		svc["image"] = w.Image.Reference
 		if ref := images[name]; ref != "" {
 			svc["image"] = ref
+		}
+		// The declared policy has to reach Compose, not just the explicit pull
+		// step onebox runs before a release. Compose fetches a missing image
+		// during `up` on its own, so a workload declaring `pull: never` was
+		// fetched anyway — proved on a live host, where a release with
+		// `pull: never` started an image the host did not have.
+		if policy := composePullPolicy(w.Image.Pull); policy != "" {
+			svc["pull_policy"] = policy
 		}
 	case w.Build != nil:
 		ref, ok := images[name]
@@ -852,7 +864,11 @@ func (r *Resolved) RenderServices(env string) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		doc, err := p.renderService(n, name, service, selection.Image)
+		backup, err := r.backupForRender(n, name)
+		if err != nil {
+			return nil, err
+		}
+		doc, err := p.renderService(n, name, service, selection.Image, backup)
 		if err != nil {
 			return nil, err
 		}
@@ -919,4 +935,19 @@ func (p *Spec) connectionVars(name string, w Workload) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// composePullPolicy maps the declared `image.pull` onto Compose's own spelling.
+// They agree on all three names today; the mapping exists so the schema is free
+// to keep its vocabulary if Compose changes its own.
+func composePullPolicy(declared string) string {
+	switch declared {
+	case "always":
+		return "always"
+	case "never":
+		return "never"
+	case "missing":
+		return "missing"
+	}
+	return ""
 }

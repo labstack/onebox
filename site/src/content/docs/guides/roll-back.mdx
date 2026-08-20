@@ -125,7 +125,7 @@ ob abort --break-lock --output ndjson
 `--break-lock` is on six commands: `deploy`, `bootstrap`, `abort`, `job run`,
 `service apply` and `proxy apply`. Not every mutating command has it — `resume`,
 `destroy` and `secrets push` do not. It breaks the application and host locks
-only. The protection lock has no override and clears on TTL expiry or when the
+only. The backup lock has no override and clears on TTL expiry or when the
 same operation returns.
 
 ## Recovery onto another host is a different workflow

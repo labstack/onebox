@@ -81,6 +81,21 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Before anything starts that mounts them. Protected services only; this
+	// is a no-op for every service that is not.
+	wrappers, err := e.Spec.RenderServiceBackupWrappers(e.Opts.Environment)
+	if err != nil {
+		return err
+	}
+	staging := e.Spec.NamesFor(e.Opts.Environment)
+	for _, name := range names {
+		if !e.Spec.ServiceIsProtected(name) {
+			continue
+		}
+		if err := e.StageBackupRuntime(ctx, name, wrappers[staging.BackupWrapperFile(name)]); err != nil {
+			return fmt.Errorf("service %s: cannot place its backup runtime: %w", name, err)
+		}
+	}
 	if err := e.EnsureServiceConnections(ctx); err != nil {
 		return err
 	}
@@ -127,6 +142,11 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 			[]byte(e.Spec.DeclaredVersion(name)+"\n")); err != nil {
 			return fmt.Errorf("service %s: cannot record its version: %w", name, err)
 		}
+	}
+	// After the services are up, because a timer that fires against a container
+	// that is not running yet is a failed backup in the journal for no reason.
+	if err := e.SyncBackupSchedules(ctx); err != nil {
+		return fmt.Errorf("cannot converge the backup schedules: %w", err)
 	}
 	return nil
 }

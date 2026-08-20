@@ -31,7 +31,7 @@ var (
 		"env_files": true,
 	}
 	overridableService = map[string]bool{
-		"resources": true, "settings": true, "protection": true,
+		"resources": true, "settings": true, "backup": true,
 	}
 )
 
@@ -116,14 +116,14 @@ func (p *Spec) Resolve(env string) (*Resolved, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, protected := authoredPatch["protection"]; protected {
-			prefix := "services." + name + ".protection"
+		if _, protected := authoredPatch["backup"]; protected {
+			prefix := "services." + name + ".backup"
 			for originPath := range out.Origins {
 				if originPath == prefix || strings.HasPrefix(originPath, prefix+".") {
 					delete(out.Origins, originPath)
 				}
 			}
-			markOverrideValue(prefix, authoredPatch["protection"], out.Origins)
+			markOverrideValue(prefix, authoredPatch["backup"], out.Origins)
 		}
 		clone.Services[name] = merged
 	}

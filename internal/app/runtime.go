@@ -117,7 +117,7 @@ func (w Workload) IsJob() bool { return w.Role == RoleJob }
 //
 // The contract publishes `persistence.mode` defaulting to durable, but the
 // block is optional, so the default was unreachable unless it was written —
-// and doctor, the migration-backup requirement and the protection gate each
+// and doctor, the migration-backup requirement and the backup gate each
 // read an absent block as "not durable". A workload with a managed named
 // volume holds data that outlives the release whether or not it says so.
 //
@@ -348,4 +348,43 @@ func (w Workload) ProbePort() int {
 		}
 	}
 	return 0
+}
+
+// ParsePostgresDuration reads the form PostgreSQL uses when it reports a
+// setting — "15min", "1h", "300s", or a bare number meaning seconds — which is
+// not the form ParseDuration accepts. It exists so a declared policy can be
+// compared with what the server says it is doing.
+func ParsePostgresDuration(value string) (time.Duration, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, false
+	}
+	digits := len(trimmed)
+	for index, char := range trimmed {
+		if char < '0' || char > '9' {
+			digits = index
+			break
+		}
+	}
+	if digits == 0 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(trimmed[:digits])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	unit := strings.ToLower(strings.TrimSpace(trimmed[digits:]))
+	switch unit {
+	case "", "s":
+		return time.Duration(count) * time.Second, true
+	case "ms":
+		return time.Duration(count) * time.Millisecond, true
+	case "min":
+		return time.Duration(count) * time.Minute, true
+	case "h":
+		return time.Duration(count) * time.Hour, true
+	case "d":
+		return time.Duration(count) * 24 * time.Hour, true
+	}
+	return 0, false
 }

@@ -9,12 +9,42 @@ import (
 func serviceImageTestResolved(withPolicy bool) *Resolved {
 	service := Service{Driver: "postgres", Version: 17}
 	if withPolicy {
-		service.Protection = &ProtectionPolicy{Target: "offsite"}
+		service.Backup = backupTestPolicy()
 	}
 	return &Resolved{
-		Spec: &Spec{Name: "example", BasePath: "/var/lib/ob", Services: map[string]Service{"database": service}},
-		Env:  "production",
+		Spec: &Spec{
+			Name: "example", BasePath: "/var/lib/ob",
+			Services:      map[string]Service{"database": service},
+			BackupTargets: map[string]BackupTarget{"offsite": backupTestTarget()},
+		},
+		Env: "production",
 	}
+}
+
+func backupTestPolicy() *BackupPolicy {
+	return &BackupPolicy{
+		Target: "offsite", RecoveryKind: "pitr", MaxDataLoss: "15m",
+		Retention: BackupRetention{Keep: 7, Window: "7d"},
+	}
+}
+
+func backupTestTarget() BackupTarget {
+	return BackupTarget{
+		Kind: "s3-compatible", Endpoint: "https://objects.example.net",
+		Bucket: "onebox-backups", Prefix: "production/example", Region: "us-east-1", TLS: "verify",
+		Credentials: CredentialReference{
+			File: "secrets/backup.env", Provider: "sops",
+			AccessKeyEntry: "BACKUP_ACCESS_KEY_ID", SecretKeyEntry: "BACKUP_SECRET_ACCESS_KEY",
+		},
+		Encryption: TargetEncryption{PITR: "client-side"},
+	}
+}
+
+// backupTestProjection is what enablement records. A runtime state that
+// says "enabled" without one describes a service that is archiving somewhere
+// nothing can name, which is not a state enablement can produce.
+func backupTestProjection() *BackupEffectiveProjection {
+	return &BackupEffectiveProjection{Policy: *backupTestPolicy(), Target: backupTestTarget()}
 }
 
 func pinnedServiceImage(repository string, digit byte) string {
@@ -43,7 +73,7 @@ func TestUnprotectedServiceKeepsTagRenderingOffline(t *testing.T) {
 		t.Fatalf("unprotected service image = %q", got)
 	}
 	withState, err := resolved.WithServiceRuntimeStates(map[string]ServiceRuntimeState{
-		"database": {ProtectionState: "never-enabled"},
+		"database": {BackupState: "never-enabled"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,9 +84,9 @@ func TestUnprotectedServiceKeepsTagRenderingOffline(t *testing.T) {
 }
 
 func TestProtectedServiceRenderingUsesDurableDigestNotPolicyOrMovedTag(t *testing.T) {
-	image := pinnedServiceImage("ghcr.io/labstack/onebox-postgres-pgbackrest", 'a')
+	image := pinnedServiceImage("postgres", 'a')
 	state := ServiceRuntimeState{
-		ProtectionState: "enabled", ServiceImage: image,
+		BackupState: "enabled", ServiceImage: image, LastEffective: backupTestProjection(),
 		PublicationVerified: true, DigestAvailable: true,
 		TagObservedDigest: "sha256:" + strings.Repeat("b", 64),
 	}
@@ -78,9 +108,9 @@ func TestProtectedServiceImageFailureCodes(t *testing.T) {
 		state ServiceRuntimeState
 		code  string
 	}{
-		{"unsafe-revert", ServiceRuntimeState{ProtectionState: "enabled", PublicationVerified: true, DigestAvailable: true}, "protection_image_revert_unsafe"},
-		{"unpublished", ServiceRuntimeState{ProtectionState: "enabled", ServiceImage: image, DigestAvailable: true}, "protection_service_image_unpublished"},
-		{"unavailable", ServiceRuntimeState{ProtectionState: "enabled", ServiceImage: image, PublicationVerified: true}, "service_image_digest_unavailable"},
+		{"unsafe-revert", ServiceRuntimeState{BackupState: "enabled", PublicationVerified: true, DigestAvailable: true}, "backup_image_revert_unsafe"},
+		{"unpublished", ServiceRuntimeState{BackupState: "enabled", ServiceImage: image, DigestAvailable: true}, "backup_service_image_unpublished"},
+		{"unavailable", ServiceRuntimeState{BackupState: "enabled", ServiceImage: image, PublicationVerified: true}, "service_image_digest_unavailable"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -100,7 +130,7 @@ func TestProtectedServiceImageFailureCodes(t *testing.T) {
 func TestProtectedServicePermitsExactVerifiedCacheDuringRegistryOutage(t *testing.T) {
 	image := pinnedServiceImage("postgres", 'a')
 	resolved, err := serviceImageTestResolved(true).WithServiceRuntimeStates(map[string]ServiceRuntimeState{
-		"database": {ProtectionState: "enabled", ServiceImage: image, PublicationVerified: true, CacheVerified: true},
+		"database": {BackupState: "enabled", ServiceImage: image, PublicationVerified: true, CacheVerified: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +146,7 @@ func TestProtectedRefreshRetainsCurrentAndManifestImageRoots(t *testing.T) {
 	candidate := pinnedServiceImage("postgres", 'c')
 	resolved, err := serviceImageTestResolved(true).WithServiceRuntimeStates(map[string]ServiceRuntimeState{
 		"database": {
-			ProtectionState: "enabled", ServiceImage: current, PublicationVerified: true, DigestAvailable: true,
+			BackupState: "enabled", ServiceImage: current, PublicationVerified: true, DigestAvailable: true,
 			ManifestRootImages: []string{manifest},
 			RefreshCandidate:   &ServiceImageCandidate{Image: candidate, PublicationVerified: true, DigestAvailable: true, ExactTransition: true},
 		},
@@ -145,12 +175,12 @@ func TestProtectedRefreshRefusesDisablePendingAndUnqualifiedTransition(t *testin
 		code  string
 	}{
 		{"disable-pending", true, "service_image_patch_disable_pending"},
-		{"enabled", false, "protected_service_patch_unsupported"},
+		{"enabled", false, "service_patch_unsupported"},
 	} {
 		copy := *candidate
 		copy.ExactTransition = test.exact
 		resolved, err := serviceImageTestResolved(true).WithServiceRuntimeStates(map[string]ServiceRuntimeState{
-			"database": {ProtectionState: test.state, ServiceImage: image, PublicationVerified: true, DigestAvailable: true, RefreshCandidate: &copy},
+			"database": {BackupState: test.state, ServiceImage: image, PublicationVerified: true, DigestAvailable: true, RefreshCandidate: &copy},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -166,7 +196,7 @@ func TestProtectedRefreshRefusesDisablePendingAndUnqualifiedTransition(t *testin
 func TestProtectedServiceGoldenUsesImmutableImage(t *testing.T) {
 	image := pinnedServiceImage("postgres", 'd')
 	resolved, err := serviceImageTestResolved(true).WithServiceRuntimeStates(map[string]ServiceRuntimeState{
-		"database": {ProtectionState: "enabled", ServiceImage: image, PublicationVerified: true, DigestAvailable: true},
+		"database": {BackupState: "enabled", ServiceImage: image, PublicationVerified: true, DigestAvailable: true},
 	})
 	if err != nil {
 		t.Fatal(err)

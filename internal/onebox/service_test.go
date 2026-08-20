@@ -55,13 +55,11 @@ runtime:
   env_files: [app.env]
 hooks:
   post_deploy: "echo ` + testSecret + `"
-verifications:
-  - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
-  - { workload: web, http: "/private/` + testSecret + `" }
-observability:
-  logs: { enabled: true, retention: 14d }
-  metrics: { enabled: true }
-  alerts: { unhealthy_after: 5m }
+checks:
+  url:
+    - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
+  http:
+    - { workload: web, path: "/private/` + testSecret + `" }
 `,
 	}
 	for name, body := range files {

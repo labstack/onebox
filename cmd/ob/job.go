@@ -31,7 +31,7 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 		},
 	}
 	plan.Flags().StringVarP(&planOut, "out", "o", "ob-job-plan.json", "job plan artifact path")
-	plan.Flags().StringVar(&backupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration protection is required")
+	plan.Flags().StringVar(&backupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration backup is required")
 
 	var planPath, approvalPath, backupReportPath, overrideReason string
 	var breakLock bool

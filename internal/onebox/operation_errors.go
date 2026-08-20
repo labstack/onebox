@@ -10,7 +10,7 @@ import (
 // OperationFailure is the public definition of a failure the CLI and engine
 // raise while running a command, as distinct from a project-file validation
 // code (which the loader owns) and a lifecycle failure code (which the
-// protection contract owns). Those two families were already enumerated and
+// backup contract owns). Those two families were already enumerated and
 // published; these were not, so an operator or agent branching on a code the
 // binary actually emits had nothing to read.
 //

@@ -44,29 +44,7 @@ func stateFixtures(t *testing.T) (regular, dangling, absent string) {
 
 // A dangling link must not read as never-seeded: seeding would then proceed
 // against state that exists.
-func TestActiveVolumeStateProbeClassifies(t *testing.T) {
-	regular, dangling, absent := stateFixtures(t)
-	for _, tc := range []struct {
-		name string
-		path string
-		exit int
-	}{
-		{"record is read", regular, 0},
-		{"dangling link is not never-seeded", dangling, 2},
-		{"absent is never-seeded", absent, 3},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if exit, _ := runStateProbe(t, activeVolumeStateProbe(tc.path)); exit != tc.exit {
-				t.Fatalf("exit = %d, want %d", exit, tc.exit)
-			}
-		})
-	}
-}
-
-// An unsearchable ancestor hides both state files the same way a dangling link
-// does. Seeding on that answer writes over state that may already be there, and
-// observing on it drops a service's protection silently.
-func TestStateProbesRefuseUnsearchableAncestor(t *testing.T) {
+func TestLifecycleStateProbeRefusesUnsearchableAncestor(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root searches every directory, so the permission arm cannot be exercised")
 	}
@@ -83,23 +61,13 @@ func TestStateProbesRefuseUnsearchableAncestor(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 
-	for _, tc := range []struct {
-		name   string
-		script string
-	}{
-		{"active volume", activeVolumeStateProbe(record)},
-		{"lifecycle", lifecycleStateProbe(record)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if exit, _ := runStateProbe(t, tc.script); exit != app.ProbeUndetermined {
-				t.Fatalf("exit = %d, want %d", exit, app.ProbeUndetermined)
-			}
-		})
+	if exit, _ := runStateProbe(t, lifecycleStateProbe(record)); exit != app.ProbeUndetermined {
+		t.Fatalf("exit = %d, want %d", exit, app.ProbeUndetermined)
 	}
 }
 
 // A dangling link must not read as 'missing': reporting no state at all drops
-// the service's protection silently.
+// the service's backup silently.
 func TestLifecycleStateProbeClassifies(t *testing.T) {
 	regular, dangling, absent := stateFixtures(t)
 	for _, tc := range []struct {

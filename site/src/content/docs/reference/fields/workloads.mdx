@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `platform` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `registry` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -29,7 +29,6 @@ cannot drift from what `ob validate` accepts.
 | `<name>.build.args` | map | — | Build arguments supplied by the external build system. |
 | `<name>.build.context` | string | — | Repository-relative build context. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.build.dockerfile` | string | — | Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter. |
-| `<name>.build.platform` | string | — | Target image platform for the external build. |
 | `<name>.build.target` | string | — | Named Dockerfile stage to build. |
 | `<name>.command` | list | — | Container command as a shell string or argument list. Also accepts a command line or argument list. |
 | `<name>.compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
@@ -56,10 +55,8 @@ cannot drift from what `ob validate` accepts.
 | `<name>.health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.hostname` | string | — | Hostname assigned inside the workload container. |
 | `<name>.image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
-| `<name>.image.platform` | string | — | Platform selected when the image is multi-platform. |
-| `<name>.image.pull` | `always` · `missing` · `never` | `missing` | Image pull policy: missing, always, or never. |
+| `<name>.image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |
 | `<name>.image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
-| `<name>.image.registry` | string | — | Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login. |
 | `<name>.init` | boolean | — | Run a minimal init process as PID 1 inside the container. |
 | `<name>.labels` | map | — | Additional container labels outside namespaces reserved by Onebox and the proxy. |
 | `<name>.logging` | object | — | Container logging driver and driver-specific options. |

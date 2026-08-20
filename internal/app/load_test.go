@@ -56,9 +56,9 @@ func conformanceCases() []conformanceCase {
 		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
 		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
 		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
-		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_maximum_age: 14d}}}\n", true},
-		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: 0.0.1-m0}}}\n", false},
-		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
+		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_max_age: 14d}}}}\n", true},
+		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_onebox_version: 0.0.1-m0}}}\n", false},
+		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
 		// A hook key is a lifecycle seam OR a declared job name. Both halves need
 		// a case: an unlisted seam loads and never fires, and refusing a job name
@@ -66,11 +66,6 @@ func conformanceCases() []conformanceCase {
 		{"hook naming an unlisted seam", min + "hooks: {pre_deploy: {run: scripts/backup.sh}}\n", false},
 		{"hook naming a declared job", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
 		{"hook naming neither", min + "hooks: {typo_hook: {run: scripts/x.sh}}\n", false},
-		// observability sub-blocks are independent; each must be checked without
-		// the other present.
-		{"log retention without alerts", min + "observability: {logs: {retention: bogus}}\n", false},
-		{"alerts without logs", min + "observability: {alerts: {unhealthy_after: 5m}}\n", true},
-		{"log retention as an integer", min + "observability: {logs: {retention: 30}}\n", false},
 		// A settings key is interpolated into a generated shell command without
 		// quoting, so the grammar is the only thing between a project file and
 		// a root shell on the server.
@@ -89,14 +84,14 @@ func conformanceCases() []conformanceCase {
 		// The contract publishes persistence.mode defaulting to durable. That
 		// default was unreachable while the block was absent, so a workload with
 		// a managed volume read as holding nothing — and doctor, the backup gate
-		// and the protection gate each guessed the same wrong way.
+		// and the backup gate each guessed the same wrong way.
 		{"volumes without persistence still load", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
 		{"a bind mount is not durable", wl("w: {image: nginx, volumes: [{source: ./cfg, path: /etc/app}], replicas: 3}"), true},
 		// Inference must not tighten a refusal against a project that loads.
 		{"inferred durability does not refuse replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}"), true},
 		{"declared durability still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {mode: durable}, replicas: 3}"), false},
 		{"persistence block with no mode still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {}, replicas: 3}"), false},
-		{"protection is no longer a field", wl("w: {image: nginx, protection: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
+		{"backup is no longer a field", wl("w: {image: nginx, backup: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		// A closed value set is only closed if a value outside it is refused,
 		// and the refusal has to name the set rather than the type.
@@ -114,10 +109,10 @@ func conformanceCases() []conformanceCase {
 		{"unknown env file provider", min + "runtime: {env_files: [{file: s.env, provider: vault}]}\n", false},
 		{"env file entry without a file", min + "runtime: {env_files: [{provider: sops}]}\n", false},
 		{"environment-scoped env files", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
-		{"verifications workload without probe", min + "verifications: [{workload: ledger}]\n", false},
-		{"verifications url with exec", min + "verifications: [{url: \"https://x/\", exec: \"echo\"}]\n", false},
-		{"verifications url contains advisory", min + "verifications: [{url: \"https://x/\", contains: \"<div\", advisory: true}]\n", true},
-		{"status code 600", min + "verifications: [{url: \"https://x/\", status_codes: [600]}]\n", false},
+		{"http check without a path", min + "checks: {http: [{workload: ledger}]}\n", false},
+		{"url check carrying an exec field", min + "checks: {url: [{url: \"https://x/\", run: \"echo\"}]}\n", false},
+		{"url check with contains and advisory", min + "checks: {url: [{url: \"https://x/\", contains: \"<div\", advisory: true}]}\n", true},
+		{"status code 600", min + "checks: {url: [{url: \"https://x/\", status_codes: [600]}]}\n", false},
 		// `kind: none` says nothing routes. A project that also declares a
 		// route is asking for something nobody would serve.
 		{"proxy kind none without a route", wl("web: {image: nginx}") + "proxy: {kind: none}\n", true},
@@ -139,14 +134,14 @@ func conformanceCases() []conformanceCase {
 		// execution no longer selects them as an automatic release phase.
 		{"explicit manual job remains a runtime service", wl("j: {image: nginx, role: job, when: manual, data_effect: none}"), true},
 		{"service scalar", min + "services: {postgres: 18}\n", true},
-		{"service protection policy", validProtectionProject, true},
+		{"service backup policy", validBackupProject, true},
 		{"external service connection", validExternalServiceProject, true},
-		{"protection inline secret", strings.Replace(validProtectionProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext\n", 1), false},
-		{"protection authored tool", strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: pgbackrest\n", 1), false},
-		{"protection self target", strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
-		{"protection unsupported objective", strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
-		{"protection unsupported retention", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {minimum_generations: 0, recovery_window: 7d}\n", 1), false},
-		{"protection sparse drill", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      restore_drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, proof_maximum_age: 7d}\n", 1), false},
+		{"backup inline secret", strings.Replace(validBackupProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext\n", 1), false},
+		{"backup authored tool", strings.Replace(validBackupProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1), false},
+		{"backup self target", strings.Replace(validBackupProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
+		{"backup unsupported objective", strings.Replace(validBackupProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
+		{"backup unsupported retention", strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1), false},
+		{"backup sparse drill", strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, max_age: 7d}\n", 1), false},
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
@@ -265,10 +260,10 @@ func TestRollingWorkloadCannotPublishFixedHostPort(t *testing.T) {
 	if !errors.As(err, &projectErr) {
 		t.Fatalf("error type = %T, want *app.Error: %v", err, err)
 	}
-	if projectErr.Code != "project_invalid" || projectErr.Path != "workloads.w.published_ports" {
+	if projectErr.Code != "project_invalid" || projectErr.Path != "workloads.w.ports" {
 		t.Fatalf("error = %#v", projectErr)
 	}
-	for _, resolution := range []string{"remove published_ports", "strategy to recreate"} {
+	for _, resolution := range []string{"remove ports", "strategy to recreate"} {
 		if !strings.Contains(projectErr.Message, resolution) {
 			t.Fatalf("error does not name resolution %q: %s", resolution, projectErr.Message)
 		}
@@ -636,10 +631,15 @@ func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
 		{"verification", base + "verification: [{url: \"https://x/\", contains: ok}]\n"},
 		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
 		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
-		{"log retention_days", base + "observability: {logs: {retention_days: 30}}\n"},
-		{"probe max_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, max_age: 5m}}}\n"},
 		{"policy migration_backup_max_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
-		{"restore drill proof_max_age", base + "services: {postgres: {version: 18, protection: {target: t, restore_drill: {proof_max_age: 7d}}}}\n"},
+		// The abbreviation pass: maximum_/minimum_ became max_/min_, so the
+		// spelled-out forms are now the ones that must not load.
+		{"probe maximum_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, maximum_age: 5m}}}\n"},
+		{"drill maximum_age", base + "services: {postgres: {version: 18, backup: {target: t, drill: {maximum_age: 7d}}}}\n"},
+		{"backup maximum_data_loss", base + "services: {postgres: {version: 18, backup: {target: t, maximum_data_loss: 15m}}}\n"},
+		{"policy minimum_onebox_version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: v2026.8.0}}}\n"},
+		{"policy minimum_plan_schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: x}}}\n"},
+		{"policy migrations backup_maximum_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 24h}}}}\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := LoadBytes([]byte(c.yaml), "ob.yml")

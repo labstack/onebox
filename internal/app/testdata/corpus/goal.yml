@@ -33,6 +33,8 @@ runtime:
 proxy: {managed: true, config: traefik}
 hooks:
   bootstrap: {run: 'scripts/bootstrap.sh "$OB_SERVER"', local: true}
-verifications:
-  - {workload: server, http: /readyz, port: 7510}
-  - {url: "https://goal.fit/healthz"}
+checks:
+  http:
+    - {workload: server, path: /readyz, port: 7510}
+  url:
+    - {url: "https://goal.fit/healthz"}

@@ -171,7 +171,7 @@ func (e *Engine) lockTTL() time.Duration {
 // `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
 // drives a macOS box through the Local transport). path is quoted here, so
 // callers pass it raw. Callers that expose `--break-lock` apply it before the refusal
-// default. AcquireLock also reclaims a same-deploy holder; protection locks do
+// default. AcquireLock also reclaims a same-deploy holder; backup locks do
 // not expose the generic break override.
 func lockAgeCmd(path string) string {
 	qpath := q(path)

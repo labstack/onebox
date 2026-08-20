@@ -74,7 +74,7 @@ func runTagValidator(t *testing.T, dir, tag, mainRef string) (string, error) {
 }
 
 // The release grammar is written twice: once in Bash, where it gates the tag a
-// human pushes, and once in Go, where it gates `minimum_onebox_version` and the
+// human pushes, and once in Go, where it gates `min_version` and the
 // runner's own provenance. Drift is silent in both directions — a looser shell
 // publishes a tag the binary cannot parse, a looser loader accepts a minimum no
 // tag can satisfy — so one corpus decides both.

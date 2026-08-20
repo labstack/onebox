@@ -25,8 +25,8 @@ release. `ob version` reports which you have.
 environments:
   production:
     policy:
-      minimum_onebox_version: v2026.8.0
-      minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+      min_onebox_version: v2026.8.0
+      min_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
 ```
 
 `ob doctor` reports whether the runner selected by `PATH` is compatible.
@@ -96,8 +96,8 @@ redacted.
 
 | Class | JSON | NDJSON | Commands |
 | --- | --- | --- | --- |
-| Finite envelope | yes | no | `ob approve` · `ob audit` · `ob canonical` · `ob doctor` · `ob eject` · `ob init` · `ob job plan` · `ob plan` · `ob preflight` · `ob preview` · `ob schema` · `ob secrets list` · `ob status` · `ob validate` · `ob version` |
-| Finite operation stream | yes | yes | `ob abort` · `ob bootstrap` · `ob deploy` · `ob destroy` · `ob job run` · `ob proxy apply` · `ob resume` · `ob rollback` · `ob secrets push` · `ob service apply` |
+| Finite envelope | yes | no | `ob approve` · `ob audit` · `ob backup status` · `ob canonical` · `ob doctor` · `ob eject` · `ob init` · `ob job plan` · `ob plan` · `ob preflight` · `ob preview` · `ob schema` · `ob secrets list` · `ob status` · `ob validate` · `ob version` |
+| Finite operation stream | yes | yes | `ob abort` · `ob backup create` · `ob backup enable` · `ob backup disable` · `ob backup drill` · `ob backup prune` · `ob backup restore` · `ob backup verify` · `ob bootstrap` · `ob deploy` · `ob destroy` · `ob job run` · `ob proxy apply` · `ob resume` · `ob rollback` · `ob secrets push` · `ob service apply` |
 | Operator passthrough | finite only | yes | `ob logs` |
 | Operator passthrough | no | yes | `ob exec` |
 | Trusted editor | yes, after exit | no | `ob secrets edit` |

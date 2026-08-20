@@ -6,9 +6,9 @@ environments:
     policy:
       require_approval: true
       allow_agent_proposals: true
-      minimum_onebox_version: v2026.8.0
-      minimum_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
-      require_migration_backup: false
+      min_onebox_version: v2026.8.0
+      min_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+      migrations: {require_backup: false}
 workloads:
   server:
     role: application
@@ -37,9 +37,11 @@ runtime:
   env_checks:
     - file: .env.production
       require: [RECAST_ENV, RECAST_BASE_URL, DATABASE_URL, RECAST_AUTH_PEPPER, POSTGRES_PASSWORD]
-verifications:
-  - {workload: server, http: /healthz, port: 8080}
-  - {url: "https://recast.report/healthz"}
+checks:
+  http:
+    - {workload: server, path: /healthz, port: 8080}
+  url:
+    - {url: "https://recast.report/healthz"}
 proxy:
   managed: true
   kind: traefik-docker

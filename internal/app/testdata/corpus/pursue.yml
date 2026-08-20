@@ -29,9 +29,11 @@ runtime:
   env_checks:
     - file: .env.production
       require: [DATABASE_URL, POSTGRES_PASSWORD, PUBLIC_BASE_URL, HTTP_ADDR, PURSUE_SECRET_KEY]
-verifications:
-  - {workload: server, http: /healthz, port: 8080}
-  - {url: "https://pursue.run/healthz"}
+checks:
+  http:
+    - {workload: server, path: /healthz, port: 8080}
+  url:
+    - {url: "https://pursue.run/healthz"}
 proxy:
   managed: true
   kind: traefik-docker

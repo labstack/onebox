@@ -30,11 +30,11 @@ services: {database: {driver: postgres, version: 17}}
 
 func protectedRuntimeState(t *testing.T, image string) string {
 	t.Helper()
-	initial, err := NewProtectionLifecycleState("example", "production", "database", 1)
+	initial, err := NewBackupLifecycleState("example", "production", "database", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := EnableProtection(initial, protectionStateProjection(), image, "enable-op", true, 2)
+	state, err := EnableBackup(initial, backupStateProjection(), image, "postgres:18", "enable-op", true, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

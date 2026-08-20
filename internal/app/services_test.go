@@ -525,16 +525,16 @@ services:
 	}
 }
 
-// Protection is a contract about recovering durable data. With no volume
+// Backup is a contract about recovering durable data. With no volume
 // rendered, seeding the active volume fails at apply time against one that was
 // never created, and the sealed identity names it anyway.
-func TestEphemeralServiceCannotDeclareProtection(t *testing.T) {
-	src := strings.Replace(validProtectionProject,
-		"  postgres:\n    version: 17\n    protection:",
-		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    protection:", 1)
+func TestEphemeralServiceCannotDeclareBackup(t *testing.T) {
+	src := strings.Replace(validBackupProject,
+		"  postgres:\n    version: 17\n    backup:",
+		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    backup:", 1)
 	_, err := LoadBytes([]byte(src), "ob.yml")
 	if err == nil {
-		t.Fatal("an ephemeral service declaring protection was accepted")
+		t.Fatal("an ephemeral service declaring backup was accepted")
 	}
 	if !strings.Contains(err.Error(), "no durable data to protect") {
 		t.Fatalf("refusal does not explain itself: %v", err)

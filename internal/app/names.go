@@ -333,6 +333,10 @@ func routesOf(w Workload) []Route {
 // expanded, so callers never handle two shapes.
 func (w Workload) NormalisedRoutes() []Route { return routesOf(w) }
 
+// Join is the injective separator rule above, exported for derived identifiers
+// that live outside this file — a backup repository prefix among them.
+func Join(parts ...string) string { return join(parts...) }
+
 func join(parts ...string) string {
 	out := ""
 	for i, p := range parts {

@@ -18,6 +18,15 @@ func validateBackupTarget(target BackupTarget, path string) error {
 	if err := checkEnum(path+".tls", target.TLS, eBackupTLS); err != nil {
 		return err
 	}
+	// Refused here rather than at render. Enablement writes the durable state
+	// before applying, so a render-time refusal first appeared after the service
+	// was already recorded as protected — and every later apply and deploy then
+	// failed with guidance pointing at `ob validate`, which passed.
+	if strings.HasPrefix(target.Endpoint, "https://") && target.TLS == "skip-verify" {
+		return errf("recovery_objective_unsupported", path+".tls", "ob validate",
+			"skip-verify cannot be honoured on an https endpoint: the backup tool has no option to skip certificate verification. "+
+				"Install the certificate authority on the host so the certificate verifies, or use an http endpoint if the destination is on a trusted network")
+	}
 	if err := gFailureDomain.check(path+".failure_domain.identity", target.FailureDomain.Identity); err != nil {
 		return err
 	}

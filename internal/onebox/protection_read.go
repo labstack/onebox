@@ -10,10 +10,11 @@ import (
 // ProtectionStatus reads what a protected service's repository can actually
 // recover.
 //
-// It takes no lock and mutates nothing, which is deliberate: the question "is
-// this database recoverable" must be answerable while a deploy is in flight,
-// and an operator who has to wait for a lock to find out is an operator who
-// will stop asking.
+// It mutates nothing and takes no operation lock, which is deliberate: the
+// question "is this database recoverable" must be answerable while a deploy is
+// in flight, and an operator who has to wait to find out is one who stops
+// asking. The wal-g listing underneath takes a *shared* repository lock with a
+// short timeout, so it reads consistently without queueing behind a backup.
 func (s *Service) ProtectionStatus(ctx context.Context, service string) (engine.ProtectionStatus, error) {
 	lp, err := s.loadProject(ctx, true)
 	if err != nil {

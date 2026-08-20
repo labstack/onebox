@@ -124,7 +124,7 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 		st(err)
 		return outcome, err
 	}
-	backup, err := e.fetchRecoveryBase(ctx, container)
+	backup, err := e.fetchRecoveryBase(ctx, container, service)
 	if err != nil {
 		st(err)
 		return outcome, err
@@ -171,12 +171,22 @@ func recoveryTargetLabel(targetTime string) string {
 }
 
 func (e *Engine) discardRecoveryStaging(ctx context.Context, container, staging string) error {
-	res, err := e.T.Run(ctx, "docker rm -f "+q(container)+" >/dev/null 2>&1; docker volume rm -f "+q(staging)+" >/dev/null 2>&1; true")
+	// The removals are best-effort — neither may exist — so the *result* is
+	// what gets checked, not their exit codes. The previous version ended the
+	// command in `true`, which made its own exit-code guard unreachable: a
+	// staging volume that could not be removed reported success and recovery
+	// proceeded into a half-populated volume, which is exactly what this
+	// function exists to prevent.
+	if _, err := e.T.Run(ctx, "docker rm -f "+q(container)+" >/dev/null 2>&1; docker volume rm -f "+q(staging)+" >/dev/null 2>&1; true"); err != nil {
+		return err
+	}
+	res, err := e.T.Run(ctx, "docker volume inspect "+q(staging)+" >/dev/null 2>&1 && echo present || echo absent")
 	if err != nil {
 		return err
 	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot clear previous recovery staging: %s", strings.TrimSpace(res.Stderr))
+	if strings.TrimSpace(res.Stdout) != "absent" {
+		return fmt.Errorf(
+			"the staging volume %s from a previous recovery could not be removed; recovering into it would mix two restores. Remove it and retry", staging)
 	}
 	return nil
 }
@@ -217,8 +227,14 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 	return nil
 }
 
-func (e *Engine) fetchRecoveryBase(ctx context.Context, container string) (string, error) {
-	fetch := "docker exec -u postgres " + q(container) + " " + q(app.WalgBinary) + " backup-fetch " + q(app.PgDataPath) + " LATEST"
+func (e *Engine) fetchRecoveryBase(ctx context.Context, container, service string) (string, error) {
+	// Under the repository lock, like every other wal-g invocation. Without it a
+	// backup timer firing mid-restore runs its retention pass and can expire the
+	// very generation this is streaming out. The per-service protection lock
+	// does not help: systemd units cannot take it, which is why the flock exists.
+	fetch := e.walgLockPrefix(ctx, service) +
+		"docker exec -u postgres " + q(container) + " " + q(app.WalgBinary) +
+		" backup-fetch " + q(app.PgDataPath) + " LATEST"
 	res, err := e.T.Run(ctx, fetch)
 	if err != nil {
 		return "", err

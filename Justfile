@@ -195,9 +195,23 @@ docs-check: docs-generate-check
 release:
     bash scripts/release.sh
 
-# Remove the built binary and any copy `just install` placed on PATH.
+# Remove the built binary.
+#
+# The checkout only, never the copy on PATH. While `build` wrote straight to
+# ~/.local/bin, removing it there was removing what this recipe had put there;
+# now that the build lands in ./bin, doing the same would delete a binary this
+# checkout may never have created — including a release installed by hand
+# through the steps the installation guide gives. `just uninstall` is how you
+# ask for that, and it says so.
 clean:
     #!/bin/bash
     set -euo pipefail
     rm -f "${OB_BIN_DIR:-bin}/ob"
-    rm -f "${OB_INSTALL_DIR:-${HOME}/.local/bin}/ob"
+
+# Remove the copy `just install` placed on PATH.
+uninstall:
+    #!/bin/bash
+    set -euo pipefail
+    ob_install_dir="${OB_INSTALL_DIR:-${HOME}/.local/bin}"
+    rm -f "${ob_install_dir}/ob"
+    echo "removed ${ob_install_dir}/ob"

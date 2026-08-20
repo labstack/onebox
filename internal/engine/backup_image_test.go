@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	ctypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
@@ -113,4 +114,66 @@ func protectedImageTestEngine(fake *transport.Fake) *Engine {
 	}
 	resolved := &app.Resolved{Spec: spec, Env: "production"}
 	return New(resolved, nil, fake, Options{Out: io.Discard, Sleep: func(time.Duration) {}})
+}
+
+// `image.pull` was defaulted, validated and documented, and read by nothing:
+// every release pulled every workload from the registry, including an image
+// already pinned by digest and already on the host. That is a request that
+// cannot change the outcome, and on a rate-limited registry it failed a deploy
+// with nothing to fetch.
+func TestPullPolicyDecidesWhetherTheRegistryIsAskedAtAll(t *testing.T) {
+	const pinned = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+	for _, tc := range []struct {
+		name   string
+		policy string
+		held   bool
+		pull   bool
+	}{
+		{"never, held", "never", true, false},
+		{"never, absent", "never", false, false},
+		{"missing, held", "missing", true, false},
+		{"missing, absent", "missing", false, true},
+		{"always, held", "always", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			presence := "absent\n"
+			if tc.held {
+				presence = "present\n"
+			}
+			fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, "docker image inspect") {
+					return transport.Result{Stdout: presence}, true
+				}
+				return transport.Result{}, false
+			}}
+			e := pullPolicyTestEngine(fake, tc.policy, pinned)
+
+			if err := e.pullBeforeRelease(context.Background(), "web", "docker compose -p shop"); err != nil {
+				t.Fatalf("pull decision: %v", err)
+			}
+			pulled := false
+			for _, cmd := range fake.Commands {
+				if strings.Contains(cmd, "pull --quiet") {
+					pulled = true
+				}
+			}
+			if pulled != tc.pull {
+				t.Fatalf("pulled = %v, want %v (commands: %v)", pulled, tc.pull, fake.Commands)
+			}
+		})
+	}
+}
+
+func pullPolicyTestEngine(fake *transport.Fake, policy, image string) *Engine {
+	spec := &app.Spec{
+		Name:     "shop",
+		BasePath: "/var/lib/ob",
+		Workloads: map[string]app.Workload{
+			"web": {Role: "application", Image: &app.Image{Reference: image, Pull: policy}},
+		},
+	}
+	e := New(&app.Resolved{Spec: spec, Env: "production"}, nil, fake,
+		Options{Out: io.Discard, Sleep: func(time.Duration) {}})
+	e.Compose = &ctypes.Project{Services: ctypes.Services{"web": ctypes.ServiceConfig{Name: "web", Image: image}}}
+	return e
 }

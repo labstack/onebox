@@ -55,7 +55,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.hostname` | string | — | Hostname assigned inside the workload container. |
 | `<name>.image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
-| `<name>.image.pull` | `always` · `missing` · `never` | `missing` | Image pull policy: missing, always, or never. |
+| `<name>.image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |
 | `<name>.image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `<name>.init` | boolean | — | Run a minimal init process as PID 1 inside the container. |
 | `<name>.labels` | map | — | Additional container labels outside namespaces reserved by Onebox and the proxy. |

@@ -44,7 +44,7 @@ cannot drift from what `ob validate` accepts.
 | `health.tcp` | boolean | `false` | Probe the configured port by opening a TCP connection. |
 | `health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
-| `image.pull` | `always` · `missing` · `never` | `missing` | Image pull policy: missing, always, or never. |
+| `image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |
 | `image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
 | `routes` | list | — | Ingress routes exposed by this workload. |

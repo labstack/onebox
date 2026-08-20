@@ -100,7 +100,7 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 				prune,
 			}},
 			{"verify", projection.Policy.Drill.Schedule, []string{
-				walgExec(container, "wal-verify", "integrity", "timeline"),
+				"/bin/sh " + n.BackupVerifyScript(service),
 			}},
 		} {
 			calendar, err := app.CronToCalendar(unit.schedule.Cron)
@@ -127,6 +127,18 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 				cron:     unit.schedule.Cron,
 				body:     backupServiceUnit(e.Spec.Spec.Name, service, unit.operation, n.BackupRunLock(service), unit.commands),
 			})
+		}
+	}
+
+	// The verify unit runs a script rather than wal-g directly, because wal-g
+	// reports a broken WAL chain and exits 0 — so a unit that invoked it
+	// straight through would be marked successful by systemd over a repository
+	// with holes in it, for as long as nobody looked. The interactive command
+	// judges the same report in Go; this is the unattended half of it.
+	for _, service := range backedUpServiceNames(e.Spec) {
+		if err := e.writeServiceFile(ctx, n.BackupVerifyScript(service),
+			[]byte(backupVerifyScript(n.ServiceContainer(service)))); err != nil {
+			return fmt.Errorf("cannot install the archive verification for %s: %w", service, err)
 		}
 	}
 
@@ -174,6 +186,33 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 		e.logf("backup schedule: %s at %s", unit.name, unit.cron)
 	}
 	return nil
+}
+
+// backupVerifyScript is the scheduled archive check.
+//
+// wal-g prints its integrity table and its status line and exits 0 whatever it
+// found, so the exit code cannot be the verdict. MISSING_UPLOADING is a segment
+// the server may still be uploading and resolves itself; MISSING_LOST and
+// MISSING_DELAYED are holes, and a base backup plus a gapped WAL stream
+// recovers to the backup and no further.
+//
+// Kept to POSIX sh: this runs from a systemd unit on whatever the host ships.
+func backupVerifyScript(container string) string {
+	return strings.Join([]string{
+		"#!/bin/sh",
+		"# Written by Onebox. Edits are overwritten on the next apply.",
+		"set -u",
+		"report=$(" + walgExec(container, "wal-verify", "integrity", "timeline") + " 2>&1)",
+		"status=$?",
+		`printf '%s\n' "$report"`,
+		`[ "$status" -eq 0 ] || exit "$status"`,
+		`if printf '%s' "$report" | grep -Eq 'MISSING_(LOST|DELAYED)'; then`,
+		`  echo "onebox: the archived WAL has gaps; any point after the first gap is not recoverable" >&2`,
+		"  exit 1",
+		"fi",
+		"exit 0",
+		"",
+	}, "\n")
 }
 
 func walgExec(container string, args ...string) string {

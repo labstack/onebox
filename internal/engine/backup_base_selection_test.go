@@ -179,3 +179,30 @@ func TestAHealthyChainPassesAndAnUnreadableReportDoesNot(t *testing.T) {
 		t.Fatal("a failing check with no table read as clean")
 	}
 }
+
+// The scheduled check has to reach the same verdict as the interactive one.
+// wal-g exits 0 over a broken chain, so a unit that invoked it directly was
+// marked successful by systemd for as long as nobody looked — which is the
+// whole span a scheduled check exists to cover.
+func TestTheScheduledVerificationJudgesTheReportRatherThanTheExitCode(t *testing.T) {
+	script := backupVerifyScript("shop-database-1")
+	for _, required := range []string{
+		"wal-verify",
+		"MISSING_(LOST|DELAYED)",
+		"exit 1",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("the scheduled verification does not contain %q:\n%s", required, script)
+		}
+	}
+	// A segment still uploading must not fail the unit, for the same reason it
+	// does not fail the command: it resolves itself, and a check that flags it
+	// flaps on every busy database.
+	if strings.Contains(script, "MISSING_UPLOADING") {
+		t.Fatalf("the scheduled verification fails on segments still in flight:\n%s", script)
+	}
+	// wal-g's own failure must still fail the unit.
+	if !strings.Contains(script, `[ "$status" -eq 0 ] || exit "$status"`) {
+		t.Fatalf("the scheduled verification swallows wal-g's own exit code:\n%s", script)
+	}
+}

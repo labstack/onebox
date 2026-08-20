@@ -369,3 +369,10 @@ func runtimeName(parts ...string) string {
 func (n Names) BackupRunLock(service string) string {
 	return path.Join(n.AppDir(), "backup", "run-"+service+".lock")
 }
+
+// BackupVerifyScript is the host-side archive check the scheduled verify unit
+// runs. It lives beside the locks rather than in the runtime directory that is
+// mounted into the container, because it drives docker from the host.
+func (n Names) BackupVerifyScript(service string) string {
+	return path.Join(n.AppDir(), "backup", "verify-"+service+".sh")
+}

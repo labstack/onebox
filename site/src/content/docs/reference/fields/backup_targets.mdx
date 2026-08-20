@@ -42,4 +42,4 @@ cannot drift from what `ob validate` accepts.
 | `<name>.kind` | `s3-compatible` | — | Destination kind. Only s3-compatible is supported. |
 | `<name>.prefix` | string | — | Non-secret object prefix reserved for Onebox protection data. Expects a relative object prefix with no empty leading component or shell metacharacter. |
 | `<name>.region` | string | — | S3-compatible region when the endpoint requires one. Expects a lower-case S3-compatible region of letters, digits and hyphens. |
-| `<name>.tls` | `verify` · `skip-verify` | `required` | TLS verification policy: required or insecure. |
+| `<name>.tls` | `verify` · `skip-verify` | `verify` | Transport policy: verify, or skip-verify to accept a plaintext http endpoint. |

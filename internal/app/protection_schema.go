@@ -165,6 +165,17 @@ func validateProtectionSelection(p *Spec, serviceName, driverName string, servic
 		return errf("backup_target_unknown", path+".target", "ob validate", "protection target %q is not declared in backup_targets", policy.Target)
 	}
 
+	// Archiving needs at least `replica`. A project asking for `minimal` has
+	// asked for something protection cannot deliver, so it is refused rather
+	// than silently raised — the same reason an authored `logical` is left
+	// alone rather than forced down.
+	if level, ok := service.Settings["wal_level"]; ok {
+		if spelled := fmt.Sprint(level); spelled != "replica" && spelled != "logical" {
+			return errf("project_invalid", "services."+serviceName+".settings.wal_level", "ob validate",
+				"wal_level %q cannot carry the write-ahead log a backup replays; protection needs replica or logical", spelled)
+		}
+	}
+
 	capability, exists := lifecycleCapabilityFor(driverName)
 	version := versionString(service.Version)
 	if !exists || !capability.ProtectionQualified(version) {

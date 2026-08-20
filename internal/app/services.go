@@ -382,8 +382,15 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 			"-c", "archive_mode=on",
 			"-c", "archive_command="+protection.ArchiveCommand,
 			"-c", "archive_timeout="+protection.ArchiveTimeout,
-			"-c", "wal_level=replica",
 		)
+		// wal_level=replica is the floor archiving needs, so it is raised to
+		// rather than set. Appending it unconditionally would override an
+		// authored `wal_level: logical` — the last -c wins — and every logical
+		// replication slot on the server would stop working the moment somebody
+		// enabled backups.
+		if !declaresAtLeastReplicaWAL(s.Settings) {
+			command = append(command, "-c", "wal_level=replica")
+		}
 	}
 	if len(env) > 0 {
 		svc["environment"] = env
@@ -812,4 +819,17 @@ func atomicEnvFile(path string, body func(target string) string) string {
 // quoting them keeps the generated script readable and the rule uniform.
 func shellQuote(s string) string {
 	return shellquote.Quote(s)
+}
+
+// declaresAtLeastReplicaWAL reports whether the project already asks for a WAL
+// level that carries everything archiving needs. `logical` is a superset of
+// `replica`; `minimal` is not, and is refused rather than silently raised
+// because a project asking for minimal has asked for something protection
+// cannot deliver.
+func declaresAtLeastReplicaWAL(settings map[string]any) bool {
+	value, ok := settings["wal_level"]
+	if !ok {
+		return false
+	}
+	return fmt.Sprint(value) == "logical"
 }

@@ -146,3 +146,18 @@ func TestRuntimeStateDoesNotInferImageEvidenceFromReference(t *testing.T) {
 		t.Fatalf("runtime inferred evidence from an image string: %#v", runtime)
 	}
 }
+
+// A disablement that died between its two state writes must not trap the
+// operator. Re-enabling is how they change their mind; refusing would leave the
+// only way out as completing a disable they no longer want.
+func TestEnableReconvergesFromAHalfFinishedDisable(t *testing.T) {
+	pending := pendingProtectionState(t)
+	enabled, err := EnableProtection(pending, protectionStateProjection(),
+		"postgres@sha256:"+strings.Repeat("a", 64), "op-3", true, pending.Epoch+1)
+	if err != nil {
+		t.Fatalf("re-enabling a pending disablement: %v", err)
+	}
+	if enabled.State != ProtectionEnabled || !enabled.PrerequisiteEffective {
+		t.Fatalf("re-enabled state = %#v", enabled)
+	}
+}

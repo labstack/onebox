@@ -170,7 +170,7 @@ off-host repository the project's backup_targets name, which is what makes
 recovery to a point in time possible rather than recovery to last night.
 
 Declaring a policy does not establish it. `ob backup enable` restarts the
-service under the protected image, creates the repository stanza, and takes
+service with archiving on, stages the verified backup tooling, and takes
 the first base backup; only then does the service render as protected.
 
 Usage:
@@ -181,7 +181,7 @@ Available Commands:
   create      take a base backup now
   disable     stop archiving; keep every backup already taken
   drill       prove the repository recovers, without touching anything
-  enable      establish protection — restarts the service, creates the stanza, takes the first backup
+  enable      establish protection — restarts the service archiving and takes the first backup
   prune       expire backups outside the declared retention
   restore     recover to a point in time and put it in service
   status      what the repository can recover, read from the repository
@@ -234,10 +234,10 @@ Archiving stops, the schedules are removed, the service restarts as an
 ordinary unprotected one, and its destination credentials are removed from
 the host.
 
-The repository is not touched. The backups already taken are the reason
-anyone turned protection on, and someone disabling it today may still need
-to recover from last week — `ob backup status` still reads them and
-`ob backup restore` can still recover from them.
+The repository is not touched: every backup already taken stays where it
+is. Reading or recovering from them needs protection enabled again,
+because the binary and credentials that reach the repository live in the
+protected service.
 
 What does stop is the recovery window advancing: from here on there is no
 new WAL, so the newest recoverable point is the moment this ran.
@@ -287,14 +287,13 @@ Global Flags:
 ```
 Make a declared protection policy real.
 
-The order is forced by PostgreSQL: a server cannot archive to a stanza that
-does not exist, and a stanza cannot be created against a server that is not
-already archiving. So this pins the protected image, writes the repository
-configuration, restarts the server with archiving on, creates the stanza,
-and takes a full backup.
+The order is forced: the credentials are checked, the image is pinned by
+registry digest, the verified wal-g binary is staged on the host, and only
+then does the server restart with archiving on.
 
 The restart is a real restart of the database. It is not complete until the
-first backup exists, because a stanza with no backup can recover nothing.
+first base backup exists, because WAL archiving with nothing to replay onto
+can recover nothing.
 
 Usage:
   ob backup enable <service> [flags]

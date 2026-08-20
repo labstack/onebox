@@ -27,6 +27,14 @@ func (e *Engine) InstallProtectionCredentialFile(ctx context.Context, service, t
 	if err != nil {
 		return "", err
 	}
+	// Normalised before it is written. The decrypted file may use `export NAME=`
+	// and quoted values — both ordinary in a shell-sourced dotenv, and both
+	// accepted by Compose's env_file parser. `docker run --env-file` accepts
+	// neither: it would create a variable literally named "export NAME" and keep
+	// the quotes as part of the value, so a recovery container would start with
+	// no credentials at all. Writing one form means every consumer reads the
+	// same thing.
+	plaintext = normalizeCredentialFile(plaintext)
 	requiredEntries = append([]string(nil), requiredEntries...)
 	sort.Strings(requiredEntries)
 	for _, entry := range requiredEntries {
@@ -103,4 +111,28 @@ func protectionCredentialEntries(plaintext []byte) (map[string]bool, error) {
 		return nil, errors.New("protection credential file has no entries")
 	}
 	return entries, nil
+}
+
+// normalizeCredentialFile rewrites decrypted credential material into the one
+// form every consumer parses: NAME=value, no export prefix, no surrounding
+// quotes, comments and blank lines dropped.
+func normalizeCredentialFile(plaintext []byte) []byte {
+	var out strings.Builder
+	for _, line := range strings.Split(string(plaintext), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		trimmed = strings.TrimPrefix(trimmed, "export ")
+		name, value, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+		out.WriteString(strings.TrimSpace(name) + "=" + value + "\n")
+	}
+	return []byte(out.String())
 }

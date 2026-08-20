@@ -122,7 +122,7 @@ func (e *Engine) SyncProtectionSchedules(ctx context.Context) error {
 					service, expression, unit.schedule.Cron)
 			}
 			wanted = append(wanted, wantedUnit{
-				name:     prefix + service + "-" + unit.operation,
+				name:     n.ProtectionUnitForEnvironment(e.Opts.Environment, service, unit.operation),
 				calendar: expression,
 				cron:     unit.schedule.Cron,
 				body:     protectionServiceUnit(e.Spec.Spec.Name, service, unit.operation, n.ProtectionRunLock(service), unit.commands),

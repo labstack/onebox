@@ -144,15 +144,6 @@ func (n Names) ProtectionLifecycleStateFile(service string) string {
 	return path.Join(n.AppDir(), "protection", "state", service+".lifecycle.json")
 }
 
-func (n Names) ProtectionRunnerPath(digest string) string {
-	digest = strings.TrimPrefix(digest, "sha256:")
-	return path.Join(n.AppDir(), "protection", "runners", digest, "ob-scheduled-runner")
-}
-
-func (n Names) ProtectionEnvelopePath(service, operation string) string {
-	return path.Join(n.AppDir(), "protection", "envelopes", service+"-"+operation+".json")
-}
-
 // ServiceVersionFile records the version that last ran successfully. The
 // running container's image is not the same fact: after a refused or failed
 // upgrade the image may be a version that never opened the data directory, and

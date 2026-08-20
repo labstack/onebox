@@ -1,9 +1,6 @@
 package onebox
 
 import (
-	"errors"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,173 +29,77 @@ func protectionStateProjection() app.ProtectionEffectiveProjection {
 	}
 }
 
-func pendingProtectionState(t *testing.T) (ProtectionLifecycleState, ProtectionDisablePlan, ProtectionDisableAuthorization, time.Time) {
+// pendingProtectionState returns a service part-way through disablement: the
+// decision recorded, the work not yet done.
+func pendingProtectionState(t *testing.T) ProtectionLifecycleState {
 	t.Helper()
-	initial, err := NewProtectionLifecycleState("example", "production", "database", 1)
+	state, err := NewProtectionLifecycleState("example", "production", "database", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	image := "postgres@sha256:" + strings.Repeat("a", 64)
-	enabled, err := EnableProtection(initial, protectionStateProjection(), image, "enable-op", true, 2)
+	enabled, err := EnableProtection(state, protectionStateProjection(), "postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "op-1", true, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	pending, err := RequestProtectionDisable(enabled, "disable-op", now, 3)
+	pending, err := BeginProtectionDisable(enabled, "op-2", time.Now(), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := NewProtectionDisablePlan(pending)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authorization := ProtectionDisableAuthorization{
-		OperationID: plan.OperationID, PlanDigest: plan.PlanDigest, StateDigest: plan.StateDigest, Strong: true,
-	}
-	return pending, plan, authorization, now
+	return pending
 }
 
-func TestProtectionDisableRequiresStrongApprovalAndKeepsStorageSchedules(t *testing.T) {
-	pending, plan, _, _ := pendingProtectionState(t)
-	_, err := AdvanceProtectionDisable(pending, plan, ProtectionDisableAuthorization{}, ProtectionPhasePrerequisiteReversed, 4)
-	var failure LifecycleFailure
-	if !errors.As(err, &failure) || failure.Code != "protection_disablement_not_authorized" {
-		t.Fatalf("missing approval error = %v", err)
+// Disablement is two states, not one write. The pending state exists because
+// stopping archiving, restarting the service and removing credentials all take
+// time and can fail: a single write to "disabled" would claim the work was done
+// before it was, and a failure halfway would leave a record saying the service
+// is not archiving while it still is.
+func TestProtectionDisableRecordsIntentBeforeDoingTheWork(t *testing.T) {
+	pending := pendingProtectionState(t)
+	if pending.State != ProtectionDisablePending {
+		t.Fatalf("state = %q, want disable-pending", pending.State)
 	}
-	want := []string{"backup-create", "backup-prune", "replay-archive"}
-	if got := pending.activeScheduleKinds(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("pending schedules = %#v, want %#v", got, want)
+	// Still archiving, still holding its runtime — rendering must keep producing
+	// the protected server until the work actually completes.
+	if !pending.PrerequisiteEffective || !pending.LocalSupportInstalled || pending.LastEffective == nil {
+		t.Fatalf("pending state stopped describing a protected service: %#v", pending)
 	}
-	for _, schedule := range pending.Schedules {
-		if schedule.Kind == "restore-drill" && schedule.Active {
-			t.Fatal("restore drill remained active during disable-pending")
-		}
-		if schedule.Kind == "replay-archive" && schedule.Schedule.Cron != "*/5 * * * *" {
-			t.Fatalf("replay archive schedule = %q, want cadence bounded by 5m RPO", schedule.Schedule.Cron)
-		}
+	if runtime := pending.RuntimeState(); runtime.ProtectionState != string(ProtectionDisablePending) {
+		t.Fatalf("runtime state = %q, want the pending state rendering keys on", runtime.ProtectionState)
 	}
-}
 
-func TestProtectionDisableOperationGatesAndSafeImageRetention(t *testing.T) {
-	pending, _, _, _ := pendingProtectionState(t)
-	if err := pending.AllowOperation(KindDeploy, false); err != nil {
-		t.Fatalf("unrelated apply was refused: %v", err)
+	done, err := DisableProtection(pending, "op-2", pending.Epoch+1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := pending.AllowOperation(KindBackupCreate, true); err != nil {
-		t.Fatalf("retained backup operation was refused: %v", err)
+	if done.State != ProtectionDisabled || done.PrerequisiteEffective || done.LocalSupportInstalled {
+		t.Fatalf("completed disablement = %#v", done)
 	}
-	for _, test := range []struct {
-		kind OperationKind
-		code string
-	}{
-		{KindServiceImagePatch, "service_image_patch_disable_pending"},
-		{KindRestoreTest, "protection_disable_pending"},
-	} {
-		err := pending.AllowOperation(test.kind, true)
-		var failure LifecycleFailure
-		if !errors.As(err, &failure) || failure.Code != test.code {
-			t.Fatalf("operation %s error = %v, want %s", test.kind, err, test.code)
-		}
+	if len(done.Schedules) != 0 {
+		t.Fatal("a disabled service kept a schedule, which would keep pushing to a repository the project no longer describes")
 	}
-	if err := pending.ValidateRuntimeImage("postgres:17"); err == nil || !strings.Contains(err.Error(), "protection_image_revert_unsafe") {
-		t.Fatalf("unsafe image reversion error = %v", err)
+	// The record of what it was protected by survives, so the repository can
+	// still be named after the fact.
+	if done.LastEffective == nil {
+		t.Fatal("disablement discarded the projection it was protected by")
 	}
 }
 
-func TestProtectionDisableStatusBecomesOverdueWithoutMutation(t *testing.T) {
-	pending, _, _, requestedAt := pendingProtectionState(t)
-	before := pending.StateDigest
-	status, err := pending.Status(requestedAt.Add(24*time.Hour + time.Second))
+// Re-running disablement is how an operator recovers a run that failed halfway.
+func TestProtectionDisableIsResumable(t *testing.T) {
+	pending := pendingProtectionState(t)
+	again, err := BeginProtectionDisable(pending, "op-2", time.Now(), pending.Epoch+1)
+	if err != nil {
+		t.Fatalf("resuming a pending disablement: %v", err)
+	}
+	if again.State != ProtectionDisablePending {
+		t.Fatalf("resumed state = %q", again.State)
+	}
+	done, err := DisableProtection(again, "op-2", again.Epoch+1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Failure == nil || status.Failure.Code != "protection_disablement_overdue" || !status.StorageContinues {
-		t.Fatalf("overdue status = %#v", status)
-	}
-	if pending.StateDigest != before || status.ResolvingCommand != "ob protection disable --output ndjson" {
-		t.Fatal("status mutated state or omitted the exact resolving command")
-	}
-}
-
-func TestProtectionDisableCrashResumeRetryAndSafeCompletion(t *testing.T) {
-	state, plan, authorization, _ := pendingProtectionState(t)
-	var err error
-	state, err = AdvanceProtectionDisable(state, plan, authorization, ProtectionPhasePrerequisiteReversed, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	statePath := filepath.Join(t.TempDir(), "protection-state.json")
-	if err := SaveProtectionLifecycleState(statePath, state); err != nil {
-		t.Fatal(err)
-	}
-	resumed, err := LoadProtectionLifecycleState(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Output loss after commit: retrying the same phase is an idempotent lookup.
-	retried, err := AdvanceProtectionDisable(resumed, plan, authorization, ProtectionPhasePrerequisiteReversed, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retried.StateDigest != resumed.StateDigest || retried.Epoch != resumed.Epoch {
-		t.Fatal("same-phase retry created a second transition")
-	}
-	for index, phase := range []ProtectionDisablePhase{
-		ProtectionPhasePrerequisiteAbsent, ProtectionPhaseRuntimeReverted,
-		ProtectionPhaseLocalSupportRemoved, ProtectionPhaseComplete,
-	} {
-		resumed, err = AdvanceProtectionDisable(resumed, plan, authorization, phase, 5+index)
-		if err != nil {
-			t.Fatalf("advance %s: %v", phase, err)
-		}
-	}
-	if resumed.State != ProtectionDisabled || resumed.PrerequisiteEffective || resumed.LocalSupportInstalled || len(resumed.activeScheduleKinds()) != 0 {
-		t.Fatalf("completed disablement = %#v", resumed)
-	}
-	request, err := resumed.RemovalRequest(KindProtectionDisable)
-	if err != nil || !request.PrerequisitesVerifiedAbsent {
-		t.Fatalf("safe removal request = %#v, %v", request, err)
-	}
-	if protectionStateContainsRemoteDeletion(plan) || protectionStateContainsRemoteDeletion(resumed) {
-		t.Fatal("disablement invented a remote deletion path")
-	}
-}
-
-func TestProtectionDisableRollbackIsBounded(t *testing.T) {
-	pending, plan, authorization, _ := pendingProtectionState(t)
-	rolledBack, err := RollbackProtectionDisable(pending, plan, authorization, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rolledBack.State != ProtectionEnabled || !rolledBack.PrerequisiteEffective || !rolledBack.LocalSupportInstalled {
-		t.Fatalf("rollback state = %#v", rolledBack)
-	}
-	if !containsString(rolledBack.activeScheduleKinds(), "restore-drill") {
-		t.Fatal("rollback did not restore the drill schedule")
-	}
-	advanced, err := AdvanceProtectionDisable(pending, plan, authorization, ProtectionPhasePrerequisiteReversed, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	advanced, err = AdvanceProtectionDisable(advanced, plan, authorization, ProtectionPhasePrerequisiteAbsent, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RollbackProtectionDisable(advanced, plan, authorization, 6); err == nil {
-		t.Fatal("rollback was accepted after prerequisite absence was verified")
-	}
-}
-
-func TestProtectionDisableRejectsCompetingInFlightOperation(t *testing.T) {
-	pending, _, _, requestedAt := pendingProtectionState(t)
-	retried, err := RequestProtectionDisable(pending, "disable-op", requestedAt.Add(time.Minute), 4)
-	if err != nil || retried.StateDigest != pending.StateDigest {
-		t.Fatalf("same-operation retry = %#v, %v", retried, err)
-	}
-	_, err = RequestProtectionDisable(pending, "other-op", requestedAt.Add(time.Minute), 4)
-	var failure LifecycleFailure
-	if !errors.As(err, &failure) || failure.Code != "backup_conflict" {
-		t.Fatalf("competing operation error = %v", err)
+	if _, err := DisableProtection(done, "op-2", done.Epoch+1); err != nil {
+		t.Fatalf("disabling an already-disabled service must be a no-op: %v", err)
 	}
 }
 
@@ -208,7 +109,7 @@ func TestProtectionDisableRejectsCompetingInFlightOperation(t *testing.T) {
 // resolving from the edited project would point it somewhere its own history is
 // not.
 func TestProtectionDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T) {
-	pending, _, _, _ := pendingProtectionState(t)
+	pending := pendingProtectionState(t)
 	projection := protectionStateProjection()
 	withoutIntent := &app.Resolved{
 		Spec: &app.Spec{Name: "example", BasePath: "/var/lib/onebox", Services: map[string]app.Service{

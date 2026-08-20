@@ -172,8 +172,8 @@ Executable plans use
 `onebox.run/executable-deploy-plan/v1alpha2` and include the planner's version,
 source revision, build time, dirty state, and supported schemas. Schema-less
 and unsupported plans are rejected. Environment policy can set
-`minimum_onebox_version` using the exact CalVer release form and can set
-`minimum_plan_schema`; `ob doctor` reports whether the runner selected by
+`min_onebox_version` using the exact CalVer release form and can set
+`min_plan_schema`; `ob doctor` reports whether the runner selected by
 `PATH` is compatible. When a minimum version is configured, commit-derived and
 dirty checkout builds fail closed because they are not released runners.
 

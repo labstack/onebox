@@ -358,7 +358,7 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 		u.Println("  " + step.ID + detail)
 	}
 	if plan.MigrationBackup != nil {
-		u.Println(fmt.Sprintf("  migration_backup=maximum_age:%s restore_test:%t resources:%d keys:%d",
+		u.Println(fmt.Sprintf("  migration_backup=max_age:%s restore_test:%t resources:%d keys:%d",
 			plan.MigrationBackup.MaximumAge, plan.MigrationBackup.RequireRestoreTest,
 			len(plan.MigrationBackup.Resources), len(plan.MigrationBackup.RequiredKeyMaterial)))
 	}

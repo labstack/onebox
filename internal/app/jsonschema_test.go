@@ -82,7 +82,7 @@ var beyondJSONSchema = map[string]string{
 	// Exclusivity within one object that a schema could express, and does not
 	// here because the resulting document would be harder to read than the
 	// rule it encodes.
-	"http check without a path":            "a grouped http check still needs its path",
+	"http check without a path": "a grouped http check still needs its path",
 }
 
 func TestPublishedSchemaMatchesTheLoader(t *testing.T) {

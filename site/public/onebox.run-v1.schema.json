@@ -703,7 +703,7 @@
                     },
                     "type": "array"
                   },
-                  "backup_maximum_age": {
+                  "backup_max_age": {
                     "default": "24h",
                     "description": "Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
@@ -725,7 +725,7 @@
                 },
                 "type": "object"
               },
-              "minimum_onebox_version": {
+              "min_onebox_version": {
                 "description": "Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.8.0.",
                 "examples": [
                   "v2026.8.0"
@@ -733,7 +733,7 @@
                 "pattern": "^v([1-9][0-9]{3})\\.([1-9]|1[0-2])\\.(0|[1-9][0-9]{0,18})$",
                 "type": "string"
               },
-              "minimum_plan_schema": {
+              "min_plan_schema": {
                 "description": "Oldest executable plan schema accepted by this environment. Expects a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2.",
                 "examples": [
                   "onebox.run/executable-deploy-plan/v1alpha2"
@@ -885,7 +885,7 @@
                 ],
                 "type": "string"
               },
-              "maximum_age": {
+              "max_age": {
                 "default": "5m",
                 "description": "Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
@@ -1471,7 +1471,7 @@
                       "^x-": {}
                     },
                     "properties": {
-                      "maximum_age": {
+                      "max_age": {
                         "default": "7d",
                         "description": "Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                         "examples": [
@@ -1518,7 +1518,7 @@
                     },
                     "type": "object"
                   },
-                  "maximum_data_loss": {
+                  "max_data_loss": {
                     "description": "Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
                       "15m"

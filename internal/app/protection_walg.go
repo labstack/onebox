@@ -274,7 +274,7 @@ func (r *Resolved) protectionForRender(n Names, serviceName string) (*servicePro
 	// The RPO is the reason archive_timeout exists. Without it a quiet database
 	// archives only when a 16MB segment fills, so the newest recoverable point
 	// can trail by hours whatever the policy says. Forcing a segment switch at
-	// the declared interval is what makes maximum_data_loss a bound rather than
+	// the declared interval is what makes max_data_loss a bound rather than
 	// an aspiration.
 	maximumDataLoss, err := PositiveDuration(projection.Policy.MaximumDataLoss)
 	if err != nil {

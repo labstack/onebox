@@ -38,7 +38,7 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
    ```
 
    `ob doctor` reports whether the runner selected by `PATH` satisfies the
-   environment's `minimum_onebox_version` and `minimum_plan_schema`, and names
+   environment's `min_onebox_version` and `min_plan_schema`, and names
    every workload and service holding durable data that has no backup.
 
    Run it from a directory that has an `ob.yml`. Outside a project it reports
@@ -179,7 +179,7 @@ just build
 see the available build, test, formatting and check targets.
 
 :::note[Why a checkout build can be refused]
-When an environment sets `minimum_onebox_version`, commit-derived and dirty
+When an environment sets `min_onebox_version`, commit-derived and dirty
 checkout builds **fail closed** — they are not released runners. That is
 deliberate: an environment that pins a minimum is asking for a runner whose
 identity can be checked, and a dirty working tree has none.

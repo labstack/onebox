@@ -89,8 +89,8 @@ type Server struct {
 type Policy struct {
 	RequireApproval      bool   `json:"require_approval" description:"Require a plan-bound local confirmation before mutating this environment." default:"true"`
 	AllowAgentProposals  bool   `json:"allow_agent_proposals" description:"Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated." default:"true"`
-	MinimumOneboxVersion string `json:"minimum_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.8.0"`
-	MinimumPlanSchema    string `json:"minimum_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
+	MinimumOneboxVersion string `json:"min_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.8.0"`
+	MinimumPlanSchema    string `json:"min_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
 	// Migrations groups what this environment demands of a release that carries
 	// migration risk. Grouped rather than four flat keys each repeating the
 	// word: the prefix is the block's name now.
@@ -99,7 +99,7 @@ type Policy struct {
 
 type MigrationPolicy struct {
 	RequireBackup      bool     `json:"require_backup" description:"Require a plan-bound backup report before a release with migration risk." default:"false"`
-	BackupMaximumAge   string   `json:"backup_maximum_age,omitempty" description:"Maximum age of a backup report accepted for a migration." default:"24h" example:"24h"`
+	BackupMaximumAge   string   `json:"backup_max_age,omitempty" description:"Maximum age of a backup report accepted for a migration." default:"24h" example:"24h"`
 	RequireRestoreTest bool     `json:"require_restore_test" description:"Require the backup report to state that a restore test succeeded." default:"false"`
 	BackupKeyMaterial  []string `json:"backup_key_material,omitempty" description:"Key-material identities the backup report must name." example:"BACKUP_ACCESS_KEY_ID"`
 }
@@ -305,7 +305,7 @@ type TargetEncryption struct {
 type BackupPolicy struct {
 	Target                  string          `json:"target" description:"Name of a project-level backup target." example:"offsite"`
 	RecoveryKind            string          `json:"recovery_kind" description:"Required recovery envelope: snapshot, pitr, or cold." example:"pitr"`
-	MaximumDataLoss         string          `json:"maximum_data_loss" description:"Maximum tolerable interval between the latest recoverable point and failure." example:"15m"`
+	MaximumDataLoss         string          `json:"max_data_loss" description:"Maximum tolerable interval between the latest recoverable point and failure." example:"15m"`
 	AllowBackupInterruption bool            `json:"allow_downtime" description:"Whether recurring backup operations may use the driver-declared stopped-service window." default:"false"`
 	Schedule                Schedule        `json:"schedule" description:"Exact recurring base-backup schedule."`
 	Retention               BackupRetention `json:"retention" description:"Portable minimum recovery history that the selected native driver must be able to preserve."`
@@ -319,7 +319,7 @@ type BackupRetention struct {
 
 type RestoreDrill struct {
 	Schedule          Schedule `json:"schedule" description:"Exact recurring isolated restore-test schedule."`
-	ProofMaximumAge   string   `json:"maximum_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
+	ProofMaximumAge   string   `json:"max_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
 	StagingFilesystem string   `json:"staging_filesystem,omitempty" description:"Absolute filesystem path used for isolated restore materialization instead of the host default." example:"/srv/onebox-restore"`
 }
 
@@ -343,7 +343,7 @@ type ExternalConnectionSource struct {
 type ExternalReadOnlyProbe struct {
 	Kind       string `json:"kind" description:"Read-only observation kind: driver-health." default:"driver-health"`
 	Timeout    string `json:"timeout" description:"Maximum duration of one read-only probe." default:"5s" example:"5s"`
-	MaximumAge string `json:"maximum_age" description:"Maximum age of a probe observation bound into a plan." default:"5m" example:"5m"`
+	MaximumAge string `json:"max_age" description:"Maximum age of a probe observation bound into a plan." default:"5m" example:"5m"`
 }
 
 type Deployment struct {

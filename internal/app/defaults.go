@@ -60,7 +60,7 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		// evolution rules already allow.
 		if e.Policy.Migrations.RequireBackup && e.Policy.Migrations.BackupMaximumAge == "" {
 			e.Policy.Migrations.BackupMaximumAge = "24h"
-			mark(path + ".policy.migrations.backup_maximum_age")
+			mark(path + ".policy.migrations.backup_max_age")
 		}
 		p.Environments[name] = e
 	}
@@ -190,7 +190,7 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			}
 			if s.Backup.RestoreDrill.ProofMaximumAge == "" {
 				s.Backup.RestoreDrill.ProofMaximumAge = "7d"
-				mark(path + ".backup.drill.maximum_age")
+				mark(path + ".backup.drill.max_age")
 			}
 		}
 		p.Services[name] = s
@@ -228,7 +228,7 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			}
 			if external.Probe.MaximumAge == "" {
 				external.Probe.MaximumAge = "5m"
-				mark(path + ".probe.maximum_age")
+				mark(path + ".probe.max_age")
 			}
 		}
 		p.ExternalServices[name] = external

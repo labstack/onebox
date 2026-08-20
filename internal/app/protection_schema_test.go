@@ -35,7 +35,7 @@ services:
     backup:
       target: offsite
       recovery_kind: pitr
-      maximum_data_loss: 15m
+      max_data_loss: 15m
 `
 
 func TestProtectionIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
@@ -77,7 +77,7 @@ backup_targets:
 services:
   minio:
     version: RELEASE.2026-07-31T00-00-00Z
-    backup: {target: offsite, recovery_kind: cold, maximum_data_loss: 24h, allow_downtime: true}
+    backup: {target: offsite, recovery_kind: cold, max_data_loss: 24h, allow_downtime: true}
 `
 	if _, err := LoadBytes([]byte(project), "ob.yml"); err != nil {
 		t.Fatal(err)
@@ -149,27 +149,27 @@ func TestProtectionIntentRefusals(t *testing.T) {
 		},
 		{
 			name: "recurring policy tries to authorize enablement restart",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      allow_enablement_restart: true\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      allow_enablement_restart: true\n", 1),
 			code: "unknown_field",
 		},
 		{
 			name: "restore drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        maximum_age: 7d\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        max_age: 7d\n", 1),
 			code: "drill_schedule_too_sparse",
 		},
 		{
 			name: "stepped weekday drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        maximum_age: 36h\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        max_age: 36h\n", 1),
 			code: "drill_schedule_too_sparse",
 		},
 		{
 			name: "sub-minute replay objective",
-			yaml: strings.Replace(validProtectionProject, "maximum_data_loss: 15m", "maximum_data_loss: 30s", 1),
+			yaml: strings.Replace(validProtectionProject, "max_data_loss: 15m", "max_data_loss: 30s", 1),
 			code: "recovery_objective_unsupported",
 		},
 		{
 			name: "unsupported retention",
-			yaml: strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1),
+			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1),
 			code: "backup_retention_unsupported",
 		},
 		{

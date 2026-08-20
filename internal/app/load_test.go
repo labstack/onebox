@@ -56,9 +56,9 @@ func conformanceCases() []conformanceCase {
 		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
 		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
 		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
-		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 14d}}}}\n", true},
-		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: 0.0.1-m0}}}\n", false},
-		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
+		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_max_age: 14d}}}}\n", true},
+		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_onebox_version: 0.0.1-m0}}}\n", false},
+		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
 		// A hook key is a lifecycle seam OR a declared job name. Both halves need
 		// a case: an unlisted seam loads and never fires, and refusing a job name
@@ -145,8 +145,8 @@ func conformanceCases() []conformanceCase {
 		{"protection authored tool", strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1), false},
 		{"protection self target", strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
 		{"protection unsupported objective", strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
-		{"protection unsupported retention", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1), false},
-		{"protection sparse drill", strings.Replace(validProtectionProject, "      maximum_data_loss: 15m\n", "      maximum_data_loss: 15m\n      drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, maximum_age: 7d}\n", 1), false},
+		{"protection unsupported retention", strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1), false},
+		{"protection sparse drill", strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, max_age: 7d}\n", 1), false},
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
@@ -637,9 +637,15 @@ func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
 		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
 		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
 		{"log retention_days", base + "observability: {logs: {retention_days: 30}}\n"},
-		{"probe max_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, max_age: 5m}}}\n"},
 		{"policy migration_backup_max_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
-		{"restore drill max_age", base + "services: {postgres: {version: 18, backup: {target: t, drill: {max_age: 7d}}}}\n"},
+		// The abbreviation pass: maximum_/minimum_ became max_/min_, so the
+		// spelled-out forms are now the ones that must not load.
+		{"probe maximum_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, maximum_age: 5m}}}\n"},
+		{"drill maximum_age", base + "services: {postgres: {version: 18, backup: {target: t, drill: {maximum_age: 7d}}}}\n"},
+		{"backup maximum_data_loss", base + "services: {postgres: {version: 18, backup: {target: t, maximum_data_loss: 15m}}}\n"},
+		{"policy minimum_onebox_version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: v2026.8.0}}}\n"},
+		{"policy minimum_plan_schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: x}}}\n"},
+		{"policy migrations backup_maximum_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 24h}}}}\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := LoadBytes([]byte(c.yaml), "ob.yml")

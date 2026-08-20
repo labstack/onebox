@@ -6,7 +6,7 @@ package app
 // project's intent is later edited.
 type ProtectionEffectiveProjection struct {
 	Policy BackupPolicy `json:"policy"`
-	Target BackupTarget     `json:"target"`
+	Target BackupTarget `json:"target"`
 }
 
 // The projection a protected service is actually running under.

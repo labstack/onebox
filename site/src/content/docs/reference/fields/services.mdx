@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_downtime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `keep` · `maximum_age` · `maximum_data_loss` · `memory` · `mode` · `persistence` · `recovery_kind` · `resources` · `retention` · `schedule` · `settings` · `staging_filesystem` · `target` · `timezone` · `version` · `volumes` · `window`
+`allow_downtime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `keep` · `max_age` · `max_data_loss` · `memory` · `mode` · `persistence` · `recovery_kind` · `resources` · `retention` · `schedule` · `settings` · `staging_filesystem` · `target` · `timezone` · `version` · `volumes` · `window`
 
 ## Reference
 
@@ -27,12 +27,12 @@ cannot drift from what `ob validate` accepts.
 | `<name>.backup` | object | — | Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection. |
 | `<name>.backup.allow_downtime` | boolean | `false` | Whether recurring backup operations may use the driver-declared stopped-service window. |
 | `<name>.backup.drill` | object | — | Exact isolated restore-test schedule, proof age, and optional staging filesystem. |
-| `<name>.backup.drill.maximum_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.drill.max_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.backup.drill.schedule` | object | — | Exact recurring isolated restore-test schedule. |
 | `<name>.backup.drill.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
 | `<name>.backup.drill.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.backup.drill.staging_filesystem` | string | — | Absolute filesystem path used for isolated restore materialization instead of the host default. Expects an absolute path with no control character or shell metacharacter. |
-| `<name>.backup.maximum_data_loss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.max_data_loss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.backup.recovery_kind` | `snapshot` · `pitr` · `cold` | — | Required recovery envelope: snapshot, pitr, or cold. |
 | `<name>.backup.retention` | object | — | Portable minimum recovery history that the selected native driver must be able to preserve. |
 | `<name>.backup.retention.keep` | integer | `7` | Minimum number of independently recoverable base generations to retain. |

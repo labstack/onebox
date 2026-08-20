@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -124,7 +125,7 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 		st(err)
 		return outcome, err
 	}
-	backup, err := e.fetchRecoveryBase(ctx, container, service)
+	backup, err := e.fetchRecoveryBase(ctx, container, service, targetTime)
 	if err != nil {
 		st(err)
 		return outcome, err
@@ -227,14 +228,32 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 	return nil
 }
 
-func (e *Engine) fetchRecoveryBase(ctx context.Context, container, service string) (string, error) {
+func (e *Engine) fetchRecoveryBase(ctx context.Context, container, service, targetTime string) (string, error) {
+	// Which base backup, decided here rather than left to wal-g's LATEST.
+	//
+	// Replay only moves forward. A base backup that finished after the
+	// requested point can never reach it: PostgreSQL replays what WAL it has,
+	// runs out before the target, and dies with "recovery ended before
+	// configured recovery target was reached". Fetching LATEST unconditionally
+	// therefore made every point older than the newest base backup
+	// unrecoverable — with a daily backup and a seven-day window, six of those
+	// days could not be reached, while `ob backup status` reported the whole
+	// window as recoverable.
+	selected := "LATEST"
+	if targetTime != "" {
+		chosen, err := e.baseBackupFor(ctx, container, service, targetTime)
+		if err != nil {
+			return "", err
+		}
+		selected = chosen
+	}
 	// Under the repository lock, like every other wal-g invocation. Without it a
 	// backup timer firing mid-restore runs its retention pass and can expire the
 	// very generation this is streaming out. The per-service backup lock
 	// does not help: systemd units cannot take it, which is why the flock exists.
 	fetch := e.walgLockPrefix(ctx, service) +
 		"docker exec -u postgres " + q(container) + " " + q(app.WalgBinary) +
-		" backup-fetch " + q(app.PgDataPath) + " LATEST"
+		" backup-fetch " + q(app.PgDataPath) + " " + q(selected)
 	res, err := e.T.Run(ctx, fetch)
 	if err != nil {
 		return "", err
@@ -249,7 +268,92 @@ func (e *Engine) fetchRecoveryBase(ctx context.Context, container, service strin
 			return strings.Trim(strings.Fields(line[index:])[0], `'".,;:`), nil
 		}
 	}
-	return "LATEST", nil
+	return selected, nil
+}
+
+// baseBackupFor names the newest base backup that finished at or before the
+// requested point, which is the only kind replay can carry forward to it.
+//
+// Read from the recovery container rather than the live service: it already has
+// the staged wal-g and the repository credentials, and a recovery must not
+// depend on the database it may be about to replace.
+func (e *Engine) baseBackupFor(ctx context.Context, container, service, targetTime string) (string, error) {
+	target, err := time.Parse(time.RFC3339, targetTime)
+	if err != nil {
+		return "", err
+	}
+	list := e.walgLockPrefix(ctx, service) +
+		"docker exec -u postgres " + q(container) + " " + q(app.WalgBinary) +
+		" backup-list --detail --json"
+	res, err := e.T.Run(ctx, list)
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("cannot list the base backups to recover from: %s", lastLines(res.Stderr+res.Stdout, 3))
+	}
+	entries, err := parseWalgBackupList(res.Stdout)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("the repository holds no base backup, so there is nothing to recover from")
+	}
+	var chosen walgBackupEntry
+	var oldest time.Time
+	for _, entry := range entries {
+		if oldest.IsZero() || entry.finished.Before(oldest) {
+			oldest = entry.finished
+		}
+		// At or before the target, and the latest such — the least WAL to
+		// replay, and the only backups that can reach the point at all.
+		if !entry.finished.After(target) && (chosen.name == "" || entry.finished.After(chosen.finished)) {
+			chosen = entry
+		}
+	}
+	if chosen.name == "" {
+		return "", fmt.Errorf(
+			"no base backup finished at or before %s, so that point cannot be recovered to; the oldest base backup in this repository finished at %s",
+			target.UTC().Format(time.RFC3339), oldest.UTC().Format(time.RFC3339))
+	}
+	return chosen.name, nil
+}
+
+type walgBackupEntry struct {
+	name     string
+	finished time.Time
+}
+
+// parseWalgBackupList reads `backup-list --detail --json`. An entry whose
+// completion time cannot be read is refused rather than defaulted: a zero time
+// sorts before every real one, so a silent default would make an unreadable
+// entry the answer to "what can reach this point".
+func parseWalgBackupList(out string) ([]walgBackupEntry, error) {
+	trimmed := strings.TrimSpace(out)
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+	var report []struct {
+		BackupName string `json:"backup_name"`
+		Time       string `json:"time"`
+		FinishTime string `json:"finish_time"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &report); err != nil {
+		return nil, fmt.Errorf("wal-g backup-list is not readable JSON")
+	}
+	entries := make([]walgBackupEntry, 0, len(report))
+	for _, entry := range report {
+		finish := entry.FinishTime
+		if finish == "" {
+			finish = entry.Time
+		}
+		finished, err := time.Parse(time.RFC3339, finish)
+		if err != nil {
+			return nil, fmt.Errorf("wal-g reported backup %q with an unreadable completion time %q", entry.BackupName, finish)
+		}
+		entries = append(entries, walgBackupEntry{name: entry.BackupName, finished: finished})
+	}
+	return entries, nil
 }
 
 // replayRecovery writes the recovery configuration and starts the server, which

@@ -80,11 +80,15 @@ type Engine struct {
 	// Spec is what the author declared; Compose is what Compose parsed from
 	// the rendered runtime. Both are named for their source so that "project"
 	// never stands for two different things in this package.
-	Spec    *app.Resolved
-	Compose *ctypes.Project
-	T       transport.Transport
-	Opts    Options
-	ui      *ui.UI
+	Spec *app.Resolved
+	// flockProbed/flockPresent cache whether the target has flock, which every
+	// wal-g invocation needs to know and which cannot change mid-operation.
+	flockProbed  bool
+	flockPresent bool
+	Compose      *ctypes.Project
+	T            transport.Transport
+	Opts         Options
+	ui           *ui.UI
 
 	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
 	// mutate() guards every mutating command with it.
@@ -92,11 +96,11 @@ type Engine struct {
 	lockVal       string
 	hostLockVal   string
 	hostLockToken string
-	// Protection locks are per-service and may only be acquired while this
+	// Backup locks are per-service and may only be acquired while this
 	// engine owns the application lock. Exact lock and fence values make stale
 	// lifecycle runners fail closed after takeover.
-	protectionLockVals  map[string]string
-	protectionFenceVals map[string]string
+	backupLockVals  map[string]string
+	backupFenceVals map[string]string
 	// gateOpen is the explicit no-effect result; rollbackCovered also includes
 	// the interrupted deploy's typed policy promises. Resume restores both from
 	// the journal. They are closed by default — fail safe.

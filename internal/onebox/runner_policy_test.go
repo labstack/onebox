@@ -16,8 +16,8 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 		},
 	}
 	policy := app.Policy{
-		MinimumOneboxVersion: "v2026.8.3",
-		MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
+		MinOneboxVersion: "v2026.8.3",
+		MinPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 	}
 	if err := enforceRunnerPolicy(policy, runner, "onebox.run/executable-deploy-plan/v1alpha2"); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 
 	t.Run("invalid minimum", func(t *testing.T) {
 		invalid := policy
-		invalid.MinimumOneboxVersion = "2026.8.3"
+		invalid.MinOneboxVersion = "2026.8.3"
 		err := enforceRunnerPolicy(invalid, runner, "onebox.run/executable-deploy-plan/v1alpha2")
 		if err == nil || !strings.Contains(err.Error(), "environment minimum Onebox version is invalid") {
 			t.Fatalf("invalid minimum rejection is not actionable: %v", err)
@@ -51,7 +51,7 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 	})
 
 	t.Run("plan schema", func(t *testing.T) {
-		policy.MinimumPlanSchema = "onebox.run/executable-deploy-plan/v1alpha3"
+		policy.MinPlanSchema = "onebox.run/executable-deploy-plan/v1alpha3"
 		err := enforceRunnerPolicy(policy, runner, "onebox.run/executable-deploy-plan/v1alpha2")
 		if err == nil || !strings.Contains(err.Error(), "below environment minimum") {
 			t.Fatalf("old plan schema was not rejected: %v", err)

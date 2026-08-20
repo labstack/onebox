@@ -23,7 +23,7 @@ func TestVerifyURLSupportsStatusAndHeaderContracts(t *testing.T) {
 	defer srv.Close()
 
 	e := verificationTestEngine(io.Discard)
-	check := app.Verification{
+	check := app.RunnableCheck{
 		URL:             srv.URL,
 		StatusCodes:     []int{http.StatusCreated, http.StatusNoContent},
 		RequiredHeaders: map[string]string{"content-type": "application/json", "X-Release": "r42"},
@@ -52,7 +52,7 @@ func TestVerifyURLDoesNotFollowRedirects(t *testing.T) {
 	defer srv.Close()
 
 	e := verificationTestEngine(io.Discard)
-	check := app.Verification{
+	check := app.RunnableCheck{
 		URL:             srv.URL + "/start",
 		StatusCodes:     []int{http.StatusFound},
 		RequiredHeaders: map[string]string{"Location": "/final"},
@@ -77,7 +77,7 @@ func TestVerifyURLSupportsDottedJSONScalarAssertions(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	check := app.Verification{
+	check := app.RunnableCheck{
 		URL: srv.URL,
 		JSONAssertions: []app.JSONAssertion{
 			{Path: "service.ready", Equals: true},
@@ -104,13 +104,13 @@ func TestVerifyURLFailureRedactsConfiguredAndResponseValues(t *testing.T) {
 	defer srv.Close()
 
 	e := verificationTestEngine(io.Discard)
-	headerErr := e.verifyURL(context.Background(), app.Verification{
+	headerErr := e.verifyURL(context.Background(), app.RunnableCheck{
 		URL:             srv.URL + "?token=" + querySecret,
 		RequiredHeaders: map[string]string{"X-Token": expectedSecret},
 	})
 	assertVerificationSecretsAbsent(t, headerErr, querySecret, expectedSecret, actualSecret)
 
-	jsonErr := e.verifyURL(context.Background(), app.Verification{
+	jsonErr := e.verifyURL(context.Background(), app.RunnableCheck{
 		URL: srv.URL + "?token=" + querySecret,
 		JSONAssertions: []app.JSONAssertion{
 			{Path: "token", Equals: expectedSecret},
@@ -118,7 +118,7 @@ func TestVerifyURLFailureRedactsConfiguredAndResponseValues(t *testing.T) {
 	})
 	assertVerificationSecretsAbsent(t, jsonErr, querySecret, expectedSecret, actualSecret)
 
-	containsErr := e.verifyURL(context.Background(), app.Verification{
+	containsErr := e.verifyURL(context.Background(), app.RunnableCheck{
 		URL:      srv.URL + "?token=" + querySecret,
 		Contains: expectedSecret,
 	})
@@ -131,7 +131,7 @@ func TestVerifyURLBoundsBodiesUsedByAssertions(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := verificationTestEngine(io.Discard).verifyURL(context.Background(), app.Verification{
+	err := verificationTestEngine(io.Discard).verifyURL(context.Background(), app.RunnableCheck{
 		URL:      srv.URL,
 		Contains: "x",
 	})
@@ -147,7 +147,7 @@ func TestVerifyURLDoesNotExposeInvalidJSONBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := verificationTestEngine(io.Discard).verifyURL(context.Background(), app.Verification{
+	err := verificationTestEngine(io.Discard).verifyURL(context.Background(), app.RunnableCheck{
 		URL:            srv.URL,
 		JSONAssertions: []app.JSONAssertion{{Path: "ready", Equals: true}},
 	})
@@ -160,7 +160,7 @@ func TestVerifyURLRequestErrorRedactsQuery(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	err := verificationTestEngine(io.Discard).verifyURL(context.Background(), app.Verification{
+	err := verificationTestEngine(io.Discard).verifyURL(context.Background(), app.RunnableCheck{
 		URL: url + "?token=" + querySecret,
 	})
 	assertVerificationSecretsAbsent(t, err, querySecret)
@@ -175,7 +175,7 @@ func TestVerifyURLSuccessOutputRedactsQuery(t *testing.T) {
 
 	var out bytes.Buffer
 	cfg := testConfig()
-	cfg.Verifications = []app.Verification{{URL: srv.URL + "?token=" + querySecret}}
+	cfg.Checks = app.Checks{URL: []app.URLCheck{{URL: srv.URL + "?token=" + querySecret}}}
 	e := New(cfg, testProject(t), happyFake(), Options{Out: &out, Sleep: noSleep})
 	if err := e.Verify(context.Background()); err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestVerifyMigrationRevisionsMatchesBoundProviderEvidence(t *testing.T) {
 	cfg.Workloads = map[string]app.Workload{
 		"migrate": {Role: app.RoleJob, When: "pre_release", DataEffect: "migration"},
 	}
-	cfg.Verifications = []app.Verification{{MigrationRevisions: &app.MigrationRevs{
+	cfg.Checks = app.Checks{Migrations: []app.MigrationCheck{{
 		Job: "migrate", Provider: "atlas", AppliedRevisions: []string{"r1", "r2"},
 	}}}
 	e := New(cfg, testProject(t), happyFake(), Options{Out: io.Discard, Sleep: noSleep})

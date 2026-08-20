@@ -119,8 +119,11 @@ make a failed host available.
 
 ## Two things it does not do today
 
-**Onebox does not take backups.** `ob doctor` says so for every workload and
-service holding durable data, because silence there would read as approval.
+**Backups cover managed services, not workload volumes.** A service declaring
+`backup` — PostgreSQL today — is backed up continuously to an off-host
+repository and can be recovered to a point in time. A workload's own volume is
+not, and `ob doctor` says so for every workload holding durable data, because
+silence there would read as approval.
 
 **`mongodb` runs a standalone server, not a replica set.** An application needing
 change streams or multi-document transactions will connect, authenticate, and

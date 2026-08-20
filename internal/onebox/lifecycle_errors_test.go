@@ -9,41 +9,22 @@ import (
 
 func TestEveryDeltaSpecFailureHasASecretFreeGuidanceContract(t *testing.T) {
 	expected := []string{
-		"assurance_stale",
 		"backup_conflict",
+		"backup_disable_pending",
+		"backup_disablement_overdue",
 		"backup_driver_unsupported",
 		"backup_encryption_unverified",
+		"backup_image_revert_unsafe",
 		"backup_interruption_not_authorized",
 		"backup_retention_unsupported",
-		"backup_stale",
+		"backup_service_image_unpublished",
 		"backup_target_not_independent",
-		"backup_target_unauthorized",
 		"backup_target_unknown",
-		"backup_target_unreachable",
-		"disk_pressure_critical",
-		"drill_deferred_capacity",
-		"external_service_not_owned",
-		"external_service_state_stale",
-		"protected_service_identity_changed",
-		"protected_service_patch_incompatible",
-		"protected_service_patch_unsupported",
-		"protection_disable_pending",
-		"protection_disablement_not_authorized",
-		"protection_disablement_overdue",
-		"protection_enablement_restart_not_authorized",
-		"protection_image_revert_unsafe",
-		"protection_image_update_overdue",
-		"protection_prerequisite_drifted",
-		"protection_service_image_unpublished",
-		"protection_service_patch_available",
-		"protection_service_patch_required",
+		"drill_schedule_too_sparse",
 		"recovery_objective_unsupported",
-		"replay_continuity_broken",
-		"restore_drill_schedule_too_sparse",
-		"restore_state_stale",
 		"service_image_digest_unavailable",
 		"service_image_patch_disable_pending",
-		"service_major_upgrade_unsupported",
+		"service_patch_unsupported",
 	}
 	if got := LifecycleFailureCodes(); !reflect.DeepEqual(got, expected) {
 		t.Fatalf("lifecycle failure registry =\n%q\nwant\n%q", got, expected)
@@ -75,26 +56,12 @@ func TestEveryDeltaSpecFailureHasASecretFreeGuidanceContract(t *testing.T) {
 				}
 			}
 
-			record := validLifecycleResultRecord(LifecycleBackupCreate, "postgres")
-			record.Result.TerminalState = "failed"
-			record.Result.ErrorCode = failure.Code
-			switch failure.GuidanceRole() {
-			case "diagnostic":
-				record.Result.DiagnosticCommands = []string{failure.GuidanceCommand()}
-			case "next":
-				record.Result.NextCommands = []string{failure.GuidanceCommand()}
-			case "resolving":
-				record.Result.ResolvingCommands = []string{failure.GuidanceCommand()}
-			}
-			if err := record.Validate(); err != nil {
-				t.Fatalf("failure does not fit lifecycle result contract: %v", err)
-			}
 		})
 	}
 }
 
 func TestLifecycleFailureValidationDoesNotReflectUnsafeReplacement(t *testing.T) {
-	failure, err := NewLifecycleFailure("backup_target_unreachable")
+	failure, err := NewLifecycleFailure("backup_target_unknown")
 	if err != nil {
 		t.Fatal(err)
 	}

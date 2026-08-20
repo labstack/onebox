@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -36,8 +35,6 @@ type Options struct {
 	EngineOptions engine.Options
 	Runner        buildinfo.Runner
 	// ScheduledLifecycleExecutor is the bounded driver backend reached only
-	// after ScheduledRunner validates its sealed envelope and canonical graph.
-	ScheduledLifecycleExecutor ScheduledLifecycleExecutor
 	// Images resolves build-sourced workloads to the reference whatever built
 	// them produced. Production never builds, so a workload declaring `build:`
 	// has no image until one is supplied here — and without it the project
@@ -46,17 +43,16 @@ type Options struct {
 }
 
 type Service struct {
-	configPath                 string
-	environment                string
-	images                     app.Images
-	now                        func() time.Time
-	connect                    Connector
-	entropy                    io.Reader
-	entropyMu                  sync.Mutex
-	engineOpts                 engine.Options
-	runner                     buildinfo.Runner
-	scheduledLifecycleExecutor ScheduledLifecycleExecutor
-	operationSeq               uint64
+	configPath   string
+	environment  string
+	images       app.Images
+	now          func() time.Time
+	connect      Connector
+	entropy      io.Reader
+	entropyMu    sync.Mutex
+	engineOpts   engine.Options
+	runner       buildinfo.Runner
+	operationSeq uint64
 }
 
 func (s *Service) newOperationID(now time.Time, gitSHA string, kind OperationKind) string {
@@ -100,19 +96,7 @@ func New(opts Options) *Service {
 		images: opts.Images,
 		now:    opts.Now, connect: opts.Connect, entropy: opts.Entropy,
 		engineOpts: opts.EngineOptions, runner: opts.Runner,
-		scheduledLifecycleExecutor: opts.ScheduledLifecycleExecutor,
 	}
-}
-
-// ExecuteScheduledLifecycle keeps scheduled dispatch on the same canonical
-// service boundary as interactive CLI operations. Driver backends are added
-// behind this seam; a build without one fails closed rather than reporting a
-// scheduled operation as successful.
-func (s *Service) ExecuteScheduledLifecycle(ctx context.Context, execution ScheduledLifecycleExecution) error {
-	if s == nil || s.scheduledLifecycleExecutor == nil {
-		return errors.New("scheduled lifecycle backend is unavailable")
-	}
-	return s.scheduledLifecycleExecutor.ExecuteScheduledLifecycle(ctx, execution)
 }
 
 func (s *Service) readEntropy(buf []byte) error {

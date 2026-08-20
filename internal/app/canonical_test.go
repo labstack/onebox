@@ -98,13 +98,13 @@ func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
 	}
 }
 
-func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
-	project := strings.Replace(validProtectionProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
+func TestCanonicalBackupFactsCoverEveryPublicOrigin(t *testing.T) {
+	project := strings.Replace(validBackupProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
     overrides:
       services:
         postgres:
-          protection:
-            retention: {minimum_generations: 10}
+          backup:
+            retention: {keep: 10}
 `, 1)
 	spec, err := LoadBytes([]byte(project), "ob.yml")
 	if err != nil {
@@ -119,9 +119,9 @@ func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
 		origins[row[0]] = Origin(row[1])
 	}
 	for path, want := range map[string]Origin{
-		"services.postgres.protection.recovery_kind":                 OriginAuthored,
-		"services.postgres.protection.schedule.cron":                 OriginDefault,
-		"services.postgres.protection.retention.minimum_generations": OriginEnvironmentOverride,
+		"services.postgres.backup.recovery_kind":  OriginAuthored,
+		"services.postgres.backup.schedule.cron":  OriginDefault,
+		"services.postgres.backup.retention.keep": OriginEnvironmentOverride,
 	} {
 		if got := origins[path]; got != want {
 			t.Errorf("%s origin = %q, want %q", path, got, want)
@@ -137,7 +137,7 @@ func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
 		},
 		Services: map[string]CanonicalServiceFacts{
 			"postgres": {
-				ProtectionState:        fact("enabled", OriginDerived),
+				BackupState:            fact("enabled", OriginDerived),
 				Tier:                   fact("Managed", OriginDerived),
 				RecoveryKind:           fact("pitr", OriginDerived),
 				ServiceImageDigest:     fact("sha256:"+strings.Repeat("a", 64), OriginObserved),
@@ -157,7 +157,7 @@ func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
 	out := string(body)
 	for _, golden := range []string{
 		"recovery_kind: pitr",
-		"minimum_generations: 10 # environment-override",
+		"keep: 10 # environment-override",
 		"logging_max_size:",
 		"value: 20MB",
 		"origin: default",
@@ -178,7 +178,7 @@ func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
 }
 
 func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testing.T) {
-	spec, err := LoadBytes([]byte(validProtectionProject), "ob.yml")
+	spec, err := LoadBytes([]byte(validBackupProject), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testin
 		},
 		Services: map[string]CanonicalServiceFacts{
 			"postgres": {
-				ProtectionState: fact("enabled", OriginDerived), Tier: fact("Managed", OriginDerived), RecoveryKind: fact("pitr", OriginDerived),
+				BackupState: fact("enabled", OriginDerived), Tier: fact("Managed", OriginDerived), RecoveryKind: fact("pitr", OriginDerived),
 				ServiceImageDigest: fact(canary, OriginObserved), EncryptionMode: fact("client-side", OriginDerived),
 				ObservedRPO: fact("4m", OriginObserved), ObservedRecoveryWindow: fact("7d", OriginObserved),
 				ExpectedInterruption: fact("none", OriginDerived), DrillCapacityState: fact("available", OriginObserved),

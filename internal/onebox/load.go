@@ -102,7 +102,7 @@ func (s *Service) loadObservedProject(ctx context.Context, lenient bool, images 
 //
 // -e follows symlinks, so the -L arm is what keeps a dangling link out of the
 // 'missing' answer; reporting a broken link as no state at all would drop the
-// service's protection silently. An unsearchable ancestor hides it the same
+// service's backup silently. An unsearchable ancestor hides it the same
 // way, which is what UndeterminedArm's exit 5 is for. A live symlink to a
 // regular file is still read through as 'present': -f follows it, and refusing
 // symlinked state would be a new rule, not a fix.
@@ -130,7 +130,7 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 	names := resolved.NamesFor(resolved.Env)
 	states := map[string]app.ServiceRuntimeState{}
 	for _, service := range sortedNames(resolved.Services) {
-		statePath := names.ProtectionLifecycleStateFile(service)
+		statePath := names.BackupLifecycleStateFile(service)
 		result, err := target.Run(ctx, lifecycleStateProbe(statePath))
 		if err != nil {
 			return nil, fmt.Errorf("observe service %s lifecycle state: %w", service, err)
@@ -157,7 +157,7 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 		default:
 			return nil, fmt.Errorf("service %s lifecycle state observation is invalid", service)
 		}
-		state, err := DecodeProtectionLifecycleState([]byte(encoded))
+		state, err := DecodeBackupLifecycleState([]byte(encoded))
 		if err != nil {
 			return nil, fmt.Errorf("service %s lifecycle state: %w", service, err)
 		}
@@ -166,13 +166,25 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 		}
 		runtime := state.RuntimeState()
 		if runtime.ServiceImage != "" {
-			runtime.DigestAvailable, err = engine.ServiceImageDigestAvailable(ctx, target, runtime.ServiceImage)
-			if err != nil {
-				return nil, fmt.Errorf("observe service %s registry image: %w", service, err)
-			}
+			// Local cache first, registry only if it misses.
+			//
+			// The single consumer of these two flags accepts either one, so a
+			// host that already holds the exact digest has its answer without
+			// leaving the machine. Asking the registry first put a
+			// `docker manifest inspect` against Docker Hub on the front of every
+			// command that loads a project with a protected service — validate,
+			// plan, status, backup, all of them — for a digest that is immutable
+			// and already present. On a rate-limited host that turned every
+			// command into a failure with nothing to fetch.
 			runtime.CacheVerified, err = engine.ExactServiceImageCached(ctx, target, runtime.ServiceImage)
 			if err != nil {
 				return nil, fmt.Errorf("observe service %s cached image: %w", service, err)
+			}
+			if !runtime.CacheVerified {
+				runtime.DigestAvailable, err = engine.ServiceImageDigestAvailable(ctx, target, runtime.ServiceImage)
+				if err != nil {
+					return nil, fmt.Errorf("observe service %s registry image: %w", service, err)
+				}
 			}
 		}
 		states[service] = runtime

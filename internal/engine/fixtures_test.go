@@ -49,9 +49,9 @@ services:
     version: 17
 deployment:
   order: [web, worker]
-verifications:
-  - workload: web
-    http: /healthz
+checks:
+  http:
+    - {workload: web, path: /healthz}
 `
 
 func testConfig() *app.Resolved {

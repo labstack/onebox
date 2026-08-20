@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -41,8 +42,8 @@ const (
 	KindJobRun       OperationKind = "job_run"
 
 	KindServiceImagePatch OperationKind = "service_image_patch"
-	KindProtectionEnable  OperationKind = "protection_enable"
-	KindProtectionDisable OperationKind = "protection_disable"
+	KindBackupEnable      OperationKind = "backup_enable"
+	KindBackupDisable     OperationKind = "backup_disable"
 	KindBackupCreate      OperationKind = "backup_create"
 	KindBackupPrune       OperationKind = "backup_prune"
 	KindReplayArchive     OperationKind = "replay_archive"
@@ -99,7 +100,7 @@ const (
 	StepWorkloadRelease OperationStepKind = "workload_release"
 	StepVerify          OperationStepKind = "verify"
 	StepActivate        OperationStepKind = "activate"
-	StepProtectionLock  OperationStepKind = "protection_lock"
+	StepBackupLock      OperationStepKind = "backup_lock"
 	StepLifecycleAction OperationStepKind = "lifecycle_action"
 	StepLifecycleRecord OperationStepKind = "lifecycle_record"
 	StepArchiveAppend   OperationStepKind = "archive_append"
@@ -448,7 +449,7 @@ func validOperationKind(kind OperationKind) bool {
 	switch kind {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
 		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy,
-		KindServiceImagePatch, KindProtectionEnable, KindProtectionDisable,
+		KindServiceImagePatch, KindBackupEnable, KindBackupDisable,
 		KindBackupCreate, KindBackupPrune, KindReplayArchive,
 		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,
 		KindHygieneRun, KindAssuranceCheck:
@@ -488,7 +489,7 @@ func validApprovalClass(class ApprovalClass) bool {
 func validStepKind(kind OperationStepKind) bool {
 	switch kind {
 	case StepPreflight, StepTransfer, StepJob, StepHook, StepWorkloadRelease, StepVerify, StepActivate,
-		StepProtectionLock, StepLifecycleAction, StepLifecycleRecord, StepArchiveAppend:
+		StepBackupLock, StepLifecycleAction, StepLifecycleRecord, StepArchiveAppend:
 		return true
 	default:
 		return false
@@ -503,3 +504,15 @@ func validDataEffect(effect DataEffectClass) bool {
 		return false
 	}
 }
+
+// lifecycleGraphDigest is the shape every sealed lifecycle digest takes. It
+// lives here rather than beside the operation graph that used to define it,
+// because the graph is gone and four live callers still bind digests.
+var lifecycleGraphDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// Metadata that lands in a lifecycle record or a sealed identity is restricted
+// to a safe grammar, so an operator-supplied name cannot smuggle punctuation
+// into evidence a machine parses.
+var lifecycleMetadata = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$`)
+
+func safeLifecycleMetadata(value string) bool { return lifecycleMetadata.MatchString(value) }

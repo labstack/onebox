@@ -171,10 +171,10 @@ const uploadSentinel = ".ob-upload-complete"
 //
 // Staging is removed when the script exits or is signalled. It has to be
 // removed here rather than by the caller, because this is the only place that
-// knows the staging path: the secrets, protection-credential and proxy uploads
+// knows the staging path: the secrets, backup-credential and proxy uploads
 // all clean up the *destination* they asked for, so anything left beside it
 // survives them.
-// Their payloads are plaintext — an app's .env, a protection credentials.env —
+// Their payloads are plaintext — an app's .env, a backup credentials.env —
 // and the leaf name carries an epoch or a fence token that changes every run,
 // so a leak is never overwritten by the next attempt.
 func uploadScript(remoteDir string, transfer func(quotedStaging string) string) (string, error) {

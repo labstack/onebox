@@ -70,21 +70,17 @@ clickhouse, nats. Anything else is refused rather than guessed at, because
 inventing an image from a name produces a container that starts and stores
 nothing durable.
 
-Onebox does **not** take backups, and `ob doctor` says so for every workload and
-service holding durable data. It also refuses a major version change a driver
-cannot perform in place, rather than replacing the container and leaving the
-data intact and unreachable.
+Onebox takes PostgreSQL backups: continuous WAL archiving to a repository you
+own, point-in-time restore, and a drill that proves recovery without touching
+the live service. Every other driver **refuses** a backup policy rather than
+accepting one it cannot honour, and `ob doctor` says which is which for every
+workload and service holding durable data. It also refuses a major version
+change a driver cannot perform in place, rather than replacing the container
+and leaving the data intact and unreachable.
 
-The schema can already declare desired log, metric, and alert capabilities.
-The local engine does **not** manage those continuous services yet, and reports
-them as declared rather than managed. The planned
-dashboard/control plane will add authenticated team approvals, continuous
-evidence, shared policy, and recovery assurance without becoming a generic
-Docker UI.
-
-Versioned driver contracts and continuous observability management are not
-shipped. Plan/status drift observation and plan-bound migration backup reports
-are shipped; Onebox still does not create or store the backup itself.
+The planned dashboard/control plane will add authenticated team approvals,
+continuous evidence, shared policy, and recovery assurance without becoming a
+generic Docker UI.
 
 ## Start using it
 
@@ -172,8 +168,8 @@ Executable plans use
 `onebox.run/executable-deploy-plan/v1alpha2` and include the planner's version,
 source revision, build time, dirty state, and supported schemas. Schema-less
 and unsupported plans are rejected. Environment policy can set
-`minimum_onebox_version` using the exact CalVer release form and can set
-`minimum_plan_schema`; `ob doctor` reports whether the runner selected by
+`min_onebox_version` using the exact CalVer release form and can set
+`min_plan_schema`; `ob doctor` reports whether the runner selected by
 `PATH` is compatible. When a minimum version is configured, commit-derived and
 dirty checkout builds fail closed because they are not released runners.
 
@@ -289,16 +285,17 @@ headers, and scalar JSON values. Migration verification can bind the expected
 provider and applied revisions to the captured job-result evidence:
 
 ```yaml
-verifications:
-  - url: https://app.example.com/healthz
-    status_codes: [200]
-    required_headers:
-      X-App-Ready: "yes"
-    json_assertions:
-      - path: service.ready
-        equals: true
-  - migration_revisions:
-      job: migrate
+checks:
+  url:
+    - url: https://app.example.com/healthz
+      status_codes: [200]
+      required_headers:
+        X-App-Ready: "yes"
+      json_assertions:
+        - path: service.ready
+          equals: true
+  migrations:
+    - job: migrate
       provider: atlas
       applied_revisions: ["202607130001"]
 ```

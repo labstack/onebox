@@ -268,7 +268,7 @@ external_services:
     connection:
       source: {file: secrets/database.env, provider: sops}
       entries: {url: DATABASE_URL}
-    protection_owner: platform-team/rds
+    backup_owner: platform-team/rds
     probe: {}
 `
 	configPath := filepath.Join(dir, "ob.yml")

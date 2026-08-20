@@ -70,20 +70,19 @@ var beyondJSONSchema = map[string]string{
 	"workload and service share a name":             "an identifier is unique across workloads and services, which are separate objects",
 
 	// Facts about values that only resolution knows.
-	"unknown prerequisite":             "a prerequisite must name something the project declares",
-	"absolute env_file":                "a path that resolves inside the repository after joining",
-	"absolute compose ref":             "a path that resolves inside the repository after joining",
-	"protection self target":           "a target and environment host are declared in separate objects",
-	"hook naming an unlisted seam":     "a hook key is a seam or a declared job, and the job list is a separate object",
-	"hook naming neither":              "a hook key is a seam or a declared job, and the job list is a separate object",
-	"protection unsupported objective": "a recovery kind is qualified by the selected service driver",
-	"protection sparse drill":          "cron cadence must be compared with restore proof age",
+	"unknown prerequisite":         "a prerequisite must name something the project declares",
+	"absolute env_file":            "a path that resolves inside the repository after joining",
+	"absolute compose ref":         "a path that resolves inside the repository after joining",
+	"backup self target":           "a target and environment host are declared in separate objects",
+	"hook naming an unlisted seam": "a hook key is a seam or a declared job, and the job list is a separate object",
+	"hook naming neither":          "a hook key is a seam or a declared job, and the job list is a separate object",
+	"backup unsupported objective": "a recovery kind is qualified by the selected service driver",
+	"backup sparse drill":          "cron cadence must be compared with restore proof age",
 
 	// Exclusivity within one object that a schema could express, and does not
 	// here because the resulting document would be harder to read than the
 	// rule it encodes.
-	"verifications url with exec":          "a verification is exactly one kind",
-	"verifications workload without probe": "an http or exec check names the workload it runs in",
+	"http check without a path": "a grouped http check still needs its path",
 }
 
 func TestPublishedSchemaMatchesTheLoader(t *testing.T) {

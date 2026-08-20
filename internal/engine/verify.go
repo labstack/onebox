@@ -21,7 +21,7 @@ import (
 const maxVerificationBodyBytes = 1 << 20
 
 // verifyURL is the runner-side edge check (ob.sh's smoke test, absorbed).
-func (e *Engine) verifyURL(ctx context.Context, chk app.Verification) error {
+func (e *Engine) verifyURL(ctx context.Context, chk app.RunnableCheck) error {
 	label := verificationURLLabel(chk.URL)
 	client := &http.Client{
 		Timeout: e.Opts.HTTPTimeout,
@@ -241,7 +241,7 @@ func scalarNumberString(value any) (string, bool) {
 // the edge, because an edge blip must not fail a healthy release. URL
 // checks go through the edge from the runner and are advisory territory.
 func (e *Engine) Verify(ctx context.Context) error {
-	for _, chk := range e.Spec.Verifications {
+	for _, chk := range e.Spec.Checks.All() {
 		if chk.MigrationRevisions != nil {
 			assertion := chk.MigrationRevisions
 			result, ok := e.jobResults[assertion.Job]

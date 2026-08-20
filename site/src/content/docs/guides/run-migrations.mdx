@@ -60,9 +60,9 @@ it.
 ## Verify the revisions
 
 ```yaml
-verifications:
-  - migration_revisions:
-      job: migrate
+checks:
+  migrations:
+    - job: migrate
       provider: atlas
       applied_revisions: ["202607130001"]
 ```

@@ -73,6 +73,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Add a database", slug: "guides/add-a-database" },
+            { label: "Back up a database", slug: "guides/back-up-a-database" },
             { label: "Handle secrets", slug: "guides/handle-secrets" },
             { label: "Run migrations safely", slug: "guides/run-migrations" },
             { label: "Schedule a job", slug: "guides/schedule-a-job" },

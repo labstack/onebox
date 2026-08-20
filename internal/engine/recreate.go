@@ -28,10 +28,8 @@ func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteCom
 	cc := e.composeCmd(remoteComposePath)
 	desired := role.Count()
 
-	if res, err := e.mutate(ctx, cc+" pull --quiet "+svc); err != nil {
+	if err := e.pullBeforeRelease(ctx, svc, cc); err != nil {
 		return err
-	} else if res.ExitCode != 0 {
-		return fmt.Errorf("pull %s: %s", svc, res.Stderr)
 	}
 	// Signal before recreate whenever the contract declares a fixed drain wait.
 	// Compose sends TERM during replacement too, but doing it only then skipped

@@ -15,7 +15,7 @@ import (
 // lifecycle validation checks guidance is shell-safe and starts with `ob `,
 // which is a claim about its form, not its truth. Eighteen of thirty-five
 // lifecycle codes passed that guard while naming verbs the CLI has never had —
-// `ob backup inspect`, `ob protection enable`, `ob assurance status`. A code is
+// `ob backup inspect`, `ob backup enable`, `ob assurance status`. A code is
 // read at the moment something is broken, so a remedy that exits with
 // `unknown command` costs the operator a round trip and their trust in the
 // rest of the page.

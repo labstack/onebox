@@ -16,7 +16,8 @@ proxy:
   # Traefik is started by the test itself, from the same Compose file, so
   # Onebox must not try to manage one.
   managed: false
-verifications:
+checks:
   # exec (not http): on macOS the container bridge network is unreachable
   # from the host, so probe from inside the container.
-  - { exec: "wget -qO- http://localhost:8080/", workload: web }
+  exec:
+    - {workload: web, run: "wget -qO- http://localhost:8080/"}

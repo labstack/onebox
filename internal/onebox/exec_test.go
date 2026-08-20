@@ -84,7 +84,7 @@ func TestExecEnforcesEnvironmentAndRunnerPolicyBeforeConnecting(t *testing.T) {
 		{name: "runner policy", prepare: func(service *Service) {
 			service.configPath = writeExecProject(t, strings.Replace(execProjectYAML,
 				"    server: deploy@example.invalid\n",
-				"    server: deploy@example.invalid\n    policy: {minimum_onebox_version: v2026.8.3}\n", 1))
+				"    server: deploy@example.invalid\n    policy: {min_onebox_version: v2026.8.3}\n", 1))
 		}, want: "not a released Onebox CalVer"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

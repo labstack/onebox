@@ -294,13 +294,20 @@ type ExecuteRequest struct {
 	MigrationBackupOverride *MigrationBackupOverride
 	BreakLock               bool
 	AllowDestructiveMounts  bool
-	BreakMigrationGate      bool
-	NoRollback              bool
-	Redeploy                bool
-	RemoveVolumes           bool
-	RemoveProxy             bool
-	ExpectedBinding         *ExecutionBinding
-	Events                  EventSink
+	// Service is the backup operations' one argument. It is an input to a
+	// mutation rather than a plan, because a backup stages nothing into a
+	// release and has nothing to roll back.
+	Service string
+	// RecoveryTarget is the RFC 3339 point in time a recovery aims at. Empty
+	// means the newest recoverable point.
+	RecoveryTarget     string
+	BreakMigrationGate bool
+	NoRollback         bool
+	Redeploy           bool
+	RemoveVolumes      bool
+	RemoveProxy        bool
+	ExpectedBinding    *ExecutionBinding
+	Events             EventSink
 }
 
 // Validate rejects ambiguous plans, mismatched operation kinds, and safety or

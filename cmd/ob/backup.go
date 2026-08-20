@@ -17,7 +17,7 @@ import (
 // that changes what the server is — it restarts the database under the
 // protected image and does not return until a recoverable backup exists.
 // `create` takes another one. `status` asks the repository, not the project,
-// what can actually be recovered; everything it prints comes from pgBackRest.
+// what can actually be recovered; every figure comes from the repository itself.
 //
 // There is deliberately no verb that reports protection as established from the
 // project alone. A policy in `ob.yml` is a request, and until `enable` has
@@ -31,7 +31,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"off-host repository the project's backup_targets name, which is what makes\n" +
 			"recovery to a point in time possible rather than recovery to last night.\n\n" +
 			"Declaring a policy does not establish it. `ob backup enable` restarts the\n" +
-			"service under the protected image, creates the repository stanza, and takes\n" +
+			"service with archiving on, stages the verified backup tooling, and takes\n" +
 			"the first base backup; only then does the service render as protected.",
 		Args: cobra.NoArgs, RunE: showCommandHelp,
 	}
@@ -39,15 +39,14 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	var enableBreakLock bool
 	enableCmd := &cobra.Command{
 		Use:   "enable <service>",
-		Short: "establish protection — restarts the service, creates the stanza, takes the first backup",
+		Short: "establish protection — restarts the service archiving and takes the first backup",
 		Long: "Make a declared protection policy real.\n\n" +
-			"The order is forced by PostgreSQL: a server cannot archive to a stanza that\n" +
-			"does not exist, and a stanza cannot be created against a server that is not\n" +
-			"already archiving. So this pins the protected image, writes the repository\n" +
-			"configuration, restarts the server with archiving on, creates the stanza,\n" +
-			"and takes a full backup.\n\n" +
+			"The order is forced: the credentials are checked, the image is pinned by\n" +
+			"registry digest, the verified wal-g binary is staged on the host, and only\n" +
+			"then does the server restart with archiving on.\n\n" +
 			"The restart is a real restart of the database. It is not complete until the\n" +
-			"first backup exists, because a stanza with no backup can recover nothing.",
+			"first base backup exists, because WAL archiving with nothing to replay onto\n" +
+			"can recover nothing.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
@@ -86,10 +85,10 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"Archiving stops, the schedules are removed, the service restarts as an\n" +
 			"ordinary unprotected one, and its destination credentials are removed from\n" +
 			"the host.\n\n" +
-			"The repository is not touched. The backups already taken are the reason\n" +
-			"anyone turned protection on, and someone disabling it today may still need\n" +
-			"to recover from last week — `ob backup status` still reads them and\n" +
-			"`ob backup restore` can still recover from them.\n\n" +
+			"The repository is not touched: every backup already taken stays where it\n" +
+			"is. Reading or recovering from them needs protection enabled again,\n" +
+			"because the binary and credentials that reach the repository live in the\n" +
+			"protected service.\n\n" +
 			"What does stop is the recovery window advancing: from here on there is no\n" +
 			"new WAL, so the newest recoverable point is the moment this ran.",
 		Args: cobra.ExactArgs(1),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -102,42 +103,6 @@ func (e *Engine) runWalg(ctx context.Context, service string, args ...string) (s
 	return res.Stdout, nil
 }
 
-// VerifyProtectionCredentials refuses enablement before it starts if the
-// operator's credential file does not define what the repository needs. Naming
-// every missing entry at once is the difference between one fix and four round
-// trips, and finding out here is much cheaper than finding out from a database
-// that has already restarted with archiving on.
-func (e *Engine) VerifyProtectionCredentials(ctx context.Context, service, target string, required []string) error {
-	path := e.names().ProtectionCredentialFile(service, target)
-	res, err := e.T.Run(ctx, "cat "+q(path)+" 2>/dev/null || true")
-	if err != nil {
-		return err
-	}
-	present := map[string]bool{}
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if name, _, ok := strings.Cut(line, "="); ok {
-			present[strings.TrimSpace(name)] = true
-		}
-	}
-	var missing []string
-	for _, entry := range required {
-		if !present[entry] {
-			missing = append(missing, entry)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf(
-			"the protection credential file %s does not define %s; stage it through the trusted secret flow before enabling protection.\n"+
-				"%s must be 64 hex characters — generate one with `openssl rand -hex 32`",
-			path, strings.Join(missing, ", "), app.WalgRepositoryKeyEntry)
-	}
-	return nil
-}
-
 // BackupService takes one base backup.
 //
 // wal-g has no incremental base backup for PostgreSQL in the sense pgBackRest
@@ -167,19 +132,22 @@ func (e *Engine) BackupService(ctx context.Context, service string) error {
 // count quietly shortens the window the policy promised, and nobody finds out
 // until they try to recover to last Tuesday.
 //
-// wal-g expresses both in one command: `retain FULL n --after t` keeps the n
-// most recent full backups *and* everything taken since t. Letting it apply
-// both is better than computing the cut here — the tool that owns the
-// repository layout decides what a backup depends on.
+// wal-g has no working time bound — its `--after` flag is accepted and ignored
+// — so the window is folded into the count before it gets here. See
+// app.WalgRetainCount for that arithmetic and the measurements behind it.
 //
 // Separate from taking a backup because the order matters: expiring first would
 // briefly hold one generation fewer than the policy promises.
 func (e *Engine) PruneServiceBackups(ctx context.Context, service string) error {
-	_, policy, err := e.protectedService(service)
+	if _, _, err := e.protectedService(service); err != nil {
+		return err
+	}
+	projection, err := e.Spec.EffectiveProtectionProjection(service)
 	if err != nil {
 		return err
 	}
-	retain, err := app.WalgRetainCount(*policy)
+	policy := projection.Policy
+	retain, err := app.WalgRetainCount(policy)
 	if err != nil {
 		return fmt.Errorf("service %s: %w", service, err)
 	}
@@ -219,18 +187,18 @@ func (e *Engine) VerifyServiceArchive(ctx context.Context, service string) error
 // comes from wal-g, not from the project: the project's claim about retention
 // and recovery window is exactly the claim this is here to check.
 func (e *Engine) ProtectionStatusFor(ctx context.Context, service string) (ProtectionStatus, error) {
-	declared, policy, err := e.protectedService(service)
+	if _, _, err := e.protectedService(service); err != nil {
+		return ProtectionStatus{}, err
+	}
+	// The recorded projection, so status reports the repository the service is
+	// actually archiving to rather than one the project was edited to name.
+	projection, err := e.Spec.EffectiveProtectionProjection(service)
 	if err != nil {
 		return ProtectionStatus{}, err
 	}
-	_ = declared
-	target, ok := e.Spec.BackupTargets[policy.Target]
-	if !ok {
-		return ProtectionStatus{}, fmt.Errorf("service %s names backup target %q, which is not declared", service, policy.Target)
-	}
 	status := ProtectionStatus{
 		Service:    service,
-		Repository: app.WalgPrefix(target, e.Spec.Spec.Name, service),
+		Repository: app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service),
 	}
 
 	issues, err := e.VerifyProtectionRuntime(ctx, service)
@@ -270,12 +238,25 @@ func (e *Engine) ProtectionStatusFor(ctx context.Context, service string) (Prote
 		if finish == "" {
 			finish = entry.Time
 		}
-		if stopped, err := time.Parse(time.RFC3339, finish); err == nil {
-			generation.StoppedAt = stopped.Unix()
+		stopped, err := time.Parse(time.RFC3339, finish)
+		if err != nil {
+			// Refused rather than defaulted. A zero timestamp renders as
+			// 1970-01-01, so a report meant to say what is recoverable would
+			// state a recoverable point off by half a century — and it is the
+			// report an operator decides on.
+			return status, fmt.Errorf(
+				"service %s: wal-g reported backup %q with an unreadable completion time %q", service, entry.BackupName, finish)
 		}
+		generation.StoppedAt = stopped.Unix()
 		status.Generations = append(status.Generations, generation)
 	}
 	if len(status.Generations) > 0 {
+		// Sorted rather than assuming wal-g lists oldest first: "the newest
+		// recoverable point" must come from the timestamps, not from the order
+		// another tool happened to print.
+		sort.Slice(status.Generations, func(i, j int) bool {
+			return status.Generations[i].StoppedAt < status.Generations[j].StoppedAt
+		})
 		latest := status.Generations[len(status.Generations)-1]
 		status.LatestBackup = &latest
 		status.RecoverableTo = time.Unix(latest.StoppedAt, 0).UTC().Format(time.RFC3339)

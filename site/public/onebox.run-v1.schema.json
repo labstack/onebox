@@ -278,8 +278,8 @@
             "type": "string"
           },
           "tls": {
-            "default": "required",
-            "description": "TLS verification policy: required or insecure.",
+            "default": "verify",
+            "description": "Transport policy: verify, or skip-verify to accept a plaintext http endpoint.",
             "enum": [
               "verify",
               "skip-verify"

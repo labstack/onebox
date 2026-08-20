@@ -38,6 +38,11 @@ type RestoreOutcome struct {
 	StagingVolume string `json:"staging_volume,omitempty"`
 	PreviousData  string `json:"previous_data_volume,omitempty"`
 	Promoted      bool   `json:"promoted"`
+	// RetainStaging is set the moment promotion starts modifying the live
+	// volume. From then on the staging volume is the only complete copy of the
+	// recovered data and must survive a failure, so the operator has something
+	// to recover from rather than two empty volumes.
+	RetainStaging bool `json:"-"`
 }
 
 // RecoverService materialises the repository into a fresh volume at a point in
@@ -52,7 +57,7 @@ type RestoreOutcome struct {
 // When promote is false this is a drill: the staging volume is removed and the
 // live service is never touched at all.
 func (e *Engine) RecoverService(ctx context.Context, service, targetTime string, promote bool) (RestoreOutcome, error) {
-	_, policy, err := e.protectedService(service)
+	_, _, err := e.protectedService(service)
 	if err != nil {
 		return RestoreOutcome{}, err
 	}
@@ -66,10 +71,15 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 				"recovery target %q is not an RFC 3339 timestamp such as 2026-08-19T15:04:05Z", targetTime)
 		}
 	}
-	target, ok := e.Spec.BackupTargets[policy.Target]
-	if !ok {
-		return RestoreOutcome{}, fmt.Errorf("service %s names backup target %q, which is not declared", service, policy.Target)
+	// The recorded projection, not the project's current intent. Enablement
+	// wrote down exactly which repository the server has been archiving to; if
+	// somebody edits the target afterwards, recovery must still read the
+	// repository the history is actually in. Rendering follows the same rule.
+	projection, err := e.Spec.EffectiveProtectionProjection(service)
+	if err != nil {
+		return RestoreOutcome{}, err
 	}
+	target, policyTarget := projection.Target, projection.Policy.Target
 
 	n := e.names()
 	staging := n.ProtectionRestoreVolume(service)
@@ -86,7 +96,11 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 		// The container is scratch either way. The volume survives only when it
 		// has been promoted into service.
 		_, _ = e.T.Run(context.WithoutCancel(ctx), "docker rm -f "+q(container)+" >/dev/null 2>&1 || true")
-		if !outcome.Promoted {
+		// Kept only when promotion began and did not finish — then it is the one
+		// complete copy of the recovered data and deleting it would leave the
+		// operator with an empty live volume and nothing to restore from. On
+		// success the live volume holds that data, so the staging copy goes.
+		if outcome.Promoted || !outcome.RetainStaging {
 			_, _ = e.T.Run(context.WithoutCancel(ctx), "docker volume rm -f "+q(staging)+" >/dev/null 2>&1 || true")
 		}
 	}()
@@ -106,7 +120,7 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	}
 
 	st := e.ui.Step("recovery: fetch base backup", false)
-	if err := e.startRecoveryContainer(ctx, container, staging, image.Image, environment, service); err != nil {
+	if err := e.startRecoveryContainer(ctx, container, staging, image.Image, environment, service, policyTarget); err != nil {
 		st(err)
 		return outcome, err
 	}
@@ -129,7 +143,7 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	// the data, and "the restore command exited zero" is exactly the assurance
 	// this product exists to distrust.
 	st = e.ui.Step("recovery: verify the recovered cluster answers", false)
-	recoveredTo, rows, err := e.probeRecoveredCluster(ctx, container)
+	recoveredTo, rows, err := e.probeRecoveredCluster(ctx, container, targetTime)
 	if err != nil {
 		st(err)
 		return outcome, err
@@ -140,11 +154,12 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	if !promote {
 		return outcome, nil
 	}
-	previous, err := e.promoteRecoveredVolume(ctx, service, container, staging)
+	previous, err := e.promoteRecoveredVolume(ctx, service, container, staging, &outcome)
+	outcome.PreviousData = previous
 	if err != nil {
 		return outcome, err
 	}
-	outcome.Promoted, outcome.PreviousData = true, previous
+	outcome.Promoted = true
 	return outcome, nil
 }
 
@@ -169,7 +184,7 @@ func (e *Engine) discardRecoveryStaging(ctx context.Context, container, staging 
 // startRecoveryContainer runs the protected image with the staged wal-g mounted
 // and the data directory empty, doing nothing. The server is started later, by
 // hand, so recovery configuration is in place before it reads anything.
-func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging, image string, environment map[string]any, service string) error {
+func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging, image string, environment map[string]any, service, credentialTarget string) error {
 	n := e.names()
 	args := []string{
 		"docker", "run", "-d", "--name", q(container),
@@ -177,7 +192,7 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 		"--entrypoint", "sleep",
 		"-v", q(staging + ":/var/lib/postgresql/data"),
 		"-v", q(n.ProtectionRuntimeDir(service) + ":" + app.WalgMountPath + ":ro"),
-		"--env-file", q(n.ProtectionCredentialFile(service, e.Spec.Services[service].Backup.Target)),
+		"--env-file", q(n.ProtectionCredentialFile(service, credentialTarget)),
 	}
 	for _, key := range sortedEnvKeys(environment) {
 		args = append(args, "-e", q(fmt.Sprintf("%s=%v", key, environment[key])))
@@ -272,7 +287,7 @@ func (e *Engine) replayRecovery(ctx context.Context, container, targetTime strin
 //
 // This is the difference between "the restore command exited zero" and "the
 // data is there", which is the whole distinction this product exists to make.
-func (e *Engine) probeRecoveredCluster(ctx context.Context, container string) (string, string, error) {
+func (e *Engine) probeRecoveredCluster(ctx context.Context, container, targetTime string) (string, string, error) {
 	query := func(sql string) (string, error) {
 		command := "docker exec -u postgres " + q(container) +
 			" psql -U " + q(app.PgSuperuser) + " -d " + q(e.Spec.Spec.Name) + " -tAc " + q(sql)
@@ -314,11 +329,23 @@ func (e *Engine) probeRecoveredCluster(ctx context.Context, container string) (s
 	if err != nil {
 		return "", "", err
 	}
-	when, err := query("SELECT to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"');")
-	if err != nil {
-		return "", "", err
+	// What the cluster actually replayed to, not what time it is now. Reporting
+	// wall-clock here made a drill say it had recovered to today when it had
+	// been asked for a point last month — evidence that describes the wrong
+	// thing is worse than no evidence.
+	//
+	// pg_last_xact_replay_timestamp() is empty once a cluster has been promoted
+	// out of recovery, so the requested target is the authority and this is only
+	// a fallback for a recovery that had none.
+	recovered := targetTime
+	if recovered == "" {
+		replayed, err := query("SELECT coalesce(to_char(pg_last_xact_replay_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), '');")
+		if err != nil {
+			return "", "", err
+		}
+		recovered = replayed
 	}
-	return when, tables + " tables in public schema", nil
+	return recovered, tables + " tables in public schema", nil
 }
 
 // promoteRecoveredVolume puts the recovered data in front of the application.
@@ -327,7 +354,7 @@ func (e *Engine) probeRecoveredCluster(ctx context.Context, container string) (s
 // people run when they are already having a bad day, and the one thing it must
 // not do is make the bad day unrecoverable — if the recovery turns out to be to
 // the wrong second, the original is still there under a dated name.
-func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container, staging string) (string, error) {
+func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container, staging string, outcome *RestoreOutcome) (string, error) {
 	n := e.names()
 	live := n.ServiceVolume(service, app.DataVolumeFor(e.Spec.Services[service]))
 	kept := live + "-before-restore-" + time.Now().UTC().Format("20060102T150405Z")
@@ -344,27 +371,50 @@ func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container,
 	}
 	st(nil)
 
-	st = e.ui.Step("recovery: put the recovered data in service", false)
-	swap := strings.Join([]string{
+	// The live volume is copied aside while it is still intact. Only after that
+	// copy exists does anything destructive happen.
+	st = e.ui.Step("recovery: copy the data being replaced aside", false)
+	preserve := strings.Join([]string{
 		"docker compose -p " + q(n.ServiceProject(service)) + " -f " + q(n.ServiceFile(service)) + " down",
 		"docker volume create " + q(kept),
-		// Copied rather than renamed: Docker has no rename, and a copy leaves
-		// the original intact until the very last step.
 		"docker run --rm -v " + q(live+":/from") + " -v " + q(kept+":/to") + " alpine sh -c 'cp -a /from/. /to/'",
-		"docker volume rm -f " + q(live),
-		"docker volume create " + q(live),
-		"docker run --rm -v " + q(staging+":/from") + " -v " + q(live+":/to") + " alpine sh -c 'cp -a /from/. /to/'",
-		"docker compose -p " + q(n.ServiceProject(service)) + " -f " + q(n.ServiceFile(service)) + " up -d",
 	}, " && ")
-	res, err := e.mutate(ctx, swap)
+	res, err := e.mutate(ctx, preserve)
 	if err != nil {
 		st(err)
 		return "", err
 	}
 	if res.ExitCode != 0 {
-		err := fmt.Errorf("cannot put the recovered data in service: %s", lastLines(res.Stderr, 4))
+		err := fmt.Errorf("cannot copy the data being replaced aside, so nothing was changed: %s", lastLines(res.Stderr, 4))
 		st(err)
 		return "", err
+	}
+	st(nil)
+
+	// Past this point the live volume is being overwritten, so the staging
+	// volume is the only complete copy of the recovered data. It must survive a
+	// failure here — deleting it would leave an empty live volume and nothing to
+	// recover from.
+	outcome.RetainStaging = true
+
+	st = e.ui.Step("recovery: put the recovered data in service", false)
+	// Emptied and refilled in one container rather than removed and recreated:
+	// a `docker volume rm` that succeeds followed by a `create` that does not
+	// leaves the service with no volume at all.
+	swap := strings.Join([]string{
+		"docker run --rm -v " + q(live+":/to") + " -v " + q(staging+":/from") +
+			" alpine sh -c 'find /to -mindepth 1 -maxdepth 1 -exec rm -rf {} + && cp -a /from/. /to/'",
+		"docker compose -p " + q(n.ServiceProject(service)) + " -f " + q(n.ServiceFile(service)) + " up -d",
+	}, " && ")
+	res, err = e.mutate(ctx, swap)
+	if err != nil {
+		st(err)
+		return kept, recoveryPromotionFailure(err, kept, staging)
+	}
+	if res.ExitCode != 0 {
+		err := fmt.Errorf("%s", lastLines(res.Stderr, 4))
+		st(err)
+		return kept, recoveryPromotionFailure(err, kept, staging)
 	}
 	st(nil)
 
@@ -374,7 +424,8 @@ func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container,
 	}
 	if !healthy {
 		return kept, fmt.Errorf(
-			"the restored service did not become healthy (last: %s); the data it replaced is kept in volume %s", last, kept)
+			"the restored service did not become healthy (last: %s).\nThe data it replaced is in volume %s, and the recovered data is in %s — neither was deleted",
+			last, kept, staging)
 	}
 	return kept, nil
 }
@@ -403,11 +454,30 @@ func shellQuoteAll(values []string) string {
 // ReportRecovery prints what a recovery produced. It is on the engine because
 // the engine owns the one UI instance a command shares.
 func (e *Engine) ReportRecovery(outcome RestoreOutcome) {
+	// The point recovered to is the whole claim. A drill that says only "it
+	// worked" has not said what it proved, and the operator cannot tell a
+	// recovery to last Tuesday from one to five minutes ago.
+	point := outcome.RecoveredTo
+	if point == "" {
+		point = "the newest recoverable point"
+	}
 	if !outcome.Promoted {
-		e.ui.Successf("drill passed: %s recovered from %s and answered (%s). Nothing was changed.",
-			outcome.Service, outcome.Backup, outcome.Rows)
+		e.ui.Successf("drill passed: %s recovered to %s from %s and answered (%s). Nothing was changed.",
+			outcome.Service, point, outcome.Backup, outcome.Rows)
 		return
 	}
-	e.ui.Successf("%s restored from %s (%s).", outcome.Service, outcome.Backup, outcome.Rows)
+	e.ui.Successf("%s restored to %s from %s (%s).", outcome.Service, point, outcome.Backup, outcome.Rows)
 	e.ui.Infof("the data it replaced is kept in volume %s — remove it once you are satisfied", outcome.PreviousData)
+}
+
+// recoveryPromotionFailure names both volumes, because a failure here is the one
+// moment an operator has two copies and no running database. An error that said
+// only "cannot put the recovered data in service" would leave them looking for
+// data they still have.
+func recoveryPromotionFailure(err error, kept, staging string) error {
+	return fmt.Errorf(
+		"cannot put the recovered data in service: %w.\n"+
+			"Nothing was lost: the data being replaced is in volume %s and the recovered data is in %s. "+
+			"Restore either into the service volume by hand, or re-run the restore once the cause is fixed",
+		err, kept, staging)
 }

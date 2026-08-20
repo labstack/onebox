@@ -98,7 +98,12 @@ func EnableProtection(current ProtectionLifecycleState, projection app.Protectio
 	if err := current.Validate(); err != nil {
 		return ProtectionLifecycleState{}, err
 	}
-	if current.State != ProtectionNeverEnabled && current.State != ProtectionDisabled {
+	// disable-pending is enablable: it means a disablement was requested and did
+	// not finish, so the service is very likely still archiving. Re-enabling is
+	// how an operator changes their mind, and refusing would leave the only way
+	// out as completing a disable they no longer want.
+	if current.State != ProtectionNeverEnabled && current.State != ProtectionDisabled &&
+		current.State != ProtectionDisablePending {
 		return ProtectionLifecycleState{}, fmt.Errorf("cannot enable protection from %q", current.State)
 	}
 	if !safeLifecycleMetadata(operationID) || !protectedRuntimeImage.MatchString(serviceImage) || !publicationVerified || nextEpoch <= current.Epoch {

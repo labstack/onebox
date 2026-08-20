@@ -84,6 +84,15 @@ func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, 
 	if err != nil || endpoint.Host == "" {
 		return nil, fmt.Errorf("protection for %q: endpoint %q is not a URL naming a host", service, target.Endpoint)
 	}
+	if endpoint.Scheme == "https" && target.TLS == "skip-verify" {
+		// wal-g offers no way to skip certificate verification: its only
+		// transport controls are the endpoint protocol and a CA file. Accepting
+		// this would mean verifying anyway while the project says otherwise.
+		return nil, errf("recovery_objective_unsupported", "backup_targets.tls", "ob validate",
+			"protection for %q cannot skip certificate verification on an https endpoint: wal-g has no such option. "+
+				"Install the certificate authority on the host so the certificate verifies, or use an http endpoint if the destination is on a trusted network",
+			service)
+	}
 	env := map[string]any{
 		"WALG_S3_PREFIX": WalgPrefix(target, app, service),
 		"AWS_ENDPOINT":   target.Endpoint,
@@ -121,9 +130,12 @@ func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, 
 		// Written down rather than left implicit.
 		env["AWS_REGION"] = "us-east-1"
 	}
-	if target.TLS == "skip-verify" {
-		env["AWS_S3_FORCE_HTTP"] = "true"
-	}
+	// The transport comes from the endpoint's own scheme, which is the only
+	// unambiguous source: `tls` says what the operator will accept, not what
+	// the endpoint speaks. Mapping skip-verify to plaintext — as this first did
+	// — sent credentials in the clear to an https endpoint that had merely
+	// presented a self-signed certificate.
+	env["S3_ENDPOINT_PROTOCOL"] = endpoint.Scheme
 	return env, nil
 }
 

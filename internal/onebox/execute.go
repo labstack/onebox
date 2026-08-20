@@ -173,22 +173,28 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		err = e.ServiceApply(ctx, operationID, request.AllowDestructiveMounts)
 	case KindProtectionEnable:
 		// Enablement restarts the service under the protected image and does
-		// not finish until the first base backup exists, because a stanza with
-		// no backup is a repository that can recover nothing.
+		// not finish until the first base backup exists, because WAL archiving
+		// with nothing to replay onto can recover nothing.
 		result.EvidenceID = operationID
 		err = executeProtectionEnable(ctx, e, lp.resolved, lp.configPath, s.environment, request.Service, operationID)
 	case KindBackupCreate:
 		result.EvidenceID = operationID
-		err = e.BackupService(ctx, request.Service)
+		err = underProtectionLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
+			return e.BackupService(ctx, request.Service)
+		})
 	case KindProtectionDisable:
 		result.EvidenceID = operationID
 		err = executeProtectionDisable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
 	case KindBackupPrune:
 		result.EvidenceID = operationID
-		err = e.PruneServiceBackups(ctx, request.Service)
+		err = underProtectionLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
+			return e.PruneServiceBackups(ctx, request.Service)
+		})
 	case KindAssuranceCheck:
 		result.EvidenceID = operationID
-		err = e.VerifyServiceArchive(ctx, request.Service)
+		err = underProtectionLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
+			return e.VerifyServiceArchive(ctx, request.Service)
+		})
 	case KindRestoreTest, KindRestoreCutover:
 		// One path, two endings. A drill stops after proving the recovered
 		// cluster answers; a restore goes on to put it in service.

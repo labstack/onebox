@@ -274,7 +274,7 @@ type BackupTarget struct {
 	Bucket        string              `json:"bucket,omitempty" description:"Existing destination bucket used by this target." example:"onebox-backups"`
 	Prefix        string              `json:"prefix,omitempty" description:"Non-secret object prefix reserved for Onebox protection data." example:"production/shop"`
 	Region        string              `json:"region,omitempty" description:"S3-compatible region when the endpoint requires one." example:"us-east-1"`
-	TLS           string              `json:"tls" description:"TLS verification policy: required or insecure." default:"required"`
+	TLS           string              `json:"tls" description:"Transport policy: verify, or skip-verify to accept a plaintext http endpoint." default:"verify"`
 	FailureDomain FailureDomain       `json:"failure_domain" description:"Operator-declared identity used to prove the destination does not share the protected host."`
 	Credentials   CredentialReference `json:"credentials" description:"Trusted encrypted-file entries containing destination credentials; values never appear in the project."`
 	Encryption    TargetEncryption    `json:"encryption" description:"Required encryption mode for each recovery kind this target may store."`

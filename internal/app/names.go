@@ -203,7 +203,13 @@ func (n Names) ProtectionRestoreVolume(service string) string {
 // stopped, and the only trace was a line in the deploy output saying the
 // schedule was "no longer declared".
 func (n Names) ProtectionTimerForEnvironment(environment, service, operation string) string {
-	return ProtectionUnitPrefix + n.App + "-" + environment + "-" + service + "-" + operation + ".timer"
+	return n.ProtectionUnitForEnvironment(environment, service, operation) + ".timer"
+}
+
+// ProtectionUnitForEnvironment is the systemd unit name without its suffix, so
+// the .service and .timer that pair together cannot be spelled differently.
+func (n Names) ProtectionUnitForEnvironment(environment, service, operation string) string {
+	return ProtectionUnitPrefix + n.App + "-" + environment + "-" + service + "-" + operation
 }
 
 // ProtectionUnitPrefix is the systemd namespace protection owns outright.

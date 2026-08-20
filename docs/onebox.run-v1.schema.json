@@ -1039,7 +1039,7 @@
           "properties": {
             "pull": {
               "default": "missing",
-              "description": "Image pull policy: missing, always, or never.",
+              "description": "When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image.",
               "enum": [
                 "always",
                 "missing",
@@ -2111,7 +2111,7 @@
                 "properties": {
                   "pull": {
                     "default": "missing",
-                    "description": "Image pull policy: missing, always, or never.",
+                    "description": "When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image.",
                     "enum": [
                       "always",
                       "missing",

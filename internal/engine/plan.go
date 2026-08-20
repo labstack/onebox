@@ -494,7 +494,12 @@ func (e *Engine) Describe(remoteCompose string) []string {
 			head += fmt.Sprintf(", %d replicas → %s..%s", n, slots[0], slots[len(slots)-1])
 		}
 		out = append(out, head+"):")
-		out = append(out, "  "+cc+" pull --quiet "+svc)
+		// The plan shows the pull only when the release will actually run one,
+		// because a plan listing a command that does not happen is a plan
+		// nobody can check against.
+		if line := e.plannedPullLine(svc, cc); line != "" {
+			out = append(out, line)
+		}
 		if role.Mode() == "rolling" {
 			step := "  per replica: "
 			out = append(out,

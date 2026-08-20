@@ -97,10 +97,8 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 		// surge one new replica if we still need more of the new release
 		if len(news) < desired {
 			if !pulled {
-				if res, err := e.mutate(ctx, cc+" pull --quiet "+svc); err != nil {
+				if err := e.pullBeforeRelease(ctx, svc, cc); err != nil {
 					return err
-				} else if res.ExitCode != 0 {
-					return fmt.Errorf("pull %s: %s", svc, res.Stderr)
 				}
 				pulled = true
 			}
@@ -368,4 +366,71 @@ func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interv
 		}
 		e.Opts.Sleep(interval)
 	}
+}
+
+// pullPolicyFor is the workload's declared `image.pull`, defaulted by the
+// loader to "missing".
+func (e *Engine) pullPolicyFor(roleName string) string {
+	if e.Spec == nil || e.Spec.Spec == nil {
+		return "missing"
+	}
+	role, ok := e.Spec.Workloads[roleName]
+	if !ok || role.Image == nil || role.Image.Pull == "" {
+		return "missing"
+	}
+	return role.Image.Pull
+}
+
+// pullBeforeRelease fetches the workload image unless it does not need
+// fetching.
+//
+// `image.pull` was a schema key the loader defaulted, validation checked and
+// the reference documented — and nothing read. Every release ran
+// `docker compose pull` for every workload on every deploy, including for an
+// image already pinned by digest and already on the host, which is a request to
+// the registry that cannot change the outcome. A rate-limited registry then
+// failed a deploy that had nothing to fetch, and a project declaring
+// `pull: never` was pulled from anyway.
+//
+// always: fetch. never: do not, and let the release fail on a missing image
+// rather than reaching out. missing (the default): fetch only what the host
+// does not already hold, which for a digest-pinned image is an exact answer.
+func (e *Engine) pullBeforeRelease(ctx context.Context, roleName, composeCommand string) error {
+	policy := e.pullPolicyFor(roleName)
+	if policy == "never" {
+		return nil
+	}
+	// A nil Compose means nothing has been rendered to compare against, so the
+	// only safe answer is to pull.
+	if policy == "missing" && e.Compose != nil {
+		service, ok := e.Compose.Services[roleName]
+		if ok && containsDigest(service.Image) {
+			held, err := e.imagePresentByDigest(ctx, service.Image)
+			if err != nil {
+				return err
+			}
+			if held {
+				return nil
+			}
+		}
+	}
+	res, err := e.mutate(ctx, composeCommand+" pull --quiet "+roleName)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("pull %s: %s", roleName, res.Stderr)
+	}
+	return nil
+}
+
+// plannedPullLine is what pullBeforeRelease will do, for the plan preview. It
+// answers from the plan's own resolved images rather than probing the host: the
+// plan is already bound to those digests, and a preview that reached out would
+// be doing the work it is describing.
+func (e *Engine) plannedPullLine(roleName, composeCommand string) string {
+	if e.pullPolicyFor(roleName) == "never" {
+		return ""
+	}
+	return "  " + composeCommand + " pull --quiet " + roleName
 }

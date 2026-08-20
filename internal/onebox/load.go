@@ -166,13 +166,25 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 		}
 		runtime := state.RuntimeState()
 		if runtime.ServiceImage != "" {
-			runtime.DigestAvailable, err = engine.ServiceImageDigestAvailable(ctx, target, runtime.ServiceImage)
-			if err != nil {
-				return nil, fmt.Errorf("observe service %s registry image: %w", service, err)
-			}
+			// Local cache first, registry only if it misses.
+			//
+			// The single consumer of these two flags accepts either one, so a
+			// host that already holds the exact digest has its answer without
+			// leaving the machine. Asking the registry first put a
+			// `docker manifest inspect` against Docker Hub on the front of every
+			// command that loads a project with a protected service — validate,
+			// plan, status, backup, all of them — for a digest that is immutable
+			// and already present. On a rate-limited host that turned every
+			// command into a failure with nothing to fetch.
 			runtime.CacheVerified, err = engine.ExactServiceImageCached(ctx, target, runtime.ServiceImage)
 			if err != nil {
 				return nil, fmt.Errorf("observe service %s cached image: %w", service, err)
+			}
+			if !runtime.CacheVerified {
+				runtime.DigestAvailable, err = engine.ServiceImageDigestAvailable(ctx, target, runtime.ServiceImage)
+				if err != nil {
+					return nil, fmt.Errorf("observe service %s registry image: %w", service, err)
+				}
 			}
 		}
 		states[service] = runtime

@@ -168,7 +168,7 @@ type Build struct {
 
 type Image struct {
 	Reference string `json:"reference" description:"Complete container image reference, optionally tagged or digest-pinned." example:"ghcr.io/acme/shop:1.4.0"`
-	Pull      string `json:"pull" description:"Image pull policy: missing, always, or never." default:"missing"`
+	Pull      string `json:"pull" description:"When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image." default:"missing"`
 }
 
 type Route struct {

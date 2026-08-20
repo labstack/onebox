@@ -1,11 +1,18 @@
 # Publishing the documentation site.
 #
-# It used to have no publication at all. The pages were generated, committed,
-# gate-checked on every pull request — and then never left the repository: the
-# live site was serving a schema that had been renamed weeks earlier, a
-# capability page describing a drill that by then existed, and a 404 for the
-# backup guide. Documentation that is verified and unpublished is documentation
-# nobody reads.
+# onebox.run is a Cloudflare Pages project that was published by hand — the
+# project lists no git provider — and the pages had drifted a long way behind
+# the binary they describe: the live reference named `protection`,
+# `minimum_generations` and `recovery_window`, keys the binary now rejects; it
+# listed seventeen error codes that had been deleted; the capability page said
+# no service could prove a backup would restore, months after drills became
+# executable; and the backup guide was a 404. Generated, committed and
+# gate-checked documentation that reaches nobody is documentation nobody reads,
+# and a published page describing a schema the binary refuses is worse than no
+# page at all.
+#
+# Publication is therefore something the repository does, not something someone
+# remembers to do.
 #
 # It deploys from main rather than from a release tag. The generated reference
 # is regenerated from the binary at HEAD and committed alongside it, so main is
@@ -35,7 +42,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v5.0.0
@@ -76,19 +83,17 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
-        with:
-          path: site/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+      # A branch name reaches Cloudflare as the deployment's branch, and the
+      # project treats one branch as production. main is what this workflow
+      # runs on, so the deployment is a production one by construction rather
+      # than by a flag somebody could forget.
+      - name: Publish
+        working-directory: site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4.123.0 pages deploy dist \
+            --project-name onebox \
+            --branch main \
+            --commit-hash "${GITHUB_SHA}"

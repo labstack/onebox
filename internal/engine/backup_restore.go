@@ -262,6 +262,23 @@ func (e *Engine) replayRecovery(ctx context.Context, container, targetTime strin
 	settings := []string{
 		"restore_command = '" + app.WalgBinary + " wal-fetch %f %p'",
 		"recovery_target_action = 'promote'",
+		// Every recovery target is cleared before this run states its own,
+		// because the base backup may carry one. A promoted cluster keeps the
+		// settings that recovered it in postgresql.conf, so every base backup
+		// taken after a point-in-time restore contains that restore's target —
+		// and a later recovery that asks for the newest point inherits a target
+		// in the past and dies with "recovery ended before configured recovery
+		// target was reached". Found by drilling a repository that had been
+		// restored from once; the drill had passed before the restore.
+		//
+		// Last assignment wins in postgresql.conf, so clearing here and setting
+		// below makes this run's target the only one in effect whatever the
+		// backup carried.
+		"recovery_target = ''",
+		"recovery_target_time = ''",
+		"recovery_target_name = ''",
+		"recovery_target_xid = ''",
+		"recovery_target_lsn = ''",
 	}
 	if targetTime != "" {
 		// PostgreSQL wants a timestamptz literal here, not RFC 3339: it refuses
@@ -276,6 +293,10 @@ func (e *Engine) replayRecovery(ctx context.Context, container, targetTime strin
 		}
 		settings = append(settings, "recovery_target_time = '"+parsed.UTC().Format("2006-01-02 15:04:05.999999-07:00")+"'")
 	}
+	// Fenced by markers so promotion can take it back out again: see
+	// stripRecoveryConfiguration.
+	settings = append([]string{recoveryBlockStart}, settings...)
+	settings = append(settings, recoveryBlockEnd)
 	write := "docker exec -u postgres " + q(container) + " sh -c " +
 		q("printf '%s\\n' "+shellQuoteAll(settings)+" >> "+app.PgDataPath+"/postgresql.conf && touch "+app.PgDataPath+"/recovery.signal")
 	res, err := e.T.Run(ctx, write)
@@ -387,6 +408,10 @@ func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container,
 	}
 	st(nil)
 
+	if err := e.stripRecoveryConfiguration(ctx, container); err != nil {
+		return "", err
+	}
+
 	// The live volume is copied aside while it is still intact. Only after that
 	// copy exists does anything destructive happen.
 	st = e.ui.Step("recovery: copy the data being replaced aside", false)
@@ -496,4 +521,39 @@ func recoveryPromotionFailure(err error, kept, staging string) error {
 			"Nothing was lost: the data being replaced is in volume %s and the recovered data is in %s. "+
 			"Restore either into the service volume by hand, or re-run the restore once the cause is fixed",
 		err, kept, staging)
+}
+
+const (
+	recoveryBlockStart = "# BEGIN onebox recovery — removed when the cluster is promoted"
+	recoveryBlockEnd   = "# END onebox recovery"
+)
+
+// stripRecoveryConfiguration takes onebox's recovery settings back out of the
+// cluster that is about to go into service.
+//
+// A promoted cluster that keeps them is not broken today — PostgreSQL ignores
+// recovery settings without a recovery.signal — but every base backup taken
+// from it carries them, so the next recovery from those backups inherits this
+// restore's target and refuses to start. That is a failure the operator meets
+// during a real recovery, caused by the previous one.
+func (e *Engine) stripRecoveryConfiguration(ctx context.Context, container string) error {
+	conf := app.PgDataPath + "/postgresql.conf"
+	strip := "docker exec -u postgres " + q(container) + " sh -c " +
+		q("sed -i '/^"+sedLiteral(recoveryBlockStart)+"$/,/^"+sedLiteral(recoveryBlockEnd)+"$/d' "+conf)
+	res, err := e.T.Run(ctx, strip)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("cannot remove the recovery configuration from the promoted cluster: %s", lastLines(res.Stderr, 3))
+	}
+	return nil
+}
+
+// sedLiteral escapes the characters sed reads as syntax inside an address. The
+// markers are fixed strings in this file, so this is a guard against editing
+// them into something sed would misread rather than against hostile input.
+func sedLiteral(text string) string {
+	replacer := strings.NewReplacer("\\", "\\\\", "/", "\\/", ".", "\\.", "*", "\\*", "[", "\\[", "]", "\\]", "^", "\\^", "$", "\\$")
+	return replacer.Replace(text)
 }

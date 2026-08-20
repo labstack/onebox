@@ -1,6 +1,15 @@
 package engine
 
-import "testing"
+import (
+	"context"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/transport"
+)
 
 // A tag must always resolve through the registry, because a tag can move. A
 // digest must not: it is immutable, so a second pull cannot return different
@@ -26,4 +35,82 @@ func TestOnlyDigestPinnedReferencesSkipTheRegistry(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A service that is already bound to a repository keeps the exact bytes it was
+// bound with. Re-running enable — after a policy edit, or after a disable
+// somebody changed their mind about — must not re-resolve the tag: the bytes
+// would move under a live data directory the moment upstream published a patch,
+// and the command would need a registry it has no reason to need. Both showed
+// up the same way in a live run: `ob backup enable` on an already-enabled
+// service failed on a Docker Hub 429 while the host held the pinned image.
+func TestReEnableKeepsTheRecordedPinAndDoesNotReachTheRegistry(t *testing.T) {
+	const pin = "postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
+	fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker image inspect") && strings.Contains(cmd, pin) {
+			return transport.Result{Stdout: "present\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := protectedImageTestEngine(fake)
+
+	// Recorded as the authored reference, which is what an enable after a
+	// disable still declares even though the runtime selection has reverted.
+	got, err := e.ResolveProtectedImage(context.Background(), "database", pin, "postgres:18")
+	if err != nil {
+		t.Fatalf("resolving an already-bound image: %v", err)
+	}
+	if got != pin {
+		t.Fatalf("resolved %q, want the recorded pin %q", got, pin)
+	}
+	for _, cmd := range fake.Commands {
+		if strings.Contains(cmd, "docker pull") {
+			t.Fatalf("pulled while holding the recorded pin: %s", cmd)
+		}
+	}
+}
+
+// The pin is only reusable while the project still declares the reference that
+// produced it. Changing the declared version is how an operator asks for
+// different bytes, and that has to reach the registry.
+func TestADeclaredVersionChangeStillResolvesThroughTheRegistry(t *testing.T) {
+	const stalePin = "postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
+	fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker pull"):
+			return transport.Result{}, true
+		case strings.Contains(cmd, "RepoDigests"):
+			return transport.Result{Stdout: "postgres@sha256:" + strings.Repeat("b", 64) + "\n"}, true
+		}
+		return transport.Result{Stdout: "absent\n"}, true
+	}}
+	e := protectedImageTestEngine(fake)
+
+	// Recorded against postgres:17; the project now declares 18.
+	got, err := e.ResolveProtectedImage(context.Background(), "database", stalePin, "postgres:17")
+	if err != nil {
+		t.Fatalf("resolving after a declared version change: %v", err)
+	}
+	if got == stalePin {
+		t.Fatal("kept the pin recorded for a reference the project no longer declares")
+	}
+	pulled := false
+	for _, cmd := range fake.Commands {
+		if strings.Contains(cmd, "docker pull") {
+			pulled = true
+		}
+	}
+	if !pulled {
+		t.Fatal("a changed declared reference resolved without reaching the registry")
+	}
+}
+
+func protectedImageTestEngine(fake *transport.Fake) *Engine {
+	spec := &app.Spec{
+		Name:     "shop",
+		BasePath: "/var/lib/ob",
+		Services: map[string]app.Service{"database": {Driver: "postgres", Version: "18"}},
+	}
+	resolved := &app.Resolved{Spec: spec, Env: "production"}
+	return New(resolved, nil, fake, Options{Out: io.Discard, Sleep: func(time.Duration) {}})
 }

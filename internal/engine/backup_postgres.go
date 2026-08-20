@@ -255,12 +255,40 @@ func (e *Engine) RebindServiceRuntimeStates(states map[string]app.ServiceRuntime
 // protected image selection is durable state has nothing to do with which image
 // it is: the bytes running over a live data directory must not change because a
 // tag moved.
-func (e *Engine) ResolveProtectedImage(ctx context.Context, service string) (string, error) {
+// recordedPin and recordedReference come from the service's lifecycle record:
+// the digest it was last bound with, and the reference that produced it. When
+// the project still declares that same reference and the host still holds those
+// bytes, they are what the service keeps running. Re-resolving a tag here would
+// mean a re-enable — after a policy edit, or after a disable somebody changed
+// their mind about — could move the bytes running over a live data directory
+// because the tag moved in the meantime, which is the exact thing pinning
+// exists to prevent. It also made re-enable need the registry on a host that
+// already had everything it needed, so a rate-limited Docker Hub failed a
+// command that had nothing to fetch.
+//
+// Moving a protected service to a new image is a deliberate act with its own
+// path; it is not a side effect of re-running enable.
+func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin, recordedReference string) (string, error) {
 	reference, err := e.Spec.ServiceImageForRuntime(service)
 	if err != nil {
 		return "", err
 	}
+	declared, err := e.Spec.DeclaredServiceImage(service)
+	if err != nil {
+		return "", err
+	}
 	st := e.ui.Step("protected image "+reference.Image, false)
+	if recordedPin != "" && recordedReference == declared && containsDigest(recordedPin) {
+		held, err := e.imagePresentByDigest(ctx, recordedPin)
+		if err != nil {
+			st(err)
+			return "", err
+		}
+		if held {
+			st(nil)
+			return recordedPin, nil
+		}
+	}
 	// A digest already on the host is not pulled again. The reference is
 	// immutable by construction, so a second pull cannot return different bytes
 	// — it only spends registry quota and turns a re-enable into a failure on a

@@ -66,15 +66,16 @@ type Record struct {
 	MigrationBackupRequired bool                     `json:"migration_backup_required,omitempty"`
 	MigrationBackup         *MigrationBackupEvidence `json:"migration_backup,omitempty"`
 	JobResult               *JobResultEvidence       `json:"job_result,omitempty"`
-	// Backup fields share the host-synced operation journal.
-	OperationKind       string                `json:"operation_kind,omitempty"`
-	Service             string                `json:"service,omitempty"`
-	BackupStepID        string                `json:"backup_step_id,omitempty"`
-	BackupAttempt       int                   `json:"backup_attempt,omitempty"`
-	IncompleteResources []IncompleteResource  `json:"incomplete_resources,omitempty"`
-	Retry               *RetryClassification  `json:"retry,omitempty"`
-	HelperProvenance    *HelperProvenance     `json:"helper_provenance,omitempty"`
-	TerminalResult      *BackupTerminalResult `json:"terminal_result,omitempty"`
+	// Backup operations share the host-synced operation journal.
+	//
+	// They carry the same fields every other operation does. A parallel set —
+	// step ids, attempt counters, retry classifications, incomplete-resource
+	// inventories, helper provenance and terminal-result records, with their own
+	// append and lookup path — was written for them and never used by anything
+	// that runs. It described a retry and resumption model the backup commands
+	// do not have.
+	OperationKind string `json:"operation_kind,omitempty"`
+	Service       string `json:"service,omitempty"`
 	// Exec invocation evidence is intentionally value-free: command bytes and
 	// passthrough output never cross the durable journal boundary.
 	Target        string `json:"target,omitempty"`

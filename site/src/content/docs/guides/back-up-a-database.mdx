@@ -53,6 +53,7 @@ $ ob backup enable database
 ✓ backup runtime wal-g v3.0.8 (aarch64)
 ✓ service database
 → backup schedule: ob-backup-shop-production-database-backup at 0 2 * * *
+→ backup schedule: ob-backup-shop-production-database-verify at 0 4 * * *
 ✓ backup database
 ```
 
@@ -95,6 +96,70 @@ generations, or enough of them to span the window at your schedule's rate:
 
 `ob backup prune` prints the number it is using before it costs you storage.
 
+## What the repository can recover
+
+Every figure comes from the repository, not from the project — and the policy is
+printed beside it, because "is my promise being kept" is the question you came
+with.
+
+```console
+$ ob backup status database
+service     database
+repository  s3://onebox-backups/shop_database
+recoverable to  2026-08-19T17:31:44Z or later, as far as the archived WAL reaches
+history         2026-08-12T02:00:11Z onwards; declared window 7d: covers the declared window
+data loss       at most 15m declared; the write-ahead log is archived continuously and every drift in that is listed above
+
+BACKUP                         COMPLETED             FROM WAL
+base_000000010000000000000007  2026-08-19T02:00:09Z  000000010000000000000007
+```
+
+A repository younger than its window says so rather than implying otherwise:
+`shorter than the declared window — this repository does not reach that far back
+yet`. That is not a fault on a service enabled this morning, but it is not the
+promise either, and only the report can tell you which one you are looking at.
+
+Status also asks the server whether it is still archiving. A correct wal-g
+binary on the host says the tooling is in place; it says nothing about
+`archive_mode` still being on or `archive_command` still being the one Onebox
+installed. Anything that drifted is printed as a `drift` line above the figures.
+
+## The archive check
+
+A base backup plus a gapped WAL stream recovers to the backup and no further —
+a nightly snapshot wearing the label of point-in-time recovery. `ob backup
+verify` is the check for that, and the timer from `drill.schedule` runs the same
+one unattended.
+
+```console
+$ ob backup verify database
+✓ verify database archive
+```
+
+A repository with a hole in it fails and names the range:
+
+```console
+$ ob backup verify database
+✗ ob: the archived WAL has 1 gap(s) — 00000001000000000000002B..00000001000000000000002B missing_lost. A base backup plus a gapped WAL stream recovers to the backup and no further, so any point after the first gap is not recoverable
+```
+
+A segment the server may still be uploading is not counted as a gap; it resolves
+itself and is reported on the next run if it does not.
+
+## Moving the repository
+
+Editing a target's bucket or endpoint, or pointing the service at a different
+target, takes effect at the next `ob backup enable` — and Onebox says what that
+means:
+
+```console
+→ database now archives to backup target "s3://elsewhere/shop_database". What "s3://onebox-backups/shop_database" holds is untouched, but this repository starts from the backup being taken now, so the declared recovery window begins here
+```
+
+Everything else — a restore, a drill, status, retention — keeps reading the
+repository the service was actually bound to, so editing a target cannot
+silently point a recovery at a repository the history is not in.
+
 ## Prove it restores
 
 ```console
@@ -102,7 +167,7 @@ $ ob backup drill database
 ✓ recovery: fetch base backup
 ✓ recovery: replay to the newest recoverable point
 ✓ recovery: verify the recovered cluster answers
-✓ drill passed: database recovered from base_000000010000000000000007 and answered. Nothing was changed.
+✓ drill passed: database recovered to the newest recoverable point from base_000000010000000000000007 and answered (4 tables in public schema). Nothing was changed.
 ```
 
 A drill recovers into a throwaway volume, proves the cluster opens and answers a
@@ -133,7 +198,11 @@ The service name is typed back with `--confirm` because a recovery has no plan
 for the approval flow to bind to, so the guard is the name of the thing being
 replaced.
 
-Without `--to`, recovery goes to the newest recoverable point.
+Without `--to`, recovery goes to the newest recoverable point. With `--to`,
+Onebox picks the newest base backup that finished at or before your point —
+replay only moves forward, so a later base can never reach an earlier moment. A
+point older than everything in the repository is refused, and the refusal tells
+you when the oldest backup finished.
 
 ## Stopping
 

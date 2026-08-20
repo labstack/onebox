@@ -112,7 +112,20 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 		return err
 	}
 
-	image, err := e.ResolveProtectedImage(ctx, service)
+	// Read before resolving: a service that is already bound keeps the exact
+	// bytes it was bound with, and this is where that record comes from.
+	recorded, err := currentBackupLifecycleState(ctx, e, resolved.Spec.Name, environment, service)
+	if err != nil {
+		return err
+	}
+	image, err := e.ResolveProtectedImage(ctx, service, recorded.ServiceImage, recorded.ServiceImageReference)
+	if err != nil {
+		return err
+	}
+	// The authored reference, not the runtime one: the runtime selection is the
+	// pinned digest while the service is protected and the tag once it is not,
+	// so recording it would never match on the next enable.
+	declaredImage, err := resolved.DeclaredServiceImage(service)
 	if err != nil {
 		return err
 	}
@@ -151,7 +164,7 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	// discarded the freshly pinned image and the new projection, so the service
 	// went on archiving to the original repository with no command able to
 	// change it — while the edited project sat there looking applied.
-	next, err := rebindBackup(current, projection, image, operationID)
+	next, err := rebindBackup(current, projection, image, declaredImage, operationID)
 	if err != nil {
 		return err
 	}
@@ -222,11 +235,20 @@ func currentBackupLifecycleState(ctx context.Context, e *engine.Engine, applicat
 // never-enabled first, because EnableBackup is the single place that
 // decides what an enabled record contains and it refuses to transition from
 // enabled — the alternative is a second, divergent copy of that logic.
-func rebindBackup(current BackupLifecycleState, projection app.BackupEffectiveProjection, image, operationID string) (BackupLifecycleState, error) {
+func rebindBackup(current BackupLifecycleState, projection app.BackupEffectiveProjection, image, imageReference, operationID string) (BackupLifecycleState, error) {
 	source := current
 	if current.State == BackupEnabled {
 		source.State = BackupDisabled
 		source.Phase = BackupPhaseIdle
+		// Resealed, because EnableBackup validates what it is handed and the
+		// digest covers the two fields just changed. Without this, re-running
+		// enable on an already-enabled service — the documented way to move a
+		// service to an edited policy or target — failed every time with
+		// "backup lifecycle state digest mismatch", against a record that was
+		// perfectly intact on the host.
+		if err := source.Seal(); err != nil {
+			return BackupLifecycleState{}, err
+		}
 	}
-	return EnableBackup(source, projection, image, operationID, true, current.Epoch+1)
+	return EnableBackup(source, projection, image, imageReference, operationID, true, current.Epoch+1)
 }

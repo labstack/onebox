@@ -34,7 +34,7 @@ func protectedRuntimeState(t *testing.T, image string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := EnableBackup(initial, backupStateProjection(), image, "enable-op", true, 2)
+	state, err := EnableBackup(initial, backupStateProjection(), image, "postgres:18", "enable-op", true, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -128,6 +128,28 @@ func (r *Resolved) selectServiceImage(serviceName, tagImage string) (ServiceImag
 	return ServiceImageSelection{Image: selected, RetainedImages: retained, Origin: OriginObserved}, nil
 }
 
+// DeclaredServiceImage is the reference the project authored — the driver's
+// repository at the declared version — with no regard for what the host is
+// running. It is deliberately not ServiceImageForRuntime: that one answers with
+// the pinned digest while a service is protected and with the tag once it is
+// not, so it cannot be used to recognise "the same image the operator asked
+// for" across an enable/disable cycle. This can.
+func (r *Resolved) DeclaredServiceImage(serviceName string) (string, error) {
+	service, ok := r.Services[serviceName]
+	if !ok {
+		return "", errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
+	}
+	driverName := service.Driver
+	if driverName == "" {
+		driverName = serviceName
+	}
+	driver, ok := drivers[driverName]
+	if !ok {
+		return "", errf("unknown_service_driver", "services."+serviceName, "ob validate", "no managed driver named %q", driverName)
+	}
+	return driver.image + ":" + versionString(service.Version), nil
+}
+
 // ServiceImageForRuntime exposes the same selection used by generation so
 // planners, cache checks, and pruning all retain identical immutable roots.
 func (r *Resolved) ServiceImageForRuntime(serviceName string) (ServiceImageSelection, error) {

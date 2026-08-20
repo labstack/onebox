@@ -37,7 +37,7 @@ func pendingBackupState(t *testing.T) BackupLifecycleState {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled, err := EnableBackup(state, backupStateProjection(), "postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "op-1", true, 2)
+	enabled, err := EnableBackup(state, backupStateProjection(), "postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "postgres:18", "op-1", true, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,11 +153,39 @@ func TestRuntimeStateDoesNotInferImageEvidenceFromReference(t *testing.T) {
 func TestEnableReconvergesFromAHalfFinishedDisable(t *testing.T) {
 	pending := pendingBackupState(t)
 	enabled, err := EnableBackup(pending, backupStateProjection(),
-		"postgres@sha256:"+strings.Repeat("a", 64), "op-3", true, pending.Epoch+1)
+		"postgres@sha256:"+strings.Repeat("a", 64), "postgres:18", "op-3", true, pending.Epoch+1)
 	if err != nil {
 		t.Fatalf("re-enabling a pending disablement: %v", err)
 	}
 	if enabled.State != BackupEnabled || !enabled.PrerequisiteEffective {
 		t.Fatalf("re-enabled state = %#v", enabled)
+	}
+}
+
+// Re-running enable on a service that is already enabled is the documented way
+// to move it to an edited policy or target. It was refusing every time: the
+// transition to a disabled source mutated two sealed fields and handed the
+// record on without resealing, so the digest no longer described its contents
+// and enablement failed against a record that was intact on the host.
+func TestReEnablingAnEnabledServiceIsNotRefusedAsCorruptState(t *testing.T) {
+	fresh, err := NewBackupLifecycleState("shop", "production", "database", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := "postgres@sha256:" + strings.Repeat("a", 64)
+	enabled, err := EnableBackup(fresh, backupStateProjection(), pin, "postgres:18", "op-1", true, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := rebindBackup(enabled, backupStateProjection(), pin, "postgres:18", "op-2")
+	if err != nil {
+		t.Fatalf("re-enabling an enabled service: %v", err)
+	}
+	if again.State != BackupEnabled || again.Epoch != enabled.Epoch+1 {
+		t.Fatalf("re-enable produced state %q epoch %d", again.State, again.Epoch)
+	}
+	if err := again.Validate(); err != nil {
+		t.Fatalf("re-enabled record does not validate: %v", err)
 	}
 }

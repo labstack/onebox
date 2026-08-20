@@ -63,6 +63,7 @@ type BackupLifecycleState struct {
 	RequestedAt                     string                         `json:"requested_at,omitempty"`
 	ActionDeadline                  string                         `json:"action_deadline,omitempty"`
 	ServiceImage                    string                         `json:"service_image,omitempty"`
+	ServiceImageReference           string                         `json:"service_image_reference,omitempty"`
 	ServiceImagePublicationVerified bool                           `json:"service_image_publication_verified,omitempty"`
 	PrerequisiteEffective           bool                           `json:"prerequisite_effective"`
 	LocalSupportInstalled           bool                           `json:"local_support_installed"`
@@ -94,7 +95,7 @@ func NewBackupLifecycleState(application, environment, service string, epoch int
 	return state, nil
 }
 
-func EnableBackup(current BackupLifecycleState, projection app.BackupEffectiveProjection, serviceImage, operationID string, publicationVerified bool, nextEpoch int) (BackupLifecycleState, error) {
+func EnableBackup(current BackupLifecycleState, projection app.BackupEffectiveProjection, serviceImage, serviceImageReference, operationID string, publicationVerified bool, nextEpoch int) (BackupLifecycleState, error) {
 	if err := current.Validate(); err != nil {
 		return BackupLifecycleState{}, err
 	}
@@ -113,6 +114,9 @@ func EnableBackup(current BackupLifecycleState, projection app.BackupEffectivePr
 	next.State, next.Phase, next.Epoch = BackupEnabled, BackupPhaseIdle, nextEpoch
 	next.OperationID, next.DisablePlanDigest, next.RequestedAt, next.ActionDeadline = "", "", "", ""
 	next.ServiceImage, next.PrerequisiteEffective, next.LocalSupportInstalled = serviceImage, true, true
+	// The reference that produced the pin, so a later enable can tell "the same
+	// image, already held" from "the project now declares a different one".
+	next.ServiceImageReference = serviceImageReference
 	next.ServiceImagePublicationVerified = publicationVerified
 	next.LastEffective = cloneBackupProjection(&projection)
 	next.Schedules = effectiveBackupSchedules(projection, true)

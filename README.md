@@ -100,7 +100,8 @@ difference only surfaces when someone is already confused about which binary
 produced a result.
 
 `just install` is the deliberate step that copies it to `~/.local/bin` and
-prints what it will answer to; `just clean` removes both. `OB_BIN_DIR` changes
+prints what it will answer to; `just clean` removes the build and `just
+uninstall` the copy on PATH. `OB_BIN_DIR` changes
 where the build lands and `OB_INSTALL_DIR` where the install goes. Run `just
 --list` to see the available build, test, formatting, and check targets.
 

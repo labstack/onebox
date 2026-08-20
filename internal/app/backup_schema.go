@@ -57,24 +57,6 @@ func validateBackupTarget(target BackupTarget, path string) error {
 	return nil
 }
 
-// ValidateBackupTarget keeps lifecycle adapters on the same closed target
-// contract as project loading. Adapters receive already-resolved values, but
-// revalidate at their trust boundary rather than assuming every caller loaded
-// a complete project first.
-func ValidateBackupTarget(name string, target BackupTarget) error {
-	if err := gIdent.check("backup_targets."+name, name); err != nil {
-		return err
-	}
-	return validateBackupTarget(target, "backup_targets."+name)
-}
-
-// BackupTargetEncryptionMode returns the authored mode for one recovery kind.
-// An empty result is deliberately not a default: the lifecycle adapter must
-// refuse backup whose encryption evidence cannot be established.
-func BackupTargetEncryptionMode(target BackupTarget, recoveryKind string) string {
-	return encryptionFor(target.Encryption, recoveryKind)
-}
-
 func validateBackupEndpoint(endpoint, tls, path string) error {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {

@@ -189,3 +189,38 @@ func TestReEnablingAnEnabledServiceIsNotRefusedAsCorruptState(t *testing.T) {
 		t.Fatalf("re-enabled record does not validate: %v", err)
 	}
 }
+
+// A requested-but-unfinished disablement leaves the service archiving under a
+// record nobody has reconciled. Recovery into that state is refused with a code
+// that says which state it is, rather than proceeding.
+//
+// This guard used to live in a method (AllowOperation) that no production path
+// called: the failure code counted as reachable because an uncalled function
+// mentioned it. It is wired into executeRecovery now, and this is the test that
+// says so.
+func TestRecoveryIsRefusedWhileDisablementIsPending(t *testing.T) {
+	state, err := NewBackupLifecycleState("shop", "production", "database", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled, err := EnableBackup(state, backupStateProjection(),
+		"postgres@sha256:"+strings.Repeat("a", 64), "postgres:18", "op-1", true, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := BeginBackupDisable(enabled, "op-2", time.Now().UTC(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.State != BackupDisablePending {
+		t.Fatalf("state = %q, want disable-pending", pending.State)
+	}
+
+	failure, err := NewLifecycleFailure("backup_disable_pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure.Code != "backup_disable_pending" || failure.Message == "" {
+		t.Fatalf("refusal does not carry a usable code and message: %+v", failure)
+	}
+}

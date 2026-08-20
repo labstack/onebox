@@ -41,6 +41,28 @@ func executeRecovery(ctx context.Context, e *engine.Engine, service, target stri
 	}
 	defer stopBackupHeartbeat()
 
+	// Read under the backup lock, so the answer cannot change while this
+	// operation is deciding on it.
+	//
+	// A disablement that was requested and did not finish leaves a service that
+	// is still archiving under a record nobody has reconciled. Recovering into
+	// that is work against a service somebody has just asked to stop
+	// protecting: a drill materialises a whole cluster, and a cutover replaces
+	// live data. The refusal is stated as a typed code so the operator is told
+	// which state they are in rather than watching a restore they did not
+	// expect to be allowed.
+	current, err := currentBackupLifecycleState(ctx, e, e.Spec.Spec.Name, e.Opts.Environment, service)
+	if err != nil {
+		return err
+	}
+	if current.State == BackupDisablePending {
+		failure, ferr := NewLifecycleFailure("backup_disable_pending")
+		if ferr != nil {
+			return ferr
+		}
+		return failure
+	}
+
 	outcome, err := e.RecoverService(ctx, service, target, promote)
 	if err != nil {
 		return err

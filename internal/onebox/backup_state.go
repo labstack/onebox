@@ -128,35 +128,6 @@ func EnableBackup(current BackupLifecycleState, projection app.BackupEffectivePr
 	return next, nil
 }
 
-func (state BackupLifecycleState) AllowOperation(kind OperationKind, touchesProtectedService bool) error {
-	if err := state.Validate(); err != nil {
-		return err
-	}
-	if state.State != BackupDisablePending {
-		return nil
-	}
-	if kind == KindServiceImagePatch {
-		failure, _ := NewLifecycleFailure("service_image_patch_disable_pending")
-		return failure
-	}
-	if kind == KindRestoreTest || ((kind == KindDeploy || kind == KindServiceApply) && touchesProtectedService) {
-		failure, _ := NewLifecycleFailure("backup_disable_pending")
-		return failure
-	}
-	return nil
-}
-
-func (state BackupLifecycleState) ValidateRuntimeImage(candidate string) error {
-	if err := state.Validate(); err != nil {
-		return err
-	}
-	if state.State == BackupDisablePending && candidate != state.ServiceImage && state.Phase != BackupPhaseRuntimeReverted && state.Phase != BackupPhaseLocalSupportRemoved {
-		failure, _ := NewLifecycleFailure("backup_image_revert_unsafe")
-		return failure
-	}
-	return nil
-}
-
 func (state BackupLifecycleState) RuntimeState() app.ServiceRuntimeState {
 	return app.ServiceRuntimeState{
 		BackupState: string(state.State), ServiceImage: state.ServiceImage,
@@ -282,24 +253,6 @@ func (state BackupLifecycleState) computeDigest() (string, error) {
 	}
 	sum := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
-func SaveBackupLifecycleState(path string, state BackupLifecycleState) error {
-	if err := state.Validate(); err != nil {
-		return err
-	}
-	return saveBackupArtifact(path, ".backup-state-*", state)
-}
-
-func LoadBackupLifecycleState(path string) (BackupLifecycleState, error) {
-	var state BackupLifecycleState
-	if err := loadBackupArtifact(path, &state); err != nil {
-		return BackupLifecycleState{}, err
-	}
-	if err := state.Validate(); err != nil {
-		return BackupLifecycleState{}, err
-	}
-	return state, nil
 }
 
 // DecodeBackupLifecycleState validates target-observed state without

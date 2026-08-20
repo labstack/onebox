@@ -133,10 +133,6 @@ func (n Names) BackupCredentialFile(service, target string) string {
 	return path.Join(n.BackupSecretDir(), service+"-"+target+".env")
 }
 
-func (n Names) ActiveVolumeFile(service string) string {
-	return path.Join(n.AppDir(), "backup", "state", service+".active-volume.json")
-}
-
 // BackupLifecycleStateFile is the durable target-side source used before
 // rendering a managed service. It is separate from active-volume selection:
 // one binds lifecycle/image policy, the other binds the physical data volume.

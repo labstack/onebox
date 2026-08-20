@@ -818,7 +818,7 @@ func jsonString(s string) string {
 func renderErrorPage() string {
 	var buf bytes.Buffer
 
-	summary := "Every typed failure code in the contract: the loader's validation codes and the CLI and engine's operation codes, all of which are reachable, and the lifecycle failure contract, where a row marked reserved is one no path raises yet."
+	summary := "Every typed failure code in the contract: the loader's validation codes, the CLI and engine's operation codes, and the lifecycle failure contract. Every one of them is raised by a path in the shipped binary."
 
 	fmt.Fprintln(&buf, "---")
 	fmt.Fprintln(&buf, `title: Error codes`)

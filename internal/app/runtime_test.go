@@ -103,3 +103,28 @@ func TestTargetCarriesTheDeclaredPort(t *testing.T) {
 		})
 	}
 }
+
+// PostgreSQL reports a duration in its own spelling — "15min", "4h", "300s", or
+// a bare number meaning seconds — and a declared policy has to be comparable
+// with it. Reading "15min" as fifteen somethings-else is how a check says the
+// server is fine when it is not.
+func TestPostgresDurationsParseInTheirOwnSpelling(t *testing.T) {
+	for spelling, want := range map[string]time.Duration{
+		"15min": 15 * time.Minute,
+		"4h":    4 * time.Hour,
+		"300s":  300 * time.Second,
+		"900":   900 * time.Second,
+		"250ms": 250 * time.Millisecond,
+		"1d":    24 * time.Hour,
+	} {
+		got, ok := ParsePostgresDuration(spelling)
+		if !ok || got != want {
+			t.Errorf("ParsePostgresDuration(%q) = %v, %v; want %v", spelling, got, ok, want)
+		}
+	}
+	for _, refused := range []string{"", "soon", "min", "-5s", "15 minutes"} {
+		if _, ok := ParsePostgresDuration(refused); ok {
+			t.Errorf("ParsePostgresDuration(%q) was accepted", refused)
+		}
+	}
+}

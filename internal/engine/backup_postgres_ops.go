@@ -32,6 +32,19 @@ type BackupStatus struct {
 	RuntimeIssues []string           `json:"runtime_issues,omitempty"`
 	LatestBackup  *BackupGeneration  `json:"latest_backup,omitempty"`
 	RecoverableTo string             `json:"recoverable_to,omitempty"`
+	// The declared promise, carried alongside the facts so the report can be
+	// read against it. Reporting only what the repository holds left the
+	// operator to work out whether it satisfies the policy they wrote — which
+	// is the one question they came with.
+	DeclaredWindow      string `json:"declared_window,omitempty"`
+	DeclaredMaxDataLoss string `json:"declared_max_data_loss,omitempty"`
+	// OldestRecoverable is where the history starts: the completion of the
+	// oldest base backup still in the repository. Anything before it is gone.
+	OldestRecoverable string `json:"oldest_recoverable,omitempty"`
+	// WindowCovered is whether the history already reaches back as far as the
+	// declared window. A repository younger than its window is not a fault —
+	// but it is not the promise either, and only the report can say which.
+	WindowCovered bool `json:"window_covered"`
 }
 
 // backedUpService resolves a service to its policy and driver, refusing every
@@ -317,8 +330,10 @@ func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupSta
 		return BackupStatus{}, err
 	}
 	status := BackupStatus{
-		Service:    service,
-		Repository: app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service),
+		Service:             service,
+		Repository:          app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service),
+		DeclaredWindow:      projection.Policy.Retention.Window,
+		DeclaredMaxDataLoss: projection.Policy.MaxDataLoss,
 	}
 
 	issues, err := e.VerifyBackupRuntime(ctx, service)
@@ -380,6 +395,11 @@ func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupSta
 		latest := status.Generations[len(status.Generations)-1]
 		status.LatestBackup = &latest
 		status.RecoverableTo = time.Unix(latest.StoppedAt, 0).UTC().Format(time.RFC3339)
+		oldest := time.Unix(status.Generations[0].StoppedAt, 0).UTC()
+		status.OldestRecoverable = oldest.Format(time.RFC3339)
+		if window, ok := app.ParseDuration(projection.Policy.Retention.Window); ok && window > 0 {
+			status.WindowCovered = !e.Opts.Now().UTC().Add(-window).Before(oldest)
+		}
 	}
 	return status, nil
 }

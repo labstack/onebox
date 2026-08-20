@@ -233,7 +233,24 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 				fmt.Fprintln(out, "\nno recoverable base backup yet")
 				return nil
 			}
-			fmt.Fprintf(out, "recoverable to  %s or later, as far as the archived WAL reaches\n\n", status.RecoverableTo)
+			fmt.Fprintf(out, "recoverable to  %s or later, as far as the archived WAL reaches\n", status.RecoverableTo)
+			// The declared window beside what the repository actually holds. A
+			// report that states only the second leaves the reader to work out
+			// whether their policy is being kept, which is the question they
+			// came with.
+			if status.DeclaredWindow != "" && status.OldestRecoverable != "" {
+				reach := "covers the declared window"
+				if !status.WindowCovered {
+					reach = "shorter than the declared window — this repository does not reach that far back yet"
+				}
+				fmt.Fprintf(out, "history         %s onwards; declared window %s: %s\n",
+					status.OldestRecoverable, status.DeclaredWindow, reach)
+			}
+			if status.DeclaredMaxDataLoss != "" {
+				fmt.Fprintf(out, "data loss       at most %s declared; the write-ahead log is archived continuously and every drift in that is listed above\n",
+					status.DeclaredMaxDataLoss)
+			}
+			fmt.Fprintln(out)
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "BACKUP\tCOMPLETED\tFROM WAL")
 			for _, generation := range status.Generations {

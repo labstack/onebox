@@ -61,7 +61,11 @@ func TestBackupIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 	}
 }
 
-func TestSingleNodeMinIOColdIntentLoads(t *testing.T) {
+// minio was accepted with a backup policy and then refused at
+// `ob backup enable`, because postgres is the only driver whose contract runs.
+// The refusal belongs at the point the policy is written, so this is now the
+// same rejection every other unqualified driver gets.
+func TestMinIOBackupIntentIsRefusedUntilItsContractRuns(t *testing.T) {
 	project := `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: deploy@app.example.net}}
@@ -79,8 +83,12 @@ services:
     version: RELEASE.2026-07-31T00-00-00Z
     backup: {target: offsite, recovery_kind: cold, max_data_loss: 24h, allow_downtime: true}
 `
-	if _, err := LoadBytes([]byte(project), "ob.yml"); err != nil {
-		t.Fatal(err)
+	_, err := LoadBytes([]byte(project), "ob.yml")
+	if err == nil {
+		t.Fatal("a minio backup policy was accepted, but no driver except postgres can establish one")
+	}
+	if !strings.Contains(err.Error(), "backup_driver_unsupported") {
+		t.Fatalf("refusal is not the unqualified-driver one: %v", err)
 	}
 }
 

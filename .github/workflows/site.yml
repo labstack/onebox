@@ -91,7 +91,11 @@ jobs:
         working-directory: site
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # An account id is an identifier, not a credential — it is what sits in
+          # a committed wrangler.toml on every project that has one. Keeping it
+          # here rather than in a secret leaves exactly one secret to install,
+          # and makes it obvious which account this publishes to.
+          CLOUDFLARE_ACCOUNT_ID: e6379d37f788129207ab5f566abfb4ff
         run: |
           npx --yes wrangler@4.123.0 pages deploy dist \
             --project-name onebox \

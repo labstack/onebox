@@ -1,11 +1,17 @@
-# Build the CLI into a user-local directory on PATH.
+# Build the CLI into the checkout.
 default: build
 
-# Build the ob binary.
+# Build the ob binary into ./bin, which is not on PATH.
+#
+# It used to build straight into ~/.local/bin, which put a checkout build in
+# front of whatever `ob` the machine had installed — so `ob` meant the working
+# tree rather than the release, and `ob doctor` reported the mismatch as a stale
+# PATH candidate on every run. Shipping a binary onto PATH is a decision, not a
+# side effect of compiling, so it now belongs to `just install`.
 build:
     #!/bin/bash
     set -euo pipefail
-    ob_build_dir="${OB_BIN_DIR:-${HOME}/.local/bin}"
+    ob_build_dir="${OB_BIN_DIR:-bin}"
     ob_build_version="${OB_VERSION:-}"
     if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
       echo "OB_VERSION must match vYYYY.M.REVISION" >&2; exit 1
@@ -20,8 +26,17 @@ build:
     go build -ldflags "-X github.com/labstack/onebox/internal/buildinfo.release=${ob_build_version} -X github.com/labstack/onebox/internal/buildinfo.buildTime=${ob_build_time}" -o "${ob_build_dir}/ob" ./cmd/ob
     echo "built ${ob_build_dir}/ob"
 
-# Install the ob binary (alias for build).
+# Put the built binary on PATH, deliberately.
+#
+# This is what shadows an installed release, so it says where it landed and
+# what it will answer to.
 install: build
+    #!/bin/bash
+    set -euo pipefail
+    ob_install_dir="${OB_INSTALL_DIR:-${HOME}/.local/bin}"
+    mkdir -p "$ob_install_dir"
+    install -m 0755 "${OB_BIN_DIR:-bin}/ob" "${ob_install_dir}/ob"
+    echo "installed ${ob_install_dir}/ob ($("${ob_install_dir}/ob" --version))"
 
 # Run the test suite.
 test:
@@ -151,11 +166,11 @@ e2e:
 # just built, named explicitly rather than resolved from PATH — otherwise an
 # older `ob` installed elsewhere documents a tree it did not come from.
 docs-generate: build
-    go run ./cmd/ob-docgen --ob "${OB_BIN_DIR:-$HOME/.local/bin}/ob"
+    go run ./cmd/ob-docgen --ob "${OB_BIN_DIR:-bin}/ob"
 
 # Fail when a generated documentation page is behind the binary.
 docs-generate-check: build
-    go run ./cmd/ob-docgen --check --ob "${OB_BIN_DIR:-$HOME/.local/bin}/ob"
+    go run ./cmd/ob-docgen --check --ob "${OB_BIN_DIR:-bin}/ob"
 
 # Install the documentation site's dependencies.
 site-install:
@@ -180,9 +195,23 @@ docs-check: docs-generate-check
 release:
     bash scripts/release.sh
 
-# Remove the installed binary.
+# Remove the built binary.
+#
+# The checkout only, never the copy on PATH. While `build` wrote straight to
+# ~/.local/bin, removing it there was removing what this recipe had put there;
+# now that the build lands in ./bin, doing the same would delete a binary this
+# checkout may never have created — including a release installed by hand
+# through the steps the installation guide gives. `just uninstall` is how you
+# ask for that, and it says so.
 clean:
     #!/bin/bash
     set -euo pipefail
-    ob_build_dir="${OB_BIN_DIR:-${HOME}/.local/bin}"
-    rm -f "${ob_build_dir}/ob"
+    rm -f "${OB_BIN_DIR:-bin}/ob"
+
+# Remove the copy `just install` placed on PATH.
+uninstall:
+    #!/bin/bash
+    set -euo pipefail
+    ob_install_dir="${OB_INSTALL_DIR:-${HOME}/.local/bin}"
+    rm -f "${ob_install_dir}/ob"
+    echo "removed ${ob_install_dir}/ob"

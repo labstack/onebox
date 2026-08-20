@@ -140,20 +140,6 @@ func validateTopLevel(p *Spec) error {
 	if err := validateChecks(p.Checks); err != nil {
 		return err
 	}
-	if p.Observability != nil {
-		// Each sub-block is optional and independent. Checking one behind the
-		// other's nil guard both skipped the check and dereferenced a nil.
-		if p.Observability.Logs != nil {
-			if err := gDur.checkOptional("observability.logs.retention", p.Observability.Logs.Retention); err != nil {
-				return err
-			}
-		}
-		if p.Observability.Alerts != nil {
-			if err := gDur.checkOptional("observability.alerts.unhealthy_after", p.Observability.Alerts.UnhealthyAfter); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 

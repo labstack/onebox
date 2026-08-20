@@ -70,21 +70,17 @@ clickhouse, nats. Anything else is refused rather than guessed at, because
 inventing an image from a name produces a container that starts and stores
 nothing durable.
 
-Onebox does **not** take backups, and `ob doctor` says so for every workload and
-service holding durable data. It also refuses a major version change a driver
-cannot perform in place, rather than replacing the container and leaving the
-data intact and unreachable.
+Onebox takes PostgreSQL backups: continuous WAL archiving to a repository you
+own, point-in-time restore, and a drill that proves recovery without touching
+the live service. Every other driver **refuses** a backup policy rather than
+accepting one it cannot honour, and `ob doctor` says which is which for every
+workload and service holding durable data. It also refuses a major version
+change a driver cannot perform in place, rather than replacing the container
+and leaving the data intact and unreachable.
 
-The schema can already declare desired log, metric, and alert capabilities.
-The local engine does **not** manage those continuous services yet, and reports
-them as declared rather than managed. The planned
-dashboard/control plane will add authenticated team approvals, continuous
-evidence, shared policy, and recovery assurance without becoming a generic
-Docker UI.
-
-Versioned driver contracts and continuous observability management are not
-shipped. Plan/status drift observation and plan-bound migration backup reports
-are shipped; Onebox still does not create or store the backup itself.
+The planned dashboard/control plane will add authenticated team approvals,
+continuous evidence, shared policy, and recovery assurance without becoming a
+generic Docker UI.
 
 ## Start using it
 

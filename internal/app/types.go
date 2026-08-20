@@ -54,7 +54,6 @@ type Spec struct {
 	Notifications map[string]Notification `json:"notifications,omitempty" description:"Named webhooks that receive selected operation outcomes."`
 	Registries    map[string]Registry     `json:"registries,omitempty" description:"Named container registries and the environment variables holding their credentials."`
 	Proxy         Proxy                   `json:"proxy" description:"Ownership and configuration of the host ingress proxy."`
-	Observability *Observability          `json:"observability,omitempty" description:"Declared logging, metrics, and alerting intent. Continuous management is not currently provided."`
 
 	// rawExpanded is the authored input after shorthand expansion, kept so a
 	// value's origin can be reported without threading a marker through every
@@ -165,14 +164,11 @@ type Build struct {
 	Dockerfile string         `json:"dockerfile,omitempty" description:"Repository-relative Dockerfile path." example:"Dockerfile"`
 	Target     string         `json:"target,omitempty" description:"Named Dockerfile stage to build."`
 	Args       map[string]any `json:"args,omitempty" description:"Build arguments supplied by the external build system."`
-	Platform   string         `json:"platform,omitempty" description:"Target image platform for the external build." example:"linux/amd64"`
 }
 
 type Image struct {
 	Reference string `json:"reference" description:"Complete container image reference, optionally tagged or digest-pinned." example:"ghcr.io/acme/shop:1.4.0"`
-	Platform  string `json:"platform,omitempty" description:"Platform selected when the image is multi-platform." example:"linux/amd64"`
 	Pull      string `json:"pull" description:"Image pull policy: missing, always, or never." default:"missing"`
-	Registry  string `json:"registry,omitempty" description:"Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login."`
 }
 
 type Route struct {
@@ -318,9 +314,8 @@ type BackupRetention struct {
 }
 
 type BackupDrill struct {
-	Schedule          Schedule `json:"schedule" description:"Exact recurring isolated restore-test schedule."`
-	MaxAge            string   `json:"max_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
-	StagingFilesystem string   `json:"staging_filesystem,omitempty" description:"Absolute filesystem path used for isolated restore materialization instead of the host default." example:"/srv/onebox-restore"`
+	Schedule Schedule `json:"schedule" description:"Exact recurring isolated restore-test schedule."`
+	MaxAge   string   `json:"max_age" description:"Maximum age of the latest passing restore proof." default:"7d" example:"7d"`
 }
 
 type ExternalService struct {
@@ -521,23 +516,4 @@ func (e EnvFile) StagedPath() string {
 	// one name twice and quietly keep whichever entry came last.
 	escaped := strings.ReplaceAll(strings.ReplaceAll(e.File, "-", "--"), "/", "-")
 	return ".ob-decrypted-" + e.Provider + "-" + escaped
-}
-
-type Observability struct {
-	Logs    *LogSettings    `json:"logs,omitempty" description:"Declared log-retention intent. Continuous management is not currently provided."`
-	Metrics *MetricSettings `json:"metrics,omitempty" description:"Declared metric-collection intent. Continuous management is not currently provided."`
-	Alerts  *AlertSettings  `json:"alerts,omitempty" description:"Declared alerting intent. Continuous management is not currently provided."`
-}
-
-type LogSettings struct {
-	Enabled   bool   `json:"enabled" description:"Declare that log collection is desired." default:"false"`
-	Retention string `json:"retention,omitempty" description:"Desired log-retention period." example:"30d"`
-}
-
-type MetricSettings struct {
-	Enabled bool `json:"enabled" description:"Declare that metric collection is desired." default:"false"`
-}
-
-type AlertSettings struct {
-	UnhealthyAfter string `json:"unhealthy_after,omitempty" description:"Desired duration of unhealthy state before alerting." example:"5m"`
 }

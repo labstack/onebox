@@ -383,7 +383,6 @@ var schemaConstraints = []struct {
 	{[]string{"services", "*", "backup", "drill", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"services", "*", "backup", "drill", "schedule", "timezone"}, pattern(gTZ)},
 	{[]string{"services", "*", "backup", "drill", "max_age"}, pattern(gDur)},
-	{[]string{"services", "*", "backup", "drill", "staging_filesystem"}, pattern(gAbsPath)},
 
 	{[]string{"backup_targets", "*", "kind"}, enum(eBackupTargetKind)},
 	{[]string{"backup_targets", "*", "endpoint"}, pattern(gHTTPURL)},
@@ -431,8 +430,6 @@ var schemaConstraints = []struct {
 	{[]string{"checks", "url", "items", "url"}, pattern(gHTTPURL)},
 	{[]string{"checks", "http", "items", "port"}, portBounds()},
 	{[]string{"checks", "url", "items", "status_codes", "items"}, map[string]any{"minimum": 100, "maximum": 599}},
-	{[]string{"observability", "alerts", "unhealthy_after"}, pattern(gDur)},
-	{[]string{"observability", "logs", "retention"}, pattern(gDur)},
 	{[]string{"notifications", "*", "on", "items"}, enum(eNotifyEvent)},
 	{[]string{"services", "*", "settings"}, propertyNames(gSettingKey)},
 	{[]string{"workloads", "*", "logging", "driver"}, pattern(gLogDriver)},

@@ -21,7 +21,7 @@ import (
 //   - the backup schedule takes a base backup and then applies retention, in
 //     that order, so the repository is never briefly below the number of
 //     generations the policy promises;
-//   - the restore-drill schedule verifies the archived WAL forms an unbroken
+//   - the drill schedule verifies the archived WAL forms an unbroken
 //     chain, which is the check a green backup does not imply.
 //
 // They run wal-g directly rather than through `ob`, because there is no `ob` on

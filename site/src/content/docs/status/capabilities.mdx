@@ -87,16 +87,9 @@ Nothing behind them executes.
 
 | [`external_services`](/reference/fields/external_services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
 
-The [lifecycle failure codes](/reference/errors#lifecycle-failure-codes) are
-defined and drift-tested in the binary, but most of the operations that raise
-them are not yet executable.
-
-## Intent only
-
-[`observability`](/reference/fields/observability) — `logs`, `metrics` and
-`alerts` declare desired capability. `ob validate` reads the block. Nothing else
-does: the local engine runs no collectors and no alert managers, and `ob status`
-does not report the block at all — not even as declared.
+Every [lifecycle failure code](/reference/errors#lifecycle-failure-codes) is
+raised by a path in the shipped binary, checked against the source in both
+directions.
 
 ## Not owned at all
 

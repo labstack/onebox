@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `middlewares` · `path` · `platform` · `port` · `protocol` · `pull` · `reference` · `registry` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
+`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `middlewares` · `path` · `port` · `protocol` · `pull` · `reference` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
 
 ## Reference
 
@@ -31,7 +31,6 @@ cannot drift from what `ob validate` accepts.
 | `build.args` | map | — | Build arguments supplied by the external build system. |
 | `build.context` | string | — | Repository-relative build context. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `build.dockerfile` | string | — | Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter. |
-| `build.platform` | string | — | Target image platform for the external build. |
 | `build.target` | string | — | Named Dockerfile stage to build. |
 | `compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
 | `domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
@@ -45,10 +44,8 @@ cannot drift from what `ob validate` accepts.
 | `health.tcp` | boolean | `false` | Probe the configured port by opening a TCP connection. |
 | `health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
-| `image.platform` | string | — | Platform selected when the image is multi-platform. |
 | `image.pull` | `always` · `missing` · `never` | `missing` | Image pull policy: missing, always, or never. |
 | `image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
-| `image.registry` | string | — | Optional registry label retained in canonical configuration. Current authentication uses every top-level registries entry; this field does not select a login. |
 | `port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
 | `routes` | list | — | Ingress routes exposed by this workload. |
 | `routes[].domain` | string | — | DNS name matched by the proxy. |

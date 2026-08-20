@@ -66,11 +66,6 @@ func conformanceCases() []conformanceCase {
 		{"hook naming an unlisted seam", min + "hooks: {pre_deploy: {run: scripts/backup.sh}}\n", false},
 		{"hook naming a declared job", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
 		{"hook naming neither", min + "hooks: {typo_hook: {run: scripts/x.sh}}\n", false},
-		// observability sub-blocks are independent; each must be checked without
-		// the other present.
-		{"log retention without alerts", min + "observability: {logs: {retention: bogus}}\n", false},
-		{"alerts without logs", min + "observability: {alerts: {unhealthy_after: 5m}}\n", true},
-		{"log retention as an integer", min + "observability: {logs: {retention: 30}}\n", false},
 		// A settings key is interpolated into a generated shell command without
 		// quoting, so the grammar is the only thing between a project file and
 		// a root shell on the server.
@@ -636,7 +631,6 @@ func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
 		{"verification", base + "verification: [{url: \"https://x/\", contains: ok}]\n"},
 		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
 		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
-		{"log retention_days", base + "observability: {logs: {retention_days: 30}}\n"},
 		{"policy migration_backup_max_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
 		// The abbreviation pass: maximum_/minimum_ became max_/min_, so the
 		// spelled-out forms are now the ones that must not load.

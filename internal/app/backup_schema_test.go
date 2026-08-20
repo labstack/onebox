@@ -117,7 +117,7 @@ func TestEveryRuntimeDriverHasAnExplicitLifecycleRecordAndNoDefault(t *testing.T
 	}
 	for _, name := range DriverNames() {
 		capability, ok := lifecycleCapabilityFor(name)
-		if !ok || capability.DriverName() != name {
+		if !ok || capability.driver != name {
 			t.Errorf("driver %q has no matching lifecycle capability record", name)
 		}
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -168,12 +169,16 @@ func (r *Resolved) ServiceImageForRuntime(serviceName string) (ServiceImageSelec
 	return r.selectServiceImage(serviceName, driver.image+":"+versionString(service.Version))
 }
 
+// serviceImageDigest matches a full sha256 reference, which is what "pinned"
+// means for a protected service image.
+var serviceImageDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
 func validatePinnedServiceImage(image string) error {
 	if err := imageref.Validate(image); err != nil {
 		return err
 	}
 	marker := strings.LastIndex(image, "@sha256:")
-	if marker < 1 || len(image)-marker != len("@sha256:")+64 || !lifecycleDigest.MatchString(image[marker+1:]) {
+	if marker < 1 || len(image)-marker != len("@sha256:")+64 || !serviceImageDigest.MatchString(image[marker+1:]) {
 		return errors.New("service image must be pinned by lowercase sha256 digest")
 	}
 	return nil

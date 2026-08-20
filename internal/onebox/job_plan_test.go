@@ -24,7 +24,7 @@ func writeManualJobProject(t *testing.T, effect string, requireBackup bool) stri
 	if requireBackup {
 		project = strings.Replace(project,
 			"      allow_agent_proposals: true\n",
-			"      allow_agent_proposals: true\n      migrations: {require_backup: true, backup_maximum_age: 24h}\n", 1)
+			"      allow_agent_proposals: true\n      migrations: {require_backup: true, backup_max_age: 24h}\n", 1)
 	}
 	if err := os.WriteFile(path, []byte(project), 0o600); err != nil {
 		t.Fatal(err)

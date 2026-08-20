@@ -19,7 +19,7 @@ services:
     backup:
       target: offsite
       recovery_kind: pitr
-      maximum_data_loss: 15m
+      max_data_loss: 15m
       schedule: {cron: "0 2 * * *", timezone: UTC}
       drill:
         schedule: {cron: "0 4 * * *", timezone: UTC}

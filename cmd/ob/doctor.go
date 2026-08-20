@@ -87,8 +87,8 @@ type doctorProjectReport struct {
 	Compatible           bool         `json:"compatible"`
 	APIVersion           string       `json:"api_version"`
 	Application          string       `json:"application"`
-	MinimumOneboxVersion string       `json:"minimum_onebox_version"`
-	MinimumPlanSchema    string       `json:"minimum_plan_schema"`
+	MinimumOneboxVersion string       `json:"min_onebox_version"`
+	MinimumPlanSchema    string       `json:"min_plan_schema"`
 }
 
 type doctorApprovalReport struct {

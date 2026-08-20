@@ -312,9 +312,9 @@ var schemaConstraints = []struct {
 	{[]string{"base_path"}, pattern(gAbsPath)},
 
 	{[]string{"environments", "*", "base_path"}, pattern(gAbsPath)},
-	{[]string{"environments", "*", "policy", "minimum_onebox_version"}, pattern(gCalVer)},
-	{[]string{"environments", "*", "policy", "minimum_plan_schema"}, pattern(gPlanSchema)},
-	{[]string{"environments", "*", "policy", "migrations", "backup_maximum_age"}, pattern(gDur)},
+	{[]string{"environments", "*", "policy", "min_onebox_version"}, pattern(gCalVer)},
+	{[]string{"environments", "*", "policy", "min_plan_schema"}, pattern(gPlanSchema)},
+	{[]string{"environments", "*", "policy", "migrations", "backup_max_age"}, pattern(gDur)},
 
 	{[]string{"workloads", "*", "role"}, enum(eRole)},
 	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1}},
@@ -375,14 +375,14 @@ var schemaConstraints = []struct {
 	{[]string{"services", "*", "volumes", "items"}, pattern(gIdent)},
 	{[]string{"services", "*", "backup", "target"}, pattern(gIdent)},
 	{[]string{"services", "*", "backup", "recovery_kind"}, enum(eRecoveryKind)},
-	{[]string{"services", "*", "backup", "maximum_data_loss"}, pattern(gDur)},
+	{[]string{"services", "*", "backup", "max_data_loss"}, pattern(gDur)},
 	{[]string{"services", "*", "backup", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"services", "*", "backup", "schedule", "timezone"}, pattern(gTZ)},
 	{[]string{"services", "*", "backup", "retention", "keep"}, map[string]any{"minimum": 1}},
 	{[]string{"services", "*", "backup", "retention", "window"}, pattern(gDur)},
 	{[]string{"services", "*", "backup", "drill", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"services", "*", "backup", "drill", "schedule", "timezone"}, pattern(gTZ)},
-	{[]string{"services", "*", "backup", "drill", "maximum_age"}, pattern(gDur)},
+	{[]string{"services", "*", "backup", "drill", "max_age"}, pattern(gDur)},
 	{[]string{"services", "*", "backup", "drill", "staging_filesystem"}, pattern(gAbsPath)},
 
 	{[]string{"backup_targets", "*", "kind"}, enum(eBackupTargetKind)},
@@ -409,7 +409,7 @@ var schemaConstraints = []struct {
 	{[]string{"external_services", "*", "protection_owner"}, pattern(gProtectionOwner)},
 	{[]string{"external_services", "*", "probe", "kind"}, enum(eExternalProbeKind)},
 	{[]string{"external_services", "*", "probe", "timeout"}, pattern(gDur)},
-	{[]string{"external_services", "*", "probe", "maximum_age"}, pattern(gDur)},
+	{[]string{"external_services", "*", "probe", "max_age"}, pattern(gDur)},
 
 	{[]string{"proxy", "kind"}, enum(eProxyKind)},
 	{[]string{"proxy", "image"}, pattern(gImageRef)},

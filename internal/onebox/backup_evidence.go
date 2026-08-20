@@ -42,7 +42,7 @@ var sha256Digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // protection input. Its presence means every pending migration step requires
 // either a matching report or an explicit audited override.
 type MigrationBackupRequirement struct {
-	MaximumAge          string                    `json:"maximum_age"`
+	MaximumAge          string                    `json:"max_age"`
 	RequireRestoreTest  bool                      `json:"require_restore_test"`
 	Resources           []MigrationBackupResource `json:"resources"`
 	RequiredKeyMaterial []string                  `json:"required_key_material,omitempty"`
@@ -136,7 +136,7 @@ func hasMigrationStep(steps []OperationStep) bool {
 func (r MigrationBackupRequirement) validate() error {
 	maxAge, err := app.PositiveDuration(r.MaximumAge)
 	if err != nil || maxAge <= 0 {
-		return fmt.Errorf("migration backup maximum_age %q must be a positive duration", r.MaximumAge)
+		return fmt.Errorf("migration backup max_age %q must be a positive duration", r.MaximumAge)
 	}
 	if len(r.Resources) == 0 {
 		return errors.New("migration backup resources must not be empty")

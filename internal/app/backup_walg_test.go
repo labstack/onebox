@@ -23,7 +23,7 @@ func TestWalgRetainCountSatisfiesBothRetentionFloors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := WalgRetainCount(BackupPolicy{
 				Schedule:  Schedule{Cron: tc.cron},
-				Retention: BackupRetention{MinimumGenerations: tc.minimum, RecoveryWindow: tc.window},
+				Retention: BackupRetention{Keep: tc.minimum, Window: tc.window},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -45,28 +45,28 @@ func TestWalgRetainCountSatisfiesBothRetentionFloors(t *testing.T) {
 // silently redirect a restore at a repository the history is not in — nor at a
 // credential file installed under the old target's name.
 func TestRecordedProjectionWinsOverEditedIntent(t *testing.T) {
-	recorded := ProtectionEffectiveProjection{
-		Policy: BackupPolicy{Target: "original", RecoveryKind: "pitr", MaximumDataLoss: "15m"},
+	recorded := BackupEffectiveProjection{
+		Policy: BackupPolicy{Target: "original", RecoveryKind: "pitr", MaxDataLoss: "15m"},
 		Target: BackupTarget{Kind: "s3-compatible", Bucket: "recorded-bucket", Endpoint: "https://a.example.net"},
 	}
 	edited := &Resolved{
 		Spec: &Spec{
 			Name: "shop", BasePath: "/var/lib/ob",
 			Services: map[string]Service{"db": {Driver: "postgres", Version: 18, Backup: &BackupPolicy{
-				Target: "moved", RecoveryKind: "pitr", MaximumDataLoss: "15m",
+				Target: "moved", RecoveryKind: "pitr", MaxDataLoss: "15m",
 			}}},
 			BackupTargets: map[string]BackupTarget{"moved": {Kind: "s3-compatible", Bucket: "new-bucket", Endpoint: "https://b.example.net"}},
 		},
 		Env: "production",
 	}
 	bound, err := edited.WithServiceRuntimeStates(map[string]ServiceRuntimeState{
-		"db": {ProtectionState: "enabled", ServiceImage: "postgres@sha256:" + strings.Repeat("a", 64),
+		"db": {BackupState: "enabled", ServiceImage: "postgres@sha256:" + strings.Repeat("a", 64),
 			PublicationVerified: true, DigestAvailable: true, LastEffective: &recorded},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := bound.EffectiveProtectionProjection("db")
+	got, err := bound.EffectiveBackupProjection("db")
 	if err != nil {
 		t.Fatal(err)
 	}

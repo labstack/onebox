@@ -17,10 +17,10 @@ type ServiceImageCandidate struct {
 }
 
 // ServiceRuntimeState is observed durable lifecycle state, not authoring
-// input. Rendering consumes it through WithServiceRuntimeStates so protection
+// input. Rendering consumes it through WithServiceRuntimeStates so backup
 // image behavior cannot be inferred from policy presence alone.
 type ServiceRuntimeState struct {
-	ProtectionState     string
+	BackupState         string
 	ServiceImage        string
 	PublicationVerified bool
 	DigestAvailable     bool
@@ -28,7 +28,7 @@ type ServiceRuntimeState struct {
 	ManifestRootImages  []string
 	TagObservedDigest   string
 	RefreshCandidate    *ServiceImageCandidate
-	LastEffective       *ProtectionEffectiveProjection
+	LastEffective       *BackupEffectiveProjection
 }
 
 type ServiceImageSelection struct {
@@ -65,8 +65,8 @@ func (r *Resolved) WithServiceRuntimeStates(states map[string]ServiceRuntimeStat
 }
 
 func (state ServiceRuntimeState) validate(service string) error {
-	if !contains([]string{"never-enabled", "enabled", "disable-pending", "disabled"}, state.ProtectionState) {
-		return errf("project_invalid", "services."+service, "ob status --output json", "service runtime state has an invalid protection lifecycle state")
+	if !contains([]string{"never-enabled", "enabled", "disable-pending", "disabled"}, state.BackupState) {
+		return errf("project_invalid", "services."+service, "ob status --output json", "service runtime state has an invalid backup lifecycle state")
 	}
 	if state.ServiceImage != "" {
 		if err := validatePinnedServiceImage(state.ServiceImage); err != nil {
@@ -93,14 +93,14 @@ func (state ServiceRuntimeState) validate(service string) error {
 
 func (r *Resolved) selectServiceImage(serviceName, tagImage string) (ServiceImageSelection, error) {
 	state, observed := r.serviceRuntime[serviceName]
-	if !observed || state.ProtectionState == "never-enabled" || state.ProtectionState == "disabled" {
+	if !observed || state.BackupState == "never-enabled" || state.BackupState == "disabled" {
 		return ServiceImageSelection{Image: tagImage, Origin: OriginAuthored}, nil
 	}
 	if state.ServiceImage == "" {
-		return ServiceImageSelection{}, errf("protection_image_revert_unsafe", "services."+serviceName+".version", "ob protection disable --output ndjson", "protected runtime state has no immutable service image; refusing tag reversion")
+		return ServiceImageSelection{}, errf("backup_image_revert_unsafe", "services."+serviceName+".version", "ob backup disable --output ndjson", "protected runtime state has no immutable service image; refusing tag reversion")
 	}
 	if !state.PublicationVerified {
-		return ServiceImageSelection{}, errf("protection_service_image_unpublished", "services."+serviceName+".version", "ob service status --output json", "protected service image has no verified publication provenance")
+		return ServiceImageSelection{}, errf("backup_service_image_unpublished", "services."+serviceName+".version", "ob service status --output json", "protected service image has no verified publication provenance")
 	}
 	if !state.DigestAvailable && !state.CacheVerified {
 		return ServiceImageSelection{}, errf("service_image_digest_unavailable", "services."+serviceName+".version", "ob service status --output json", "protected service image is unavailable from the registry and exact local cache")
@@ -108,17 +108,17 @@ func (r *Resolved) selectServiceImage(serviceName, tagImage string) (ServiceImag
 	selected := state.ServiceImage
 	retained := append([]string{state.ServiceImage}, state.ManifestRootImages...)
 	if candidate := state.RefreshCandidate; candidate != nil {
-		if state.ProtectionState == "disable-pending" {
-			return ServiceImageSelection{}, errf("service_image_patch_disable_pending", "services."+serviceName+".version", "ob protection disable --output ndjson", "protected service image refresh is refused while disablement is pending")
+		if state.BackupState == "disable-pending" {
+			return ServiceImageSelection{}, errf("service_image_patch_disable_pending", "services."+serviceName+".version", "ob backup disable --output ndjson", "protected service image refresh is refused while disablement is pending")
 		}
 		if !candidate.PublicationVerified {
-			return ServiceImageSelection{}, errf("protection_service_image_unpublished", "services."+serviceName+".version", "ob service status --output json", "candidate protected service image has no verified publication provenance")
+			return ServiceImageSelection{}, errf("backup_service_image_unpublished", "services."+serviceName+".version", "ob service status --output json", "candidate protected service image has no verified publication provenance")
 		}
 		if !candidate.DigestAvailable && !candidate.CacheVerified {
 			return ServiceImageSelection{}, errf("service_image_digest_unavailable", "services."+serviceName+".version", "ob service status --output json", "candidate protected service image is unavailable from the registry and exact local cache")
 		}
 		if !candidate.ExactTransition {
-			return ServiceImageSelection{}, errf("protected_service_patch_unsupported", "services."+serviceName+".version", "ob service status --output json", "candidate image has no exact qualified protected transition")
+			return ServiceImageSelection{}, errf("service_patch_unsupported", "services."+serviceName+".version", "ob service status --output json", "candidate image has no exact qualified protected transition")
 		}
 		selected = candidate.Image
 		retained = append(retained, candidate.Image)

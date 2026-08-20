@@ -154,7 +154,7 @@ are pinned:
 | Word | Means | Never means |
 | --- | --- | --- |
 | **server** | the machine you deploy to, in the project file and in every artifact | a backup repository |
-| **target** | a backup destination — `backup_targets`, `protection.target` | the machine you deploy to |
+| **target** | a backup destination — `backup_targets`, `backup.target` | the machine you deploy to |
 | **workload** | a container Onebox runs from your declaration | a supporting service, a Compose service |
 
 `ob exec` and `ob logs` take a `<workload|service>` because those are two

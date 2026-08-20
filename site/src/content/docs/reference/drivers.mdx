@@ -93,11 +93,10 @@ logs rather than in anything Onebox says.
 :::
 
 :::caution[Only `postgres` is backed up]
-`postgres` is the one driver with an executable protection contract: declaring
-`protection` on it gives a continuous off-host archive and point-in-time
-recovery. Every other driver declares `policy_qualified: false`, so a protection
-policy on it is refused at `ob validate` rather than accepted and left to do
-nothing — and its data lives only on this host until you copy it off yourself.
+`postgres` is the one driver with an executable backup contract: declaring
+`backup` on it gives a continuous off-host archive and point-in-time recovery.
+Every other driver declares `policy_qualified: false`, so a backup policy on it
+is refused at `ob validate` rather than accepted and left to do nothing — and its data lives only on this host until you copy it off yourself.
 
 Onebox also refuses a major version change a driver cannot perform in place,
 rather than replacing the container and leaving the data intact and unreachable.

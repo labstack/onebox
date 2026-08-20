@@ -171,28 +171,28 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		result.ReleaseID = operationID
 		result.EvidenceID = operationID
 		err = e.ServiceApply(ctx, operationID, request.AllowDestructiveMounts)
-	case KindProtectionEnable:
+	case KindBackupEnable:
 		// Enablement restarts the service under the protected image and does
 		// not finish until the first base backup exists, because WAL archiving
 		// with nothing to replay onto can recover nothing.
 		result.EvidenceID = operationID
-		err = executeProtectionEnable(ctx, e, lp.resolved, lp.configPath, s.environment, request.Service, operationID)
+		err = executeBackupEnable(ctx, e, lp.resolved, lp.configPath, s.environment, request.Service, operationID)
 	case KindBackupCreate:
 		result.EvidenceID = operationID
-		err = underProtectionLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
+		err = underBackupLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
 			return e.BackupService(ctx, request.Service)
 		})
-	case KindProtectionDisable:
+	case KindBackupDisable:
 		result.EvidenceID = operationID
-		err = executeProtectionDisable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
+		err = executeBackupDisable(ctx, e, lp.resolved, s.environment, request.Service, operationID)
 	case KindBackupPrune:
 		result.EvidenceID = operationID
-		err = underProtectionLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
+		err = underBackupLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
 			return e.PruneServiceBackups(ctx, request.Service)
 		})
 	case KindAssuranceCheck:
 		result.EvidenceID = operationID
-		err = underProtectionLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
+		err = underBackupLocks(ctx, e, request.Service, operationID, func(ctx context.Context) error {
 			return e.VerifyServiceArchive(ctx, request.Service)
 		})
 	case KindRestoreTest, KindRestoreCutover:

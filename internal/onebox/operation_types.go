@@ -42,8 +42,8 @@ const (
 	KindJobRun       OperationKind = "job_run"
 
 	KindServiceImagePatch OperationKind = "service_image_patch"
-	KindProtectionEnable  OperationKind = "protection_enable"
-	KindProtectionDisable OperationKind = "protection_disable"
+	KindBackupEnable      OperationKind = "backup_enable"
+	KindBackupDisable     OperationKind = "backup_disable"
 	KindBackupCreate      OperationKind = "backup_create"
 	KindBackupPrune       OperationKind = "backup_prune"
 	KindReplayArchive     OperationKind = "replay_archive"
@@ -100,7 +100,7 @@ const (
 	StepWorkloadRelease OperationStepKind = "workload_release"
 	StepVerify          OperationStepKind = "verify"
 	StepActivate        OperationStepKind = "activate"
-	StepProtectionLock  OperationStepKind = "protection_lock"
+	StepBackupLock      OperationStepKind = "backup_lock"
 	StepLifecycleAction OperationStepKind = "lifecycle_action"
 	StepLifecycleRecord OperationStepKind = "lifecycle_record"
 	StepArchiveAppend   OperationStepKind = "archive_append"
@@ -449,7 +449,7 @@ func validOperationKind(kind OperationKind) bool {
 	switch kind {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
 		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy,
-		KindServiceImagePatch, KindProtectionEnable, KindProtectionDisable,
+		KindServiceImagePatch, KindBackupEnable, KindBackupDisable,
 		KindBackupCreate, KindBackupPrune, KindReplayArchive,
 		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,
 		KindHygieneRun, KindAssuranceCheck:
@@ -489,7 +489,7 @@ func validApprovalClass(class ApprovalClass) bool {
 func validStepKind(kind OperationStepKind) bool {
 	switch kind {
 	case StepPreflight, StepTransfer, StepJob, StepHook, StepWorkloadRelease, StepVerify, StepActivate,
-		StepProtectionLock, StepLifecycleAction, StepLifecycleRecord, StepArchiveAppend:
+		StepBackupLock, StepLifecycleAction, StepLifecycleRecord, StepArchiveAppend:
 		return true
 	default:
 		return false

@@ -120,7 +120,7 @@ make a failed host available.
 ## Two things it does not do today
 
 **Backups cover managed services, not workload volumes.** A service declaring
-`protection` — PostgreSQL today — is backed up continuously to an off-host
+`backup` — PostgreSQL today — is backed up continuously to an off-host
 repository and can be recovered to a point in time. A workload's own volume is
 not, and `ob doctor` says so for every workload holding durable data, because
 silence there would read as approval.

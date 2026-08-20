@@ -8,14 +8,14 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-func protectionStateProjection() app.ProtectionEffectiveProjection {
-	return app.ProtectionEffectiveProjection{
+func backupStateProjection() app.BackupEffectiveProjection {
+	return app.BackupEffectiveProjection{
 		Policy: app.BackupPolicy{
-			Target: "offsite", RecoveryKind: "pitr", MaximumDataLoss: "5m",
+			Target: "offsite", RecoveryKind: "pitr", MaxDataLoss: "5m",
 			Schedule:  app.Schedule{Cron: "17 */6 * * *", Timezone: "UTC"},
-			Retention: app.BackupRetention{MinimumGenerations: 7, RecoveryWindow: "7d"},
-			RestoreDrill: app.RestoreDrill{
-				Schedule: app.Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"}, ProofMaximumAge: "7d",
+			Retention: app.BackupRetention{Keep: 7, Window: "7d"},
+			Drill: app.BackupDrill{
+				Schedule: app.Schedule{Cron: "23 4 * * 1,4", Timezone: "UTC"}, MaxAge: "7d",
 			},
 		},
 		Target: app.BackupTarget{
@@ -29,19 +29,19 @@ func protectionStateProjection() app.ProtectionEffectiveProjection {
 	}
 }
 
-// pendingProtectionState returns a service part-way through disablement: the
+// pendingBackupState returns a service part-way through disablement: the
 // decision recorded, the work not yet done.
-func pendingProtectionState(t *testing.T) ProtectionLifecycleState {
+func pendingBackupState(t *testing.T) BackupLifecycleState {
 	t.Helper()
-	state, err := NewProtectionLifecycleState("example", "production", "database", 1)
+	state, err := NewBackupLifecycleState("example", "production", "database", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled, err := EnableProtection(state, protectionStateProjection(), "postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "op-1", true, 2)
+	enabled, err := EnableBackup(state, backupStateProjection(), "postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "op-1", true, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, err := BeginProtectionDisable(enabled, "op-2", time.Now(), 3)
+	pending, err := BeginBackupDisable(enabled, "op-2", time.Now(), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,9 +53,9 @@ func pendingProtectionState(t *testing.T) ProtectionLifecycleState {
 // time and can fail: a single write to "disabled" would claim the work was done
 // before it was, and a failure halfway would leave a record saying the service
 // is not archiving while it still is.
-func TestProtectionDisableRecordsIntentBeforeDoingTheWork(t *testing.T) {
-	pending := pendingProtectionState(t)
-	if pending.State != ProtectionDisablePending {
+func TestBackupDisableRecordsIntentBeforeDoingTheWork(t *testing.T) {
+	pending := pendingBackupState(t)
+	if pending.State != BackupDisablePending {
 		t.Fatalf("state = %q, want disable-pending", pending.State)
 	}
 	// Still archiving, still holding its runtime — rendering must keep producing
@@ -63,15 +63,15 @@ func TestProtectionDisableRecordsIntentBeforeDoingTheWork(t *testing.T) {
 	if !pending.PrerequisiteEffective || !pending.LocalSupportInstalled || pending.LastEffective == nil {
 		t.Fatalf("pending state stopped describing a protected service: %#v", pending)
 	}
-	if runtime := pending.RuntimeState(); runtime.ProtectionState != string(ProtectionDisablePending) {
-		t.Fatalf("runtime state = %q, want the pending state rendering keys on", runtime.ProtectionState)
+	if runtime := pending.RuntimeState(); runtime.BackupState != string(BackupDisablePending) {
+		t.Fatalf("runtime state = %q, want the pending state rendering keys on", runtime.BackupState)
 	}
 
-	done, err := DisableProtection(pending, "op-2", pending.Epoch+1)
+	done, err := DisableBackup(pending, "op-2", pending.Epoch+1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if done.State != ProtectionDisabled || done.PrerequisiteEffective || done.LocalSupportInstalled {
+	if done.State != BackupDisabled || done.PrerequisiteEffective || done.LocalSupportInstalled {
 		t.Fatalf("completed disablement = %#v", done)
 	}
 	if len(done.Schedules) != 0 {
@@ -85,20 +85,20 @@ func TestProtectionDisableRecordsIntentBeforeDoingTheWork(t *testing.T) {
 }
 
 // Re-running disablement is how an operator recovers a run that failed halfway.
-func TestProtectionDisableIsResumable(t *testing.T) {
-	pending := pendingProtectionState(t)
-	again, err := BeginProtectionDisable(pending, "op-2", time.Now(), pending.Epoch+1)
+func TestBackupDisableIsResumable(t *testing.T) {
+	pending := pendingBackupState(t)
+	again, err := BeginBackupDisable(pending, "op-2", time.Now(), pending.Epoch+1)
 	if err != nil {
 		t.Fatalf("resuming a pending disablement: %v", err)
 	}
-	if again.State != ProtectionDisablePending {
+	if again.State != BackupDisablePending {
 		t.Fatalf("resumed state = %q", again.State)
 	}
-	done, err := DisableProtection(again, "op-2", again.Epoch+1)
+	done, err := DisableBackup(again, "op-2", again.Epoch+1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := DisableProtection(done, "op-2", done.Epoch+1); err != nil {
+	if _, err := DisableBackup(done, "op-2", done.Epoch+1); err != nil {
 		t.Fatalf("disabling an already-disabled service must be a no-op: %v", err)
 	}
 }
@@ -108,9 +108,9 @@ func TestProtectionDisableIsResumable(t *testing.T) {
 // Rendering depends on it: the server is still archiving to that repository, and
 // resolving from the edited project would point it somewhere its own history is
 // not.
-func TestProtectionDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T) {
-	pending := pendingProtectionState(t)
-	projection := protectionStateProjection()
+func TestBackupDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T) {
+	pending := pendingBackupState(t)
+	projection := backupStateProjection()
 	withoutIntent := &app.Resolved{
 		Spec: &app.Spec{Name: "example", BasePath: "/var/lib/onebox", Services: map[string]app.Service{
 			"database": {Driver: "postgres", Version: 17},
@@ -121,7 +121,7 @@ func TestProtectionDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := retained.EffectiveProtectionProjection("database")
+	resolved, err := retained.EffectiveBackupProjection("database")
 	if err != nil {
 		t.Fatalf("retained pending projection is unresolvable: %v", err)
 	}
@@ -131,12 +131,12 @@ func TestProtectionDisablePendingKeepsTheProjectionItWasEnabledWith(t *testing.T
 }
 
 func TestRuntimeStateDoesNotInferImageEvidenceFromReference(t *testing.T) {
-	state, err := NewProtectionLifecycleState("example", "production", "database", 1)
+	state, err := NewBackupLifecycleState("example", "production", "database", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.State = ProtectionDisabled
-	state.Phase = ProtectionPhaseIdle
+	state.State = BackupDisabled
+	state.Phase = BackupPhaseIdle
 	state.ServiceImage = "postgres@sha256:" + strings.Repeat("a", 64)
 	if err := state.Seal(); err != nil {
 		t.Fatal(err)
@@ -151,13 +151,13 @@ func TestRuntimeStateDoesNotInferImageEvidenceFromReference(t *testing.T) {
 // operator. Re-enabling is how they change their mind; refusing would leave the
 // only way out as completing a disable they no longer want.
 func TestEnableReconvergesFromAHalfFinishedDisable(t *testing.T) {
-	pending := pendingProtectionState(t)
-	enabled, err := EnableProtection(pending, protectionStateProjection(),
+	pending := pendingBackupState(t)
+	enabled, err := EnableBackup(pending, backupStateProjection(),
 		"postgres@sha256:"+strings.Repeat("a", 64), "op-3", true, pending.Epoch+1)
 	if err != nil {
 		t.Fatalf("re-enabling a pending disablement: %v", err)
 	}
-	if enabled.State != ProtectionEnabled || !enabled.PrerequisiteEffective {
+	if enabled.State != BackupEnabled || !enabled.PrerequisiteEffective {
 		t.Fatalf("re-enabled state = %#v", enabled)
 	}
 }

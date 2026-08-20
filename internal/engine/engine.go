@@ -96,11 +96,11 @@ type Engine struct {
 	lockVal       string
 	hostLockVal   string
 	hostLockToken string
-	// Protection locks are per-service and may only be acquired while this
+	// Backup locks are per-service and may only be acquired while this
 	// engine owns the application lock. Exact lock and fence values make stale
 	// lifecycle runners fail closed after takeover.
-	protectionLockVals  map[string]string
-	protectionFenceVals map[string]string
+	backupLockVals  map[string]string
+	backupFenceVals map[string]string
 	// gateOpen is the explicit no-effect result; rollbackCovered also includes
 	// the interrupted deploy's typed policy promises. Resume restores both from
 	// the journal. They are closed by default — fail safe.

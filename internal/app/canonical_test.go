@@ -98,8 +98,8 @@ func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
 	}
 }
 
-func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
-	project := strings.Replace(validProtectionProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
+func TestCanonicalBackupFactsCoverEveryPublicOrigin(t *testing.T) {
+	project := strings.Replace(validBackupProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
     overrides:
       services:
         postgres:
@@ -137,7 +137,7 @@ func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
 		},
 		Services: map[string]CanonicalServiceFacts{
 			"postgres": {
-				ProtectionState:        fact("enabled", OriginDerived),
+				BackupState:            fact("enabled", OriginDerived),
 				Tier:                   fact("Managed", OriginDerived),
 				RecoveryKind:           fact("pitr", OriginDerived),
 				ServiceImageDigest:     fact("sha256:"+strings.Repeat("a", 64), OriginObserved),
@@ -178,7 +178,7 @@ func TestCanonicalProtectionFactsCoverEveryPublicOrigin(t *testing.T) {
 }
 
 func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testing.T) {
-	spec, err := LoadBytes([]byte(validProtectionProject), "ob.yml")
+	spec, err := LoadBytes([]byte(validBackupProject), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testin
 		},
 		Services: map[string]CanonicalServiceFacts{
 			"postgres": {
-				ProtectionState: fact("enabled", OriginDerived), Tier: fact("Managed", OriginDerived), RecoveryKind: fact("pitr", OriginDerived),
+				BackupState: fact("enabled", OriginDerived), Tier: fact("Managed", OriginDerived), RecoveryKind: fact("pitr", OriginDerived),
 				ServiceImageDigest: fact(canary, OriginObserved), EncryptionMode: fact("client-side", OriginDerived),
 				ObservedRPO: fact("4m", OriginObserved), ObservedRecoveryWindow: fact("7d", OriginObserved),
 				ExpectedInterruption: fact("none", OriginDerived), DrillCapacityState: fact("available", OriginObserved),

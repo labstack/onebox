@@ -116,7 +116,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 		},
 	}
 	planCmd.Flags().StringVarP(&planOut, "out", "o", "ob-plan.json", "plan artifact path")
-	planCmd.Flags().StringVar(&planBackupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration protection is required")
+	planCmd.Flags().StringVar(&planBackupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration backup is required")
 	planCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
 	root.AddCommand(planCmd)
 
@@ -359,7 +359,7 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 	}
 	if plan.MigrationBackup != nil {
 		u.Println(fmt.Sprintf("  migration_backup=max_age:%s restore_test:%t resources:%d keys:%d",
-			plan.MigrationBackup.MaximumAge, plan.MigrationBackup.RequireRestoreTest,
+			plan.MigrationBackup.MaxAge, plan.MigrationBackup.RequireRestoreTest,
 			len(plan.MigrationBackup.Resources), len(plan.MigrationBackup.RequiredKeyMaterial)))
 	}
 	fmt.Fprintln(out)

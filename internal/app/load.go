@@ -544,7 +544,7 @@ func crossFieldRules(p *Spec) error {
 		}
 		if external, clash := p.ExternalServices[name]; clash {
 			return errf("identifier_collision", "external_services."+name, "",
-				"%q is declared as both a Onebox-run service and an external service owned by %q", name, external.ProtectionOwner)
+				"%q is declared as both a Onebox-run service and an external service owned by %q", name, external.BackupOwner)
 		}
 		svc := p.Services[name]
 		key, d, known := driverOf(name, svc)
@@ -554,7 +554,7 @@ func crossFieldRules(p *Spec) error {
 					"To run something else, declare it as a daemon workload — you own the image and the settings then.",
 				key, strings.Join(DriverNames(), ", "))
 		}
-		if err := validateProtectionSelection(p, name, key, svc); err != nil {
+		if err := validateBackupSelection(p, name, key, svc); err != nil {
 			return err
 		}
 		// Materialise the durable volume in the project rather than only in the
@@ -569,13 +569,13 @@ func crossFieldRules(p *Spec) error {
 				"%q declares volumes and persistence.mode: ephemeral; an ephemeral service owns no durable volume, "+
 					"so declare durable persistence or remove the volumes", name)
 		}
-		// Protection is a contract about recovering durable data. An ephemeral
+		// Backup is a contract about recovering durable data. An ephemeral
 		// service has none: seeding the active volume fails at apply time on a
 		// volume that was never created, and the sealed identity would name it.
 		if serviceIsEphemeral(svc) && svc.Backup != nil {
 			return errf("project_invalid", "services."+name+".backup", "",
-				"%q declares protection and persistence.mode: ephemeral; there is no durable data to protect, "+
-					"so declare durable persistence or remove the protection policy", name)
+				"%q declares backup and persistence.mode: ephemeral; there is no durable data to protect, "+
+					"so declare durable persistence or remove the backup policy", name)
 		}
 		if d.dataPath != "" && len(svc.Volumes) == 0 && !serviceIsEphemeral(svc) {
 			svc.Volumes = []string{"data"}

@@ -67,7 +67,7 @@ func TestLifecycleStateProbeRefusesUnsearchableAncestor(t *testing.T) {
 }
 
 // A dangling link must not read as 'missing': reporting no state at all drops
-// the service's protection silently.
+// the service's backup silently.
 func TestLifecycleStateProbeClassifies(t *testing.T) {
 	regular, dangling, absent := stateFixtures(t)
 	for _, tc := range []struct {

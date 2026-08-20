@@ -16,7 +16,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-// Executable protection for the postgres driver.
+// Executable backup for the postgres driver.
 //
 // Everything above this file describes backup: the project declares intent,
 // the catalogue declares what each driver could support, the lifecycle state
@@ -31,17 +31,17 @@ import (
 // produces an ordinary server rather than one archiving to a repository nobody
 // initialised.
 
-// StageProtectionRuntime places the verified wal-g binary and its generated
+// StageBackupRuntime places the verified wal-g binary and its generated
 // wrapper on the target, then makes them readable by the service.
 //
 // The binary is fetched here — on the machine running `ob` — and uploaded,
 // rather than downloaded by the target. That keeps the agentless model intact
 // and, more importantly, keeps verification on this side of the trust boundary:
 // the checksum is pinned in the Onebox binary, so a host with no outbound
-// internet still gets protection, and a compromised release page cannot
+// internet still gets backup, and a compromised release page cannot
 // substitute a binary that a target-side `curl | sha256sum` would happily
 // accept against a checksum from the same source.
-func (e *Engine) StageProtectionRuntime(ctx context.Context, service string, wrapper []byte) error {
+func (e *Engine) StageBackupRuntime(ctx context.Context, service string, wrapper []byte) error {
 	machine, err := e.targetMachine(ctx)
 	if err != nil {
 		return err
@@ -51,21 +51,21 @@ func (e *Engine) StageProtectionRuntime(ctx context.Context, service string, wra
 		return err
 	}
 	n := e.names()
-	destination := n.ProtectionBinaryFile(service)
+	destination := n.BackupBinaryFile(service)
 
 	present, err := e.fileHasChecksum(ctx, destination, expected)
 	if err != nil {
 		return err
 	}
 	if !present {
-		st := e.ui.Step("protection runtime wal-g "+app.WalgVersion+" ("+machine+")", false)
+		st := e.ui.Step("backup runtime wal-g "+app.WalgVersion+" ("+machine+")", false)
 		staged, cleanup, err := fetchVerifiedBinary(ctx, app.WalgDownloadURL(asset), expected)
 		if err != nil {
 			st(err)
 			return err
 		}
 		defer cleanup()
-		if err := e.uploadProtectionBinary(ctx, n.ProtectionRuntimeDir(service), staged, destination); err != nil {
+		if err := e.uploadBackupBinary(ctx, n.BackupRuntimeDir(service), staged, destination); err != nil {
 			st(err)
 			return err
 		}
@@ -77,9 +77,9 @@ func (e *Engine) StageProtectionRuntime(ctx context.Context, service string, wra
 	// protected — and until that record exists there is no bound state to
 	// render from. It is rewritten every time: it is derived from the declared
 	// credential entry names, which can change without the binary changing.
-	wrapperPath := n.ProtectionWrapperFile(service)
+	wrapperPath := n.BackupWrapperFile(service)
 	if err := e.writeServiceFile(ctx, wrapperPath, wrapper); err != nil {
-		return fmt.Errorf("cannot place protection wrapper %s: %w", wrapperPath, err)
+		return fmt.Errorf("cannot place backup wrapper %s: %w", wrapperPath, err)
 	}
 	// Readable and executable by the unprivileged server user inside the
 	// container, which is the whole point of it being there. Safe because it
@@ -88,7 +88,7 @@ func (e *Engine) StageProtectionRuntime(ctx context.Context, service string, wra
 	if err := e.chmodPath(ctx, wrapperPath, "0755"); err != nil {
 		return err
 	}
-	return e.chmodPath(ctx, n.ProtectionRuntimeDir(service), "0755")
+	return e.chmodPath(ctx, n.BackupRuntimeDir(service), "0755")
 }
 
 func (e *Engine) targetMachine(ctx context.Context) (string, error) {
@@ -118,7 +118,7 @@ func (e *Engine) fileHasChecksum(ctx context.Context, remotePath, expected strin
 // pinned value. The file is never made executable and never leaves the
 // temporary directory until it has matched.
 func fetchVerifiedBinary(ctx context.Context, url, expected string) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "ob-protection-runtime-")
+	dir, err := os.MkdirTemp("", "ob-backup-runtime-")
 	if err != nil {
 		return "", nil, fmt.Errorf("create staging directory: %w", err)
 	}
@@ -166,15 +166,15 @@ func fetchVerifiedBinary(ctx context.Context, url, expected string) (string, fun
 	return staged, cleanup, nil
 }
 
-// uploadProtectionBinary moves the verified binary into place. Upload writes a
+// uploadBackupBinary moves the verified binary into place. Upload writes a
 // directory, so the staged file is placed alone in one and moved across.
-func (e *Engine) uploadProtectionBinary(ctx context.Context, runtimeDir, staged, destination string) error {
+func (e *Engine) uploadBackupBinary(ctx context.Context, runtimeDir, staged, destination string) error {
 	res, err := e.T.Run(ctx, "mkdir -p "+q(runtimeDir))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot create the protection runtime directory: %s", strings.TrimSpace(res.Stderr))
+		return fmt.Errorf("cannot create the backup runtime directory: %s", strings.TrimSpace(res.Stderr))
 	}
 	remoteStaging := runtimeDir + "/.staging"
 	if err := e.T.Upload(ctx, filepath.Dir(staged), remoteStaging); err != nil {
@@ -204,27 +204,27 @@ func (e *Engine) chmodPath(ctx context.Context, target, mode string) error {
 	return nil
 }
 
-// WriteProtectionLifecycleState places the already-sealed lifecycle record that
+// WriteBackupLifecycleState places the already-sealed lifecycle record that
 // makes a service protected. The record's schema, transitions, and digest all
 // belong to the layer above; the engine only puts the bytes on the target,
 // under the same fence as every other generated file.
-func (e *Engine) WriteProtectionLifecycleState(ctx context.Context, service string, body []byte) error {
+func (e *Engine) WriteBackupLifecycleState(ctx context.Context, service string, body []byte) error {
 	n := e.names()
-	res, err := e.T.Run(ctx, "mkdir -p "+q(path.Join(n.AppDir(), "protection", "state")))
+	res, err := e.T.Run(ctx, "mkdir -p "+q(path.Join(n.AppDir(), "backup", "state")))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot create the protection state directory: %s", strings.TrimSpace(res.Stderr))
+		return fmt.Errorf("cannot create the backup state directory: %s", strings.TrimSpace(res.Stderr))
 	}
-	return e.writeServiceFile(ctx, n.ProtectionLifecycleStateFile(service), body)
+	return e.writeServiceFile(ctx, n.BackupLifecycleStateFile(service), body)
 }
 
-// ReadProtectionLifecycleState returns the raw lifecycle record for a service,
+// ReadBackupLifecycleState returns the raw lifecycle record for a service,
 // or nil when none exists. Decoding belongs to the layer that owns the schema;
 // the engine only fetches the bytes.
-func (e *Engine) ReadProtectionLifecycleState(ctx context.Context, service string) ([]byte, error) {
-	res, err := e.T.Run(ctx, "cat "+q(e.names().ProtectionLifecycleStateFile(service))+" 2>/dev/null || true")
+func (e *Engine) ReadBackupLifecycleState(ctx context.Context, service string) ([]byte, error) {
+	res, err := e.T.Run(ctx, "cat "+q(e.names().BackupLifecycleStateFile(service))+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -302,20 +302,20 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service string) (str
 	return pinned, nil
 }
 
-// RemoveProtectionCredentials deletes the target-side credential file for a
+// RemoveBackupCredentials deletes the target-side credential file for a
 // service that is no longer protected. The repository it pointed at is left
 // exactly as it is.
-func (e *Engine) RemoveProtectionCredentials(ctx context.Context, service string, last *app.ProtectionEffectiveProjection) error {
+func (e *Engine) RemoveBackupCredentials(ctx context.Context, service string, last *app.BackupEffectiveProjection) error {
 	if last == nil {
 		return nil
 	}
-	path := e.names().ProtectionCredentialFile(service, last.Policy.Target)
+	path := e.names().BackupCredentialFile(service, last.Policy.Target)
 	res, err := e.T.Run(ctx, "rm -f "+q(path))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot remove the protection credential file %s", path)
+		return fmt.Errorf("cannot remove the backup credential file %s", path)
 	}
 	return nil
 }
@@ -326,15 +326,15 @@ func (e *Engine) RemoveProtectionCredentials(ctx context.Context, service string
 // restore` still worked. They do not: both run wal-g inside the service
 // container, and an unprotected service mounts neither the binary nor the
 // credentials. The backups themselves are untouched, which is the part that
-// matters, and the way back to them is to enable protection again.
+// matters, and the way back to them is to enable backup again.
 func (e *Engine) ReportDisabled(service string) {
 	e.ui.Successf("%s is no longer archiving; its schedules are removed", service)
 	e.ui.Infof("every backup already taken is untouched in the repository. Reading or recovering from them "+
-		"needs protection enabled again (`ob backup enable %s`), because the tooling and credentials that "+
+		"needs backup enabled again (`ob backup enable %s`), because the tooling and credentials that "+
 		"reach the repository live in the protected service", service)
 }
 
-// VerifyProtectionRuntime asks the target whether what is staged there is still
+// VerifyBackupRuntime asks the target whether what is staged there is still
 // what Onebox expects.
 //
 // This is the drift question that matters, and it is asked of the target
@@ -342,7 +342,7 @@ func (e *Engine) ReportDisabled(service string) {
 // is pinned in this release, and the wrapper that gives it credentials must be
 // the one the project renders. A descriptor written beside them saying what they
 // ought to be would only be somewhere for the two to disagree.
-func (e *Engine) VerifyProtectionRuntime(ctx context.Context, service string) ([]string, error) {
+func (e *Engine) VerifyBackupRuntime(ctx context.Context, service string) ([]string, error) {
 	n := e.names()
 	var issues []string
 
@@ -354,39 +354,39 @@ func (e *Engine) VerifyProtectionRuntime(ctx context.Context, service string) ([
 	if err != nil {
 		return nil, err
 	}
-	matches, err := e.fileHasChecksum(ctx, n.ProtectionBinaryFile(service), expected)
+	matches, err := e.fileHasChecksum(ctx, n.BackupBinaryFile(service), expected)
 	if err != nil {
 		return nil, err
 	}
 	if !matches {
 		issues = append(issues, fmt.Sprintf(
 			"the wal-g binary at %s is not the %s build this release pins; re-run `ob service apply` to replace it",
-			n.ProtectionBinaryFile(service), app.WalgVersion))
+			n.BackupBinaryFile(service), app.WalgVersion))
 	}
 
-	wrappers, err := e.Spec.RenderServiceProtectionWrappers(e.Opts.Environment)
+	wrappers, err := e.Spec.RenderServiceBackupWrappers(e.Opts.Environment)
 	if err != nil {
 		return nil, err
 	}
-	wanted, ok := wrappers[n.ProtectionWrapperFile(service)]
+	wanted, ok := wrappers[n.BackupWrapperFile(service)]
 	if !ok {
 		return issues, nil
 	}
-	res, err := e.T.Run(ctx, "cat "+q(n.ProtectionWrapperFile(service))+" 2>/dev/null || true")
+	res, err := e.T.Run(ctx, "cat "+q(n.BackupWrapperFile(service))+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
 	if res.Stdout != string(wanted) {
 		issues = append(issues, fmt.Sprintf(
 			"the credential wrapper at %s is not what this project renders; re-run `ob service apply` to replace it",
-			n.ProtectionWrapperFile(service)))
+			n.BackupWrapperFile(service)))
 	}
 	return issues, nil
 }
 
 // imagePresentByDigest reports whether a digest-pinned reference is already on
 // the host. A tag always answers false: it may point somewhere else now, which
-// is the reason protection pins in the first place.
+// is the reason backup pins in the first place.
 func (e *Engine) imagePresentByDigest(ctx context.Context, reference string) (bool, error) {
 	if !containsDigest(reference) {
 		return false, nil

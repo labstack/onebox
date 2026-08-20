@@ -21,7 +21,7 @@ import (
 const maxVerificationBodyBytes = 1 << 20
 
 // verifyURL is the runner-side edge check (ob.sh's smoke test, absorbed).
-func (e *Engine) verifyURL(ctx context.Context, chk app.Verification) error {
+func (e *Engine) verifyURL(ctx context.Context, chk app.RunnableCheck) error {
 	label := verificationURLLabel(chk.URL)
 	client := &http.Client{
 		Timeout: e.Opts.HTTPTimeout,

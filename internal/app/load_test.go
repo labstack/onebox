@@ -89,14 +89,14 @@ func conformanceCases() []conformanceCase {
 		// The contract publishes persistence.mode defaulting to durable. That
 		// default was unreachable while the block was absent, so a workload with
 		// a managed volume read as holding nothing — and doctor, the backup gate
-		// and the protection gate each guessed the same wrong way.
+		// and the backup gate each guessed the same wrong way.
 		{"volumes without persistence still load", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
 		{"a bind mount is not durable", wl("w: {image: nginx, volumes: [{source: ./cfg, path: /etc/app}], replicas: 3}"), true},
 		// Inference must not tighten a refusal against a project that loads.
 		{"inferred durability does not refuse replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}"), true},
 		{"declared durability still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {mode: durable}, replicas: 3}"), false},
 		{"persistence block with no mode still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {}, replicas: 3}"), false},
-		{"protection is no longer a field", wl("w: {image: nginx, backup: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
+		{"backup is no longer a field", wl("w: {image: nginx, backup: {backup: {schedule: {cron: \"0 3 * * *\"}}}}"), false},
 		{"a near-miss field name", wl("w: {image: nginx, replicaz: 3}"), false},
 		// A closed value set is only closed if a value outside it is refused,
 		// and the refusal has to name the set rather than the type.
@@ -139,14 +139,14 @@ func conformanceCases() []conformanceCase {
 		// execution no longer selects them as an automatic release phase.
 		{"explicit manual job remains a runtime service", wl("j: {image: nginx, role: job, when: manual, data_effect: none}"), true},
 		{"service scalar", min + "services: {postgres: 18}\n", true},
-		{"service protection policy", validProtectionProject, true},
+		{"service backup policy", validBackupProject, true},
 		{"external service connection", validExternalServiceProject, true},
-		{"protection inline secret", strings.Replace(validProtectionProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext\n", 1), false},
-		{"protection authored tool", strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1), false},
-		{"protection self target", strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
-		{"protection unsupported objective", strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
-		{"protection unsupported retention", strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1), false},
-		{"protection sparse drill", strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, max_age: 7d}\n", 1), false},
+		{"backup inline secret", strings.Replace(validBackupProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext\n", 1), false},
+		{"backup authored tool", strings.Replace(validBackupProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1), false},
+		{"backup self target", strings.Replace(validBackupProject, "      host: objects.example.net", "      host: app.example.net", 1), false},
+		{"backup unsupported objective", strings.Replace(validBackupProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1), false},
+		{"backup unsupported retention", strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1), false},
+		{"backup sparse drill", strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill: {schedule: {cron: '0 3 1 * *', timezone: UTC}, max_age: 7d}\n", 1), false},
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.

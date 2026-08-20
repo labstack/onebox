@@ -32,9 +32,9 @@ func operationUsesInspectionRuntime(kind OperationKind) bool {
 	switch kind {
 	case KindResume, KindAbort, KindRollback, KindBootstrap, KindServiceApply,
 		KindProxyApply, KindSecretsPush, KindDestroy,
-		// Protection operates on a service's data, never on the application's
+		// Backup operates on a service's data, never on the application's
 		// release images, so a placeholder image must not stop a backup.
-		KindProtectionEnable, KindProtectionDisable, KindBackupCreate, KindBackupPrune, KindAssuranceCheck,
+		KindBackupEnable, KindBackupDisable, KindBackupCreate, KindBackupPrune, KindAssuranceCheck,
 		KindRestoreTest, KindRestoreCutover:
 		return true
 	default:

@@ -30,12 +30,15 @@ command.
 | --- | --- |
 | `app_required` | the shorthand form needs an application name to attach the workload to |
 | `backup_credentials_invalid` | decrypted backup credentials are missing or malformed |
-| `backup_driver_unsupported` | a runnable service driver has no qualified executable protection contract |
+| `backup_driver_unsupported` | a runnable service driver has no qualified executable backup contract |
 | `backup_encryption_unverified` | the selected target cannot prove the encryption mode required by the recovery kind |
+| `backup_image_revert_unsafe` | tag rendering would strand an effective backup prerequisite |
 | `backup_interruption_not_authorized` | the selected recovery contract needs a recurring stopped-service window the author did not permit |
 | `backup_retention_unsupported` | the declared recovery history cannot map to supported retention semantics |
+| `backup_service_image_unpublished` | the protected service image lacks verified publication provenance |
+| `backup_state_incomplete` | a protected service does not record what it is protected by |
 | `backup_target_not_independent` | a backup target shares the protected failure domain |
-| `backup_target_unknown` | a protection policy selects no declared backup target |
+| `backup_target_unknown` | a backup policy selects no declared backup target |
 | `compose_container_name` | a referenced service fixes its container name, which Onebox owns |
 | `compose_extends` | a referenced service uses extends, which hides what runs |
 | `compose_file_unparsable` | a referenced Compose file is not valid YAML |
@@ -73,10 +76,6 @@ command.
 | `project_invalid` | a value that does not satisfy the contract |
 | `project_unparsable` | the project file is not valid YAML, or is not a mapping |
 | `project_unreadable` | the project file could not be read |
-| `protected_service_patch_unsupported` | no exact qualified protected current-to-candidate image transition exists |
-| `protection_image_revert_unsafe` | tag rendering would strand an effective protection prerequisite |
-| `protection_service_image_unpublished` | the protected service image lacks verified publication provenance |
-| `protection_state_incomplete` | a protected service does not record what it is protected by |
 | `recovery_objective_unsupported` | the service driver, target, or version cannot execute the declared recovery kind |
 | `render_failed` | the runtime could not be rendered |
 | `route_collision` | two workloads claim the same address |
@@ -90,6 +89,7 @@ command.
 | `server_unreachable` | the server could not be reached |
 | `service_image_digest_unavailable` | the immutable service image is unavailable from registry and exact cache |
 | `service_image_patch_disable_pending` | protected image refresh is refused while disablement is pending |
+| `service_patch_unsupported` | no exact qualified protected current-to-candidate image transition exists |
 | `service_settings_unsupported` | a setting was declared for a driver with no way to apply it |
 | `shorthand_and_workloads` | top-level shorthand cannot be combined with a workloads block |
 | `stateful_replicas` | a workload keeping durable state asks for more than one replica |
@@ -179,36 +179,36 @@ detail stays in restricted local evidence, never in the public record.
 | --- | --- | --- | --- | --- |
 | `assurance_stale` | reserved | continuous assurance evidence is no longer current | diagnostic | `ob status --output json` |
 | `backup_conflict` | yes | another protected-service operation holds the serialization boundary | diagnostic | `ob status --output json` |
-| `backup_driver_unsupported` | yes | the service driver has no qualified executable protection contract | diagnostic | `ob validate --output json` |
-| `backup_encryption_unverified` | yes | the selected protection destination cannot prove its required encryption mode | diagnostic | `ob validate --output json` |
+| `backup_disable_pending` | yes | backup removal is waiting for an authorized safe prerequisite reversal | diagnostic | `ob status --output json` |
+| `backup_disablement_not_authorized` | reserved | backup disablement requires a fresh local confirmation bound to current state | diagnostic | `ob status --output json` |
+| `backup_disablement_overdue` | yes | backup disablement remains pending beyond its action deadline | diagnostic | `ob status --output json` |
+| `backup_driver_unsupported` | yes | the service driver has no qualified executable backup contract | diagnostic | `ob validate --output json` |
+| `backup_enablement_restart_not_authorized` | reserved | a restart-bound backup prerequisite lacks fresh local confirmation | diagnostic | `ob validate --output json` |
+| `backup_encryption_unverified` | yes | the selected backup destination cannot prove its required encryption mode | diagnostic | `ob validate --output json` |
+| `backup_image_revert_unsafe` | yes | the requested image reversion would strand an effective backup prerequisite | diagnostic | `ob status --output json` |
+| `backup_image_update_overdue` | reserved | a qualified protected service image publication missed its maintenance target | diagnostic | `ob status --output json` |
 | `backup_interruption_not_authorized` | yes | the recovery contract requires a recurring stopped-service window the author did not permit | diagnostic | `ob validate --output json` |
+| `backup_prerequisite_drifted` | reserved | a live prerequisite no longer matches the verified backup configuration | diagnostic | `ob validate --output json` |
 | `backup_retention_unsupported` | yes | the declared recovery history cannot map to qualified native retention semantics | diagnostic | `ob validate --output json` |
+| `backup_service_image_unpublished` | yes | no qualified immutable backup image is published for the observed service base | diagnostic | `ob status --output json` |
+| `backup_service_patch_available` | reserved | a qualified exact protected service image transition is available | resolving | `ob service apply --output ndjson` |
+| `backup_service_patch_required` | reserved | backup enablement requires a separate qualified same-major service patch first | resolving | `ob service apply --output ndjson` |
 | `backup_stale` | reserved | the latest recoverable point is older than policy permits | next | `ob plan --output json` |
 | `backup_target_not_independent` | yes | the backup target shares the protected failure domain | diagnostic | `ob validate --output json` |
 | `backup_target_unauthorized` | reserved | the backup target credentials are unavailable, unsafe, or unauthorized | next | `ob plan --output json` |
-| `backup_target_unknown` | yes | the protection policy selects no declared backup target | diagnostic | `ob validate --output json` |
+| `backup_target_unknown` | yes | the backup policy selects no declared backup target | diagnostic | `ob validate --output json` |
 | `backup_target_unreachable` | reserved | the selected backup target cannot be reached | next | `ob plan --output json` |
 | `disk_pressure_critical` | reserved | a relevant filesystem lacks safe headroom for a space-increasing mutation | diagnostic | `ob status --output json` |
 | `drill_deferred_capacity` | reserved | a restore drill was deferred before materialization because aggregate staging headroom is insufficient | diagnostic | `ob status --output json` |
 | `drill_schedule_too_sparse` | yes | the restore-drill cadence cannot keep restore proof current | diagnostic | `ob validate --output json` |
 | `external_service_not_owned` | reserved | the requested lifecycle mutation targets a dependency Onebox does not own | diagnostic | `ob status --output json` |
 | `external_service_state_stale` | reserved | an external-service observation changed after planning | next | `ob plan --output json` |
-| `protected_service_identity_changed` | reserved | a protected service name would orphan durable recovery identity | diagnostic | `ob validate --output json` |
-| `protected_service_patch_incompatible` | reserved | the candidate protected service or helper cannot prove repository and runtime compatibility | diagnostic | `ob status --output json` |
-| `protected_service_patch_unsupported` | yes | no exact qualified protected current-to-candidate transition exists | diagnostic | `ob status --output json` |
-| `protection_disable_pending` | yes | protection removal is waiting for an authorized safe prerequisite reversal | diagnostic | `ob status --output json` |
-| `protection_disablement_not_authorized` | reserved | protection disablement requires a fresh local confirmation bound to current state | diagnostic | `ob status --output json` |
-| `protection_disablement_overdue` | yes | protection disablement remains pending beyond its action deadline | diagnostic | `ob status --output json` |
-| `protection_enablement_restart_not_authorized` | reserved | a restart-bound protection prerequisite lacks fresh local confirmation | diagnostic | `ob validate --output json` |
-| `protection_image_revert_unsafe` | yes | the requested image reversion would strand an effective protection prerequisite | diagnostic | `ob status --output json` |
-| `protection_image_update_overdue` | reserved | a qualified protected service image publication missed its maintenance target | diagnostic | `ob status --output json` |
-| `protection_prerequisite_drifted` | reserved | a live prerequisite no longer matches the verified protection configuration | diagnostic | `ob validate --output json` |
-| `protection_service_image_unpublished` | yes | no qualified immutable protection image is published for the observed service base | diagnostic | `ob status --output json` |
-| `protection_service_patch_available` | reserved | a qualified exact protected service image transition is available | resolving | `ob service apply --output ndjson` |
-| `protection_service_patch_required` | reserved | protection enablement requires a separate qualified same-major service patch first | resolving | `ob service apply --output ndjson` |
 | `recovery_objective_unsupported` | yes | the selected driver, version, or target cannot execute the declared recovery kind | diagnostic | `ob validate --output json` |
 | `replay_continuity_broken` | reserved | the native replay sequence has a gap inside the required recovery window | next | `ob plan --output json` |
 | `restore_state_stale` | reserved | live service, volume, or repository state changed after restore planning | diagnostic | `ob status --output json` |
+| `service_identity_changed` | reserved | a protected service name would orphan durable recovery identity | diagnostic | `ob validate --output json` |
 | `service_image_digest_unavailable` | yes | the exact immutable service image required by recovery is unavailable | diagnostic | `ob status --output json` |
-| `service_image_patch_disable_pending` | yes | service image refresh is refused while safe protection disablement is pending | diagnostic | `ob status --output json` |
+| `service_image_patch_disable_pending` | yes | service image refresh is refused while safe backup disablement is pending | diagnostic | `ob status --output json` |
 | `service_major_upgrade_unsupported` | reserved | the requested service image transition crosses an unsupported major version | diagnostic | `ob status --output json` |
+| `service_patch_incompatible` | reserved | the candidate protected service or helper cannot prove repository and runtime compatibility | diagnostic | `ob status --output json` |
+| `service_patch_unsupported` | yes | no exact qualified protected current-to-candidate transition exists | diagnostic | `ob status --output json` |

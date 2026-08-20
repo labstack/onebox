@@ -36,9 +36,9 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 		Environments: map[string]app.Environment{
 			"production": {
 				Policy: app.Policy{
-					RequireApproval:      true,
-					MinimumOneboxVersion: "v2026.7.1",
-					MinimumPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
+					RequireApproval:  true,
+					MinOneboxVersion: "v2026.7.1",
+					MinPlanSchema:    "onebox.run/executable-deploy-plan/v1alpha1",
 				},
 			},
 		},
@@ -79,7 +79,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 	}
 }
 
-func TestBuildDoctorReportFindsShadowingPolicyAndProtectionGaps(t *testing.T) {
+func TestBuildDoctorReportFindsShadowingPolicyAndBackupGaps(t *testing.T) {
 	deps := doctorTestDependencies(t)
 	report := buildDoctorReport(context.Background(), &globalFlags{ConfigPath: "/project/ob.yml", Env: "production"}, deps)
 
@@ -109,16 +109,16 @@ func TestBuildDoctorReportFindsShadowingPolicyAndProtectionGaps(t *testing.T) {
 	}
 	// Durable data with nothing copying it off the box must be said out loud;
 	// silence would read as approval.
-	if report.Protections.Status != doctorWarning || len(report.Protections.Checks) != 1 {
-		t.Fatalf("protection report = %+v", report.Protections)
+	if report.Backups.Status != doctorWarning || len(report.Backups.Checks) != 1 {
+		t.Fatalf("backup report = %+v", report.Backups)
 	}
 	for _, mechanism := range []string{"backup"} {
 		found := false
-		for _, check := range report.Protections.Checks {
+		for _, check := range report.Backups.Checks {
 			found = found || check.Mechanism == mechanism && !check.Available
 		}
 		if !found {
-			t.Fatalf("missing unavailable %s check: %+v", mechanism, report.Protections.Checks)
+			t.Fatalf("missing unavailable %s check: %+v", mechanism, report.Backups.Checks)
 		}
 	}
 }
@@ -170,7 +170,7 @@ func TestDoctorHumanOutputNamesEveryDiagnosticArea(t *testing.T) {
 		"ssh-agent:",
 		"project:",
 		"approval:",
-		"protections:",
+		"backups:",
 		"database/backup",
 	} {
 		if !strings.Contains(out, want) {
@@ -186,8 +186,8 @@ func TestDoctorReportsMissingProjectWithoutAborting(t *testing.T) {
 	if report.Project.Status != doctorWarning || report.Project.Found {
 		t.Fatalf("project report = %+v", report.Project)
 	}
-	if report.Protections.Status != doctorWarning {
-		t.Fatalf("protection report = %+v", report.Protections)
+	if report.Backups.Status != doctorWarning {
+		t.Fatalf("backup report = %+v", report.Backups)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestDoctorReportsIncompatibleProjectPolicy(t *testing.T) {
 		return &app.Spec{
 			APIVersion: "onebox.run/v1",
 			Environments: map[string]app.Environment{
-				"production": {Policy: app.Policy{MinimumOneboxVersion: "v2027.1.0"}},
+				"production": {Policy: app.Policy{MinOneboxVersion: "v2027.1.0"}},
 			},
 			Workloads: map[string]app.Workload{},
 		}, nil

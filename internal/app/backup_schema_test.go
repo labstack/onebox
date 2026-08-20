@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const validProtectionProject = `api_version: onebox.run/v1
+const validBackupProject = `api_version: onebox.run/v1
 app: shop
 environments:
   production:
@@ -38,23 +38,23 @@ services:
       max_data_loss: 15m
 `
 
-func TestProtectionIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
-	p, err := LoadBytes([]byte(validProtectionProject), "ob.yml")
+func TestBackupIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
+	p, err := LoadBytes([]byte(validBackupProject), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy := p.Services["postgres"].Backup
 	if policy == nil {
-		t.Fatal("protection policy was not decoded")
+		t.Fatal("backup policy was not decoded")
 	}
 	if policy.Schedule.Cron != "0 2 * * *" || policy.Schedule.Timezone != "UTC" {
 		t.Fatalf("backup schedule = %#v, want exact daily UTC default", policy.Schedule)
 	}
-	if policy.Retention.MinimumGenerations != 7 || policy.Retention.RecoveryWindow != "7d" {
+	if policy.Retention.Keep != 7 || policy.Retention.Window != "7d" {
 		t.Fatalf("retention = %#v, want seven generations and seven days", policy.Retention)
 	}
-	if policy.RestoreDrill.Schedule.Cron != "0 3 * * 0,3" || policy.RestoreDrill.ProofMaximumAge != "7d" {
-		t.Fatalf("restore drill = %#v, want exact twice-weekly schedule and seven-day proof age", policy.RestoreDrill)
+	if policy.Drill.Schedule.Cron != "0 3 * * 0,3" || policy.Drill.MaxAge != "7d" {
+		t.Fatalf("restore drill = %#v, want exact twice-weekly schedule and seven-day proof age", policy.Drill)
 	}
 	if got := p.BackupTargets["offsite"]; got.TLS != "verify" || got.Credentials.Provider != "sops" {
 		t.Fatalf("target defaults = %#v", got)
@@ -85,13 +85,13 @@ services:
 }
 
 func TestReplicationIntentIsRejected(t *testing.T) {
-	project := strings.ReplaceAll(validProtectionProject, "kind: s3-compatible", "kind: minio-replication")
+	project := strings.ReplaceAll(validBackupProject, "kind: s3-compatible", "kind: minio-replication")
 	if _, err := LoadBytes([]byte(project), "ob.yml"); err == nil {
 		t.Fatal("removed replication target was accepted")
 	}
 }
 
-func TestRunnableUnqualifiedDriverRejectsProtectionWithoutFallback(t *testing.T) {
+func TestRunnableUnqualifiedDriverRejectsBackupWithoutFallback(t *testing.T) {
 	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: deploy@app.example.net}}
@@ -101,7 +101,7 @@ services: {redis: 7}
 		t.Fatalf("unqualified driver must remain runnable: %v", err)
 	}
 
-	protected := strings.ReplaceAll(validProtectionProject, "postgres", "redis")
+	protected := strings.ReplaceAll(validBackupProject, "postgres", "redis")
 	protected = strings.ReplaceAll(protected, "pitr", "snapshot")
 	_, err := LoadBytes([]byte(protected), "ob.yml")
 	assertAppErrorCode(t, err, "backup_driver_unsupported")
@@ -126,7 +126,7 @@ func TestEveryRuntimeDriverHasAnExplicitLifecycleRecordAndNoDefault(t *testing.T
 	}
 }
 
-func TestProtectionIntentRefusals(t *testing.T) {
+func TestBackupIntentRefusals(t *testing.T) {
 	cases := []struct {
 		name string
 		yaml string
@@ -134,47 +134,47 @@ func TestProtectionIntentRefusals(t *testing.T) {
 	}{
 		{
 			name: "inline storage secret",
-			yaml: strings.Replace(validProtectionProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext-must-not-enter-the-model\n", 1),
+			yaml: strings.Replace(validBackupProject, "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n", "      secret_key_entry: BACKUP_SECRET_ACCESS_KEY\n      secret_key: plaintext-must-not-enter-the-model\n", 1),
 			code: "unknown_field",
 		},
 		{
 			name: "target shares protected host",
-			yaml: strings.Replace(validProtectionProject, "      host: objects.example.net", "      host: app.example.net", 1),
+			yaml: strings.Replace(validBackupProject, "      host: objects.example.net", "      host: app.example.net", 1),
 			code: "backup_target_not_independent",
 		},
 		{
 			name: "author selects backup tool",
-			yaml: strings.Replace(validProtectionProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1),
+			yaml: strings.Replace(validBackupProject, "      target: offsite\n", "      target: offsite\n      tool: some-backup-tool\n", 1),
 			code: "unknown_field",
 		},
 		{
 			name: "recurring policy tries to authorize enablement restart",
-			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      allow_enablement_restart: true\n", 1),
+			yaml: strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      allow_enablement_restart: true\n", 1),
 			code: "unknown_field",
 		},
 		{
 			name: "restore drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        max_age: 7d\n", 1),
+			yaml: strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 1 * *', timezone: UTC}\n        max_age: 7d\n", 1),
 			code: "drill_schedule_too_sparse",
 		},
 		{
 			name: "stepped weekday drill too sparse",
-			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        max_age: 36h\n", 1),
+			yaml: strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      drill:\n        schedule: {cron: '0 3 * * */2', timezone: UTC}\n        max_age: 36h\n", 1),
 			code: "drill_schedule_too_sparse",
 		},
 		{
 			name: "sub-minute replay objective",
-			yaml: strings.Replace(validProtectionProject, "max_data_loss: 15m", "max_data_loss: 30s", 1),
+			yaml: strings.Replace(validBackupProject, "max_data_loss: 15m", "max_data_loss: 30s", 1),
 			code: "recovery_objective_unsupported",
 		},
 		{
 			name: "unsupported retention",
-			yaml: strings.Replace(validProtectionProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1),
+			yaml: strings.Replace(validBackupProject, "      max_data_loss: 15m\n", "      max_data_loss: 15m\n      retention: {keep: 0, window: 7d}\n", 1),
 			code: "backup_retention_unsupported",
 		},
 		{
 			name: "unsupported objective",
-			yaml: strings.Replace(validProtectionProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1),
+			yaml: strings.Replace(validBackupProject, "recovery_kind: pitr", "recovery_kind: snapshot", 1),
 			code: "recovery_objective_unsupported",
 		},
 	}
@@ -189,8 +189,8 @@ func TestProtectionIntentRefusals(t *testing.T) {
 	}
 }
 
-func TestProtectionEnvironmentOverridesTuneOnlySchedulesAndRetention(t *testing.T) {
-	valid := strings.Replace(validProtectionProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
+func TestBackupEnvironmentOverridesTuneOnlySchedulesAndRetention(t *testing.T) {
+	valid := strings.Replace(validBackupProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
     overrides:
       services:
         postgres:
@@ -208,11 +208,11 @@ func TestProtectionEnvironmentOverridesTuneOnlySchedulesAndRetention(t *testing.
 		t.Fatal(err)
 	}
 	policy := resolved.Services["postgres"].Backup
-	if policy.Target != "offsite" || policy.Schedule.Cron != "0 4 * * *" || policy.Retention.MinimumGenerations != 10 || policy.Retention.RecoveryWindow != "7d" || policy.RestoreDrill.Schedule.Cron != "0 5 * * 1,4" {
+	if policy.Target != "offsite" || policy.Schedule.Cron != "0 4 * * *" || policy.Retention.Keep != 10 || policy.Retention.Window != "7d" || policy.Drill.Schedule.Cron != "0 5 * * 1,4" {
 		t.Fatalf("resolved safe override = %#v", policy)
 	}
 
-	unsafe := strings.Replace(validProtectionProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
+	unsafe := strings.Replace(validBackupProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
     overrides:
       services:
         postgres:

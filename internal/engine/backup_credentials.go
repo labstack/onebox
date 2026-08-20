@@ -14,16 +14,16 @@ import (
 	"time"
 )
 
-var protectionCredentialEntry = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+var backupCredentialEntry = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
-// InstallProtectionCredentialFile moves already-resolved credential material
+// InstallBackupCredentialFile moves already-resolved credential material
 // through a private upload into its target-side mode-0600 file. Secret bytes
 // are never interpolated into a command, journal, result, or error.
-func (e *Engine) InstallProtectionCredentialFile(ctx context.Context, service, target string, requiredEntries []string, plaintext []byte) (string, error) {
-	if !protectionIdentity.MatchString(service) || !protectionIdentity.MatchString(target) {
-		return "", errors.New("protection credential service and target identities are invalid")
+func (e *Engine) InstallBackupCredentialFile(ctx context.Context, service, target string, requiredEntries []string, plaintext []byte) (string, error) {
+	if !backupIdentity.MatchString(service) || !backupIdentity.MatchString(target) {
+		return "", errors.New("backup credential service and target identities are invalid")
 	}
-	entries, err := protectionCredentialEntries(plaintext)
+	entries, err := backupCredentialEntries(plaintext)
 	if err != nil {
 		return "", err
 	}
@@ -38,33 +38,33 @@ func (e *Engine) InstallProtectionCredentialFile(ctx context.Context, service, t
 	requiredEntries = append([]string(nil), requiredEntries...)
 	sort.Strings(requiredEntries)
 	for _, entry := range requiredEntries {
-		if !protectionCredentialEntry.MatchString(entry) {
-			return "", errors.New("protection credential contract contains an invalid slot")
+		if !backupCredentialEntry.MatchString(entry) {
+			return "", errors.New("backup credential contract contains an invalid slot")
 		}
 		if !entries[entry] {
-			return "", fmt.Errorf("protection credential file is missing required entry %s", entry)
+			return "", fmt.Errorf("backup credential file is missing required entry %s", entry)
 		}
 	}
 
-	localStaging, err := os.MkdirTemp("", "ob-protection-credentials-")
+	localStaging, err := os.MkdirTemp("", "ob-backup-credentials-")
 	if err != nil {
-		return "", errors.New("create private protection credential staging")
+		return "", errors.New("create private backup credential staging")
 	}
 	defer os.RemoveAll(localStaging)
 	const stagedName = "credentials.env"
 	if err := os.WriteFile(filepath.Join(localStaging, stagedName), plaintext, 0o600); err != nil {
-		return "", errors.New("write private protection credential staging")
+		return "", errors.New("write private backup credential staging")
 	}
 
 	names := e.names()
-	destination := names.ProtectionCredentialFile(service, target)
-	tokenBytes := sha256.Sum256([]byte(e.protectionFenceVals[service] + "\x00" + target))
+	destination := names.BackupCredentialFile(service, target)
+	tokenBytes := sha256.Sum256([]byte(e.backupFenceVals[service] + "\x00" + target))
 	token := hex.EncodeToString(tokenBytes[:])[:16]
-	remoteStaging := names.AppDir() + "/protection/.credential-staging-" + service + "-" + token
+	remoteStaging := names.AppDir() + "/backup/.credential-staging-" + service + "-" + token
 	if err := e.T.Upload(ctx, localStaging, remoteStaging); err != nil {
-		return "", errors.New("upload private protection credential staging")
+		return "", errors.New("upload private backup credential staging")
 	}
-	// Cleanup cannot use ProtectionMutate: a failed/fenced install is exactly
+	// Cleanup cannot use BackupMutate: a failed/fenced install is exactly
 	// when that guard may refuse the command. The paths are deterministic,
 	// narrowly scoped staging artifacts, and best-effort removal must run even
 	// after cancellation so plaintext is not stranded on the host.
@@ -73,23 +73,23 @@ func (e *Engine) InstallProtectionCredentialFile(ctx context.Context, service, t
 		defer cancel()
 		_, _ = e.T.Run(cleanupContext, "rm -rf "+q(remoteStaging)+"; rm -f "+q(destination+".tmp"))
 	}()
-	install := "mkdir -p " + q(names.ProtectionSecretDir()) +
-		" && chmod 700 " + q(names.ProtectionSecretDir()) +
+	install := "mkdir -p " + q(names.BackupSecretDir()) +
+		" && chmod 700 " + q(names.BackupSecretDir()) +
 		" && cp " + q(remoteStaging+"/"+stagedName) + " " + q(destination+".tmp") +
 		" && chmod 600 " + q(destination+".tmp") +
 		" && mv -f " + q(destination+".tmp") + " " + q(destination) +
 		" && rm -rf " + q(remoteStaging)
-	result, err := e.ProtectionMutate(ctx, service, install)
+	result, err := e.BackupMutate(ctx, service, install)
 	if err != nil {
-		return "", errors.New("install target-side protection credential file")
+		return "", errors.New("install target-side backup credential file")
 	}
 	if result.ExitCode != 0 {
-		return "", errors.New("install target-side protection credential file failed")
+		return "", errors.New("install target-side backup credential file failed")
 	}
 	return destination, nil
 }
 
-func protectionCredentialEntries(plaintext []byte) (map[string]bool, error) {
+func backupCredentialEntries(plaintext []byte) (map[string]bool, error) {
 	entries := make(map[string]bool)
 	for index, line := range strings.Split(string(plaintext), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -99,16 +99,16 @@ func protectionCredentialEntries(plaintext []byte) (map[string]bool, error) {
 		trimmed = strings.TrimPrefix(trimmed, "export ")
 		entry, _, ok := strings.Cut(trimmed, "=")
 		entry = strings.TrimSpace(entry)
-		if !ok || !protectionCredentialEntry.MatchString(entry) {
-			return nil, fmt.Errorf("protection credential file has an invalid entry at line %d", index+1)
+		if !ok || !backupCredentialEntry.MatchString(entry) {
+			return nil, fmt.Errorf("backup credential file has an invalid entry at line %d", index+1)
 		}
 		if entries[entry] {
-			return nil, fmt.Errorf("protection credential file repeats entry %s", entry)
+			return nil, fmt.Errorf("backup credential file repeats entry %s", entry)
 		}
 		entries[entry] = true
 	}
 	if len(entries) == 0 {
-		return nil, errors.New("protection credential file has no entries")
+		return nil, errors.New("backup credential file has no entries")
 	}
 	return entries, nil
 }

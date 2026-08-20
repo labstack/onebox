@@ -57,13 +57,13 @@ type RestoreOutcome struct {
 // When promote is false this is a drill: the staging volume is removed and the
 // live service is never touched at all.
 func (e *Engine) RecoverService(ctx context.Context, service, targetTime string, promote bool) (RestoreOutcome, error) {
-	_, _, err := e.protectedService(service)
+	_, _, err := e.backedUpService(service)
 	if err != nil {
 		return RestoreOutcome{}, err
 	}
 	if !e.Spec.ServiceIsProtected(service) {
 		return RestoreOutcome{}, fmt.Errorf(
-			"service %s is not running under established protection; there is no repository to recover from", service)
+			"service %s is not running under established backup; there is no repository to recover from", service)
 	}
 	if targetTime != "" {
 		if _, err := time.Parse(time.RFC3339, targetTime); err != nil {
@@ -75,15 +75,15 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	// wrote down exactly which repository the server has been archiving to; if
 	// somebody edits the target afterwards, recovery must still read the
 	// repository the history is actually in. Rendering follows the same rule.
-	projection, err := e.Spec.EffectiveProtectionProjection(service)
+	projection, err := e.Spec.EffectiveBackupProjection(service)
 	if err != nil {
 		return RestoreOutcome{}, err
 	}
 	target, policyTarget := projection.Target, projection.Policy.Target
 
 	n := e.names()
-	staging := n.ProtectionRestoreVolume(service)
-	container := n.ProtectionRestoreContainer(service)
+	staging := n.BackupRestoreVolume(service)
+	container := n.BackupRestoreContainer(service)
 	outcome := RestoreOutcome{Service: service, Target: targetTime, StagingVolume: staging}
 
 	// Any leftover from an interrupted recovery goes first. Reusing a
@@ -201,8 +201,8 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 		"--network", q(n.ServiceNetwork()),
 		"--entrypoint", "sleep",
 		"-v", q(staging + ":/var/lib/postgresql/data"),
-		"-v", q(n.ProtectionRuntimeDir(service) + ":" + app.WalgMountPath + ":ro"),
-		"--env-file", q(n.ProtectionCredentialFile(service, credentialTarget)),
+		"-v", q(n.BackupRuntimeDir(service) + ":" + app.WalgMountPath + ":ro"),
+		"--env-file", q(n.BackupCredentialFile(service, credentialTarget)),
 	}
 	for _, key := range sortedEnvKeys(environment) {
 		args = append(args, "-e", q(fmt.Sprintf("%s=%v", key, environment[key])))
@@ -230,7 +230,7 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 func (e *Engine) fetchRecoveryBase(ctx context.Context, container, service string) (string, error) {
 	// Under the repository lock, like every other wal-g invocation. Without it a
 	// backup timer firing mid-restore runs its retention pass and can expire the
-	// very generation this is streaming out. The per-service protection lock
+	// very generation this is streaming out. The per-service backup lock
 	// does not help: systemd units cannot take it, which is why the flock exists.
 	fetch := e.walgLockPrefix(ctx, service) +
 		"docker exec -u postgres " + q(container) + " " + q(app.WalgBinary) +

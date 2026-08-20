@@ -58,8 +58,8 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		// absence produced an untyped complaint about an empty duration for a
 		// field the author had never heard of. A default is the answer the
 		// evolution rules already allow.
-		if e.Policy.Migrations.RequireBackup && e.Policy.Migrations.BackupMaximumAge == "" {
-			e.Policy.Migrations.BackupMaximumAge = "24h"
+		if e.Policy.Migrations.RequireBackup && e.Policy.Migrations.BackupMaxAge == "" {
+			e.Policy.Migrations.BackupMaxAge = "24h"
 			mark(path + ".policy.migrations.backup_max_age")
 		}
 		p.Environments[name] = e
@@ -172,24 +172,24 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				s.Backup.Schedule.Timezone = "UTC"
 				mark(path + ".backup.schedule.timezone")
 			}
-			if s.Backup.Retention.MinimumGenerations == 0 && !stated(raw, path+".backup.retention.keep") {
-				s.Backup.Retention.MinimumGenerations = 7
+			if s.Backup.Retention.Keep == 0 && !stated(raw, path+".backup.retention.keep") {
+				s.Backup.Retention.Keep = 7
 				mark(path + ".backup.retention.keep")
 			}
-			if s.Backup.Retention.RecoveryWindow == "" {
-				s.Backup.Retention.RecoveryWindow = "7d"
+			if s.Backup.Retention.Window == "" {
+				s.Backup.Retention.Window = "7d"
 				mark(path + ".backup.retention.window")
 			}
-			if s.Backup.RestoreDrill.Schedule.Cron == "" {
-				s.Backup.RestoreDrill.Schedule.Cron = "0 3 * * 0,3"
+			if s.Backup.Drill.Schedule.Cron == "" {
+				s.Backup.Drill.Schedule.Cron = "0 3 * * 0,3"
 				mark(path + ".backup.drill.schedule.cron")
 			}
-			if s.Backup.RestoreDrill.Schedule.Timezone == "" {
-				s.Backup.RestoreDrill.Schedule.Timezone = "UTC"
+			if s.Backup.Drill.Schedule.Timezone == "" {
+				s.Backup.Drill.Schedule.Timezone = "UTC"
 				mark(path + ".backup.drill.schedule.timezone")
 			}
-			if s.Backup.RestoreDrill.ProofMaximumAge == "" {
-				s.Backup.RestoreDrill.ProofMaximumAge = "7d"
+			if s.Backup.Drill.MaxAge == "" {
+				s.Backup.Drill.MaxAge = "7d"
 				mark(path + ".backup.drill.max_age")
 			}
 		}
@@ -226,8 +226,8 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				external.Probe.Timeout = "5s"
 				mark(path + ".probe.timeout")
 			}
-			if external.Probe.MaximumAge == "" {
-				external.Probe.MaximumAge = "5m"
+			if external.Probe.MaxAge == "" {
+				external.Probe.MaxAge = "5m"
 				mark(path + ".probe.max_age")
 			}
 		}

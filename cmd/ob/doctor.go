@@ -33,12 +33,12 @@ const (
 )
 
 type doctorReport struct {
-	Status      doctorStatus            `json:"status"`
-	Binary      doctorBinaryReport      `json:"binary"`
-	SSHAgent    doctorSSHAgentReport    `json:"ssh_agent"`
-	Project     doctorProjectReport     `json:"project"`
-	Approval    doctorApprovalReport    `json:"approval"`
-	Protections doctorProtectionsReport `json:"protections"`
+	Status   doctorStatus         `json:"status"`
+	Binary   doctorBinaryReport   `json:"binary"`
+	SSHAgent doctorSSHAgentReport `json:"ssh_agent"`
+	Project  doctorProjectReport  `json:"project"`
+	Approval doctorApprovalReport `json:"approval"`
+	Backups  doctorBackupsReport  `json:"backups"`
 }
 
 type doctorBinaryReport struct {
@@ -78,17 +78,17 @@ type doctorSSHAgentReport struct {
 }
 
 type doctorProjectReport struct {
-	Status               doctorStatus `json:"status"`
-	Message              string       `json:"message"`
-	Path                 string       `json:"path"`
-	Environment          string       `json:"environment"`
-	Found                bool         `json:"found"`
-	Valid                bool         `json:"valid"`
-	Compatible           bool         `json:"compatible"`
-	APIVersion           string       `json:"api_version"`
-	Application          string       `json:"application"`
-	MinimumOneboxVersion string       `json:"min_onebox_version"`
-	MinimumPlanSchema    string       `json:"min_plan_schema"`
+	Status           doctorStatus `json:"status"`
+	Message          string       `json:"message"`
+	Path             string       `json:"path"`
+	Environment      string       `json:"environment"`
+	Found            bool         `json:"found"`
+	Valid            bool         `json:"valid"`
+	Compatible       bool         `json:"compatible"`
+	APIVersion       string       `json:"api_version"`
+	Application      string       `json:"application"`
+	MinOneboxVersion string       `json:"min_onebox_version"`
+	MinPlanSchema    string       `json:"min_plan_schema"`
 }
 
 type doctorApprovalReport struct {
@@ -101,13 +101,13 @@ type doctorApprovalReport struct {
 	ConfirmationSchemaVersion string       `json:"confirmation_schema_version"`
 }
 
-type doctorProtectionsReport struct {
-	Status  doctorStatus            `json:"status"`
-	Message string                  `json:"message"`
-	Checks  []doctorProtectionCheck `json:"checks"`
+type doctorBackupsReport struct {
+	Status  doctorStatus        `json:"status"`
+	Message string              `json:"message"`
+	Checks  []doctorBackupCheck `json:"checks"`
 }
 
-type doctorProtectionCheck struct {
+type doctorBackupCheck struct {
 	Status    doctorStatus `json:"status"`
 	Workload  string       `json:"workload"`
 	Mechanism string       `json:"mechanism"`
@@ -147,7 +147,7 @@ func addDoctorCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check local runner provenance and deployment safety capabilities",
-		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that nothing is copying off the box, because silence there would\nread as approval. A service declaring `protection` is reported as declaring it;\nwhat the repository can actually recover is `ob backup status`. In structured output, automation should gate on\nthe report status: data.status for pass or warn, and error.details.status for\na failing diagnosis.",
+		Long:  "Check this runner and the safety capabilities of the environment it targets.\n\nReports the runner's provenance and whether it satisfies the environment's\nminimum version and plan schema, and names every workload and service holding\ndurable data that nothing is copying off the box, because silence there would\nread as approval. A service declaring `backup` is reported as declaring it;\nwhat the repository can actually recover is `ob backup status`. In structured output, automation should gate on\nthe report status: data.status for pass or warn, and error.details.status for\na failing diagnosis.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := buildDoctorReport(cmd.Context(), g, newDoctorDependencies())
@@ -178,16 +178,16 @@ func buildDoctorReport(ctx context.Context, g *globalFlags, deps doctorDependenc
 	sshAgent := inspectDoctorSSHAgent(ctx, deps)
 	project, cfg, environment := inspectDoctorProject(g, deps)
 	approval := inspectDoctorApproval(environment)
-	protections := inspectDoctorProtections(cfg, project.Path, deps)
+	backups := inspectDoctorBackups(cfg, project.Path, deps)
 	report := doctorReport{
-		Status:      doctorPass,
-		Binary:      binary,
-		SSHAgent:    sshAgent,
-		Project:     project,
-		Approval:    approval,
-		Protections: protections,
+		Status:   doctorPass,
+		Binary:   binary,
+		SSHAgent: sshAgent,
+		Project:  project,
+		Approval: approval,
+		Backups:  backups,
 	}
-	for _, status := range []doctorStatus{binary.Status, sshAgent.Status, project.Status, approval.Status, protections.Status} {
+	for _, status := range []doctorStatus{binary.Status, sshAgent.Status, project.Status, approval.Status, backups.Status} {
 		report.Status = worseDoctorStatus(report.Status, status)
 	}
 	return report
@@ -438,8 +438,8 @@ func inspectDoctorProject(g *globalFlags, deps doctorDependencies) (doctorProjec
 		report.Message = err.Error()
 		return report, cfg, nil
 	}
-	report.MinimumOneboxVersion = environment.Policy.MinimumOneboxVersion
-	report.MinimumPlanSchema = environment.Policy.MinimumPlanSchema
+	report.MinOneboxVersion = environment.Policy.MinOneboxVersion
+	report.MinPlanSchema = environment.Policy.MinPlanSchema
 	if err := onebox.CheckRunnerCompatibility(environment.Policy, deps.runner); err != nil {
 		report.Status = doctorFail
 		report.Message = err.Error()
@@ -472,11 +472,11 @@ func inspectDoctorApproval(environment *app.Environment) doctorApprovalReport {
 	return report
 }
 
-func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDependencies) doctorProtectionsReport {
-	report := doctorProtectionsReport{Status: doctorPass, Checks: []doctorProtectionCheck{}}
+func inspectDoctorBackups(cfg *app.Spec, configPath string, deps doctorDependencies) doctorBackupsReport {
+	report := doctorBackupsReport{Status: doctorPass, Checks: []doctorBackupCheck{}}
 	if cfg == nil {
 		report.Status = doctorWarning
-		report.Message = "declared protection mechanisms were not evaluated because project config is unavailable"
+		report.Message = "declared backup mechanisms were not evaluated because project config is unavailable"
 		return report
 	}
 
@@ -493,7 +493,7 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	for _, name := range componentNames {
 		w := cfg.Workloads[name]
 		if w.HoldsDurableData() {
-			message := "holds durable data that Onebox does not copy off this host; back it up yourself, or hold the state in a managed service that declares protection"
+			message := "holds durable data that Onebox does not copy off this host; back it up yourself, or hold the state in a managed service that declares backup"
 			switch {
 			case w.Replicas > 1:
 				// Do not suggest declaring durable here: the loader refuses a
@@ -505,41 +505,41 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 			case w.Persistence == nil:
 				message += ". Declare persistence: {mode: durable} to state this, or mode: ephemeral if the volume is not state"
 			}
-			report.Checks = append(report.Checks, doctorProtectionCheck{
+			report.Checks = append(report.Checks, doctorBackupCheck{
 				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
 				Message: message,
 			})
 		}
 		if w.HasBindMounts() {
-			report.Checks = append(report.Checks, doctorProtectionCheck{
+			report.Checks = append(report.Checks, doctorBackupCheck{
 				Status: doctorPass, Workload: name, Mechanism: "bind_mount", Available: true,
 				Message: "mounts a host path Onebox does not own; its contents are yours to back up",
 			})
 		}
 	}
-	// A service that declares protection is not the same as one that does not,
+	// A service that declares backup is not the same as one that does not,
 	// and this said otherwise for both — it warned that "Onebox takes no
 	// backups yet" over a database archiving to an off-host repository. A
 	// doctor that reports a healthy thing as broken is a doctor people stop
 	// reading.
 	//
-	// What it still cannot say is whether protection was ever *enabled*: that
+	// What it still cannot say is whether backup was ever *enabled*: that
 	// is durable state on the target and this check is local. So a declared
 	// policy is reported as declared, and the operator is pointed at the one
 	// command that reads the repository itself.
 	for _, name := range cfg.ServiceNames() {
 		service := cfg.Services[name]
 		if service.Backup == nil {
-			report.Checks = append(report.Checks, doctorProtectionCheck{
+			report.Checks = append(report.Checks, doctorBackupCheck{
 				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
 				Message: "managed service data lives only on this host; declare services." + name +
 					".backup to copy it off, or accept that one disk is all there is",
 			})
 			continue
 		}
-		report.Checks = append(report.Checks, doctorProtectionCheck{
+		report.Checks = append(report.Checks, doctorBackupCheck{
 			Status: doctorPass, Workload: name, Mechanism: "backup", Available: true,
-			Message: "declares " + service.Backup.RecoveryKind + " protection to target " +
+			Message: "declares " + service.Backup.RecoveryKind + " backup to target " +
 				service.Backup.Target + "; run `ob backup status " + name +
 				"` to see what the repository can actually recover",
 		})
@@ -551,7 +551,7 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 		}
 		_, sourceErr := deps.stat(source)
 		sopsPath, sopsErr := deps.lookPath("sops")
-		check := doctorProtectionCheck{Workload: "", Mechanism: "sops_secrets"}
+		check := doctorBackupCheck{Workload: "", Mechanism: "sops_secrets"}
 		switch {
 		case sourceErr != nil:
 			check.Status = doctorFail
@@ -568,7 +568,7 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	}
 
 	if cfg.Runtime != nil && len(cfg.Runtime.EnvChecks) > 0 {
-		check := doctorProtectionCheck{Mechanism: "runtime_env_checks"}
+		check := doctorBackupCheck{Mechanism: "runtime_env_checks"}
 		if err := cfg.RunPreflight(filepath.Dir(configPath)); err != nil {
 			check.Status = doctorFail
 			check.Message = err.Error()
@@ -586,11 +586,11 @@ func inspectDoctorProtections(cfg *app.Spec, configPath string, deps doctorDepen
 	if len(report.Checks) == 0 {
 		report.Message = "nothing on this host holds durable data"
 	} else if report.Status == doctorFail {
-		report.Message = "one or more declared protection mechanisms are unavailable"
+		report.Message = "one or more declared backup mechanisms are unavailable"
 	} else if report.Status == doctorWarning {
 		report.Message = "durable data is present and Onebox does not back it up"
 	} else {
-		report.Message = "declared local protection mechanisms are available"
+		report.Message = "declared local backup mechanisms are available"
 	}
 	return report
 }
@@ -640,8 +640,8 @@ func formatDoctorReport(report doctorReport) string {
 	fmt.Fprintf(&out, "%s project: %s\n", doctorStatusLabel(report.Project.Status), report.Project.Message)
 	fmt.Fprintf(&out, "  config: %s  environment: %s\n", report.Project.Path, report.Project.Environment)
 	fmt.Fprintf(&out, "%s approval: %s\n", doctorStatusLabel(report.Approval.Status), report.Approval.Message)
-	fmt.Fprintf(&out, "%s protections: %s\n", doctorStatusLabel(report.Protections.Status), report.Protections.Message)
-	for _, check := range report.Protections.Checks {
+	fmt.Fprintf(&out, "%s backups: %s\n", doctorStatusLabel(report.Backups.Status), report.Backups.Message)
+	for _, check := range report.Backups.Checks {
 		name := check.Mechanism
 		if check.Workload != "" {
 			name = check.Workload + "/" + name

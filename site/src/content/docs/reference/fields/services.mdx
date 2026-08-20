@@ -24,7 +24,7 @@ cannot drift from what `ob validate` accepts.
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `<name>.backup` | object | — | Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection. |
+| `<name>.backup` | object | — | Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish backup. |
 | `<name>.backup.allow_downtime` | boolean | `false` | Whether recurring backup operations may use the driver-declared stopped-service window. |
 | `<name>.backup.drill` | object | — | Exact isolated restore-test schedule, proof age, and optional staging filesystem. |
 | `<name>.backup.drill.max_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |

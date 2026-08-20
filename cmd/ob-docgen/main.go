@@ -315,7 +315,7 @@ var blocks = []block{
 		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",
 		ReadWhen: []string{"Declaring where a database's backups go", "Understanding why Onebox refuses a backup target that shares the protected host"}},
 	{Key: "external_services", Title: "external_services", Order: 210, Status: statusSchemaOnly,
-		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and protection stay external. Accepted by the loader; not yet executable.",
+		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable.",
 		ReadWhen: []string{"Modelling an RDS, Neon, Supabase or Upstash dependency"}},
 }
 

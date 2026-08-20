@@ -39,10 +39,10 @@ var ErrBackupReportNotRequired = errors.New("executable plan has no migration ba
 var sha256Digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // MigrationBackupRequirement is plan-bound policy, not operator-supplied
-// protection input. Its presence means every pending migration step requires
+// backup input. Its presence means every pending migration step requires
 // either a matching report or an explicit audited override.
 type MigrationBackupRequirement struct {
-	MaximumAge          string                    `json:"max_age"`
+	MaxAge              string                    `json:"max_age"`
 	RequireRestoreTest  bool                      `json:"require_restore_test"`
 	Resources           []MigrationBackupResource `json:"resources"`
 	RequiredKeyMaterial []string                  `json:"required_key_material,omitempty"`
@@ -113,7 +113,7 @@ func migrationBackupRequirement(cfg *app.Resolved, policy app.Policy, steps []Op
 	keyMaterial := append([]string(nil), policy.Migrations.BackupKeyMaterial...)
 	sort.Strings(keyMaterial)
 	requirement := &MigrationBackupRequirement{
-		MaximumAge:          policy.Migrations.BackupMaximumAge,
+		MaxAge:              policy.Migrations.BackupMaxAge,
 		RequireRestoreTest:  policy.Migrations.RequireRestoreTest,
 		Resources:           resources,
 		RequiredKeyMaterial: keyMaterial,
@@ -134,9 +134,9 @@ func hasMigrationStep(steps []OperationStep) bool {
 }
 
 func (r MigrationBackupRequirement) validate() error {
-	maxAge, err := app.PositiveDuration(r.MaximumAge)
+	maxAge, err := app.PositiveDuration(r.MaxAge)
 	if err != nil || maxAge <= 0 {
-		return fmt.Errorf("migration backup max_age %q must be a positive duration", r.MaximumAge)
+		return fmt.Errorf("migration backup max_age %q must be a positive duration", r.MaxAge)
 	}
 	if len(r.Resources) == 0 {
 		return errors.New("migration backup resources must not be empty")
@@ -539,7 +539,7 @@ func (r BackupReport) ValidateForPlan(plan ExecutablePlan, now time.Time) error 
 	if !keyMaterialSatisfies(r.KeyMaterial, requirement.RequiredKeyMaterial) {
 		return errors.New("backup report key material does not match the executable plan")
 	}
-	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)
+	maxAge, _ := app.PositiveDuration(requirement.MaxAge)
 	now = now.UTC()
 	reportedAt, _ := parseOperationTime(r.ReportedAt, "reported_at")
 	planCreatedAt, _ := parseOperationTime(view.operation.CreatedAt, "plan created_at")
@@ -597,7 +597,7 @@ func validateFreshEvidenceTimes(createdValue, validatedValue, testedValue string
 func (r BackupReport) validUntil(plan ExecutablePlan) time.Time {
 	view, _ := inspectExecutablePlan(plan)
 	requirement := view.migrationBackup
-	maxAge, _ := app.PositiveDuration(requirement.MaximumAge)
+	maxAge, _ := app.PositiveDuration(requirement.MaxAge)
 	expiresAt, _ := parseOperationTime(view.operation.ExpiresAt, "plan expires_at")
 	validUntil := expiresAt
 	for _, resource := range r.Resources {
@@ -747,7 +747,7 @@ func (o MigrationBackupOverride) validateContent() error {
 	if _, err := parseOperationTime(o.CreatedAt, "created_at"); err != nil {
 		return err
 	}
-	requirement := MigrationBackupRequirement{MaximumAge: time.Second.String(), Resources: o.Resources, RequiredKeyMaterial: o.RequiredKeyMaterial}
+	requirement := MigrationBackupRequirement{MaxAge: time.Second.String(), Resources: o.Resources, RequiredKeyMaterial: o.RequiredKeyMaterial}
 	return requirement.validate()
 }
 

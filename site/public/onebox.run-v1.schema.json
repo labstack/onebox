@@ -262,7 +262,7 @@
             "type": "string"
           },
           "prefix": {
-            "description": "Non-secret object prefix reserved for Onebox protection data. Expects a relative object prefix with no empty leading component or shell metacharacter.",
+            "description": "Non-secret object prefix reserved for Onebox backup data. Expects a relative object prefix with no empty leading component or shell metacharacter.",
             "examples": [
               "production/shop"
             ],
@@ -289,7 +289,7 @@
         },
         "type": "object"
       },
-      "description": "User-owned off-host repositories available to service protection policies.",
+      "description": "User-owned off-host repositories available to service backup policies.",
       "type": "object"
     },
     "base_path": {
@@ -805,6 +805,14 @@
           "^x-": {}
         },
         "properties": {
+          "backup_owner": {
+            "description": "Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens.",
+            "examples": [
+              "platform-team/rds"
+            ],
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$",
+            "type": "string"
+          },
           "connection": {
             "additionalProperties": false,
             "description": "Trusted connection source and driver-shaped entry mapping.",
@@ -905,19 +913,11 @@
               }
             },
             "type": "object"
-          },
-          "protection_owner": {
-            "description": "Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens.",
-            "examples": [
-              "platform-team/rds"
-            ],
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$",
-            "type": "string"
           }
         },
         "type": "object"
       },
-      "description": "Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and protection remain external.",
+      "description": "Typed dependencies operated outside Onebox. Their connection projection is trusted, but their lifecycle and backup remain external.",
       "type": "object"
     },
     "health": {
@@ -1454,7 +1454,7 @@
             "properties": {
               "backup": {
                 "additionalProperties": false,
-                "description": "Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish protection.",
+                "description": "Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish backup.",
                 "patternProperties": {
                   "^x-": {}
                 },

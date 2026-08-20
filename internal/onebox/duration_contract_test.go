@@ -16,7 +16,7 @@ import (
 func TestPolicyDurationsAcceptTheContractGrammar(t *testing.T) {
 	resource := MigrationBackupResource{Component: "db", Service: "postgres", Type: "service", Persistence: "durable"}
 	for _, value := range []string{"14d", "24h", "1h30m", "30s"} {
-		requirement := MigrationBackupRequirement{MaximumAge: value, Resources: []MigrationBackupResource{resource}}
+		requirement := MigrationBackupRequirement{MaxAge: value, Resources: []MigrationBackupResource{resource}}
 		if err := requirement.validate(); err != nil && strings.Contains(err.Error(), "max_age") {
 			t.Errorf("%s: the loader accepts this duration and the plan path refuses it: %v", value, err)
 		}

@@ -168,7 +168,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	destroyCmd := &cobra.Command{
 		Use:   "destroy",
 		Short: "tear the app down (typed confirmation; volumes kept unless --volumes)",
-		Long:  "Tear the application down: every container it owns, its scheduled timers, and\nits state directory.\n\nRequires the application name typed back. Volumes are kept unless --volumes,\nand when they are kept the service credentials are kept with them — a volume\nwhose credential is gone cannot be opened by a new one. The host proxy survives\nunless --proxy is supplied.",
+		Long:  "Tear the application down: every container it owns, its scheduled timers, and\nits state directory. An active release is removed with its recorded project\nsnapshot and interpolation environment, not the current working-tree shape.\n\nRequires the application name typed back. Volumes are kept unless --volumes,\nand when they are kept the service credentials are kept with them — a volume\nwhose credential is gone cannot be opened by a new one. The host proxy survives\nunless --proxy is supplied.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc := operationsService(cmd, g)
 			binding, err := svc.ResolveExecutionBinding(cmd.Context(), onebox.KindDestroy)

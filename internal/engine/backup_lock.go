@@ -110,7 +110,13 @@ func (e *Engine) AcquireBackupLock(ctx context.Context, service, operationID str
 			return 0, err
 		}
 		if res.ExitCode == 0 {
+			if e.backupLockVals == nil {
+				e.backupLockVals = make(map[string]string)
+				e.backupFenceVals = make(map[string]string)
+			}
+			e.backupLockVals[service] = lockValue
 			if err := e.writeBackupFence(ctx, service, operationID, epoch, lockValue); err != nil {
+				e.ReleaseBackupLock(service)
 				return 0, err
 			}
 			return epoch, nil
@@ -159,17 +165,14 @@ func (e *Engine) AcquireBackupLock(ctx context.Context, service, operationID str
 }
 
 func (e *Engine) nextBackupEpoch(ctx context.Context, service string) (int, error) {
-	result, err := e.T.Run(ctx, "cat "+q(e.backupEpochPath(service))+" 2>/dev/null || echo 0")
-	if err != nil {
-		return 0, err
-	}
-	previous, _ := strconv.Atoi(strings.TrimSpace(result.Stdout))
-	return previous + 1, nil
+	return e.nextEpoch(ctx, e.backupEpochPath(service))
 }
 
 func (e *Engine) writeBackupFence(ctx context.Context, service, operationID string, epoch int, lockValue string) error {
 	fenceValue := operationID + " " + strconv.Itoa(epoch)
-	command := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ]; then echo ` + strconv.Itoa(epoch) + ` > ` + q(e.backupEpochPath(service)) + ` && echo ` + q(fenceValue) + ` > ` + q(e.backupFencePath(service)) + `; else echo ob-backup-lock-lost >&2; exit 96; fi`
+	command := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ]; then ` +
+		atomicEpochWriteCmd(e.backupEpochPath(service), epoch) + `; echo ` + q(fenceValue) + ` > ` + q(e.backupFencePath(service)) +
+		`; else echo ob-backup-lock-lost >&2; exit 96; fi`
 	result, err := e.T.Run(ctx, command)
 	if err != nil {
 		return err

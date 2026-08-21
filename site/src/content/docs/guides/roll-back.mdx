@@ -128,6 +128,19 @@ ob abort --break-lock --output ndjson
 only. The backup lock has no override and clears on TTL expiry or when the
 same operation returns.
 
+**An unreadable or invalid fencing epoch** — there is deliberately no override.
+The application authority is `<base>/<app>/epoch`; each backup service has a
+second authority at `<base>/<app>/backup/locks/<service>.epoch`. Do not delete
+either file or replace it with `0` or `1`: that can recreate a fence still held
+by an interrupted runner.
+
+If the contents are intact, repair only the ownership or permissions that made
+the file unreadable. Otherwise preserve the file and host evidence, stop or
+isolate every runner that may still hold the old fence, and restore an epoch
+known to be greater than every value previously issued. Onebox will refuse to
+guess this value because a convenient reset would weaken the stale-runner
+guarantee the epoch exists to provide.
+
 ## Recovery onto another host is a different workflow
 
 Rolling deployment can avoid interruption while the host is healthy. It cannot

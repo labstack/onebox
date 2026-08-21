@@ -23,6 +23,19 @@ interfere serialize rather than race.
 act: its epoch no longer matches. This is what makes "the CLI lost the
 connection" survivable rather than dangerous.
 
+The epoch is durable authority, not a disposable counter. Onebox treats only a
+genuinely absent epoch file as a first run. If the file exists but is unreadable,
+empty, malformed, negative, or too large to increment, the operation stops
+before publishing a new lock or fence. The next value is written to a sibling
+temporary file and atomically renamed into place, so an interrupted write can
+leave debris but cannot truncate the last valid epoch.
+
+Application operations share one epoch beneath the application's state
+directory. Backup mutations add a per-service epoch beneath
+`backup/locks/`. Both use the same read and persistence contract; retrying the
+same operation identity therefore produces a different fence from the runner it
+replaces.
+
 **Append-only journals.** Every operation records ordered steps with deterministic
 identities. The record of a failed operation survives the operation that replaced
 it, which is what lets `ob resume` and `ob abort` choose only paths the journal

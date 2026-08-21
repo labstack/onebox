@@ -163,7 +163,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	bootstrapCmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "first contact: host setup, registry login, and supporting/data services",
-		Long:  "Prepare a host: install what the deploy needs, create the layout, log in to\nregistries, start the proxy, and start supporting services.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. Application images, source and environment\npayloads are not required or staged; `ob deploy` binds and releases them.",
+		Long:  "Prepare a host that has Docker: create the layout, log in to registries,\nstart the proxy, and start supporting services.\n\nOnebox never installs Docker implicitly. Install it with operator-managed\nprovisioning, or declare a remote bootstrap hook that installs a pinned runtime;\nthe hook runs inside the lock, fence, and journal boundary, and Docker is\nverified afterwards.\n\nRun once per host before the first deploy. It is safe to run again — each\nstep converges rather than repeats. Application images, source and environment\npayloads are not required or staged; `ob deploy` binds and releases them.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindBootstrap, BreakLock: bootstrapBreakLock,

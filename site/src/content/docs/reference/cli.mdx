@@ -421,8 +421,13 @@ Global Flags:
 ## ob bootstrap
 
 ```
-Prepare a host: install what the deploy needs, create the layout, log in to
-registries, start the proxy, and start supporting services.
+Prepare a host that has Docker: create the layout, log in to registries,
+start the proxy, and start supporting services.
+
+Onebox never installs Docker implicitly. Install it with operator-managed
+provisioning, or declare a remote bootstrap hook that installs a pinned runtime;
+the hook runs inside the lock, fence, and journal boundary, and Docker is
+verified afterwards.
 
 Run once per host before the first deploy. It is safe to run again — each
 step converges rather than repeats. Application images, source and environment

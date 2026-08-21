@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
@@ -25,8 +26,12 @@ func TestBootstrapSequence(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
-		"mkdir -p", // dirs
+		"mkdir -p",                                           // dirs
+		"> '/var/lib/ob/sample/lock'",                        // application lock
+		"> '/var/lib/ob/sample/fence'",                       // mutation fence
+		`"phase":"bootstrap","event":"start"`,                // durable journal boundary
 		"apt-get install -y something-host-specific",         // bootstrap hook
+		"docker version -f '{{.Server.Version}}'",            // prerequisite after authored provisioning
 		"docker login 'ghcr.io' -u 'vishr' --password-stdin", // registry (stdin, quoted)
 		"docker compose -p 'ob_sample_postgres'",             // services
 	}
@@ -102,41 +107,137 @@ func TestBootstrapStopsWhenJournalStartFails(t *testing.T) {
 	}
 }
 
-func TestBootstrapInstallsMissingRuntime(t *testing.T) {
+func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.Mkdir(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "docker"), []byte("#!/bin/sh\n[ \"$1\" = version ] && printf '27.0.3\\n'\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	entered := filepath.Join(dir, "hook-entered")
+	release := filepath.Join(dir, "release-hook")
+	runs := filepath.Join(dir, "hook-runs")
+	cfg := testConfig()
+	cfg.BasePath = filepath.Join(dir, "state")
+	cfg.Services = nil
+	cfg.Hooks["bootstrap"] = app.Command{Run: "printf x >> " + q(runs) + "; touch " + q(entered) + "; while [ ! -f " + q(release) + " ]; do sleep 0.01; done"}
+
+	first := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	second := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- first.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
+	}()
+	defer func() { _ = os.WriteFile(release, nil, 0o600) }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(entered); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first bootstrap did not enter its hook")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	err := second.Bootstrap(context.Background(), engineTestDeployReleaseID)
+	if err == nil || !strings.Contains(err.Error(), "deploy lock held") {
+		t.Fatalf("concurrent bootstrap error = %v, want held lock", err)
+	}
+	body, readErr := os.ReadFile(runs)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != "x" {
+		t.Fatalf("bootstrap hooks ran concurrently: %q", body)
+	}
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("first bootstrap: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("first bootstrap did not finish")
+	}
+}
+
+func TestBootstrapRefusesMissingRuntimeWithoutImplicitInstaller(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker version") {
+			return transport.Result{ExitCode: 127, Stderr: "docker: command not found"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
+	if err == nil || !strings.Contains(err.Error(), "container runtime unavailable after bootstrap hook") ||
+		!strings.Contains(err.Error(), "install Docker") || !strings.Contains(err.Error(), "remote bootstrap hook") {
+		t.Fatalf("missing runtime error = %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, forbidden := range []string{"get.docker.com", "curl -fsSL", "systemctl enable", "apt-get install", "dnf install", "yum install", "apk add", "docker login", "docker compose", "mkdir -m 700"} {
+		if strings.Contains(seq, forbidden) {
+			t.Fatalf("bootstrap ran implicit installer %q:\n%s", forbidden, seq)
+		}
+	}
+	runtimeCheck := strings.Index(seq, "docker version")
+	if runtimeCheck < 0 {
+		t.Fatalf("bootstrap did not check the runtime:\n%s", seq)
+	}
+	for _, before := range []string{"> '/var/lib/ob/sample/lock'", "> '/var/lib/ob/sample/fence'", `"phase":"bootstrap","event":"start"`} {
+		if index := strings.Index(seq, before); index < 0 || index > runtimeCheck {
+			t.Fatalf("%q did not precede the runtime check:\n%s", before, seq)
+		}
+	}
+}
+
+func TestBootstrapHookMayProvisionPinnedRuntime(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	installed := false
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "install-pinned-docker") {
+			installed = true
+			return transport.Result{}, true
+		}
 		if strings.Contains(cmd, "docker version") {
 			if !installed {
 				return transport.Result{ExitCode: 127, Stderr: "docker: command not found"}, true
 			}
 			return transport.Result{Stdout: "27.0.3\n"}, true
 		}
-		if strings.Contains(cmd, "get.docker.com") {
-			installed = true
-			return transport.Result{}, true
-		}
 		return base(cmd)
 	}
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	cfg := testConfig()
+	cfg.Hooks["bootstrap"] = app.Command{Run: "install-pinned-docker"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID); err != nil {
-		t.Fatalf("bootstrap with runtime install: %v\n%s", err, strings.Join(f.Commands, "\n"))
-	}
-	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "get.docker.com") || !strings.Contains(seq, "systemctl enable --now docker") {
-		t.Fatalf("missing runtime install:\n%s", seq)
+		t.Fatalf("bootstrap after authored runtime provisioning: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 }
 
-func TestBootstrapSkipsInstallWhenRuntimePresent(t *testing.T) {
+func TestBootstrapUsesPresentRuntimeWithoutInstaller(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	if err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "get.docker.com") {
-		t.Fatal("must not reinstall a present runtime")
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "get.docker.com") || strings.Contains(seq, "systemctl enable") {
+		t.Fatal("must not install a present runtime")
 	}
 }
 

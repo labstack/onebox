@@ -144,6 +144,9 @@ func TestRenderedRuntime(t *testing.T) {
 	if strings.Contains(out, "container_name") {
 		t.Error("rendered runtime must not set container_name")
 	}
+	if !strings.Contains(out, "default:\n    external: true\n    name: ledger_default") {
+		t.Fatalf("the application network must be external and carry its fixed runtime name:\n%s", out)
+	}
 }
 
 // TestEnvFilesAreNotProjectedIntoDaemons is the rule seven real projects forced:

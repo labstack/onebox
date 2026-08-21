@@ -1147,7 +1147,7 @@
         },
         "network": {
           "default": "ob-ingress",
-          "description": "External container network shared with routed workloads.",
+          "description": "External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved.",
           "type": "string"
         }
       },

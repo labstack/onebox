@@ -84,6 +84,9 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 		}
 		return fmt.Errorf("container runtime unavailable after bootstrap hook; install Docker with operator-managed provisioning or configure a remote bootstrap hook that installs a pinned runtime%s", detail)
 	}
+	if err := e.EnsureApplicationNetwork(ctx); err != nil {
+		return fmt.Errorf("application network: %w", err)
+	}
 
 	for _, name := range sortedNames(e.Spec.Registries) {
 		r, password := e.Spec.Registries[name], passwords[name]

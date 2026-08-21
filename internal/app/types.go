@@ -473,7 +473,7 @@ type Proxy struct {
 	Kind         string `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
 	Image        string `json:"image,omitempty" description:"Container image used for the managed proxy."`
 	Config       string `json:"config,omitempty" description:"Repository-relative static proxy configuration directory owned by the project; it must contain exactly one of traefik.yml or traefik.yaml."`
-	Network      string `json:"network" description:"External container network shared with routed workloads." default:"ob-ingress"`
+	Network      string `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
 	CertResolver string `json:"cert_resolver,omitempty" description:"Traefik certificate resolver used by terminating TLS routes."`
 }
 

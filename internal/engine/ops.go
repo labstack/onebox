@@ -120,6 +120,15 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	if err := e.removeServices(ctx, removeVolumes); err != nil {
 		return err
 	}
+	// External means release-independent, not ownerless. A full destroy removes
+	// both app-scoped networks before deleting the evidence that proves legacy
+	// ownership. Docker refuses removal while any unmanaged endpoint remains;
+	// propagate that refusal so state and host ownership stay recoverable.
+	if removeVolumes {
+		if err := e.removeOwnedNetworks(ctx); err != nil {
+			return err
+		}
+	}
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
 	base := release.PathsFor(e.names()).Base

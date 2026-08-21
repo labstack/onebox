@@ -37,23 +37,6 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 		return err
 	}
 
-	// the runtime is ob's own precondition — the one universal piece of
-	// host provisioning; bootstrap provisions the runtime.
-	// Everything vendor-flavored (VPNs, NFS, kernel tuning) stays in the
-	// user's bootstrap hook.
-	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil {
-		return err
-	} else if res.ExitCode != 0 {
-		e.logf("bootstrap: no container runtime — installing docker (get.docker.com)")
-		ires, err := e.T.Run(ctx, "curl -fsSL https://get.docker.com | sh && systemctl enable --now docker")
-		if err != nil {
-			return err
-		}
-		if ires.ExitCode != 0 {
-			return fmt.Errorf("docker install failed: %s", strings.TrimSpace(ires.Stderr))
-		}
-	}
-
 	e.logf("bootstrap: base dirs")
 	p := release.PathsFor(e.names())
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases)); err != nil || res.ExitCode != 0 {
@@ -87,6 +70,19 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 
 	if err := e.RunHook(ctx, "bootstrap", p.Base, ""); err != nil {
 		return fmt.Errorf("bootstrap hook: %w", err)
+	}
+
+	// Docker is an explicit host prerequisite, never an implicit network
+	// installer. The authored hook runs first so an operator may deliberately
+	// provision a pinned runtime inside the lock, fence, and journal boundary.
+	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		detail := strings.TrimSpace(res.Stderr)
+		if detail != "" {
+			detail = ": " + detail
+		}
+		return fmt.Errorf("container runtime unavailable after bootstrap hook; install Docker with operator-managed provisioning or configure a remote bootstrap hook that installs a pinned runtime%s", detail)
 	}
 
 	for _, name := range sortedNames(e.Spec.Registries) {

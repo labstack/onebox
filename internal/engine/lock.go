@@ -53,12 +53,10 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		// persisted a higher epoch between our attempts; fencing relies on a
 		// strictly increasing epoch, so a value read once before the loop could
 		// be reused and collide.
-		eres, err := e.T.Run(ctx, "cat "+q(e.epochPath())+" 2>/dev/null || echo 0")
+		epoch, err := e.nextEpoch(ctx, e.epochPath())
 		if err != nil {
 			return 0, err
 		}
-		prev, _ := strconv.Atoi(strings.TrimSpace(eres.Stdout))
-		epoch := prev + 1
 
 		meta := lockMeta{
 			Owner: journal.DefaultOperator(), DeployID: deployID, Epoch: epoch,
@@ -74,7 +72,7 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		}
 		if res.ExitCode == 0 {
 			e.lockVal = string(b)
-			if res, err := e.T.Run(ctx, "echo "+strconv.Itoa(epoch)+" > "+q(e.epochPath())); err != nil || res.ExitCode != 0 {
+			if res, err := e.T.Run(ctx, atomicEpochWriteCmd(e.epochPath(), epoch)); err != nil || res.ExitCode != 0 {
 				e.ReleaseLock(ctx)
 				return 0, fmt.Errorf("persist epoch: %v %s", err, res.Stderr)
 			}

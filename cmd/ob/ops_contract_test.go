@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -179,6 +180,8 @@ services: {postgres: 17}
 	}
 	fake := &transport.Fake{HostName: "example.invalid", Dynamic: func(command string) (transport.Result, bool) {
 		switch {
+		case strings.HasPrefix(command, ": ob-epoch-probe;"):
+			return transport.Result{ExitCode: app.ProbeAbsent}, true
 		case strings.Contains(command, "/_host/owner"):
 			return transport.Result{Stdout: "shop\n"}, true
 		case strings.Contains(command, " logs "):

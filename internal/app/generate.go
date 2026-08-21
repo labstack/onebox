@@ -116,6 +116,14 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	if p.routesAnywhere() && p.Proxy.Kind != "none" {
 		nets[p.Proxy.Network] = map[string]any{"external": true}
 	}
+	// Compose's implicit default network is a runtime name just like a volume or
+	// container. Keep it external so removing one release cannot remove a
+	// network still used by an unmanaged proxy, and pin the name so preflight
+	// checks the exact object workloads will join.
+	nets["default"] = map[string]any{
+		"external": true,
+		"name":     n.ApplicationNetwork(),
+	}
 	// The service network is external because the services on it outlive every
 	// release. Compose would otherwise create it with the release and remove it
 	// with the release, taking the database's reachability with it.

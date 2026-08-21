@@ -237,6 +237,13 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		return &ActivationRefusedError{ReleaseID: releaseID, State: manifest.State}
 	}
 
+	// The generated runtime declares its default network external so release
+	// teardown cannot remove a long-lived proxy endpoint. Establish and verify
+	// ownership before any job or workload can join it.
+	if err := e.EnsureApplicationNetwork(ctx); err != nil {
+		return fmt.Errorf("application network: %w", err)
+	}
+
 	// Before any job runs: a job can need a database as readily as an
 	// application can, and both read a file that only exists once it is
 	// written.

@@ -93,6 +93,8 @@ func happyFake() *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "/_host/owner"):
 			return transport.Result{Stdout: "sample\n"}, true
+		case strings.Contains(cmd, "docker network inspect --format"):
+			return transport.Result{Stdout: "abc123|sample|\n"}, true
 		case strings.Contains(cmd, "docker version"):
 			return transport.Result{Stdout: "27.0.3\n"}, true
 		case strings.Contains(cmd, "compose version"):

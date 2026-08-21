@@ -77,6 +77,19 @@ func validateTopLevel(p *Spec) error {
 	if err := gRepoPath.checkOptional("proxy.config", p.Proxy.Config); err != nil {
 		return err
 	}
+	// Compose reserves `default` for the application's implicit network, and
+	// Onebox owns the two derived app-scoped networks. Letting ingress reuse one
+	// makes the proxy create it first under different Compose ownership, after
+	// which bootstrap must either adopt a foreign network or refuse.
+	if p.Proxy.Kind != "none" && p.routesAnywhere() {
+		n := p.NamesFor("")
+		for _, reserved := range []string{"default", n.ApplicationNetwork(), n.ServiceNetwork()} {
+			if p.Proxy.Network == reserved {
+				return errf("project_invalid", "proxy.network", "",
+					"proxy network %q is reserved by Onebox; choose another external network name", p.Proxy.Network)
+			}
+		}
+	}
 	if err := checkEnum("deployment.migration_policy", p.Deployment.MigrationPolicy, eMigrationPolicy); err != nil {
 		return err
 	}

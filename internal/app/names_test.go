@@ -51,6 +51,8 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger-web-new",
 		"ledger-worker-1",
 		"ledger-worker-new",
+		"ledger_default",
+		"ob_ledger",
 		"ob_ledger_postgres",
 		"ob_ledger_postgres_data",
 		"ob_ledger_postgres_wal",

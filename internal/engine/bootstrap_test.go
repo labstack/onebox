@@ -13,6 +13,18 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+type bootstrapNetworkLocal struct {
+	*transport.Local
+	owner string
+}
+
+func (l *bootstrapNetworkLocal) Run(ctx context.Context, command string) (transport.Result, error) {
+	if strings.Contains(command, "docker network inspect --format") {
+		return transport.Result{Stdout: "abc123|" + l.owner + "|\n"}, nil
+	}
+	return l.Local.Run(ctx, command)
+}
+
 func TestBootstrapSequence(t *testing.T) {
 	f := happyFake()
 	dir := t.TempDir()
@@ -113,7 +125,7 @@ func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
 	if err := os.Mkdir(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "docker"), []byte("#!/bin/sh\n[ \"$1\" = version ] && printf '27.0.3\\n'\nexit 0\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "docker"), []byte("#!/bin/sh\n[ \"$1\" = version ] && printf '27.0.3\\n'\n[ \"$1\" = network ] && [ \"$2\" = inspect ] && exit 1\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -126,8 +138,9 @@ func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
 	cfg.Services = nil
 	cfg.Hooks["bootstrap"] = app.Command{Run: "printf x >> " + q(runs) + "; touch " + q(entered) + "; while [ ! -f " + q(release) + " ]; do sleep 0.01; done"}
 
-	first := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	second := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	local := &bootstrapNetworkLocal{Local: transport.NewLocal(), owner: cfg.Name}
+	first := New(cfg, testProject(t), local, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	second := New(cfg, testProject(t), local, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	firstDone := make(chan error, 1)
 	go func() {
 		firstDone <- first.Bootstrap(context.Background(), engineTestBootstrapReleaseID)

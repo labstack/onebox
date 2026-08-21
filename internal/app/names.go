@@ -55,6 +55,12 @@ func (p *Spec) NamesFor(env string) Names {
 // identifiers contain no underscore and may not begin `ob-`.
 func (n Names) ComposeProject() string { return n.App }
 
+// ApplicationNetwork is the stable default network shared by every workload
+// in the application Compose project. It is created outside Compose so a
+// release teardown cannot remove a network that still has an unmanaged proxy
+// or another long-lived endpoint attached.
+func (n Names) ApplicationNetwork() string { return join(n.App, "default") }
+
 // ServiceProject is a supporting service's own Compose project, kept separate
 // from the application's so a release or rollback cannot remove it.
 func (n Names) ServiceProject(service string) string {
@@ -279,7 +285,7 @@ func (n Names) HostOwnerPath() string { return n.HostDir() + "/owner" }
 // would make preflight report conflicts that do not exist.
 func (p *Spec) All(env string) []string {
 	n := p.NamesFor(env)
-	out := []string{n.ComposeProject()}
+	out := []string{n.ComposeProject(), n.ApplicationNetwork()}
 	for _, w := range sortedKeys(p.Workloads) {
 		wl := p.Workloads[w]
 		out = append(out, n.Container(w, 1), n.TransientContainer(w))
@@ -305,6 +311,9 @@ func (p *Spec) All(env string) []string {
 				n.BackupRestoreVolume(s),
 			)
 		}
+	}
+	if len(p.Services) > 0 {
+		out = append(out, n.ServiceNetwork())
 	}
 	sort.Strings(out)
 	return out

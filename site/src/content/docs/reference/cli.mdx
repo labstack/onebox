@@ -510,7 +510,8 @@ Global Flags:
 
 ```
 Tear the application down: every container it owns, its scheduled timers, and
-its state directory.
+its state directory. An active release is removed with its recorded project
+snapshot and interpolation environment, not the current working-tree shape.
 
 Requires the application name typed back. Volumes are kept unless --volumes,
 and when they are kept the service credentials are kept with them — a volume

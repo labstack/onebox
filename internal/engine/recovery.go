@@ -16,6 +16,13 @@ import (
 // Recovery must never substitute the working-tree config: it may describe a
 // different set of roles, ordering, strategies, hooks, or verification checks.
 func (e *Engine) engineFromReleaseSnapshot(ctx context.Context, releaseID string) (*Engine, error) {
+	return e.engineFromReleaseSnapshotFor(ctx, releaseID, "recovery")
+}
+
+// engineFromReleaseSnapshotFor lets non-recovery lifecycle operations replay
+// the same immutable declaration without reporting themselves as recovery.
+// operation is always an internal literal used only in refusal text.
+func (e *Engine) engineFromReleaseSnapshotFor(ctx context.Context, releaseID, operation string) (*Engine, error) {
 	names := e.names()
 	environment := e.Opts.Environment
 	if environment == "" {
@@ -31,23 +38,23 @@ func (e *Engine) engineFromReleaseSnapshot(ctx context.Context, releaseID string
 		if detail != "" {
 			detail = ": " + detail
 		}
-		return nil, fmt.Errorf("recovery refused: release %s snapshot unavailable (exit %d)%s", releaseID, res.ExitCode, detail)
+		return nil, fmt.Errorf("%s refused: release %s snapshot unavailable (exit %d)%s", operation, releaseID, res.ExitCode, detail)
 	}
 	if strings.TrimSpace(res.Stdout) == "" {
-		return nil, fmt.Errorf("recovery refused: release %s snapshot is empty", releaseID)
+		return nil, fmt.Errorf("%s refused: release %s snapshot is empty", operation, releaseID)
 	}
 
 	snapshot, err := app.LoadBytes([]byte(res.Stdout), path)
 	if err != nil {
-		return nil, fmt.Errorf("recovery refused: release %s snapshot unusable: %w", releaseID, err)
+		return nil, fmt.Errorf("%s refused: release %s snapshot unusable: %w", operation, releaseID, err)
 	}
 	resolved, err := snapshot.Resolve(environment)
 	if err != nil {
-		return nil, fmt.Errorf("recovery refused: release %s snapshot unusable: %w", releaseID, err)
+		return nil, fmt.Errorf("%s refused: release %s snapshot unusable: %w", operation, releaseID, err)
 	}
 	if got := resolved.NamesFor(environment); got != names {
-		return nil, fmt.Errorf("recovery refused: release %s snapshot resolves to app %q at %q, expected app %q at %q",
-			releaseID, got.App, got.BasePath, names.App, names.BasePath)
+		return nil, fmt.Errorf("%s refused: release %s snapshot resolves to app %q at %q, expected app %q at %q",
+			operation, releaseID, got.App, got.BasePath, names.App, names.BasePath)
 	}
 
 	replay := *e

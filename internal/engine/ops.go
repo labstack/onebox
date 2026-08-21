@@ -40,7 +40,15 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		return err
 	}
 	if cur != "" {
-		down := e.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
+		// The document being removed and the environment that makes it parse are
+		// one immutable release. The working-tree project may have migrated a
+		// Compose-defined database to a managed service and no longer name the old
+		// interpolation file; using it here strands the recorded release.
+		recorded, err := e.engineFromReleaseSnapshotFor(ctx, cur, "destroy")
+		if err != nil {
+			return err
+		}
+		down := recorded.composeCmd(release.PathsFor(e.names()).Releases+"/"+cur+"/compose.yaml") + " down --remove-orphans"
 		if removeVolumes {
 			down += " -v"
 		}

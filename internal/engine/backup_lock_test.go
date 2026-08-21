@@ -81,7 +81,7 @@ func TestBackupLockHonorsCancellation(t *testing.T) {
 }
 
 func TestBackupLockReclaimsStaleHolderWithNewFence(t *testing.T) {
-	holder := `{"owner":"operator","operation_id":"backup-old","service":"database","epoch":4,"ttl_s":10,"acquired_at":"2026-08-07T11:00:00Z"}`
+	holder := `{"owner":"operator","operation_id":"backup-same","service":"database","epoch":4,"ttl_s":10,"acquired_at":"2026-08-07T11:00:00Z"}`
 	createAttempts := 0
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		switch {
@@ -91,25 +91,25 @@ func TestBackupLockReclaimsStaleHolderWithNewFence(t *testing.T) {
 				return transport.Result{ExitCode: 1}, true
 			}
 			return transport.Result{}, true
-		case strings.HasPrefix(command, "cat ") && strings.Contains(command, "database.epoch"):
+		case strings.Contains(command, "cat ") && strings.Contains(command, "database.epoch"):
 			return transport.Result{Stdout: "4\n"}, true
 		case strings.HasPrefix(command, "cat ") && strings.Contains(command, "database.lock"):
 			return transport.Result{Stdout: holder + "\n"}, true
 		case strings.HasPrefix(command, "if [ -L ") && strings.Contains(command, "database.lock"):
-			return transport.Result{Stdout: "11\n"}, true
+			return transport.Result{Stdout: "1\n"}, true
 		}
 		return transport.Result{}, false
 	}}
 	engine := backupLockTestEngine(fake)
 
-	epoch, err := engine.AcquireBackupLock(context.Background(), "database", "backup-new", 0)
+	epoch, err := engine.AcquireBackupLock(context.Background(), "database", "backup-same", 0)
 	if err != nil {
 		t.Fatalf("reclaim stale backup lock: %v", err)
 	}
 	if epoch != 5 || createAttempts != 2 {
 		t.Fatalf("reclaimed epoch/attempts = %d/%d, want 5/2", epoch, createAttempts)
 	}
-	if got := engine.backupFenceVals["database"]; got != "backup-new 5" {
+	if got := engine.backupFenceVals["database"]; got != "backup-same 5" || got == "backup-same 4" {
 		t.Fatalf("backup fence = %q", got)
 	}
 }

@@ -48,6 +48,19 @@ the environment that claimed the host, and every mutating command reads that
 record before it does anything. A different application is refused with
 `host_owner_mismatch`.
 
+Runtime resources carry the same boundary. Containers, volumes, and networks
+created by Onebox have an `ob.app` label, and preflight includes the application
+default network (`<app>_default`) and service network (`ob_<app>`) in its
+collision set. Both networks are external to a release's Compose lifecycle: a
+release can be removed without deleting a network still used by an unmanaged
+proxy or a supporting service. Networks created by older versions cannot be
+labelled in place; Onebox accepts one only when its Compose project or durable
+service state independently proves the same legacy owner. A matching name by
+itself is never ownership evidence. Full destruction removes both external
+networks before deleting that evidence and releasing host ownership. If Docker
+reports a remaining endpoint, destruction stops and tells the operator to detach
+it, leaving Onebox's state available for a safe retry.
+
 A different *environment* of the same application is refused too, with
 `host_environment_mismatch`, and that refusal is the less obvious one. Every
 runtime name Onebox derives — the Compose project, container names, volume

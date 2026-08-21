@@ -75,6 +75,51 @@ func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
 	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
 		t.Fatalf("complete teardown without a managed proxy retained host ownership:\n%s", seq)
 	}
+	for _, network := range []string{"sample_default", "ob_sample"} {
+		if !strings.Contains(seq, "docker network rm '"+network+"'") {
+			t.Fatalf("complete teardown retained network %s:\n%s", network, seq)
+		}
+	}
+}
+
+func TestDestroyStopsBeforeStateRemovalWhenNetworkHasEndpoints(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker network rm 'sample_default'") {
+			return transport.Result{ExitCode: 1, Stderr: "network has active endpoints"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), true, false)
+	if err == nil || !strings.Contains(err.Error(), "detach its remaining endpoints") {
+		t.Fatalf("destroy endpoint error = %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") || strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+		t.Fatalf("destroy discarded recovery state after network removal failed:\n%s", seq)
+	}
+}
+
+func TestDestroyStopsBeforeStateRemovalWhenNetworkInspectFails(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker network inspect") && strings.Contains(command, "sample_default") {
+			return transport.Result{ExitCode: 1, Stderr: "permission denied"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), true, false)
+	if err == nil || !strings.Contains(err.Error(), "cannot inspect ownership") {
+		t.Fatalf("destroy inspect error = %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") || strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+		t.Fatalf("destroy discarded recovery state after network inspection failed:\n%s", seq)
+	}
 }
 
 // Teardown belongs to the release being removed, not the project currently in

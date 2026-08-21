@@ -48,12 +48,8 @@ func (e *Engine) EnsureServiceConnections(ctx context.Context) error {
 	// The network is shared by the application and every service, and it
 	// outlives both. Creating it here rather than in a release is what lets a
 	// release be removed without cutting the application off from its data.
-	if res, err := e.mutate(ctx, fmt.Sprintf(
-		"docker network inspect %s >/dev/null 2>&1 || docker network create %s",
-		q(n.ServiceNetwork()), q(n.ServiceNetwork()))); err != nil {
-		return err
-	} else if res.ExitCode != 0 {
-		return fmt.Errorf("service network: %s", strings.TrimSpace(res.Stderr))
+	if err := e.ensureServiceNetwork(ctx, n); err != nil {
+		return fmt.Errorf("service network: %w", err)
 	}
 	if res, err := e.mutate(ctx, "install -d -m 700 "+q(n.ServiceDir())); err != nil {
 		return err

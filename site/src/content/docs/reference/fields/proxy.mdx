@@ -28,4 +28,4 @@ cannot drift from what `ob validate` accepts.
 | `image` | string | — | Container image used for the managed proxy. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `kind` | `traefik-docker` · `none` | `traefik-docker` | Proxy implementation, or none to disable routing. |
 | `managed` | boolean | — | Let Onebox converge the host-scoped proxy when routes are declared. |
-| `network` | string | `ob-ingress` | External container network shared with routed workloads. |
+| `network` | string | `ob-ingress` | External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved. |

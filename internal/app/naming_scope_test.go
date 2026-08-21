@@ -18,20 +18,21 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 	n := Names{App: "shop", BasePath: DefaultBasePath}
 
 	for label, got := range map[string]string{
-		"container":         n.Container("web", 1),
-		"replica container": n.Container("web", 2),
-		"transient rollout": n.TransientContainer("web"),
-		"workload volume":   n.WorkloadVolume("web", "uploads"),
-		"service container": n.ServiceContainer("postgres"),
-		"service project":   n.ServiceProject("postgres"),
-		"service volume":    n.ServiceVolume("postgres", "data"),
-		"service network":   n.ServiceNetwork(),
-		"compose project":   n.ComposeProject(),
-		"proxy service":     n.ProxyService("web"),
-		"proxy service r1":  n.ProxyServiceFor("web", 1),
-		"router":            n.Router("web", 0),
-		"application dir":   n.AppDir(),
-		"release dir":       n.ReleaseDir("R1"),
+		"container":           n.Container("web", 1),
+		"replica container":   n.Container("web", 2),
+		"transient rollout":   n.TransientContainer("web"),
+		"workload volume":     n.WorkloadVolume("web", "uploads"),
+		"service container":   n.ServiceContainer("postgres"),
+		"service project":     n.ServiceProject("postgres"),
+		"service volume":      n.ServiceVolume("postgres", "data"),
+		"service network":     n.ServiceNetwork(),
+		"application network": n.ApplicationNetwork(),
+		"compose project":     n.ComposeProject(),
+		"proxy service":       n.ProxyService("web"),
+		"proxy service r1":    n.ProxyServiceFor("web", 1),
+		"router":              n.Router("web", 0),
+		"application dir":     n.AppDir(),
+		"release dir":         n.ReleaseDir("R1"),
 	} {
 		if !strings.Contains(got, "shop") {
 			t.Errorf("%s = %q, which does not carry the application", label, got)
@@ -41,13 +42,14 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 	// And two applications never derive the same name for the same thing.
 	other := Names{App: "ledger", BasePath: DefaultBasePath}
 	for label, pair := range map[string][2]string{
-		"container":       {n.Container("web", 1), other.Container("web", 1)},
-		"transient":       {n.TransientContainer("web"), other.TransientContainer("web")},
-		"workload volume": {n.WorkloadVolume("web", "data"), other.WorkloadVolume("web", "data")},
-		"service volume":  {n.ServiceVolume("postgres", "data"), other.ServiceVolume("postgres", "data")},
-		"service network": {n.ServiceNetwork(), other.ServiceNetwork()},
-		"router":          {n.Router("web", 0), other.Router("web", 0)},
-		"application dir": {n.AppDir(), other.AppDir()},
+		"container":           {n.Container("web", 1), other.Container("web", 1)},
+		"transient":           {n.TransientContainer("web"), other.TransientContainer("web")},
+		"workload volume":     {n.WorkloadVolume("web", "data"), other.WorkloadVolume("web", "data")},
+		"service volume":      {n.ServiceVolume("postgres", "data"), other.ServiceVolume("postgres", "data")},
+		"service network":     {n.ServiceNetwork(), other.ServiceNetwork()},
+		"application network": {n.ApplicationNetwork(), other.ApplicationNetwork()},
+		"router":              {n.Router("web", 0), other.Router("web", 0)},
+		"application dir":     {n.AppDir(), other.AppDir()},
 	} {
 		if pair[0] == pair[1] {
 			t.Errorf("%s: two applications derive the same name %q", label, pair[0])

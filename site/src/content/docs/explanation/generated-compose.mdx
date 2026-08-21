@@ -35,10 +35,14 @@ becomes a question rather than a fact.
 
 - **Derived, stable names.** Application containers use the uniform
   `<app>-<component>-<replica>` grammar, such as `shop-web-1`; persistent and
-  provider resources include `ob_shop_postgres_data`, `ob_shop`, and
-  `ob-ingress`. Once a volume exists its name cannot change without moving data,
-  and a foreign resource already holding a derived name is refused rather than
-  adopted.
+  provider resources include `shop_default`, `ob_shop_postgres_data`, `ob_shop`,
+  and `ob-ingress`. The application and service networks are declared external
+  and created under Onebox's ownership fence, so Compose cannot remove a live
+  shared network during release teardown. A full `ob destroy --volumes` removes
+  them; if an unmanaged endpoint remains attached, destruction stops without
+  deleting Onebox's recovery state or releasing host ownership. Once a resource
+  exists its name cannot change without migration, and a foreign resource already
+  holding a derived name is refused rather than adopted.
 - **Digest binding.** The rendered Compose is bound into the plan, so what was
   reviewed is what executes.
 - **Refusals that mean something.** `strategy_ungated`, `route_collision`,

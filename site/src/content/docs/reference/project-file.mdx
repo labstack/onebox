@@ -97,15 +97,19 @@ Full explanation, including why level four outranks the rest:
 **Names** — application containers are uniformly numbered:
 `shop-web-1`, `shop-web-2`, and `shop-postgres-1`. The managed proxy is
 `onebox-proxy`. Persistent and provider names include `ob_shop_postgres`,
-`ob_shop_postgres_data`, `ob_shop` (the service network), and `ob-ingress`.
-These are contract: once a volume exists its name cannot change without moving
-data. A foreign resource already holding a derived name is refused, not adopted.
+`ob_shop_postgres_data`, `shop_default` (the external application network),
+`ob_shop` (the external service network), and `ob-ingress`. These are contract:
+once a persistent resource exists its name cannot change without migration. A
+foreign resource already holding a derived name is refused, not adopted.
 
 **Layout** — `/var/lib/ob/<app>/releases/<id>`, plus `current`, `journal`, and
 `services`. Configurable per environment with `base_path`.
 
 **The proxy** — if anything is routed, Onebox runs Traefik and writes its static
-configuration. Declare `proxy.config` to own that configuration instead.
+configuration. Declare `proxy.config` to own that configuration instead. The
+external `proxy.network` may be changed, but `default` is reserved for the
+application's own Compose network. The derived `<app>_default` and `ob_<app>`
+names are reserved too; routed projects must use a distinct ingress network.
 
 ### Route middleware
 

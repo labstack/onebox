@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"bytes"
+	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
@@ -104,7 +105,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 3. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
 	// round trips.
-	owned, err := ownedNames(ctx, run, p.Name)
+	owned, err := ownedNames(ctx, run, p, r.Env)
 	if err != nil {
 		return nil, err
 	}
@@ -284,13 +285,26 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 // ownedNames lists the container, volume and network names already on the host,
 // with whichever application owns each. A name held by this application is the
 // normal case — a previous release — and only a foreign holder is a collision.
-func ownedNames(ctx context.Context, run Runner, app string) (map[string]string, error) {
+func ownedNames(ctx context.Context, run Runner, project *Spec, environment string) (map[string]string, error) {
 	owned := map[string]string{}
+	application := project.Name
+	n := project.NamesFor(environment)
+	legacyServiceState := false
+	if len(project.Services) > 0 {
+		res, err := run.Run(ctx, "test -d "+shellquote.Quote(n.ServiceDir()))
+		if err != nil {
+			return nil, errf("server_unreachable", "", "", "cannot inspect legacy service-network ownership: %v", err)
+		}
+		legacyServiceState = res.ExitCode == 0
+	}
 
-	for _, q := range []struct{ cmd, kind string }{
-		{`docker ps -a --format '{{.Names}}\t{{.Label "ob.app"}}'`, "container"},
-		{`docker volume ls --format '{{.Name}}\t{{.Label "ob.app"}}'`, "volume"},
-		{`docker network ls --format '{{.Name}}\t{{.Label "ob.app"}}'`, "network"},
+	for _, q := range []struct {
+		cmd, kind      string
+		composeProject bool
+	}{
+		{`docker ps -a --format '{{.Names}}\t{{.Label "ob.app"}}'`, "container", false},
+		{`docker volume ls --format '{{.Name}}\t{{.Label "ob.app"}}'`, "volume", false},
+		{`docker network ls --format '{{.Name}}\t{{.Label "ob.app"}}\t{{.Label "com.docker.compose.project"}}'`, "network", true},
 	} {
 		res, err := run.Run(ctx, q.cmd)
 		if err != nil {
@@ -301,21 +315,48 @@ func ownedNames(ctx context.Context, run Runner, app string) (map[string]string,
 			continue
 		}
 		for _, line := range strings.Split(res.Stdout, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
+			line = strings.TrimSuffix(line, "\r")
+			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			name, owner, _ := strings.Cut(line, "\t")
+			fields := strings.SplitN(line, "\t", 3)
+			name := strings.TrimSpace(fields[0])
 			if name == "" {
 				continue
 			}
-			// Later kinds must not clobber an earlier owner record.
-			if prev, seen := owned[name]; seen && prev != "" {
+			owner := ""
+			if len(fields) > 1 {
+				owner = strings.TrimSpace(fields[1])
+			}
+			// Before Onebox labelled networks, Compose still labelled the
+			// application default with its project. That is sufficient migration
+			// evidence for this exact application, but not for a hand-created
+			// network with only the derived name.
+			if owner == "" && q.composeProject && name == n.ApplicationNetwork() && len(fields) > 2 && strings.TrimSpace(fields[2]) == application {
+				owner = application
+			}
+			// Durable service state proves only an observed legacy service
+			// network. Applying it after all resource kinds are merged would also
+			// bless an unlabelled container or volume with the same name.
+			if owner == "" && q.kind == "network" && name == n.ServiceNetwork() && legacyServiceState {
+				owner = application
+			}
+			// Docker permits the same name in different resource kinds. Every
+			// holder must belong to this application: one foreign or unlabelled
+			// holder is a collision even if another kind is app-owned.
+			if prev, seen := owned[name]; seen {
+				if prev != application {
+					continue
+				}
+				if owner != application {
+					owned[name] = owner
+				}
 				continue
 			}
-			owned[name] = strings.TrimSpace(owner)
+			owned[name] = owner
 		}
 	}
+
 	return owned, nil
 }
 

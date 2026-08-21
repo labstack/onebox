@@ -13,6 +13,17 @@ const min = base + "build: .\ndomain: ledger.example.com\nport: 8080\n"
 
 func wl(body string) string { return base + "workloads: {" + body + "}\n" }
 
+func TestRoutedProjectRefusesDefaultAsProxyNetwork(t *testing.T) {
+	for _, network := range []string{"default", "ledger_default", "ob_ledger"} {
+		t.Run(network, func(t *testing.T) {
+			_, err := LoadBytes([]byte(min+"proxy: {network: "+network+"}\n"), "ob.yml")
+			if err == nil || !strings.Contains(err.Error(), "proxy.network") || !strings.Contains(err.Error(), "reserved") {
+				t.Fatalf("reserved proxy network error = %v", err)
+			}
+		})
+	}
+}
+
 type conformanceCase struct {
 	name string
 	yaml string

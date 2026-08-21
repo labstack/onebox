@@ -19,6 +19,9 @@ func opsFake(remoteSecretsHash string) *transport.Fake {
 		if strings.Contains(cmd, "readlink") {
 			return transport.Result{Stdout: "releases/R7\n"}, true
 		}
+		if strings.Contains(cmd, "/releases/R7/ob.snapshot.yml") {
+			return transport.Result{Stdout: engineProject}, true
+		}
 		if strings.Contains(cmd, "sha256sum") {
 			return transport.Result{Stdout: remoteSecretsHash + "\n"}, true
 		}
@@ -71,6 +74,50 @@ func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
 	}
 	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
 		t.Fatalf("complete teardown without a managed proxy retained host ownership:\n%s", seq)
+	}
+}
+
+// Teardown belongs to the release being removed, not the project currently in
+// the working tree. A migration may have replaced a Compose-defined database
+// with a managed service and removed the interpolation file the old Compose
+// document still needs merely to parse.
+func TestDestroyUsesTheCurrentReleaseEnvironment(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
+			return transport.Result{Stdout: engineProject + "\nruntime:\n  env_files: [legacy.env]\n"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), true, false); err != nil {
+		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	commands := strings.Join(f.Commands, "\n")
+	want := "--env-file '/var/lib/ob/sample/releases/R7/legacy.env' down --remove-orphans -v"
+	if !strings.Contains(commands, want) {
+		t.Fatalf("destroy did not use the current release's interpolation environment; want %q:\n%s", want, commands)
+	}
+}
+
+func TestDestroyRefusesMissingCurrentReleaseSnapshot(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
+			return transport.Result{ExitCode: 1, Stderr: "not found"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), true, false)
+	if err == nil || !strings.Contains(err.Error(), "destroy refused: release R7 snapshot unavailable") {
+		t.Fatalf("destroy error = %v", err)
+	}
+	commands := strings.Join(f.Commands, "\n")
+	if strings.Contains(commands, "down --remove-orphans") || strings.Contains(commands, "docker volume rm") || strings.Contains(commands, "rm -rf '/var/lib/ob/sample'") {
+		t.Fatalf("destroy mutated release state without its snapshot:\n%s", commands)
 	}
 }
 

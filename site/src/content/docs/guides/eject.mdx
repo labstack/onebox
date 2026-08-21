@@ -66,4 +66,8 @@ If you want to tear the application down instead of handing it over:
 ob destroy
 ```
 
-`ob destroy` keeps volumes unless you explicitly ask otherwise.
+`ob destroy` keeps volumes unless you explicitly ask otherwise. When an active
+release exists, Onebox tears it down with that release's recorded project
+snapshot and interpolation environment. A newer project file can therefore
+migrate a Compose-defined database to a managed service without making the old
+release impossible to parse during teardown.

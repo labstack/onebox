@@ -39,7 +39,9 @@ func TestAcquireLockHappyPath(t *testing.T) {
 	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/ob/sample/lock") {
 		t.Fatalf("noclobber lock creation missing:\n%s", seq)
 	}
-	if !strings.Contains(seq, "echo 7 > '/var/lib/ob/sample/epoch'") {
+	if !strings.Contains(seq, "mktemp '/var/lib/ob/sample/epoch.tmp.XXXXXX'") ||
+		!strings.Contains(seq, "printf '%s\\n' 7") ||
+		!strings.Contains(seq, `mv -f "$tmp" '/var/lib/ob/sample/epoch'`) {
 		t.Fatalf("epoch not persisted:\n%s", seq)
 	}
 }
@@ -130,14 +132,21 @@ func TestAcquireLockSameDeployReclaims(t *testing.T) {
 		if strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'") {
 			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R9","epoch":6}`}, true
 		}
+		if strings.Contains(cmd, "cat '/var/lib/ob/sample/epoch'") {
+			return transport.Result{Stdout: "6\n"}, true
+		}
 		if strings.Contains(cmd, "date +%s") {
 			return transport.Result{Stdout: "10\n"}, true // fresh — but same deploy
 		}
 		return transport.Result{}, false
 	}
 	e := lockEngine(t, f)
-	if _, err := e.AcquireLock(context.Background(), "R9", false); err != nil {
+	epoch, err := e.AcquireLock(context.Background(), "R9", false)
+	if err != nil {
 		t.Fatalf("same-deploy lock must be reclaimable (resume after crash): %v", err)
+	}
+	if epoch != 7 {
+		t.Fatalf("same-deploy reclaim epoch = %d, want 7 so stale fence R9 6 cannot match", epoch)
 	}
 }
 
@@ -180,7 +189,7 @@ func TestAcquireLockReReadsEpochAfterBreakingStaleLock(t *testing.T) {
 	if epoch != 7 {
 		t.Fatalf("epoch must derive from the FRESH read (want 7), got %d", epoch)
 	}
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "echo 7 > '/var/lib/ob/sample/epoch'") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "printf '%s\\n' 7") {
 		t.Fatalf("fresh epoch 7 not persisted:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }

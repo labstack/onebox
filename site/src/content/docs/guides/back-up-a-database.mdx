@@ -156,9 +156,10 @@ means:
 → database now archives to backup target "s3://elsewhere/shop_database". What "s3://onebox-backups/shop_database" holds is untouched, but this repository starts from the backup being taken now, so the declared recovery window begins here
 ```
 
-Everything else — a restore, a drill, status, retention — keeps reading the
-repository the service was actually bound to, so editing a target cannot
-silently point a recovery at a repository the history is not in.
+By default, everything else — a restore, a drill, status, retention — keeps
+reading the repository the service was actually bound to, so editing a target
+cannot silently point a recovery at a repository the history is not in. Status,
+drill, and restore can also select an older cluster generation explicitly.
 
 A repository also moves when the *database* is replaced, without anything in the
 project changing. Each repository is scoped to the cluster that wrote it, using
@@ -176,8 +177,8 @@ order, one refused segment stops the chain permanently. Scoping by cluster means
 a rebuilt database simply begins its own history, and the previous one stays
 exactly where it is.
 
-`ob backup status` prints both the repository and the system identifier, which is
-how you tell two histories apart when a service has been rebuilt.
+`ob backup status` prints the repository and every cluster generation it finds
+there, which is how you tell two histories apart when a service has been rebuilt.
 
 ## Prove it restores
 
@@ -223,21 +224,33 @@ replay only moves forward, so a later base can never reach an earlier moment. A
 point older than everything in the repository is refused, and the refusal tells
 you when the oldest backup finished.
 
-:::caution[After losing the volume, recover before you re-enable]
-A recovery reads the repository the service is *recorded* as bound to, and a
-recovered cluster keeps the system identifier it was backed up with — so
-recovering first and enabling afterwards keeps the same history, and the service
-carries on where it left off.
+:::caution[After losing the volume or host, select the old generation]
+A database rebuilt from an empty volume is a new cluster with a new identifier.
+`ob backup enable` therefore starts a new generation instead of risking a WAL
+collision with the old one. It also restores the runtime and credentials needed
+to inspect the off-host repository when the original host state is gone.
 
-Enabling first does not. `ob backup enable` binds the service to whatever cluster
-is running, and a database rebuilt from an empty volume is a new cluster with a
-new identifier, so enablement starts a new repository. The old backups are
-untouched and still in the bucket, but the service is no longer pointed at them
-and `ob backup restore` will not find them.
+Status discovers every generation still present in that repository:
 
-If that has already happened, the history is not lost: `ob backup status` gives
-the identifier the service is bound to now, and the previous generation is beside
-it under `clusters/`.
+```console
+$ ob backup status database
+service     database
+repository  s3://onebox-backups/shop_database/clusters/7520844209557584421
+generation  7513211627332151223
+generation  7520844209557584421
+```
+
+Prove and restore the old history by selecting its identifier explicitly:
+
+```console
+$ ob backup drill database --generation 7513211627332151223
+$ ob backup restore database --generation 7513211627332151223 --confirm database
+```
+
+A successful restore records that recovered cluster as the service's current
+generation, so subsequent backup commands continue on the restored history. Use
+`--generation legacy` for a repository created before cluster-scoped generations
+were introduced.
 :::
 
 ## Stopping

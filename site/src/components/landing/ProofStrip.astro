@@ -1,0 +1,59 @@
+---
+/* The strip under the hero: what is true about the project right now.
+ *
+ * Every comparable site puts social proof here — stars, downloads, customer
+ * logos, testimonials. Onebox has none of those yet, and inventing the feeling
+ * of them would undercut the one thing the page is actually selling. These are
+ * facts instead: the release, the driver count, the licence, and the two
+ * properties that are unusual enough to be worth stating.
+ *
+ * Authored as a Markdown list, one item per fact, bold value first.
+ */
+---
+
+<div class="ob-proof"><slot /></div>
+
+<style>
+  .ob-proof :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 1px;
+    background: var(--sl-color-gray-5);
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .ob-proof :global(li) {
+    margin: 0;
+    padding: 0.8rem 0.9rem;
+    background: var(--sl-color-gray-6);
+    font-size: 0.7rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-proof :global(li > p) {
+    margin: 0;
+  }
+
+  .ob-proof :global(li strong) {
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--sl-color-white);
+    margin-bottom: 0.15rem;
+  }
+
+  .ob-proof :global(li code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+  }
+</style>

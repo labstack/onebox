@@ -1,0 +1,64 @@
+---
+/* Three recent releases. Linear puts its changelog on the landing page and it
+ * is the cheapest credibility on the site: it says the thing is moving without
+ * claiming a single user.
+ *
+ * The entries are written in the page rather than pulled from the GitHub API at
+ * build time, which is a deliberate trade — the site builds without the network
+ * and cannot show a release that does not exist, but the list has to be updated
+ * by hand when it goes stale. The alternative is a build that fails when GitHub
+ * is down, for a strip nobody navigates by.
+ */
+---
+
+<div class="ob-ship" data-ob-figure><slot /></div>
+
+<style>
+  .ob-ship :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
+  }
+
+  @media (min-width: 44rem) {
+    .ob-ship :global(ul) {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .ob-ship :global(li) {
+    margin: 0;
+    padding: 0.85rem 0.95rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    font-size: 0.76rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-ship :global(li > p) {
+    margin: 0;
+  }
+
+  .ob-ship :global(li > p:first-child) {
+    margin-bottom: 0.25rem;
+  }
+
+  .ob-ship :global(li code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: var(--ob-code);
+  }
+
+  .ob-ship :global(> p) {
+    margin: 1rem 0 0;
+    font-size: 0.78rem;
+    color: var(--sl-color-gray-3);
+  }
+</style>

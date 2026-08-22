@@ -1,13 +1,22 @@
 ---
-/* The landing page's section shell: a hairline rule, a mono eyebrow, and
- * whatever the page authored beneath it.
+/* The landing page's section shell: a rail on the left carrying the label, the
+ * heading and one sentence, and whatever the section is actually showing on the
+ * right.
  *
- * Only the eyebrow is a prop. Everything a reader needs — the heading, the
- * prose — is authored as Markdown in the slot, because the site serves every
- * page as clean Markdown at `<path>.md` and `toPlainMarkdown` strips component
- * tags. Copy passed as a prop would render for a person and disappear for an
- * agent, which is exactly the drift that route exists to prevent. The eyebrow
- * is a label rather than content, so losing it there costs nothing.
+ * The one-column version this replaced capped its prose at a reading measure
+ * inside a much wider container, so every section left roughly forty percent of
+ * the page empty on the right and stacked text on the left. The rail fixes that
+ * and does something the copy edit could not: it is narrow, so a section that
+ * wants three paragraphs of lede no longer fits one.
+ *
+ * Only the eyebrow is a prop. The heading and the sentence are authored as
+ * Markdown in the slot, because the site serves every page as clean Markdown at
+ * `<path>.md` and `toPlainMarkdown` strips component tags — copy passed as a
+ * prop would render for a person and vanish for an agent.
+ *
+ * The slot is expected to hold, in order: an `## h2`, one paragraph, and one
+ * element that is the figure. Placement below names those three positions; a
+ * second paragraph would land in the rail, which is the intended pressure.
  */
 interface Props {
   eyebrow: string;
@@ -22,10 +31,15 @@ const { eyebrow } = Astro.props;
 </section>
 
 <style>
+  /* Symmetric padding. The previous version had 3rem on top and none beneath,
+     so the rule that opens each section sat flush on the figure above it while
+     all the air went below — the gap was 0 above and 48px under. */
   .ob-sec {
     border-top: 1px solid var(--sl-color-gray-5);
-    padding: 3rem 0 0;
-    margin: 0;
+    padding: 3.5rem 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem 3rem;
   }
 
   .ob-eyebrow {
@@ -33,41 +47,17 @@ const { eyebrow } = Astro.props;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--sl-color-gray-3);
-    margin: 0 0 0.85rem;
+    margin: 0;
   }
 
-  /* The slotted Markdown is scoped to the page, not to this component, so every
-     selector below has to reach it through :global. */
-  /* Whatever presentational component the section ends with supplies its own
-     internal spacing; this is the single gap between the heading block and it.
-     Declared first so the heading rules below can pull their own back. */
-  .ob-sec :global(> *) {
-    margin-top: 1.75rem;
-  }
-
-  .ob-sec > .ob-eyebrow {
-    margin-top: 0;
-  }
-
-  /* Starlight wraps every heading in .sl-heading-wrapper so it can hang an
-     anchor link beside it. The wrapper, not the h2, is the section's child —
-     selectors written against `> h2` match nothing at all. */
-  /* Starlight renders the h2 itself as `display: inline` so the anchor link can
-     sit on the last line of the text. Measure and wrapping therefore have to be
-     set on the wrapper — `max-width` and `text-wrap` do nothing on a non-replaced
-     inline, and a rule that sets them there is dead rather than merely subtle. */
   .ob-sec :global(> .sl-heading-wrapper) {
-    margin-top: 0;
-    /* Wide enough that each heading breaks at a clause rather than mid-phrase.
-       In rem rather than ch on purpose: Starlight sizes this wrapper at its own
-       default heading size, not the 1.75rem the h2 inside it is set to, so a ch
-       measure here is computed against a font nothing on screen is using. */
-    max-width: 40rem;
+    margin: 0;
+    max-width: 30rem;
     text-wrap: balance;
   }
 
   .ob-sec :global(> .sl-heading-wrapper h2) {
-    font-size: clamp(1.4rem, 2.6vw, 1.75rem);
+    font-size: clamp(1.3rem, 2.2vw, 1.55rem);
     line-height: 1.25;
     letter-spacing: -0.02em;
     font-weight: 500;
@@ -75,11 +65,10 @@ const { eyebrow } = Astro.props;
   }
 
   .ob-sec :global(> .sl-heading-wrapper + p) {
-    color: var(--sl-color-gray-2);
-    font-size: 0.9rem;
-    line-height: 1.8;
-    max-width: 64ch;
-    margin-top: 0.9rem;
+    margin: 0;
+    font-size: 0.84rem;
+    line-height: 1.75;
+    color: var(--sl-color-gray-3);
   }
 
   .ob-sec :global(> .sl-heading-wrapper + p code) {
@@ -87,6 +76,45 @@ const { eyebrow } = Astro.props;
     border: 0;
     padding: 0;
     font-size: inherit;
-    color: var(--sl-color-gray-1);
+    color: var(--sl-color-gray-2);
+  }
+
+  .ob-sec :global(> [data-ob-figure]) {
+    margin: 0;
+  }
+
+  /* The rail. Below this width everything stacks in source order, which is
+     already the right order. */
+  @media (min-width: 56rem) {
+    .ob-sec {
+      grid-template-columns: 18.5rem minmax(0, 1fr);
+      /* The three rail rows are content-sized and the fourth absorbs whatever
+         the figure is taller by. Without this the figure's row span stretched
+         every row equally and the heading drifted down the page — halfway down,
+         in the section whose figure is tallest. */
+      grid-template-rows: auto auto auto 1fr;
+      row-gap: 0.85rem;
+    }
+
+    .ob-sec > .ob-eyebrow {
+      grid-area: 1 / 1;
+    }
+
+    .ob-sec :global(> .sl-heading-wrapper) {
+      grid-area: 2 / 1;
+    }
+
+    .ob-sec :global(> .sl-heading-wrapper + p) {
+      grid-area: 3 / 1;
+    }
+
+    /* The figure takes the second column and every row the rail occupies. It is
+       addressed by `data-ob-figure` rather than `:last-child` because Astro
+       leaves a component's inline script as the section's final element — a
+       zero-height node that quietly won the placement and left the real figure
+       to auto-flow. */
+    .ob-sec :global(> [data-ob-figure]) {
+      grid-area: 1 / 2 / 5 / 3;
+    }
   }
 </style>

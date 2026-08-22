@@ -160,6 +160,25 @@ Everything else — a restore, a drill, status, retention — keeps reading the
 repository the service was actually bound to, so editing a target cannot
 silently point a recovery at a repository the history is not in.
 
+A repository also moves when the *database* is replaced, without anything in the
+project changing. Each repository is scoped to the cluster that wrote it, using
+PostgreSQL's own system identifier:
+
+```
+s3://onebox-backups/shop_database/clusters/7513211627332151223
+```
+
+That is not decoration. Every fresh cluster starts its write-ahead log at
+`000000010000000000000001`, so a new database archiving where an old one left
+off would write object names that already exist with different contents. The
+archiver refuses to overwrite them, and because PostgreSQL archives strictly in
+order, one refused segment stops the chain permanently. Scoping by cluster means
+a rebuilt database simply begins its own history, and the previous one stays
+exactly where it is.
+
+`ob backup status` prints both the repository and the system identifier, which is
+how you tell two histories apart when a service has been rebuilt.
+
 ## Prove it restores
 
 ```console
@@ -204,6 +223,23 @@ replay only moves forward, so a later base can never reach an earlier moment. A
 point older than everything in the repository is refused, and the refusal tells
 you when the oldest backup finished.
 
+:::caution[After losing the volume, recover before you re-enable]
+A recovery reads the repository the service is *recorded* as bound to, and a
+recovered cluster keeps the system identifier it was backed up with — so
+recovering first and enabling afterwards keeps the same history, and the service
+carries on where it left off.
+
+Enabling first does not. `ob backup enable` binds the service to whatever cluster
+is running, and a database rebuilt from an empty volume is a new cluster with a
+new identifier, so enablement starts a new repository. The old backups are
+untouched and still in the bucket, but the service is no longer pointed at them
+and `ob backup restore` will not find them.
+
+If that has already happened, the history is not lost: `ob backup status` gives
+the identifier the service is bound to now, and the previous generation is beside
+it under `clusters/`.
+:::
+
 ## Stopping
 
 ```console
@@ -214,6 +250,11 @@ Archiving stops, the timers go, the service restarts unprotected, and the
 destination credentials are removed from the host. **The repository is not
 touched** — but reading or recovering from it needs backup enabled again,
 because the tooling and credentials that reach it live in the protected service.
+
+Re-enabling the *same* database returns to the same repository: the cluster's
+identifier has not changed, so neither has its generation. Re-enabling after the
+volume has been replaced does not, for the reason in the caution above — recover
+first if what you want is the old history.
 
 ## What is not covered
 

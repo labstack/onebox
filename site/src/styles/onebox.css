@@ -1,8 +1,17 @@
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-400-italic.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-400-italic.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+
 /* Onebox docs theme — Terminal.
  *
- * Phosphor green on near-black, monospace throughout. The CLI is the product —
+ * Phosphor green on near-black, led by IBM Plex Mono. The CLI is the product —
  * "point an agent at the `ob` binary the way you would point it at `gh`" — and
- * this is the one palette that says so before a word is read.
+ * this pairing says so before a word is read without making long documentation
+ * paragraphs behave like terminal output.
  *
  * Where the accent lands, in full: links, the active sidebar and table-of-
  * contents entries, the site wordmark, the header's GitHub icon, the landing
@@ -24,9 +33,13 @@
  */
 
 :root {
-  /* Mono is the body face, not just the code face. One declaration, referenced
-     twice, so the two cannot drift into being different faces by accident. */
-  --sl-font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+  --ob-font-body: "IBM Plex Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ob-font-display: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Mono owns the brand, navigation, headings and technical artifacts. Sans is
+     confined to sustained prose. Both are members of the Plex family, so the
+     role change reads as hierarchy rather than as a second visual identity. */
+  --sl-font: var(--ob-font-display);
   --sl-font-mono: var(--sl-font);
 
   /* The neutrals carry a slight green bias so the accent sits in the same
@@ -48,6 +61,16 @@
   --sl-color-black: #0d100d;
 }
 
+/* The landing page stays mono-led; the proportional face is reserved for the
+   long-form documentation where it materially improves reading. */
+body:has(.ob-hero) site-search {
+  display: none;
+}
+
+body:has(.ob-hero) header.header .sl-flex {
+  justify-content: space-between;
+}
+
 :root[data-theme="light"] {
   --sl-color-accent-low: #d8e8d0;
   --sl-color-accent: #2f6b22;
@@ -61,6 +84,22 @@
   --sl-color-gray-6: #e8ece4;
   --sl-color-gray-7: #f1f4ee;
   --sl-color-black: #f6f8f4;
+}
+
+/* The favicon is the product mark, not only browser chrome. Pair it with the
+   name in the header so the same identity carries across the landing page and
+   documentation without asking a first-time visitor to decode an icon alone. */
+.site-title {
+  gap: 0.55rem;
+}
+
+.site-title::before {
+  content: "";
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  border-radius: 0.3rem;
+  background: url("/favicon.svg") center / contain no-repeat;
 }
 
 /* The landing page marks refusals, warnings inside its example transcript, and
@@ -89,21 +128,23 @@
   --ob-code: var(--sl-color-accent);
 }
 
-/* Monospace runs wider per character and tires the eye faster, so prose gets
-   more leading than Starlight's 1.75 default — genuinely more; an earlier
-   version of this file set 1.72 while claiming to open it.
-   Scoped to prose rather than set on the column, because line-height inherits:
-   on the container it stretched every table cell too, and the reference is
-   mostly tables. */
+/* Prose uses the productive member of the same Plex family. The mono identity
+   remains in every heading and piece of chrome, while paragraphs and lists get
+   the denser word shapes and calmer rhythm of a proportional text face. */
 .sl-markdown-content p,
 .sl-markdown-content li {
-  line-height: 1.85;
+  font-family: var(--ob-font-body);
+  line-height: 1.7;
 }
 
-/* Mono costs table height on its own — the same rows run about 15% taller than
-   a proportional face, most gaining a third line. Pulling the leading in inside
-   cells buys back most of that without touching prose. */
-.sl-markdown-content td,
+/* Reference-table headers remain technical labels; descriptive cells use the
+   body face so dense field documentation stays compact. Inline code still
+   inherits Starlight's mono token. */
+.sl-markdown-content td {
+  font-family: var(--ob-font-body);
+  line-height: 1.5;
+}
+
 .sl-markdown-content th {
   line-height: 1.45;
 }
@@ -143,9 +184,9 @@
   height: 1rem;
 }
 
-/* With one face everywhere, weight and tracking are what separate a heading
-   from the prose beneath it: 500 rather than bold, pulled slightly tighter, so
-   it reads as a label rather than as shouting. The page title sits outside
+/* The mono headings carry the product identity against the proportional prose:
+   500 rather than bold, pulled slightly tighter, so each reads as a precise
+   label rather than as shouting. The page title sits outside
    .sl-markdown-content, so it is named separately rather than assumed to be
    inside it. */
 .sl-markdown-content h1,
@@ -167,7 +208,7 @@ h1#_top {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--sl-color-gray-3);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .sl-markdown-content td:first-child code {

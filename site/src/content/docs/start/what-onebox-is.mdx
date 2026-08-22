@@ -19,9 +19,10 @@ can do without assembling it from shell scripts.
 
 > You own your application containers. Onebox owns everything else on the box.
 
-Host provisioning, the container runtime, the proxy, TLS, networks, release
-staging, supporting data services, and scheduled jobs are not your application,
-and therefore not your problem.
+You provide and administer the Linux host, SSH access, and Docker installation.
+Inside that boundary, Onebox owns the generated application runtime: the proxy,
+TLS, networks, release staging, supporting data services, scheduled jobs, locks,
+and the evidence needed to operate them safely.
 
 That sentence is the **direction**, not an inventory. Owned today:
 
@@ -30,14 +31,18 @@ That sentence is the **direction**, not an inventory. Owned today:
 - the shared network
 - release staging and retention
 - supporting data services and their credentials
+- PostgreSQL continuous archiving, point-in-time restore, and restore drills once
+  `ob backup enable` has established protection
 - scheduled jobs
 
-**Not owned today: backups, restore proof, and log rotation.** Onebox says so
-rather than implying otherwise.
+**Not owned today:** host or Docker installation, workload-volume backups,
+backup contracts for non-PostgreSQL drivers, unattended full recovery drills,
+and log rotation. Onebox says so rather than implying otherwise.
 
 :::caution[Why the distinction matters]
-A product description that reads as a capability list is how an operator ends up
-believing their database is backed up by something that has never taken a backup.
+A declared backup policy is not protection. PostgreSQL becomes protected only
+after `ob backup enable` has installed the runtime, enabled continuous archiving,
+and taken the first base backup.
 :::
 
 ## Scope

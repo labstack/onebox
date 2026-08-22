@@ -31,7 +31,7 @@ const year = new Date().getFullYear();
 <footer class="ob-sitefooter">
   <div class="ob-sitefooter-in">
     <p class="ob-colophon">
-      <span>&copy; {year} Onebox by <a href="https://labstack.com">LabStack LLC</a></span>
+      <span>&copy; {year} <a href="/">Onebox</a> by <a href="https://labstack.com">LabStack LLC</a></span>
       <span class="sep" aria-hidden="true">·</span>
       <span><a href="https://github.com/labstack/onebox/blob/main/LICENSE">Apache-2.0</a></span>
     </p>
@@ -77,7 +77,7 @@ const year = new Date().getFullYear();
   .ob-sitefooter-links {
     display: flex;
     flex-wrap: wrap;
-    gap: 0 1.4rem;
+    gap: 0.35rem;
     font-size: var(--sl-text-sm);
   }
 
@@ -99,9 +99,14 @@ const year = new Date().getFullYear();
   .ob-icon {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.35rem;
   }
 
   .ob-icon:hover {
+    background: var(--sl-color-gray-6);
     text-decoration: none;
   }
 

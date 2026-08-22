@@ -11,9 +11,10 @@ read_when:
 
 > You own your application containers. Onebox owns everything else on the box.
 
-Host provisioning, the container runtime, the proxy, TLS, networks, release
-staging, supporting data services, backups, restore proof, pruning and log
-rotation are not your application, and therefore not your problem.
+You provide and administer the Linux host, SSH access, and Docker installation.
+Inside that boundary, the proxy, TLS, networks, release staging, supporting data
+services, schedules, locks, and the evidence needed to operate them are not your
+application, and therefore sit on Onebox's side of the line.
 
 That sentence is the **direction**, not an inventory. What is owned today is
 listed on [Shipped vs proposed](/status/capabilities), and the gap between the
@@ -92,13 +93,16 @@ their own data.
 
 ## The boundary cuts both ways
 
-If Onebox owns the proxy, TLS and the shared network, it must also own admitting
-that it does not own backups. A boundary that only ever expands is a marketing
-claim, not an engineering one.
+If Onebox owns a supporting database, it must say exactly when that ownership
+includes recovery. A boundary that only ever expands is a marketing claim, not
+an engineering one.
 
-So `ob doctor` reports the absence of backups for every workload and service
-holding durable data — not as a warning that something is misconfigured, but
-because silence there would read as approval.
+PostgreSQL has an executable backup contract, but declaring it is only a
+request. Protection begins after `ob backup enable` has installed the runtime,
+enabled continuous archiving, and taken the first base backup. Workload volumes
+are not covered, and every other durable driver refuses a backup policy rather
+than accepting one it cannot honour. `ob doctor` reports every durable surface
+that still has no off-host copy, because silence there would read as approval.
 
 :::caution[The failure this prevents]
 A product description that reads as a capability list is how an operator ends up
@@ -122,11 +126,11 @@ Breadth and honesty are reconciled by making the guarantee level part of the
 contract and visible wherever the service appears. A service is either
 user-authored or Onebox-managed, never both.
 
-Today every durable driver runs at the **Run** level: pinned, persisted,
-health-gated, capped, observed, never recreated by an application rollback — and
-carrying no backup contract, which it states plainly.
+Every durable driver runs pinned, persisted, health-gated, capped, observed, and
+outside application rollback. PostgreSQL alone can add the executable recovery
+contract today: continuous archiving, point-in-time restore, repository status,
+and an on-demand recovery drill. Other drivers remain explicit about the missing
+contract and refuse `backup` at validation.
 
-The proposed **Managed** level would add a real recovery contract, and a driver
-would reach it only after its restore drill passes. That ordering is the point:
-a declaration is never presented as proof that protection is running. See
-[Evidence, not declaration](/explanation/evidence-not-declaration).
+The ordering is the point: a declaration is never presented as proof that
+protection is running. See [Evidence, not declaration](/explanation/evidence-not-declaration).

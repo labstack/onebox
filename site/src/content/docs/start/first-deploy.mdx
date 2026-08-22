@@ -14,6 +14,20 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 This is the whole path, once. Every command below either states that it contacts
 nothing, or is explicit about what it changes.
 
+## Before you start
+
+You need:
+
+- Onebox installed on your machine
+- a repository containing the Compose file you already run
+- one Linux server reachable over SSH, with Docker available to that SSH account
+- the server's host key already recorded in `known_hosts`
+
+The first three steps are local and contact nothing. `ob bootstrap` is the first
+command that changes the server; the plan after it is read-only.
+
+## Deploy once
+
 <Steps>
 
 1. **Scaffold a project from the Compose file you already have.**
@@ -93,6 +107,25 @@ nothing, or is explicit about what it changes.
    ```sh
    ob deploy --plan ob-plan.json --approval ob-approval.json
    ```
+
+   A successful deploy ends by naming the release that is serving and the one it
+   superseded:
+
+   ```console
+   staged    r-0042
+   rolling   shop-web-1 … healthy
+   rolling   shop-web-2 … healthy
+   verified  checks/url 200 · X-App-Ready: yes
+   serving   r-0042 · r-0041 superseded
+   ```
+
+   Read the observed state back once more:
+
+   ```sh
+   ob status
+   ```
+
+   Status exits non-zero if the host diverges from the active release.
 
 </Steps>
 

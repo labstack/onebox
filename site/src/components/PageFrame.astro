@@ -1,5 +1,5 @@
 ---
-/* Starlight's page frame, with a site footer added below the content.
+/* Starlight's page frame, with a site footer below splash-page content.
  *
  * Overriding this component is the only way to put a footer outside the content
  * column: everything Starlight renders inside `main` is constrained to the
@@ -7,14 +7,15 @@
  * reads as the last one. The band belongs at the page level, next to the
  * header, which is what this adds.
  *
- * `.page` was already `min-height: 100vh`, so giving the main frame `flex: 1`
- * is what pins the footer to the bottom of the viewport on a short page rather
- * than leaving it floating halfway up.
+ * Documentation pages already end with their edit date and pagination. Adding
+ * another footer there duplicated navigation and put its social links beneath
+ * Starlight's fixed right-sidebar layer. Splash pages have neither affordance,
+ * so the site footer closes those pages only.
  *
  * A component override replaces Starlight's scoped styles along with its
  * markup, so the whole style block below is restated from the original rather
  * than extended. Keep it in step when Starlight's frame changes: the only
- * additions here are `.main-frame { flex: 1 }` and the footer itself.
+ * additions here are `.main-frame { flex: 1 }` and the splash-only footer.
  *
  * MobileMenuToggle is imported from the published `@astrojs/starlight/components/*`
  * path rather than the `virtual:` specifier the original uses, for the same
@@ -25,6 +26,7 @@ import MobileMenuToggle from "@astrojs/starlight/components/MobileMenuToggle.ast
 import SiteFooter from "./SiteFooter.astro";
 
 const { hasSidebar } = Astro.locals.starlightRoute;
+const isSplash = Astro.locals.starlightRoute.entry.data.template === "splash";
 ---
 
 <div class="page sl-flex">
@@ -42,7 +44,7 @@ const { hasSidebar } = Astro.locals.starlightRoute;
     )
   }
   <div class="main-frame"><slot /></div>
-  <SiteFooter />
+  {isSplash && <SiteFooter />}
 </div>
 
 <style>

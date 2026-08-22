@@ -1,0 +1,111 @@
+---
+/* The last thing on the page: one action, and the two links a reader who is not
+ * ready to install still wants. Authored on the page like every other block, so
+ * the Markdown alternate ends with the same three links a person sees.
+ */
+---
+
+<div class="ob-cta"><slot /></div>
+
+<style>
+  .ob-cta {
+    border-top: 1px solid var(--sl-color-gray-5);
+    margin-top: 3rem;
+    padding-top: 3rem;
+    display: grid;
+    row-gap: 0.85rem;
+    column-gap: 2.5rem;
+  }
+
+  @media (min-width: 55rem) {
+    .ob-cta {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    }
+
+    /* The grid items are Starlight's heading wrapper, the paragraph and the
+       list — not the h2 itself, which sits inside the wrapper. */
+    .ob-cta :global(> .sl-heading-wrapper) {
+      grid-area: 1 / 1;
+    }
+
+    .ob-cta :global(> .sl-heading-wrapper + p) {
+      grid-area: 2 / 1;
+    }
+
+    .ob-cta :global(> ul) {
+      grid-area: 1 / 2 / 3 / 3;
+      align-self: center;
+    }
+  }
+
+  /* As in Section.astro: the h2 is inline, so wrapping belongs to the wrapper. */
+  .ob-cta :global(> .sl-heading-wrapper) {
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .ob-cta :global(.sl-heading-wrapper h2) {
+    font-size: clamp(1.35rem, 2.4vw, 1.6rem);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--sl-color-white);
+  }
+
+  .ob-cta :global(.sl-heading-wrapper + p) {
+    margin: 0;
+    font-size: 0.84rem;
+    line-height: 1.8;
+    color: var(--sl-color-gray-3);
+    max-width: 58ch;
+  }
+
+  .ob-cta :global(p code) {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-2);
+  }
+
+  .ob-cta :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+
+  .ob-cta :global(li) {
+    margin: 0;
+    font-size: 0.85rem;
+  }
+
+  /* The first link is the page's one remaining action, so it gets the accent
+     pairing the hero button uses. Nothing else here is filled. */
+  .ob-cta :global(li:first-child a) {
+    display: inline-block;
+    background: var(--sl-color-accent-low);
+    border: 1px solid var(--sl-color-accent-low);
+    border-radius: 10px;
+    padding: 0.7rem 1.35rem;
+    color: var(--sl-color-accent-high);
+    text-decoration: none;
+  }
+
+  .ob-cta :global(li:first-child a:hover) {
+    border-color: var(--sl-color-accent);
+  }
+
+  .ob-cta :global(li:first-child a:focus-visible) {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ob-cta :global(li:first-child a) {
+      transition: border-color 0.15s ease;
+    }
+  }
+</style>

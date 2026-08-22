@@ -55,6 +55,12 @@ export default defineConfig({
         // Advertises the Markdown alternate for the current page, so an agent
         // that reads the HTML head never has to parse the HTML body.
         Head: "./src/components/Head.astro",
+        // Starlight renders Hero in place of a page title for any page that
+        // declares `hero` in its frontmatter. The landing page is the only one
+        // that does, so this override is effectively scoped to it — but the
+        // registration is global, and a second splash page with a hero would
+        // get the landing page's layout rather than Starlight's.
+        Hero: "./src/components/landing/Hero.astro",
       },
       lastUpdated: true,
       pagination: true,

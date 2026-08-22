@@ -1,0 +1,60 @@
+---
+/* The supported drivers, set as chips.
+ *
+ * The driver names are authored inline in the page's prose, so the list has one
+ * source: a twelfth driver is added to a sentence, not to a sentence and an
+ * array that will disagree with it a release later. Every inline code span in
+ * the first paragraph becomes a chip.
+ */
+---
+
+<div class="ob-services"><slot /></div>
+
+<style>
+  .ob-services :global(> p) {
+    margin: 0 0 1rem;
+    font-size: 0.84rem;
+    line-height: 1.85;
+    color: var(--sl-color-gray-3);
+    max-width: 68ch;
+  }
+
+  .ob-services :global(> p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .ob-services :global(> p code) {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-2);
+  }
+
+  /* The first paragraph is the driver roll-call. Its code spans are set as
+     chips so the eleven read as a set at a glance, while remaining an ordinary
+     sentence in the Markdown alternate. */
+  .ob-services :global(> p:first-child) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1.35rem;
+    max-width: none;
+  }
+
+  .ob-services :global(> p:first-child code) {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+    color: var(--sl-color-gray-2);
+  }
+
+  /* PostgreSQL is the only driver whose backup policy is honoured today, and it
+     is written first for that reason. An unmarked row would read as though they
+     all were. */
+  .ob-services :global(> p:first-child code:first-of-type) {
+    border-color: var(--sl-color-gray-3);
+    color: var(--sl-color-white);
+  }
+</style>

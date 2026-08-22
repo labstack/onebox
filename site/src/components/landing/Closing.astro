@@ -1,0 +1,125 @@
+---
+/* Two columns: the prose about being driven by an agent, and the override list
+ * that shows what an escape hatch costs here.
+ *
+ * Both halves are authored as Markdown on the page. The five flags are the
+ * clearest short statement of the product's values on the whole site — there is
+ * no generic `--force`, so every override has to say out loud which single
+ * capability it grants — and they belong in the Markdown alternate as much as
+ * in the page.
+ */
+---
+
+<div class="ob-closing"><slot /></div>
+
+<style>
+  .ob-closing {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 1rem;
+    column-gap: 2.5rem;
+    align-items: start;
+  }
+
+  @media (min-width: 62rem) {
+    .ob-closing {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    }
+  }
+
+  /* The paragraphs stack in the first column; the list takes the second and
+     spans every row the prose occupies. */
+  .ob-closing :global(> p) {
+    grid-column: 1;
+    margin: 0;
+    font-size: 0.84rem;
+    line-height: 1.85;
+    color: var(--sl-color-gray-3);
+    max-width: 58ch;
+  }
+
+  .ob-closing :global(> p code) {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-2);
+  }
+
+  .ob-closing :global(> ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  /* The prose stacks down the first column and the override list takes the
+     second, level with it. `grid-row: 1 / -1` cannot do that here: with no
+     explicit rows declared, line -1 resolves to line 1 and the list collapses
+     into a single row while the prose runs on beneath it. The placement is
+     therefore explicit, and it assumes the page authors three paragraphs — a
+     fourth would land in the list's column. */
+  @media (min-width: 62rem) {
+    .ob-closing :global(> p:nth-of-type(1)) {
+      grid-area: 1 / 1;
+    }
+
+    .ob-closing :global(> p:nth-of-type(2)) {
+      grid-area: 2 / 1;
+    }
+
+    .ob-closing :global(> p:nth-of-type(3)) {
+      grid-area: 3 / 1;
+    }
+
+    .ob-closing :global(> ul) {
+      grid-area: 1 / 2 / 4 / 3;
+    }
+  }
+
+  .ob-closing :global(> ul > li) {
+    display: block;
+    margin: 0;
+    padding: 0.7rem 0.95rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    font-size: 0.76rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-closing :global(> ul > li:first-child) {
+    border-top: 0;
+  }
+
+  /* Two paragraphs per item, from a loose Markdown list: the flag, then the one
+     capability it grants. */
+  .ob-closing :global(> ul > li > p) {
+    margin: 0;
+  }
+
+  .ob-closing :global(> ul > li > p:first-child) {
+    margin-bottom: 0.15rem;
+  }
+
+  .ob-closing :global(> ul > li > p:first-child code) {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--ob-code);
+    overflow-wrap: anywhere;
+  }
+
+  @media (min-width: 34rem) {
+    .ob-closing :global(> ul > li) {
+      display: grid;
+      grid-template-columns: 13.5rem minmax(0, 1fr);
+      gap: 1rem;
+      align-items: baseline;
+    }
+
+    .ob-closing :global(> ul > li > p:first-child) {
+      margin-bottom: 0;
+    }
+  }
+</style>

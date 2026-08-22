@@ -63,6 +63,32 @@
   --sl-color-black: #f6f8f4;
 }
 
+/* The landing page marks refusals, warnings inside its example transcript, and
+   the sealed plan's expiry in amber rather than the accent. That follows the
+   rule the asides already keep: green means interactive on this site, so a
+   refusal drawn in it would read as something to click. Declared here because
+   the landing components are scoped and cannot define a shared token.
+
+   Both values are checked against the surface they land on, which is
+   --sl-color-gray-6 in either theme, not the page background.
+
+   The landing page also names commands, generated identity and override flags
+   in green, and that cannot be --sl-color-accent-high in both themes: in light
+   it holds #1a3d13, which sits a shade off the near-black body colour and reads
+   as ordinary text rather than as the accent. --ob-code therefore takes the
+   high tint on dark and the mid tint on light, where each is the one that
+   actually looks green against its own ground. The accent-low/accent-high
+   pairing is still what the filled buttons use; only inline text moves. */
+:root {
+  --ob-warn: #d0a44a;
+  --ob-code: var(--sl-color-accent-high);
+}
+
+:root[data-theme="light"] {
+  --ob-warn: #8a5a00;
+  --ob-code: var(--sl-color-accent);
+}
+
 /* Monospace runs wider per character and tires the eye faster, so prose gets
    more leading than Starlight's 1.75 default — genuinely more; an earlier
    version of this file set 1.72 while claiming to open it.

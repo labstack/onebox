@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -171,10 +172,18 @@ func TestNotifyOutcome(t *testing.T) {
 	if hits != 1 {
 		t.Fatal("no-op must not notify as a successful deploy")
 	}
+	// Ctrl-C cancels the operation context before the failure outcome is sent.
+	// The webhook still gets one bounded attempt under notify's own timeout.
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	notifyOperationOutcome(cancelled, cfg, g, "deploy", onebox.OperationResult{EvidenceID: "cancelled"}, context.Canceled)
+	if hits != 2 {
+		t.Fatal("cancelled operation context suppressed its failure notification")
+	}
 	// no notification declared: silent no-op
 	cfg.Notifications = nil
 	notifyOutcome(t.Context(), cfg, g, "deploy", "R1", fmt.Errorf("x"))
-	if hits != 1 {
+	if hits != 2 {
 		t.Fatal("nil notify must be a no-op")
 	}
 }

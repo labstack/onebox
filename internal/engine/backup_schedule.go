@@ -62,16 +62,16 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	installed := map[string]bool{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		unit := strings.TrimSpace(line)
-		if !strings.HasSuffix(unit, ".timer") {
+		if !strings.HasSuffix(unit, ".timer") || !unitName.MatchString(unit) {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
-		if strings.HasPrefix(unit, prefix) {
+		if matchesRuntimePrefix(bare, prefix) {
 			installed[bare] = true
 			continue
 		}
 		if matchesAnyPrefix(unit, prefixes[1:]) {
-			owned, err := e.legacyScheduleUnitBelongsToApplication(ctx, bare, true)
+			owned, err := e.scheduleUnitBelongsToOwner(ctx, bare, true)
 			if err != nil {
 				return err
 			}
@@ -141,7 +141,7 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 				name:     n.BackupUnitForEnvironment(e.Opts.Environment, service, unit.operation),
 				calendar: expression,
 				cron:     unit.schedule.Cron,
-				body:     backupServiceUnit(e.Spec.Spec.Name, service, unit.operation, n.BackupRunLock(service), unit.commands),
+				body:     backupServiceUnit(e.Spec.Spec.Name, e.Opts.Environment, service, unit.operation, n.BackupRunLock(service), unit.commands),
 			})
 		}
 	}
@@ -260,10 +260,10 @@ func pruneExec(container string, policy app.BackupPolicy) (string, error) {
 //
 // -w rather than -n: a backup that waits for a running one is late, and a
 // backup that gives up is missing.
-func backupServiceUnit(application, service, operation, lockPath string, commands []string) string {
+func backupServiceUnit(application, environment, service, operation, lockPath string, commands []string) string {
 	lines := []string{
 		"[Unit]",
-		"Description=Onebox backup " + operation + " for " + service + " (" + application + ")",
+		"Description=Onebox backup " + operation + " for " + service + " (" + application + "/" + environment + ")",
 		"# Written by Onebox. Edits are overwritten on the next apply.",
 		"After=docker.service",
 		"Requires=docker.service",

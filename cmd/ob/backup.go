@@ -160,7 +160,8 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"anything touches the running database. A repository that cannot recover\n" +
 			"fails while the database it would have replaced is still serving.\n\n" +
 			"The data being replaced is copied aside first, under a dated volume name,\n" +
-			"and never deleted. A restore is run on a day that is already going badly;\n" +
+			"and retained after restore. Only a later explicit `ob destroy --volumes`\n" +
+			"removes it. A restore is run on a day that is already going badly;\n" +
 			"it must not be the step that makes it unrecoverable.\n\n" +
 			"Without --to, recovery goes to the newest recoverable point.\n\n" +
 			"The service name has to be typed back with --confirm. Onebox's approval flow\n" +

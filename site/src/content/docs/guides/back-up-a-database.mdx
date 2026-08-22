@@ -212,7 +212,8 @@ The recovered cluster is built beside the live one and has to start, promote and
 answer a query before anything touches the running database — so a repository
 that cannot recover fails while the database it would have replaced is still
 serving. The data being replaced is copied aside under a dated volume name and
-never deleted.
+retained after restore. Only a later explicit `ob destroy --volumes` removes
+that safety copy.
 
 The service name is typed back with `--confirm` because a recovery has no plan
 for the approval flow to bind to, so the guard is the name of the thing being

@@ -293,7 +293,9 @@ func notifyOperationOutcome(ctx context.Context, cfg *app.Resolved, g *globalFla
 	if evidenceID == "" {
 		evidenceID = result.ReleaseID
 	}
-	notifyOutcome(ctx, cfg, g, verb, evidenceID, err)
+	// The operation context is cancelled by Ctrl-C and SIGTERM. Its outcome is
+	// still worth sending; notify.Send has its own bounded HTTP timeout.
+	notifyOutcome(context.WithoutCancel(ctx), cfg, g, verb, evidenceID, err)
 }
 
 // buildPlan asks the canonical service for an executable graph, then renders

@@ -58,20 +58,21 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
 			continue
 		}
-		if !strings.HasSuffix(unit, ".timer") {
+		if !strings.HasSuffix(unit, ".timer") || !unitName.MatchString(unit) {
 			continue
 		}
-		if strings.HasPrefix(unit, prefix) {
-			installed[strings.TrimSuffix(unit, ".timer")] = true
+		bare := strings.TrimSuffix(unit, ".timer")
+		if matchesRuntimePrefix(bare, prefix) {
+			installed[bare] = true
 			continue
 		}
 		if matchesAnyPrefix(unit, prefixes[1:]) {
-			owned, err := e.legacyScheduleUnitBelongsToApplication(ctx, strings.TrimSuffix(unit, ".timer"), false)
+			owned, err := e.scheduleUnitBelongsToOwner(ctx, bare, false)
 			if err != nil {
 				return err
 			}
 			if owned {
-				installed[strings.TrimSuffix(unit, ".timer")] = true
+				installed[bare] = true
 			}
 		}
 	}
@@ -236,17 +237,17 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 		var owned bool
 		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
 			switch {
-			case strings.HasPrefix(unit, backupPrefixes[0]):
+			case matchesRuntimePrefix(unit, backupPrefixes[0]):
 				owned = true
 			case matchesAnyPrefix(unit, backupPrefixes[1:]):
-				owned, err = e.legacyScheduleUnitBelongsToApplication(ctx, unit, true)
+				owned, err = e.scheduleUnitBelongsToOwner(ctx, unit, true)
 			}
 		} else {
 			switch {
-			case strings.HasPrefix(unit, jobPrefixes[0]):
+			case matchesRuntimePrefix(unit, jobPrefixes[0]):
 				owned = true
 			case matchesAnyPrefix(unit, jobPrefixes[1:]):
-				owned, err = e.legacyScheduleUnitBelongsToApplication(ctx, unit, false)
+				owned, err = e.scheduleUnitBelongsToOwner(ctx, unit, false)
 			}
 		}
 		if err != nil {
@@ -280,7 +281,7 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 // reload systemd before returning, so a failed disable cannot strand files that make
 // the next reconciliation see the same stale schedule again.
 func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
-	disable, disableErr := e.mutate(ctx, "systemctl disable --now "+unit+".timer >/dev/null 2>&1")
+	disable, disableErr := e.mutate(ctx, "systemctl disable --now "+unit+".timer >/dev/null")
 	remove, removeErr := e.mutate(ctx, fmt.Sprintf(
 		"rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service", unit, unit))
 	var errs []error
@@ -306,11 +307,20 @@ func matchesAnyPrefix(name string, prefixes []string) bool {
 	return false
 }
 
-// legacyScheduleUnitBelongsToApplication resolves an ambiguous old unit name
-// from the unambiguous application identifier embedded in its service body.
+// matchesRuntimePrefix distinguishes a component boundary from the first half
+// of an escaped hyphen. For example, ob-acme- owns ob-acme-nightly but not
+// ob-acme--web-nightly, whose application component is acme-web.
+func matchesRuntimePrefix(name, prefix string) bool {
+	return strings.HasPrefix(name, prefix) && len(name) > len(prefix) && name[len(prefix)] != '-'
+}
+
+// scheduleUnitBelongsToOwner resolves an ambiguous old unit name from the
+// unambiguous owner embedded in its service body. New backup units include the
+// environment as well; the application-only suffix remains migration input for
+// units written before environments were recorded there.
 // Missing or unfamiliar files are left alone: ownership must be proved before
 // reconciliation removes a host-global unit.
-func (e *Engine) legacyScheduleUnitBelongsToApplication(ctx context.Context, unit string, backup bool) (bool, error) {
+func (e *Engine) scheduleUnitBelongsToOwner(ctx context.Context, unit string, backup bool) (bool, error) {
 	res, err := e.T.Run(ctx, "cat "+q("/etc/systemd/system/"+unit+".service")+" 2>/dev/null")
 	if err != nil {
 		return false, fmt.Errorf("inspect legacy schedule %s: %w", unit, err)
@@ -320,7 +330,9 @@ func (e *Engine) legacyScheduleUnitBelongsToApplication(ctx context.Context, uni
 	}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		if backup {
-			if strings.HasPrefix(line, "Description=Onebox backup ") && strings.HasSuffix(line, " ("+e.Spec.Name+")") {
+			if strings.HasPrefix(line, "Description=Onebox backup ") &&
+				(strings.HasSuffix(line, " ("+e.Spec.Name+"/"+e.Opts.Environment+")") ||
+					strings.HasSuffix(line, " ("+e.Spec.Name+")")) {
 				return true, nil
 			}
 			continue

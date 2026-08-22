@@ -528,8 +528,8 @@ func (e *Engine) probeRecoveredCluster(ctx context.Context, container, targetTim
 
 // promoteRecoveredVolume puts the recovered data in front of the application.
 //
-// The previous volume is renamed, never deleted. A restore is the operation
-// people run when they are already having a bad day, and the one thing it must
+// The previous volume is renamed, never deleted by restore. A restore is the
+// operation people run when they are already having a bad day, and the one thing it must
 // not do is make the bad day unrecoverable — if the recovery turns out to be to
 // the wrong second, the original is still there under a dated name.
 func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container, staging string, outcome *RestoreOutcome) (string, error) {

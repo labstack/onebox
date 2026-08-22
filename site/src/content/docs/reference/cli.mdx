@@ -348,7 +348,8 @@ anything touches the running database. A repository that cannot recover
 fails while the database it would have replaced is still serving.
 
 The data being replaced is copied aside first, under a dated volume name,
-and never deleted. A restore is run on a day that is already going badly;
+and retained after restore. Only a later explicit `ob destroy --volumes`
+removes it. A restore is run on a day that is already going badly;
 it must not be the step that makes it unrecoverable.
 
 Without --to, recovery goes to the newest recoverable point.

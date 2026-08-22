@@ -300,7 +300,10 @@ type ExecuteRequest struct {
 	Service string
 	// RecoveryTarget is the RFC 3339 point in time a recovery aims at. Empty
 	// means the newest recoverable point.
-	RecoveryTarget     string
+	RecoveryTarget string
+	// RecoveryGeneration selects a historical physical PostgreSQL cluster by
+	// system identifier. "legacy" names the pre-generation repository layout.
+	RecoveryGeneration string
 	BreakMigrationGate bool
 	NoRollback         bool
 	Redeploy           bool
@@ -341,6 +344,9 @@ func (request ExecuteRequest) Validate() error {
 	}
 	if (request.RemoveVolumes || request.RemoveProxy) && request.Kind != KindDestroy {
 		return errors.New("remove_volumes and remove_proxy are valid only for destroy")
+	}
+	if request.RecoveryGeneration != "" && request.Kind != KindRestoreTest && request.Kind != KindRestoreCutover {
+		return errors.New("recovery_generation is valid only for restore and drill")
 	}
 	if (request.Approval != nil || request.BackupReport != nil || request.MigrationBackupOverride != nil) && request.Kind != KindDeploy && request.Kind != KindJobRun {
 		return errors.New("approval and migration backup authorization are valid only for deploy and job run")

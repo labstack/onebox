@@ -157,12 +157,22 @@ func TestServerProbes(t *testing.T) {
 		first := s.project(t, endpoint, "v1")
 		s.deploy(t, first)
 		s.mustOb(t, first, "backup", "enable", "postgres")
+		firstID := s.psql(t, "select system_identifier from pg_control_system()")
 		s.rotateWAL(t)
 		s.teardown(t, first)
 
 		second := s.project(t, endpoint, "v1")
 		s.deploy(t, second)
 		s.mustOb(t, second, "backup", "enable", "postgres")
+		secondID := s.psql(t, "select system_identifier from pg_control_system()")
+		if firstID == secondID {
+			t.Fatalf("replacement database kept system identifier %s", firstID)
+		}
+		status := s.mustOb(t, second, "backup", "status", "postgres")
+		if !strings.Contains(status, firstID) || !strings.Contains(status, secondID) {
+			t.Fatalf("repository generations are not discoverable after local state loss:\n%s", status)
+		}
+		s.mustOb(t, second, "backup", "drill", "postgres", "--generation", firstID)
 
 		before, _ := s.archiverCounts(t)
 		s.rotateWAL(t)

@@ -199,31 +199,11 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	// before starting anything that mounts them, then restarts the server with
 	// archive_mode on.
 	if err := e.ApplyServices(ctx); err != nil {
-		return fmt.Errorf("service %s could not restart under backup: %w", service, err)
-	}
-	// A target that moved is a new history, and the operator is told rather than
-	// left to notice: the base backup below is the first one in the new
-	// repository, so the declared window starts from now. What the old
-	// repository holds is untouched and stays where it is.
-	// Compared as repositories, not as target names. Editing the bucket or the
-	// endpoint inside a target called "offsite" moves the history just as
-	// surely as pointing the service at a target called something else, and the
-	// name would not have changed.
-	nextRepository := app.WalgPrefix(projection.Target, resolved.Spec.Name, service, next.BackupRepositoryGeneration)
-	if previous := previousBackupRepository(current, resolved.Spec.Name, service); previous != "" &&
-		previous != nextRepository {
-		e.ReportTargetMoved(service, previous, nextRepository)
-		// The credential file is named for the target it belongs to, so a move
-		// to a *differently named* target leaves the old file holding keys
-		// nothing uses. Editing the bucket inside a target keeps the name, and
-		// therefore the path — and removing it then would delete the file this
-		// very run just installed. It did: the next command that needed the
-		// repository failed with "--env-file: no such file or directory".
-		if retiresCredentialFile(current.LastEffective, projection) {
-			if err := e.RemoveBackupCredentials(ctx, service, current.LastEffective); err != nil {
-				return err
-			}
+		failure := fmt.Errorf("service %s could not restart under backup: %w", service, err)
+		if rollbackErr := rollbackFailedEnablement(ctx, e, service, current, next, operationID); rollbackErr != nil {
+			return errors.Join(failure, rollbackErr)
 		}
+		return failure
 	}
 	// Everything PostgreSQL is holding goes to the repository before the base
 	// backup writes into the same WAL namespace. Without this, `backup-push`
@@ -232,10 +212,8 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	// PostgreSQL archives in order the chain stops there permanently — while
 	// this command reports success.
 	if err := e.QuiesceArchiver(ctx, service); err != nil {
-		if current.State != BackupEnabled {
-			if revertErr := revertFailedEnablement(ctx, e, service, next, operationID); revertErr != nil {
-				return errors.Join(err, revertErr)
-			}
+		if rollbackErr := rollbackFailedEnablement(ctx, e, service, current, next, operationID); rollbackErr != nil {
+			return errors.Join(err, rollbackErr)
 		}
 		return err
 	}
@@ -249,22 +227,50 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	// established by a command that reported failure. On a busy database that
 	// is an unbounded disk commitment nobody agreed to.
 	if err := e.BackupService(ctx, service); err != nil {
-		// Only when this run is what turned archiving on. A service that was
-		// already protected was archiving before this command ran and to its
-		// own repository; taking it back to unprotected because a re-enable
-		// could not take a fresh base backup would break a working setup to
-		// tidy up a failed change. Either way the service is left as it was
-		// found.
-		if current.State == BackupEnabled {
-			return err
-		}
-		if revertErr := revertFailedEnablement(ctx, e, service, next, operationID); revertErr != nil {
-			return errors.Join(err, fmt.Errorf(
-				"service %s is archiving with no base backup and could not be returned to unprotected — "+
-					"write-ahead log will accumulate until `ob backup disable %s` succeeds: %w",
-				service, service, revertErr))
+		if rollbackErr := rollbackFailedEnablement(ctx, e, service, current, next, operationID); rollbackErr != nil {
+			return errors.Join(err, rollbackErr)
 		}
 		return err
+	}
+
+	// A target that moved is reported and its old credential retired only after
+	// the new repository has accepted a complete base backup. Until this point a
+	// failure must be able to restore the exact previous binding, including the
+	// credential file that opens it.
+	nextRepository := app.WalgPrefix(projection.Target, resolved.Spec.Name, service, next.BackupRepositoryGeneration)
+	if previous := previousBackupRepository(current, resolved.Spec.Name, service); previous != "" && previous != nextRepository {
+		e.ReportTargetMoved(service, previous, nextRepository)
+		if retiresCredentialFile(current.LastEffective, projection) {
+			if err := e.RemoveBackupCredentials(ctx, service, current.LastEffective); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// rollbackFailedEnablement restores the state in which this enablement found
+// the service. An enabled or disable-pending service was already archiving, so
+// its exact repository binding is reinstated. A previously unprotected service
+// instead walks the fail-closed disable transition used by first enablement.
+func rollbackFailedEnablement(ctx context.Context, e *engine.Engine, service string, current, attempted BackupLifecycleState, operationID string) error {
+	if current.State != BackupEnabled && current.State != BackupDisablePending {
+		return revertFailedEnablement(ctx, e, service, attempted, operationID)
+	}
+	body, err := encodeBackupLifecycleState(current)
+	if err != nil {
+		return err
+	}
+	if err := e.WriteBackupLifecycleState(ctx, service, body); err != nil {
+		return err
+	}
+	runtime := current.RuntimeState()
+	runtime.DigestAvailable = true
+	if err := e.RebindServiceRuntimeStates(map[string]app.ServiceRuntimeState{service: runtime}); err != nil {
+		return err
+	}
+	if err := e.ApplyServices(ctx); err != nil {
+		return fmt.Errorf("service %s could not restore its previous backup binding: %w", service, err)
 	}
 	return nil
 }

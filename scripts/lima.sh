@@ -35,8 +35,14 @@ ssh_field() {
 }
 
 up() {
+	local status
 	if limactl list --quiet 2>/dev/null | grep -qx "$instance"; then
-		echo "instance ${instance} already exists; reusing it"
+		status="$(limactl list --format '{{.Status}}' "$instance" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+		if [[ "$status" != "running" ]]; then
+			limactl start --tty=false "$instance"
+		else
+			echo "instance ${instance} already exists; reusing it"
+		fi
 	else
 		limactl start --name="$instance" --tty=false "${repo}/${config}"
 	fi

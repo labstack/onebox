@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,14 +32,15 @@ const (
 
 // RestoreOutcome is what a recovery produced, whether or not it was kept.
 type RestoreOutcome struct {
-	Service       string `json:"service"`
-	Target        string `json:"target"`
-	Backup        string `json:"backup"`
-	RecoveredTo   string `json:"recovered_to"`
-	Rows          string `json:"sanity_check"`
-	StagingVolume string `json:"staging_volume,omitempty"`
-	PreviousData  string `json:"previous_data_volume,omitempty"`
-	Promoted      bool   `json:"promoted"`
+	Service                  string `json:"service"`
+	Target                   string `json:"target"`
+	Backup                   string `json:"backup"`
+	RecoveredTo              string `json:"recovered_to"`
+	Rows                     string `json:"sanity_check"`
+	StagingVolume            string `json:"staging_volume,omitempty"`
+	PreviousData             string `json:"previous_data_volume,omitempty"`
+	Promoted                 bool   `json:"promoted"`
+	DatabaseSystemIdentifier string `json:"database_system_identifier,omitempty"`
 	// RetainStaging is set the moment promotion starts modifying the live
 	// volume. From then on the staging volume is the only complete copy of the
 	// recovered data and must survive a failure, so the operator has something
@@ -154,10 +156,24 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 		return outcome, err
 	}
 	outcome.RecoveredTo, outcome.Rows = recoveredTo, rows
+	identifier, err := e.recoveredSystemIdentifier(ctx, container, service)
+	if err != nil {
+		st(err)
+		return outcome, err
+	}
+	outcome.DatabaseSystemIdentifier = identifier
+	if state, ok := e.Spec.ServiceRuntimeState(service); ok && state.DatabaseSystemIdentifier != "" && state.DatabaseSystemIdentifier != identifier {
+		err := fmt.Errorf("recovered PostgreSQL cluster %s does not match selected repository generation %s", identifier, state.DatabaseSystemIdentifier)
+		st(err)
+		return outcome, err
+	}
 	st(nil)
 
 	if !promote {
 		return outcome, nil
+	}
+	if err := e.StageServiceCompose(ctx, service); err != nil {
+		return outcome, fmt.Errorf("cannot stage the recovered cluster's repository binding: %w", err)
 	}
 	previous, err := e.promoteRecoveredVolume(ctx, service, container, staging, &outcome)
 	outcome.PreviousData = previous
@@ -166,6 +182,23 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	}
 	outcome.Promoted = true
 	return outcome, nil
+}
+
+func (e *Engine) recoveredSystemIdentifier(ctx context.Context, container, service string) (string, error) {
+	command := "docker exec -u postgres " + q(container) + " psql -U " + q(app.PgSuperuser) +
+		" -d postgres -Atc " + q("select system_identifier::text from pg_control_system();")
+	res, err := e.T.Run(ctx, command)
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("service %s: cannot read the recovered PostgreSQL system identifier: %s", service, strings.TrimSpace(res.Stderr))
+	}
+	identifier := strings.TrimSpace(res.Stdout)
+	if _, err := strconv.ParseUint(identifier, 10, 64); err != nil || identifier == "" {
+		return "", fmt.Errorf("service %s: recovered PostgreSQL returned an invalid system identifier %q", service, identifier)
+	}
+	return identifier, nil
 }
 
 func recoveryTargetLabel(targetTime string) string {

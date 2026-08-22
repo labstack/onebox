@@ -43,6 +43,14 @@ type ServiceImageSelection struct {
 	Origin         Origin
 }
 
+// ServiceRuntimeState returns the observed lifecycle binding for one service.
+// Engine safety checks need the recorded database identity before they allow
+// Compose to touch its volume.
+func (r *Resolved) ServiceRuntimeState(service string) (ServiceRuntimeState, bool) {
+	state, ok := r.serviceRuntime[service]
+	return state, ok
+}
+
 func (r *Resolved) WithServiceRuntimeStates(states map[string]ServiceRuntimeState) (*Resolved, error) {
 	if r == nil {
 		return nil, errors.New("resolved project is nil")

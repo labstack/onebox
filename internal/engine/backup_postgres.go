@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -193,7 +194,11 @@ func (e *Engine) QuiesceArchiver(ctx context.Context, service string) error {
 		if err != nil {
 			return err
 		}
-		if res.ExitCode == 0 && strings.TrimSpace(res.Stdout) == "0" {
+		if res.ExitCode != 0 {
+			return fmt.Errorf("service %s: cannot inspect the PostgreSQL archive queue: %s",
+				service, strings.TrimSpace(res.Stderr))
+		}
+		if strings.TrimSpace(res.Stdout) == "0" {
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -230,6 +235,80 @@ func (e *Engine) PostgresSystemIdentifier(ctx context.Context, service string) (
 	}
 	return identifier, nil
 }
+
+// ValidateProtectedDatabaseIdentities proves that each protected PostgreSQL
+// volume is the cluster recorded in lifecycle state. It deliberately reads the
+// volume without relying on the service container: Compose may be about to
+// recreate that container, and a missing volume must be detected before
+// Compose silently creates an empty one.
+func (e *Engine) ValidateProtectedDatabaseIdentities(ctx context.Context) error {
+	n := e.names()
+	for _, service := range e.Spec.ServiceNames() {
+		if !e.Spec.ServiceIsProtected(service) {
+			continue
+		}
+		state, ok := e.Spec.ServiceRuntimeState(service)
+		if !ok {
+			continue
+		}
+		recorded := state.DatabaseSystemIdentifier
+		if recorded == "" {
+			return fmt.Errorf("service %s is protected by a legacy repository binding with no PostgreSQL system identifier; run `ob backup enable %s` before applying services", service, service)
+		}
+		declared := e.Spec.Services[service]
+		driver := declared.Driver
+		if driver == "" {
+			driver = service
+		}
+		if driver != "postgres" {
+			continue
+		}
+		volume := n.ServiceVolume(service, app.DataVolumeFor(declared))
+		inspect, err := e.T.Run(ctx, "docker volume inspect "+q(volume))
+		if err != nil {
+			return err
+		}
+		if inspect.ExitCode != 0 {
+			return fmt.Errorf("service %s is recorded as PostgreSQL cluster %s, but data volume %s is missing; restore that generation or disable backup before applying services", service, recorded, volume)
+		}
+		image, err := e.Spec.ServiceImageForRuntime(service)
+		if err != nil {
+			return err
+		}
+		command := "docker run --rm --entrypoint pg_controldata -v " + q(volume+":/var/lib/postgresql/data:ro") +
+			" " + q(image.Image) + " " + q(app.PgDataPath)
+		res, err := e.T.Run(ctx, command)
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("service %s: cannot verify the PostgreSQL identity in volume %s: %s", service, volume, strings.TrimSpace(res.Stderr))
+		}
+		actual := postgresControlSystemIdentifier(res.Stdout)
+		if actual == "" {
+			return fmt.Errorf("service %s: pg_controldata did not report a PostgreSQL system identifier for volume %s", service, volume)
+		}
+		if actual != recorded {
+			return fmt.Errorf("service %s data volume belongs to PostgreSQL cluster %s, but backup lifecycle state is bound to cluster %s; run `ob backup enable %s` to establish a new repository generation before applying services", service, actual, recorded, service)
+		}
+	}
+	return nil
+}
+
+func postgresControlSystemIdentifier(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if ok && strings.TrimSpace(key) == "Database system identifier" {
+			identifier := strings.TrimSpace(value)
+			if databaseSystemIdentifier.MatchString(identifier) {
+				return identifier
+			}
+		}
+	}
+	return ""
+}
+
+var databaseSystemIdentifier = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 func (e *Engine) targetMachine(ctx context.Context) (string, error) {
 	res, err := e.T.Run(ctx, "uname -m")

@@ -1,0 +1,123 @@
+---
+/* The site's own footer band, below the content rather than inside it.
+ *
+ * The copyright used to sit in Starlight's page footer, which renders inside
+ * the content column — so it lined up with the prose, drifted upward on short
+ * pages, and read as the last paragraph of the article rather than as the end
+ * of the site. This is the counterpart to the header: a full-width band with a
+ * rule across it, pinned to the bottom of the viewport when the page is short.
+ *
+ * The links are here rather than authored in Markdown because a site footer is
+ * chrome — it is identical on all thirty-nine pages, and putting it in the page
+ * source would repeat it into every Markdown alternate.
+ *
+ * It holds two things: who owns this and under what licence, and where the
+ * organisation is. Nothing else, on purpose — Cloudflare's docs ship no footer
+ * at all because their sidebar navigates and a footer would only restate it,
+ * and this site is the same shape. Security, the trademark policy, contributing
+ * and llms.txt were all in here and came out: each is real, but a reader who
+ * wants them reaches them from the repository or the head of the page, and
+ * putting them here made the band look like a link farm for four links nobody
+ * arrived looking for.
+ *
+ * The bar for adding anything back: it is something a stranger needs, the
+ * sidebar cannot hold it, and they would not otherwise find it.
+ */
+import { Icon } from "@astrojs/starlight/components";
+
+const year = new Date().getFullYear();
+---
+
+<footer class="ob-sitefooter">
+  <div class="ob-sitefooter-in">
+    <p class="ob-colophon">
+      <span>&copy; {year} Onebox by <a href="https://labstack.com">LabStack LLC</a></span>
+      <span class="sep" aria-hidden="true">·</span>
+      <span><a href="https://github.com/labstack/onebox/blob/main/LICENSE">Apache-2.0</a></span>
+    </p>
+    <nav class="ob-sitefooter-links" aria-label="LabStack">
+      <a class="ob-icon" href="https://x.com/labstack" aria-label="LabStack on X">
+        <Icon name="x.com" size="1.05rem" />
+      </a>
+      <a class="ob-icon" href="https://github.com/labstack" aria-label="LabStack on GitHub">
+        <Icon name="github" size="1.05rem" />
+      </a>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  /* No background of its own: the rule is enough to end the page, and a tinted
+     band down there competed with the header for the eye on every scroll. */
+  .ob-sitefooter {
+    border-top: 1px solid var(--sl-color-hairline-shade);
+    /* Inset the way the main frame is. A truly full-bleed band would run under
+       the fixed sidebar, which covers the left column from the nav bar down. */
+    padding-inline-start: var(--sl-content-inline-start);
+  }
+
+  .ob-sitefooter-in {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 2rem;
+    padding: 1.15rem var(--sl-nav-pad-x);
+  }
+
+  .ob-colophon {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.5ch;
+    margin: 0;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-sitefooter-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.4rem;
+    font-size: var(--sl-text-sm);
+  }
+
+  .ob-sitefooter a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+
+  .ob-sitefooter a:hover {
+    color: var(--sl-color-white);
+    text-decoration: underline;
+  }
+
+  .ob-sitefooter a:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 2px;
+  }
+
+  .ob-icon {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .ob-icon:hover {
+    text-decoration: none;
+  }
+
+  /* The line is 42 characters and a phone is narrower. Stacked, the separator
+     has nothing to separate. */
+  @media (max-width: 30rem) {
+    .ob-colophon {
+      display: block;
+    }
+
+    .ob-colophon > span {
+      display: block;
+    }
+
+    .ob-colophon > .sep {
+      display: none;
+    }
+  }
+</style>

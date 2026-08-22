@@ -1,0 +1,121 @@
+---
+/* Starlight's page frame, with a site footer added below the content.
+ *
+ * Overriding this component is the only way to put a footer outside the content
+ * column: everything Starlight renders inside `main` is constrained to the
+ * prose width, so a copyright placed there lines up with the paragraphs and
+ * reads as the last one. The band belongs at the page level, next to the
+ * header, which is what this adds.
+ *
+ * `.page` was already `min-height: 100vh`, so giving the main frame `flex: 1`
+ * is what pins the footer to the bottom of the viewport on a short page rather
+ * than leaving it floating halfway up.
+ *
+ * A component override replaces Starlight's scoped styles along with its
+ * markup, so the whole style block below is restated from the original rather
+ * than extended. Keep it in step when Starlight's frame changes: the only
+ * additions here are `.main-frame { flex: 1 }` and the footer itself.
+ *
+ * MobileMenuToggle is imported from the published `@astrojs/starlight/components/*`
+ * path rather than the `virtual:` specifier the original uses, for the same
+ * reason as the footer override: the virtual modules are typed in a declaration
+ * file this site's tsconfig does not see, and `astro check` fails on them.
+ */
+import MobileMenuToggle from "@astrojs/starlight/components/MobileMenuToggle.astro";
+import SiteFooter from "./SiteFooter.astro";
+
+const { hasSidebar } = Astro.locals.starlightRoute;
+---
+
+<div class="page sl-flex">
+  <header class="header"><slot name="header" /></header>
+  {
+    hasSidebar && (
+      <nav class="sidebar print:hidden" aria-label={Astro.locals.t("sidebarNav.accessibleLabel")}>
+        <MobileMenuToggle />
+        <div id="starlight__sidebar" class="sidebar-pane">
+          <div class="sidebar-content sl-flex">
+            <slot name="sidebar" />
+          </div>
+        </div>
+      </nav>
+    )
+  }
+  <div class="main-frame"><slot /></div>
+  <SiteFooter />
+</div>
+
+<style>
+  .page {
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .header {
+    z-index: var(--sl-z-index-navbar);
+    position: fixed;
+    inset-inline-start: 0;
+    inset-block-start: 0;
+    width: 100%;
+    height: var(--sl-nav-height);
+    border-bottom: 1px solid var(--sl-color-hairline-shade);
+    padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+    padding-inline-end: var(--sl-nav-pad-x);
+    background-color: var(--sl-color-bg-nav);
+  }
+
+  :global([data-has-sidebar]) .header {
+    padding-inline-end: calc(var(--sl-nav-gap) + var(--sl-nav-pad-x) + var(--sl-menu-button-size));
+  }
+
+  .sidebar-pane {
+    visibility: var(--sl-sidebar-visibility, hidden);
+    position: fixed;
+    z-index: var(--sl-z-index-menu);
+    inset-block: var(--sl-nav-height) 0;
+    inset-inline-start: 0;
+    width: 100%;
+    background-color: var(--sl-color-black);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  :global([aria-expanded="true"]) ~ .sidebar-pane {
+    --sl-sidebar-visibility: visible;
+  }
+
+  .sidebar-content {
+    height: 100%;
+    min-height: max-content;
+    padding: 1rem var(--sl-sidebar-pad-x) 0;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  @media (min-width: 50rem) {
+    .sidebar-content::after {
+      content: "";
+      padding-bottom: 1px;
+    }
+  }
+
+  .main-frame {
+    /* Added: takes the slack so the footer lands at the bottom of a short page. */
+    flex: 1;
+    padding-top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
+    padding-inline-start: var(--sl-content-inline-start);
+  }
+
+  @media (min-width: 50rem) {
+    :global([data-has-sidebar]) .header {
+      padding-inline-end: var(--sl-nav-pad-x);
+    }
+
+    .sidebar-pane {
+      --sl-sidebar-visibility: visible;
+      width: var(--sl-sidebar-width);
+      background-color: var(--sl-color-bg-sidebar);
+      border-inline-end: 1px solid var(--sl-color-hairline-shade);
+    }
+  }
+</style>

@@ -1,17 +1,10 @@
 ---
-/* Starlight's page footer, plus a colophon.
+/* Starlight's page footer: the edit link, the last-updated date and the
+ * pagination that sit at the end of an article.
  *
- * onebox.run was the only LabStack property with no ownership line on it —
- * labstack.com, Goal.fit and Monk.trade all carry one. The wording differs here
- * on purpose: those are closed products and say "All rights reserved", while
- * Onebox is Apache-2.0, and for this audience the licence is the more useful
- * half of the sentence.
- *
- * The year is derived at build time rather than written down, as it is on the
- * other sites. That is not the same as always being current: the site
- * republishes when `site/`, `docs/` or its own workflow change, so a January
- * with no documentation change leaves the old year up until the next build or a
- * manual run. It is still better than a literal nobody revisits.
+ * The site's copyright is not here. It is chrome rather than the end of a page,
+ * so it lives in SiteFooter.astro, which PageFrame renders below the content
+ * column entirely.
  *
  * Overriding the component means restating the layout it came with: a
  * component override replaces Starlight's scoped styles along with its markup,
@@ -33,22 +26,34 @@ import EditLink from "@astrojs/starlight/components/EditLink.astro";
 import LastUpdated from "@astrojs/starlight/components/LastUpdated.astro";
 import Pagination from "@astrojs/starlight/components/Pagination.astro";
 
-const year = new Date().getFullYear();
+/* The edit link and the last-updated date are documentation affordances, and
+ * the landing page is not documentation. "Edit page" invites a contributor to
+ * change a marketing page, and a date only ever works against a front page: a
+ * quiet month reads as an abandoned project to the one visitor least equipped
+ * to judge that. Both stay on every other page, where "is this current?" is a
+ * question a reader genuinely has.
+ *
+ * Keyed on the splash template rather than the page id, so a second splash page
+ * inherits the same treatment. Pagination already renders nothing here — the
+ * landing page is in no sidebar group, so it has no neighbours.
+ *
+ * The copyright is no longer part of this component. It is chrome, not the end
+ * of an article, so it lives in SiteFooter.astro, which PageFrame puts below
+ * the content column entirely.
+ */
+const isSplash = Astro.locals.starlightRoute.entry.data.template === "splash";
 ---
 
 <footer class="sl-flex">
-  <div class="meta sl-flex">
-    <EditLink />
-    <LastUpdated />
-  </div>
+  {
+    !isSplash && (
+      <div class="meta sl-flex">
+        <EditLink />
+        <LastUpdated />
+      </div>
+    )
+  }
   <Pagination />
-  <p class="colophon">
-    <span>&copy; {year} Onebox by <a href="https://labstack.com">LabStack LLC</a></span>
-    <span class="sep" aria-hidden="true">·</span>
-    <span>
-      <a href="https://github.com/labstack/onebox/blob/main/LICENSE">Apache-2.0</a>
-    </span>
-  </p>
 </footer>
 
 <style>
@@ -70,44 +75,4 @@ const year = new Date().getFullYear();
     margin-inline-start: auto;
   }
 
-  /* Sits at the same size and colour as the edit link and the last-updated
-     date, because it is the same kind of thing: page chrome, not content. */
-  .colophon {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 0.5ch;
-    margin: 0;
-    font-size: var(--sl-text-sm);
-    color: var(--sl-color-gray-3);
-  }
-
-  /* The whole line is 42 characters, and in this face that is a little wider
-     than a phone. Left to wrap it broke after "LLC" and started the next line
-     with the separator; below this width the two facts are stacked instead and
-     the separator, which only exists to divide them on one line, is dropped. */
-  @media (max-width: 30rem) {
-    .colophon {
-      display: block;
-    }
-
-    .colophon > span {
-      display: block;
-    }
-
-    /* Same specificity as the rule above, and after it, so the separator is
-       hidden rather than turned into a line of its own. */
-    .colophon > .sep {
-      display: none;
-    }
-  }
-
-  .colophon a {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .colophon a:hover {
-    color: var(--sl-color-white);
-    text-decoration: underline;
-  }
 </style>

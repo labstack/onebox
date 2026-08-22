@@ -1,6 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="4" fill="#16181b"/>
-  <rect x="7" y="9" width="18" height="14" rx="1.5" fill="none" stroke="#dfa14f" stroke-width="2"/>
-  <path d="M7 13h18" stroke="#dfa14f" stroke-width="2"/>
-  <circle cx="10.5" cy="11" r="1" fill="#16181b"/>
+  <!--
+    A single keycap: the CLI is the product, and one key is the smallest way to
+    say so without drawing a terminal.
+
+    The cap is knocked out of a solid plate rather than drawn as an outline on a
+    dark one. That is the whole reason this version works: an inset face with a
+    thin rim closed up at 16px and became a filled blob, which is where four
+    earlier drafts died. A solid plate carries the most ink of any arrangement
+    tested, and 16px is the size that decides a favicon.
+
+    Phosphor green on near-black, the same pair the site uses. The mark it
+    replaces was amber on charcoal — the one surface where the brand contradicted
+    itself.
+  -->
+  <rect width="32" height="32" rx="7" fill="#8fd67a"/>
+  <path fill="#0d100d" fill-rule="evenodd" d="M8.5 5h15A3.5 3.5 0 0 1 27 8.5v15a3.5 3.5 0 0 1-3.5 3.5h-15A3.5 3.5 0 0 1 5 23.5v-15A3.5 3.5 0 0 1 8.5 5zm2.2 4.4a2.6 2.6 0 0 0-2.6 2.6v5.6a2.6 2.6 0 0 0 2.6 2.6h10.6a2.6 2.6 0 0 0 2.6-2.6V12a2.6 2.6 0 0 0-2.6-2.6z"/>
 </svg>

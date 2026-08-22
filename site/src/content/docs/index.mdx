@@ -201,34 +201,6 @@ Generated identity, published in the [project file reference](/reference/project
 
 </Section>
 
-<Section eyebrow="Why not something else">
-
-## You already have four options.
-
-Three of them are reasonable. Here is when each one wins, and when it does not.
-
-<Rows>
-
-- **Kubernetes**
-
-  Wins the moment you genuinely need more than one machine. On one box you are running a control plane to schedule containers onto the host it is already running on, and paying for that in operational surface every day.
-
-- **A PaaS**
-
-  Wins when you would rather pay than operate. You give up the box, the data locality and the bill; Onebox keeps all three on hardware you already have.
-
-- **Shell scripts**
-
-  What most single-server deploys actually are. They work until one fails halfway and nobody can say what state the host is in. There is no plan to read, no lock, no journal, and no way back.
-
-- **Kamal**
-
-  The closest thing to this, and good. It is imperative: you run the deploy and watch it happen. Onebox seals a plan first, binds an approval to it, refuses what it cannot honour, and reconciles an interrupted run instead of leaving that to you.
-
-</Rows>
-
-</Section>
-
 <Section eyebrow="What it refuses">
 
 ## Refusing is the feature.

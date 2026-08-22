@@ -11,47 +11,10 @@ read_when:
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-<Steps>
+Choose the package manager for your machine, download a released binary, or
+build from source. Then verify which `ob` your shell will run.
 
-1. **Install a released binary or build from source.**
-
-   GitHub Releases provide archives for Linux, macOS and Windows, plus Debian
-   and RPM packages for Linux. Homebrew and Scoop provide package-manager
-   installation. The exact commands are below. Ensure the chosen install
-   directory is on `PATH`.
-
-2. **Confirm which runner will execute plans.**
-
-   ```sh
-   ob version
-   ```
-
-   Releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first release
-   in August 2026. The year is four digits, months are unpadded, and each UTC
-   calendar month starts at revision zero. Checkout builds use Git-derived
-   provenance and stay visibly distinct from a release.
-
-3. **Check the local safety setup.**
-
-   ```sh
-   ob doctor
-   ```
-
-   `ob doctor` reports whether the runner selected by `PATH` satisfies the
-   environment's `min_onebox_version` and `min_plan_schema`, and names
-   every workload and service holding durable data that has no backup.
-
-   Run it from a directory that has an `ob.yml`. Outside a project it reports
-   `project_unreadable` and exits non-zero, which is correct — most of what it
-   checks is relative to a project — but it looks alarming if you have not
-   created one yet. Come back to this step after
-   [your first deploy](/start/first-deploy).
-
-</Steps>
-
-Both commands take `--output json`.
-
-## Install from a GitHub Release
+## Choose an install method
 
 :::note[Releases begin at the first tag]
 Every download below, including the assets Homebrew and Scoop fetch, comes from
@@ -174,9 +137,44 @@ From a checked-out repository:
 just build
 ```
 
-`just install` is an alias for the same target and installs into
-`~/.local/bin`. Set `OB_BIN_DIR` to another destination. Run `just --list` to
-see the available build, test, formatting and check targets.
+`just install` builds the CLI and then installs it into `~/.local/bin`. Set
+`OB_INSTALL_DIR` to another installation directory, or `OB_BIN_DIR` to change
+where the intermediate build is written. Run `just --list` to see the available
+build, test, formatting and check targets.
+
+## Verify the installation
+
+<Steps>
+
+1. **Confirm which runner will execute plans.**
+
+   ```sh
+   ob version
+   ```
+
+   Releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first release
+   in August 2026. The year is four digits, months are unpadded, and each UTC
+   calendar month starts at revision zero. Checkout builds use Git-derived
+   provenance and stay visibly distinct from a release.
+
+2. **Check the local safety setup from a project.**
+
+   ```sh
+   ob doctor
+   ```
+
+   `ob doctor` reports whether the runner selected by `PATH` satisfies the
+   environment's `min_onebox_version` and `min_plan_schema`, and names every
+   workload and service holding durable data that has no backup.
+
+   Run it from a directory that has an `ob.yml`. Outside a project it reports
+   `project_unreadable` and exits non-zero because most checks are relative to a
+   project. If you have not created one yet, continue to
+   [your first deploy](/start/first-deploy) and return after `ob init`.
+
+</Steps>
+
+Both commands support `--output json`.
 
 :::note[Why a checkout build can be refused]
 When an environment sets `min_onebox_version`, commit-derived and dirty
@@ -211,14 +209,3 @@ the remote host.
 
 `ob bootstrap` prepares the host. It is the one command that contacts and
 changes a server before any application exists.
-
-## Releasing (maintainers)
-
-```sh
-just release
-```
-
-Requires a clean, checked, up-to-date `main`. It atomically publishes a
-metadata-only fast-forward release commit plus its tag to `origin`, so the
-release identity needs permission to fast-forward `main`. A branch policy that
-refuses the update aborts the publication without leaving a tag behind.

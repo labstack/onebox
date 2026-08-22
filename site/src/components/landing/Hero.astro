@@ -35,8 +35,8 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
       )
     }
     <p class="ob-hero-note">
-      No agent on the host. SSH with known-host checking, and <code>ob eject</code>{" "}
-      hands the generated runtime over permanently — one command, no negotiation.
+      Bring a Linux server with Docker. Onebox connects with SSH host-key
+      verification and leaves no resident deployment agent behind.
     </p>
   </div>
 
@@ -74,15 +74,17 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
   .ob-hero {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 2.5rem;
-    padding-bottom: 3rem;
+    gap: 2rem;
+    padding: 1.5rem 0 4.5rem;
+    font-family: var(--ob-font-display);
   }
 
   @media (min-width: 62rem) {
     .ob-hero {
-      grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
-      gap: 3rem;
-      align-items: start;
+      grid-template-columns: minmax(0, 0.82fr) minmax(34rem, 1.18fr);
+      gap: clamp(3rem, 5vw, 5.5rem);
+      align-items: center;
+      padding-top: 3rem;
     }
   }
 
@@ -91,22 +93,32 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
      outranks any number of classes, so the landing headline has to be named the
      same way to set its own tracking. */
   .ob-hero-copy h1#_top {
-    font-size: clamp(2rem, 4.4vw, 2.85rem);
-    line-height: 1.1;
-    letter-spacing: -0.025em;
-    font-weight: 500;
-    margin: 0 0 1.1rem;
+    font-family: var(--ob-font-display);
+    font-size: clamp(2.8rem, 5.3vw, 4.6rem);
+    line-height: 0.98;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    margin: 0 0 1.5rem;
     color: var(--sl-color-white);
     text-wrap: balance;
-    max-width: 16ch;
+    max-width: 13ch;
   }
 
   .ob-hero-tagline {
     color: var(--sl-color-gray-2);
-    font-size: 0.95rem;
-    line-height: 1.8;
-    margin: 0 0 1.6rem;
-    max-width: 46ch;
+    font-size: 1.02rem;
+    line-height: 1.65;
+    margin: 0 0 1.8rem;
+    max-width: 43rem;
+  }
+
+  .ob-hero-tagline code {
+    font-family: var(--sl-font-mono);
+    font-size: 0.9em;
+    background: none;
+    border: 0;
+    color: var(--sl-color-white);
+    padding: 0;
   }
 
   .ob-hero-actions {
@@ -121,9 +133,11 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
   .ob-action {
     display: inline-block;
     border: 1px solid var(--sl-color-gray-5);
-    border-radius: 10px;
-    padding: 0.7rem 1.35rem;
-    font-size: 0.85rem;
+    border-radius: 7px;
+    padding: 0.78rem 1.25rem;
+    font-family: var(--ob-font-display);
+    font-size: 0.9rem;
+    font-weight: 600;
     color: var(--sl-color-white);
     text-decoration: none;
   }
@@ -139,14 +153,14 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
   }
 
   .ob-action-primary {
-    background: var(--sl-color-accent-low);
-    border-color: var(--sl-color-accent-low);
-    color: var(--sl-color-accent-high);
+    background: var(--sl-color-white);
+    border-color: var(--sl-color-white);
+    color: var(--sl-color-black);
   }
 
   .ob-action-primary:hover {
-    background: var(--sl-color-accent-low);
-    border-color: var(--sl-color-accent);
+    background: var(--sl-color-gray-1);
+    border-color: var(--sl-color-gray-1);
   }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -159,10 +173,10 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
 
   .ob-hero-note {
     margin: 1.5rem 0 0;
-    font-size: 0.8rem;
-    line-height: 1.7;
+    font-size: 0.86rem;
+    line-height: 1.6;
     color: var(--sl-color-gray-3);
-    max-width: 48ch;
+    max-width: 52ch;
   }
 
   .ob-hero-note code {
@@ -172,10 +186,25 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
   }
 
   .ob-term {
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 10px;
-    background: var(--sl-color-gray-6);
+    --term-bg: #10130f;
+    --term-surface: #171b16;
+    --term-border: #30382d;
+    --term-text: #cad4c6;
+    --term-muted: #788373;
+    --term-green: #8ed879;
+    --term-warn: #e2b75d;
+    border: 1px solid var(--term-border);
+    border-radius: 8px;
+    background: var(--term-bg);
     overflow: hidden;
+    box-shadow: 0 22px 55px rgba(13, 16, 13, 0.16);
+  }
+
+  :global(:root[data-theme="dark"]) .ob-term {
+    --term-bg: #151a14;
+    --term-surface: #1c221b;
+    --term-border: #394435;
+    box-shadow: 0 22px 55px rgba(0, 0, 0, 0.28);
   }
 
   .ob-term-bar {
@@ -183,11 +212,12 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
     justify-content: space-between;
     gap: 1rem;
     padding: 0.55rem 0.9rem;
-    border-bottom: 1px solid var(--sl-color-gray-5);
+    border-bottom: 1px solid var(--term-border);
+    background: var(--term-surface);
     font-size: 0.68rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--sl-color-gray-3);
+    color: var(--term-muted);
   }
 
   /* The transcript is wider than a phone and scrolls inside its own box, so it
@@ -212,7 +242,7 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
     line-height: 1.95;
     background: none;
     padding: 0;
-    color: var(--sl-color-gray-2);
+    color: var(--term-text);
   }
 
   /* Deliberately not display:block. The spans sit inside a <pre>, so the
@@ -229,24 +259,24 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
   }
 
   .ob-term b {
-    color: var(--ob-code);
+    color: var(--term-green);
     font-weight: 400;
   }
 
   .ob-term .dim {
-    color: var(--sl-color-gray-3);
+    color: var(--term-muted);
   }
 
   .ob-term .mut {
-    color: var(--sl-color-gray-2);
+    color: var(--term-text);
   }
 
   .ob-term .add {
-    color: var(--ob-code);
+    color: var(--term-green);
   }
 
   .ob-term .warn {
-    color: var(--ob-warn);
+    color: var(--term-warn);
   }
 
   .ob-caret {
@@ -255,7 +285,7 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
     height: 0.95em;
     margin-left: 0.15em;
     vertical-align: -0.12em;
-    background: var(--ob-code);
+    background: var(--term-green);
     animation: ob-blink 1.05s steps(1) infinite;
   }
 
@@ -268,6 +298,26 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
   @media (prefers-reduced-motion: reduce) {
     .ob-caret {
       animation: none;
+    }
+  }
+
+  @media (max-width: 38rem) {
+    .ob-hero {
+      padding-top: 0.75rem;
+      padding-bottom: 3.5rem;
+    }
+
+    .ob-hero-copy h1#_top {
+      font-size: clamp(2.55rem, 13vw, 3.3rem);
+    }
+
+    .ob-term-bar span:last-child {
+      display: none;
+    }
+
+    .ob-term code {
+      font-size: 0.67rem;
+      line-height: 1.85;
     }
   }
 </style>

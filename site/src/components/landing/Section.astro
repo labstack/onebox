@@ -36,15 +36,17 @@ const { eyebrow } = Astro.props;
      all the air went below — the gap was 0 above and 48px under. */
   .ob-sec {
     border-top: 1px solid var(--sl-color-gray-5);
-    padding: 3.5rem 0;
+    padding: clamp(4rem, 8vw, 7rem) 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 1.5rem 3rem;
+    gap: 1.8rem 4.5rem;
+    font-family: var(--ob-font-display);
   }
 
   .ob-eyebrow {
-    font-size: 0.68rem;
-    letter-spacing: 0.14em;
+    font-family: var(--sl-font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--sl-color-gray-3);
     margin: 0;
@@ -52,22 +54,23 @@ const { eyebrow } = Astro.props;
 
   .ob-sec :global(> .sl-heading-wrapper) {
     margin: 0;
-    max-width: 30rem;
+    max-width: 32rem;
     text-wrap: balance;
   }
 
   .ob-sec :global(> .sl-heading-wrapper h2) {
-    font-size: clamp(1.3rem, 2.2vw, 1.55rem);
-    line-height: 1.25;
-    letter-spacing: -0.02em;
-    font-weight: 500;
+    font-family: var(--ob-font-display);
+    font-size: clamp(1.9rem, 3.2vw, 2.75rem);
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 600;
     color: var(--sl-color-white);
   }
 
   .ob-sec :global(> .sl-heading-wrapper + p) {
     margin: 0;
-    font-size: 0.84rem;
-    line-height: 1.75;
+    font-size: 0.96rem;
+    line-height: 1.65;
     color: var(--sl-color-gray-3);
   }
 
@@ -87,7 +90,7 @@ const { eyebrow } = Astro.props;
      already the right order. */
   @media (min-width: 56rem) {
     .ob-sec {
-      grid-template-columns: 18.5rem minmax(0, 1fr);
+      grid-template-columns: minmax(16rem, 0.72fr) minmax(0, 1.48fr);
       /* The three rail rows are content-sized and the fourth absorbs whatever
          the figure is taller by. Without this the figure's row span stretched
          every row equally and the heading drifted down the page — halfway down,

@@ -109,6 +109,17 @@ deployment tool is judged by what it does when something goes wrong.
 - Keep a pull request to one concern. Two concerns are two pull requests.
 - State in the description what you ran, and what you did not.
 
+## Releasing (maintainers)
+
+```sh
+just release
+```
+
+This requires a clean, checked, up-to-date `main`. It atomically publishes a
+metadata-only fast-forward release commit plus its tag to `origin`, so the
+release identity needs permission to fast-forward `main`. A branch policy that
+refuses the update aborts publication without leaving a tag behind.
+
 ## Reporting security issues
 
 Do not open a public issue for a security vulnerability. See

@@ -100,6 +100,7 @@ export default defineConfig({
             { label: "Project file", slug: "reference/project-file" },
             {
               label: "Project file fields",
+              collapsed: true,
               items: [{ autogenerate: { directory: "reference/fields" } }],
             },
             { label: "CLI commands", slug: "reference/cli" },

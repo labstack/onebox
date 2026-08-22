@@ -14,7 +14,7 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
 		Role: app.RoleJob, When: "manual", DataEffect: "none",
-		Schedule: &app.Schedule{Cron: "0 2 * * *", Timezone: "UTC"},
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := happyFake()
 	base := f.Dynamic
@@ -23,6 +23,8 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 		case strings.Contains(cmd, "list-unit-files"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "systemd-analyze calendar"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "command -v flock"):
 			return transport.Result{Stdout: "ok\n"}, true
 		}
 		return base(cmd)
@@ -36,6 +38,165 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("manual scheduled job omitted %q:\n%s", want, seq)
 		}
+	}
+	artifacts := strings.Join(f.Inputs, "\n")
+	for _, want := range []string{"TimeoutStartSec=1h", "Persistent=true", "schedule.lock", "run --rm --no-deps", "nightly"} {
+		if !strings.Contains(artifacts, want) {
+			t.Errorf("installed schedule artifacts are missing %q:\n%s", want, artifacts)
+		}
+	}
+}
+
+func TestScheduledJobUnitContract(t *testing.T) {
+	job := app.ScheduledJob{
+		Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC",
+		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false,
+	}
+	runner := scheduleRunnerScript("sample", job.Name, "/var/lib/ob/sample/current",
+		"/var/lib/ob/sample/lock", "/var/lib/ob/sample/schedule.lock")
+	service := scheduleServiceUnit("sample", job,
+		"/etc/systemd/system/ob-sample-nightly.run",
+		"/etc/systemd/system/ob-sample-nightly.notify")
+	timer := scheduleTimerUnit("sample", job)
+
+	for _, want := range []string{
+		"flock --exclusive --nonblock --conflict-exit-code 75 '/var/lib/ob/sample/schedule.lock'",
+		"/var/lib/ob/sample/lock",
+		"application operation holds the deploy lock",
+		"docker compose",
+		"/var/lib/ob/sample/current/compose.yaml",
+		"run --rm --no-deps",
+		"nightly",
+	} {
+		if !strings.Contains(runner, want) {
+			t.Errorf("runner is missing %q:\n%s", want, runner)
+		}
+	}
+	for _, want := range []string{
+		"Type=oneshot",
+		"ExecStart=/bin/sh /etc/systemd/system/ob-sample-nightly.run",
+		"ExecStopPost=/bin/sh /etc/systemd/system/ob-sample-nightly.notify",
+		"TimeoutStartSec=45m",
+	} {
+		if !strings.Contains(service, want) {
+			t.Errorf("service is missing %q:\n%s", want, service)
+		}
+	}
+	for _, want := range []string{
+		"OnCalendar=*-*-* 02:00:00 UTC",
+		"Persistent=false",
+		"WantedBy=timers.target",
+	} {
+		if !strings.Contains(timer, want) {
+			t.Errorf("timer is missing %q:\n%s", want, timer)
+		}
+	}
+	for _, artifact := range []string{runner, service, timer} {
+		if strings.Contains(artifact, "Restart=") {
+			t.Errorf("cron-shaped scheduled jobs must not retry implicitly:\n%s", artifact)
+		}
+	}
+}
+
+func TestScheduledJobFailureNotifierUsesConfiguredWebhooks(t *testing.T) {
+	cfg := testConfig()
+	cfg.Notifications = map[string]app.Notification{
+		"ops": {
+			Webhook: "https://hooks.example.com/secret-path",
+			On:      []string{"failure"}, Format: "json",
+		},
+		"success-only": {
+			Webhook: "https://hooks.example.com/success",
+			On:      []string{"success"}, Format: "text",
+		},
+	}
+	f := &transport.Fake{TargetName: "root@example.internal"}
+	e := New(cfg, testProject(t), f, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
+	script, err := e.scheduleFailureNotifier("nightly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`${SERVICE_RESULT:-success}`,
+		`ts=$(date -u`,
+		`"$ts"`,
+		"curl --fail --silent --show-error --max-time 5 --request POST",
+		"Content-Type: application/json",
+		"X-Title: sample scheduled job nightly",
+		"https://hooks.example.com/secret-path",
+		`"host":"root@example.internal"`,
+		`"status":"fail"`,
+		"wait || true",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("failure notifier is missing %q:\n%s", want, script)
+		}
+	}
+	for _, forbidden := range []string{
+		"https://hooks.example.com/success",
+		scheduleNotificationTimestamp,
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("failure notifier contains %q:\n%s", forbidden, script)
+		}
+	}
+}
+
+func TestSyncSchedulesRefusesMissingFlockBeforeInstallingUnits(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "list-unit-files"):
+			return transport.Result{}, true
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.SyncSchedules(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "install util-linux") {
+		t.Fatalf("error = %v, want actionable flock refusal", err)
+	}
+	if len(f.Inputs) != 0 {
+		t.Fatalf("unit files were written before the capability refusal: %d", len(f.Inputs))
+	}
+}
+
+func TestScheduleStatusSurfacesTheLastSystemdFailure(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@nightly:service
+LoadState=loaded
+ActiveState=failed
+Result=timeout
+ExecMainStatus=15
+@@nightly:timer
+LoadState=loaded
+ActiveState=active
+`}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || !statuses[0].Diverged || statuses[0].LastResult != "timeout" || statuses[0].LastExitStatus != 15 {
+		t.Fatalf("failed systemd result was not surfaced: %#v", statuses)
+	}
+	if !strings.Contains(strings.Join(statuses[0].Issues, "\n"), "last run failed") {
+		t.Fatalf("failure has no actionable issue: %#v", statuses[0])
 	}
 }
 
@@ -55,7 +216,7 @@ func TestRemoveSchedulesRemovesFilesAndReloadsAfterFailedDisable(t *testing.T) {
 		t.Fatalf("remove schedules error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f /etc/systemd/system/ob-sample-nightly.timer /etc/systemd/system/ob-sample-nightly.service") {
+	if !strings.Contains(seq, "rm -f /etc/systemd/system/ob-sample-nightly.timer /etc/systemd/system/ob-sample-nightly.service /etc/systemd/system/ob-sample-nightly.run /etc/systemd/system/ob-sample-nightly.notify") {
 		t.Fatalf("disable failure stranded the unit files:\n%s", seq)
 	}
 	if !strings.Contains(seq, "systemctl daemon-reload") {

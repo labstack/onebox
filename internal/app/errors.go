@@ -62,6 +62,7 @@ var errorCodes = map[string]string{
 	// Repository paths.
 	"path_absolute":           "a repository path may not be absolute",
 	"path_escapes_repository": "a path resolves outside the project directory",
+	"path_parent_reference":   "a bind source contains a parent-directory segment",
 	"path_unresolvable":       "a path could not be resolved",
 
 	// Environment overrides.

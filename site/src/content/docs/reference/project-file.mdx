@@ -105,6 +105,30 @@ foreign resource already holding a derived name is refused, not adopted.
 **Layout** — `/var/lib/ob/<app>/releases/<id>`, plus `current`, `journal`, and
 `services`. Configurable per environment with `base_path`.
 
+### Bind-mount lifetimes
+
+A workload bind source has one of two lifetimes:
+
+```yaml
+workloads:
+  web:
+    image: ghcr.io/acme/shop:1.4.0
+    volumes:
+      # Versioned configuration shipped inside this release.
+      - {source: ./config, path: /etc/shop, mode: ro}
+      # Writable state managed outside the release store.
+      - {source: /srv/shop/uploads, path: /var/lib/shop/uploads}
+```
+
+A relative source begins with `./` (or is `.`) and resolves inside the release
+directory. It must be read-only because normal `deployment.retain_releases`
+cleanup removes that directory when the release expires. Use it for versioned
+configuration, never changing data.
+
+An absolute source is external host state. Onebox mounts it but neither creates,
+backs up nor removes it; provision and protect that path separately. For data
+Onebox should own, prefer a managed named volume instead.
+
 **The proxy** — if anything is routed, Onebox runs Traefik and writes its static
 configuration. Declare `proxy.config` to own that configuration instead. The
 external `proxy.network` may be changed, but `default` is reserved for the
@@ -156,7 +180,9 @@ generates the runtime from it. Individual services can still be adopted with
 - A field is **added**, never repurposed.
 - A scalar form once accepted is accepted **permanently**.
 - A default may be added; an existing default's value **does not change**.
-- A constraint is **not tightened** against a project that already loads.
+- A constraint is **not tightened** against a project that already loads unless
+  accepting it can silently lose data or produce an ambiguous runtime. A safety
+  refusal names the migration required to make the project valid again.
 
 The JSON Schema published by `ob schema` is generated from the same declarations
 the loader enforces and is checked against the conformance corpus.

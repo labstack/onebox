@@ -1,7 +1,7 @@
 ---
 title: Schedule a job
-description: Host timers that survive a reboot, and the cron forms Onebox refuses.
-summary: How to declare a scheduled job, why it runs from a host timer rather than a Onebox process, and which cron expressions are refused at load.
+description: Bounded host timers, deploy serialization, failure status, and the cron forms Onebox refuses.
+summary: How to declare a scheduled job, bound its run time, choose catch-up behavior, inspect failures, and understand which cron expressions are refused at load.
 sidebar:
   order: 4
 read_when:
@@ -19,7 +19,11 @@ workloads:
     data_effect: none
     needs: [postgres]
     volumes: [{name: backups, path: /backups}]
-    schedule: {cron: "0 2 * * *", timezone: Europe/Berlin}
+    schedule:
+      cron: "0 2 * * *"
+      timezone: Europe/Berlin
+      timeout: 45m
+      catch_up: true
 ```
 
 ## It becomes a host timer
@@ -31,6 +35,44 @@ port, and nothing to keep alive.
 That design decision has a visible consequence elsewhere: encrypted environment
 entries are decrypted into the release when it is staged and *stay* there,
 because a timer firing at 02:00 must resolve the values the deploy resolved.
+
+Each run is a systemd oneshot with a wall-time limit. `timeout` defaults to
+`1h`; when it expires, systemd terminates the run and records `timeout` as its
+result. Set a longer duration for jobs that legitimately need it.
+
+`catch_up` defaults to `true`: if the host was off at the scheduled time, the
+timer runs once after it returns. Set it to `false` for time-sensitive work that
+should be skipped rather than run late. A failed run is not retried implicitly;
+the next attempt is the next cron elapse.
+
+## It cannot overlap a deploy
+
+A host-fired job takes an application-wide kernel lock for its whole container
+run. Every operation that establishes Onebox's fenced application lock takes
+the same scheduling mutex while publishing its ownership. A timer that collides
+fails visibly instead of modifying Docker beside a deploy.
+
+The target must provide `flock` (part of `util-linux` on supported Linux hosts).
+Onebox refuses to install or run schedules when that serialization primitive is
+missing.
+
+## Failures remain visible
+
+systemd retains the last oneshot result. `ob status` reads it alongside the
+timer state; a non-success result or inactive timer is reported as divergence:
+
+```text
+schedule nightly-dump last run failed: timeout (exit 15) ⚠
+```
+
+Use `journalctl -u ob-<app>-<job>.service` on the target for trusted diagnostic
+output. Every configured notification selecting `failure` also receives a
+bounded, fail-open POST when a host-fired run fails or times out. Onebox writes
+the webhook handler root-only beside the unit, so credentials in webhook
+paths do not appear in `ExecStart` or `ExecStopPost`. A delivery failure is
+recorded in the unit's journal and never replaces the job's original result.
+The webhook must be reachable from the target host; timer delivery uses its
+network path, not the operator workstation's.
 
 ## Cron is translated exactly, or refused
 

@@ -27,6 +27,8 @@ type ScheduledJob struct {
 	Name     string
 	Cron     string
 	Timezone string
+	Timeout  string
+	CatchUp  bool
 	// Calendar is the host-side expression the cron translates to.
 	Calendar string
 }
@@ -48,7 +50,10 @@ func (p *Spec) ScheduledJobs() ([]ScheduledJob, error) {
 		if tz == "" {
 			tz = "UTC"
 		}
-		out = append(out, ScheduledJob{Name: name, Cron: w.Schedule.Cron, Timezone: tz, Calendar: cal})
+		out = append(out, ScheduledJob{
+			Name: name, Cron: w.Schedule.Cron, Timezone: tz, Calendar: cal,
+			Timeout: w.Schedule.Timeout, CatchUp: w.Schedule.CatchUp,
+		})
 	}
 	return out, nil
 }

@@ -1,10 +1,5 @@
 [
   {
-    "case": "conformance/a bind mount is not durable",
-    "loads": true,
-    "digest": "99a55cca6736488c1c6303c5b2240e34663aada93da745b5fd20909735861bd6"
-  },
-  {
     "case": "conformance/a near-miss field name",
     "loads": false,
     "code": "unknown_field"
@@ -23,6 +18,16 @@
     "case": "conformance/absolute env_file",
     "loads": false,
     "code": "project_invalid"
+  },
+  {
+    "case": "conformance/absolute writable bind mount",
+    "loads": true,
+    "digest": "bea3cdb441a30477ed644e73be3e092c8112c8c2ce56caddf971b05e1fa00c8c"
+  },
+  {
+    "case": "conformance/an absolute bind mount is external",
+    "loads": true,
+    "digest": "504d5a4c8c933870dc003143d612c6c4c51aca662896f92277e6b259e84588e2"
   },
   {
     "case": "conformance/app starting ob-",
@@ -80,14 +85,19 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/bare bind source that Compose would treat as a named volume",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/base_path absolute",
     "loads": true,
     "digest": "041fef4c505591809641cbaf261251631cfc8e6a4772cdbfed7b77fde493b962"
   },
   {
-    "case": "conformance/bind mount volume",
-    "loads": true,
-    "digest": "58675aed6f40fe771ccea794590367f0aa0d29f74069f361d15bc30eba20d137"
+    "case": "conformance/bind source containing a compose separator",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/components is not a field",
@@ -330,6 +340,11 @@
     "digest": "5a94c95c1cd277ff2b1d354167e64a1d8d6b836d532a29a968586a675769c190"
   },
   {
+    "case": "conformance/relative bind escaping the release",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/relative compose ref",
     "loads": true,
     "digest": "render:compose_file_unreadable"
@@ -338,6 +353,16 @@
     "case": "conformance/relative env_file",
     "loads": true,
     "digest": "cfceac5e1d96c958a853553ab4816fcd9a7ac250797445e562faa889053a0abb"
+  },
+  {
+    "case": "conformance/relative read-only bind mount",
+    "loads": true,
+    "digest": "eac09a5a22979451fb16b96d252008b3451a7122c603890dbbd8f2299684ccbb"
+  },
+  {
+    "case": "conformance/relative writable bind mount",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/repeated route middleware remains ordered",
@@ -356,6 +381,16 @@
   },
   {
     "case": "conformance/scheduled job",
+    "loads": true,
+    "digest": "fa32a001e109ec5b66168b204cb5966b9b58bdcc09fd421bfa6d93614cdb7cae"
+  },
+  {
+    "case": "conformance/scheduled job invalid timeout",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/scheduled job run policy",
     "loads": true,
     "digest": "fa32a001e109ec5b66168b204cb5966b9b58bdcc09fd421bfa6d93614cdb7cae"
   },
@@ -507,12 +542,12 @@
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "7525c3c11a6ecdf36e6d2609b89f3c891d65b208f4658434bfe8ba64cb1eedc7 postgres=dc4f8448b8b82b4a redis=d2660eeb4faa49fe"
+    "digest": "f402d2e878a34a9e496401c7533442934d3e37c720eb137459bc87aa4e090ad6 postgres=dc4f8448b8b82b4a redis=d2660eeb4faa49fe"
   },
   {
     "case": "corpus/ext-authentik.yml",
     "loads": true,
-    "digest": "8595f20b0961f6e99e1d6b9cfd250466b83b1a9589bc9081a9b1ec7e4b87ba06"
+    "digest": "c2564766732163ee23bc7b0e8c03893a514fa68638d4e452e5e1260863958839"
   },
   {
     "case": "corpus/ext-frigate.yml",

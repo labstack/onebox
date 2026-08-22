@@ -1,7 +1,7 @@
 ---
 title: "notifications"
-description: "Named webhooks that receive selected operation outcomes."
-summary: "Named webhooks that receive selected operation outcomes."
+description: "Named webhooks that receive selected operation and scheduled-job outcomes."
+summary: "Named webhooks that receive selected operation and scheduled-job outcomes."
 status: shipped
 generated: true
 sidebar:
@@ -25,4 +25,4 @@ cannot drift from what `ob validate` accepts.
 | --- | --- | --- | --- |
 | `<name>.format` | `text` · `json` | `text` | Notification payload format. |
 | `<name>.on` | list of `success` · `failure` | `success, failure` | Operation outcomes that trigger this notification. |
-| `<name>.webhook` | string | — | HTTP endpoint that receives operation notifications. |
+| `<name>.webhook` | string | — | HTTP endpoint that receives outcome notifications. |

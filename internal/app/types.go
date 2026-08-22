@@ -51,7 +51,7 @@ type Spec struct {
 	envDefault    []EnvFile
 	Hooks         map[string]Command      `json:"hooks,omitempty" description:"Lifecycle commands keyed by seam: bootstrap, pre_release, post_release, or post_deploy."`
 	Checks        Checks                  `json:"checks,omitzero" description:"Assertions that must pass before a release becomes current unless marked advisory."`
-	Notifications map[string]Notification `json:"notifications,omitempty" description:"Named webhooks that receive selected operation outcomes."`
+	Notifications map[string]Notification `json:"notifications,omitempty" description:"Named webhooks that receive selected operation and scheduled-job outcomes."`
 	Registries    map[string]Registry     `json:"registries,omitempty" description:"Named container registries and the environment variables holding their credentials."`
 	Proxy         Proxy                   `json:"proxy" description:"Ownership and configuration of the host ingress proxy."`
 
@@ -137,7 +137,7 @@ type Workload struct {
 	Resources      *Resources      `json:"resources,omitempty" description:"Container memory and CPU limits."`
 	Env            map[string]any  `json:"env,omitempty" description:"Literal container environment values. Managed-service credential variables cannot be overridden."`
 	EnvFiles       []EnvFile       `json:"env_files,omitempty" description:"Workload-specific ordered environment-file list. Replaces broader defaults when present."`
-	Volumes        []Volume        `json:"volumes,omitempty" description:"Managed named volumes or repository bind mounts."`
+	Volumes        []Volume        `json:"volumes,omitempty" description:"Managed named volumes or bind mounts. Relative bind sources are read-only release content; absolute sources are external host state."`
 	PublishedPorts []PublishedPort `json:"published_ports,omitempty" description:"Host ports published outside the proxy. They bind to loopback by default. A rolling workload cannot publish one, because two replicas cannot hold the same host port during a roll: set strategy: recreate, or route through the proxy instead."`
 	Persistence    *Persistence    `json:"persistence,omitempty" description:"Declares whether this workload holds data that must outlive releases."`
 	Needs          []Need          `json:"needs,omitempty" description:"Workload or supporting-service prerequisites and optional connection-variable mappings."`
@@ -154,9 +154,9 @@ type Workload struct {
 	Logging    *Logging       `json:"logging,omitempty" description:"Container logging driver and driver-specific options."`
 
 	// Job only.
-	When       string     `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
-	DataEffect DataEffect `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
-	Schedule   *Schedule  `json:"schedule,omitempty" description:"Host-resident recurring schedule for a job."`
+	When       string       `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
+	DataEffect DataEffect   `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
+	Schedule   *JobSchedule `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
 }
 
 type Build struct {
@@ -221,9 +221,9 @@ type Resources struct {
 type Volume struct {
 	Name   string `json:"name,omitempty" description:"Stable logical name of a Onebox-managed volume." example:"data"`
 	Path   string `json:"path,omitempty" description:"Absolute container path where the volume or bind mount is attached." example:"/var/lib/app"`
-	Source string `json:"source,omitempty" description:"Repository-relative source path of a bind mount." example:"./config"`
+	Source string `json:"source,omitempty" description:"Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content removed by retention." example:"./config"`
 
-	Mode string `json:"mode" description:"Mount access mode: rw or ro." default:"rw"`
+	Mode string `json:"mode" description:"Mount access mode: rw or ro. A relative bind source requires ro." default:"rw"`
 }
 
 func (v Volume) IsBind() bool { return v.Source != "" }
@@ -250,6 +250,13 @@ type Need struct {
 type Schedule struct {
 	Cron     string `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
 	Timezone string `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
+}
+
+type JobSchedule struct {
+	Cron     string `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
+	Timezone string `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
+	Timeout  string `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
+	CatchUp  bool   `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
 }
 
 type Service struct {
@@ -457,7 +464,7 @@ type MigrationRevs struct {
 }
 
 type Notification struct {
-	Webhook string   `json:"webhook" description:"HTTP endpoint that receives operation notifications." example:"https://hooks.example.com/onebox"`
+	Webhook string   `json:"webhook" description:"HTTP endpoint that receives outcome notifications." example:"https://hooks.example.com/onebox"`
 	On      []string `json:"on,omitempty" description:"Operation outcomes that trigger this notification." default:"success, failure"`
 	Format  string   `json:"format" description:"Notification payload format." default:"text"`
 }

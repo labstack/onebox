@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/notify"
 )
 
 // A scheduled job runs when nobody is watching, so it runs on the host's own
@@ -78,6 +79,9 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	}
 
 	wanted := map[string]bool{}
+	if len(jobs) > 0 && !e.hasFlock(ctx) {
+		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+	}
 	for _, job := range jobs {
 		unit := n.ScheduledJobUnit(job.Name)
 		wanted[unit] = true
@@ -96,8 +100,21 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 				job.Name, expr, job.Cron, job.Timezone)
 		}
 
-		service := scheduleServiceUnit(e.Spec.Name, job.Name, n.CurrentLink())
+		runnerPath := "/etc/systemd/system/" + unit + ".run"
+		notifyPath := "/etc/systemd/system/" + unit + ".notify"
+		runner := scheduleRunnerScript(e.Spec.Name, job.Name, n.CurrentLink(), e.lockPath(), n.ScheduleRunLock())
+		notifier, err := e.scheduleFailureNotifier(job.Name)
+		if err != nil {
+			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
+		}
+		service := scheduleServiceUnit(e.Spec.Name, job, runnerPath, notifyPath)
 		timer := scheduleTimerUnit(e.Spec.Name, job)
+		if err := e.writeServiceFile(ctx, runnerPath, []byte(runner)); err != nil {
+			return fmt.Errorf("job %s: cannot install its runner: %w", job.Name, err)
+		}
+		if err := e.writeServiceFile(ctx, notifyPath, []byte(notifier)); err != nil {
+			return fmt.Errorf("job %s: cannot install its failure notifier: %w", job.Name, err)
+		}
 		if err := e.writeServiceFile(ctx, "/etc/systemd/system/"+unit+".service", []byte(service)); err != nil {
 			return fmt.Errorf("job %s: cannot install its unit: %w", job.Name, err)
 		}
@@ -146,23 +163,89 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 
 // scheduleServiceUnit runs one job exactly as a release-phase job runs, through
 // the current release's runtime.
-func scheduleServiceUnit(application, job, currentLink string) string {
+func scheduleRunnerScript(application, job, currentLink, applicationLock, scheduleLock string) string {
+	run := "if [ -e " + q(applicationLock) + " ]; then " +
+		"echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi; " +
+		"exec /usr/bin/docker compose -p " + q(application) + " -f " + q(currentLink+"/compose.yaml") +
+		" run --rm --no-deps " + q(job)
+	return strings.Join([]string{
+		"#!/bin/sh",
+		"# Written by Onebox. Edits are overwritten on the next deploy.",
+		"set -eu",
+		"exec /usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 " +
+			q(scheduleLock) + " /bin/sh -c " + q(run),
+		"",
+	}, "\n")
+}
+
+func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string) string {
 	return strings.Join([]string{
 		"[Unit]",
-		"Description=Onebox scheduled job " + job + " for " + application,
+		"Description=Onebox scheduled job " + job.Name + " for " + application,
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"After=docker.service",
 		"Requires=docker.service",
 		"",
 		"[Service]",
 		"Type=oneshot",
-		// --rm because a scheduled job leaves no container behind, and
-		// --no-deps because its prerequisites are already running; starting
-		// them here would duplicate the application beside itself.
-		fmt.Sprintf("ExecStart=/usr/bin/docker compose -p %s -f %s/compose.yaml run --rm --no-deps %s",
-			application, currentLink, job),
+		"ExecStart=/bin/sh " + runnerPath,
+		// ExecStopPost runs after start failures and timeouts and receives
+		// SERVICE_RESULT from systemd. The script is a no-op after success.
+		"ExecStopPost=/bin/sh " + notifyPath,
+		"TimeoutStartSec=" + job.Timeout,
 		"",
 	}, "\n")
+}
+
+const scheduleNotificationTimestamp = "__ONEBOX_SCHEDULE_TIMESTAMP__"
+
+// scheduleFailureNotifier extends the existing notification contract to work
+// fired directly by systemd. The generated file is mode 0600, keeping webhook
+// tokens out of unit metadata, and every send is bounded and fail-open.
+func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
+	environment := e.Opts.Environment
+	if environment == "" {
+		environment = e.Spec.Env
+	}
+	lines := []string{
+		"#!/bin/sh",
+		"# Written by Onebox. Edits are overwritten on the next deploy.",
+		"set -u",
+		`[ "${SERVICE_RESULT:-success}" = success ] && exit 0`,
+	}
+	var sends []string
+	for _, name := range sortedNames(e.Spec.Notifications) {
+		cfg := e.Spec.Notifications[name]
+		prepared, err := notify.Prepare(cfg, notify.Payload{
+			App: e.Spec.Name, Env: environment, Host: e.T.Destination(),
+			Verb: "scheduled job " + job, Status: "fail",
+			Error: "scheduled job failed; inspect trusted host diagnostics",
+			TS:    scheduleNotificationTimestamp,
+		})
+		if err != nil {
+			return "", err
+		}
+		if prepared == nil {
+			continue
+		}
+		body := q(string(prepared.Body))
+		if before, after, ok := strings.Cut(string(prepared.Body), scheduleNotificationTimestamp); ok {
+			body = q(before) + `"$ts"` + q(after)
+		}
+		curl := "curl --fail --silent --show-error --max-time 5 --request POST" +
+			" --header " + q("Content-Type: "+prepared.ContentType) +
+			" --header " + q("X-Title: "+prepared.Title) +
+			` --data-binary "$body" ` + q(cfg.Webhook)
+		sends = append(sends, "(body="+body+"; if ! "+curl+"; then echo "+
+			q("onebox: notification "+name+" failed")+" >&2; fi) &")
+	}
+	if len(sends) > 0 {
+		lines = append(lines, `ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')`)
+		lines = append(lines, sends...)
+		lines = append(lines, "wait || true")
+	}
+	lines = append(lines, "exit 0", "")
+	return strings.Join(lines, "\n"), nil
 }
 
 // calendarExpr is the one string both the host's validator and the installed
@@ -188,7 +271,7 @@ func scheduleTimerUnit(application string, job app.ScheduledJob) string {
 		"OnCalendar=" + calendarExpr(job),
 		// A box that was off at 2am still runs the job when it comes back,
 		// which is the behaviour anyone declaring a nightly job expects.
-		"Persistent=true",
+		fmt.Sprintf("Persistent=%t", job.CatchUp),
 		"",
 		"[Install]",
 		"WantedBy=timers.target",
@@ -283,7 +366,7 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
 	disable, disableErr := e.mutate(ctx, "systemctl disable --now "+unit+".timer >/dev/null")
 	remove, removeErr := e.mutate(ctx, fmt.Sprintf(
-		"rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service", unit, unit))
+		"rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service /etc/systemd/system/%s.run /etc/systemd/system/%s.notify", unit, unit, unit, unit))
 	var errs []error
 	if disableErr != nil {
 		errs = append(errs, fmt.Errorf("disable schedule %s: %w", unit, disableErr))

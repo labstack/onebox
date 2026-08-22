@@ -31,7 +31,7 @@ workloads:
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
     published_ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
     volumes:
-      - {source: ./media, path: /media}
+      - {source: /srv/authentik/media, path: /media}
       - {source: ./custom-templates, path: /templates, mode: ro}
     health: {exec: "ak healthcheck", interval: 30s, start_period: 60s, retries: 10}
   worker:
@@ -41,8 +41,8 @@ workloads:
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
     volumes:
       - {source: /var/run/docker.sock, path: /var/run/docker.sock}
-      - {source: ./media, path: /media}
-      - {source: ./certs, path: /certs}
+      - {source: /srv/authentik/media, path: /media}
+      - {source: /srv/authentik/certs, path: /certs}
 services:
   postgres: "16"
   redis: "7.4"

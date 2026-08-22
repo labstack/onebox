@@ -78,7 +78,41 @@ workloads:
 	if len(jobs) != 1 || jobs[0].Name != "prune" {
 		t.Fatalf("only scheduled jobs belong here: %#v", jobs)
 	}
-	if jobs[0].Timezone != "Europe/Berlin" || jobs[0].Calendar != "*-*-* 03:00:00" {
+	if jobs[0].Timezone != "Europe/Berlin" || jobs[0].Calendar != "*-*-* 03:00:00" ||
+		jobs[0].Timeout != "1h" || !jobs[0].CatchUp {
 		t.Fatalf("schedule lost its meaning: %#v", jobs[0])
+	}
+}
+
+func TestScheduledJobRunPolicyIsExplicitAndValidated(t *testing.T) {
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  prune:
+    role: job
+    image: x:1
+    data_effect: none
+    schedule: {cron: "0 3 * * *", timeout: 20m, catch_up: false}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := spec.ScheduledJobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].Timeout != "20m" || jobs[0].CatchUp {
+		t.Fatalf("authored run policy was not preserved: %#v", jobs)
+	}
+
+	bad := `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  prune: {role: job, image: x:1, data_effect: none, schedule: {cron: "0 3 * * *", timeout: forever}}
+`
+	if _, err := LoadBytes([]byte(bad), "ob.yml"); err == nil {
+		t.Fatal("an invalid scheduled-job timeout was accepted")
 	}
 }

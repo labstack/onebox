@@ -321,6 +321,21 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 		if v.IsBind() {
+			if err := gBindSource.check(vp+".source", v.Source); err != nil {
+				return err
+			}
+			for _, part := range strings.Split(v.Source, "/") {
+				if part == ".." {
+					return errf("path_parent_reference", vp+".source", "",
+						"bind source %q must not contain a parent-directory segment", v.Source)
+				}
+			}
+			if !strings.HasPrefix(v.Source, "/") {
+				if v.Mode != "ro" {
+					return errf("project_invalid", vp+".mode", "",
+						"relative bind source %q is release-scoped and removed by retention; set mode: ro for versioned release content, or use an absolute source for writable host state", v.Source)
+				}
+			}
 			if err := gAbsPath.check(vp+".path", v.Path); err != nil {
 				return err
 			}
@@ -399,7 +414,7 @@ func validateWorkload(w Workload, path string) error {
 			return errf("project_invalid", path+".data_effect", "",
 				"a job must declare its data effect: %s", strings.Join(quoteAll(eDataEffect), ", "))
 		}
-		if err := validateSchedule(w.Schedule, path+".schedule"); err != nil {
+		if err := validateJobSchedule(w.Schedule, path+".schedule"); err != nil {
 			return err
 		}
 	} else if w.When != "" || w.DataEffect != "" || w.Schedule != nil {
@@ -478,17 +493,31 @@ func validateResources(r *Resources, path string) error {
 	return gCpus.checkOptional(path+".cpus", r.CPUs)
 }
 
+func validateJobSchedule(s *JobSchedule, path string) error {
+	if s == nil {
+		return nil
+	}
+	if err := validateScheduleFields(s.Cron, s.Timezone, path); err != nil {
+		return err
+	}
+	return gDur.check(path+".timeout", s.Timeout)
+}
+
 func validateSchedule(s *Schedule, path string) error {
 	if s == nil {
 		return nil
 	}
-	if err := gCron.check(path+".cron", s.Cron); err != nil {
+	return validateScheduleFields(s.Cron, s.Timezone, path)
+}
+
+func validateScheduleFields(cron, timezone, path string) error {
+	if err := gCron.check(path+".cron", cron); err != nil {
 		return err
 	}
-	if len(strings.Fields(s.Cron)) != 5 {
-		return errf("project_invalid", path+".cron", "", "%q must contain exactly five cron fields", s.Cron)
+	if len(strings.Fields(cron)) != 5 {
+		return errf("project_invalid", path+".cron", "", "%q must contain exactly five cron fields", cron)
 	}
-	return gTZ.checkOptional(path+".timezone", s.Timezone)
+	return gTZ.checkOptional(path+".timezone", timezone)
 }
 
 func indexed(path string, i int) string {

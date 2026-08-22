@@ -149,6 +149,21 @@ func TestRenderedRuntime(t *testing.T) {
 	}
 }
 
+func TestBindMountLifetimesRenderWithoutChangingTheirScope(t *testing.T) {
+	y := strings.Replace(appFixture,
+		"    volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}]\n",
+		"    volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}, {source: ./postgres.conf, path: /etc/postgres.conf, mode: ro}]\n", 1)
+	out := string(render(t, y))
+	for _, want := range []string{
+		"/data/postgres:/var/lib/postgresql/data",
+		"./postgres.conf:/etc/postgres.conf:ro",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered runtime is missing bind mount %q\n%s", want, out)
+		}
+	}
+}
+
 // TestEnvFilesAreNotProjectedIntoDaemons is the rule seven real projects forced:
 // a database must not receive the application's secrets.
 func TestEnvFilesAreNotProjectedIntoDaemons(t *testing.T) {

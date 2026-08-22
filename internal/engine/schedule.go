@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -38,7 +39,8 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		return err
 	}
 	n := e.names()
-	prefix := "ob-" + e.Spec.Name + "-"
+	prefixes := n.ScheduledJobUnitPrefixes()
+	prefix := prefixes[0]
 
 	// What is installed now, so anything no longer declared can go.
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
@@ -56,14 +58,27 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
 			continue
 		}
-		if strings.HasPrefix(unit, prefix) && strings.HasSuffix(unit, ".timer") {
+		if !strings.HasSuffix(unit, ".timer") {
+			continue
+		}
+		if strings.HasPrefix(unit, prefix) {
 			installed[strings.TrimSuffix(unit, ".timer")] = true
+			continue
+		}
+		if matchesAnyPrefix(unit, prefixes[1:]) {
+			owned, err := e.legacyScheduleUnitBelongsToApplication(ctx, strings.TrimSuffix(unit, ".timer"), false)
+			if err != nil {
+				return err
+			}
+			if owned {
+				installed[strings.TrimSuffix(unit, ".timer")] = true
+			}
 		}
 	}
 
 	wanted := map[string]bool{}
 	for _, job := range jobs {
-		unit := prefix + job.Name
+		unit := n.ScheduledJobUnit(job.Name)
 		wanted[unit] = true
 
 		// Validated by the host before anything is installed. The translation
@@ -96,11 +111,11 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 			stale = append(stale, unit)
 		}
 	}
+	var removalErr error
 	for _, unit := range sortedNames(setOf(stale)) {
-		if err := e.mutateChecked(ctx, "remove schedule "+unit, fmt.Sprintf(
-			"systemctl disable --now %s.timer >/dev/null 2>&1 && rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
-			unit, unit, unit)); err != nil {
-			return err
+		if err := e.removeScheduleUnit(ctx, unit); err != nil {
+			removalErr = errors.Join(removalErr, err)
+			continue
 		}
 		e.logf("schedule: removed %s (no longer declared)", unit)
 	}
@@ -109,12 +124,15 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		return nil
 	}
 	if res, err := e.mutate(ctx, "systemctl daemon-reload"); err != nil {
-		return err
+		return errors.Join(removalErr, err)
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr))
+		return errors.Join(removalErr, fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr)))
+	}
+	if removalErr != nil {
+		return removalErr
 	}
 	for _, job := range jobs {
-		unit := prefix + job.Name + ".timer"
+		unit := n.ScheduledJobUnit(job.Name) + ".timer"
 		if res, err := e.mutate(ctx, "systemctl enable --now "+unit); err != nil {
 			return err
 		} else if res.ExitCode != 0 {
@@ -201,10 +219,9 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 	// prefix meant `ob destroy` left ob-backup-<app>-<env>-<service>-<op>
 	// timers loaded and firing against a release directory it had just
 	// deleted. They belong to this application and they go with it.
-	prefixes := []string{
-		"ob-" + e.Spec.Name + "-",
-		app.BackupUnitPrefix + e.Spec.Name + "-",
-	}
+	n := e.names()
+	jobPrefixes := n.ScheduledJobUnitPrefixes()
+	backupPrefixes := n.BackupUnitPrefixes()
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
 	if err != nil {
 		return err
@@ -215,28 +232,102 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 		if !strings.HasSuffix(unit, ".timer") || !unitName.MatchString(unit) {
 			continue
 		}
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(unit, prefix) {
-				units = append(units, strings.TrimSuffix(unit, ".timer"))
-				break
+		unit = strings.TrimSuffix(unit, ".timer")
+		var owned bool
+		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
+			switch {
+			case strings.HasPrefix(unit, backupPrefixes[0]):
+				owned = true
+			case matchesAnyPrefix(unit, backupPrefixes[1:]):
+				owned, err = e.legacyScheduleUnitBelongsToApplication(ctx, unit, true)
 			}
+		} else {
+			switch {
+			case strings.HasPrefix(unit, jobPrefixes[0]):
+				owned = true
+			case matchesAnyPrefix(unit, jobPrefixes[1:]):
+				owned, err = e.legacyScheduleUnitBelongsToApplication(ctx, unit, false)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if owned {
+			units = append(units, unit)
 		}
 	}
 	if len(units) == 0 {
 		return nil
 	}
+	var removalErr error
 	for _, unit := range sortedNames(setOf(units)) {
-		if err := e.mutateChecked(ctx, "remove schedule "+unit, fmt.Sprintf(
-			"systemctl disable --now %s.timer >/dev/null 2>&1 && rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
-			unit, unit, unit)); err != nil {
-			return err
+		if err := e.removeScheduleUnit(ctx, unit); err != nil {
+			removalErr = errors.Join(removalErr, err)
+			continue
 		}
 		e.logf("schedule: removed %s", unit)
 	}
 	if res, err := e.mutate(ctx, "systemctl daemon-reload"); err != nil {
-		return err
+		return errors.Join(removalErr, err)
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr))
+		return errors.Join(removalErr, fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr)))
 	}
-	return nil
+	return removalErr
+}
+
+// removeScheduleUnit keeps unit-file cleanup independent from systemd's
+// ability to disable the timer. Both operations are attempted, and callers
+// reload systemd before returning, so a failed disable cannot strand files that make
+// the next reconciliation see the same stale schedule again.
+func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
+	disable, disableErr := e.mutate(ctx, "systemctl disable --now "+unit+".timer >/dev/null 2>&1")
+	remove, removeErr := e.mutate(ctx, fmt.Sprintf(
+		"rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service", unit, unit))
+	var errs []error
+	if disableErr != nil {
+		errs = append(errs, fmt.Errorf("disable schedule %s: %w", unit, disableErr))
+	} else if disable.ExitCode != 0 {
+		errs = append(errs, fmt.Errorf("disable schedule %s failed (exit %d): %s", unit, disable.ExitCode, strings.TrimSpace(disable.Stderr)))
+	}
+	if removeErr != nil {
+		errs = append(errs, fmt.Errorf("remove schedule files %s: %w", unit, removeErr))
+	} else if remove.ExitCode != 0 {
+		errs = append(errs, fmt.Errorf("remove schedule files %s failed (exit %d): %s", unit, remove.ExitCode, strings.TrimSpace(remove.Stderr)))
+	}
+	return errors.Join(errs...)
+}
+
+func matchesAnyPrefix(name string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// legacyScheduleUnitBelongsToApplication resolves an ambiguous old unit name
+// from the unambiguous application identifier embedded in its service body.
+// Missing or unfamiliar files are left alone: ownership must be proved before
+// reconciliation removes a host-global unit.
+func (e *Engine) legacyScheduleUnitBelongsToApplication(ctx context.Context, unit string, backup bool) (bool, error) {
+	res, err := e.T.Run(ctx, "cat "+q("/etc/systemd/system/"+unit+".service")+" 2>/dev/null")
+	if err != nil {
+		return false, fmt.Errorf("inspect legacy schedule %s: %w", unit, err)
+	}
+	if res.ExitCode != 0 {
+		return false, nil
+	}
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if backup {
+			if strings.HasPrefix(line, "Description=Onebox backup ") && strings.HasSuffix(line, " ("+e.Spec.Name+")") {
+				return true, nil
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "Description=Onebox scheduled job ") && strings.HasSuffix(line, " for "+e.Spec.Name) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

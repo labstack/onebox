@@ -81,7 +81,7 @@ func walkShape(t reflect.Type, value any, path string, lines map[string]int) err
 // them.
 func fieldsOf(t reflect.Type) map[string]reflect.StructField {
 	out := map[string]reflect.StructField{}
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		f := t.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name == "" || name == "-" {

@@ -147,13 +147,13 @@ func TestNotifyOutcome(t *testing.T) {
 	g := &globalFlags{Env: "production"}
 
 	// success filtered by on: [failure]
-	notifyOutcome(cfg, g, "deploy", "R1", nil)
+	notifyOutcome(t.Context(), cfg, g, "deploy", "R1", nil)
 	if hits != 0 {
 		t.Fatal("success must be filtered")
 	}
 	// failure fires with the verb and host, but detailed errors never leave the
 	// trusted local path.
-	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("verify: Authorization=Bearer super-secret"))
+	notifyOutcome(t.Context(), cfg, g, "deploy", "R1", fmt.Errorf("verify: Authorization=Bearer super-secret"))
 	if hits != 1 {
 		t.Fatal("failure must fire")
 	}
@@ -165,7 +165,7 @@ func TestNotifyOutcome(t *testing.T) {
 	}
 	// A saved-plan no-op must not claim that its unactivated release succeeded.
 	cfg.Notifications["ops"] = app.Notification{Webhook: cfg.Notifications["ops"].Webhook, On: []string{"success", "failure"}}
-	notifyOperationOutcome(cfg, g, "deploy", onebox.OperationResult{
+	notifyOperationOutcome(t.Context(), cfg, g, "deploy", onebox.OperationResult{
 		Status: "no_op", NoOp: true, ReleaseID: "UNACTIVATED",
 	}, nil)
 	if hits != 1 {
@@ -173,7 +173,7 @@ func TestNotifyOutcome(t *testing.T) {
 	}
 	// no notification declared: silent no-op
 	cfg.Notifications = nil
-	notifyOutcome(cfg, g, "deploy", "R1", fmt.Errorf("x"))
+	notifyOutcome(t.Context(), cfg, g, "deploy", "R1", fmt.Errorf("x"))
 	if hits != 1 {
 		t.Fatal("nil notify must be a no-op")
 	}

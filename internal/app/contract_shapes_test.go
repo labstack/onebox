@@ -113,7 +113,7 @@ notifications:
   email: {webhook: "https://mail.example.com/y"}
 `
 	first := canonicalOf(t, body)
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		if again := canonicalOf(t, body); again != first {
 			t.Fatalf("canonical output changed on run %d", i)
 		}
@@ -137,7 +137,7 @@ func TestInspectionChangesNothingOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var digests []string
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		p, err := Load(path)
 		if err != nil {
 			t.Fatal(err)

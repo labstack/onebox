@@ -15,7 +15,7 @@ import (
 // question gets an honest answer.
 func runOwnerProbe(t *testing.T, path string) (int, string) {
 	t.Helper()
-	cmd := exec.Command("/bin/sh", "-c", HostOwnerProbe(path))
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", HostOwnerProbe(path))
 	out, err := cmd.Output()
 	if err != nil {
 		var exit *exec.ExitError

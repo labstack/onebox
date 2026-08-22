@@ -22,7 +22,7 @@ func writeDurableArtifact(path, prefix string, encoded []byte) error {
 	defer os.Remove(tmpPath)
 	closeWith := func(cause error) error {
 		if closeErr := tmp.Close(); closeErr != nil {
-			return fmt.Errorf("%w; close temporary artifact: %v", cause, closeErr)
+			return fmt.Errorf("%w; close temporary artifact: %w", cause, closeErr)
 		}
 		return cause
 	}

@@ -47,7 +47,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	}
 	// Opting in is a promise that Docker is here. Skipping past a broken daemon
 	// once OB_E2E=1 is set turns a gate into a green tick for work nobody did.
-	if err := exec.Command("docker", "info").Run(); err != nil {
+	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
 		t.Fatalf("OB_E2E=1 was set but docker is not usable: %v", err)
 	}
 	dir, err := filepath.Abs("testdata/app")
@@ -58,7 +58,9 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	ctx := context.Background()
 	tr := transport.NewLocal()
 	t.Cleanup(func() {
-		down := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
+		cleanupCtx, cancel := testCleanupContext()
+		defer cancel()
+		down := exec.CommandContext(cleanupCtx, "docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
 		down.Run()
 	})
 
@@ -124,7 +126,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	}
 
 	// The host proxy must be running before preflight.
-	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
+	up := exec.CommandContext(t.Context(), "docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("start traefik: %v\n%s", err, out)
 	}
@@ -151,7 +153,8 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 				return
 			default:
 			}
-			resp, err := client.Get("http://localhost:18080/")
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost:18080/", nil)
+			resp, err := client.Do(req)
 			total.Add(1)
 			if err != nil || resp.StatusCode != 200 {
 				failures.Add(1)
@@ -204,7 +207,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 
 func assertContainerNames(t *testing.T, project, service string, want ...string) {
 	t.Helper()
-	ids, err := exec.Command("docker", "ps", "-q",
+	ids, err := exec.CommandContext(t.Context(), "docker", "ps", "-q",
 		"--filter", "label=com.docker.compose.project="+project,
 		"--filter", "label=com.docker.compose.service="+service).Output()
 	if err != nil {
@@ -212,7 +215,7 @@ func assertContainerNames(t *testing.T, project, service string, want ...string)
 	}
 	var got []string
 	for _, id := range strings.Fields(string(ids)) {
-		name, err := exec.Command("docker", "inspect", "-f", "{{.Name}}", id).Output()
+		name, err := exec.CommandContext(t.Context(), "docker", "inspect", "-f", "{{.Name}}", id).Output()
 		if err != nil {
 			t.Fatalf("inspect %s/%s container %s: %v", project, service, id, err)
 		}
@@ -230,11 +233,11 @@ func waitHealthy(t *testing.T, project, svc string, budget time.Duration) {
 	deadline := time.Now().Add(budget)
 	for {
 		out := ""
-		psOut, _ := exec.Command("docker", "ps", "-q",
+		psOut, _ := exec.CommandContext(t.Context(), "docker", "ps", "-q",
 			"--filter", "label=com.docker.compose.project="+project,
 			"--filter", "label=com.docker.compose.service="+svc).Output()
 		if id := strings.TrimSpace(strings.Split(string(psOut), "\n")[0]); id != "" {
-			insOut, _ := exec.Command("docker", "inspect", "-f",
+			insOut, _ := exec.CommandContext(t.Context(), "docker", "inspect", "-f",
 				"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", id).Output()
 			out = string(insOut)
 		}
@@ -248,12 +251,20 @@ func waitHealthy(t *testing.T, project, svc string, budget time.Duration) {
 	}
 }
 
+func testCleanupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
 func waitBody(t *testing.T, url, want string, budget time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(budget)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
-		resp, err := client.Get(url)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		resp, err := client.Do(req)
 		if err == nil {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()

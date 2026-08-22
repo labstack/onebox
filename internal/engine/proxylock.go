@@ -33,7 +33,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 	b, _ := json.Marshal(meta)
 	create := "mkdir -p " + q(hp.Base) + " && set -C && echo " + q(string(b)) + " > " + q(hp.Lock) + " 2>/dev/null"
 
-	for attempt := 0; attempt < 4; attempt++ {
+	for range 4 {
 		res, err := e.T.Run(ctx, create)
 		if err != nil {
 			return err
@@ -73,7 +73,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 		} else if res.ExitCode == 75 {
 			continue
 		} else if res.ExitCode != 0 {
-			return fmt.Errorf("break host lock: %v %s", err, res.Stderr)
+			return fmt.Errorf("break host lock: %s", strings.TrimSpace(res.Stderr))
 		}
 	}
 	return fmt.Errorf("could not acquire host lock")

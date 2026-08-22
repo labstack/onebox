@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,7 +42,7 @@ func recordVerdicts(t *testing.T) []verdict {
 		if err == nil {
 			v.Loads = true
 			v.Digest = renderDigest(t, spec)
-		} else if e, ok := err.(*Error); ok {
+		} else if e := new(Error); errors.As(err, &e) {
 			v.Code = e.Code
 		} else {
 			v.Code = "untyped"
@@ -59,7 +60,7 @@ func recordVerdicts(t *testing.T) []verdict {
 		if err == nil {
 			v.Loads = true
 			v.Digest = renderDigest(t, spec)
-		} else if e, ok := err.(*Error); ok {
+		} else if e := new(Error); errors.As(err, &e) {
 			v.Code = e.Code
 		} else {
 			v.Code = "untyped"
@@ -117,7 +118,8 @@ func renderDigest(t *testing.T, spec *Spec) string {
 }
 
 func codeOf(err error) string {
-	if e, ok := err.(*Error); ok {
+	var e *Error
+	if errors.As(err, &e) {
 		return e.Code
 	}
 	return "untyped"

@@ -201,7 +201,6 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	// Wrappers retain each component's error so partial observations can be named.
 	fns := make([]func() error, 0, len(reads))
 	for i := range reads {
-		i := i
 		fns = append(fns, func() error {
 			reads[i].err = reads[i].run()
 			return nil
@@ -363,7 +362,7 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 		Certificates: []StatusCertificate{},
 		Complete:     len(readComplete) == statusProxyReadCount,
 	}
-	for i := 0; i < statusProxyReadCount; i++ {
+	for i := range statusProxyReadCount {
 		status.Complete = status.Complete && complete(i)
 	}
 

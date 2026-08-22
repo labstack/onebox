@@ -19,8 +19,12 @@ func (e *Engine) Preflight(ctx context.Context) error {
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err
 	}
-	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("docker daemon unreachable on %s: %v %s", e.T.Host(), err, res.Stderr)
+	res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'")
+	if err != nil {
+		return fmt.Errorf("docker daemon unreachable on %s: %w", e.T.Host(), err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("docker daemon unreachable on %s: %s", e.T.Host(), strings.TrimSpace(res.Stderr))
 	}
 	if res, err := e.T.Run(ctx, "docker compose version --short"); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("docker compose plugin missing on %s", e.T.Host())
@@ -29,7 +33,7 @@ func (e *Engine) Preflight(ctx context.Context) error {
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(base)+" && test -w "+q(base)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("%s not writable by deploy user", base)
 	}
-	res, err := e.T.Run(ctx, "df -Pk "+q(base)+" | awk 'NR==2{print $4}'")
+	res, err = e.T.Run(ctx, "df -Pk "+q(base)+" | awk 'NR==2{print $4}'")
 	if err != nil {
 		return err
 	}

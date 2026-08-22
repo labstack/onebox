@@ -89,6 +89,61 @@ func (e *Engine) InstallBackupCredentialFile(ctx context.Context, service, targe
 	return destination, nil
 }
 
+// MigrateBackupCredentialFiles copies the pre-2026.8.6 ambiguous spelling to
+// the escaped path before Compose reads it. The old file remains for rollback
+// to an older binary; disablement removes both spellings.
+func (e *Engine) MigrateBackupCredentialFiles(ctx context.Context) error {
+	names := e.names()
+	type migration struct {
+		current string
+		legacy  string
+	}
+	var migrations []migration
+	legacyUsers := map[string][]string{}
+	for _, service := range e.Spec.ServiceNames() {
+		if !e.Spec.ServiceIsProtected(service) {
+			continue
+		}
+		projection, err := e.Spec.EffectiveBackupProjection(service)
+		if err != nil {
+			return err
+		}
+		files := names.BackupCredentialFiles(service, projection.Policy.Target)
+		if len(files) == 1 {
+			continue
+		}
+		migrations = append(migrations, migration{current: files[0], legacy: files[1]})
+		legacyUsers[files[1]] = append(legacyUsers[files[1]], files[0])
+	}
+	for _, migration := range migrations {
+		users := legacyUsers[migration.legacy]
+		if len(users) > 1 {
+			checks := make([]string, 0, len(users))
+			for _, current := range users {
+				checks = append(checks, "[ -f "+q(current)+" ]")
+			}
+			res, err := e.T.Run(ctx, "if [ -f "+q(migration.legacy)+" ]; then "+strings.Join(checks, " && ")+"; fi")
+			if err != nil {
+				return err
+			}
+			if res.ExitCode != 0 {
+				return fmt.Errorf("legacy backup credential path %s belongs to more than one service/target pair; re-enable each affected backup so Onebox can establish the escaped credential paths", migration.legacy)
+			}
+			continue
+		}
+		command := "if [ ! -f " + q(migration.current) + " ] && [ -f " + q(migration.legacy) + " ]; then " +
+			"install -m 600 " + q(migration.legacy) + " " + q(migration.current) + "; fi"
+		res, err := e.mutate(ctx, command)
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("cannot migrate backup credential file %s: %s", migration.legacy, strings.TrimSpace(res.Stderr))
+		}
+	}
+	return nil
+}
+
 func backupCredentialEntries(plaintext []byte) (map[string]bool, error) {
 	entries := make(map[string]bool)
 	for index, line := range strings.Split(string(plaintext), "\n") {

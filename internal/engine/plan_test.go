@@ -392,7 +392,7 @@ func TestLocalAndRemotePayloadSelectionAgree(t *testing.T) {
 
 	exclusions := payloadExclusionsFor(testConfig())
 	shell := "cd " + q(dir) + " && find . -type f " + payloadFindArgs(exclusions) + " | LC_ALL=C sort"
-	out, err := exec.Command("/bin/sh", "-c", shell).Output()
+	out, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", shell).Output()
 	if err != nil {
 		t.Fatalf("run find: %v", err)
 	}

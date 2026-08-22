@@ -85,12 +85,14 @@ volumes:
 
 	composeArgs := []string{"compose", "-p", application, "-f", composePath, "--env-file", envPath}
 	cleanup := func() {
+		cleanupCtx, cancel := testCleanupContext()
+		defer cancel()
 		args := append(append([]string{}, composeArgs...), "down", "--remove-orphans", "-v")
-		_ = exec.Command("docker", args...).Run()
+		_ = exec.CommandContext(cleanupCtx, "docker", args...).Run()
 	}
 	t.Cleanup(cleanup)
 	up := append(append([]string{}, composeArgs...), "up", "-d")
-	if out, err := exec.Command("docker", up...).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "docker", up...).CombinedOutput(); err != nil {
 		t.Fatalf("start legacy release: %v\n%s", err, out)
 	}
 
@@ -98,14 +100,14 @@ volumes:
 	if err := e.Destroy(ctx, true, false); err != nil {
 		t.Fatalf("destroy migrated release: %v", err)
 	}
-	containers, err := exec.Command("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project="+application).Output()
+	containers, err := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "label=com.docker.compose.project="+application).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(string(containers)) != "" {
 		t.Fatalf("legacy containers survived destroy: %s", containers)
 	}
-	if err := exec.Command("docker", "volume", "inspect", volume).Run(); err == nil {
+	if err := exec.CommandContext(ctx, "docker", "volume", "inspect", volume).Run(); err == nil {
 		t.Fatalf("legacy volume %s survived destroy --volumes", volume)
 	}
 }

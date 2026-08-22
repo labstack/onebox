@@ -95,7 +95,7 @@ func maskScalar(n *yaml.Node) {
 }
 
 func splitKey(kv string) string {
-	for i := 0; i < len(kv); i++ {
+	for i := range len(kv) {
 		if kv[i] == '=' {
 			return kv[:i]
 		}

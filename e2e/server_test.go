@@ -17,7 +17,7 @@ import (
 // for them so the backup coverage below can run.
 func (s *server) requireDocker(t *testing.T) {
 	t.Helper()
-	if err := s.try("command -v docker && docker compose version && docker buildx version"); err == nil {
+	if err := s.try(t, "command -v docker && docker compose version && docker buildx version"); err == nil {
 		return
 	}
 	// Docker's own packages, not Ubuntu's.
@@ -78,7 +78,7 @@ func (s *server) requireDocker(t *testing.T) {
 // pins the protected image.
 func (s *server) primeDriverImage(t *testing.T) {
 	t.Helper()
-	if err := s.try("docker image inspect postgres:18 >/dev/null 2>&1"); err == nil {
+	if err := s.try(t, "docker image inspect postgres:18 >/dev/null 2>&1"); err == nil {
 		return
 	}
 	s.run(t, "docker pull -q public.ecr.aws/docker/library/postgres:18 >/dev/null && "+
@@ -337,7 +337,7 @@ func TestServerLifecycle(t *testing.T) {
 		}
 		// The object store is not ob's and must be untouched by a teardown of
 		// the application beside it.
-		if err := s.try("systemctl is-active --quiet minio"); err != nil {
+		if err := s.try(t, "systemctl is-active --quiet minio"); err != nil {
 			t.Error("destroy stopped a service that does not belong to ob")
 		}
 	})

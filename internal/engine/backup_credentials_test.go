@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -115,5 +117,67 @@ func TestBackupCredentialInstallFailureCleansRemotePlaintextStaging(t *testing.T
 	}
 	if !foundCleanup {
 		t.Fatalf("remote plaintext staging was not cleaned: %#v", fake.Commands)
+	}
+}
+
+func TestMigrateBackupCredentialFilesCopiesAnUnambiguousLegacyPath(t *testing.T) {
+	cfg := testConfig()
+	state := app.ServiceRuntimeState{
+		BackupState: "enabled",
+		LastEffective: &app.BackupEffectiveProjection{
+			Policy: app.BackupPolicy{Target: "off-site"},
+		},
+	}
+	var err error
+	cfg, err = cfg.WithServiceRuntimeStates(map[string]app.ServiceRuntimeState{"postgres": state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &transport.Fake{}
+	engine := New(cfg, nil, fake, Options{Out: io.Discard})
+	engine.fenceVal = "deploy-1 1"
+	if err := engine.MigrateBackupCredentialFiles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Join(fake.Commands, "\n")
+	if !strings.Contains(commands, "install -m 600") ||
+		!strings.Contains(commands, "postgres-off-site.env") ||
+		!strings.Contains(commands, "postgres-off--site.env") {
+		t.Fatalf("credential migration did not copy legacy to escaped path:\n%s", commands)
+	}
+}
+
+func TestMigrateBackupCredentialFilesRefusesAnAmbiguousLegacyPath(t *testing.T) {
+	cfg := testConfig()
+	service := cfg.Services["postgres"]
+	delete(cfg.Services, "postgres")
+	cfg.Services["a-b"] = service
+	cfg.Services["a"] = service
+	stateFor := func(target string) app.ServiceRuntimeState {
+		return app.ServiceRuntimeState{
+			BackupState: "enabled",
+			LastEffective: &app.BackupEffectiveProjection{
+				Policy: app.BackupPolicy{Target: target},
+			},
+		}
+	}
+	var err error
+	cfg, err = cfg.WithServiceRuntimeStates(map[string]app.ServiceRuntimeState{
+		"a-b": stateFor("c"),
+		"a":   stateFor("b-c"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+		if strings.HasPrefix(command, "if [ -f ") {
+			return transport.Result{ExitCode: 1}, true
+		}
+		return transport.Result{}, false
+	}}
+	engine := New(cfg, nil, fake, Options{Out: io.Discard})
+	err = engine.MigrateBackupCredentialFiles(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "belongs to more than one service/target pair") {
+		t.Fatalf("ambiguous migration error = %v", err)
 	}
 }

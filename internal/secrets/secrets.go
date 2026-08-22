@@ -39,7 +39,8 @@ func RenderContext(ctx context.Context, configDir, sopsFile string) ([]byte, err
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			return nil, fmt.Errorf("sops -d %s: %s", sopsFile, strings.TrimSpace(string(ee.Stderr)))
 		}
 		return nil, fmt.Errorf("sops not available on this machine: %w", err)

@@ -556,13 +556,17 @@ func (e *Engine) RemoveBackupCredentials(ctx context.Context, service string, la
 	if last == nil {
 		return nil
 	}
-	path := e.names().BackupCredentialFile(service, last.Policy.Target)
-	res, err := e.T.Run(ctx, "rm -f "+q(path))
+	paths := e.names().BackupCredentialFiles(service, last.Policy.Target)
+	quoted := make([]string, len(paths))
+	for i, path := range paths {
+		quoted[i] = q(path)
+	}
+	res, err := e.T.Run(ctx, "rm -f "+strings.Join(quoted, " "))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot remove the backup credential file %s", path)
+		return fmt.Errorf("cannot remove the backup credential files %s", strings.Join(paths, ", "))
 	}
 	return nil
 }

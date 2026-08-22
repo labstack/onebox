@@ -66,7 +66,7 @@ func runTagValidator(t *testing.T, dir, tag, mainRef string) (string, error) {
 	if err := os.WriteFile(script, []byte(validateReleaseTagScript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", script, tag, mainRef)
+	cmd := exec.CommandContext(t.Context(), "bash", script, tag, mainRef)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 	output, err := cmd.CombinedOutput()

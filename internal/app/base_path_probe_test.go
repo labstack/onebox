@@ -17,8 +17,8 @@ import (
 // invented.
 type shellRunner struct{}
 
-func (shellRunner) Run(_ context.Context, cmd string) (transport.Result, error) {
-	out, err := exec.Command("/bin/sh", "-c", cmd).Output()
+func (shellRunner) Run(ctx context.Context, cmd string) (transport.Result, error) {
+	out, err := exec.CommandContext(ctx, "/bin/sh", "-c", cmd).Output()
 	result := transport.Result{Stdout: string(out)}
 	if err != nil {
 		var exit *exec.ExitError

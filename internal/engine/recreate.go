@@ -145,7 +145,7 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb
 	if err := c.Run(); err != nil {
-		return fmt.Errorf("hook %s (local) failed: %v: %s", name, err, strings.TrimSpace(errb.String()))
+		return fmt.Errorf("hook %s (local) failed: %w: %s", name, err, strings.TrimSpace(errb.String()))
 	}
 	return nil
 }

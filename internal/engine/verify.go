@@ -36,7 +36,7 @@ func (e *Engine) verifyURL(ctx context.Context, chk app.RunnableCheck) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		err = verificationRequestErrorDetail(err)
-		return fmt.Errorf("verify %s: request failed: %v", label, err)
+		return fmt.Errorf("verify %s: request failed: %w", label, err)
 	}
 	defer resp.Body.Close()
 	if !verificationStatusAllowed(resp.StatusCode, chk.StatusCodes) {
@@ -63,8 +63,8 @@ func (e *Engine) verifyURL(ctx context.Context, chk app.RunnableCheck) error {
 
 func verificationRequestErrorDetail(err error) error {
 	for {
-		urlErr, ok := err.(*url.Error)
-		if !ok {
+		var urlErr *url.Error
+		if !errors.As(err, &urlErr) {
 			return err
 		}
 		err = urlErr.Err

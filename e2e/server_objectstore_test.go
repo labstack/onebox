@@ -90,7 +90,7 @@ WantedBy=multi-user.target
 	for {
 		// Verified against the freshly installed authority, so this also
 		// proves the trust store was actually rebuilt.
-		if err := s.try("curl -fsS --max-time 5 " + endpoint + "/minio/health/live"); err == nil {
+		if err := s.try(t, "curl -fsS --max-time 5 "+endpoint+"/minio/health/live"); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {

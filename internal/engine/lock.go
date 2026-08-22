@@ -48,7 +48,7 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		return 0, fmt.Errorf("mkdir %s: %s", e.base(), res.Stderr)
 	}
 
-	for attempt := 0; attempt < 4; attempt++ {
+	for range 4 {
 		// Read the epoch fresh on every attempt. A concurrent acquirer may have
 		// persisted a higher epoch between our attempts; fencing relies on a
 		// strictly increasing epoch, so a value read once before the loop could
@@ -72,9 +72,14 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		}
 		if res.ExitCode == 0 {
 			e.lockVal = string(b)
-			if res, err := e.T.Run(ctx, atomicEpochWriteCmd(e.epochPath(), epoch)); err != nil || res.ExitCode != 0 {
+			res, err := e.T.Run(ctx, atomicEpochWriteCmd(e.epochPath(), epoch))
+			if err != nil {
 				e.ReleaseLock(ctx)
-				return 0, fmt.Errorf("persist epoch: %v %s", err, res.Stderr)
+				return 0, fmt.Errorf("persist epoch: %w", err)
+			}
+			if res.ExitCode != 0 {
+				e.ReleaseLock(ctx)
+				return 0, fmt.Errorf("persist epoch: %s", strings.TrimSpace(res.Stderr))
 			}
 			return epoch, nil
 		}
@@ -119,7 +124,7 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		} else if res.ExitCode == 75 {
 			continue
 		} else if res.ExitCode != 0 {
-			return 0, fmt.Errorf("break lock: %v %s", err, res.Stderr)
+			return 0, fmt.Errorf("break lock: %s", strings.TrimSpace(res.Stderr))
 		}
 	}
 	return 0, fmt.Errorf("could not acquire deploy lock")

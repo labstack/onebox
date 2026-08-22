@@ -270,7 +270,7 @@ func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan,
 	if !pinnedJobImage.MatchString(image) {
 		return JobPlan{}, fmt.Errorf("job %q image is not digest-pinned in current release %s; run `ob deploy` to create an immutable runtime", jobID, hostState.CurrentRelease)
 	}
-	effect := DataEffectClass(job.DataEffect)
+	effect := job.DataEffect
 	step := OperationStep{ID: "job:" + jobID, Kind: StepJob, Component: jobID, Service: jobID, DataEffect: effect, Mutation: true}
 	if effect == DataEffectMigration {
 		step.ResultPolicy = JobResultProviderOrStrongUnknown

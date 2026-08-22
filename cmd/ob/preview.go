@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -132,8 +133,8 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 // wrong, where, and what to run next — the same three things the structured
 // mode carries, so an agent and a person read the same information.
 func explain(err error) error {
-	e, ok := err.(*app.Error)
-	if !ok {
+	var e *app.Error
+	if !errors.As(err, &e) {
 		return err
 	}
 	var b strings.Builder

@@ -17,11 +17,11 @@ import (
 
 func TestCLIReferenceMatchesBinary(t *testing.T) {
 	obBinary := filepath.Join(t.TempDir(), "ob")
-	build := exec.Command("go", "build", "-o", obBinary, "../ob")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", obBinary, "../ob")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build ob for documentation check: %v\n%s", err, output)
 	}
-	generated, err := renderCLIPage(obBinary)
+	generated, err := renderCLIPage(t.Context(), obBinary)
 	if err != nil {
 		t.Fatal(err)
 	}

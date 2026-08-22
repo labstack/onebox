@@ -62,7 +62,7 @@ func (s *Service) executeJob(
 		return "", nil, errors.New("configuration changed since job planning — re-plan")
 	}
 	job, ok := lp.resolved.Workloads[plan.Artifact.Job]
-	if !ok || !job.IsJob() || job.When != "manual" || DataEffectClass(job.DataEffect) != plan.Artifact.DataEffect {
+	if !ok || !job.IsJob() || job.When != "manual" || job.DataEffect != plan.Artifact.DataEffect {
 		return "", nil, errors.New("manual job declaration changed since planning — re-plan")
 	}
 	expectedBackup, err := migrationBackupRequirement(lp.resolved, environmentConfig.Policy, plan.Operation.Steps)

@@ -297,7 +297,7 @@ func TestCredentialFileExistsEvenForADriverWithNoSecretVariables(t *testing.T) {
 	script := client.ClientEnvScript(secretFile, filepath.Join(dir, "c.env"), nil)
 	// /bin/sh, deliberately: the emitted script must work under dash, where a
 	// redirection failure on a special builtin aborts before `||` can run.
-	if out, err := exec.Command("/bin/sh", "-c", script).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", script).CombinedOutput(); err != nil {
 		t.Fatalf("apply script failed: %v\n%s\n%s", err, out, script)
 	}
 	info, err := os.Stat(secretFile)

@@ -168,7 +168,7 @@ func TestJournalReadAcceptsRealDirectory(t *testing.T) {
 
 func shellExit(t *testing.T, cmd string) int {
 	t.Helper()
-	run := exec.Command("/bin/sh", "-c", cmd)
+	run := exec.CommandContext(t.Context(), "/bin/sh", "-c", cmd)
 	if err := run.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {

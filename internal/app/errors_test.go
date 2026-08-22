@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,8 +63,8 @@ func TestNoCorpusFailureEscapesTheEnumeration(t *testing.T) {
 		if err == nil {
 			return
 		}
-		e, ok := err.(*Error)
-		if !ok {
+		var e *Error
+		if !errors.As(err, &e) {
 			t.Errorf("%s: failure is not typed: %T", name, err)
 			return
 		}

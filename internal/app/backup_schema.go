@@ -252,7 +252,7 @@ func maximumCronGap(expression string) (time.Duration, bool) {
 	}
 	maxGap, previous := 0, -1
 	first := -1
-	for day := 0; day < 7; day++ {
+	for day := range 7 {
 		if !seen[day] {
 			continue
 		}

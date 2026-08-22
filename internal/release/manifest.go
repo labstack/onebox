@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -406,7 +407,8 @@ func ReadManifest(ctx context.Context, target transport.Transport, n app.Names, 
 	}
 	manifest, err := DecodeManifest([]byte(body))
 	if err != nil {
-		if typed, ok := err.(*ManifestError); ok && typed.ReleaseID == "" {
+		var typed *ManifestError
+		if errors.As(err, &typed) && typed.ReleaseID == "" {
 			typed.ReleaseID = id
 		}
 		return Manifest{}, err

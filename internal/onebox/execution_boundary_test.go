@@ -1068,7 +1068,7 @@ func TestAPlanBindsTheSameBytesGenerationProduces(t *testing.T) {
 	}
 
 	// And twice more, to catch anything order-dependent.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		again, err := loadProjectAt(context.Background(), svc.configPath, svc.environment, false, nil)
 		if err != nil {
 			t.Fatal(err)

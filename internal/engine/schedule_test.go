@@ -39,7 +39,7 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 	}
 }
 
-func TestRemoveSchedulesRejectsFailedDisable(t *testing.T) {
+func TestRemoveSchedulesRemovesFilesAndReloadsAfterFailedDisable(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "list-unit-files"):
@@ -51,15 +51,15 @@ func TestRemoveSchedulesRejectsFailedDisable(t *testing.T) {
 	}}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.RemoveSchedules(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "remove schedule ob-sample-nightly failed (exit 5): unit is busy") {
+	if err == nil || !strings.Contains(err.Error(), "disable schedule ob-sample-nightly failed (exit 5): unit is busy") {
 		t.Fatalf("remove schedules error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "timer >/dev/null 2>&1 && rm -f") {
-		t.Fatalf("disable failure must prevent unit-file removal:\n%s", seq)
+	if !strings.Contains(seq, "rm -f /etc/systemd/system/ob-sample-nightly.timer /etc/systemd/system/ob-sample-nightly.service") {
+		t.Fatalf("disable failure stranded the unit files:\n%s", seq)
 	}
-	if strings.Contains(seq, "systemctl daemon-reload") {
-		t.Fatalf("schedule removal continued after disable failure:\n%s", seq)
+	if !strings.Contains(seq, "systemctl daemon-reload") {
+		t.Fatalf("systemd was not reloaded after removing the unit files:\n%s", seq)
 	}
 }
 
@@ -120,5 +120,57 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 		if strings.Contains(seq, never) {
 			t.Errorf("teardown removed a unit that is not this application's (%s):\n%s", never, seq)
 		}
+	}
+}
+
+func TestLegacyScheduleOwnershipComesFromServiceBody(t *testing.T) {
+	tests := []struct {
+		name   string
+		backup bool
+		body   string
+		want   bool
+	}{
+		{"owned job", false, "Description=Onebox scheduled job nightly for help-desk\n", true},
+		{"other job", false, "Description=Onebox scheduled job nightly for help\n", false},
+		{"owned backup", true, "Description=Onebox backup verify for database (help-desk)\n", true},
+		{"other backup", true, "Description=Onebox backup verify for database (help)\n", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+				if strings.HasPrefix(cmd, "cat ") {
+					return transport.Result{Stdout: test.body}, true
+				}
+				return transport.Result{}, false
+			}}
+			cfg := testConfig()
+			cfg.Spec.Name = "help-desk"
+			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			got, err := e.legacyScheduleUnitBelongsToApplication(context.Background(), "legacy", test.backup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("ownership = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAppNamedBackupDoesNotOwnEveryBackupTimer(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "list-unit-files") {
+			return transport.Result{Stdout: "ob-backup-other-production-postgres-backup.timer\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	cfg := testConfig()
+	cfg.Spec.Name = "backup"
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RemoveSchedules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "rm -f") {
+		t.Fatalf("app named backup removed another application's timer:\n%s", seq)
 	}
 }

@@ -151,7 +151,19 @@ func (n Names) BackupSecretDir() string {
 }
 
 func (n Names) BackupCredentialFile(service, target string) string {
-	return path.Join(n.BackupSecretDir(), service+"-"+target+".env")
+	return path.Join(n.BackupSecretDir(), runtimeName(service, target)+".env")
+}
+
+// BackupCredentialFiles returns the current credential path followed by the
+// pre-2026.8.6 spelling when the two differ. The legacy path is removal and
+// migration input only; new runtime documents always use the first path.
+func (n Names) BackupCredentialFiles(service, target string) []string {
+	current := n.BackupCredentialFile(service, target)
+	legacy := path.Join(n.BackupSecretDir(), service+"-"+target+".env")
+	if current == legacy {
+		return []string{current}
+	}
+	return []string{current, legacy}
 }
 
 // BackupLifecycleStateFile is the durable target-side source used before
@@ -211,6 +223,17 @@ func (n Names) BackupRestoreVolume(service string) string {
 	return join("ob", n.App, service, "restore-stage")
 }
 
+// ScheduledJobUnit is the systemd unit name without its suffix.
+func (n Names) ScheduledJobUnit(job string) string {
+	return "ob-" + runtimeName(n.App, job)
+}
+
+// ScheduledJobUnitPrefixes returns the current namespace followed by the
+// pre-2026.8.6 spelling when the application name contains a hyphen.
+func (n Names) ScheduledJobUnitPrefixes() []string {
+	return distinctNames("ob-"+runtimeName(n.App)+"-", "ob-"+n.App+"-")
+}
+
 // BackupTimerForEnvironment names a backup timer.
 //
 // The "ob-backup-" prefix keeps it out of the namespace SyncSchedules owns.
@@ -226,7 +249,26 @@ func (n Names) BackupTimerForEnvironment(environment, service, operation string)
 // BackupUnitForEnvironment is the systemd unit name without its suffix, so
 // the .service and .timer that pair together cannot be spelled differently.
 func (n Names) BackupUnitForEnvironment(environment, service, operation string) string {
-	return BackupUnitPrefix + n.App + "-" + environment + "-" + service + "-" + operation
+	return BackupUnitPrefix + runtimeName(n.App, environment, service, operation)
+}
+
+// BackupUnitPrefixesForEnvironment returns the current injective namespace and
+// the pre-2026.8.6 namespace when they differ. Reconciliation needs both so an
+// upgrade removes old timers instead of leaving duplicate schedules behind.
+func (n Names) BackupUnitPrefixesForEnvironment(environment string) []string {
+	return distinctNames(
+		BackupUnitPrefix+runtimeName(n.App, environment)+"-",
+		BackupUnitPrefix+n.App+"-"+environment+"-",
+	)
+}
+
+// BackupUnitPrefixes returns every application-wide backup namespace that
+// teardown owns, including the legacy spelling used before segment escaping.
+func (n Names) BackupUnitPrefixes() []string {
+	return distinctNames(
+		BackupUnitPrefix+runtimeName(n.App)+"-",
+		BackupUnitPrefix+n.App+"-",
+	)
 }
 
 // BackupUnitPrefix is the systemd namespace backup owns outright.
@@ -364,6 +406,18 @@ func join(parts ...string) string {
 			out += "_"
 		}
 		out += p
+	}
+	return out
+}
+
+func distinctNames(names ...string) []string {
+	out := make([]string, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		if !seen[name] {
+			out = append(out, name)
+			seen[name] = true
+		}
 	}
 	return out
 }

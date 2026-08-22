@@ -19,7 +19,7 @@ workloads:
     routes:
       - {domain: ledger.example.com, port: 8080}
       - {domain: api.ledger.example.com, port: 8080}
-    volumes: [{name: uploads, path: /var/lib/ledger/uploads}, {source: ./seed, path: /seed}]
+    volumes: [{name: uploads, path: /var/lib/ledger/uploads}, {source: ./seed, path: /seed, mode: ro}]
   worker:
     role: worker
     image: nginx

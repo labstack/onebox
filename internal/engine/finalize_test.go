@@ -176,7 +176,10 @@ func scheduledJobFake() *transport.Fake {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "systemd-analyze calendar") {
+		switch {
+		case strings.Contains(cmd, "systemd-analyze calendar"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "command -v flock"):
 			return transport.Result{Stdout: "ok\n"}, true
 		}
 		return base(cmd)

@@ -228,6 +228,11 @@ func (n Names) ScheduledJobUnit(job string) string {
 	return "ob-" + runtimeName(n.App, job)
 }
 
+// ScheduleRunLock serializes host-fired jobs with every operation holding the
+// application deploy lock. The file is only the kernel flock rendezvous; the
+// existing application lock remains the durable owner/fencing record.
+func (n Names) ScheduleRunLock() string { return path.Join(n.AppDir(), "schedule.lock") }
+
 // ScheduledJobUnitPrefixes returns the current namespace followed by the
 // pre-2026.8.6 spelling when the application name contains a hyphen.
 func (n Names) ScheduledJobUnitPrefixes() []string {

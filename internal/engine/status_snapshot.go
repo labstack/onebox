@@ -27,6 +27,7 @@ type StatusSnapshot struct {
 	RecordedRelease string            `json:"recorded_release,omitempty"`
 	Roles           []StatusRole      `json:"roles"`
 	Services        []StatusService   `json:"services"`
+	Schedules       []StatusSchedule  `json:"schedules"`
 	Incomplete      *StatusIncomplete `json:"incomplete,omitempty"`
 	Proxy           *StatusProxy      `json:"proxy,omitempty"`
 	Diverged        bool              `json:"diverged"`
@@ -143,6 +144,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		Runner:     e.Opts.Runner,
 		Roles:      make([]StatusRole, 0, len(e.Spec.ReleaseOrder())),
 		Services:   make([]StatusService, 0, len(e.Spec.ServiceNames())),
+		Schedules:  []StatusSchedule{},
 		Complete:   true,
 	}
 
@@ -152,6 +154,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		inc       journal.Summary
 		incFound  bool
 		px        proxyRaw
+		schedules []StatusSchedule
 	)
 
 	reads := []statusSnapshotRead{
@@ -181,6 +184,13 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 				}
 				inc, incFound = s, true
 				return nil
+			},
+		},
+		{
+			component: "schedules",
+			run: func() (err error) {
+				schedules, err = e.scheduleStatuses(ctx)
+				return err
 			},
 		},
 	}
@@ -236,6 +246,12 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		status := makeStatusService(serviceName, byService[serviceName], containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Services = append(snapshot.Services, status)
+	}
+	if reads[3].err == nil {
+		snapshot.Schedules = schedules
+		for _, status := range schedules {
+			snapshot.Diverged = snapshot.Diverged || status.Diverged
+		}
 	}
 
 	if reads[2].err == nil && incFound {

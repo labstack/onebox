@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `bind` · `build` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -88,18 +88,20 @@ cannot drift from what `ob validate` accepts.
 | `<name>.routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |
 | `<name>.routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme: http, https, h2c, tcp, or udp. |
 | `<name>.routes[].tls` | `terminate` · `passthrough` · `none` | `terminate` | TLS handling: terminate, passthrough, or none. |
-| `<name>.schedule` | object | — | Host-resident recurring schedule for a job. |
+| `<name>.schedule` | object | — | Host-resident recurring schedule and run policy for a job. |
+| `<name>.schedule.catch_up` | boolean | `true` | Run once after the host returns if an elapsed schedule was missed while it was offline. |
 | `<name>.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
+| `<name>.schedule.timeout` | string | `1h` | Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.stdin_open` | boolean | — | Keep standard input open for the container. |
 | `<name>.strategy` | `rolling` · `recreate` | — | Release strategy. Defaults to rolling only for an application workload with health; all other workloads default to recreate. |
 | `<name>.tty` | boolean | — | Allocate a pseudo-TTY for the container. |
 | `<name>.user` | string | — | User or UID used to run the container process. |
-| `<name>.volumes` | list | — | Managed named volumes or repository bind mounts. |
-| `<name>.volumes[].mode` | `rw` · `ro` | `rw` | Mount access mode: rw or ro. |
+| `<name>.volumes` | list | — | Managed named volumes or bind mounts. Relative bind sources are read-only release content; absolute sources are external host state. |
+| `<name>.volumes[].mode` | `rw` · `ro` | `rw` | Mount access mode: rw or ro. A relative bind source requires ro. |
 | `<name>.volumes[].name` | string | — | Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.volumes[].path` | string | — | Absolute container path where the volume or bind mount is attached. Expects an absolute path with no control character or shell metacharacter. |
-| `<name>.volumes[].source` | string | — | Repository-relative source path of a bind mount. |
+| `<name>.volumes[].source` | string | — | Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content removed by retention. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter. |
 | `<name>.when` | `pre_release` · `post_release` · `manual` | `manual` | When a job runs: manual, pre_release, or post_release. |
 | `<name>.working_dir` | string | — | Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter. |
 

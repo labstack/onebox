@@ -13,7 +13,7 @@ workloads:
     env_files: [.env]
     published_ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
     volumes:
-      - {source: ./data, path: /data}
+      - {source: /srv/authentik/data, path: /data}
       - {source: ./custom-templates, path: /templates, mode: ro}
   worker:
     role: worker
@@ -23,8 +23,8 @@ workloads:
     env_files: [.env]
     volumes:
       - {source: /var/run/docker.sock, path: /var/run/docker.sock}
-      - {source: ./data, path: /data}
-      - {source: ./certs, path: /certs}
+      - {source: /srv/authentik/data, path: /data}
+      - {source: /srv/authentik/certs, path: /certs}
   postgresql:
     role: daemon
     image: docker.io/library/postgres:16-alpine

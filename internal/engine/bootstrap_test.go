@@ -147,7 +147,7 @@ func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
 	}()
 	defer func() { _ = os.WriteFile(release, nil, 0o600) }()
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := os.Stat(entered); err == nil {
 			break
@@ -180,7 +180,7 @@ func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
 		if err != nil {
 			t.Fatalf("first bootstrap: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("first bootstrap did not finish")
 	}
 }

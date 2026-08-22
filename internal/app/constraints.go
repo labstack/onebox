@@ -65,6 +65,12 @@ var (
 	gAbsPath = grammar{"absolute path", regexp.MustCompile("^/[^\\x00-\\x1f'\"$`\\\\]*$"),
 		"an absolute path with no control character or shell metacharacter"}
 
+	// Bind sources are rendered with Compose's short volume syntax, where a
+	// colon separates source, target, and mode. Accept both supported lifetime
+	// forms, but never a value that can add another field to that syntax.
+	gBindSource = grammar{"bind mount source", regexp.MustCompile("^(/[^\\x00-\\x1f'\"$`\\\\:]*|\\.(?:/[^\\x00-\\x1f'\"$`\\\\:]*)?)$"),
+		"an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter"}
+
 	gURLPath = grammar{"url path", regexp.MustCompile("^/[^\\x00-\\x1f'\"$` \\\\]*$"),
 		"a path beginning with /"}
 

@@ -54,6 +54,8 @@ func conformanceCases() []conformanceCase {
 		{"application with when", wl("w: {image: nginx, when: manual}"), false},
 		{"worker with schedule", wl("w: {image: nginx, role: worker, schedule: {cron: \"0 3 * * *\"}}"), false},
 		{"scheduled job", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\"}}"), true},
+		{"scheduled job run policy", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\", timeout: 45m, catch_up: false}}"), true},
+		{"scheduled job invalid timeout", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\", timeout: forever}}"), false},
 		{"daemon role", wl("db: {image: postgres:16, role: daemon}"), true},
 		{"routes list", wl("w: {image: nginx, routes: [{domain: x, port: 4317, protocol: tcp, scheme: h2c}]}"), true},
 		{"provider-qualified route middlewares", wl("w: {image: nginx, routes: [{domain: x, port: 8080, middlewares: [auth@file, rate-limit@file]}]}") + "proxy: {config: traefik}\n", true},
@@ -97,7 +99,7 @@ func conformanceCases() []conformanceCase {
 		// a managed volume read as holding nothing — and doctor, the backup gate
 		// and the backup gate each guessed the same wrong way.
 		{"volumes without persistence still load", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
-		{"a bind mount is not durable", wl("w: {image: nginx, volumes: [{source: ./cfg, path: /etc/app}], replicas: 3}"), true},
+		{"an absolute bind mount is external", wl("w: {image: nginx, volumes: [{source: /srv/app/cfg, path: /etc/app}], replicas: 3}"), true},
 		// Inference must not tighten a refusal against a project that loads.
 		{"inferred durability does not refuse replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}"), true},
 		{"declared durability still refuses replicas", wl("w: {image: nginx, volumes: [{name: data, path: /data}], persistence: {mode: durable}, replicas: 3}"), false},
@@ -135,7 +137,12 @@ func conformanceCases() []conformanceCase {
 		{"persistence external", wl("w: {image: nginx, persistence: {mode: external}}"), true},
 		{"volume scalar without a path", wl("w: {image: nginx, volumes: [data]}"), false},
 		{"volume scalar with a path", wl("w: {image: nginx, volumes: [{name: data, path: /data}]}"), true},
-		{"bind mount volume", wl("w: {image: nginx, volumes: [{source: ./data, path: /data}]}"), true},
+		{"relative read-only bind mount", wl("w: {image: nginx, volumes: [{source: ./config, path: /config, mode: ro}]}"), true},
+		{"relative writable bind mount", wl("w: {image: nginx, volumes: [{source: ./data, path: /data}]}"), false},
+		{"absolute writable bind mount", wl("w: {image: nginx, volumes: [{source: /srv/app/data, path: /data}]}"), true},
+		{"relative bind escaping the release", wl("w: {image: nginx, volumes: [{source: ../../data, path: /data, mode: ro}]}"), false},
+		{"bare bind source that Compose would treat as a named volume", wl("w: {image: nginx, volumes: [{source: config, path: /config, mode: ro}]}"), false},
+		{"bind source containing a compose separator", wl("w: {image: nginx, volumes: [{source: '/srv/app:data', path: /data}]}"), false},
 		{"published udp port", wl("w: {image: nginx, published_ports: [{host: 8555, container: 8555, protocol: udp}]}"), true},
 		// A fixed host socket cannot coexist with two rolling replicas. Recreate
 		// remains the explicit, valid way to publish it.
@@ -192,6 +199,34 @@ func TestConformance(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWritableBindMountsCannotUseReleaseStorage(t *testing.T) {
+	t.Run("relative source defaults to writable and is refused", func(t *testing.T) {
+		_, err := LoadBytes([]byte(wl("w: {image: nginx, volumes: [{source: ./data, path: /data}]}")), "ob.yml")
+		if err == nil {
+			t.Fatal("expected relative writable bind mount to be refused")
+		}
+		for _, want := range []string{"release-scoped", "mode: ro", "absolute source"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q does not contain %q", err, want)
+			}
+		}
+	})
+
+	t.Run("relative source is accepted when read-only", func(t *testing.T) {
+		_, err := LoadBytes([]byte(wl("w: {image: nginx, volumes: [{source: ./config, path: /config, mode: ro}]}")), "ob.yml")
+		if err != nil {
+			t.Fatalf("expected relative read-only bind mount to load: %v", err)
+		}
+	})
+
+	t.Run("absolute source remains writable external state", func(t *testing.T) {
+		_, err := LoadBytes([]byte(wl("w: {image: nginx, volumes: [{source: /srv/app/data, path: /data}]}")), "ob.yml")
+		if err != nil {
+			t.Fatalf("expected absolute writable bind mount to load: %v", err)
+		}
+	})
 }
 
 // TestDefaultsMaterialise guards the CUE rule that cost a review round: a

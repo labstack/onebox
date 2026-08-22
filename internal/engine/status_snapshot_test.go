@@ -60,7 +60,7 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"app", "host", "captured_at", "recorded_release", "roles", "services", "diverged", "complete"} {
+	for _, key := range []string{"app", "host", "captured_at", "recorded_release", "roles", "services", "schedules", "diverged", "complete"} {
 		if _, ok := doc[key]; !ok {
 			t.Fatalf("JSON missing %q: %s", key, b)
 		}
@@ -120,6 +120,41 @@ func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T
 	}
 	if got := snapshot.Incomplete.Completed; len(got) != 2 || got[0] != "release:web" || got[1] != "transfer" {
 		t.Fatalf("completed steps must be sorted: %v", got)
+	}
+}
+
+func TestStatusSnapshotIncludesScheduledJobFailure(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := statusFake("R2", "R2")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@nightly:service
+LoadState=loaded
+ActiveState=failed
+Result=exit-code
+ExecMainStatus=9
+@@nightly:timer
+LoadState=loaded
+ActiveState=active
+`}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Complete || !snapshot.Diverged || len(snapshot.Schedules) != 1 {
+		t.Fatalf("scheduled failure was not included as observed divergence: %#v", snapshot)
+	}
+	if got := snapshot.Schedules[0]; !got.Diverged || got.LastResult != "exit-code" || got.LastExitStatus != 9 {
+		t.Fatalf("unexpected scheduled-job status: %#v", got)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -43,6 +44,32 @@ func TestAcquireLockHappyPath(t *testing.T) {
 		!strings.Contains(seq, "printf '%s\\n' 7") ||
 		!strings.Contains(seq, `mv -f "$tmp" '/var/lib/ob/sample/epoch'`) {
 		t.Fatalf("epoch not persisted:\n%s", seq)
+	}
+}
+
+func TestAcquireLockSerializesWithScheduledJobs(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "/usr/bin/flock"):
+			return transport.Result{ExitCode: 76}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.AcquireLock(context.Background(), "R9", false)
+	if err == nil || !strings.Contains(err.Error(), "scheduled job") {
+		t.Fatalf("error = %v, want scheduled-job contention", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, cfg.NamesFor("production").ScheduleRunLock()) || !strings.Contains(seq, "--conflict-exit-code 76") {
+		t.Fatalf("application lock was not created under the schedule mutex:\n%s", seq)
 	}
 }
 

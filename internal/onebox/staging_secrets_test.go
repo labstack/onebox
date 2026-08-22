@@ -52,7 +52,7 @@ workloads:
     port: 3000
     domain: shop.example.com
     volumes:
-      - {source: ., path: /app}
+      - {source: ., path: /app, mode: ro}
     env_files:
       - shared.env
       - {file: api.enc.env, provider: sops}

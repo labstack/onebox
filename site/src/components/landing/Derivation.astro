@@ -1,0 +1,290 @@
+---
+/* The one thing on the page a visitor can operate.
+ *
+ * Turn a field on and watch the generated identity change beside it. Nothing in
+ * this category lets you touch anything, and Onebox can offer it honestly: the
+ * derivation shown is the documented one, from the project file reference, so
+ * the toy cannot promise something the binary would not do.
+ *
+ * The Markdown the page authors is the truth and the fallback — a plain list of
+ * what a minimal project derives. It is what `<path>.md` serves and what a
+ * reader without JavaScript sees. The interactive pane is built on top of it
+ * and only replaces it once it is working, so the section is never empty.
+ */
+---
+
+<div class="ob-deriv" data-ob-figure data-ob-deriv>
+  <div class="ob-deriv-static"><slot /></div>
+
+  <div class="ob-deriv-live" hidden data-ob-live>
+    <div class="ob-deriv-toggles" role="group" aria-label="Fields to declare">
+      <button class="ob-tg" type="button" data-k="domain" aria-pressed="true">domain</button>
+      <button class="ob-tg" type="button" data-k="replicas" aria-pressed="false">2 replicas</button>
+      <button class="ob-tg" type="button" data-k="postgres" aria-pressed="false">postgres</button>
+      <button class="ob-tg" type="button" data-k="worker" aria-pressed="false">worker</button>
+    </div>
+
+    <div class="ob-deriv-panes">
+      <div class="ob-pane">
+        <div class="ob-pane-head"><span>ob.yml</span><span data-ob-count>8 lines</span></div>
+        <pre tabindex="0"><code data-ob-yml></code></pre>
+      </div>
+      <div class="ob-pane">
+        <div class="ob-pane-head"><span>generated identity</span><span>owned by Onebox</span></div>
+        <ul class="ob-derived" data-ob-out aria-live="polite"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .ob-deriv-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+  }
+
+  .ob-tg {
+    font: inherit;
+    font-size: 0.76rem;
+    background: none;
+    border: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-3);
+    border-radius: 9px;
+    padding: 0.45rem 0.8rem;
+    cursor: pointer;
+  }
+
+  .ob-tg[aria-pressed="true"] {
+    background: var(--sl-color-accent-low);
+    border-color: var(--sl-color-accent);
+    color: var(--ob-code);
+  }
+
+  .ob-tg:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ob-tg {
+      transition:
+        border-color 0.15s ease,
+        background-color 0.15s ease;
+    }
+  }
+
+  .ob-deriv-panes {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
+    align-items: start;
+  }
+
+  @media (min-width: 48rem) {
+    .ob-deriv-panes {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .ob-pane {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    overflow: hidden;
+  }
+
+  .ob-pane-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid var(--sl-color-gray-5);
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-pane pre {
+    margin: 0;
+    padding: 0.85rem;
+    overflow-x: auto;
+    background: none;
+    border: 0;
+  }
+
+  .ob-pane pre:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: -2px;
+  }
+
+  .ob-pane code {
+    font-size: 0.74rem;
+    line-height: 1.9;
+    background: none;
+    padding: 0;
+    color: var(--sl-color-gray-2);
+  }
+
+  .ob-pane :global(.k) {
+    color: var(--sl-color-white);
+  }
+
+  .ob-derived {
+    list-style: none;
+    margin: 0;
+    padding: 0.3rem 0;
+  }
+
+  /* These rows are built by the script, so they never carry Astro's scope
+     class and a scoped selector silently does not match them. Everything the
+     script creates has to be addressed through :global. */
+  .ob-derived :global(li) {
+    padding: 0.5rem 0.85rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-derived :global(li:first-child) {
+    border-top: 0;
+  }
+
+  .ob-derived :global(code) {
+    display: block;
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: 0.74rem;
+    color: var(--ob-code);
+    overflow-wrap: anywhere;
+  }
+
+  /* The static list is the fallback; it keeps the section's shape until the
+     script swaps it, and stays as-is if the script never runs. */
+  .ob-deriv-static :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0.3rem 0;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+  }
+
+  .ob-deriv-static :global(li) {
+    margin: 0;
+    padding: 0.5rem 0.85rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    font-size: 0.74rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-deriv-static :global(li:first-child) {
+    border-top: 0;
+  }
+
+  .ob-deriv-static :global(code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: var(--ob-code);
+  }
+</style>
+
+<script>
+  /* Build the live pane, then hide the static one. In that order: if anything
+   * here throws, the reader still has the list the page authored.
+   */
+  const root = document.querySelector<HTMLElement>("[data-ob-deriv]");
+  const live = root?.querySelector<HTMLElement>("[data-ob-live]");
+  const staticList = root?.querySelector<HTMLElement>(".ob-deriv-static");
+  const ymlOut = root?.querySelector<HTMLElement>("[data-ob-yml]");
+  const listOut = root?.querySelector<HTMLElement>("[data-ob-out]");
+  const countOut = root?.querySelector<HTMLElement>("[data-ob-count]");
+
+  if (root && live && staticList && ymlOut && listOut && countOut) {
+    const on: Record<string, boolean> = {
+      domain: true,
+      replicas: false,
+      postgres: false,
+      worker: false,
+    };
+
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+    const render = () => {
+      const lines: string[] = [
+        `<span class="k">api_version</span>: onebox.run/v1`,
+        `<span class="k">app</span>: shop`,
+        `<span class="k">environments</span>:`,
+        `  <span class="k">production</span>:`,
+        `    <span class="k">server</span>: root@203.0.113.10`,
+        `<span class="k">image</span>: ghcr.io/acme/shop:1.4.0`,
+      ];
+      if (on.domain) {
+        lines.push(`<span class="k">domain</span>: shop.example.com`);
+        lines.push(`<span class="k">port</span>: 3000`);
+      }
+      if (on.replicas || on.worker) {
+        lines.push(`<span class="k">workloads</span>:`);
+        if (on.replicas) {
+          lines.push(`  <span class="k">web</span>:`);
+          lines.push(`    <span class="k">replicas</span>: 2`);
+        }
+        if (on.worker) {
+          lines.push(`  <span class="k">worker</span>:`);
+          lines.push(`    <span class="k">command</span>: bundle exec sidekiq`);
+        }
+      }
+      if (on.postgres) {
+        lines.push(`<span class="k">services</span>: {postgres: 17}`);
+      }
+
+      ymlOut.innerHTML = lines.join("\n");
+      countOut.textContent = `${lines.length} lines`;
+
+      const derived: Array<[string, string]> = [
+        ["shop-web-1", "the container, with a one-based replica ordinal that is never omitted"],
+      ];
+      if (on.replicas) {
+        derived.push(["shop-web-2", "the second replica, named the same way"]);
+      }
+      if (on.worker) {
+        derived.push(["shop-worker-1", "no route — nothing was declared for it"]);
+      }
+      derived.push(["shop_default", "the application's own Compose network"]);
+      if (on.domain) {
+        derived.push(["onebox-proxy", "Traefik, its static configuration, a router and TLS"]);
+      }
+      if (on.postgres) {
+        derived.push(["shop-postgres-1", "image, health check, and a credential generated on the server"]);
+        derived.push(["ob_shop_postgres_data", "the durable volume — renaming it would need a migration"]);
+        derived.push(["ob_shop", "the external service network"]);
+      }
+      derived.push(["/var/lib/ob/shop", "releases/ · current · journal · services"]);
+
+      listOut.innerHTML = derived
+        .map(([name, what]) => `<li><code>${esc(name)}</code>${esc(what)}</li>`)
+        .join("");
+    };
+
+    for (const button of Array.from(root.querySelectorAll<HTMLButtonElement>(".ob-tg"))) {
+      button.addEventListener("click", () => {
+        const key = button.dataset.k;
+        if (!key) return;
+        on[key] = !on[key];
+        button.setAttribute("aria-pressed", String(on[key]));
+        render();
+      });
+    }
+
+    render();
+    live.hidden = false;
+    staticList.hidden = true;
+  }
+</script>

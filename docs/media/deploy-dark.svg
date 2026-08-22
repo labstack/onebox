@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="404" viewBox="0 0 760 404" role="img" aria-label="An example Onebox session: ob plan prints a sealed diff, ob deploy rolls the workloads and finishes with release r-0042 serving.">
+  <!--
+    The README's example session, dark palette. Its pair is deploy-light.svg,
+    and the two are selected by the <picture> element in README.md; the line
+    content is duplicated between them, so a change to one is a change to both.
+
+    Colours are the documentation site's own tokens: gray-6 ground, gray-5
+    border, gray-2 body, gray-3 dim, accent-high for the prompt and for what the
+    deploy added, and the landing page's amber for the line that is a warning.
+
+    This is a rendering of the same transcript the README shows in prose, not a
+    recording of a run. It says so beneath the image.
+  -->
+  <!-- The runs of spaces are the column alignment. `xml:space` is deprecated
+       and browsers collapse them without this. -->
+  <style>text { white-space: pre; }</style>
+  <rect x="0.5" y="0.5" width="759" height="403" rx="10" fill="#141814" stroke="#22291f"/>
+  <path d="M0.5 44.5h759" stroke="#22291f"/>
+  <circle cx="24" cy="22" r="4.5" fill="#22291f"/>
+  <circle cx="42" cy="22" r="4.5" fill="#22291f"/>
+  <circle cx="60" cy="22" r="4.5" fill="#22291f"/>
+  <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" letter-spacing="1.4" fill="#87957f">
+    <text x="84" y="26">PLAN → APPROVE → DEPLOY</text>
+    <text x="736" y="26" text-anchor="end">OB.YML · PRODUCTION</text>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" fill="#b9c7b4">
+    <text x="24" y="76"><tspan fill="#8fd67a">$</tspan> ob plan --out ob-plan.json</text>
+    <text x="24" y="98" fill="#87957f">reading   ob.yml · production · root@203.0.113.10</text>
+    <text x="24" y="120" fill="#87957f">state     r-0041 serving · no drift</text>
+    <text x="24" y="164">~ shop-web-1       image   1.4.0 → 1.5.0</text>
+    <text x="24" y="186">~ shop-web-2       image   1.4.0 → 1.5.0</text>
+    <text x="24" y="208" fill="#8fd67a">+ shop-worker-1    new workload</text>
+    <text x="24" y="230" fill="#d0a44a">! migrate          pre_release · data effect unknown</text>
+    <text x="24" y="274" fill="#87957f">plan      sha256:9f21ab4c… · mode 0600 · expires 15m</text>
+    <text x="24" y="296" fill="#87957f">risk      migration · strong confirmation required</text>
+    <text x="24" y="340"><tspan fill="#8fd67a">$</tspan> ob deploy --plan ob-plan.json --approval ob-approval.json</text>
+    <text x="24" y="362" fill="#87957f">verified  checks/url 200 · X-App-Ready: yes</text>
+    <text x="24" y="384" fill="#8fd67a">serving   r-0042 · r-0041 superseded</text>
+  </g>
+</svg>

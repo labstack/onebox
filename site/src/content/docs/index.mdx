@@ -1,7 +1,7 @@
 ---
 title: Onebox
-description: Production operations for an application intentionally running on one server.
-summary: Landing page. What Onebox is, who it is for, and the fastest path into it.
+description: A deploy tool for one Linux server. Plan-before-apply, zero downtime, no agent on the host.
+summary: Landing page. What Onebox is, what it does, how it compares, and what it refuses.
 template: splash
 # This page's own title is the site title, so Starlight's
 # "<page title> <delimiter> <site title>" pattern rendered it as "Onebox ·
@@ -17,13 +17,6 @@ template: splash
 # this the link renders in Slack, X and LinkedIn as a card called "Onebox" —
 # identified by its own name and nothing else, which is the problem this block
 # exists to fix.
-#
-# The wording is the three beats the repository already uses on itself: the
-# GitHub description reads "plan-before-apply, zero-downtime deploys for one
-# box". As one sentence that is 61 characters and long enough to be cut short in
-# search results, so it is split into clauses rather than trimmed — every idea
-# survives. Search engines cut on rendered width rather than a character count,
-# so 59 is shorter, not guaranteed safe.
 head:
   - tag: title
     content: "Onebox · Plan-before-apply deploys. Zero downtime. One box."
@@ -31,102 +24,317 @@ head:
     attrs:
       property: og:title
       content: "Onebox · Plan-before-apply deploys. Zero downtime. One box."
+# The presence of `hero` is what makes Starlight render the Hero component in
+# place of a page title, and astro.config.mjs points that slot at the landing
+# page's own hero.
+#
+# The tagline opens by naming the category outright. The previous version led
+# with the claim — "production operations for an application intentionally
+# running on one server" — which only lands for a reader who already knows what
+# kind of thing this is. Coolify and Resend both name the category in the first
+# clause, and it is the single cheapest thing this page was missing.
 hero:
+  title: Deploys you can read before they happen.
   tagline: |
-    Production operations for an application intentionally running on one server.
-    Keep the economic and cognitive simplicity of a single box while making
-    deployments inspectable, resumable, and recoverable.
+    <b>Onebox is a deploy tool for one Linux server.</b> An alternative to
+    Kubernetes, a PaaS, or the pile of shell scripts you have now. You declare
+    the application in <code>ob.yml</code>; Onebox generates the Compose runtime,
+    seals a plan against what it observed, and refuses to run anything you have
+    not approved.
   actions:
     - text: Your first deploy
       link: /start/first-deploy
-      icon: right-arrow
-    - text: Project file reference
-      link: /reference/project-file
-      variant: minimal
+    - text: Install
+      link: /start/install
     - text: GitHub
       link: https://github.com/labstack/onebox
-      icon: external
-      variant: minimal
 read_when:
   - "Meeting Onebox for the first time"
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import Section from '../../components/landing/Section.astro';
+import ProofStrip from '../../components/landing/ProofStrip.astro';
+import Derivation from '../../components/landing/Derivation.astro';
+import Lifecycle from '../../components/landing/Lifecycle.astro';
+import Features from '../../components/landing/Features.astro';
+import InsideTheBox from '../../components/landing/InsideTheBox.astro';
+import Rows from '../../components/landing/Rows.astro';
+import Refusals from '../../components/landing/Refusals.astro';
+import Shipped from '../../components/landing/Shipped.astro';
+import CtaBar from '../../components/landing/CtaBar.astro';
 
-## The contract
+{/* Prose below is Markdown inside each component, never a prop: `<path>.md` and llms.txt are generated from this source with component tags stripped, so a prop would render for a person and vanish for an agent. Keep MDX comments on one line — toPlainMarkdown only strips single-line ones, and a wrapped comment leaks into the alternate. */}
 
-> Bring an application repository, one Linux server, secrets, intent, and
-> approval. Get structured observation, constrained change proposals, and
-> evidence-backed execution within a declared safety envelope.
+<ProofStrip>
 
-You describe what your application **is** in `ob.yml`. Onebox derives the Compose
-runtime, the container and volume names, the routing, the health gating, the
-proxy, and the supporting services. It connects over SSH — there is no deployment
-agent to install on the host.
+- **v2026.8.4** latest release
 
-<CardGrid stagger>
-  <Card title="Compose is generated" icon="seti:docker">
-    Not an input you write. Print it with `ob preview`, hand it over permanently
-    with `ob eject`. The escape hatch is real and it is one command.
-  </Card>
-  <Card title="Approval is not intent" icon="approve-check">
-    A statement that the user approved is data, not authority. Execution requires
-    a capability bound to the exact sealed plan, actor, server, observed state
-    and expiry.
-  </Card>
-  <Card title="Refuses rather than guesses" icon="warning">
-    `strategy: rolling` with no health check fails at load. A cron expression
-    whose meaning cannot be preserved fails at load. A driver Onebox cannot run
-    is refused, not invented.
-  </Card>
-  <Card title="Built to be driven by an agent" icon="rocket">
-    Structured output is a per-command contract: the
-    [output matrix](/reference/policies) names every command that takes
-    `--output json|ndjson`, and most of them take JSON only. Errors are typed,
-    and where honest guidance exists they carry one command in its exact role —
-    diagnostic, next, or resolving. Mutations are idempotent under retry.
-  </Card>
-</CardGrid>
+- **11** service drivers
 
-## The smallest complete project
+- **Apache-2.0** open source
 
-```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
-api_version: onebox.run/v1
-app: shop
-environments:
-  production:
-    server: root@203.0.113.10
-image: ghcr.io/acme/shop:1.4.0
-domain: shop.example.com
-port: 3000
-```
+- **Generated** reference, from the binary
 
-That is a complete project. It derives one application workload, its container
-name, the Traefik router and service, TLS, the release layout under
-`/var/lib/ob/shop`, and a retention policy — and `ob canonical` prints every one
-of those decisions with `# default` beside it.
+- **llms.txt** every page as Markdown
 
-## What Onebox is not
+</ProofStrip>
 
-A cluster manager, a Kubernetes replacement, a PaaS, or a hosting provider. Not
-multi-host, not multi-region, not a way to run several independent applications
-side by side on one host. Not a generic Docker dashboard or remote shell. Not a
-guarantee of availability after losing the only host.
+<Section eyebrow="The authoring contract">
 
-Rolling deployment can avoid interruption while the host is healthy. It cannot
-make a failed host available.
+## You write the left. Onebox owns the right.
 
-## Two things it does not do today
+A Compose file you wrote cannot be the contract — it describes containers, not intent. Turn fields on and watch what gets derived.
 
-**Backups cover managed services, not workload volumes.** A service declaring
-`backup` — PostgreSQL today — is backed up continuously to an off-host
-repository and can be recovered to a point in time. A workload's own volume is
-not, and `ob doctor` says so for every workload holding durable data, because
-silence there would read as approval.
+<Derivation>
 
-**`mongodb` runs a standalone server, not a replica set.** An application needing
-change streams or multi-document transactions will connect, authenticate, and
-then fail — in its own logs, not in anything Onebox says.
+- `shop-web-1` — the container, with a one-based replica ordinal that is never omitted
 
-See [Shipped vs proposed](/status/capabilities) for the full picture.
+- `shop_default` — the application's own Compose network
+
+- `onebox-proxy` — Traefik, its static configuration, a router and TLS
+
+- `/var/lib/ob/shop` — releases, current, journal and services
+
+</Derivation>
+
+</Section>
+
+<Section eyebrow="How it works">
+
+## Four commands, two artifacts.
+
+Nothing reaches the host without both of them, and both expire. Any drift or local change requires a new plan.
+
+<Lifecycle>
+
+1. `ob validate` — **Declare**
+
+   Read the project file, resolve every shorthand, contact nothing.
+
+2. `ob plan` — **Observe and propose**
+
+   Inspect the host, compare it to the declaration, and seal the result: the typed operation graph, exact config, host state, image digests and rendered Compose.
+
+3. `ob approve` — **Confirm, locally**
+
+   A tamper-evident confirmation covering that plan, target, risk and expiry. Migrations use the strong ceremony, where the operator types the release id.
+
+4. `ob deploy` — **Execute under a lock**
+
+   Health-gated rollout, traffic drain, verification, then a versioned release with an explicit predecessor.
+
+</Lifecycle>
+
+</Section>
+
+<Section eyebrow="What you get">
+
+## The whole operational surface.
+
+Not a roadmap — everything here runs today. [Shipped vs proposed](/status/capabilities) is the full account.
+
+<Features>
+
+- **Plan before apply**
+
+  A sealed, digest-bound plan you read before anything runs.
+
+- **Zero-downtime rolls**
+
+  Health-gated rolling replacement, with traffic drained first.
+
+- **Rollback**
+
+  Every release has an explicit predecessor to go back to.
+
+- **Resume and abort**
+
+  An interrupted deploy leaves a checkpoint, not wreckage.
+
+- **Managed databases**
+
+  Eleven drivers, each with a volume, a health check and a credential.
+
+- **PostgreSQL backups**
+
+  Continuous archiving, point-in-time restore, and a restore drill.
+
+- **SOPS secrets**
+
+  The whole declared graph rotates as one opaque generation.
+
+- **Locks and fencing**
+
+  One writer at a time, and an invalid epoch fails closed.
+
+- **Generated Compose**
+
+  Print it with `ob preview`, keep it for good with `ob eject`.
+
+- **Proxy and TLS**
+
+  Traefik, routers and certificates — or bring your own proxy.
+
+- **Typed output**
+
+  One envelope, JSON or NDJSON, for every finite machine result.
+
+- **Scheduled jobs**
+
+  Cron whose meaning is preserved exactly, or refused at load.
+
+</Features>
+
+</Section>
+
+<Section eyebrow="What it owns">
+
+## Inside the box.
+
+Every name here is contract: once a persistent resource exists, its name cannot change without a migration.
+
+<InsideTheBox>
+
+Generated identity, published in the [project file reference](/reference/project-file) and produced by the binary — so the diagram cannot describe something the loader would not accept.
+
+</InsideTheBox>
+
+</Section>
+
+<Section eyebrow="Why not something else">
+
+## You already have four options.
+
+Three of them are reasonable. Here is when each one wins, and when it does not.
+
+<Rows>
+
+- **Kubernetes**
+
+  Wins the moment you genuinely need more than one machine. On one box you are running a control plane to schedule containers onto the host it is already running on, and paying for that in operational surface every day.
+
+- **A PaaS**
+
+  Wins when you would rather pay than operate. You give up the box, the data locality and the bill; Onebox keeps all three on hardware you already have.
+
+- **Shell scripts**
+
+  What most single-server deploys actually are. They work until one fails halfway and nobody can say what state the host is in. There is no plan to read, no lock, no journal, and no way back.
+
+- **Kamal**
+
+  The closest thing to this, and good. It is imperative: you run the deploy and watch it happen. Onebox seals a plan first, binds an approval to it, refuses what it cannot honour, and reconciles an interrupted run instead of leaving that to you.
+
+</Rows>
+
+</Section>
+
+<Section eyebrow="What it refuses">
+
+## Refusing is the feature.
+
+A tool that guesses produces a container that starts and stores nothing durable, or a job that runs at nearly the right time.
+
+<Refusals>
+
+- `at load`
+
+  **A roll with nothing to gate on**
+
+  `strategy: rolling` with no health check. A rolling workload cannot publish a host port either, because two replicas cannot hold the same port during a roll.
+
+- `at load`
+
+  **A cron whose meaning would change**
+
+  A schedule Onebox cannot preserve exactly, rather than one approximated. A job that runs at nearly the right time is a job that ran at the wrong time.
+
+- `at load`
+
+  **A driver it cannot run**
+
+  Eleven drivers are supported. A twelfth name is refused, because inventing an image from it produces a container that starts and stores nothing durable.
+
+- `shorthand_and_workloads`
+
+  **Two ways of saying the same thing**
+
+  Top-level workload shorthand mixed with a `workloads` block. It would be ambiguous which workload the top-level fields describe, so neither reading is chosen.
+
+- `host_owner_mismatch`
+
+  **A second application on a claimed host**
+
+  Ownership is recorded at bootstrap and checked by every mutating command. It is released only once nothing of the application remains.
+
+- `at plan`
+
+  **A promise it cannot keep**
+
+  A backup policy on a driver that cannot honour one, and a major version change a driver cannot perform in place — rather than replacing the container and leaving the data intact and unreachable.
+
+</Refusals>
+
+</Section>
+
+<Section eyebrow="Limits">
+
+## What it does not do today.
+
+Published here rather than three clicks away, because a capability list that omits its gaps is how an operator ends up trusting a backup that was never taken.
+
+<Rows>
+
+- **Backups cover managed services, not workload volumes**
+
+  A service declaring `backup` — PostgreSQL today — is archived off-host and restorable to a point in time. A workload's own volume is not, and `ob doctor` says so for every workload holding durable data.
+
+- **`mongodb` runs a standalone server, not a replica set**
+
+  An application needing change streams or multi-document transactions will connect, authenticate, and then fail — in its own logs, not in anything Onebox says.
+
+- **One host, and no failover**
+
+  Rolling deployment can avoid interruption while the box is healthy. It cannot make a failed physical host available. Recovery onto another host is a separate, evidence-backed workflow.
+
+[Shipped vs proposed](/status/capabilities) is the full account: what the binary does today, and what the schema accepts but cannot yet execute.
+
+</Rows>
+
+</Section>
+
+<Section eyebrow="Recently shipped">
+
+## Still moving.
+
+Releases use `vYYYY.M.REVISION`, and each UTC calendar month starts at revision zero.
+
+<Shipped>
+
+- `v2026.8.4`
+
+  Owned application networks enforced on every mutating command.
+
+- `v2026.8.3`
+
+  The release environment is replayed on destroy.
+
+- `v2026.8.2`
+
+  Fail closed on invalid fencing epochs.
+
+</Shipped>
+
+</Section>
+
+<CtaBar>
+
+## Start with a plan you can read.
+
+`ob init` scaffolds a project from the Compose file you already have. It is a starting point, not permission to deploy — review workload types, persistence semantics, readiness and job data effects before running a plan.
+
+- [Your first deploy](/start/first-deploy)
+- [Install](/start/install)
+- [What ships today](/status/capabilities)
+
+</CtaBar>

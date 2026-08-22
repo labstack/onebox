@@ -63,6 +63,32 @@
   --sl-color-black: #f6f8f4;
 }
 
+/* The landing page marks refusals, warnings inside its example transcript, and
+   the sealed plan's expiry in amber rather than the accent. That follows the
+   rule the asides already keep: green means interactive on this site, so a
+   refusal drawn in it would read as something to click. Declared here because
+   the landing components are scoped and cannot define a shared token.
+
+   Both values are checked against the surface they land on, which is
+   --sl-color-gray-6 in either theme, not the page background.
+
+   The landing page also names commands, generated identity and override flags
+   in green, and that cannot be --sl-color-accent-high in both themes: in light
+   it holds #1a3d13, which sits a shade off the near-black body colour and reads
+   as ordinary text rather than as the accent. --ob-code therefore takes the
+   high tint on dark and the mid tint on light, where each is the one that
+   actually looks green against its own ground. The accent-low/accent-high
+   pairing is still what the filled buttons use; only inline text moves. */
+:root {
+  --ob-warn: #d0a44a;
+  --ob-code: var(--sl-color-accent-high);
+}
+
+:root[data-theme="light"] {
+  --ob-warn: #8a5a00;
+  --ob-code: var(--sl-color-accent);
+}
+
 /* Monospace runs wider per character and tires the eye faster, so prose gets
    more leading than Starlight's 1.75 default — genuinely more; an earlier
    version of this file set 1.72 while claiming to open it.
@@ -80,6 +106,41 @@
 .sl-markdown-content td,
 .sl-markdown-content th {
   line-height: 1.45;
+}
+
+/* The same width problem, in the previous/next links at the foot of a page.
+   Starlight sizes their titles at 1.5rem, which is right for the proportional
+   face it ships with and too large in this one: "Reading the file back" wrapped
+   onto a second line inside a 352px card at a 1440px viewport, and every title
+   long enough to matter did the same. At 1rem the longest page title in the
+   sidebar — "Adopt an existing Compose file" — fits on one line.
+
+   The label above it moves the other way. Starlight leaves "Previous" and
+   "Next" at body size, so the label read as loudly as the prose it followed,
+   while every other piece of chrome on the page — the sidebar, the table of
+   contents, the edit link, the last-updated date — sits at --sl-text-sm. It is
+   set as an eyebrow instead, matching the section labels on the landing page.
+
+   The label is a bare text node with no element of its own, so it is styled on
+   the link's span and the title resets what it should not inherit. */
+.pagination-links a > span {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+.pagination-links a .link-title {
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--sl-color-white);
+}
+
+.pagination-links a svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 /* With one face everywhere, weight and tracking are what separate a heading

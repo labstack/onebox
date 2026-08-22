@@ -8,9 +8,16 @@ everyone knows where the line is.
 
 ## What this covers
 
-- The name "Onebox" and the mark "ob".
+- The name "Onebox" and the `ob` command name.
 - The Onebox logo and wordmark.
-- The container image name `ghcr.io/labstack/onebox`.
+- The domain `onebox.run`.
+- The release artifact and package names — `onebox_*` archives, `.deb` and
+  `.rpm` packages, the Homebrew cask in `labstack/homebrew-tap`, and the Scoop
+  manifest in `labstack/scoop-bucket`.
+
+`ob` is two letters and descriptive of the command it invokes. Naming it here
+records how it is used in this project; it is not a claim to those letters in
+general.
 
 ## You do not need permission to
 

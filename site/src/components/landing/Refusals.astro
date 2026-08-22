@@ -1,0 +1,107 @@
+---
+/* Turns the page's list of refusals into a card grid.
+ *
+ * The refusals are authored as a Markdown list on the page so they survive into
+ * `<path>.md` and llms.txt. Each item opens with the code or the moment it is
+ * refused in backticks, then the refusal in bold, then the reason — this reads
+ * as an ordinary list anywhere the styles do not reach.
+ */
+---
+
+<div class="ob-refusals" data-ob-figure><slot /></div>
+
+<style>
+  .ob-refusals :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  @media (min-width: 45rem) {
+    .ob-refusals :global(ul) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 68rem) {
+    .ob-refusals :global(ul) {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .ob-refusals :global(li) {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    padding: 1.1rem;
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.75;
+    color: var(--sl-color-gray-3);
+  }
+
+  /* A mark per refusal, drawn in amber like the code above it, applied by
+     position with a CSS mask so it needs no script and cannot drift from the
+     text at runtime. Reordering the list in the page reorders the marks. */
+  .ob-refusals :global(li)::before {
+    content: "";
+    display: block;
+    width: 1.3rem;
+    height: 1.3rem;
+    margin-bottom: 0.75rem;
+    background: var(--ob-warn);
+    -webkit-mask: var(--ob-mark) center / contain no-repeat;
+    mask: var(--ob-mark) center / contain no-repeat;
+  }
+
+  .ob-refusals :global(li:nth-child(1)) { --ob-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'><path d='M5 18V9M19 18V9M5 13.5h14M9 8.5l6 10'/></svg>"); }
+  .ob-refusals :global(li:nth-child(2)) { --ob-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 7v5l3.5 2'/></svg>"); }
+  .ob-refusals :global(li:nth-child(3)) { --ob-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'><path d='M8 4v6M12 4v6M16 4v6M6 10h12v4H6zM12 14v6'/></svg>"); }
+  .ob-refusals :global(li:nth-child(4)) { --ob-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20V8M12 12L6 6M12 12l6-6'/></svg>"); }
+  .ob-refusals :global(li:nth-child(5)) { --ob-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'><rect x='4' y='11' width='16' height='9' rx='2'/><path d='M8 11V8a4 4 0 0 1 8 0v3'/></svg>"); }
+  .ob-refusals :global(li:nth-child(6)) { --ob-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3l8 4v6c0 5-3.5 7.5-8 8.5C7.5 20.5 4 18 4 13V7z'/><path d='M8 16L16 8'/></svg>"); }
+
+  /* Each item is three paragraphs: the code or the moment it is refused, the
+     refusal, then the reason. A loose Markdown list gives each its own <p>,
+     which is what lets the card have a header without any wrapper markup. */
+  .ob-refusals :global(li > p) {
+    margin: 0;
+  }
+
+  /* Amber, not the accent: this site reserves green for things to click, and a
+     refusal drawn in it would read as an invitation. */
+  .ob-refusals :global(li > p:first-child) {
+    margin-bottom: 0.6rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: var(--ob-warn);
+    overflow-wrap: anywhere;
+  }
+
+  .ob-refusals :global(li > p:first-child code) {
+    color: inherit;
+  }
+
+  .ob-refusals :global(li > p:nth-child(2)) {
+    margin-bottom: 0.45rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .ob-refusals :global(li > p:nth-child(2) strong) {
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .ob-refusals :global(li code) {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-2);
+  }
+</style>

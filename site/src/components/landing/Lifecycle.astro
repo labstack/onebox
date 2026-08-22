@@ -1,0 +1,154 @@
+---
+/* The four commands as a rail, with the two artifacts falling out of the middle
+ * two — then the steps themselves.
+ *
+ * The rail replaces four paragraphs that were describing a sequence. It shows
+ * the thing the paragraphs could not: that `ob plan` and `ob approve` each
+ * produce a file, and that execution needs both.
+ *
+ * The figure is decorative to a screen reader because the ordered list beneath
+ * it says the same thing in words — and that list is what the page authors,
+ * what `<path>.md` serves, and what remains if the SVG never loads.
+ */
+---
+
+<div class="ob-life" data-ob-figure>
+  <svg class="ob-rail" viewBox="0 0 700 168" aria-hidden="true" focusable="false">
+    <path d="M46 62h608" stroke="var(--sl-color-gray-5)" stroke-width="2"></path>
+
+    <circle cx="46" cy="62" r="8" fill="var(--sl-color-black)" stroke="var(--sl-color-accent)" stroke-width="2"></circle>
+    <text x="46" y="34" class="r-name" text-anchor="middle">ob validate</text>
+    <text x="46" y="90" class="r-sm" text-anchor="middle">contacts nothing</text>
+
+    <circle cx="248" cy="62" r="8" fill="var(--sl-color-black)" stroke="var(--sl-color-accent)" stroke-width="2"></circle>
+    <text x="248" y="34" class="r-name" text-anchor="middle">ob plan</text>
+    <text x="248" y="90" class="r-sm" text-anchor="middle">observes the host</text>
+
+    <circle cx="451" cy="62" r="8" fill="var(--sl-color-black)" stroke="var(--sl-color-accent)" stroke-width="2"></circle>
+    <text x="451" y="34" class="r-name" text-anchor="middle">ob approve</text>
+    <text x="451" y="90" class="r-sm" text-anchor="middle">binds to that plan</text>
+
+    <circle cx="654" cy="62" r="8" fill="var(--sl-color-accent)"></circle>
+    <text x="654" y="34" class="r-name" text-anchor="middle">ob deploy</text>
+    <text x="654" y="90" class="r-sm" text-anchor="middle">under a lock</text>
+
+    <path d="M248 70v32h58" fill="none" stroke="var(--sl-color-gray-5)" stroke-width="1.5"></path>
+    <rect x="306" y="88" width="108" height="26" rx="5" fill="var(--sl-color-accent-low)" stroke="var(--sl-color-accent)"></rect>
+    <text x="316" y="105" class="r-file">ob-plan.json</text>
+
+    <path d="M451 70v52h44" fill="none" stroke="var(--sl-color-gray-5)" stroke-width="1.5"></path>
+    <rect x="495" y="109" width="134" height="26" rx="5" fill="var(--sl-color-accent-low)" stroke="var(--sl-color-accent)"></rect>
+    <text x="505" y="126" class="r-file">ob-approval.json</text>
+
+    <text x="46" y="158" class="r-sm">both must be present, and both expire</text>
+  </svg>
+
+  <div class="ob-steps"><slot /></div>
+</div>
+
+<style>
+  .ob-life {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .ob-rail {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    padding: 0.6rem;
+  }
+
+  .ob-rail text {
+    font-family: var(--sl-font-mono);
+  }
+
+  .r-name {
+    font-size: 12px;
+    fill: var(--sl-color-white);
+  }
+
+  .r-sm {
+    font-size: 10.5px;
+    fill: var(--sl-color-gray-3);
+  }
+
+  .r-file {
+    font-size: 10.5px;
+    fill: var(--sl-color-white);
+  }
+
+  .ob-steps :global(ol) {
+    list-style: none;
+    counter-reset: ob-step;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
+  }
+
+  @media (min-width: 44rem) {
+    .ob-steps :global(ol) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .ob-steps :global(ol > li) {
+    counter-increment: ob-step;
+    position: relative;
+    margin: 0;
+    padding: 0.85rem 1rem 0.9rem 2.6rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-steps :global(ol > li)::before {
+    content: "0" counter(ob-step);
+    position: absolute;
+    left: 1rem;
+    top: 0.95rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: var(--sl-color-gray-4);
+  }
+
+  .ob-steps :global(li > p) {
+    margin: 0;
+  }
+
+  .ob-steps :global(li > p:first-child) {
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: var(--sl-color-white);
+  }
+
+  .ob-steps :global(li > p:first-child code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: 0.78rem;
+    color: var(--ob-code);
+  }
+
+  .ob-steps :global(li > p:first-child strong) {
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .ob-steps :global(li code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-2);
+  }
+</style>

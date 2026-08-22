@@ -1,0 +1,75 @@
+# The machine the server suite deploys to.
+#
+# It stands in for the box an operator rents: a bare Ubuntu with sshd and
+# nothing else. Nothing is provisioned here beyond root's key, because what
+# ob does to an unprepared machine is the thing under test — a guest that
+# arrives with a container runtime already installed would answer the
+# bootstrap contract by assumption instead of by observation.
+#
+# Lima chooses the hypervisor: vz on Apple Silicon, qemu on the CI runner.
+# vmType is deliberately unset, and rosetta deliberately absent — nothing in
+# this repository is amd64-only (internal/app/backup_walg.go pins wal-g for
+# both architectures and postgres:18 is multi-arch), so translating x86_64
+# binaries on an arm64 guest would only make the Mac run something CI never
+# runs.
+minimumLimaVersion: 2.2.0
+
+# Pinned to an immutable dated release, by digest, per architecture. The
+# undated `release/` directory is a moving symlink: pinning to it would let
+# the guest change under a run that changed nothing, and floating URLs rot on
+# each architecture independently, which breaks exactly one of the two
+# environments this suite exists to keep identical.
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release-20260814/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+    digest: "sha256:6e40c07ae715f744f84af0bec76415cc1987dd115b4b8de437818561f01a3733"
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release-20260814/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+    digest: "sha256:4a281a921b8d7db952895ab619736f10efe9f63e111fa5b5779ed18f023818aa"
+
+cpus: 2
+memory: "4GiB"
+disk: "20GiB"
+
+# Lima installs containerd by default. A guest that arrives with a container
+# runtime cannot test the contract ce7e41b established, which is that Docker
+# is the operator's to provide through the bootstrap hook.
+containerd:
+  system: false
+  user: false
+
+# No shared filesystem, for two reasons. It is the one place the two
+# hypervisors genuinely differ — virtiofs under vz, 9p under qemu — and
+# removing it removes that divergence from the harness. And ob's own
+# tar-over-SSH upload is what should be carrying payloads to a server: it is
+# the code path under test, and a mount would route around it.
+mounts: []
+
+# Only Lima's generated key reaches the guest. The developer's personal keys
+# are irrelevant to a throwaway machine and would make the harness behave
+# differently on a laptop than on a runner.
+ssh:
+  loadDotSSHPubKeys: false
+
+provision:
+  # ob connects as root and never elevates: there is no `sudo` anywhere in
+  # internal/engine, internal/transport or internal/onebox, and it writes unit
+  # files directly under /etc/systemd/system. A guest reachable only as an
+  # unprivileged user would fail at the first schedule sync.
+  #
+  # Overwriting rather than appending is deliberate: Ubuntu's cloud images
+  # install a forced-command in root's authorized_keys that prints a refusal
+  # and exits.
+  - mode: system
+    script: |
+      #!/bin/sh
+      set -eu
+      install -d -m 0700 /root/.ssh
+      cat /home/*/.ssh/authorized_keys > /root/.ssh/authorized_keys
+      chmod 0600 /root/.ssh/authorized_keys
+      # A bare machine is the premise of this guest. If an image ever ships
+      # one, fail here rather than let the bootstrap tests pass vacuously.
+      if command -v docker >/dev/null 2>&1; then
+        echo "guest arrived with docker installed; bootstrap coverage would be vacuous" >&2
+        exit 1
+      fi

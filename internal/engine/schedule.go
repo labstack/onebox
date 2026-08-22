@@ -192,7 +192,19 @@ func setOf(in []string) map[string]struct{} {
 // destroyed app's timer keeps firing against a release directory that has been
 // deleted, failing every minute forever and explaining itself to nobody.
 func (e *Engine) RemoveSchedules(ctx context.Context) error {
-	prefix := "ob-" + e.Spec.Name + "-"
+	// Both namespaces this application installs into.
+	//
+	// Backup timers are deliberately named outside the job scheduler's
+	// namespace — app.BackupTimerForEnvironment explains why: a deploy used to
+	// treat them as "no longer declared" and delete every scheduled backup.
+	// Teardown is the opposite case and needs both, and matching only the job
+	// prefix meant `ob destroy` left ob-backup-<app>-<env>-<service>-<op>
+	// timers loaded and firing against a release directory it had just
+	// deleted. They belong to this application and they go with it.
+	prefixes := []string{
+		"ob-" + e.Spec.Name + "-",
+		app.BackupUnitPrefix + e.Spec.Name + "-",
+	}
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
 	if err != nil {
 		return err
@@ -200,8 +212,14 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 	var units []string
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		unit := strings.TrimSpace(line)
-		if strings.HasPrefix(unit, prefix) && strings.HasSuffix(unit, ".timer") && unitName.MatchString(unit) {
-			units = append(units, strings.TrimSuffix(unit, ".timer"))
+		if !strings.HasSuffix(unit, ".timer") || !unitName.MatchString(unit) {
+			continue
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(unit, prefix) {
+				units = append(units, strings.TrimSuffix(unit, ".timer"))
+				break
+			}
 		}
 	}
 	if len(units) == 0 {

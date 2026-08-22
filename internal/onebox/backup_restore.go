@@ -2,8 +2,11 @@ package onebox
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
 )
 
@@ -13,7 +16,7 @@ import (
 // The locking is the same as enablement's and for the same reason: a restore
 // replaces a database's data, so it must not interleave with a deploy, another
 // recovery, or a scheduled backup.
-func executeRecovery(ctx context.Context, e *engine.Engine, service, target string, promote bool, operationID string) error {
+func executeRecovery(ctx context.Context, e *engine.Engine, service, target, generation string, promote bool, operationID string) error {
 	if service == "" {
 		return fmt.Errorf("recovery requires a service name")
 	}
@@ -62,11 +65,69 @@ func executeRecovery(ctx context.Context, e *engine.Engine, service, target stri
 		}
 		return failure
 	}
+	selected := current
+	if generation != "" {
+		selectedGeneration := generation
+		if generation == "legacy" {
+			selectedGeneration = ""
+		} else if !recoveryGeneration.MatchString(generation) {
+			return fmt.Errorf("repository generation %q is not a PostgreSQL system identifier or legacy", generation)
+		}
+		selected.DatabaseSystemIdentifier = selectedGeneration
+		selected.BackupRepositoryGeneration = selectedGeneration
+		if err := selected.Seal(); err != nil {
+			return err
+		}
+		runtime := selected.RuntimeState()
+		runtime.DigestAvailable = true
+		if err := e.RebindServiceRuntimeStates(map[string]app.ServiceRuntimeState{service: runtime}); err != nil {
+			return err
+		}
+	}
 
 	outcome, err := e.RecoverService(ctx, service, target, promote)
 	if err != nil {
+		if generation != "" {
+			if outcome.RetainStaging && outcome.DatabaseSystemIdentifier != "" {
+				selected.DatabaseSystemIdentifier = outcome.DatabaseSystemIdentifier
+				if generation != "legacy" {
+					selected.BackupRepositoryGeneration = outcome.DatabaseSystemIdentifier
+				}
+				if persistErr := writeRecoveryBinding(context.WithoutCancel(ctx), e, service, selected); persistErr != nil {
+					return errors.Join(err, fmt.Errorf("cannot record the binding required by the partially promoted recovered service: %w", persistErr))
+				}
+			} else {
+				runtime := current.RuntimeState()
+				runtime.DigestAvailable = true
+				if rebindErr := e.RebindServiceRuntimeStates(map[string]app.ServiceRuntimeState{service: runtime}); rebindErr == nil {
+					_ = e.StageServiceCompose(context.WithoutCancel(ctx), service)
+				}
+			}
+		}
 		return err
+	}
+	if promote && generation != "" {
+		selected.DatabaseSystemIdentifier = outcome.DatabaseSystemIdentifier
+		if generation != "legacy" {
+			selected.BackupRepositoryGeneration = outcome.DatabaseSystemIdentifier
+		}
+		if err := writeRecoveryBinding(ctx, e, service, selected); err != nil {
+			return fmt.Errorf("recovered service is running but its selected repository binding could not be recorded: %w", err)
+		}
 	}
 	e.ReportRecovery(outcome)
 	return nil
+}
+
+var recoveryGeneration = regexp.MustCompile(`^[0-9]{1,20}$`)
+
+func writeRecoveryBinding(ctx context.Context, e *engine.Engine, service string, state BackupLifecycleState) error {
+	if err := state.Seal(); err != nil {
+		return err
+	}
+	body, err := encodeBackupLifecycleState(state)
+	if err != nil {
+		return err
+	}
+	return e.WriteBackupLifecycleState(ctx, service, body)
 }

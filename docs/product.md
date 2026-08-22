@@ -38,12 +38,12 @@ identity, not user configuration.
 
 The broader managed-operations goal is direction, not an inventory. Owned today:
 host bootstrap, the container runtime check, the proxy and its TLS, the host
-ingress network, release
-staging and retention, the supporting data services and their credentials, and
-scheduled jobs. **Not owned today: backups, restore proof, and log rotation.**
-Onebox says so rather than implying otherwise — `ob doctor` reports the absence
-of backups for every workload and service holding durable data, because silence
-there would read as approval.
+ingress network, release staging and retention, the supporting data services and
+their credentials, scheduled jobs, and PostgreSQL backup, point-in-time recovery,
+and on-demand restore proof. **Not owned today: workload-volume backups,
+unattended full restore drills, and log rotation.** Onebox says so rather than
+implying otherwise — `ob doctor` reports every durable workload or service that
+has no executable backup contract, because silence there would read as approval.
 
 The distinction matters more than it looks. A product direction that reads as a
 capability list is how an operator ends up believing their database is backed

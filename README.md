@@ -1,14 +1,17 @@
 <div align="center">
 
-# onebox
+<img src="site/public/favicon.svg" width="72" height="72" alt="Onebox">
+
+# Onebox
 
 **Plan-before-apply deploys. Zero downtime. One box.**
 
-<!-- One badge per line renders as one badge per row: GitHub turns a single
-     newline inside a paragraph into a line break. Same for the links below. -->
+Production operations for one application intentionally running on one Linux
+server.
+
 [![CI](https://img.shields.io/github/actions/workflow/status/labstack/onebox/ci.yml?branch=main&label=ci&color=4f9a3c&labelColor=22291f)](https://github.com/labstack/onebox/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/labstack/onebox?label=release&color=4f9a3c&labelColor=22291f)](https://github.com/labstack/onebox/releases) [![Licence](https://img.shields.io/badge/licence-Apache--2.0-4f9a3c?labelColor=22291f)](LICENSE)
 
-[Documentation](https://onebox.run) · [Your first deploy](https://onebox.run/start/first-deploy) · [What it refuses](https://onebox.run/explanation/what-onebox-refuses) · [Shipped vs proposed](https://onebox.run/status/capabilities)
+[Documentation](https://onebox.run) · [Install](https://onebox.run/start/install) · [First deploy](https://onebox.run/start/first-deploy) · [Capabilities](https://onebox.run/status/capabilities) · [Releases](https://github.com/labstack/onebox/releases)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/media/deploy-dark.svg">
@@ -21,19 +24,47 @@
 
 ---
 
-**Production operations for an application intentionally running on one
-server.**
+Onebox keeps the economic and cognitive simplicity of a single server without
+turning production into a pile of scripts. You declare the application in
+`ob.yml`; Onebox derives the Compose runtime, stable names, routing, supporting
+services, and release operations.
 
-Onebox keeps the economic and cognitive simplicity of a single box while making
-deployments inspectable, resumable, and recoverable. You describe what your
-application *is* in `ob.yml`; Onebox derives the Compose runtime, the names, the
-routing, and the supporting services. It connects over SSH — there is no
-deployment agent to install on the host.
+It connects over SSH with host-key verification. There is no deployment agent
+to install on the host, and nothing runs against production until you approve
+the exact plan you reviewed.
 
-Nothing runs against production until you have read the exact change and
-approved that exact plan.
+## Why Onebox
 
-## The smallest complete project
+| Concern | Contract |
+| --- | --- |
+| Change review | A digest-bound plan shows the exact config, images, host state, rendered Compose, payloads, and operation graph before apply. |
+| Deployment | Health-gated rolling replacement drains traffic first and stops on failed readiness. |
+| Recovery | Every release records its predecessor; interrupted work can be resumed or aborted, and a failed deploy rolls back by default. |
+| Host access | Agentless SSH, key authentication, and mandatory `known_hosts` verification. |
+| Runtime ownership | Generated Compose stays inspectable with `ob preview` and can be taken over permanently with `ob eject`. |
+| Automation | Human output, JSON envelopes, and NDJSON event streams come from the same lifecycle service. |
+
+You administer Linux, SSH access, and Docker. Onebox owns the generated
+application runtime inside that boundary.
+
+## Quick start
+
+### 1. Install the CLI
+
+Homebrew, Scoop, release archives, and Debian/RPM packages are available. The
+[installation guide](https://onebox.run/start/install) includes checksum
+verification and source builds.
+
+```sh
+brew install labstack/tap/onebox   # macOS or Linux
+scoop install labstack/onebox      # Windows
+ob version
+```
+
+### 2. Declare the application
+
+Starting from an existing Compose project, `ob init` writes the first draft.
+This is a complete single-workload project:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
@@ -47,192 +78,110 @@ domain: shop.example.com
 port: 3000
 ```
 
-That is a complete project. It derives one application workload, its container
-name, the Traefik router and service, TLS, the release layout under
-`/var/lib/ob/shop`, and a retention policy. `ob canonical` prints every one of
-those decisions with `# default`, `# shorthand` or `# override` beside it,
-because the difference between a value someone chose and one that appeared by
-itself is what a person checking a production configuration needs to see.
+It derives the application container, Traefik routing and TLS, release layout
+under `/var/lib/ob/shop`, and retention policy. `ob canonical` prints every
+derived value with its source: `# default`, `# shorthand`, or `# override`.
 
-A Compose file you wrote cannot be the contract. Compose is an artifact Onebox
-generates from the declaration, digest-bound into the plan, printable with
-`ob preview`, and permanently ejectable with `ob eject`. `ob init` scaffolds a
-project from an existing Compose file, and individual services can be adopted
-with `compose: docker-compose.yml#service`.
-
-## Install
-
-Released archives and Linux packages come from GitHub Releases, macOS installs
-through Homebrew, and Windows through Scoop. Follow the verified steps in the
-[installation guide](https://onebox.run/start/install), then confirm which
-runner will execute plans:
+### 3. Plan, approve, deploy
 
 ```sh
-ob version
-ob doctor
-```
-
-Both commands also take `--output json`.
-
-To build from a checkout:
-
-```sh
-just build      # lands in ./bin/ob, deliberately not on PATH
-just install    # copies it to ~/.local/bin and prints what it will answer to
-```
-
-A checkout build that shadows an installed release makes `ob` mean the working
-tree, and the difference only surfaces when someone is already confused about
-which binary produced a result. `OB_BIN_DIR` changes where the build lands and
-`OB_INSTALL_DIR` where the install goes; `just --list` shows the rest.
-
-## The four commands
-
-```sh
-ob validate    # no side effects, no target contacted
+ob validate
+ob canonical
+ob bootstrap
 ob plan --out ob-plan.json
 ob approve --plan ob-plan.json --out ob-approval.json
 ob deploy --plan ob-plan.json --approval ob-approval.json
 ```
 
-The plan is a mode-`0600`, digest-protected executable envelope containing the
-typed operation graph and exact config, Compose, host-state, image, rendered
-Compose, and payload bindings. It expires after 15 minutes; any drift or local
-payload change requires a new plan.
+`ob validate` and `ob canonical` are local. `ob bootstrap` is the first command
+that changes the server; `ob plan` is read-only. Its artifact is mode `0600` and
+expires after 15 minutes; drift or a changed local payload requires a new one.
 
-`ob approve` writes a mode-`0600`, digest-bound local confirmation covering the
-plan, target, inputs, risk, operator label, and expiry. It is tamper-evident,
-but it is not authenticated identity or an independently issued capability. When
-approval policy is enabled, migrations and unknown data effects use the strong
-ceremony, where the operator types the release ID.
+Approval is a short-lived, digest-bound local confirmation. It is
+tamper-evident ceremony, not authenticated identity or an independently issued
+capability. See [Your first deploy](https://onebox.run/start/first-deploy) for
+the complete walkthrough and expected output.
 
-`ob init` is a starting point, not permission to deploy. Review workload types,
-persistence semantics, readiness, job data effects, and the environment server
-before running a plan. Two rules catch most first drafts: a job with no explicit
-`when` defaults to `manual`, so it never runs during a deploy — declare
-`when: pre_release` or `when: post_release` for a migration; and a rolling
-workload cannot publish a host port, because two replicas cannot hold the same
-port during a roll.
+## Refusing is part of the contract
 
-## What it refuses
+Onebox refuses configurations it cannot operate safely, including:
 
-- `strategy: rolling` with no health check, at load.
-- A cron expression whose meaning cannot be preserved, at load.
-- A service driver it cannot run. Eleven are supported — postgres, mysql,
-  mariadb, redis, valkey, mongodb, rabbitmq, minio, meilisearch, clickhouse,
-  nats — and a twelfth name is refused rather than guessed at, because inventing
-  an image from a name produces a container that starts and stores nothing
-  durable.
-- Top-level workload shorthand mixed with a `workloads` block
-  (`shorthand_and_workloads`): it would be ambiguous which workload the
-  top-level fields describe.
-- A second application on a host another already owns (`host_owner_mismatch`).
-  Ownership is recorded by `ob bootstrap` and checked by every mutating command.
-- A backup policy on a driver that cannot honour one, and a major version change
-  a driver cannot perform in place — rather than replacing the container and
-  leaving the data intact and unreachable.
+- a rolling workload without a health check;
+- a cron expression whose meaning cannot be preserved;
+- an unknown service driver or ambiguous workload declaration;
+- a second application on an already claimed host;
+- a backup policy or in-place major upgrade a service driver cannot honour.
 
-There is no generic `--force`. Each override grants exactly one capability and
-is named for it:
+There is no generic `--force`. Each exceptional path grants one named
+capability, such as breaking a stale lock or accepting a destructive volume
+change. [What Onebox refuses](https://onebox.run/explanation/what-onebox-refuses)
+and [the safety envelope](https://onebox.run/explanation/safety-envelope) give
+the full rules.
 
-| Flag | Grants |
-| --- | --- |
-| `--break-lock` | break a stale application or host lock after inspecting its holder |
-| `--break-migration-gate` | abort past a closed migration gate you have judged safe |
-| `--allow-destructive-mounts` | apply a service change that detaches or replaces a data volume |
-| `--no-rollback` | leave a failed deploy in place instead of recovering it |
-| `--redeploy` | replace workloads that a no-op deploy would otherwise leave alone |
+## Boundaries that matter
 
-## What it does not do today
+- **One host, one application, no failover.** Rolling deployment avoids an
+  interruption while the server is healthy; it cannot make failed hardware
+  available. Onebox is not a cluster manager, PaaS, or hosting provider.
+- **PostgreSQL recovery is explicit.** Declaring `backup` is a request;
+  protection begins only after `ob backup enable` establishes continuous
+  archiving and takes the first base backup. Workload volumes and other service
+  drivers do not have that contract today.
+- **MongoDB is standalone.** Applications requiring change streams or
+  multi-document transactions need a replica set, which Onebox does not manage.
 
-**Backups cover managed services, not workload volumes.** A service declaring
-`backup` — PostgreSQL today — is archived continuously to a repository you own
-and can be recovered to a point in time. A workload's own volume is not, and
-`ob doctor` says so for every workload holding durable data, because silence
-there would read as approval.
+[Shipped vs proposed](https://onebox.run/status/capabilities) is the complete
+account of what the binary executes today and what remains direction.
 
-**`mongodb` runs a standalone server, not a replica set.** An application
-needing change streams or multi-document transactions will connect,
-authenticate, and then fail — in its own logs, not in anything Onebox says.
+## Built for people and agents
 
-**One host, and no failover.** Rolling deployment can avoid interruption while
-the box is healthy; it cannot make a failed physical host available. Onebox is
-not a cluster manager, Kubernetes replacement, PaaS, or hosting provider, not
-multi-host or multi-region, and not a way to run several independent
-applications side by side on one host.
+The CLI is the interface for both. Every finite machine result uses one
+`onebox.run/cli/v1alpha1` envelope with a schema version, command, outcome, and
+exactly one data or error value. NDJSON streams ordered operation events. Errors
+are typed: branch on the code, never the sentence.
 
-[Shipped vs proposed](https://onebox.run/status/capabilities) is the full
-account of what the binary does today versus what the schema merely accepts.
-
-## Driven by people and agents alike
-
-The CLI is the interface for both. It is deterministic, composable in CI, easy
-to test, and it calls one canonical operations service that owns every lifecycle
-decision. `--output` accepts `human`, `json`, or `ndjson`, and every finite
-machine result uses one `onebox.run/cli/v1alpha1` envelope with
-`schema_version`, `command`, `outcome`, and exactly one of `data` or `error`.
-Outcomes are `success`, `no_op`, `cancelled`, or `error`; cancellation exits 2
-and errors exit 1. Errors are typed — branch on the code, never on the sentence.
-
-There is no MCP surface. A read-only tool list constrains nothing when every
-mutation goes through the CLI anyway and the agent can run `ob deploy` in a
-shell. Point an agent at the `ob` binary the way you would point it at `gh`.
+There is deliberately no MCP mutation surface. Point an agent at `ob` the way
+you would point it at `gh`; every lifecycle decision still passes through the
+same canonical service and safety checks. See the
+[structured-output policies](https://onebox.run/reference/policies#structured-output-contracts).
 
 ## Documentation
 
-**[onebox.run](https://onebox.run)** is the documentation, published from
-[`site/`](site). Every page is also served as clean Markdown at `<path>.md`, and
-[llms.txt](https://onebox.run/llms.txt) maps the whole site for agents. Build it
-with `just site-build`, or serve it locally with `just site`.
+Every page on **[onebox.run](https://onebox.run)** is also available as clean
+Markdown at `<path>.md`; [llms.txt](https://onebox.run/llms.txt) maps the site
+for agents.
 
-- **Start here** — [your first deploy](https://onebox.run/start/first-deploy)
-- **Reference** — the [project file](https://onebox.run/reference/project-file),
-  every [field](https://onebox.run/reference/fields/top-level), every
-  [CLI command](https://onebox.run/reference/cli), every
-  [error code](https://onebox.run/reference/errors), and the
-  [policies](https://onebox.run/reference/policies) that carry the output matrix
-  and version gates. The field, CLI and error pages are generated from the
-  binary by `cmd/ob-docgen`, so they cannot describe something the loader does
-  not accept.
-- **Operations** — [secrets](https://onebox.run/guides/handle-secrets),
-  [migrations](https://onebox.run/guides/run-migrations),
+- **Start:** [installation](https://onebox.run/start/install) and
+  [your first deploy](https://onebox.run/start/first-deploy)
+- **Operate:** [databases](https://onebox.run/guides/add-a-database),
   [backups](https://onebox.run/guides/back-up-a-database),
-  [rollback](https://onebox.run/guides/roll-back), and
-  [eject](https://onebox.run/guides/eject).
-- **Why it works this way** — the
-  [safety envelope](https://onebox.run/explanation/safety-envelope),
+  [migrations](https://onebox.run/guides/run-migrations),
+  [secrets](https://onebox.run/guides/handle-secrets), and
+  [rollback](https://onebox.run/guides/roll-back)
+- **Reference:** [project file](https://onebox.run/reference/project-file),
+  [CLI](https://onebox.run/reference/cli),
+  [errors](https://onebox.run/reference/errors), and
+  [policies](https://onebox.run/reference/policies)
+- **Understand:** [ownership boundary](https://onebox.run/explanation/ownership-boundary),
   [evidence, not declaration](https://onebox.run/explanation/evidence-not-declaration),
-  and [the ownership boundary](https://onebox.run/explanation/ownership-boundary).
-- **Direction** — [product direction](docs/product.md) gives the boundaries; the
-  [documentation map](docs/README.md) says which documents are authoritative.
+  and [generated Compose](https://onebox.run/explanation/generated-compose)
 
-## Releases
-
-Onebox uses `vYYYY.M.REVISION` — for example `v2026.8.0` for the first release
-in August 2026. The year is four digits, months are unpadded, and each UTC
-calendar month starts at revision zero. Checkout builds use Git-derived
-provenance and remain visibly distinct from a release, and fail closed against
-an environment policy that sets `min_onebox_version`.
-
-Maintainers cut the next release with `just release`, which requires a clean,
-checked, up-to-date `main` and atomically publishes a metadata-only
-fast-forward release commit plus its tag.
+The field, CLI, and error references are generated from the binary by
+`cmd/ob-docgen`, so documentation cannot silently drift from the accepted
+contract.
 
 ## Development
 
 ```sh
-go test ./...
-go vet ./...
-OB_E2E=1 go test ./e2e/   # opt-in Docker end-to-end suite
+just check       # local pre-commit gate
+just e2e         # opt-in Docker end-to-end suite
+just site-build  # generated references and production site
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the verification gate, and
-the standard a change has to meet. Contributions require accepting the
-[Contributor License Agreement](CLA.md). Security issues go to
-[SECURITY.md](SECURITY.md), never to a public issue.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, verification, and releases.
+Contributions require accepting the [Contributor License Agreement](CLA.md).
+Report security issues through [SECURITY.md](SECURITY.md), never a public issue.
 
 ## License
 
-Onebox is licensed under the [Apache License, Version 2.0](LICENSE).
-
-Copyright 2026 LabStack LLC.
+[Apache License 2.0](LICENSE) · Copyright 2026 LabStack LLC

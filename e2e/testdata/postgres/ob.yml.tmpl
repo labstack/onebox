@@ -1,0 +1,70 @@
+# The project the server suite deploys: a managed PostgreSQL with a backup
+# policy pointing at an object store the guest runs itself.
+#
+# Rendered rather than checked in whole, because two values are only known once
+# the guest is up: the address ob connects to, and the endpoint the object
+# store is reachable at from inside the container.
+api_version: onebox.run/v1
+app: observer
+environments:
+  production:
+    server: {{ .Server }}
+# A workload is required, and this one exists only to satisfy that: the suite
+# is about the database beside it. Kept to a sleeping busybox so the deploy
+# costs a pull of a few megabytes rather than a real application image.
+# One workload that actually serves something, because a sleeping container
+# cannot answer whether a release replaced what was running. It writes its
+# version into a file and serves it, so `exec` can read the version back and
+# `rollback` has something observable to undo.
+workloads:
+  app:
+    role: application
+    # Digest-pinned and taken from a mirror, so a deploy never asks a registry
+    # to resolve a tag. That resolution is `docker buildx imagetools inspect`
+    # (internal/engine/plan.go), which walks every child manifest in the index
+    # — sixteen requests for this image — and exhausts the anonymous quota of
+    # any public registry within a few runs. Tag resolution has its own test.
+    image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    command:
+      - sh
+      - -c
+      - mkdir -p /srv && echo {{ .Version }} > /srv/index.html && httpd -f -p 8080 -h /srv
+    strategy: rolling
+    health: { exec: "wget -qO- http://localhost:8080/", interval: 1s, start_period: 1s, within: 30s }
+  # A one-shot workload so `job plan` and `job run` have something sealed to
+  # run. Jobs are workloads with the job role, which is why the loader reports
+  # them separately from applications.
+  chore:
+    role: job
+    image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    command: ["sh", "-c", "echo chore-ran"]
+    data_effect: none
+deployment:
+  order: [app]
+services:
+  postgres:
+    driver: postgres
+    version: "18"
+    persistence: { mode: durable }
+    backup:
+      target: offsite
+      recovery_kind: pitr
+      max_data_loss: 15m
+      schedule: { cron: "0 2 * * *", timezone: UTC }
+backup_targets:
+  offsite:
+    kind: s3-compatible
+    # HTTPS, with a certificate signed by an authority that exists only on this
+    # guest. That is the whole point: nothing about this endpoint is publicly
+    # trusted, so it can only verify if ob carries the host's trust store into
+    # the container the way it carries the binary.
+    endpoint: {{ .Endpoint }}
+    bucket: observer-backups
+    failure_domain: { identity: e2e/guest }
+    credentials:
+      file: secrets/backup.env
+      access_key_entry: BACKUP_ACCESS_KEY_ID
+      secret_key_entry: BACKUP_SECRET_ACCESS_KEY
+    encryption: { pitr: client-side }
+proxy:
+  managed: false

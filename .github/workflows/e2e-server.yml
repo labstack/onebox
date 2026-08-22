@@ -1,0 +1,148 @@
+# The server end-to-end suite.
+#
+# It is its own workflow rather than a job in ci.yml because `paths:` filters
+# apply to a workflow, not to one job beside unrelated ones: adding it there
+# would have gated Check and the Docker suite on the same paths.
+name: E2E (Server)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "internal/engine/**"
+      - "internal/transport/**"
+      - "internal/onebox/**"
+      - "internal/app/backup_*"
+      - "cmd/ob/**"
+      - "e2e/**"
+      - "scripts/lima.sh"
+      - ".github/workflows/e2e-server.yml"
+  pull_request:
+    paths:
+      - "internal/engine/**"
+      - "internal/transport/**"
+      - "internal/onebox/**"
+      - "internal/app/backup_*"
+      - "cmd/ob/**"
+      - "e2e/**"
+      - "scripts/lima.sh"
+      - ".github/workflows/e2e-server.yml"
+  # Nightly, because most of what this suite depends on is outside the
+  # repository and rots on its own schedule: the cloud image, the wal-g
+  # release, the postgres tag, and the certificates in between.
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-server-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  server:
+    name: End-to-end (Server)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Enable KVM for the runner
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86
+          # Without KVM, qemu falls back to software emulation and this job
+          # takes tens of minutes instead of a few. That is a finding about the
+          # runner, not a reason to wait: fail here rather than let a job that
+          # silently degraded read as a slow but healthy one.
+          test -e /dev/kvm
+
+      - name: Install Lima
+        run: |
+          set -euo pipefail
+          version=2.2.0
+          archive=lima-${version}-Linux-x86_64.tar.gz
+          sha=a0ea1ccf6b7335a900adb5f8d2b8384457965fecb1ba72f09b4e3e46d12f424a
+          # Pinned and checksummed for the same reason `just` is in ci.yml:
+          # what runs is exactly the artifact this line names, or the job stops.
+          # `releases/latest` would resolve at run time, which is the failure
+          # mode that pinning exists to remove.
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/lima-vm/lima/releases/download/v${version}/${archive}"
+          echo "${sha}  ${archive}" | sha256sum --check --strict -
+          sudo tar Cxzf /usr/local "$archive"
+          rm -f "$archive"
+          limactl --version
+
+      - name: Install sops
+        run: |
+          set -euo pipefail
+          version=3.13.3
+          sha=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
+          # The fixture's backup credentials are sops-encrypted, and ob shells
+          # out to `sops -d` to read them: without this the suite fails at the
+          # credential check rather than at anything it means to test.
+          curl -fsSL --retry 3 -o sops \
+            "https://github.com/getsops/sops/releases/download/v${version}/sops-v${version}.linux.amd64"
+          echo "${sha}  sops" | sha256sum --check --strict -
+          sudo install -m 0755 sops /usr/local/bin/sops
+          rm -f sops
+          sops --version --disable-version-check
+
+      # The guest image is ~600MB and is pinned by digest in e2e/lima.yaml, so
+      # the cache key can be the file itself: a new image means a new key.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lima
+          key: lima-image-${{ hashFiles('e2e/lima.yaml') }}
+
+      - name: Boot the server
+        run: timeout 300 bash scripts/lima.sh up
+
+      - name: Run the server end-to-end suite
+        run: bash scripts/lima.sh test
+
+      # Curated diagnostics only.
+      #
+      # /var/lib/ob holds the mode-0600 backup credential file and decrypted
+      # environment files, so archiving that tree would publish the repository
+      # key and the object-store keys as a downloadable artifact on a public
+      # run. Names and permissions answer the questions a failure asks;
+      # contents answer questions nobody asked.
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p diagnostics
+          ssh_guest() {
+            limactl shell onebox-e2e -- sudo "$@" 2>&1 || true
+          }
+          ssh_guest systemctl list-units --type=timer --all --no-pager > diagnostics/timers.txt
+          ssh_guest journalctl -u 'ob-backup-*' --no-pager --lines=500 > diagnostics/journal.txt
+          ssh_guest docker ps -a > diagnostics/containers.txt
+          ssh_guest docker logs --tail=200 minio > diagnostics/minio.txt
+          # Layout and permissions, never contents.
+          ssh_guest find /var/lib/ob -maxdepth 4 -printf '%M %u:%g %10s %p\n' > diagnostics/ob-tree.txt
+          cp ~/.lima/onebox-e2e/serial.log diagnostics/ 2>/dev/null || true
+          cp ~/.lima/onebox-e2e/ha.stderr.log diagnostics/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: server-diagnostics
+          path: diagnostics/
+          retention-days: 7

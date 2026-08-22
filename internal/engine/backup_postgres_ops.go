@@ -329,9 +329,13 @@ func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupSta
 	if err != nil {
 		return BackupStatus{}, err
 	}
+	repository, err := e.Spec.BackupRepository(service)
+	if err != nil {
+		return BackupStatus{}, err
+	}
 	status := BackupStatus{
 		Service:             service,
-		Repository:          app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service),
+		Repository:          repository,
 		DeclaredWindow:      projection.Policy.Retention.Window,
 		DeclaredMaxDataLoss: projection.Policy.MaxDataLoss,
 	}

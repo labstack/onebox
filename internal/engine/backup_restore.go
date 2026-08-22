@@ -110,7 +110,11 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	if err != nil {
 		return outcome, err
 	}
-	environment, err := app.WalgEnvironment(target, e.Spec.Spec.Name, service)
+	repository, err := e.Spec.BackupRepository(service)
+	if err != nil {
+		return outcome, err
+	}
+	environment, err := app.WalgEnvironment(target, repository, e.Spec.Spec.Name, service)
 	if err != nil {
 		return outcome, err
 	}

@@ -30,6 +30,11 @@ type ServiceRuntimeState struct {
 	TagObservedDigest   string
 	RefreshCandidate    *ServiceImageCandidate
 	LastEffective       *BackupEffectiveProjection
+	// DatabaseSystemIdentifier is PostgreSQL's stable identity for the data
+	// volume. BackupRepositoryGeneration is the generation segment bound at
+	// enablement; it is empty only for repositories using the legacy layout.
+	DatabaseSystemIdentifier   string
+	BackupRepositoryGeneration string
 }
 
 type ServiceImageSelection struct {
@@ -74,6 +79,12 @@ func (state ServiceRuntimeState) validate(service string) error {
 			return errf("service_image_digest_unavailable", "services."+service, "ob service status --output json", "%v", err)
 		}
 	}
+	if state.DatabaseSystemIdentifier != "" && !postgresSystemIdentifier.MatchString(state.DatabaseSystemIdentifier) {
+		return errf("project_invalid", "services."+service, "ob backup status --output json", "service runtime state has an invalid PostgreSQL system identifier")
+	}
+	if state.BackupRepositoryGeneration != "" && state.BackupRepositoryGeneration != state.DatabaseSystemIdentifier {
+		return errf("project_invalid", "services."+service, "ob backup status --output json", "backup repository generation does not match the PostgreSQL system identifier")
+	}
 	previous := ""
 	for _, image := range state.ManifestRootImages {
 		if err := validatePinnedServiceImage(image); err != nil {
@@ -91,6 +102,8 @@ func (state ServiceRuntimeState) validate(service string) error {
 	}
 	return nil
 }
+
+var postgresSystemIdentifier = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 func (r *Resolved) selectServiceImage(serviceName, tagImage string) (ServiceImageSelection, error) {
 	state, observed := r.serviceRuntime[serviceName]

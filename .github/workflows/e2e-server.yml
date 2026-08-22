@@ -1,36 +1,12 @@
 # The server end-to-end suite.
 #
-# It is its own workflow rather than a job in ci.yml because `paths:` filters
-# apply to a workflow, not to one job beside unrelated ones: adding it there
-# would have gated Check and the Docker suite on the same paths.
+# It is deliberately outside PR CI: the Lima/SSH run takes long enough to make
+# review feedback drag. Release calls it before publishing, while nightly and
+# manual runs keep the external dependencies exercised between releases.
 name: E2E (Server)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "internal/engine/**"
-      - "internal/transport/**"
-      - "internal/onebox/**"
-      - "internal/app/backup_*"
-      - "internal/app/names.go"
-      - "internal/app/service_image_state.go"
-      - "cmd/ob/**"
-      - "e2e/**"
-      - "scripts/lima.sh"
-      - ".github/workflows/e2e-server.yml"
-  pull_request:
-    paths:
-      - "internal/engine/**"
-      - "internal/transport/**"
-      - "internal/onebox/**"
-      - "internal/app/backup_*"
-      - "internal/app/names.go"
-      - "internal/app/service_image_state.go"
-      - "cmd/ob/**"
-      - "e2e/**"
-      - "scripts/lima.sh"
-      - ".github/workflows/e2e-server.yml"
+  workflow_call:
   # Nightly, because most of what this suite depends on is outside the
   # repository and rots on its own schedule: the cloud image, the wal-g
   # release, the postgres tag, and the certificates in between.
@@ -42,14 +18,22 @@ permissions:
   contents: read
 
 concurrency:
-  group: e2e-server-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: e2e-server-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   server:
-    name: End-to-end (Server)
+    name: End-to-end (Server / ${{ matrix.suite.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: lifecycle
+            test: TestServerLifecycle
+          - name: probes
+            test: TestServerProbes
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -118,7 +102,7 @@ jobs:
         run: timeout 300 bash scripts/lima.sh up
 
       - name: Run the server end-to-end suite
-        run: bash scripts/lima.sh test
+        run: bash scripts/lima.sh test -run '^${{ matrix.suite.test }}$'
 
       # Curated diagnostics only.
       #
@@ -147,6 +131,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: server-diagnostics
+          name: server-diagnostics-${{ matrix.suite.name }}
           path: diagnostics/
           retention-days: 7

@@ -8,17 +8,17 @@
  * rule across it, pinned to the bottom of the viewport when the page is short.
  *
  * The links are here rather than authored in Markdown because a site footer is
- * chrome — it is identical on all thirty-nine pages, and putting it in the page
- * source would repeat it into every Markdown alternate.
+ * chrome. PageFrame renders it only on splash pages; putting it in page source
+ * would leak it into the Markdown alternate.
  *
  * It holds two things: who owns this and under what licence, and where the
- * organisation is. Nothing else, on purpose — Cloudflare's docs ship no footer
- * at all because their sidebar navigates and a footer would only restate it,
- * and this site is the same shape. Security, the trademark policy, contributing
- * and llms.txt were all in here and came out: each is real, but a reader who
- * wants them reaches them from the repository or the head of the page, and
- * putting them here made the band look like a link farm for four links nobody
- * arrived looking for.
+ * organisation is. Nothing else, on purpose. Documentation pages already have
+ * sidebar navigation, page metadata and previous/next links, so this band would
+ * only restate their chrome. Security, the trademark policy, contributing and
+ * llms.txt were all in here and came out: each is real, but a reader who wants
+ * them reaches them from the repository or the head of the page, and putting
+ * them here made the band look like a link farm for four links nobody arrived
+ * looking for.
  *
  * The bar for adding anything back: it is something a stranger needs, the
  * sidebar cannot hold it, and they would not otherwise find it.

@@ -1,0 +1,92 @@
+---
+/* The landing page's section shell: a hairline rule, a mono eyebrow, and
+ * whatever the page authored beneath it.
+ *
+ * Only the eyebrow is a prop. Everything a reader needs — the heading, the
+ * prose — is authored as Markdown in the slot, because the site serves every
+ * page as clean Markdown at `<path>.md` and `toPlainMarkdown` strips component
+ * tags. Copy passed as a prop would render for a person and disappear for an
+ * agent, which is exactly the drift that route exists to prevent. The eyebrow
+ * is a label rather than content, so losing it there costs nothing.
+ */
+interface Props {
+  eyebrow: string;
+}
+
+const { eyebrow } = Astro.props;
+---
+
+<section class="ob-sec">
+  <p class="ob-eyebrow">{eyebrow}</p>
+  <slot />
+</section>
+
+<style>
+  .ob-sec {
+    border-top: 1px solid var(--sl-color-gray-5);
+    padding: 3rem 0 0;
+    margin: 0;
+  }
+
+  .ob-eyebrow {
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+    margin: 0 0 0.85rem;
+  }
+
+  /* The slotted Markdown is scoped to the page, not to this component, so every
+     selector below has to reach it through :global. */
+  /* Whatever presentational component the section ends with supplies its own
+     internal spacing; this is the single gap between the heading block and it.
+     Declared first so the heading rules below can pull their own back. */
+  .ob-sec :global(> *) {
+    margin-top: 1.75rem;
+  }
+
+  .ob-sec > .ob-eyebrow {
+    margin-top: 0;
+  }
+
+  /* Starlight wraps every heading in .sl-heading-wrapper so it can hang an
+     anchor link beside it. The wrapper, not the h2, is the section's child —
+     selectors written against `> h2` match nothing at all. */
+  /* Starlight renders the h2 itself as `display: inline` so the anchor link can
+     sit on the last line of the text. Measure and wrapping therefore have to be
+     set on the wrapper — `max-width` and `text-wrap` do nothing on a non-replaced
+     inline, and a rule that sets them there is dead rather than merely subtle. */
+  .ob-sec :global(> .sl-heading-wrapper) {
+    margin-top: 0;
+    /* Wide enough that each heading breaks at a clause rather than mid-phrase.
+       In rem rather than ch on purpose: Starlight sizes this wrapper at its own
+       default heading size, not the 1.75rem the h2 inside it is set to, so a ch
+       measure here is computed against a font nothing on screen is using. */
+    max-width: 40rem;
+    text-wrap: balance;
+  }
+
+  .ob-sec :global(> .sl-heading-wrapper h2) {
+    font-size: clamp(1.4rem, 2.6vw, 1.75rem);
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+    color: var(--sl-color-white);
+  }
+
+  .ob-sec :global(> .sl-heading-wrapper + p) {
+    color: var(--sl-color-gray-2);
+    font-size: 0.9rem;
+    line-height: 1.8;
+    max-width: 64ch;
+    margin-top: 0.9rem;
+  }
+
+  .ob-sec :global(> .sl-heading-wrapper + p code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-1);
+  }
+</style>

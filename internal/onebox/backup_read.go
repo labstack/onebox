@@ -16,6 +16,12 @@ import (
 // asking. The wal-g listing underneath takes a *shared* repository lock with a
 // short timeout, so it reads consistently without queueing behind a backup.
 func (s *Service) BackupStatus(ctx context.Context, service string) (engine.BackupStatus, error) {
+	return s.BackupStatusGeneration(ctx, service, "")
+}
+
+// BackupStatusGeneration reads either the currently bound repository
+// generation or an explicitly selected historical generation.
+func (s *Service) BackupStatusGeneration(ctx context.Context, service, generation string) (engine.BackupStatus, error) {
 	lp, err := s.loadProject(ctx, true)
 	if err != nil {
 		return engine.BackupStatus{}, fmt.Errorf("load project: %w", err)
@@ -42,5 +48,5 @@ func (s *Service) BackupStatus(ctx context.Context, service string) (engine.Back
 		}
 		return engine.BackupStatus{}, failure
 	}
-	return e.BackupStatusFor(ctx, service)
+	return e.BackupStatusForGeneration(ctx, service, generation)
 }

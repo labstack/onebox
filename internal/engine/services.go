@@ -70,6 +70,13 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	if len(names) == 0 {
 		return nil
 	}
+	// A protected repository generation belongs to one physical PostgreSQL
+	// cluster. Check the volume before Compose is allowed to create or start
+	// anything: a missing/replaced volume otherwise starts at WAL segment 1 and
+	// archives it into the old cluster's namespace.
+	if err := e.ValidateProtectedDatabaseIdentities(ctx); err != nil {
+		return err
+	}
 	// Rendered here rather than handed in. A caller that forgot would produce
 	// a host missing a database, and the engine already holds everything the
 	// documents are derived from.
@@ -145,6 +152,22 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 		return fmt.Errorf("cannot converge the backup schedules: %w", err)
 	}
 	return nil
+}
+
+// StageServiceCompose writes one service's current rendered runtime without
+// starting it. Recovery uses this after proving a historical generation and
+// before swapping volumes, so the recovered cluster can never start with the
+// generation binding of the database it replaces.
+func (e *Engine) StageServiceCompose(ctx context.Context, service string) error {
+	rendered, err := e.Spec.RenderServices(e.Opts.Environment)
+	if err != nil {
+		return err
+	}
+	doc, ok := rendered[service]
+	if !ok {
+		return fmt.Errorf("service %s was declared but not rendered — this is an Onebox bug", service)
+	}
+	return e.writeServiceFile(ctx, e.names().ServiceFile(service), doc)
 }
 
 // serviceIsHealthy waits briefly for a just-started service to report health.

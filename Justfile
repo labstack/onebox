@@ -157,6 +157,30 @@ workflow-check:
 e2e:
     OB_E2E=1 go test ./e2e/ -count=1 -timeout 20m
 
+# Boot the throwaway server the `server-e2e` suite deploys to.
+#
+# Separate from the suite because the guest outlives a test run: booting takes
+# about a minute, and iterating on a failing case should not pay for it again.
+lima-up:
+    bash scripts/lima.sh up
+
+lima-down:
+    bash scripts/lima.sh down
+
+# The server end-to-end suite: the tests run here and reach a real machine over
+# SSH, which is the transport every operator uses and the one the Docker suite
+# substitutes local docker for.
+#
+# It boots the guest first rather than failing on a missing one, because the
+# common case is not having booted it, and `lima-up` reuses a running instance.
+server-e2e: lima-up
+    bash scripts/lima.sh test
+
+# Print the connection the suite uses, for running a single case by hand:
+#   eval "$(just server-env | sed 's/^/export /')"
+server-env:
+    @bash scripts/lima.sh env
+
 # Regenerate the parts of the documentation site that are derived from Go.
 #
 # The project-file field reference, the error-code catalogue and the CLI

@@ -122,6 +122,21 @@ func (n Names) BackupWrapperFile(service string) string {
 	return path.Join(n.BackupRuntimeDir(service), "ob-wal-g")
 }
 
+// BackupTrustStoreFile is the host's certificate authority bundle, copied in
+// beside the binary.
+//
+// wal-g runs inside the driver's image, and the official PostgreSQL images
+// carry no trust store: `postgres:18` has no /etc/ssl/certs/ca-certificates.crt
+// at all. Since every S3-compatible target is required to be HTTPS, a wal-g
+// with nothing to verify against cannot upload anywhere — it fails the
+// handshake with "x509: certificate signed by unknown authority" after the
+// base backup has already been written, and archiving has already been turned
+// on. The trust store therefore travels the same way the binary does, through
+// the directory that is already mounted read-only into the container.
+func (n Names) BackupTrustStoreFile(service string) string {
+	return path.Join(n.BackupRuntimeDir(service), "ca-certificates.crt")
+}
+
 // ServiceSecretFile holds the credential Onebox generates on the target. It is
 // written once and never travels: not in the project, not in the rendered
 // runtime, not in the digest.

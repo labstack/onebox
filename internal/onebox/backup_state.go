@@ -70,20 +70,24 @@ type BackupLifecycleState struct {
 	PrerequisiteEffective           bool                           `json:"prerequisite_effective"`
 	LocalSupportInstalled           bool                           `json:"local_support_installed"`
 	LastEffective                   *app.BackupEffectiveProjection `json:"last_effective,omitempty"`
+	DatabaseSystemIdentifier        string                         `json:"database_system_identifier,omitempty"`
+	BackupRepositoryGeneration      string                         `json:"backup_repository_generation,omitempty"`
 	Schedules                       []BackupScheduleState          `json:"schedules,omitempty"`
 	StateDigest                     string                         `json:"state_digest"`
 }
 
 type BackupLifecycleStatus struct {
-	State            BackupState           `json:"state"`
-	Phase            BackupDisablePhase    `json:"phase"`
-	RequestedAt      string                `json:"requested_at,omitempty"`
-	ActionDeadline   string                `json:"action_deadline,omitempty"`
-	Elapsed          string                `json:"elapsed,omitempty"`
-	Schedules        []BackupScheduleState `json:"schedules,omitempty"`
-	StorageContinues bool                  `json:"storage_continues"`
-	ResolvingCommand string                `json:"resolving_command,omitempty"`
-	Failure          *LifecycleFailure     `json:"failure,omitempty"`
+	State                    BackupState           `json:"state"`
+	Phase                    BackupDisablePhase    `json:"phase"`
+	RequestedAt              string                `json:"requested_at,omitempty"`
+	ActionDeadline           string                `json:"action_deadline,omitempty"`
+	Elapsed                  string                `json:"elapsed,omitempty"`
+	Schedules                []BackupScheduleState `json:"schedules,omitempty"`
+	StorageContinues         bool                  `json:"storage_continues"`
+	ResolvingCommand         string                `json:"resolving_command,omitempty"`
+	Repository               string                `json:"repository,omitempty"`
+	DatabaseSystemIdentifier string                `json:"database_system_identifier,omitempty"`
+	Failure                  *LifecycleFailure     `json:"failure,omitempty"`
 }
 
 func NewBackupLifecycleState(application, environment, service string, epoch int) (BackupLifecycleState, error) {
@@ -131,8 +135,10 @@ func EnableBackup(current BackupLifecycleState, projection app.BackupEffectivePr
 func (state BackupLifecycleState) RuntimeState() app.ServiceRuntimeState {
 	return app.ServiceRuntimeState{
 		BackupState: string(state.State), ServiceImage: state.ServiceImage,
-		PublicationVerified: state.ServiceImagePublicationVerified,
-		LastEffective:       cloneBackupProjection(state.LastEffective),
+		PublicationVerified:        state.ServiceImagePublicationVerified,
+		LastEffective:              cloneBackupProjection(state.LastEffective),
+		DatabaseSystemIdentifier:   state.DatabaseSystemIdentifier,
+		BackupRepositoryGeneration: state.BackupRepositoryGeneration,
 	}
 }
 
@@ -140,7 +146,13 @@ func (state BackupLifecycleState) Status(now time.Time) (BackupLifecycleStatus, 
 	if err := state.Validate(); err != nil {
 		return BackupLifecycleStatus{}, err
 	}
-	status := BackupLifecycleStatus{State: state.State, Phase: state.Phase, Schedules: append([]BackupScheduleState(nil), state.Schedules...)}
+	status := BackupLifecycleStatus{
+		State: state.State, Phase: state.Phase, Schedules: append([]BackupScheduleState(nil), state.Schedules...),
+		DatabaseSystemIdentifier: state.DatabaseSystemIdentifier,
+	}
+	if state.LastEffective != nil {
+		status.Repository = app.WalgPrefix(state.LastEffective.Target, state.Application, state.Service, state.BackupRepositoryGeneration)
+	}
 	for _, schedule := range state.Schedules {
 		if schedule.Active {
 			status.StorageContinues = true
@@ -216,6 +228,12 @@ func (state BackupLifecycleState) validateContent() error {
 	if state.ServiceImage != "" && !backedUpRuntimeImage.MatchString(state.ServiceImage) {
 		return errors.New("protected service image must be digest-pinned")
 	}
+	if state.DatabaseSystemIdentifier != "" && !databaseSystemIdentifier.MatchString(state.DatabaseSystemIdentifier) {
+		return errors.New("database system identifier is invalid")
+	}
+	if state.BackupRepositoryGeneration != "" && state.BackupRepositoryGeneration != state.DatabaseSystemIdentifier {
+		return errors.New("backup repository generation must match the database system identifier")
+	}
 	if state.State == BackupEnabled || state.State == BackupDisablePending {
 		if state.LastEffective == nil || state.ServiceImage == "" || !state.ServiceImagePublicationVerified {
 			return errors.New("active backup state requires last-effective intent and a provenance-verified service image")
@@ -243,6 +261,8 @@ func (state BackupLifecycleState) validateContent() error {
 	}
 	return nil
 }
+
+var databaseSystemIdentifier = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 func (state BackupLifecycleState) computeDigest() (string, error) {
 	copy := state

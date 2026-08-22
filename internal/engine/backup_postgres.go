@@ -10,6 +10,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,8 +90,225 @@ func (e *Engine) StageBackupRuntime(ctx context.Context, service string, wrapper
 	if err := e.chmodPath(ctx, wrapperPath, "0755"); err != nil {
 		return err
 	}
+	if err := e.stageTrustStore(ctx, service); err != nil {
+		return err
+	}
 	return e.chmodPath(ctx, n.BackupRuntimeDir(service), "0755")
 }
+
+// trustStoreCandidates are the certificate authority bundles a Linux host is
+// likely to keep, most common first. Debian and Ubuntu — what the qualified
+// PostgreSQL images are built from — use the first.
+var trustStoreCandidates = []string{
+	"/etc/ssl/certs/ca-certificates.crt",
+	"/etc/pki/tls/certs/ca-bundle.crt",
+	"/etc/ssl/ca-bundle.pem",
+	"/etc/ssl/cert.pem",
+}
+
+// stageTrustStore copies the host's certificate authorities in beside the
+// binary, because wal-g runs in the driver's image and that image has none.
+//
+// `postgres:18` ships two entries under /etc/ssl/certs and no bundle among
+// them, so every upload to the HTTPS endpoint an s3-compatible target is
+// required to declare fails verification. It failed *late*: the base backup
+// completed first, so the error arrived a quarter of an hour in, against a
+// server whose archiving was already on.
+//
+// A host with no bundle is refused here rather than discovered there. The
+// alternative is staging nothing, letting the wrapper fall back to the image's
+// empty store, and reproducing exactly the failure this exists to prevent —
+// only later, and with the database already archiving.
+func (e *Engine) stageTrustStore(ctx context.Context, service string) error {
+	destination := e.names().BackupTrustStoreFile(service)
+	// Copied on the target rather than uploaded from here: the bundle that
+	// matters is the one the operator's machine trusts, and this machine may
+	// not be the same operating system.
+	//
+	// Written to a temporary name and renamed, like every other generated file.
+	// Safe for a bind mount because what is mounted is the directory, so the
+	// replaced file's new inode is still found through it.
+	var probe strings.Builder
+	probe.WriteString("set -e\n")
+	for _, candidate := range trustStoreCandidates {
+		probe.WriteString("if [ -r " + q(candidate) + " ]; then\n")
+		probe.WriteString("  cp " + q(candidate) + " " + q(destination+".tmp") + "\n")
+		probe.WriteString("  chmod 0644 " + q(destination+".tmp") + "\n")
+		probe.WriteString("  mv " + q(destination+".tmp") + " " + q(destination) + "\n")
+		probe.WriteString("  echo " + q(candidate) + "\n")
+		probe.WriteString("  exit 0\n")
+		probe.WriteString("fi\n")
+	}
+	probe.WriteString("exit 1\n")
+
+	res, err := e.T.Run(ctx, probe.String())
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf(
+			"service %s: the target holds no certificate authority bundle at any of %s, "+
+				"so wal-g cannot verify the backup endpoint from inside the container; "+
+				"install the host's CA certificates (on Debian and Ubuntu: apt-get install ca-certificates)",
+			service, strings.Join(trustStoreCandidates, ", "))
+	}
+	return nil
+}
+
+// QuiesceArchiver waits until PostgreSQL has shipped everything it is holding,
+// so the base backup that follows cannot write an object the archiver is about
+// to write differently.
+//
+// Both wal-g and the archive_command upload into the same WAL namespace. When
+// `backup-push` lands a segment PostgreSQL has not archived yet, the copy
+// PostgreSQL archives afterwards has different bytes and wal-g refuses it —
+// "already archived, contents differ". PostgreSQL archives strictly in order,
+// so one refused segment stops the chain for good: archived_count never moves
+// again, failed_count climbs, and the recovery window quietly stops advancing
+// while the command that caused it reported success.
+//
+// A forced switch first, because the pending set is what matters and a segment
+// still being written is never in it. Waiting for the set to empty is then the
+// only statement that both writers cannot be about to touch the same name.
+//
+// A target that cannot drain is refused rather than backed up anyway: the
+// alternative is establishing a backup whose chain is already broken, and
+// enablement's caller reverts a failure to unprotected, which leaves the
+// service as it was found.
+func (e *Engine) QuiesceArchiver(ctx context.Context, service string) error {
+	n := e.names()
+	exec := "docker exec -u postgres " + q(n.ServiceContainer(service)) +
+		" psql -U " + q(app.PgSuperuser) + " -d postgres -Atc "
+
+	if res, err := e.T.Run(ctx, exec+q("select pg_switch_wal();")); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("service %s: cannot close the current write-ahead log segment: %s",
+			service, strings.TrimSpace(res.Stderr))
+	}
+
+	pending := exec + q("select count(*) from pg_ls_dir('pg_wal/archive_status') f where f like '%.ready';")
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		res, err := e.T.Run(ctx, pending)
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("service %s: cannot inspect the PostgreSQL archive queue: %s",
+				service, strings.TrimSpace(res.Stderr))
+		}
+		if strings.TrimSpace(res.Stdout) == "0" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf(
+				"service %s: the archiver still holds %s write-ahead log segment(s) it has not shipped; "+
+					"taking a base backup now would write objects it is about to write differently and stop the chain — "+
+					"check `ob backup status %s` and the archive_command before retrying",
+				service, strings.TrimSpace(res.Stdout), service)
+		}
+		e.Opts.Sleep(2 * time.Second)
+	}
+}
+
+// PostgresSystemIdentifier reads the identity initdb assigned to this data
+// directory. It is stable for the life of the cluster and changes when the
+// volume is recreated, which is exactly the boundary a WAL repository must
+// separate: fresh clusters reuse the same WAL filenames.
+func (e *Engine) PostgresSystemIdentifier(ctx context.Context, service string) (string, error) {
+	n := e.names()
+	command := "docker exec -u postgres " + q(n.ServiceContainer(service)) +
+		" psql -U " + q(app.PgSuperuser) + " -d postgres -Atc " +
+		q("select system_identifier::text from pg_control_system();")
+	res, err := e.T.Run(ctx, command)
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("service %s: cannot read the PostgreSQL system identifier: %s",
+			service, strings.TrimSpace(res.Stderr))
+	}
+	identifier := strings.TrimSpace(res.Stdout)
+	if _, err := strconv.ParseUint(identifier, 10, 64); err != nil || identifier == "" {
+		return "", fmt.Errorf("service %s: PostgreSQL returned an invalid system identifier %q", service, identifier)
+	}
+	return identifier, nil
+}
+
+// ValidateProtectedDatabaseIdentities proves that each protected PostgreSQL
+// volume is the cluster recorded in lifecycle state. It deliberately reads the
+// volume without relying on the service container: Compose may be about to
+// recreate that container, and a missing volume must be detected before
+// Compose silently creates an empty one.
+func (e *Engine) ValidateProtectedDatabaseIdentities(ctx context.Context) error {
+	n := e.names()
+	for _, service := range e.Spec.ServiceNames() {
+		if !e.Spec.ServiceIsProtected(service) {
+			continue
+		}
+		state, ok := e.Spec.ServiceRuntimeState(service)
+		if !ok {
+			continue
+		}
+		recorded := state.DatabaseSystemIdentifier
+		if recorded == "" {
+			return fmt.Errorf("service %s is protected by a legacy repository binding with no PostgreSQL system identifier; run `ob backup enable %s` before applying services", service, service)
+		}
+		declared := e.Spec.Services[service]
+		driver := declared.Driver
+		if driver == "" {
+			driver = service
+		}
+		if driver != "postgres" {
+			continue
+		}
+		volume := n.ServiceVolume(service, app.DataVolumeFor(declared))
+		inspect, err := e.T.Run(ctx, "docker volume inspect "+q(volume))
+		if err != nil {
+			return err
+		}
+		if inspect.ExitCode != 0 {
+			return fmt.Errorf("service %s is recorded as PostgreSQL cluster %s, but data volume %s is missing; restore that generation or disable backup before applying services", service, recorded, volume)
+		}
+		image, err := e.Spec.ServiceImageForRuntime(service)
+		if err != nil {
+			return err
+		}
+		command := "docker run --rm --entrypoint pg_controldata -v " + q(volume+":/var/lib/postgresql/data:ro") +
+			" " + q(image.Image) + " " + q(app.PgDataPath)
+		res, err := e.T.Run(ctx, command)
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("service %s: cannot verify the PostgreSQL identity in volume %s: %s", service, volume, strings.TrimSpace(res.Stderr))
+		}
+		actual := postgresControlSystemIdentifier(res.Stdout)
+		if actual == "" {
+			return fmt.Errorf("service %s: pg_controldata did not report a PostgreSQL system identifier for volume %s", service, volume)
+		}
+		if actual != recorded {
+			return fmt.Errorf("service %s data volume belongs to PostgreSQL cluster %s, but backup lifecycle state is bound to cluster %s; run `ob backup enable %s` to establish a new repository generation before applying services", service, actual, recorded, service)
+		}
+	}
+	return nil
+}
+
+func postgresControlSystemIdentifier(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if ok && strings.TrimSpace(key) == "Database system identifier" {
+			identifier := strings.TrimSpace(value)
+			if databaseSystemIdentifier.MatchString(identifier) {
+				return identifier
+			}
+		}
+	}
+	return ""
+}
+
+var databaseSystemIdentifier = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 func (e *Engine) targetMachine(ctx context.Context) (string, error) {
 	res, err := e.T.Run(ctx, "uname -m")

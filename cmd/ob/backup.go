@@ -148,7 +148,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 	}
 	backupCmd.AddCommand(verifyCmd)
 
-	var restoreTo, restoreConfirm string
+	var restoreTo, restoreConfirm, restoreGeneration string
 	var restoreBreakLock bool
 	restoreCmd := &cobra.Command{
 		Use:   "restore <service>",
@@ -177,16 +177,17 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			}
 			return runMutation(cmd, g, onebox.ExecuteRequest{
 				Kind: onebox.KindRestoreCutover, Service: args[0],
-				RecoveryTarget: restoreTo, BreakLock: restoreBreakLock,
+				RecoveryTarget: restoreTo, RecoveryGeneration: restoreGeneration, BreakLock: restoreBreakLock,
 			}, "backup restore")
 		},
 	}
 	restoreCmd.Flags().StringVar(&restoreTo, "to", "", "RFC 3339 point in time to recover to (default: the newest recoverable point)")
+	restoreCmd.Flags().StringVar(&restoreGeneration, "generation", "", "repository generation to recover (PostgreSQL system identifier or legacy; default: current)")
 	restoreCmd.Flags().StringVar(&restoreConfirm, "confirm", "", "name of the service whose live data may be replaced")
 	restoreCmd.Flags().BoolVar(&restoreBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	backupCmd.AddCommand(restoreCmd)
 
-	var drillTo string
+	var drillTo, drillGeneration string
 	drillCmd := &cobra.Command{
 		Use:   "drill <service>",
 		Short: "prove the repository recovers, without touching anything",
@@ -199,13 +200,15 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindRestoreTest, Service: args[0], RecoveryTarget: drillTo,
+				Kind: onebox.KindRestoreTest, Service: args[0], RecoveryTarget: drillTo, RecoveryGeneration: drillGeneration,
 			}, "backup drill")
 		},
 	}
 	drillCmd.Flags().StringVar(&drillTo, "to", "", "RFC 3339 point in time to prove recoverable (default: the newest recoverable point)")
+	drillCmd.Flags().StringVar(&drillGeneration, "generation", "", "repository generation to prove (PostgreSQL system identifier or legacy; default: current)")
 	backupCmd.AddCommand(drillCmd)
 
+	var statusGeneration string
 	statusCmd := &cobra.Command{
 		Use:   "status <service>",
 		Short: "what the repository can recover, read from the repository",
@@ -215,7 +218,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			"policy is declared but never enabled has no repository to ask, and says so.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := operationsService(cmd, g).BackupStatus(cmd.Context(), args[0])
+			status, err := operationsService(cmd, g).BackupStatusGeneration(cmd.Context(), args[0], statusGeneration)
 			if err != nil {
 				return err
 			}
@@ -226,6 +229,9 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "service     %s\nrepository  %s\n", status.Service, status.Repository)
+			for _, generation := range status.AvailableRepositoryGenerations {
+				fmt.Fprintf(out, "generation  %s\n", generation)
+			}
 			for _, issue := range status.RuntimeIssues {
 				fmt.Fprintf(out, "drift       %s\n", issue)
 			}
@@ -260,6 +266,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 			return w.Flush()
 		},
 	}
+	statusCmd.Flags().StringVar(&statusGeneration, "generation", "", "repository generation to inspect (PostgreSQL system identifier or legacy; default: current)")
 	backupCmd.AddCommand(statusCmd)
 
 	root.AddCommand(backupCmd)

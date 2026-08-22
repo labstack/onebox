@@ -273,8 +273,9 @@ Usage:
   ob backup drill <service> [flags]
 
 Flags:
-  -h, --help        help for drill
-      --to string   RFC 3339 point in time to prove recoverable (default: the newest recoverable point)
+      --generation string   repository generation to prove (PostgreSQL system identifier or legacy; default: current)
+  -h, --help                help for drill
+      --to string           RFC 3339 point in time to prove recoverable (default: the newest recoverable point)
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")
@@ -361,10 +362,11 @@ Usage:
   ob backup restore <service> [flags]
 
 Flags:
-      --break-lock       break a stale operation lock after inspecting its holder
-      --confirm string   name of the service whose live data may be replaced
-  -h, --help             help for restore
-      --to string        RFC 3339 point in time to recover to (default: the newest recoverable point)
+      --break-lock          break a stale operation lock after inspecting its holder
+      --confirm string      name of the service whose live data may be replaced
+      --generation string   repository generation to recover (PostgreSQL system identifier or legacy; default: current)
+  -h, --help                help for restore
+      --to string           RFC 3339 point in time to recover to (default: the newest recoverable point)
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")
@@ -386,7 +388,8 @@ Usage:
   ob backup status <service> [flags]
 
 Flags:
-  -h, --help   help for status
+      --generation string   repository generation to inspect (PostgreSQL system identifier or legacy; default: current)
+  -h, --help                help for status
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

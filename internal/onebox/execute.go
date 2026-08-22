@@ -199,7 +199,7 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		// One path, two endings. A drill stops after proving the recovered
 		// cluster answers; a restore goes on to put it in service.
 		result.EvidenceID = operationID
-		err = executeRecovery(ctx, e, request.Service, request.RecoveryTarget,
+		err = executeRecovery(ctx, e, request.Service, request.RecoveryTarget, request.RecoveryGeneration,
 			request.Kind == KindRestoreCutover, operationID)
 	case KindProxyApply:
 		result.EvidenceID = operationID

@@ -26,12 +26,13 @@ type BackupGeneration struct {
 // repository rather than from the project. The distinction is the whole point:
 // a policy says what should be true, and only the repository says what is.
 type BackupStatus struct {
-	Service       string             `json:"service"`
-	Repository    string             `json:"repository"`
-	Generations   []BackupGeneration `json:"generations"`
-	RuntimeIssues []string           `json:"runtime_issues,omitempty"`
-	LatestBackup  *BackupGeneration  `json:"latest_backup,omitempty"`
-	RecoverableTo string             `json:"recoverable_to,omitempty"`
+	Service                        string             `json:"service"`
+	Repository                     string             `json:"repository"`
+	AvailableRepositoryGenerations []string           `json:"available_repository_generations,omitempty"`
+	Generations                    []BackupGeneration `json:"generations"`
+	RuntimeIssues                  []string           `json:"runtime_issues,omitempty"`
+	LatestBackup                   *BackupGeneration  `json:"latest_backup,omitempty"`
+	RecoverableTo                  string             `json:"recoverable_to,omitempty"`
 	// The declared promise, carried alongside the facts so the report can be
 	// read against it. Reporting only what the repository holds left the
 	// operator to work out whether it satisfies the policy they wrote — which
@@ -90,11 +91,21 @@ func (e *Engine) runWalg(ctx context.Context, service string, args ...string) (s
 	return e.runWalgLocked(ctx, service, e.walgLockPrefix(ctx, service), args...)
 }
 
-// runWalgRead is for commands that only read the repository. It waits briefly
-// on a shared lock instead of an hour on an exclusive one, so status answers
-// while a backup is running rather than blocking behind it.
-func (e *Engine) runWalgRead(ctx context.Context, service string, args ...string) (string, error) {
-	return e.runWalgLocked(ctx, service, e.walgReadLockPrefix(ctx, service), args...)
+func (e *Engine) runWalgReadAtRepository(ctx context.Context, service, repository string, args ...string) (string, error) {
+	n := e.names()
+	command := []string{strings.TrimSpace(e.walgReadLockPrefix(ctx, service)), "docker", "exec", "-u", "postgres",
+		"-e", q("WALG_S3_PREFIX=" + repository), q(n.ServiceContainer(service)), app.WalgBinary}
+	for _, arg := range args {
+		command = append(command, q(arg))
+	}
+	res, err := e.T.Run(ctx, strings.TrimSpace(strings.Join(command, " ")))
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("wal-g %s: %s", strings.Join(args, " "), lastLines(res.Stderr+res.Stdout, 6))
+	}
+	return res.Stdout, nil
 }
 
 func (e *Engine) runWalgLocked(ctx context.Context, service, lockPrefix string, args ...string) (string, error) {
@@ -320,6 +331,13 @@ func parseWalVerifyRows(out string) []walVerifyStatus {
 // comes from wal-g, not from the project: the project's claim about retention
 // and recovery window is exactly the claim this is here to check.
 func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupStatus, error) {
+	return e.BackupStatusForGeneration(ctx, service, "")
+}
+
+// BackupStatusForGeneration inspects an explicitly selected physical cluster
+// generation. An empty selection means the generation currently bound to the
+// service.
+func (e *Engine) BackupStatusForGeneration(ctx context.Context, service, generation string) (BackupStatus, error) {
 	if _, _, err := e.backedUpService(service); err != nil {
 		return BackupStatus{}, err
 	}
@@ -329,12 +347,36 @@ func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupSta
 	if err != nil {
 		return BackupStatus{}, err
 	}
+	repository, err := e.Spec.BackupRepository(service)
+	if err != nil {
+		return BackupStatus{}, err
+	}
+	root := app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service, "")
+	if generation != "" {
+		if generation != "legacy" && !repositoryGeneration.MatchString(generation) {
+			return BackupStatus{}, fmt.Errorf("repository generation %q is not a PostgreSQL system identifier", generation)
+		}
+		selected := generation
+		if selected == "legacy" {
+			selected = ""
+		}
+		repository = app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service, selected)
+	}
 	status := BackupStatus{
 		Service:             service,
-		Repository:          app.WalgPrefix(projection.Target, e.Spec.Spec.Name, service),
+		Repository:          repository,
 		DeclaredWindow:      projection.Policy.Retention.Window,
 		DeclaredMaxDataLoss: projection.Policy.MaxDataLoss,
 	}
+	rootListing, err := e.runWalgReadAtRepository(ctx, service, root, "st", "ls")
+	if err != nil {
+		return status, fmt.Errorf("discover repository generations: %w", err)
+	}
+	clusterListing, err := e.runWalgReadAtRepository(ctx, service, root, "st", "ls", "clusters")
+	if err != nil {
+		return status, fmt.Errorf("discover repository generations: %w", err)
+	}
+	status.AvailableRepositoryGenerations = parseRepositoryGenerations(rootListing + "\n" + clusterListing)
 
 	issues, err := e.VerifyBackupRuntime(ctx, service)
 	if err != nil {
@@ -342,7 +384,7 @@ func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupSta
 	}
 	status.RuntimeIssues = issues
 
-	out, err := e.runWalgRead(ctx, service, "backup-list", "--detail", "--json")
+	out, err := e.runWalgReadAtRepository(ctx, service, repository, "backup-list", "--detail", "--json")
 	if err != nil {
 		return status, err
 	}
@@ -402,6 +444,35 @@ func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupSta
 		}
 	}
 	return status, nil
+}
+
+var repositoryGeneration = regexp.MustCompile(`^[0-9]{1,20}$`)
+var repositoryGenerationPath = regexp.MustCompile(`clusters/([0-9]{1,20})(?:/|$)`)
+
+func parseRepositoryGenerations(listing string) []string {
+	seen := map[string]bool{}
+	for _, line := range strings.Split(listing, "\n") {
+		matches := repositoryGenerationPath.FindAllStringSubmatch(line, -1)
+		for _, match := range matches {
+			seen[match[1]] = true
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			name := strings.TrimSuffix(fields[len(fields)-1], "/")
+			if repositoryGeneration.MatchString(name) {
+				seen[name] = true
+			}
+		}
+		if len(matches) == 0 && (strings.Contains(line, "basebackups_005/") || strings.Contains(line, "wal_005/")) {
+			seen["legacy"] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for generation := range seen {
+		out = append(out, generation)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func lastLines(text string, count int) string {

@@ -79,3 +79,46 @@ func TestSyncSchedulesLeavesBackupTimersAlone(t *testing.T) {
 		t.Fatalf("backup timer %q is inside the job scheduler's namespace and a deploy would delete it", backupTimer)
 	}
 }
+
+// Teardown has to take both namespaces with it.
+//
+// Backup timers are named outside the job scheduler's namespace on purpose —
+// a deploy used to treat them as "no longer declared" and delete every
+// scheduled backup. Teardown is the opposite case: matching only the job
+// prefix left `ob destroy` with ob-backup-<app>-… timers still loaded, firing
+// against a release directory the same command had just deleted.
+func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "list-unit-files") {
+			return transport.Result{Stdout: strings.Join([]string{
+				"ob-sample-nightly.timer",
+				"ob-backup-sample-production-postgres-backup.timer",
+				"ob-backup-sample-production-postgres-verify.timer",
+				// Another application's, and a stranger's. Neither is ours.
+				"ob-backup-other-production-postgres-backup.timer",
+				"logrotate.timer",
+				"",
+			}, "\n")}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RemoveSchedules(context.Background()); err != nil {
+		t.Fatalf("remove schedules: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, want := range []string{
+		"ob-sample-nightly",
+		"ob-backup-sample-production-postgres-backup",
+		"ob-backup-sample-production-postgres-verify",
+	} {
+		if !strings.Contains(seq, "rm -f /etc/systemd/system/"+want+".timer") {
+			t.Errorf("teardown left %s installed:\n%s", want, seq)
+		}
+	}
+	for _, never := range []string{"ob-backup-other-production", "logrotate"} {
+		if strings.Contains(seq, never) {
+			t.Errorf("teardown removed a unit that is not this application's (%s):\n%s", never, seq)
+		}
+	}
+}

@@ -47,23 +47,35 @@ const WalgMountPath = "/opt/onebox/backup"
 // wal-g's out of the operator's encrypted file.
 const WalgBinary = WalgMountPath + "/ob-wal-g"
 
+// WalgTrustStore is the host trust store as the container sees it. The staged
+// copy lands beside the binary, inside the directory already mounted read-only
+// at WalgMountPath.
+const WalgTrustStore = WalgMountPath + "/ca-certificates.crt"
+
 // WalgRepositoryKeyEntry is the credential entry holding the repository
 // encryption key. Unlike the destination keys it has a fixed name: the key is
 // Onebox's own requirement rather than a property of the destination, so there
 // is no backup_targets field to indirect through.
 const WalgRepositoryKeyEntry = "OB_REPOSITORY_KEY"
 
-// WalgPrefix is the repository location for one protected service.
+// WalgPrefix is the repository location for one protected database generation.
 //
 // The application and service are joined with the injective rule the rest of
 // the derived names use, not a hyphen. Hyphens are legal in both, so `a-b`/`c`
-// and `a`/`b-c` would land on the same prefix and interleave two clusters' base
-// backups and WAL — and this string is unversioned by design, so it could not
-// be corrected later without orphaning every backup taken before the fix.
-func WalgPrefix(target BackupTarget, app, service string) string {
+// and `a`/`b-c` must not land on the same prefix. A PostgreSQL system identifier
+// then separates successive clusters for the same service. Every fresh cluster
+// starts WAL numbering at the same name, so sharing that namespace would make
+// the first new segment collide with the old cluster's history.
+//
+// An empty generation names the legacy layout. It remains readable so a cluster
+// protected before generations existed can keep its established history.
+func WalgPrefix(target BackupTarget, app, service, generation string) string {
 	segments := []string{strings.Trim(target.Prefix, "/"), Join(app, service)}
 	if segments[0] == "" {
 		segments = segments[1:]
+	}
+	if generation != "" {
+		segments = append(segments, "clusters", generation)
 	}
 	return "s3://" + target.Bucket + "/" + strings.Join(segments, "/")
 }
@@ -79,7 +91,7 @@ func WalgArchiveCommand() string { return WalgBinary + " wal-push %p" }
 // WalgEnvironment is the non-secret configuration a protected service runs
 // with. Every value here is derived from the project and safe to read: the
 // destination's location, not its keys.
-func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, error) {
+func WalgEnvironment(target BackupTarget, repository, database, service string) (map[string]any, error) {
 	if target.Kind != "s3-compatible" {
 		return nil, fmt.Errorf("backup for %q: unsupported target kind %q", service, target.Kind)
 	}
@@ -97,7 +109,7 @@ func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, 
 			service)
 	}
 	env := map[string]any{
-		"WALG_S3_PREFIX": WalgPrefix(target, app, service),
+		"WALG_S3_PREFIX": repository,
 		"AWS_ENDPOINT":   target.Endpoint,
 		// Path-style addressing, because an S3-compatible endpoint is usually
 		// not the one provider whose virtual-host naming works everywhere. A
@@ -123,7 +135,7 @@ func WalgEnvironment(target BackupTarget, app, service string) (map[string]any, 
 		// missing variable.
 		"PGHOST":     "/var/run/postgresql",
 		"PGUSER":     PgSuperuser,
-		"PGDATABASE": app,
+		"PGDATABASE": database,
 		"PGDATA":     PgDataPath,
 	}
 	if target.Region != "" {
@@ -194,6 +206,25 @@ func RenderWalgWrapper(target BackupTarget) []byte {
 	assign("AWS_SECRET_ACCESS_KEY", target.Credentials.SecretKeyEntry)
 	assign("AWS_SESSION_TOKEN", target.Credentials.SessionTokenEntry)
 	assign("WALG_LIBSODIUM_KEY", WalgRepositoryKeyEntry)
+	// The trust store, if one was staged.
+	//
+	// wal-g executes inside the driver's image, and the official PostgreSQL
+	// images ship no certificate authorities, so an HTTPS endpoint — which
+	// every s3-compatible target is required to be — fails verification with
+	// "certificate signed by unknown authority". Three names because three
+	// layers can do the verifying: wal-g's own S3 setting, the AWS SDK
+	// underneath it, and Go's crypto/tls under that.
+	//
+	// Guarded on the file being readable rather than exported unconditionally:
+	// a host with no bundle should leave the image's own store in play, and
+	// pointing these at a path that does not exist makes the SDK fail with a
+	// worse error than the one it replaces.
+	b.WriteString("if [ -r " + WalgTrustStore + " ]; then\n")
+	for _, name := range []string{"WALG_S3_CA_CERT_FILE", "AWS_CA_BUNDLE", "SSL_CERT_FILE"} {
+		b.WriteString("    " + name + "=" + WalgTrustStore + "\n")
+		b.WriteString("    export " + name + "\n")
+	}
+	b.WriteString("fi\n")
 	b.WriteString("exec " + WalgMountPath + "/wal-g \"$@\"\n")
 	return []byte(b.String())
 }
@@ -295,7 +326,11 @@ func (r *Resolved) backupForRender(n Names, serviceName string) (*serviceBackup,
 	if err != nil {
 		return nil, err
 	}
-	environment, err := WalgEnvironment(projection.Target, r.Spec.Name, serviceName)
+	repository, err := r.BackupRepository(serviceName)
+	if err != nil {
+		return nil, err
+	}
+	environment, err := WalgEnvironment(projection.Target, repository, r.Spec.Name, serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -361,6 +396,22 @@ func (r *Resolved) renderBackupProjection(serviceName string, service Service, s
 func (r *Resolved) ServiceIsProtected(serviceName string) bool {
 	state, observed := r.serviceRuntime[serviceName]
 	return observed && (state.BackupState == "enabled" || state.BackupState == "disable-pending")
+}
+
+// BackupRepository returns the exact repository generation recorded for a
+// protected service. The empty generation is the pre-generation layout and is
+// intentionally retained for compatibility with an established history.
+func (r *Resolved) BackupRepository(serviceName string) (string, error) {
+	state, observed := r.serviceRuntime[serviceName]
+	if !observed || (state.BackupState != "enabled" && state.BackupState != "disable-pending") {
+		return "", errf("backup_state_incomplete", "services."+serviceName+".backup", "ob backup status "+serviceName,
+			"service %s has no established backup repository", serviceName)
+	}
+	projection, err := r.EffectiveBackupProjection(serviceName)
+	if err != nil {
+		return "", err
+	}
+	return WalgPrefix(projection.Target, r.Spec.Name, serviceName, state.BackupRepositoryGeneration), nil
 }
 
 // normalizeMachine folds the spellings of one architecture onto a single name.

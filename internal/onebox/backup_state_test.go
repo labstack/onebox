@@ -178,7 +178,7 @@ func TestReEnablingAnEnabledServiceIsNotRefusedAsCorruptState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	again, err := rebindBackup(enabled, backupStateProjection(), pin, "postgres:18", "op-2")
+	again, err := rebindBackup(enabled, backupStateProjection(), pin, "postgres:18", "op-2", "7513211627332151223", "7513211627332151223")
 	if err != nil {
 		t.Fatalf("re-enabling an enabled service: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestADisablementLeftPendingCanBeFinishedOrAbandoned(t *testing.T) {
 		t.Fatalf("finished state = %q, want disabled", finished.State)
 	}
 
-	abandoned, err := rebindBackup(pending, backupStateProjection(), pin, "postgres:18", "op-3")
+	abandoned, err := rebindBackup(pending, backupStateProjection(), pin, "postgres:18", "op-3", "7513211627332151223", "7513211627332151223")
 	if err != nil {
 		t.Fatalf("re-enabling out of a pending disablement: %v", err)
 	}

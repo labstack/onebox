@@ -72,8 +72,12 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 			err = errors.Join(err, fmt.Errorf("journal proxy apply finish: %w", journalErr))
 		}
 	}()
-	if res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true"); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("clean stale proxy staging: %v %s", err, strings.TrimSpace(res.Stderr))
+	res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true")
+	if err != nil {
+		return fmt.Errorf("clean stale proxy staging: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("clean stale proxy staging: %s", strings.TrimSpace(res.Stderr))
 	}
 
 	acmeJSON := hp.Acme + "/acme.json"
@@ -83,7 +87,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return fmt.Errorf("host proxy dirs: %s", res.Stderr)
 	}
 
-	res, err := e.T.Run(ctx, "cat "+q(hp.Hash)+" 2>/dev/null || true")
+	res, err = e.T.Run(ctx, "cat "+q(hp.Hash)+" 2>/dev/null || true")
 	if err != nil {
 		return err
 	}
@@ -128,8 +132,12 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 			defer cancel()
 			_, _ = e.hostMutate(cleanupContext, "rm -rf "+q(stagedDir))
 		}()
-		if res, err := e.hostMutate(ctx, "rm -rf "+q(stagedDir)); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("clear proxy staging: %v %s", err, res.Stderr)
+		res, err = e.hostMutate(ctx, "rm -rf "+q(stagedDir))
+		if err != nil {
+			return fmt.Errorf("clear proxy staging: %w", err)
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("clear proxy staging: %s", strings.TrimSpace(res.Stderr))
 		}
 		if err := e.T.Upload(ctx, staging, stagedDir); err != nil {
 			return err
@@ -138,8 +146,12 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 			" && mv " + q(stagedDir+"/config") + " " + q(hp.ConfigDir) +
 			" && mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose) +
 			" && rm -rf " + q(stagedDir)
-		if res, err := e.hostMutate(ctx, swap); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("swap proxy config: %v %s", err, res.Stderr)
+		res, err = e.hostMutate(ctx, swap)
+		if err != nil {
+			return fmt.Errorf("swap proxy config: %w", err)
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("swap proxy config: %s", strings.TrimSpace(res.Stderr))
 		}
 	}
 
@@ -174,8 +186,12 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	}
 	// the applied-state marker — written ONLY after health confirms, so an
 	// interrupted converge is retried, never mistaken for "unchanged"
-	if res, err := e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash)); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("write proxy hash: %v %s", err, res.Stderr)
+	res, err = e.hostMutate(ctx, "echo "+q(hash)+" > "+q(hp.Hash))
+	if err != nil {
+		return fmt.Errorf("write proxy hash: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("write proxy hash: %s", strings.TrimSpace(res.Stderr))
 	}
 	e.logf("proxy: healthy at config %.8s", hash)
 	return nil

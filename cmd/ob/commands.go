@@ -257,7 +257,7 @@ type preparedPlan struct {
 
 // notifyOutcome pushes a mutating verb's outcome to the configured webhook.
 // Fail-open: a webhook problem is a stderr warning, never the verb's result.
-func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err error) {
+func notifyOutcome(ctx context.Context, cfg *app.Resolved, g *globalFlags, verb, deployID string, err error) {
 	if cfg == nil || len(cfg.Notifications) == 0 {
 		return
 	}
@@ -276,7 +276,7 @@ func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err
 		p.Status, p.Error = "fail", "operation failed; inspect trusted local diagnostics and journal evidence"
 	}
 	for _, name := range sortedNames(cfg.Notifications) {
-		if nerr := notify.Send(cfg.Notifications[name], p); nerr != nil {
+		if nerr := notify.Send(ctx, cfg.Notifications[name], p); nerr != nil {
 			fmt.Fprintf(os.Stderr, "warn: notify webhook %s: %v\n", name, nerr)
 		}
 	}
@@ -285,7 +285,7 @@ func notifyOutcome(cfg *app.Resolved, g *globalFlags, verb, deployID string, err
 // notifyOperationOutcome maps the canonical result to the stable webhook fields.
 // A no-op is deliberately silent: reporting the planned release ID as deployed
 // would claim an activation that never happened.
-func notifyOperationOutcome(cfg *app.Resolved, g *globalFlags, verb string, result onebox.OperationResult, err error) {
+func notifyOperationOutcome(ctx context.Context, cfg *app.Resolved, g *globalFlags, verb string, result onebox.OperationResult, err error) {
 	if err == nil && result.NoOp {
 		return
 	}
@@ -293,7 +293,7 @@ func notifyOperationOutcome(cfg *app.Resolved, g *globalFlags, verb string, resu
 	if evidenceID == "" {
 		evidenceID = result.ReleaseID
 	}
-	notifyOutcome(cfg, g, verb, evidenceID, err)
+	notifyOutcome(ctx, cfg, g, verb, evidenceID, err)
 }
 
 // buildPlan asks the canonical service for an executable graph, then renders
@@ -588,7 +588,7 @@ func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteReque
 		}
 	}
 	result, err := operationsService(cmd, g).Execute(cmd.Context(), request)
-	notifyOperationOutcome(cfg, g, verb, result, err)
+	notifyOperationOutcome(cmd.Context(), cfg, g, verb, result, err)
 	if structured != nil {
 		if outputErr := structured.finish(&result, err); outputErr != nil {
 			if err == nil {
@@ -675,7 +675,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 		LocalDir:    filepath.Dir(g.ConfigPath),
 		NoRollback:  g.NoRollback,
 		ForceLock:   false,
-		GitSHA:      gitShortSHA(filepath.Dir(g.ConfigPath)),
+		GitSHA:      gitShortSHA(cmd.Context(), filepath.Dir(g.ConfigPath)),
 		ConfigHash:  engine.HashBytes(cfgBytes),
 		Runner:      onebox.CurrentRunnerProvenance(),
 	})
@@ -780,7 +780,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		pl.ui.Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", pl.plan.Artifact.HostState.CurrentRelease)
 		return nil
 	}
-	notifyOperationOutcome(pl.cfg, g, "deploy", result, err)
+	notifyOperationOutcome(cmd.Context(), pl.cfg, g, "deploy", result, err)
 	return err
 }
 
@@ -929,8 +929,8 @@ func confirmAt(cmd *cobra.Command, out io.Writer, prompt string) bool {
 	return false
 }
 
-func gitShortSHA(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--short=7", "HEAD").Output()
+func gitShortSHA(ctx context.Context, dir string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--short=7", "HEAD").Output()
 	if err != nil {
 		return ""
 	}

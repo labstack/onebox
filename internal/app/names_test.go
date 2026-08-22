@@ -90,6 +90,64 @@ func TestDerivationIsInjective(t *testing.T) {
 	}
 }
 
+func TestBackupNamesEscapeHyphenatedSegments(t *testing.T) {
+	idents := []string{"a", "a-b", "b", "b-c", "backup", "verify"}
+	credentialNames := map[string]string{}
+	jobNames := map[string]string{}
+	unitNames := map[string]string{}
+	for _, application := range idents {
+		n := Names{App: application, BasePath: DefaultBasePath}
+		for _, service := range idents {
+			job := n.ScheduledJobUnit(service)
+			jobSource := application + "|" + service
+			if previous, exists := jobNames[job]; exists {
+				t.Fatalf("scheduled job collision: %q derives from both %s and %s", job, previous, jobSource)
+			}
+			jobNames[job] = jobSource
+			for _, target := range idents {
+				credential := n.BackupCredentialFile(service, target)
+				credentialSource := application + "|" + service + "|" + target
+				// Credential paths are application-scoped, so only pairs within
+				// the same application must be globally unique.
+				credentialKey := application + "|" + credential
+				if previous, exists := credentialNames[credentialKey]; exists {
+					t.Fatalf("credential collision: %q derives from both %s and %s", credential, previous, credentialSource)
+				}
+				credentialNames[credentialKey] = credentialSource
+			}
+		}
+		for _, environment := range idents {
+			for _, service := range idents {
+				for _, target := range idents {
+					unit := n.BackupUnitForEnvironment(environment, service, target)
+					unitSource := application + "|" + environment + "|" + service + "|" + target
+					if previous, exists := unitNames[unit]; exists {
+						t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, unitSource)
+					}
+					unitNames[unit] = unitSource
+				}
+			}
+		}
+	}
+
+	n := Names{App: "help-desk", BasePath: DefaultBasePath}
+	if got := n.BackupCredentialFile("data-base", "off-site"); !strings.HasSuffix(got, "/data--base-off--site.env") {
+		t.Fatalf("escaped credential path = %q", got)
+	}
+	if got := n.BackupUnitForEnvironment("pre-prod", "data-base", "back-up"); got != "ob-backup-help--desk-pre--prod-data--base-back--up" {
+		t.Fatalf("escaped backup unit = %q", got)
+	}
+	if got := n.BackupCredentialFiles("data-base", "off-site"); len(got) != 2 || !strings.HasSuffix(got[1], "/data-base-off-site.env") {
+		t.Fatalf("credential migration paths = %#v", got)
+	}
+	if got := n.BackupUnitPrefixesForEnvironment("pre-prod"); len(got) != 2 || got[1] != "ob-backup-help-desk-pre-prod-" {
+		t.Fatalf("unit reconciliation prefixes = %#v", got)
+	}
+	if got := n.ScheduledJobUnit("data-base"); got != "ob-help--desk-data--base" {
+		t.Fatalf("escaped scheduled job unit = %q", got)
+	}
+}
+
 // TestHyphenJoinWouldCollide records why underscore was chosen, so the reason
 // survives someone deciding hyphens look tidier.
 func TestHyphenJoinWouldCollide(t *testing.T) {

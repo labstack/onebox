@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -45,7 +46,8 @@ import (
 // project no longer describes, and nothing in the project would explain why.
 func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	n := e.names()
-	prefix := app.BackupUnitPrefix + e.Spec.Spec.Name + "-" + e.Opts.Environment + "-"
+	prefixes := n.BackupUnitPrefixesForEnvironment(e.Opts.Environment)
+	prefix := prefixes[0]
 	// flock creates the lock file but not the directory holding it.
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/backup")); err != nil {
 		return err
@@ -60,8 +62,22 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	installed := map[string]bool{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		unit := strings.TrimSpace(line)
-		if strings.HasPrefix(unit, prefix) && strings.HasSuffix(unit, ".timer") {
-			installed[strings.TrimSuffix(unit, ".timer")] = true
+		if !strings.HasSuffix(unit, ".timer") {
+			continue
+		}
+		bare := strings.TrimSuffix(unit, ".timer")
+		if strings.HasPrefix(unit, prefix) {
+			installed[bare] = true
+			continue
+		}
+		if matchesAnyPrefix(unit, prefixes[1:]) {
+			owned, err := e.legacyScheduleUnitBelongsToApplication(ctx, bare, true)
+			if err != nil {
+				return err
+			}
+			if owned {
+				installed[bare] = true
+			}
 		}
 	}
 
@@ -160,11 +176,11 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 			stale = append(stale, unit)
 		}
 	}
+	var removalErr error
 	for _, unit := range sortedNames(setOf(stale)) {
-		if err := e.mutateChecked(ctx, "remove backup schedule "+unit, fmt.Sprintf(
-			"systemctl disable --now %s.timer >/dev/null 2>&1 && rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service",
-			unit, unit, unit)); err != nil {
-			return err
+		if err := e.removeScheduleUnit(ctx, unit); err != nil {
+			removalErr = errors.Join(removalErr, err)
+			continue
 		}
 		e.logf("backup schedule: removed %s (no longer protected)", unit)
 	}
@@ -173,9 +189,12 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 		return nil
 	}
 	if res, err := e.mutate(ctx, "systemctl daemon-reload"); err != nil {
-		return err
+		return errors.Join(removalErr, err)
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr))
+		return errors.Join(removalErr, fmt.Errorf("systemctl daemon-reload: %s", strings.TrimSpace(res.Stderr)))
+	}
+	if removalErr != nil {
+		return removalErr
 	}
 	for _, unit := range wanted {
 		if res, err := e.mutate(ctx, "systemctl enable --now "+unit.name+".timer"); err != nil {

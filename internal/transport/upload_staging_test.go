@@ -72,7 +72,7 @@ func TestTheRemoteScriptRefusesAnEmptyArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "-c", script)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", script)
 	cmd.Stdin = strings.NewReader("")
 	if out, err := cmd.CombinedOutput(); err == nil {
 		t.Fatalf("the script accepted an empty archive: %s", out)
@@ -112,7 +112,7 @@ func TestAStreamedUploadDoesNotPublishItsSentinel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command("sh", "-c", script)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", script)
 	cmd.Stdin = &archive
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("the script rejected a complete archive: %v: %s", err, out)
@@ -200,7 +200,7 @@ func TestUploadScriptDoesNotExecuteAHostileDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "-c", script)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", script)
 	cmd.Dir = root
 	out, _ := cmd.CombinedOutput()
 	if _, err := os.Stat(canary); err == nil {

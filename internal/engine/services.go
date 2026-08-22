@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -76,6 +77,9 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	// archives it into the old cluster's namespace.
 	if err := e.ValidateProtectedDatabaseIdentities(ctx); err != nil {
 		return err
+	}
+	if err := e.MigrateBackupCredentialFiles(ctx); err != nil {
+		return fmt.Errorf("backup credentials: %w", err)
 	}
 	// Rendered here rather than handed in. A caller that forgot would produce
 	// a host missing a database, and the engine already holds everything the
@@ -329,16 +333,36 @@ func (e *Engine) removeServices(ctx context.Context, removeVolumes bool) error {
 		if err != nil {
 			return err
 		}
-		var keep []string
+		if vols.ExitCode != 0 {
+			return fmt.Errorf("service %s: list volumes failed (exit %d): %s", name, vols.ExitCode, strings.TrimSpace(vols.Stderr))
+		}
+		owned := map[string]bool{}
 		for _, v := range strings.Fields(vols.Stdout) {
 			if volName.MatchString(v) {
-				keep = append(keep, v)
+				owned[v] = true
 			}
 		}
-		if len(keep) > 0 {
+		// Releases before v2026.8.6 created the safety copy retained by a
+		// successful restore without Compose labels. Its injective live-volume
+		// prefix and timestamp suffix are enough to prove ownership; this sweep
+		// keeps --volumes honest for those existing hosts as well as new ones.
+		preservedPrefix := n.ServiceVolume(name, app.DataVolumeFor(e.Spec.Services[name])) + "-before-restore-"
+		preserved, err := e.T.Run(ctx, "docker volume ls -q --filter name="+q(preservedPrefix))
+		if err != nil {
+			return err
+		}
+		if preserved.ExitCode != 0 {
+			return fmt.Errorf("service %s: list preserved restore volumes failed (exit %d): %s", name, preserved.ExitCode, strings.TrimSpace(preserved.Stderr))
+		}
+		for _, v := range strings.Fields(preserved.Stdout) {
+			if volName.MatchString(v) && strings.HasPrefix(v, preservedPrefix) && restoreSnapshotSuffix.MatchString(strings.TrimPrefix(v, preservedPrefix)) {
+				owned[v] = true
+			}
+		}
+		if len(owned) > 0 {
 			// --volumes was asked for explicitly, so a volume left behind is
 			// a destroy that did not do what it said.
-			if res, err := e.mutate(ctx, "docker volume rm "+strings.Join(keep, " ")); err != nil {
+			if res, err := e.mutate(ctx, "docker volume rm "+strings.Join(sortedNames(owned), " ")); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("service %s: cannot remove volume: %s — nothing further was destroyed",
@@ -348,6 +372,8 @@ func (e *Engine) removeServices(ctx context.Context, removeVolumes bool) error {
 	}
 	return nil
 }
+
+var restoreSnapshotSuffix = regexp.MustCompile(`^\d{8}T\d{6}Z$`)
 
 // refuseOrphanedVolume reports a durable volume whose credential is gone.
 func (e *Engine) refuseOrphanedVolume(ctx context.Context, n app.Names, name string) error {

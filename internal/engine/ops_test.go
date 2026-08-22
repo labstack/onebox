@@ -412,6 +412,36 @@ func TestDestroyVolumesOnSweepPath(t *testing.T) {
 	}
 }
 
+func TestRemoveServicesRemovesPreservedRestoreVolumes(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker ps -aq"):
+			return transport.Result{}, true
+		case strings.Contains(cmd, "docker volume ls") && strings.Contains(cmd, "label=com.docker.compose.project"):
+			return transport.Result{Stdout: "ob_sample_postgres_data\n"}, true
+		case strings.Contains(cmd, "docker volume ls") && strings.Contains(cmd, "before-restore"):
+			return transport.Result{Stdout: strings.Join([]string{
+				"ob_sample_postgres_data-before-restore-20260822T160242Z",
+				"ob_sample_postgres_data-before-restore-not-a-timestamp",
+				"ob_other_postgres_data-before-restore-20260822T160242Z",
+			}, "\n")}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e.fenceVal = "destroy 1"
+	if err := e.removeServices(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker volume rm ob_sample_postgres_data ob_sample_postgres_data-before-restore-20260822T160242Z") {
+		t.Fatalf("destroy did not remove the live and preserved volumes:\n%s", seq)
+	}
+	if strings.Contains(seq, "docker volume rm ob_other") || strings.Contains(seq, "docker volume rm ob_sample_postgres_data-before-restore-not") {
+		t.Fatalf("destroy removed a volume whose ownership was not proved:\n%s", seq)
+	}
+}
+
 func TestDestroyRefusesFailedSweepDiscovery(t *testing.T) {
 	for _, test := range []struct {
 		name          string

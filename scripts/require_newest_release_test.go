@@ -72,7 +72,7 @@ func runNewestReleaseGuard(t *testing.T, tag, published string, apiFails bool) (
 	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(stub), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", script, tag, "labstack/onebox")
+	cmd := exec.CommandContext(t.Context(), "bash", script, tag, "labstack/onebox")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	output, err := cmd.CombinedOutput()

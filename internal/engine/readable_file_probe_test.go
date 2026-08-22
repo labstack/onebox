@@ -68,7 +68,7 @@ func TestReadableFileProbeClassifies(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := exec.Command("/bin/sh", "-c", readableFileProbe(tc.path))
+			cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", readableFileProbe(tc.path))
 			out, err := cmd.Output()
 			exit := 0
 			if err != nil {

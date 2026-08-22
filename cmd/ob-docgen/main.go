@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -49,7 +50,7 @@ func main() {
 	flag.BoolVar(&check, "check", false, "fail if the files on disk differ from what would be generated")
 	flag.Parse()
 
-	files, err := generate(obBin)
+	files, err := generate(context.Background(), obBin)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ob-docgen:", err)
 		os.Exit(1)
@@ -175,7 +176,7 @@ func orphanedPages(out string, want map[string]string) ([]string, error) {
 	return orphans, nil
 }
 
-func generate(obBin string) (map[string]string, error) {
+func generate(ctx context.Context, obBin string) (map[string]string, error) {
 	files := map[string]string{}
 
 	schema, err := loadSchema()
@@ -192,7 +193,7 @@ func generate(obBin string) (map[string]string, error) {
 
 	files["errors.mdx"] = renderErrorPage()
 
-	cli, err := renderCLIPage(obBin)
+	cli, err := renderCLIPage(ctx, obBin)
 	if err != nil {
 		return nil, err
 	}
@@ -918,7 +919,7 @@ func renderErrorPage() string {
 // from the set `verify` compares, so `--check` reported everything current while
 // the committed CLI reference could say anything at all — the gate answering
 // "yes" to a question it had not asked.
-func renderCLIPage(obBin string) (string, error) {
+func renderCLIPage(ctx context.Context, obBin string) (string, error) {
 	if obBin == "" {
 		found, err := exec.LookPath("ob")
 		if err != nil {
@@ -927,7 +928,7 @@ func renderCLIPage(obBin string) (string, error) {
 		obBin = found
 	}
 
-	root, err := help(obBin)
+	root, err := help(ctx, obBin)
 	if err != nil {
 		return "", err
 	}
@@ -985,7 +986,7 @@ func renderCLIPage(obBin string) (string, error) {
 		return "", fmt.Errorf("reading the root command list: %w", err)
 	}
 	for _, name := range names {
-		if err := renderCommand(&buf, obBin, name, 2); err != nil {
+		if err := renderCommand(ctx, &buf, obBin, name, 2); err != nil {
 			return "", err
 		}
 	}
@@ -997,8 +998,8 @@ func renderCLIPage(obBin string) (string, error) {
 // than unrolling a fixed number of levels: the previous two-level version could
 // never describe `ob a b c`, and the only thing that would have noticed was a
 // test in another package reporting it as stale documentation.
-func renderCommand(buf *bytes.Buffer, obBin, name string, level int) error {
-	body, err := help(obBin, strings.Fields(name)...)
+func renderCommand(ctx context.Context, buf *bytes.Buffer, obBin, name string, level int) error {
+	body, err := help(ctx, obBin, strings.Fields(name)...)
 	if err != nil {
 		return err
 	}
@@ -1015,7 +1016,7 @@ func renderCommand(buf *bytes.Buffer, obBin, name string, level int) error {
 		return nil
 	}
 	for _, child := range nested {
-		if err := renderCommand(buf, obBin, name+" "+child, level+1); err != nil {
+		if err := renderCommand(ctx, buf, obBin, name+" "+child, level+1); err != nil {
 			return err
 		}
 	}
@@ -1030,8 +1031,8 @@ func renderCommand(buf *bytes.Buffer, obBin, name string, level int) error {
 // whose body is the root help. Tolerating a non-zero exit whenever anything
 // reached stdout had the same shape: a truncated or half-written help became
 // documentation.
-func help(bin string, args ...string) (string, error) {
-	cmd := exec.Command(bin, append(args, "--help")...)
+func help(ctx context.Context, bin string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, bin, append(args, "--help")...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 	var out, errOut bytes.Buffer
 	cmd.Stdout = &out

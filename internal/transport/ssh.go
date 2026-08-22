@@ -63,7 +63,7 @@ func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
 	if err != nil {
 		return nil, fmt.Errorf("known_hosts (required — ob never skips host verification): %w", err)
 	}
-	auths, diag := sshAuths(home, os.Getenv("SSH_AUTH_SOCK"))
+	auths, diag := sshAuths(ctx, home, os.Getenv("SSH_AUTH_SOCK"))
 	if len(auths) == 0 {
 		msg := "no usable SSH auth found (need an ssh-agent identity or ~/.ssh/id_ed25519|id_rsa)"
 		if len(diag) > 0 {
@@ -130,9 +130,9 @@ func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
 // encrypted key is usable only via the agent. The empty-agent
 // guard matters because a reachable-but-empty agent's Signers callback offers
 // nothing yet would still make len(auths) non-zero, masking that diagnostic.
-func sshAuths(home, authSock string) (auths []ssh.AuthMethod, diag []string) {
+func sshAuths(ctx context.Context, home, authSock string) (auths []ssh.AuthMethod, diag []string) {
 	if authSock != "" {
-		conn, err := net.Dial("unix", authSock)
+		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", authSock)
 		if err != nil {
 			diag = append(diag, fmt.Sprintf("SSH_AUTH_SOCK set but agent unreachable: %v", err))
 		} else {
@@ -245,7 +245,8 @@ func (s *SSH) RunInput(ctx context.Context, cmd, stdin string) (Result, error) {
 	}
 	res := Result{Stdout: out.String(), Stderr: errb.String()}
 	if err != nil {
-		if ee, ok := err.(*ssh.ExitError); ok {
+		var ee *ssh.ExitError
+		if errors.As(err, &ee) {
 			res.ExitCode = ee.ExitStatus()
 			return res, nil
 		}

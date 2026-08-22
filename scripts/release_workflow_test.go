@@ -162,7 +162,7 @@ git -C "$RACER_REPO" push origin main
 	writeExecutable(t, filepath.Join(repo.work, ".git", "hooks", "pre-push"), hook)
 	runGit(t, repo.work, "tag", "--no-sign", tag, repo.head)
 
-	cmd := gitCommand(repo.work,
+	cmd := gitCommand(t, repo.work,
 		"push", "--atomic",
 		"--force-with-lease=refs/heads/main:"+repo.head,
 		"origin",
@@ -309,7 +309,7 @@ func runReleaseAt(t *testing.T, repo testRepository, justShim string, prePushHoo
 	if err := os.WriteFile(script, []byte(releaseScript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", script)
+	cmd := exec.CommandContext(t.Context(), "bash", script)
 	cmd.Dir = repo.work
 	cmd.Env = append(os.Environ(),
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -329,22 +329,23 @@ func writeExecutable(t *testing.T, path, content string) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	if output, err := gitCommand(dir, args...).CombinedOutput(); err != nil {
+	if output, err := gitCommand(t, dir, args...).CombinedOutput(); err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
 }
 
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	output, err := gitCommand(dir, args...).CombinedOutput()
+	output, err := gitCommand(t, dir, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
 	return strings.TrimSpace(string(output))
 }
 
-func gitCommand(dir string, args ...string) *exec.Cmd {
-	cmd := exec.Command("git", args...)
+func gitCommand(t *testing.T, dir string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 	return cmd
@@ -352,7 +353,7 @@ func gitCommand(dir string, args ...string) *exec.Cmd {
 
 func assertLocalTag(t *testing.T, repo testRepository, tag string, want bool) {
 	t.Helper()
-	err := gitCommand(repo.work, "rev-parse", "--quiet", "--verify", "refs/tags/"+tag).Run()
+	err := gitCommand(t, repo.work, "rev-parse", "--quiet", "--verify", "refs/tags/"+tag).Run()
 	if (err == nil) != want {
 		t.Fatalf("local tag %s existence = %v, want %v", tag, err == nil, want)
 	}

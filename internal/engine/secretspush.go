@@ -377,7 +377,7 @@ func randomSecretGeneration() (string, error) {
 }
 
 func (e *Engine) freshSecretGeneration(exclude string) (string, error) {
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		generation, err := e.Opts.SecretGeneration()
 		if err != nil {
 			return "", fmt.Errorf("create opaque secret generation: %w", err)

@@ -11,6 +11,7 @@ package notify
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -58,7 +59,7 @@ func (p Payload) text() string {
 // Send fires the webhook if the payload's outcome is selected by cfg.On. An
 // unset webhook and a filtered outcome are silent no-ops. Callers treat a
 // returned error as a warning — never as the operation's result.
-func Send(cfg app.Notification, p Payload) error {
+func Send(ctx context.Context, cfg app.Notification, p Payload) error {
 	if cfg.Webhook == "" {
 		return nil
 	}
@@ -82,7 +83,8 @@ func Send(cfg app.Notification, p Payload) error {
 		p.Error = "operation failed; inspect trusted local diagnostics"
 	}
 	p.Text = p.text()
-	body, contentType := []byte(nil), "application/json"
+	contentType := "application/json"
+	var body []byte
 	if cfg.Format == "text" {
 		// ntfy-style topic endpoints render the body verbatim — send the
 		// human line only, with the title as a header
@@ -94,7 +96,7 @@ func Send(cfg app.Notification, p Payload) error {
 		}
 		body = b
 	}
-	req, err := http.NewRequest(http.MethodPost, cfg.Webhook, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.Webhook, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

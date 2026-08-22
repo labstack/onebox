@@ -79,7 +79,7 @@ func TestGenerationIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		again, err := purityFixture(t).Render("production", "R1", nil)
 		if err != nil {
 			t.Fatal(err)

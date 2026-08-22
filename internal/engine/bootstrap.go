@@ -39,8 +39,12 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 
 	e.logf("bootstrap: base dirs")
 	p := release.PathsFor(e.names())
-	if res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases)); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("mkdir %s: %v %s", p.Releases, err, res.Stderr)
+	res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases))
+	if err != nil {
+		return fmt.Errorf("mkdir %s: %w", p.Releases, err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("mkdir %s: %s", p.Releases, strings.TrimSpace(res.Stderr))
 	}
 
 	// one regime for every mutation: bootstrap locks, fences,

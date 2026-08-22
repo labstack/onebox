@@ -32,7 +32,7 @@ func gate(t *testing.T) {
 	}
 	// Opting in is a promise that Docker is here. Skipping past a broken daemon
 	// once OB_E2E=1 is set turns a gate into a green tick for work nobody did.
-	if err := exec.Command("docker", "info").Run(); err != nil {
+	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
 		t.Fatalf("OB_E2E=1 was set but docker is not usable: %v", err)
 	}
 }
@@ -96,13 +96,13 @@ func bootstrapHost(t *testing.T, dir, cfgFile, base string) {
 	}
 }
 
-func composeDown(project, dir string) {
-	cmd := exec.Command("docker", "compose", "-p", project, "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
+func composeDown(ctx context.Context, project, dir string) {
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-p", project, "-f", filepath.Join(dir, "docker-compose.yaml"), "down", "-v", "--remove-orphans")
 	cmd.Run()
 }
 
-func webContainers(project string) []string {
-	out, _ := exec.Command("docker", "ps", "-q",
+func webContainers(ctx context.Context, project string) []string {
+	out, _ := exec.CommandContext(ctx, "docker", "ps", "-q",
 		"--filter", "label=com.docker.compose.project="+project,
 		"--filter", "label=com.docker.compose.service=web").Output()
 	var ids []string
@@ -121,11 +121,15 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	gate(t)
 	dir, _ := filepath.Abs("testdata/app")
 	base := t.TempDir()
-	composeDown("obe2e", dir)
-	t.Cleanup(func() { composeDown("obe2e", dir) })
+	composeDown(t.Context(), "obe2e", dir)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := testCleanupContext()
+		defer cancel()
+		composeDown(cleanupCtx, "obe2e", dir)
+	})
 
 	// host proxy up + healthy, then v1
-	up := exec.Command("docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
+	up := exec.CommandContext(t.Context(), "docker", "compose", "-p", "obe2e", "-f", filepath.Join(dir, "docker-compose.yaml"), "up", "-d", "traefik")
 	if out, err := up.CombinedOutput(); err != nil {
 		t.Fatalf("traefik: %v\n%s", err, out)
 	}
@@ -150,7 +154,8 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 				return
 			default:
 			}
-			resp, err := client.Get("http://localhost:18080/")
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost:18080/", nil)
+			resp, err := client.Do(req)
 			total.Add(1)
 			if err != nil || resp.StatusCode != 200 {
 				failures.Add(1)
@@ -168,7 +173,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		for {
-			if len(webContainers("obe2e")) >= 2 {
+			if len(webContainers(t.Context(), "obe2e")) >= 2 {
 				cancel() // the runner is dead
 				return
 			}
@@ -193,7 +198,7 @@ func TestKillRunnerMidReleaseThenResume(t *testing.T) {
 		t.Fatalf("zero-downtime violated across crash+resume: %d/%d failed", f, total.Load())
 	}
 	waitBody(t, "http://localhost:18080/", "v2\n", 15*time.Second)
-	if n := len(webContainers("obe2e")); n != 1 {
+	if n := len(webContainers(t.Context(), "obe2e")); n != 1 {
 		t.Fatalf("expected exactly 1 web container after resume, got %d", n)
 	}
 	fmt.Printf("crash+resume proven: %d requests, 0 failures\n", total.Load())
@@ -205,8 +210,12 @@ func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 	gate(t)
 	dir, _ := filepath.Abs("testdata/worker")
 	base := t.TempDir()
-	composeDown("obworker", dir)
-	t.Cleanup(func() { composeDown("obworker", dir) })
+	composeDown(t.Context(), "obworker", dir)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := testCleanupContext()
+		defer cancel()
+		composeDown(cleanupCtx, "obworker", dir)
+	})
 
 	bootstrapHost(t, dir, "ob.yml", base)
 	e, id, staging := buildDeploy(t, dir, "ob.yml", "v1", base)

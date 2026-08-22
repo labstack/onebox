@@ -16,7 +16,7 @@ import (
 // which is the only way a symlink question gets an honest answer.
 func runStateProbe(t *testing.T, script string) (int, string) {
 	t.Helper()
-	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", script)
 	out, err := cmd.Output()
 	if err != nil {
 		var exit *exec.ExitError

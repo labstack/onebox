@@ -13,6 +13,7 @@
 package e2e
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -74,7 +75,7 @@ func requireServer(t *testing.T) *server {
 	}
 	s := &server{target: target, user: user, host: host, port: port, key: key,
 		bootstrapped: map[string]bool{}}
-	if err := s.try("true"); err != nil {
+	if err := s.try(t, "true"); err != nil {
 		t.Fatalf("OB_SERVER_E2E=1 but %s is not reachable: %v", target, err)
 	}
 	s.guest = strings.Fields(s.run(t, "hostname -I"))[0]
@@ -86,20 +87,21 @@ func requireServer(t *testing.T) *server {
 // the system ssh client directly.
 func (s *server) run(t *testing.T, command string) string {
 	t.Helper()
-	out, err := s.output(command)
+	out, err := s.output(t.Context(), command)
 	if err != nil {
 		t.Fatalf("server command failed: %s\n%v\n%s", command, err, out)
 	}
 	return out
 }
 
-func (s *server) try(command string) error {
-	_, err := s.output(command)
+func (s *server) try(t *testing.T, command string) error {
+	t.Helper()
+	_, err := s.output(t.Context(), command)
 	return err
 }
 
-func (s *server) output(command string) (string, error) {
-	cmd := exec.Command("ssh",
+func (s *server) output(ctx context.Context, command string) (string, error) {
+	cmd := exec.CommandContext(ctx, "ssh",
 		"-i", s.key, "-p", s.port,
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=no",
@@ -115,7 +117,7 @@ func (s *server) output(command string) (string, error) {
 // problem: the body travels on stdin.
 func (s *server) write(t *testing.T, path string, mode string, body []byte) {
 	t.Helper()
-	cmd := exec.Command("ssh",
+	cmd := exec.CommandContext(t.Context(), "ssh",
 		"-i", s.key, "-p", s.port,
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=no",
@@ -150,10 +152,10 @@ func obBinary(t *testing.T) string {
 			return
 		}
 		obPath = filepath.Join(dir, "ob")
-		build := exec.Command("go", "build", "-o", obPath, "./cmd/ob")
+		build := exec.CommandContext(t.Context(), "go", "build", "-o", obPath, "./cmd/ob")
 		build.Dir = repoRoot(t)
 		if out, err := build.CombinedOutput(); err != nil {
-			obErr = fmt.Errorf("building ob: %v\n%s", err, out)
+			obErr = fmt.Errorf("building ob: %w\n%s", err, out)
 		}
 	})
 	if obErr != nil {
@@ -238,7 +240,7 @@ func (s *server) obHome(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(ssh, "id_ed25519"), key, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	scan := exec.Command("ssh-keyscan", "-p", s.port, s.host)
+	scan := exec.CommandContext(t.Context(), "ssh-keyscan", "-p", s.port, s.host)
 	scanned, err := scan.Output()
 	if err != nil {
 		t.Fatalf("ssh-keyscan %s:%s: %v", s.host, s.port, err)
@@ -267,7 +269,7 @@ func (s *server) obWithHome(t *testing.T, dir, home string, args ...string) (str
 // flag to skip.
 func (s *server) obInput(t *testing.T, dir, home, stdin string, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command(obBinary(t), append([]string{"-c", filepath.Join(dir, "ob.yml")}, args...)...)
+	cmd := exec.CommandContext(t.Context(), obBinary(t), append([]string{"-c", filepath.Join(dir, "ob.yml")}, args...)...)
 	cmd.Dir = dir
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)

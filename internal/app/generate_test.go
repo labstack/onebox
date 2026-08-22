@@ -75,7 +75,7 @@ func render(t *testing.T, yaml string) []byte {
 // TestRenderIsDeterministic is the property the plan digest rests on. Map
 // iteration order is the easiest way to break it by accident.
 func TestRenderIsDeterministic(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		a, b := digestOf(t, appFixture), digestOf(t, appFixture)
 		if a != b {
 			t.Fatalf("run %d: digests differ", i)

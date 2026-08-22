@@ -175,7 +175,7 @@ func nativeBinaryFixtureDir(t *testing.T, dist string) string {
 
 func runArtifactVerifier(t *testing.T, dist, binDir string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("bash", "verify-release-dist.sh", dist)
+	cmd := exec.CommandContext(t.Context(), "bash", "verify-release-dist.sh", dist)
 	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	output, err := cmd.CombinedOutput()
 	return string(output), err

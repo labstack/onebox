@@ -45,7 +45,7 @@ func writeKey(t *testing.T, home, name, passphrase string) {
 func serveAgent(t *testing.T, keys int) string {
 	t.Helper()
 	ring := agent.NewKeyring()
-	for i := 0; i < keys; i++ {
+	for range keys {
 		_, priv, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
@@ -62,7 +62,7 @@ func serveAgent(t *testing.T, keys int) string {
 	}
 	t.Cleanup(func() { os.RemoveAll(base) })
 	sock := filepath.Join(base, "a.sock")
-	ln, err := net.Listen("unix", sock)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestSSHAuthsEncryptedKeyIsDiagnosed(t *testing.T) {
 	home := t.TempDir()
 	writeKey(t, home, "id_rsa", "hunter2")
 
-	auths, diag := sshAuths(home, "")
+	auths, diag := sshAuths(t.Context(), home, "")
 	if len(auths) != 0 {
 		t.Fatalf("encrypted key must not yield an auth method, got %d", len(auths))
 	}
@@ -111,7 +111,7 @@ func TestSSHAuthsUnreadableKeyIsDiagnosed(t *testing.T) {
 	if _, err := os.ReadFile(path); err == nil {
 		t.Skip("running as a user that can read mode-000 files (e.g. root)")
 	}
-	auths, diag := sshAuths(home, "")
+	auths, diag := sshAuths(t.Context(), home, "")
 	if len(auths) != 0 {
 		t.Fatalf("unreadable key must yield no auth, got %d", len(auths))
 	}
@@ -125,7 +125,7 @@ func TestSSHAuthsUnencryptedKeyIsUsed(t *testing.T) {
 	home := t.TempDir()
 	writeKey(t, home, "id_ed25519", "")
 
-	auths, diag := sshAuths(home, "")
+	auths, diag := sshAuths(t.Context(), home, "")
 	if len(auths) != 1 {
 		t.Fatalf("want 1 auth method, got %d (diag: %v)", len(auths), diag)
 	}
@@ -137,7 +137,7 @@ func TestSSHAuthsEmptyAgentContributesNothing(t *testing.T) {
 	home := t.TempDir() // no ~/.ssh keys
 	sock := serveAgent(t, 0)
 
-	auths, diag := sshAuths(home, sock)
+	auths, diag := sshAuths(t.Context(), home, sock)
 	if len(auths) != 0 {
 		t.Fatalf("empty agent must yield no auth method, got %d", len(auths))
 	}
@@ -151,7 +151,7 @@ func TestSSHAuthsAgentWithIdentityIsUsed(t *testing.T) {
 	home := t.TempDir()
 	sock := serveAgent(t, 1)
 
-	auths, diag := sshAuths(home, sock)
+	auths, diag := sshAuths(t.Context(), home, sock)
 	if len(auths) != 1 {
 		t.Fatalf("agent with one identity → 1 auth method, got %d (diag: %v)", len(auths), diag)
 	}
@@ -160,7 +160,7 @@ func TestSSHAuthsAgentWithIdentityIsUsed(t *testing.T) {
 // An unreachable SSH_AUTH_SOCK is reported, not silently ignored.
 func TestSSHAuthsUnreachableAgentIsDiagnosed(t *testing.T) {
 	home := t.TempDir()
-	auths, diag := sshAuths(home, filepath.Join(t.TempDir(), "nope.sock"))
+	auths, diag := sshAuths(t.Context(), home, filepath.Join(t.TempDir(), "nope.sock"))
 	if len(auths) != 0 {
 		t.Fatalf("want no auth, got %d", len(auths))
 	}

@@ -44,7 +44,7 @@ func deploymentGraph(cfg *app.Resolved, releaseID string) ([]OperationStep, erro
 				Kind:       StepJob,
 				Component:  name,
 				Service:    name,
-				DataEffect: DataEffectClass(component.DataEffect),
+				DataEffect: component.DataEffect,
 				Mutation:   true,
 			}
 			if step.DataEffect == DataEffectMigration {

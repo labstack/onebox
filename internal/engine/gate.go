@@ -257,7 +257,7 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 		Phase:         "auto-rollback",
 		Journal:       jw,
 	}); err != nil {
-		return fmt.Errorf("verify failed (%v) AND automatic rollback recovery failed: %w", verr, err)
+		return fmt.Errorf("verify failed (%w) AND automatic rollback recovery failed: %w", verr, err)
 	}
 	rollbackErr := fmt.Errorf("verify: %w — auto-rolled back to %s (healthy); new release NOT activated", verr, prev)
 	return rollbackErr

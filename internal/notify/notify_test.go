@@ -1,7 +1,9 @@
 package notify
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +26,7 @@ func TestSendPostsPayload(t *testing.T) {
 	defer srv.Close()
 
 	n := app.Notification{Webhook: srv.URL, On: []string{"failure", "success"}}
-	err := Send(n, Payload{
+	err := Send(t.Context(), n, Payload{
 		App: "sample", Env: "production", Verb: "deploy", DeployID: "R1",
 		Status: "fail", Error: "verify: gate closed — HALT-AND-PAGE ...",
 	})
@@ -50,20 +52,20 @@ func TestSendFiltersByOn(t *testing.T) {
 	defer srv.Close()
 
 	n := app.Notification{Webhook: srv.URL, On: []string{"failure"}}
-	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "ok"}); err != nil {
+	if err := Send(t.Context(), n, Payload{App: "sample", Verb: "deploy", Status: "ok"}); err != nil {
 		t.Fatal(err) // filtered out is not an error
 	}
 	if hits != 0 {
 		t.Fatal("success must be filtered when on: [failure]")
 	}
-	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err != nil {
+	if err := Send(t.Context(), n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err != nil {
 		t.Fatal(err)
 	}
 	if hits != 1 {
 		t.Fatal("failure must fire")
 	}
 	// nil config: no-op
-	if err := Send(app.Notification{}, Payload{Status: "fail"}); err != nil {
+	if err := Send(t.Context(), app.Notification{}, Payload{Status: "fail"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -73,7 +75,7 @@ func TestSendFailOpen(t *testing.T) {
 	// never hangs past the timeout
 	n := app.Notification{Webhook: "http://127.0.0.1:1", On: []string{"failure"}}
 	start := time.Now()
-	if err := Send(n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err == nil {
+	if err := Send(t.Context(), n, Payload{App: "sample", Verb: "deploy", Status: "fail", Error: "x"}); err == nil {
 		t.Fatal("dead webhook must surface an error for the warn log")
 	}
 	if time.Since(start) > 6*time.Second {
@@ -86,7 +88,7 @@ func TestSendFailOpen(t *testing.T) {
 	}))
 	defer srv.Close()
 	n = app.Notification{Webhook: srv.URL, On: []string{"failure"}}
-	if err := Send(n, Payload{Status: "fail"}); err == nil || !strings.Contains(err.Error(), "500") {
+	if err := Send(t.Context(), n, Payload{Status: "fail"}); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("non-2xx must be reported: %v", err)
 	}
 }
@@ -101,7 +103,7 @@ func TestSendFormatText(t *testing.T) {
 	defer srv.Close()
 
 	n := app.Notification{Webhook: srv.URL, On: []string{"failure"}, Format: "text"}
-	if err := Send(n, Payload{App: "sample", Host: "root@h", Verb: "deploy", Status: "fail", Error: "credential-canary-value; customer@example.invalid database row"}); err != nil {
+	if err := Send(t.Context(), n, Payload{App: "sample", Host: "root@h", Verb: "deploy", Status: "fail", Error: "credential-canary-value; customer@example.invalid database row"}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(body, "{") || !strings.Contains(body, "FAILED") || strings.Contains(body, "credential-canary") || strings.Contains(body, "customer@example.invalid") || !strings.Contains(body, "trusted local diagnostics") {
@@ -112,5 +114,33 @@ func TestSendFormatText(t *testing.T) {
 	}
 	if title != "sample deploy" {
 		t.Fatalf("X-Title: %q", title)
+	}
+}
+
+func TestSendHonorsCancellation(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Send(ctx, app.Notification{Webhook: srv.URL, On: []string{"failure"}}, Payload{Status: "fail"})
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		close(release)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled send = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("cancelled send did not return promptly")
 	}
 }

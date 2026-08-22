@@ -167,7 +167,7 @@ func TestConcurrentManifestWritesNeverExposePartialJSON(t *testing.T) {
 	}
 	var wait sync.WaitGroup
 	errorsSeen := make(chan error, 40)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		wait.Add(1)
 		go func(manifest Manifest) {
 			defer wait.Done()

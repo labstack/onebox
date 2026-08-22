@@ -12,6 +12,12 @@ version: "2"
 
 linters:
   default: standard
+  enable:
+    - copyloopvar
+    - errorlint
+    - intrange
+    - noctx
+    - unconvert
 
   # `unused` was held back while a pile of callerless helpers waited on work that
   # might still arrive. That call has been made and the helpers are gone, so the
@@ -64,7 +70,6 @@ linters:
       # failing anyway.
       - path: (_test\.go|^e2e/)
         linters: [errcheck]
-
 formatters:
   enable:
     - gofmt

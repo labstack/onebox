@@ -323,11 +323,7 @@ func TestConversionDrafts(t *testing.T) {
 }
 
 func asError(err error, target **Error) bool {
-	e, ok := err.(*Error)
-	if ok {
-		*target = e
-	}
-	return ok
+	return errors.As(err, target)
 }
 
 func keysOf[V any](m map[string]V) []string {

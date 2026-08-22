@@ -307,7 +307,7 @@ var blocks = []block{
 		Summary:  "Named container registries and the local environment variables holding their credentials.",
 		ReadWhen: []string{"Pulling from a private registry"}},
 	{Key: "notifications", Title: "notifications", Order: 100, Status: statusShipped,
-		Summary:  "Named webhooks that receive selected operation outcomes.",
+		Summary:  "Named webhooks that receive selected operation and scheduled-job outcomes.",
 		ReadWhen: []string{"Sending deploy outcomes to Slack, Discord or an incident tool"}},
 	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusShipped,
 		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",

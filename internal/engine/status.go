@@ -28,6 +28,7 @@ func (e *Engine) Status(ctx context.Context) error {
 		incS      journal.Summary
 		incFound  bool
 		px        proxyRaw
+		schedules []StatusSchedule
 	)
 
 	reads := []func() error{
@@ -44,6 +45,7 @@ func (e *Engine) Status(ctx context.Context) error {
 			incS, incFound = s, true
 			return nil
 		},
+		func() (err error) { schedules, err = e.scheduleStatuses(ctx); return },
 	}
 	if managed {
 		reads = append(reads, e.proxyReads(ctx, &px)...)
@@ -143,6 +145,18 @@ func (e *Engine) Status(ctx context.Context) error {
 			continue
 		}
 		fmt.Fprintf(e.Opts.Out, "service %-12s %s\n", acc, cs[0].health)
+	}
+	for _, schedule := range schedules {
+		if schedule.Diverged {
+			diverged = true
+			e.ui.Println(fmt.Sprintf("schedule %-11s %s", schedule.Name, e.ui.Warn(strings.Join(schedule.Issues, "; ")+" ⚠")))
+			continue
+		}
+		result := schedule.LastResult
+		if result == "" {
+			result = "not run yet"
+		}
+		fmt.Fprintf(e.Opts.Out, "schedule %-11s active; last: %s\n", schedule.Name, result)
 	}
 
 	if managed {

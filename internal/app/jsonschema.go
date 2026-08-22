@@ -350,6 +350,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "routes", "items", "middlewares", "items"}, pattern(gMiddlewareRef)},
 	{[]string{"workloads", "*", "volumes", "items", "name"}, pattern(gIdent)},
 	{[]string{"workloads", "*", "volumes", "items", "path"}, pattern(gAbsPath)},
+	{[]string{"workloads", "*", "volumes", "items", "source"}, bindSourceConstraint()},
 
 	{[]string{"workloads", "*", "volumes", "items", "mode"}, enum(eMountMode)},
 	// A named volume says where it mounts, or it is a bind pair. Either way
@@ -359,6 +360,22 @@ var schemaConstraints = []struct {
 			map[string]any{"required": []any{"name", "path"}},
 			map[string]any{"required": []any{"source", "path"}},
 		},
+		"allOf": []any{
+			map[string]any{
+				"if": map[string]any{
+					"required": []any{"source"},
+					"properties": map[string]any{
+						"source": map[string]any{"pattern": "^[^/]"},
+					},
+				},
+				"then": map[string]any{
+					"required": []any{"mode"},
+					"properties": map[string]any{
+						"mode": map[string]any{"const": "ro"},
+					},
+				},
+			},
+		},
 	}},
 	{[]string{"workloads", "*", "published_ports", "items", "host"}, portBounds()},
 	{[]string{"workloads", "*", "published_ports", "items", "container"}, portBounds()},
@@ -367,6 +384,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "needs", "items", "condition"}, enum(eNeedCondition)},
 	{[]string{"workloads", "*", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"workloads", "*", "schedule", "timezone"}, pattern(gTZ)},
+	{[]string{"workloads", "*", "schedule", "timeout"}, pattern(gDur)},
 
 	{[]string{"services", "*", "driver"}, pattern(gIdent)},
 	{[]string{"services", "*", "persistence", "mode"}, enum(ePersistence)},
@@ -560,6 +578,12 @@ func appNameConstraint() map[string]any {
 	out["not"] = map[string]any{"anyOf": forbidden}
 	out["description"] = "The application's name. Expects " + gIdent.means +
 		", and may not begin \"ob-\" or be a name the host layout reserves."
+	return out
+}
+
+func bindSourceConstraint() map[string]any {
+	out := pattern(gBindSource)
+	out["not"] = map[string]any{"pattern": `(^|/)\.\.(/|$)`}
 	return out
 }
 

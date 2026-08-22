@@ -103,9 +103,19 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			w.When = "manual"
 			mark(path + ".when")
 		}
-		if w.Schedule != nil && w.Schedule.Timezone == "" {
-			w.Schedule.Timezone = "UTC"
-			mark(path + ".schedule.timezone")
+		if w.Schedule != nil {
+			if w.Schedule.Timezone == "" {
+				w.Schedule.Timezone = "UTC"
+				mark(path + ".schedule.timezone")
+			}
+			if w.Schedule.Timeout == "" {
+				w.Schedule.Timeout = "1h"
+				mark(path + ".schedule.timeout")
+			}
+			if !stated(raw, path+".schedule.catch_up") {
+				w.Schedule.CatchUp = true
+				mark(path + ".schedule.catch_up")
+			}
 		}
 		for i := range w.Routes {
 			rp := indexed(path+".routes", i)

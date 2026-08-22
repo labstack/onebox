@@ -121,11 +121,11 @@ func (w Workload) IsJob() bool { return w.Role == RoleJob }
 // read an absent block as "not durable". A workload with a managed named
 // volume holds data that outlives the release whether or not it says so.
 //
-// A bind mount is deliberately not durable here: onebox neither created the
-// host path nor can tell configuration from data by looking at it, so the
-// bytes are the operator's. Counting them would demand a backup report for
-// every `./config` mount, and a warning that fires on everything is one
-// nobody reads.
+// A bind mount is deliberately not durable here. Absolute sources are external
+// host state Onebox does not own. Relative sources are read-only release
+// content, so they cannot hold changing application data. Counting either
+// would demand a backup report for every `./config` mount, and a warning that
+// fires on everything is one nobody reads.
 func (w Workload) HoldsDurableData() bool {
 	if w.Persistence != nil {
 		return w.Persistence.Mode == "durable"
@@ -138,7 +138,8 @@ func (w Workload) HoldsDurableData() bool {
 	return false
 }
 
-// HasBindMounts reports whether any volume is a host path onebox does not own.
+// HasBindMounts reports whether any volume mounts a host path rather than a
+// Onebox-managed named volume.
 func (w Workload) HasBindMounts() bool {
 	for _, v := range w.Volumes {
 		if v.IsBind() {

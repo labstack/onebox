@@ -1090,7 +1090,7 @@
             "type": "array"
           },
           "webhook": {
-            "description": "HTTP endpoint that receives operation notifications.",
+            "description": "HTTP endpoint that receives outcome notifications.",
             "examples": [
               "https://hooks.example.com/onebox"
             ],
@@ -1099,7 +1099,7 @@
         },
         "type": "object"
       },
-      "description": "Named webhooks that receive selected operation outcomes.",
+      "description": "Named webhooks that receive selected operation and scheduled-job outcomes.",
       "type": "object"
     },
     "port": {
@@ -2412,17 +2412,31 @@
           },
           "schedule": {
             "additionalProperties": false,
-            "description": "Host-resident recurring schedule for a job.",
+            "description": "Host-resident recurring schedule and run policy for a job.",
             "patternProperties": {
               "^x-": {}
             },
             "properties": {
+              "catch_up": {
+                "default": true,
+                "description": "Run once after the host returns if an elapsed schedule was missed while it was offline.",
+                "type": "boolean"
+              },
               "cron": {
                 "description": "Five-field cron schedule translated to a host timer. Expects five cron fields.",
                 "examples": [
                   "0 2 * * *"
                 ],
                 "pattern": "^[-0-9*/,A-Za-z ]+$",
+                "type": "string"
+              },
+              "timeout": {
+                "default": "1h",
+                "description": "Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "30m"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
                 "type": "string"
               },
               "timezone": {
@@ -2458,9 +2472,33 @@
             "type": "string"
           },
           "volumes": {
-            "description": "Managed named volumes or repository bind mounts.",
+            "description": "Managed named volumes or bind mounts. Relative bind sources are read-only release content; absolute sources are external host state.",
             "items": {
               "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "source": {
+                        "pattern": "^[^/]"
+                      }
+                    },
+                    "required": [
+                      "source"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "mode": {
+                        "const": "ro"
+                      }
+                    },
+                    "required": [
+                      "mode"
+                    ]
+                  }
+                }
+              ],
               "anyOf": [
                 {
                   "required": [
@@ -2481,7 +2519,7 @@
               "properties": {
                 "mode": {
                   "default": "rw",
-                  "description": "Mount access mode: rw or ro.",
+                  "description": "Mount access mode: rw or ro. A relative bind source requires ro.",
                   "enum": [
                     "rw",
                     "ro"
@@ -2505,10 +2543,14 @@
                   "type": "string"
                 },
                 "source": {
-                  "description": "Repository-relative source path of a bind mount.",
+                  "description": "Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content removed by retention. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter.",
                   "examples": [
                     "./config"
                   ],
+                  "not": {
+                    "pattern": "(^|/)\\.\\.(/|$)"
+                  },
+                  "pattern": "^(/[^\\x00-\\x1f'\"$`\\\\:]*|\\.(?:/[^\\x00-\\x1f'\"$`\\\\:]*)?)$",
                   "type": "string"
                 }
               },

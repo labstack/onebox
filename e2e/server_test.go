@@ -182,6 +182,76 @@ func TestServerLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("scheduled jobs are bounded and failures reach status", func(t *testing.T) {
+		s.run(t, "systemd-analyze verify "+
+			"/etc/systemd/system/ob-observer-chore.service "+
+			"/etc/systemd/system/ob-observer-chore.timer "+
+			"/etc/systemd/system/ob-observer-timeout--chore.service "+
+			"/etc/systemd/system/ob-observer-timeout--chore.timer")
+
+		// A normal host-fired run proves the generated runner, current-release
+		// lookup, Docker invocation and app-wide schedule lock compose on systemd.
+		s.run(t, "systemctl start ob-observer-chore.service")
+		if result := strings.TrimSpace(s.run(t,
+			"systemctl show ob-observer-chore.service --property=Result --value")); result != "success" {
+			t.Fatalf("normal scheduled run result = %q, want success", result)
+		}
+
+		// The receiver lives on the target because host-fired notifications do
+		// too. It accepts one POST, records the body, and exits.
+		receiver := `from http.server import BaseHTTPRequestHandler, HTTPServer
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        size = int(self.headers.get("Content-Length", "0"))
+        with open("/tmp/onebox-schedule-notify", "wb") as out:
+            out.write(self.rfile.read(size))
+        self.send_response(204)
+        self.end_headers()
+    def log_message(self, format, *args):
+        pass
+HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
+`
+		encoded := base64.StdEncoding.EncodeToString([]byte(receiver))
+		s.run(t, strings.Join([]string{
+			"set -e",
+			"command -v python3 >/dev/null",
+			"systemctl stop ob-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
+			"systemctl reset-failed ob-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
+			"rm -f /tmp/onebox-schedule-notify",
+			"printf '%s' '" + encoded + "' | base64 -d > /tmp/onebox-schedule-receiver.py",
+			"systemd-run --quiet --collect --unit=ob-e2e-schedule-receiver /usr/bin/python3 /tmp/onebox-schedule-receiver.py",
+			"for i in $(seq 1 50); do ss -ltn | grep -q '127.0.0.1:18080' && break; sleep .1; done",
+			"ss -ltn | grep -q '127.0.0.1:18080'",
+		}, "\n"))
+
+		// systemctl returns non-zero because TimeoutStartSec terminates the job.
+		if err := s.try(t, "systemctl start ob-observer-timeout--chore.service"); err == nil {
+			t.Fatal("wedged scheduled job was not terminated by its timeout")
+		}
+		if result := strings.TrimSpace(s.run(t,
+			"systemctl show ob-observer-timeout--chore.service --property=Result --value")); result != "timeout" {
+			t.Fatalf("timed-out scheduled run result = %q, want timeout", result)
+		}
+		out, err := s.ob(t, dir, "status")
+		if err == nil || !strings.Contains(out, "schedule timeout-chore") || !strings.Contains(out, "last run failed: timeout") {
+			t.Fatalf("status did not expose the scheduled failure (err=%v):\n%s", err, out)
+		}
+		notification := strings.TrimSpace(s.run(t, "cat /tmp/onebox-schedule-notify"))
+		for _, want := range []string{
+			`"app":"observer"`,
+			`"verb":"scheduled job timeout-chore"`,
+			`"status":"fail"`,
+			`"error":"operation failed; inspect trusted local diagnostics"`,
+		} {
+			if !strings.Contains(notification, want) {
+				t.Fatalf("scheduled failure notification is missing %q: %s", want, notification)
+			}
+		}
+		// Do not make the deliberately induced failure pollute later lifecycle
+		// assertions; systemd resets Result to success with the failed state.
+		s.run(t, "systemctl reset-failed ob-observer-timeout--chore.service")
+	})
+
 	t.Run("preflight", func(t *testing.T) {
 		s.mustOb(t, dir, "preflight")
 	})

@@ -1,4 +1,4 @@
-// Package notify pushes operation outcomes to a webhook — the journals are
+// Package notify prepares and pushes operation outcomes to a webhook — the journals are
 // write-only forensics; this is the page. One generic JSON POST per finished
 // mutating verb, carrying both structured fields and a human "text" line
 // (Slack-compatible; Discord/ntfy/generic consumers read the fields).
@@ -37,6 +37,15 @@ type Payload struct {
 	Text     string `json:"text"` // human line, filled by Send
 }
 
+// Request is the stable HTTP representation of one selected notification.
+// Preparing it separately lets host-fired work reuse the exact payload contract
+// without requiring a resident Onebox process.
+type Request struct {
+	Body        []byte
+	ContentType string
+	Title       string
+}
+
 // event maps a payload to the config's `on` vocabulary.
 func (p Payload) event() string {
 	if p.Status == "ok" {
@@ -56,12 +65,11 @@ func (p Payload) text() string {
 	return fmt.Sprintf("🚨 %s: %s FAILED on %s — %s", p.App, p.Verb, p.Host, p.Error)
 }
 
-// Send fires the webhook if the payload's outcome is selected by cfg.On. An
-// unset webhook and a filtered outcome are silent no-ops. Callers treat a
-// returned error as a warning — never as the operation's result.
-func Send(ctx context.Context, cfg app.Notification, p Payload) error {
+// Prepare renders a selected payload without sending it. An unset webhook and
+// a filtered outcome return nil so every caller shares the same event policy.
+func Prepare(cfg app.Notification, p Payload) (*Request, error) {
 	if cfg.Webhook == "" {
-		return nil
+		return nil, nil
 	}
 	selected := false
 	for _, on := range cfg.On {
@@ -71,7 +79,7 @@ func Send(ctx context.Context, cfg app.Notification, p Payload) error {
 		}
 	}
 	if !selected {
-		return nil
+		return nil, nil
 	}
 	if p.TS == "" {
 		p.TS = time.Now().UTC().Format(time.RFC3339)
@@ -92,16 +100,30 @@ func Send(ctx context.Context, cfg app.Notification, p Payload) error {
 	} else {
 		b, err := json.Marshal(p)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body = b
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.Webhook, bytes.NewReader(body))
+	return &Request{
+		Body: body, ContentType: contentType,
+		Title: strings.TrimSpace(p.App + " " + p.Verb),
+	}, nil
+}
+
+// Send fires the webhook if the payload's outcome is selected by cfg.On. An
+// unset webhook and a filtered outcome are silent no-ops. Callers treat a
+// returned error as a warning — never as the operation's result.
+func Send(ctx context.Context, cfg app.Notification, p Payload) error {
+	prepared, err := Prepare(cfg, p)
+	if err != nil || prepared == nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.Webhook, bytes.NewReader(prepared.Body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("X-Title", strings.TrimSpace(p.App+" "+p.Verb))
+	req.Header.Set("Content-Type", prepared.ContentType)
+	req.Header.Set("X-Title", prepared.Title)
 	client := &http.Client{Timeout: timeout}
 	res, err := client.Do(req)
 	if err != nil {

@@ -65,6 +65,23 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		b, _ := json.Marshal(meta)
 		// noclobber: the remote shell refuses the redirect if the lock exists
 		create := "set -C; echo " + q(string(b)) + " > " + q(e.lockPath()) + " 2>/dev/null"
+		jobs, scheduleErr := e.Spec.ScheduledJobs()
+		if scheduleErr != nil {
+			return 0, scheduleErr
+		}
+		useScheduleLock := e.hasFlock(ctx)
+		if len(jobs) > 0 && !useScheduleLock {
+			return 0, errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+		}
+		if useScheduleLock {
+			// A scheduled job holds this kernel lock for its whole container run.
+			// Take it around the atomic application-lock creation so neither side
+			// can pass its check before the other publishes ownership. Keep doing
+			// this after the last schedule is removed: an old unit may already be
+			// running while that removal deploy begins.
+			create = "/usr/bin/flock --exclusive --nonblock --conflict-exit-code 76 " +
+				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
+		}
 
 		res, err := e.T.Run(ctx, create)
 		if err != nil {
@@ -82,6 +99,9 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 				return 0, fmt.Errorf("persist epoch: %s", strings.TrimSpace(res.Stderr))
 			}
 			return epoch, nil
+		}
+		if res.ExitCode == 76 {
+			return 0, fmt.Errorf("deploy lock held by a scheduled job — wait for the job to finish")
 		}
 		// held — inspect holder + age
 		hres, err := e.T.Run(ctx, "cat "+q(e.lockPath())+" 2>/dev/null || true")

@@ -1,4 +1,25 @@
+<div align="center">
+
 # onebox
+
+**Plan-before-apply deploys. Zero downtime. One box.**
+
+<!-- One badge per line renders as one badge per row: GitHub turns a single
+     newline inside a paragraph into a line break. Same for the links below. -->
+[![CI](https://img.shields.io/github/actions/workflow/status/labstack/onebox/ci.yml?branch=main&label=ci&color=4f9a3c&labelColor=22291f)](https://github.com/labstack/onebox/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/labstack/onebox?label=release&color=4f9a3c&labelColor=22291f)](https://github.com/labstack/onebox/releases) [![Licence](https://img.shields.io/badge/licence-Apache--2.0-4f9a3c?labelColor=22291f)](LICENSE)
+
+[Documentation](https://onebox.run) · [Your first deploy](https://onebox.run/start/first-deploy) · [What it refuses](https://onebox.run/explanation/what-onebox-refuses) · [Shipped vs proposed](https://onebox.run/status/capabilities)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/deploy-dark.svg">
+  <img src="docs/media/deploy-light.svg" width="760" alt="An example Onebox session: ob plan prints a sealed diff of two image changes, a new workload and a migration whose data effect is unknown, then ob deploy rolls the workloads, verifies, and finishes with release r-0042 serving.">
+</picture>
+
+<sub>A rendering of an example session, not a recording of one.</sub>
+
+</div>
+
+---
 
 **Production operations for an application intentionally running on one
 server.**
@@ -11,31 +32,6 @@ deployment agent to install on the host.
 
 Nothing runs against production until you have read the exact change and
 approved that exact plan.
-
-```console
-$ ob plan --out ob-plan.json
-reading   ob.yml · production · root@203.0.113.10
-state     r-0041 serving · no drift
-
-~ shop-web-1       image   1.4.0 → 1.5.0
-~ shop-web-2       image   1.4.0 → 1.5.0
-+ shop-worker-1    new workload
-! migrate          pre_release · data effect unknown
-
-plan      sha256:9f21ab4c… · mode 0600 · expires 15m
-risk      migration · strong confirmation required
-
-$ ob approve --plan ob-plan.json --out ob-approval.json
-type the release id to confirm: r-0042
-
-$ ob deploy --plan ob-plan.json --approval ob-approval.json
-staged    r-0042
-migrate   provider atlas · 1 revision · changed=true
-rolling   shop-web-1 … healthy
-rolling   shop-web-2 … healthy
-verified  checks/url 200 · X-App-Ready: yes
-serving   r-0042 · r-0041 superseded
-```
 
 ## The smallest complete project
 

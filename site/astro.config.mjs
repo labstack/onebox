@@ -61,6 +61,9 @@ export default defineConfig({
         // registration is global, and a second splash page with a hero would
         // get the landing page's layout rather than Starlight's.
         Hero: "./src/components/landing/Hero.astro",
+        // Starlight's own footer, plus the copyright and licence line every
+        // other LabStack property carries.
+        Footer: "./src/components/Footer.astro",
       },
       lastUpdated: true,
       pagination: true,

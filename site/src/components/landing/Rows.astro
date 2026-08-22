@@ -1,0 +1,73 @@
+---
+/* Ruled rows: a term on the left, what it means on the right.
+ *
+ * Used by both the "why not something else" section and the limits, because
+ * they are the same shape — a short claim and the honest paragraph under it —
+ * and giving them one component keeps them looking like two halves of the same
+ * argument, which they are.
+ *
+ * Authored as a loose Markdown list, two paragraphs per item, so the whole
+ * thing survives into `<path>.md`.
+ */
+---
+
+<div class="ob-rows" data-ob-figure><slot /></div>
+
+<style>
+  .ob-rows :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--sl-color-gray-5);
+  }
+
+  .ob-rows :global(li) {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--sl-color-gray-5);
+    font-size: 0.8rem;
+    line-height: 1.75;
+    color: var(--sl-color-gray-3);
+  }
+
+  @media (min-width: 48rem) {
+    .ob-rows :global(li) {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+      gap: 1.75rem;
+      align-items: baseline;
+    }
+  }
+
+  .ob-rows :global(li > p) {
+    margin: 0;
+  }
+
+  .ob-rows :global(li > p:first-child) {
+    font-size: 0.86rem;
+    line-height: 1.4;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .ob-rows :global(li > p:first-child strong) {
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .ob-rows :global(code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: var(--sl-color-gray-2);
+  }
+
+  .ob-rows :global(> p) {
+    margin: 1.1rem 0 0;
+    font-size: 0.8rem;
+    line-height: 1.75;
+    color: var(--sl-color-gray-3);
+  }
+</style>

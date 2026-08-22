@@ -1,53 +1,84 @@
 ---
-/* The four commands, and the artifact the second one produces.
+/* The four commands as a rail, with the two artifacts falling out of the middle
+ * two — then the steps themselves.
  *
- * The steps are an ordered Markdown list authored on the page — this is the one
- * place on the landing page where numbers are honest, because the steps run in
- * that order and the third cannot be skipped. The counter is the list's own, so
- * inserting a step renumbers the page rather than the CSS.
+ * The rail replaces four paragraphs that were describing a sequence. It shows
+ * the thing the paragraphs could not: that `ob plan` and `ob approve` each
+ * produce a file, and that execution needs both.
  *
- * The plan panel is the component's, because it is an illustration rather than
- * prose: it counts down for real, and "approval is bound to an artifact that
- * expires" is a claim a static screenshot cannot make.
+ * The figure is decorative to a screen reader because the ordered list beneath
+ * it says the same thing in words — and that list is what the page authors,
+ * what `<path>.md` serves, and what remains if the SVG never loads.
  */
 ---
 
-<div class="ob-life">
-  <div class="ob-steps"><slot /></div>
+<div class="ob-life" data-ob-figure>
+  <svg class="ob-rail" viewBox="0 0 700 168" aria-hidden="true" focusable="false">
+    <path d="M46 62h608" stroke="var(--sl-color-gray-5)" stroke-width="2"></path>
 
-  <aside class="ob-plan" data-ob-plan aria-label="An example sealed plan">
-    <div class="ob-plan-head">
-      <span>Executable plan</span>
-      <span class="ob-plan-schema">v1alpha2</span>
-    </div>
-    <dl class="ob-plan-body">
-      <div><dt>digest</dt><dd>sha256:9f21ab4c</dd></div>
-      <div><dt>environment</dt><dd>production</dd></div>
-      <div><dt>server</dt><dd>root@203.0.113.10</dd></div>
-      <div><dt>bound state</dt><dd>r-0041 serving</dd></div>
-      <div><dt>risk</dt><dd>migration</dd></div>
-      <div><dt>expires in</dt><dd class="ob-plan-clock" data-ob-clock>15:00</dd></div>
-    </dl>
-    <p class="ob-plan-foot">
-      Mode <code>0600</code>, digest-protected. Any drift in host state, config,
-      image or local payload invalidates this artifact, and planning starts again.
-    </p>
-  </aside>
+    <circle cx="46" cy="62" r="8" fill="var(--sl-color-black)" stroke="var(--sl-color-accent)" stroke-width="2"></circle>
+    <text x="46" y="34" class="r-name" text-anchor="middle">ob validate</text>
+    <text x="46" y="90" class="r-sm" text-anchor="middle">contacts nothing</text>
+
+    <circle cx="248" cy="62" r="8" fill="var(--sl-color-black)" stroke="var(--sl-color-accent)" stroke-width="2"></circle>
+    <text x="248" y="34" class="r-name" text-anchor="middle">ob plan</text>
+    <text x="248" y="90" class="r-sm" text-anchor="middle">observes the host</text>
+
+    <circle cx="451" cy="62" r="8" fill="var(--sl-color-black)" stroke="var(--sl-color-accent)" stroke-width="2"></circle>
+    <text x="451" y="34" class="r-name" text-anchor="middle">ob approve</text>
+    <text x="451" y="90" class="r-sm" text-anchor="middle">binds to that plan</text>
+
+    <circle cx="654" cy="62" r="8" fill="var(--sl-color-accent)"></circle>
+    <text x="654" y="34" class="r-name" text-anchor="middle">ob deploy</text>
+    <text x="654" y="90" class="r-sm" text-anchor="middle">under a lock</text>
+
+    <path d="M248 70v32h58" fill="none" stroke="var(--sl-color-gray-5)" stroke-width="1.5"></path>
+    <rect x="306" y="88" width="108" height="26" rx="5" fill="var(--sl-color-accent-low)" stroke="var(--sl-color-accent)"></rect>
+    <text x="316" y="105" class="r-file">ob-plan.json</text>
+
+    <path d="M451 70v52h44" fill="none" stroke="var(--sl-color-gray-5)" stroke-width="1.5"></path>
+    <rect x="495" y="109" width="134" height="26" rx="5" fill="var(--sl-color-accent-low)" stroke="var(--sl-color-accent)"></rect>
+    <text x="505" y="126" class="r-file">ob-approval.json</text>
+
+    <text x="46" y="158" class="r-sm">both must be present, and both expire</text>
+  </svg>
+
+  <div class="ob-steps"><slot /></div>
 </div>
 
 <style>
   .ob-life {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2rem;
+    gap: 1.5rem;
   }
 
-  @media (min-width: 62rem) {
-    .ob-life {
-      grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-      gap: 2.5rem;
-      align-items: start;
-    }
+  .ob-rail {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    padding: 0.6rem;
+  }
+
+  .ob-rail text {
+    font-family: var(--sl-font-mono);
+  }
+
+  .r-name {
+    font-size: 12px;
+    fill: var(--sl-color-white);
+  }
+
+  .r-sm {
+    font-size: 10.5px;
+    fill: var(--sl-color-gray-3);
+  }
+
+  .r-file {
+    font-size: 10.5px;
+    fill: var(--sl-color-white);
   }
 
   .ob-steps :global(ol) {
@@ -55,56 +86,56 @@
     counter-reset: ob-step;
     margin: 0;
     padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
+  }
+
+  @media (min-width: 44rem) {
+    .ob-steps :global(ol) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   .ob-steps :global(ol > li) {
     counter-increment: ob-step;
     position: relative;
     margin: 0;
-    padding: 1.15rem 0 1.15rem 2.75rem;
-    border-top: 1px solid var(--sl-color-gray-5);
-    font-size: 0.84rem;
-    line-height: 1.75;
+    padding: 0.85rem 1rem 0.9rem 2.6rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-gray-6);
+    font-size: 0.78rem;
+    line-height: 1.65;
     color: var(--sl-color-gray-3);
   }
 
-  .ob-steps :global(ol > li::before) {
+  .ob-steps :global(ol > li)::before {
     content: "0" counter(ob-step);
     position: absolute;
-    left: 0;
-    top: 1.3rem;
-    font-size: 0.7rem;
+    left: 1rem;
+    top: 0.95rem;
+    font-size: 0.68rem;
     letter-spacing: 0.08em;
     color: var(--sl-color-gray-4);
   }
 
-  .ob-steps :global(ol > li:first-child) {
-    border-top: 0;
-    padding-top: 0;
-  }
-
-  .ob-steps :global(ol > li:first-child::before) {
-    top: 0.15rem;
-  }
-
   .ob-steps :global(li > p) {
     margin: 0;
-    max-width: 54ch;
   }
 
-  /* The first paragraph is the command and what the step is called: the command
-     in the accent because it is the thing you would type, the name in white. */
   .ob-steps :global(li > p:first-child) {
-    margin-bottom: 0.4rem;
-    font-size: 0.92rem;
-    line-height: 1.45;
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
     color: var(--sl-color-white);
   }
 
   .ob-steps :global(li > p:first-child code) {
     background: none;
+    border: 0;
     padding: 0;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--ob-code);
   }
 
@@ -115,143 +146,9 @@
 
   .ob-steps :global(li code) {
     background: none;
-    padding: 0;
-    font-size: inherit;
-    color: var(--sl-color-gray-2);
-  }
-
-  /* The plan reads as an issued document rather than a UI card: a ruled header,
-     a hairline dashed split, and the only tabular figures on the page. */
-  .ob-plan {
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 10px;
-    background: var(--sl-color-gray-6);
-  }
-
-  @media (min-width: 62rem) {
-    .ob-plan {
-      position: sticky;
-      top: calc(var(--sl-nav-height) + 1.5rem);
-    }
-  }
-
-  .ob-plan-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.7rem 1rem;
-    border-bottom: 1px solid var(--sl-color-gray-5);
-    font-size: 0.66rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--sl-color-gray-3);
-  }
-
-  .ob-plan-body {
-    margin: 0;
-    padding: 0.9rem 1rem;
-    font-size: 0.76rem;
-  }
-
-  .ob-plan-body > div {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.22rem 0;
-  }
-
-  /* A schema version is a literal string, so it keeps its own case while the
-     rest of the header is set as a label. */
-  .ob-plan-schema {
-    text-transform: none;
-    letter-spacing: 0.06em;
-  }
-
-  /* Starlight sets `dt` bold for definition lists in prose. Here the terms are
-     the quiet half of the row — the values are what a reader is checking. */
-  .ob-plan-body dt {
-    color: var(--sl-color-gray-3);
-    font-weight: 400;
-    margin: 0;
-  }
-
-  .ob-plan-body dd {
-    margin: 0;
-    color: var(--sl-color-gray-1);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-  }
-
-  .ob-plan-clock {
-    color: var(--ob-warn);
-  }
-
-  .ob-plan-foot {
-    margin: 0;
-    padding: 0.85rem 1rem 1rem;
-    border-top: 1px dashed var(--sl-color-gray-5);
-    font-size: 0.72rem;
-    line-height: 1.7;
-    color: var(--sl-color-gray-3);
-  }
-
-  .ob-plan-foot code {
-    background: none;
+    border: 0;
     padding: 0;
     font-size: inherit;
     color: var(--sl-color-gray-2);
   }
 </style>
-
-<script>
-  /* Count the plan down to zero.
-   *
-   * Fifteen minutes is the real expiry, and letting the reader watch it run out
-   * is the difference between reading that approval is bound to an artifact and
-   * seeing that it is. It starts when the panel is on screen so the number is
-   * still meaningful when someone reaches it, and does not run at all for a
-   * reader who has asked for no motion.
-   */
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const panel = document.querySelector<HTMLElement>("[data-ob-plan]");
-  const clock = panel?.querySelector<HTMLElement>("[data-ob-clock]");
-
-  if (panel && clock && !reduced) {
-    let remaining = 900;
-    let timer = 0;
-
-    const tick = () => {
-      remaining -= 1;
-      if (remaining <= 0) {
-        clock.textContent = "expired";
-        window.clearInterval(timer);
-        return;
-      }
-      const minutes = Math.floor(remaining / 60);
-      const seconds = remaining % 60;
-      clock.textContent = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
-    };
-
-    const start = () => {
-      if (timer) return;
-      timer = window.setInterval(tick, 1000);
-    };
-
-    if ("IntersectionObserver" in window) {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (entry.isIntersecting) {
-              start();
-              observer.disconnect();
-            }
-          }
-        },
-        { threshold: 0.3 },
-      );
-      observer.observe(panel);
-    } else {
-      start();
-    }
-  }
-</script>

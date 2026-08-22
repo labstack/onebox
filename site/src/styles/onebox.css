@@ -108,6 +108,41 @@
   line-height: 1.45;
 }
 
+/* The same width problem, in the previous/next links at the foot of a page.
+   Starlight sizes their titles at 1.5rem, which is right for the proportional
+   face it ships with and too large in this one: "Reading the file back" wrapped
+   onto a second line inside a 352px card at a 1440px viewport, and every title
+   long enough to matter did the same. At 1rem the longest page title in the
+   sidebar — "Adopt an existing Compose file" — fits on one line.
+
+   The label above it moves the other way. Starlight leaves "Previous" and
+   "Next" at body size, so the label read as loudly as the prose it followed,
+   while every other piece of chrome on the page — the sidebar, the table of
+   contents, the edit link, the last-updated date — sits at --sl-text-sm. It is
+   set as an eyebrow instead, matching the section labels on the landing page.
+
+   The label is a bare text node with no element of its own, so it is styled on
+   the link's span and the title resets what it should not inherit. */
+.pagination-links a > span {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+.pagination-links a .link-title {
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--sl-color-white);
+}
+
+.pagination-links a svg {
+  width: 1rem;
+  height: 1rem;
+}
+
 /* With one face everywhere, weight and tracking are what separate a heading
    from the prose beneath it: 500 rather than bold, pulled slightly tighter, so
    it reads as a label rather than as shouting. The page title sits outside

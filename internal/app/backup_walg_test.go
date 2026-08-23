@@ -1,6 +1,11 @@
 package app
 
 import (
+	"bytes"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -152,5 +157,102 @@ func TestTheWrapperPointsWalgAtTheStagedTrustStore(t *testing.T) {
 	// image's own store in play rather than name a path that is not there.
 	if !strings.Contains(wrapper, "if [ -r "+WalgTrustStore+" ]; then") {
 		t.Errorf("the trust store is exported without checking it was staged:\n%s", wrapper)
+	}
+}
+
+// runWrapper executes a rendered wrapper with a stubbed wal-g on PATH, so the
+// test observes what the wrapper actually does rather than what it says.
+func runWrapper(t *testing.T, target BackupTarget, env []string) (stdout, stderr string, code int) {
+	t.Helper()
+	dir := t.TempDir()
+	// A stub standing in for the staged binary, reporting whether the wrapper
+	// handed it an encryption key. The wrapper execs wal-g by its absolute
+	// staged path, so only that one line is redirected; everything the guard
+	// does above it runs verbatim.
+	stub := filepath.Join(dir, "wal-g")
+	body := "#!/bin/sh\nprintf 'libsodium=[%s]\\n' \"${WALG_LIBSODIUM_KEY-}\"\n"
+	if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rendered := strings.Replace(string(RenderWalgWrapper(target)), WalgMountPath+"/wal-g", stub, 1)
+	script := filepath.Join(dir, "wrapper.sh")
+	if err := os.WriteFile(script, []byte(rendered), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", script)
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), errb.String(), code
+}
+
+func walgTestTarget() BackupTarget {
+	return BackupTarget{Credentials: CredentialReference{
+		AccessKeyEntry: "BACKUP_ACCESS_KEY_ID",
+		SecretKeyEntry: "BACKUP_SECRET_ACCESS_KEY",
+	}}
+}
+
+// A credential file written by an older runner names the entries that runner
+// required. If a required entry is simply absent, the wrapper must refuse to
+// run: wal-g without WALG_LIBSODIUM_KEY does not fail, it writes the backup
+// unencrypted — and a backup that is silently unencrypted is worse than one
+// that visibly did not happen.
+func TestTheWrapperRefusesToRunWithoutARequiredCredential(t *testing.T) {
+	_, stderr, code := runWrapper(t, walgTestTarget(), []string{
+		"BACKUP_ACCESS_KEY_ID=key",
+		"BACKUP_SECRET_ACCESS_KEY=secret",
+		// the repository key is missing, as it is after a namespace change
+	})
+	if code == 0 {
+		t.Fatal("the wrapper ran wal-g with no repository key, so the backup would be unencrypted")
+	}
+	if !strings.Contains(stderr, WalgRepositoryKeyEntry) {
+		t.Fatalf("the failure does not name the missing entry: %q", stderr)
+	}
+}
+
+func TestTheWrapperRefusesToRunWithoutDestinationCredentials(t *testing.T) {
+	for _, missing := range []string{"BACKUP_ACCESS_KEY_ID", "BACKUP_SECRET_ACCESS_KEY"} {
+		t.Run(missing, func(t *testing.T) {
+			env := []string{
+				"BACKUP_ACCESS_KEY_ID=key",
+				"BACKUP_SECRET_ACCESS_KEY=secret",
+				WalgRepositoryKeyEntry + "=" + strings.Repeat("ab", 32),
+			}
+			var kept []string
+			for _, entry := range env {
+				if !strings.HasPrefix(entry, missing+"=") {
+					kept = append(kept, entry)
+				}
+			}
+			if _, stderr, code := runWrapper(t, walgTestTarget(), kept); code == 0 {
+				t.Fatalf("the wrapper ran with %s unset", missing)
+			} else if !strings.Contains(stderr, missing) {
+				t.Fatalf("the failure does not name %s: %q", missing, stderr)
+			}
+		})
+	}
+}
+
+func TestTheWrapperPassesTheRepositoryKeyToWalg(t *testing.T) {
+	key := strings.Repeat("ab", 32)
+	stdout, stderr, code := runWrapper(t, walgTestTarget(), []string{
+		"BACKUP_ACCESS_KEY_ID=key",
+		"BACKUP_SECRET_ACCESS_KEY=secret",
+		WalgRepositoryKeyEntry + "=" + key,
+	})
+	if code != 0 {
+		t.Fatalf("wrapper exited %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "libsodium=["+key+"]") {
+		t.Fatalf("wal-g did not receive the repository key: %q", stdout)
 	}
 }

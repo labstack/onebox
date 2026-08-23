@@ -248,8 +248,8 @@ func (s *server) teardown(t *testing.T, dir string) {
 	// Kept deliberately when asked. A probe that fails is a probe whose
 	// machine is worth looking at, and tearing it down is how the evidence for
 	// the last three wrong theories disappeared before it could be read.
-	if os.Getenv("OB_E2E_KEEP") == "1" {
-		t.Log("OB_E2E_KEEP=1: leaving the application in place")
+	if os.Getenv("ONEBOX_E2E_KEEP") == "1" {
+		t.Log("ONEBOX_E2E_KEEP=1: leaving the application in place")
 		return
 	}
 	if out, err := s.obInput(t, dir, s.obHome(t), "observer\ny\n", "destroy", "--volumes"); err != nil {

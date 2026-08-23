@@ -10,5 +10,5 @@ change took the corpus out from under the tests that depend on it. It lives
 here now, with the tests.
 
 Adding a project here is deliberate: the harness refuses an unfrozen case, so a
-new file must have its verdict recorded with `OB_UPDATE_VERDICTS=1` and the
+new file must have its verdict recorded with `ONEBOX_UPDATE_VERDICTS=1` and the
 diff reviewed.

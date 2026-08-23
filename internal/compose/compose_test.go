@@ -14,8 +14,8 @@ import (
 // way on a developer's laptop and another way on the target would differ
 // exactly where nobody is looking.
 func TestInterpolationComesFromDeclaredFilesOnly(t *testing.T) {
-	t.Setenv("OB_RUNNER_ONLY", "from-the-laptop")
-	doc := []byte("services:\n  web:\n    image: nginx:${TAG}\n    environment:\n      FROM_RUNNER: ${OB_RUNNER_ONLY}\n")
+	t.Setenv("ONEBOX_RUNNER_ONLY", "from-the-laptop")
+	doc := []byte("services:\n  web:\n    image: nginx:${TAG}\n    environment:\n      FROM_RUNNER: ${ONEBOX_RUNNER_ONLY}\n")
 
 	p, err := LoadBytes(context.Background(), doc, "probe", t.TempDir(), map[string]string{"TAG": "1.27"})
 	if err != nil {

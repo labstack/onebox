@@ -1,5 +1,5 @@
 // Package e2e proves the core live-deploy contract mechanically under
-// load with zero failed requests. Gated: OB_E2E=1 + local docker.
+// load with zero failed requests. Gated: ONEBOX_E2E=1 + local docker.
 package e2e
 
 import (
@@ -42,13 +42,13 @@ func TestV1ConfigFixturesLoad(t *testing.T) {
 }
 
 func TestZeroDowntimeDeploy(t *testing.T) {
-	if os.Getenv("OB_E2E") != "1" {
-		t.Skip("set OB_E2E=1 (requires local docker)")
+	if os.Getenv("ONEBOX_E2E") != "1" {
+		t.Skip("set ONEBOX_E2E=1 (requires local docker)")
 	}
 	// Opting in is a promise that Docker is here. Skipping past a broken daemon
-	// once OB_E2E=1 is set turns a gate into a green tick for work nobody did.
+	// once ONEBOX_E2E=1 is set turns a gate into a green tick for work nobody did.
 	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
-		t.Fatalf("OB_E2E=1 was set but docker is not usable: %v", err)
+		t.Fatalf("ONEBOX_E2E=1 was set but docker is not usable: %v", err)
 	}
 	dir, err := filepath.Abs("testdata/app")
 	if err != nil {

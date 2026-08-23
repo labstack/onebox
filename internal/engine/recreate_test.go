@@ -85,7 +85,7 @@ func TestRecreateRoleSurfacesFailedDrainSignal(t *testing.T) {
 	}
 }
 
-// A local hook must see the FULL user@host in $OB_SERVER (not the bare
+// A local hook must see the FULL user@host in $ONEBOX_SERVER (not the bare
 // hostname), so hooks can ssh/rsync the deploy host without hardcoding it.
 func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
 	f := &transport.Fake{
@@ -94,7 +94,7 @@ func TestLocalHookGetsFullTargetInEnv(t *testing.T) {
 	}
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = app.Command{
-		Run:   `test "$OB_SERVER" = "root@2001:db8::1" && test "$OB_SSH_USER" = "root" && test "$OB_HOST" = "2001:db8::1" && test "$OB_SSH_PORT" = "2222" || { echo "got server=[$OB_SERVER] user=[$OB_SSH_USER] host=[$OB_HOST] port=[$OB_SSH_PORT]" >&2; exit 1; }`,
+		Run:   `test "$ONEBOX_SERVER" = "root@2001:db8::1" && test "$ONEBOX_SSH_USER" = "root" && test "$ONEBOX_HOST" = "2001:db8::1" && test "$ONEBOX_SSH_PORT" = "2222" || { echo "got server=[$ONEBOX_SERVER] user=[$ONEBOX_SSH_USER] host=[$ONEBOX_HOST] port=[$ONEBOX_SSH_PORT]" >&2; exit 1; }`,
 		Local: true,
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
@@ -136,7 +136,7 @@ func TestRunHookNoopWhenAbsent(t *testing.T) {
 
 // A local hook runs on the operator's machine, which has no tunnel of its own,
 // so a hook that reaches the host itself needs the bastion named. Empty on a
-// direct connection, so `ssh ${OB_SSH_JUMP:+-J $OB_SSH_JUMP}` works either way.
+// direct connection, so `ssh ${ONEBOX_SSH_JUMP:+-J $ONEBOX_SSH_JUMP}` works either way.
 func TestLocalHookGetsTheJumpHostInEnv(t *testing.T) {
 	f := &transport.Fake{
 		HostName: "10.20.0.10", TargetName: "root@10.20.0.10",
@@ -144,7 +144,7 @@ func TestLocalHookGetsTheJumpHostInEnv(t *testing.T) {
 	}
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = app.Command{
-		Run:   `test "$OB_SSH_JUMP" = "deploy@bastion.example.com:2222" || { echo "got jump=[$OB_SSH_JUMP]" >&2; exit 1; }`,
+		Run:   `test "$ONEBOX_SSH_JUMP" = "deploy@bastion.example.com:2222" || { echo "got jump=[$ONEBOX_SSH_JUMP]" >&2; exit 1; }`,
 		Local: true,
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
@@ -157,11 +157,11 @@ func TestLocalHookGetsAnEmptyJumpOnADirectConnection(t *testing.T) {
 	f := &transport.Fake{HostName: "10.20.0.10", TargetName: "root@10.20.0.10", SSHUserName: "root", SSHPortName: "22"}
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = app.Command{
-		Run:   `test -z "$OB_SSH_JUMP" || { echo "got jump=[$OB_SSH_JUMP]" >&2; exit 1; }`,
+		Run:   `test -z "$ONEBOX_SSH_JUMP" || { echo "got jump=[$ONEBOX_SSH_JUMP]" >&2; exit 1; }`,
 		Local: true,
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
 	if err := e.RunHook(context.Background(), "pre_release", "/r", "/r/compose.yaml"); err != nil {
-		t.Fatalf("a direct connection must leave OB_SSH_JUMP empty: %v", err)
+		t.Fatalf("a direct connection must leave ONEBOX_SSH_JUMP empty: %v", err)
 	}
 }

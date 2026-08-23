@@ -134,14 +134,14 @@ func (e *Engine) runLocalHook(ctx context.Context, name, run, remoteReleaseDir s
 	c := exec.CommandContext(ctx, "sh", "-c", run) // verbatim by design
 	c.Dir = e.Opts.LocalDir
 	c.Env = append(os.Environ(),
-		"OB_APP="+e.Spec.Name,
-		"OB_HOST="+e.T.Host(),
-		"OB_SERVER="+e.T.Destination(), // OpenSSH user@host (IPv6 unbracketed)
-		"OB_SSH_USER="+e.T.SSHUser(),
-		"OB_SSH_PORT="+e.T.SSHPort(),
-		"OB_SSH_JUMP="+e.T.SSHJump(), // empty when the target is reached directly
-		"OB_RELEASE_DIR="+remoteReleaseDir,
-		"OB_RELEASE_ID="+filepath.Base(remoteReleaseDir),
+		"ONEBOX_APP="+e.Spec.Name,
+		"ONEBOX_HOST="+e.T.Host(),
+		"ONEBOX_SERVER="+e.T.Destination(), // OpenSSH user@host (IPv6 unbracketed)
+		"ONEBOX_SSH_USER="+e.T.SSHUser(),
+		"ONEBOX_SSH_PORT="+e.T.SSHPort(),
+		"ONEBOX_SSH_JUMP="+e.T.SSHJump(), // empty when the target is reached directly
+		"ONEBOX_RELEASE_DIR="+remoteReleaseDir,
+		"ONEBOX_RELEASE_ID="+filepath.Base(remoteReleaseDir),
 	)
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb

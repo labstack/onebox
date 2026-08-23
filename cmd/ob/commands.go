@@ -515,10 +515,10 @@ func newUI(cmd *cobra.Command, g *globalFlags) *ui.UI {
 	return ui.New(commandOutput(cmd, g), g.Verbose && !isStructuredOutput(g))
 }
 
-// cliConnector is replaceable by in-package tests and honors OB_LOCAL for the
+// cliConnector is replaceable by in-package tests and honors ONEBOX_LOCAL for the
 // existing local-docker workflow. Production uses cancellable SSH dialing.
 var cliConnector onebox.Connector = func(ctx context.Context, route transport.Route) (transport.Transport, error) {
-	if value := strings.TrimSpace(strings.ToLower(os.Getenv("OB_LOCAL"))); value == "1" || value == "true" {
+	if value := strings.TrimSpace(strings.ToLower(os.Getenv("ONEBOX_LOCAL"))); value == "1" || value == "true" {
 		return transport.NewLocal(), nil
 	}
 	return transport.NewSSHRoute(ctx, route)

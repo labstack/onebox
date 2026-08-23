@@ -56,7 +56,7 @@ const WalgTrustStore = WalgMountPath + "/ca-certificates.crt"
 // encryption key. Unlike the destination keys it has a fixed name: the key is
 // Onebox's own requirement rather than a property of the destination, so there
 // is no backup_targets field to indirect through.
-const WalgRepositoryKeyEntry = "OB_REPOSITORY_KEY"
+const WalgRepositoryKeyEntry = "ONEBOX_REPOSITORY_KEY"
 
 // WalgPrefix is the repository location for one protected database generation.
 //
@@ -193,14 +193,20 @@ func RenderWalgWrapper(target BackupTarget) []byte {
 	b.WriteString("# from the mode-0600 credential file on the host; only the names are\n")
 	b.WriteString("# here, and the names are not secret.\n")
 	b.WriteString("set -eu\n")
+	// A declared entry is a required one: WalgCredentialEntries is the same
+	// list enable-time validation insists on. Refusing here rather than
+	// skipping matters most for the repository key — wal-g with no
+	// WALG_LIBSODIUM_KEY does not fail, it writes the backup unencrypted, so a
+	// credential file that stops defining an entry would quietly downgrade
+	// every subsequent backup. The credential file is written once at enable
+	// time and read by every later deploy, so the two can drift.
 	assign := func(walgName, entry string) {
 		if entry == "" {
 			return
 		}
-		b.WriteString("if [ -n \"${" + entry + "-}\" ]; then\n")
-		b.WriteString("    " + walgName + "=\"$" + entry + "\"\n")
-		b.WriteString("    export " + walgName + "\n")
-		b.WriteString("fi\n")
+		b.WriteString(": \"${" + entry + ":?is not set in the credential file on this host — re-run `ob backup enable` for this service}\"\n")
+		b.WriteString(walgName + "=\"$" + entry + "\"\n")
+		b.WriteString("export " + walgName + "\n")
 	}
 	assign("AWS_ACCESS_KEY_ID", target.Credentials.AccessKeyEntry)
 	assign("AWS_SECRET_ACCESS_KEY", target.Credentials.SecretKeyEntry)
@@ -334,8 +340,8 @@ func (r *Resolved) backupForRender(n Names, serviceName string) (*serviceBackup,
 	if err != nil {
 		return nil, err
 	}
-	environment["OB_S3_KEY_ENTRY"] = projection.Target.Credentials.AccessKeyEntry
-	environment["OB_S3_SECRET_ENTRY"] = projection.Target.Credentials.SecretKeyEntry
+	environment["ONEBOX_S3_KEY_ENTRY"] = projection.Target.Credentials.AccessKeyEntry
+	environment["ONEBOX_S3_SECRET_ENTRY"] = projection.Target.Credentials.SecretKeyEntry
 	return &serviceBackup{
 		RuntimeHostDir: n.BackupRuntimeDir(serviceName),
 		CredentialFile: n.BackupCredentialFile(serviceName, projection.Policy.Target),

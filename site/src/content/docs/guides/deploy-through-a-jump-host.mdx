@@ -132,12 +132,13 @@ first hop paper over a problem with the second.
 ## Local hooks
 
 A hook declared `local: true` runs on your machine, which has no tunnel of its
-own. Such a hook receives `OB_SSH_JUMP` alongside `OB_SERVER`, empty when the
+own. Such a hook receives `ONEBOX_SSH_JUMP` alongside `ONEBOX_SERVER`, empty when the
 connection is direct:
 
 ```sh
-ssh ${OB_SSH_JUMP:+-J "$OB_SSH_JUMP"} "$OB_SERVER" -p "$OB_SSH_PORT" 'uptime'
+ssh ${ONEBOX_SSH_JUMP:+-J "$ONEBOX_SSH_JUMP"} "$ONEBOX_SERVER" -p "$ONEBOX_SSH_PORT" 'uptime'
 ```
 
 A local hook written before you added a bastion will otherwise try to reach a
-server it can no longer see.
+server it can no longer see. The rest of the namespace is listed under
+[Environment variables](/guides/environment-variables/).

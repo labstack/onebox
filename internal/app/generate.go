@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -396,9 +397,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 			svc["logging"] = lg
 		}
 	}
-	if w.Drain != nil && w.Drain.Grace != "" {
-		svc["stop_grace_period"] = w.Drain.Grace
-	}
+	applyStopGrace(svc, w)
 	if w.Resources != nil {
 		if w.Resources.Memory != "" {
 			svc["mem_limit"] = w.Resources.Memory
@@ -603,17 +602,24 @@ func healthcheck(h *Health) map[string]any {
 	default:
 		return nil
 	}
-	out := map[string]any{"test": test}
-	if h.Interval != "" {
-		out["interval"] = h.Interval
+	// Interval, retries and the start period are always written, never left to
+	// the runtime's default. The rollout budgets the drain against retries × interval, and a
+	// budget computed from a number the container was not created with is a
+	// budget that expires while the container is still healthy — which stops it
+	// while the proxy may still be routing to it. Emitting them is what makes
+	// the model and the runtime the same.
+	//
+	// Every duration goes through the model rather than being echoed as
+	// authored: `14d` is a duration Onebox accepts and Compose cannot parse, so
+	// echoing it validates cleanly and then fails the deploy at the compose
+	// step with `time: unknown unit "d"`.
+	workload := Workload{Health: h}
+	return map[string]any{
+		"test":         test,
+		"interval":     composeDuration(h.Interval, workload.HealthInterval()),
+		"retries":      workload.HealthRetries(),
+		"start_period": composeDuration(h.StartPeriod, workload.HealthStartPeriod()),
 	}
-	if h.StartPeriod != "" {
-		out["start_period"] = h.StartPeriod
-	}
-	if h.Retries > 0 {
-		out["retries"] = h.Retries
-	}
-	return out
 }
 
 func composeCondition(c string) string {
@@ -958,4 +964,26 @@ func composePullPolicy(declared string) string {
 		return "missing"
 	}
 	return ""
+}
+
+// applyStopGrace writes the authored stop grace, normalised. Compose parses
+// durations with its own grammar, which has no day unit: echoing `1d` as
+// authored validates here and then fails the deploy with `time: unknown unit
+// "d"` — for a value Onebox told the author was fine.
+func applyStopGrace(svc map[string]any, w Workload) {
+	if w.Drain == nil || w.Drain.Grace == "" {
+		return
+	}
+	svc["stop_grace_period"] = composeDuration(w.Drain.Grace, 0)
+}
+
+// composeDuration renders a duration in units Compose can parse. The authored
+// value wins whenever it parses — including an explicit zero, which is a real
+// instruction to the runtime and not the absence of one — and the fallback is
+// used only when nothing was written.
+func composeDuration(authored string, fallback time.Duration) string {
+	if d, ok := ParseDuration(authored); ok {
+		return d.String()
+	}
+	return fallback.String()
 }

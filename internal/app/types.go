@@ -209,16 +209,16 @@ type Health struct {
 	Exec        any    `json:"exec,omitempty" description:"Health command as a shell string or direct argument list."`
 	TCP         bool   `json:"tcp,omitempty" description:"Probe the configured port by opening a TCP connection." default:"false"`
 	Port        int    `json:"port,omitempty" description:"Container port probed by HTTP or TCP health checks." example:"8080"`
-	Interval    string `json:"interval,omitempty" description:"Delay between container health probes." example:"2s"`
-	StartPeriod string `json:"start_period,omitempty" description:"Startup grace period before failed probes count." example:"5s"`
-	Within      string `json:"within,omitempty" description:"Maximum time a rollout waits for readiness." example:"120s"`
-	Retries     int    `json:"retries,omitempty" description:"Consecutive failed probes before the container is unhealthy." example:"3"`
+	Interval    string `json:"interval,omitempty" description:"Delay between container health probes, at most 7d. Always written into the generated healthcheck, so the rollout's drain budget is computed from the value the container actually runs with." default:"5s" example:"2s"`
+	StartPeriod string `json:"start_period,omitempty" description:"Startup grace period before failed probes count, at most 7d. Always written into the generated healthcheck, so writing down a fast probe interval does not call a booting container unhealthy." default:"30s" example:"5s"`
+	Within      string `json:"within,omitempty" description:"Maximum time a rollout waits for readiness, at most 7d." example:"120s"`
+	Retries     int    `json:"retries,omitempty" description:"Consecutive failed probes before the container is unhealthy. A draining container leaves rotation after this many probes, so it sets how long a rolling deploy waits for each replica." default:"3" example:"3"`
 }
 
 type Drain struct {
 	Signal string `json:"signal" description:"Signal sent to begin graceful shutdown." default:"TERM"`
-	Wait   string `json:"wait,omitempty" description:"Time allowed for the proxy to stop routing before shutdown begins." example:"10s"`
-	Grace  string `json:"grace,omitempty" description:"Maximum graceful-shutdown time before forced termination." example:"30s"`
+	Wait   string `json:"wait,omitempty" description:"Time allowed for the proxy to stop routing before shutdown begins, at most 7d." example:"10s"`
+	Grace  string `json:"grace,omitempty" description:"Maximum graceful-shutdown time before forced termination, at most 7d." example:"30s"`
 }
 
 type Logging struct {

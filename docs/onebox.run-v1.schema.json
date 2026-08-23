@@ -979,7 +979,8 @@
               "type": "string"
             },
             "interval": {
-              "description": "Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "default": "5s",
+              "description": "Delay between container health probes, at most 7d. Always written into the generated healthcheck, so the rollout's drain budget is computed from the value the container actually runs with. Expects a duration such as 30s, 5m, 1h30m or 14d.",
               "examples": [
                 "2s"
               ],
@@ -996,14 +997,16 @@
               "type": "integer"
             },
             "retries": {
-              "description": "Consecutive failed probes before the container is unhealthy.",
+              "default": 3,
+              "description": "Consecutive failed probes before the container is unhealthy. A draining container leaves rotation after this many probes, so it sets how long a rolling deploy waits for each replica.",
               "examples": [
                 3
               ],
               "type": "integer"
             },
             "start_period": {
-              "description": "Startup grace period before failed probes count. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "default": "30s",
+              "description": "Startup grace period before failed probes count, at most 7d. Always written into the generated healthcheck, so writing down a fast probe interval does not call a booting container unhealthy. Expects a duration such as 30s, 5m, 1h30m or 14d.",
               "examples": [
                 "5s"
               ],
@@ -1016,7 +1019,7 @@
               "type": "boolean"
             },
             "within": {
-              "description": "Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+              "description": "Maximum time a rollout waits for readiness, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d.",
               "examples": [
                 "120s"
               ],
@@ -1957,7 +1960,7 @@
             },
             "properties": {
               "grace": {
-                "description": "Maximum graceful-shutdown time before forced termination. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "description": "Maximum graceful-shutdown time before forced termination, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
                   "30s"
                 ],
@@ -1971,7 +1974,7 @@
                 "type": "string"
               },
               "wait": {
-                "description": "Time allowed for the proxy to stop routing before shutdown begins. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "description": "Time allowed for the proxy to stop routing before shutdown begins, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
                   "10s"
                 ],
@@ -2080,7 +2083,8 @@
                     "type": "string"
                   },
                   "interval": {
-                    "description": "Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "default": "5s",
+                    "description": "Delay between container health probes, at most 7d. Always written into the generated healthcheck, so the rollout's drain budget is computed from the value the container actually runs with. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
                       "2s"
                     ],
@@ -2097,14 +2101,16 @@
                     "type": "integer"
                   },
                   "retries": {
-                    "description": "Consecutive failed probes before the container is unhealthy.",
+                    "default": 3,
+                    "description": "Consecutive failed probes before the container is unhealthy. A draining container leaves rotation after this many probes, so it sets how long a rolling deploy waits for each replica.",
                     "examples": [
                       3
                     ],
                     "type": "integer"
                   },
                   "start_period": {
-                    "description": "Startup grace period before failed probes count. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "default": "30s",
+                    "description": "Startup grace period before failed probes count, at most 7d. Always written into the generated healthcheck, so writing down a fast probe interval does not call a booting container unhealthy. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
                       "5s"
                     ],
@@ -2117,7 +2123,7 @@
                     "type": "boolean"
                   },
                   "within": {
-                    "description": "Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "description": "Maximum time a rollout waits for readiness, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
                       "120s"
                     ],

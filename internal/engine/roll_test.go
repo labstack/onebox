@@ -29,8 +29,8 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		// Every generated shell-form check carries the drain guard; a rollout
 		// probes for it before poisoning health.
-		if strings.Contains(cmd, "Config.Healthcheck.Test") {
-			return transport.Result{Stdout: guardedHealthcheck + "\n"}, true
+		if strings.Contains(cmd, "Config.Healthcheck") {
+			return transport.Result{Stdout: `{"Test":` + guardedHealthcheck + `,"Interval":5000000000,"Retries":3}` + "\n"}, true
 		}
 		scale := 0
 		removed := map[string]bool{}

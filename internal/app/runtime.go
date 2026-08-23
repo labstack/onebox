@@ -63,42 +63,104 @@ func (w Workload) StopGraceSeconds() int {
 
 // HealthRetries is the consecutive-failure count before the runtime flips a
 // container unhealthy. It governs how fast a draining container is dropped by
-// the proxy — the flip takes Retries × Interval — so the drain budget is
+// the proxy — the flip takes Retries × HealthInterval — so the drain budget is
 // derived from it rather than guessed alongside it.
 func (w Workload) HealthRetries() int {
 	if w.Health != nil && w.Health.Retries > 0 {
 		return w.Health.Retries
 	}
-	return 3
+	return defaultHealthRetries
 }
 
-// ReadyTiming is the health gate's overall budget and its poll cadence.
+// HealthInterval is the delay between the container's own health probes: the
+// cadence the *runtime* runs the check at, not the cadence Onebox polls
+// `docker inspect` at. The two are different jobs — one is a probe inside the
+// container, the other a local query — and treating them as one number made
+// the drain budget model a flip that could not happen in the time allowed.
+//
+// Both this and HealthRetries are written into the generated healthcheck, so
+// the values a budget is computed from are the values the container was
+// actually created with. Leaving either to the runtime's own default means
+// budgeting against a number Onebox never chose and cannot see.
+func (w Workload) HealthInterval() time.Duration {
+	if w.Health != nil {
+		if d, ok := ParseDuration(w.Health.Interval); ok && d > 0 {
+			return d
+		}
+	}
+	return defaultHealthInterval
+}
+
+// HealthStartPeriod is the grace a container gets before a failed probe counts
+// against it. It is written into every generated healthcheck for the same
+// reason the interval is: a five-second probe with no grace would call a
+// perfectly healthy application unhealthy while it is still starting, and that
+// verdict is visible to dependency conditions, restart watchers and alerting
+// long before the rollout would notice it.
+func (w Workload) HealthStartPeriod() time.Duration {
+	if w.Health != nil {
+		if d, ok := ParseDuration(w.Health.StartPeriod); ok && d > 0 {
+			return d
+		}
+	}
+	return defaultHealthStartPeriod
+}
+
+const (
+	// A probe every five seconds costs twelve requests a minute per container
+	// and lets a drained container leave rotation in fifteen — fast enough
+	// that a rolling deploy is not dominated by waiting for the flip, cheap
+	// enough to run against every replica forever.
+	defaultHealthInterval = 5 * time.Second
+	defaultHealthRetries  = 3
+	// Thirty seconds is what a shorthand healthcheck effectively had before the
+	// interval was written down: the runtime's own 30s interval meant the first
+	// probe did not land until then. Keeping that as the grace means writing
+	// the interval down costs a booting container nothing. The runtime leaves
+	// the start period at the first success, so a fast application pays none of
+	// it.
+	defaultHealthStartPeriod = 30 * time.Second
+)
+
+// ReadyTiming is the health gate's overall budget and the cadence Onebox polls
+// `docker inspect` at while waiting. The poll cadence is deliberately not the
+// container's probe interval: inspecting locally is cheap, so a slow probe
+// interval should not also make Onebox notice the result slowly.
 func (w Workload) ReadyTiming() (within, interval time.Duration) {
-	within, interval = 120*time.Second, 2*time.Second
-	if w.Health == nil {
-		return within, interval
+	interval = 2 * time.Second
+	if w.Health != nil {
+		if d, ok := ParseDuration(w.Health.Within); ok && d > 0 {
+			return d, interval
+		}
 	}
-	if d, ok := ParseDuration(w.Health.Within); ok && d > 0 {
-		within = d
-	}
-	if d, ok := ParseDuration(w.Health.Interval); ok && d > 0 {
-		interval = d
+	// The default budget stretches to cover one full flip cycle when the probe
+	// timing is slow enough to need it. A rollout that gives up before the
+	// container's healthcheck could have reported anything is not measuring the
+	// application, and 120s is a figure chosen for ordinary probe timings, not
+	// a statement that a three-minute interval should fail.
+	within = 120 * time.Second
+	if cycle := time.Duration(w.HealthRetries()+1)*w.HealthInterval() + w.HealthStartPeriod(); cycle > within {
+		within = cycle
 	}
 	return within, interval
 }
 
 // DrainWait is how long to leave a container marked unhealthy before stopping
-// it, so the proxy has time to notice and stop sending it traffic. Without an
-// explicit value it is derived from the health timing, which is the only way
-// the two cannot drift apart.
+// it, so the proxy has time to notice and stop sending it traffic.
+//
+// Only an authored wait counts. The derived value this used to fall back to
+// was unreachable — every caller checks `drain.wait` was written before asking
+// — so it existed only to be printed by the plan, promising a pause no deploy
+// ever took. Deriving one for real would add a sleep to every deploy that
+// names a drain signal, which is a change to make deliberately, not by way of
+// a fallback nothing calls.
 func (w Workload) DrainWait() time.Duration {
 	if w.Drain != nil && w.Drain.Wait != "" {
 		if d, ok := ParseDuration(w.Drain.Wait); ok {
 			return d
 		}
 	}
-	_, interval := w.ReadyTiming()
-	return time.Duration(w.HealthRetries()) * interval
+	return 0
 }
 
 // DrainSignal is the signal sent to begin a graceful stop.
@@ -288,6 +350,13 @@ func ParseDuration(s string) (time.Duration, bool) {
 		return 0, false
 	}
 	if days, err := strconv.Atoi(strings.TrimSuffix(s, "d")); err == nil && strings.HasSuffix(s, "d") {
+		// A day count that cannot be held in nanoseconds is not a long
+		// duration, it is a wrapped one: it comes back negative, or — worse —
+		// as a plausible positive that slips past every bound written as
+		// `d > limit`. Refusing it is the only reading that cannot mislead.
+		if days > maxDurationDays || days < -maxDurationDays {
+			return 0, false
+		}
 		return time.Duration(days) * 24 * time.Hour, true
 	}
 	d, err := time.ParseDuration(s)
@@ -389,3 +458,7 @@ func ParsePostgresDuration(value string) (time.Duration, bool) {
 	}
 	return 0, false
 }
+
+// maxDurationDays is the largest whole-day count that fits in int64
+// nanoseconds: math.MaxInt64 / (24h in ns).
+const maxDurationDays = 106751

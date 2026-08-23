@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -165,7 +166,7 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 	// check in an image with no shell — can never flip, so waiting for it would
 	// burn the whole budget and then stop a container the proxy is still using.
 	// Saying so is better than a warning that reads like a fault.
-	guarded, err := e.drainGuarded(ctx, id)
+	guarded, probeEvery, probeRetries, err := e.bakedHealthcheck(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -178,12 +179,19 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 	if err := e.mutateChecked(ctx, "mark container "+id+" draining", "docker exec "+id+" touch "+app.DrainFile); err != nil {
 		return err
 	}
-	// Budget the drain wait off the ACTUAL flip cost (retries × interval) plus
-	// two poll-intervals of slack, so a raised ready.retries can't make the flip
-	// exceed the budget — that would time out and SIGTERM a container the proxy
-	// may still be routing to. At the default 3 retries this is 5*pollEvery, the
-	// prior value.
-	drainBudget := time.Duration(role.HealthRetries()+2) * pollEvery
+	// Budget the drain wait off the ACTUAL flip cost — this container's own
+	// retries × its own probe interval — plus two probes of slack, so raising
+	// retries cannot make the flip exceed the budget. Timing out here SIGTERMs
+	// a container the proxy may still be routing to, which is what the budget
+	// exists to prevent.
+	//
+	// Both numbers come from the container, not from the spec: the spec
+	// describes what is being started, while this is what is being drained. Nor
+	// is either the poll cadence, which is only how often Onebox runs `docker
+	// inspect` — a local query. Budgeting a container-side flip against a local
+	// query's cadence is what made the budget expire before the flip could
+	// happen at all.
+	drainBudget := time.Duration(probeRetries+2) * probeEvery
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
 	}
@@ -212,17 +220,55 @@ func (e *Engine) stopAndRemove(ctx context.Context, role app.Workload, id string
 	return e.mutateChecked(ctx, "remove container "+id, "docker rm "+id)
 }
 
-// drainGuarded reports whether a container's health check reads the drain file.
-func (e *Engine) drainGuarded(ctx context.Context, id string) (bool, error) {
-	res, err := e.T.Run(ctx, "docker inspect -f '{{json .Config.Healthcheck.Test}}' "+id)
+// bakedHealthcheck is the healthcheck a running container was CREATED with,
+// which is the only one that governs how it behaves now. A healthcheck is baked
+// in at creation, so the spec being deployed describes the containers being
+// started, never the ones being drained: reading it from the container is what
+// makes the drain budget survive a change to the probe timing — including a
+// change to Onebox's own default, which no operator asked for and would
+// otherwise strand every replica of the first deploy after an upgrade.
+//
+// Omitted fields mean the runtime's defaults, not zero.
+func (e *Engine) bakedHealthcheck(ctx context.Context, id string) (guarded bool, interval time.Duration, retries int, err error) {
+	res, err := e.T.Run(ctx, "docker inspect -f '{{json .Config.Healthcheck}}' "+id)
 	if err != nil {
-		return false, err
+		return false, 0, 0, err
 	}
 	if res.ExitCode != 0 {
-		return false, nil
+		return false, dockerDefaultHealthInterval, dockerDefaultHealthRetries, nil
 	}
-	return strings.Contains(res.Stdout, app.DrainFile), nil
+	guarded = strings.Contains(res.Stdout, app.DrainFile)
+	var baked struct {
+		Interval int64 `json:"Interval"`
+		Retries  int   `json:"Retries"`
+	}
+	interval, retries = dockerDefaultHealthInterval, dockerDefaultHealthRetries
+	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &baked); err == nil {
+		// Clamped, because these come from a container rather than from a
+		// validated project: one created by an older runner can carry values
+		// that were never bounded, and a budget wrapped negative by them
+		// expires instantly — stopping a container the proxy may still be
+		// routing to, which is the failure this budget exists to prevent.
+		if baked.Interval > 0 && time.Duration(baked.Interval) <= maxBakedHealthInterval {
+			interval = time.Duration(baked.Interval)
+		}
+		if baked.Retries > 0 && baked.Retries <= maxBakedHealthRetries {
+			retries = baked.Retries
+		}
+	}
+	return guarded, interval, retries, nil
 }
+
+// The runtime's own defaults, applied when a healthcheck omits the field. They
+// are the values a container created by an older Onebox is running with.
+const (
+	dockerDefaultHealthInterval = 30 * time.Second
+	dockerDefaultHealthRetries  = 3
+	// Ceilings for what a container reports, matching what the project file is
+	// allowed to declare.
+	maxBakedHealthInterval = 7 * 24 * time.Hour
+	maxBakedHealthRetries  = 1000
+)
 
 // reslot gives each new-release container a clean, stable slot name: the plain
 // <app>-<component>-1..<app>-<component>-N for every replica count.

@@ -582,7 +582,7 @@
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "1116c463820143c01194fea526e8c1c6bf9cfe03c7ff7c81c7e1ae509ab32de2 events=1e798590e3a5dda4 postgres=b1fac70440c33545"
+    "digest": "cab9f37156b86ba788b71f110ccdd8ae7276607336d3fafcb06d9b5255e7a380 events=1e798590e3a5dda4 postgres=b1fac70440c33545"
   },
   {
     "case": "corpus/ext-umami.yml",

@@ -26,7 +26,7 @@ func (e *Engine) deployJobSteps() []string {
 }
 
 // runJobs runs every gate step once, before the roll, each under the
-// $OB_RESULT_FILE protocol. A step with a same-named hook runs
+// $ONEBOX_RESULT_FILE protocol. A step with a same-named hook runs
 // that hook's command (a custom migrate invocation); otherwise ob auto-runs
 // `docker compose run --rm --no-deps <job>` — so `jobs: [migrate]` needs no
 // hook at all. The rollback gate opens only if EVERY step declared
@@ -120,7 +120,7 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	const containerResultFile = "/run/onebox/job-result"
 	containerized := true
 	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps" +
-		" -e OB_RESULT_FILE=" + containerResultFile +
+		" -e ONEBOX_RESULT_FILE=" + containerResultFile +
 		" -v " + q(resultFile+":"+containerResultFile+":rw") + " " + job
 	if h, ok := e.Spec.Hooks[job]; ok && h.Run != "" {
 		if h.Local {
@@ -154,7 +154,7 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 		" && install -m " + resultMode + " /dev/null " + q(resultFile) +
 		" && COMPOSE_PROJECT_NAME=" + e.Spec.Name +
 		" COMPOSE_FILE=" + q(remoteCompose) +
-		" OB_RESULT_FILE=" + q(resultFile) +
+		" ONEBOX_RESULT_FILE=" + q(resultFile) +
 		" " + runCmd
 	if containerized {
 		cmd += "; job_status=$?; chmod 600 " + q(resultFile) + " || exit 125; exit $job_status"
@@ -200,7 +200,7 @@ func injectComposeJobResult(command, hostResultFile, containerResultFile string)
 	if !strings.Contains(prefix, "docker compose") && !strings.Contains(prefix, "docker-compose") {
 		return command, false
 	}
-	flags := " run -e OB_RESULT_FILE=" + containerResultFile +
+	flags := " run -e ONEBOX_RESULT_FILE=" + containerResultFile +
 		" -v " + q(hostResultFile+":"+containerResultFile+":rw") + " "
 	return prefix + flags + command[runIndex+len(" run "):], true
 }

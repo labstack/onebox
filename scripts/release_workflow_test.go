@@ -511,7 +511,7 @@ func TestReleaseWaitsForThePreviousReleaseRunToFinish(t *testing.T) {
 			if test.status == "api-failure" {
 				stub = "#!/usr/bin/env bash\necho 'HTTP 502' >&2\nexit 1\n"
 			}
-			output, err := runRelease(t, repo, normalJustShim, nil, "OB_RELEASE_REPOSITORY=labstack/onebox", "RELEASE_TEST_GH="+stub)
+			output, err := runRelease(t, repo, normalJustShim, nil, "ONEBOX_RELEASE_REPOSITORY=labstack/onebox", "RELEASE_TEST_GH="+stub)
 			skipIfUTCMonthChanged(t, month)
 			switch {
 			case test.wantErr == "" && err != nil:

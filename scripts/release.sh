@@ -79,7 +79,7 @@ increment_decimal() {
 # create would block that fix forever.
 #
 # The check is skipped only when origin is not a GitHub remote, which no real
-# release is. Set OB_RELEASE_REPOSITORY to name the repository explicitly.
+# release is. Set ONEBOX_RELEASE_REPOSITORY to name the repository explicitly.
 require_previous_release_terminal() {
   local repository=$1 previous="" candidate previous_commit run_status
   while IFS= read -r candidate; do
@@ -92,7 +92,7 @@ require_previous_release_terminal() {
     return 0
   fi
   if ! command -v gh >/dev/null 2>&1; then
-    echo "gh is required to confirm that the ${previous} release run has finished; install it or set OB_RELEASE_REPOSITORY=" >&2
+    echo "gh is required to confirm that the ${previous} release run has finished; install it or set ONEBOX_RELEASE_REPOSITORY=" >&2
     return 1
   fi
   previous_commit=$(git rev-parse --verify "refs/tags/${previous}^{commit}")
@@ -116,7 +116,7 @@ github_repository_slug() {
   esac
 }
 
-release_repository=${OB_RELEASE_REPOSITORY:-$(github_repository_slug "$(git remote get-url origin)")}
+release_repository=${ONEBOX_RELEASE_REPOSITORY:-$(github_repository_slug "$(git remote get-url origin)")}
 if [ -n "$release_repository" ]; then
   require_previous_release_terminal "$release_repository"
 fi

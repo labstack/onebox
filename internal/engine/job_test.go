@@ -119,7 +119,7 @@ func TestRunJobRechecksReleaseAndRuntimeUnderLock(t *testing.T) {
 			if !strings.Contains(commands, "set -C; echo") || !strings.Contains(commands, "/fence") {
 				t.Fatalf("post-lock recheck was not lock/fence protected:\n%s", commands)
 			}
-			if strings.Contains(commands, "OB_RESULT_FILE") {
+			if strings.Contains(commands, "ONEBOX_RESULT_FILE") {
 				t.Fatalf("stale job created a container:\n%s", commands)
 			}
 		})
@@ -142,7 +142,7 @@ func TestRunJobUsesPlanIdentityAndJournalsAuthorization(t *testing.T) {
 		t.Fatalf("job identity/evidence = %q/%+v", operationID, evidence)
 	}
 	commands := strings.Join(target.Commands, "\n")
-	if strings.Count(commands, "OB_RESULT_FILE=/run/onebox/job-result") != 1 {
+	if strings.Count(commands, "ONEBOX_RESULT_FILE=/run/onebox/job-result") != 1 {
 		t.Fatalf("job execution count differs from one:\n%s", commands)
 	}
 	for _, want := range []string{`"deploy_id":"op-job-run"`, `"phase":"job","event":"start"`, `"approval_digest":"approval-digest"`} {

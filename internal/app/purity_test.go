@@ -108,7 +108,7 @@ func TestGenerationIgnoresTheProcessEnvironment(t *testing.T) {
 	}
 	for _, key := range []string{
 		"HOME", "USER", "PATH", "PWD", "SHELL", "TZ", "LANG",
-		"OB_BASE_DIR", "OB_APP", "OB_ENV", "OB_IMAGE", "OB_RELEASE",
+		"ONEBOX_BASE_DIR", "ONEBOX_APP", "ONEBOX_ENV", "ONEBOX_IMAGE", "ONEBOX_RELEASE",
 		"COMPOSE_PROJECT_NAME", "DOCKER_HOST", "TOKEN", "API_TOKEN",
 	} {
 		t.Setenv(key, "generation-must-not-see-this")

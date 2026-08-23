@@ -70,9 +70,9 @@ env_lines() {
 	key="$(ssh_field IdentityFile)"
 	# The same string shape ob.yml's `server:` field takes, parsed by the same
 	# code: internal/target.Address is [user@]host[:port].
-	printf 'OB_SERVER_E2E=1\n'
-	printf 'OB_E2E_SERVER=root@127.0.0.1:%s\n' "$port"
-	printf 'OB_E2E_SERVER_KEY=%s\n' "$key"
+	printf 'ONEBOX_SERVER_E2E=1\n'
+	printf 'ONEBOX_E2E_SERVER=root@127.0.0.1:%s\n' "$port"
+	printf 'ONEBOX_E2E_SERVER_KEY=%s\n' "$key"
 }
 
 run_tests() {
@@ -80,7 +80,7 @@ run_tests() {
 	while IFS= read -r line; do env+=("$line"); done < <(env_lines)
 	# -count=1 because a cached pass against a guest that has since changed is
 	# a green tick for work nobody did.
-	env OB_E2E=1 "${env[@]}" \
+	env ONEBOX_E2E=1 "${env[@]}" \
 		go test "${repo}/e2e/" -count=1 -timeout 40m -run Server "$@"
 }
 

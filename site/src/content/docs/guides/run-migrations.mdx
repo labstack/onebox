@@ -38,14 +38,14 @@ gates read:
 
 ## Report what actually happened
 
-A job can write JSON or `key=value` data to `$OB_RESULT_FILE` using the
+A job can write JSON or `key=value` data to `$ONEBOX_RESULT_FILE` using the
 `onebox.run/job-result/v1alpha1` protocol. Provider-aware evidence records
 `changed`, `provider`, and ordered `before_revisions` / `after_revisions`.
 
 ```sh
 #!/bin/sh
 ./bin/migrate
-cat > "$OB_RESULT_FILE" <<EOF
+cat > "$ONEBOX_RESULT_FILE" <<EOF
 {"changed": true, "provider": "atlas", "after_revisions": ["202607130001"]}
 EOF
 ```

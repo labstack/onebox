@@ -68,7 +68,7 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	if strings.Contains(seq, "--scale web=2") {
 		t.Fatalf("web already rolled — resume must skip it:\n%s", seq)
 	}
-	if strings.Contains(seq, "OB_RESULT_FILE") {
+	if strings.Contains(seq, "ONEBOX_RESULT_FILE") {
 		t.Fatalf("migrate already ran — resume must not re-run it:\n%s", seq)
 	}
 	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {

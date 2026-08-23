@@ -136,7 +136,7 @@ func TestExecuteJobRejectsStaleReleaseBeforeContainerCreation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "job plan is stale") {
 		t.Fatalf("stale job plan was accepted: %v", err)
 	}
-	if commands := strings.Join(fake.Commands, "\n"); strings.Contains(commands, "OB_RESULT_FILE") {
+	if commands := strings.Join(fake.Commands, "\n"); strings.Contains(commands, "ONEBOX_RESULT_FILE") {
 		t.Fatalf("stale job plan created a job container:\n%s", commands)
 	}
 }
@@ -284,7 +284,7 @@ func TestExecuteJobRunsOnceAndJournalsTerminalResult(t *testing.T) {
 		t.Fatalf("job result = %+v", result)
 	}
 	commands := strings.Join(fake.Commands, "\n")
-	if strings.Count(commands, "OB_RESULT_FILE=/run/onebox/job-result") != 1 {
+	if strings.Count(commands, "ONEBOX_RESULT_FILE=/run/onebox/job-result") != 1 {
 		t.Fatalf("job did not run exactly once:\n%s", commands)
 	}
 	for _, want := range []string{`"operation_kind":"job_run"`, `"sub_step":"job:maintenance"`, `"event":"finish","status":"ok"`, approval.ApprovalDigest} {

@@ -57,7 +57,7 @@ func TestMigrationBackupPolicyStopsBeforeMigrationWithoutEvidence(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "migration backup report is required") {
 		t.Fatalf("missing evidence did not stop deploy: %v", err)
 	}
-	if sequence := strings.Join(f.Commands, "\n"); strings.Contains(sequence, "OB_RESULT_FILE") {
+	if sequence := strings.Join(f.Commands, "\n"); strings.Contains(sequence, "ONEBOX_RESULT_FILE") {
 		t.Fatalf("migration ran before evidence was accepted:\n%s", sequence)
 	}
 }
@@ -77,7 +77,7 @@ func TestMigrationBackupReceiptIsJournaledBeforeMigration(t *testing.T) {
 	}
 	sequence := strings.Join(f.Commands, "\n")
 	evidenceIndex := strings.Index(sequence, `"sub_step":"`+journal.MigrationBackupSubStep+`"`)
-	migrationIndex := strings.Index(sequence, "OB_RESULT_FILE")
+	migrationIndex := strings.Index(sequence, "ONEBOX_RESULT_FILE")
 	if evidenceIndex < 0 || migrationIndex < 0 || evidenceIndex > migrationIndex {
 		t.Fatalf("receipt evidence was not journaled before migration:\n%s", sequence)
 	}
@@ -130,7 +130,7 @@ func TestExpiredMigrationBackupEvidenceStopsBeforeMigration(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "expired") {
 		t.Fatalf("expired evidence did not stop deploy: %v", err)
 	}
-	if sequence := strings.Join(f.Commands, "\n"); strings.Contains(sequence, "OB_RESULT_FILE") {
+	if sequence := strings.Join(f.Commands, "\n"); strings.Contains(sequence, "ONEBOX_RESULT_FILE") {
 		t.Fatalf("migration ran with expired evidence:\n%s", sequence)
 	}
 }

@@ -1,0 +1,137 @@
+---
+title: Environment variables
+description: Every variable Onebox sets or reads, and how to migrate off the retired OB_ prefix.
+summary: The ONEBOX_ namespace — what Onebox injects into hooks and jobs, what it reads from your shell and CI, and the one-line rename from the old OB_ names.
+sidebar:
+  order: 9
+read_when:
+  - "Writing a hook or a job that talks back to Onebox"
+  - "Upgrading from a release that used OB_ variables"
+---
+
+Onebox owns the `ONEBOX_` prefix. Everything it injects or reads lives there,
+which keeps it greppable in a CI settings page, a secrets store, or someone
+else's hook script.
+
+Your application's own variables are never touched. A workload that expects
+`FANOUT_*`, `DATABASE_URL`, or `OTEL_EXPORTER_OTLP_ENDPOINT` receives exactly
+those keys, unchanged — Onebox passes workload environment through rather than
+namespacing it.
+
+## Injected into local hooks
+
+A hook declared `local: true` runs on your machine. It is given enough to reach
+the server itself, because Onebox's own connection is not something a separate
+process can borrow:
+
+| Variable | Value |
+| --- | --- |
+| `ONEBOX_APP` | The application name |
+| `ONEBOX_HOST` | The server's hostname, unbracketed |
+| `ONEBOX_SERVER` | `user@host`, valid as an OpenSSH destination |
+| `ONEBOX_SSH_USER` | The SSH user |
+| `ONEBOX_SSH_PORT` | The SSH port, separate because `user@host:port` is invalid for both `ssh` and `rsync` |
+| `ONEBOX_SSH_JUMP` | The jump host, empty on a direct connection — see [Deploy through a jump host](/guides/deploy-through-a-jump-host/) |
+| `ONEBOX_RELEASE_DIR` | Absolute path of the release directory on the server |
+| `ONEBOX_RELEASE_ID` | The release identifier |
+
+```sh
+ssh ${ONEBOX_SSH_JUMP:+-J "$ONEBOX_SSH_JUMP"} "$ONEBOX_SERVER" -p "$ONEBOX_SSH_PORT" 'uptime'
+```
+
+## The job result protocol
+
+| Variable | Value |
+| --- | --- |
+| `ONEBOX_RESULT_FILE` | Path a job writes its structured result to |
+
+A job that reports back writes one JSON document there:
+
+```sh
+printf '{"schema_version":"onebox.run/job-result/v1alpha1","changed":true}' > "$ONEBOX_RESULT_FILE"
+```
+
+## Backup helpers
+
+| Variable | Value |
+| --- | --- |
+| `ONEBOX_REPOSITORY_KEY` | Repository encryption key |
+| `ONEBOX_S3_KEY_ENTRY` | Name of the entry holding the S3 access key |
+| `ONEBOX_S3_SECRET_ENTRY` | Name of the entry holding the S3 secret key |
+| `ONEBOX_S3_SESSION_TOKEN_ENTRY` | Name of the entry holding the S3 session token |
+
+## Read from your shell or CI
+
+| Variable | Effect |
+| --- | --- |
+| `ONEBOX_LOCAL` | `1` or `true` runs against the local Docker daemon instead of connecting over SSH |
+| `ONEBOX_BIN_DIR` | Where `just build` writes the binary, and where the other recipes look for it (default `bin`) |
+| `ONEBOX_INSTALL_DIR` | Where `just install` places the binary (default `~/.local/bin`) |
+| `ONEBOX_VERSION` | Version string `just build` stamps into the binary; must match `vYYYY.M.REVISION` |
+| `ONEBOX_RELEASE_REPOSITORY` | Repository `scripts/release.sh` queries to confirm the previous release run finished, when the git remote does not name it |
+
+`ONEBOX_LOCAL` is the only one of these Onebox itself reads; the rest are build
+and release controls read by `just` and the release script.
+
+Contributor and test controls — `ONEBOX_E2E`, `ONEBOX_E2E_*`, `ONEBOX_SERVER_E2E`,
+and `ONEBOX_UPDATE_VERDICTS` — follow the same prefix. `just e2e` sets
+`ONEBOX_E2E` for you; the rest are set by hand when running a suite or
+refreshing a frozen fixture.
+
+Nothing in this namespace reaches a generated runtime. Generation reads no
+process environment at all, so the same project renders the same Compose on
+your laptop and in CI, and a digest keeps meaning something.
+
+## Migrating from `OB_`
+
+Earlier releases used `OB_`. The rename is mechanical and complete — there are
+no aliases, no fallback reads, and no deprecation window:
+
+| Before | After |
+| --- | --- |
+| `OB_APP` | `ONEBOX_APP` |
+| `OB_HOST` | `ONEBOX_HOST` |
+| `OB_SERVER` | `ONEBOX_SERVER` |
+| `OB_SSH_USER` | `ONEBOX_SSH_USER` |
+| `OB_SSH_PORT` | `ONEBOX_SSH_PORT` |
+| `OB_RELEASE_DIR` | `ONEBOX_RELEASE_DIR` |
+| `OB_RELEASE_ID` | `ONEBOX_RELEASE_ID` |
+| `OB_RESULT_FILE` | `ONEBOX_RESULT_FILE` |
+| `OB_REPOSITORY_KEY` | `ONEBOX_REPOSITORY_KEY` |
+| `OB_S3_KEY_ENTRY` | `ONEBOX_S3_KEY_ENTRY` |
+| `OB_S3_SECRET_ENTRY` | `ONEBOX_S3_SECRET_ENTRY` |
+| `OB_S3_SESSION_TOKEN_ENTRY` | `ONEBOX_S3_SESSION_TOKEN_ENTRY` |
+| `OB_LOCAL` | `ONEBOX_LOCAL` |
+| `OB_INSTALL_DIR` | `ONEBOX_INSTALL_DIR` |
+| `OB_BIN_DIR` | `ONEBOX_BIN_DIR` |
+| `OB_VERSION` | `ONEBOX_VERSION` |
+| `OB_RELEASE_REPOSITORY` | `ONEBOX_RELEASE_REPOSITORY` |
+| `OB_E2E`, `OB_E2E_*` | `ONEBOX_E2E`, `ONEBOX_E2E_*` |
+| `OB_SERVER_E2E` | `ONEBOX_SERVER_E2E` |
+| `OB_UPDATE_VERDICTS` | `ONEBOX_UPDATE_VERDICTS` |
+
+Update your hook scripts, CI and release settings, and any job writing to the
+result file. The executable is still `ob`, the project file is still `ob.yml`,
+and the API version is still `onebox.run/v1` — only the environment namespace
+changed.
+
+A stray old name does not fall back: it is simply never read, so a hook reading
+`$OB_SERVER` gets an empty string rather than an error — unless your own shell
+or CI still exports one, in which case the hook receives that stale value,
+because hooks inherit your environment. Grep for `OB_` once across your
+repository and CI configuration and the migration is done.
+
+### Protected databases need `ob backup enable` re-run
+
+If a service has backups enabled, renaming the key inside your encrypted
+credential file is not enough on its own. The decrypted file lives on the host,
+written once when backups were enabled, and every later deploy reads it as it
+stands:
+
+```sh
+ob backup enable <service>
+```
+
+Re-running it rewrites the host copy with `ONEBOX_REPOSITORY_KEY`. Until you do,
+the wal-g wrapper refuses to run rather than archiving without an encryption
+key, so a backup will fail loudly instead of silently landing unencrypted.

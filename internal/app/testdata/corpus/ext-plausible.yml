@@ -30,7 +30,7 @@ workloads:
         set -e
         /entrypoint.sh db createdb
         /entrypoint.sh db migrate
-        printf '{"schema_version":"onebox.run/job-result/v1alpha1","changed":true}' > "$OB_RESULT_FILE"
+        printf '{"schema_version":"onebox.run/job-result/v1alpha1","changed":true}' > "$ONEBOX_RESULT_FILE"
     data_effect: migration
     when: pre_release
     env:

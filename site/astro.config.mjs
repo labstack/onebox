@@ -11,6 +11,9 @@ const SITE = process.env.SITE_URL ?? "https://onebox.run";
 
 export default defineConfig({
   site: SITE,
+  // Reserved local-development port; no reverse proxy is used.
+  server: { port: 7565 },
+  vite: { server: { strictPort: true } },
   trailingSlash: "never",
   build: { format: "file" },
   markdown: { rehypePlugins: [rehypeTableWrap] },

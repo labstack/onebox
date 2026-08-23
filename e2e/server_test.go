@@ -189,6 +189,42 @@ func TestServerLifecycle(t *testing.T) {
 			"/etc/systemd/system/ob-observer-timeout--chore.service "+
 			"/etc/systemd/system/ob-observer-timeout--chore.timer")
 
+		// Model a host last touched by v2026.8.5: the timer exists, but its
+		// service invokes Compose directly and has no bounded runner or notifier.
+		// Upgrading the local package is intentionally side-effect free; the
+		// scoped apply command must bridge that installed generation without an
+		// unrelated release deploy.
+		legacyService := `[Unit]
+Description=Onebox scheduled job chore for observer
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/compose.yaml run --rm --no-deps chore
+`
+		encodedLegacy := base64.StdEncoding.EncodeToString([]byte(legacyService))
+		s.run(t, strings.Join([]string{
+			"printf '%s' '" + encodedLegacy + "' | base64 -d > /etc/systemd/system/ob-observer-chore.service",
+			"rm -f /etc/systemd/system/ob-observer-chore.run /etc/systemd/system/ob-observer-chore.notify",
+			"systemctl daemon-reload",
+		}, "\n"))
+		before := s.run(t, "systemctl cat ob-observer-chore.service")
+		if strings.Contains(before, "TimeoutStartSec=") || strings.Contains(before, "ExecStopPost=") {
+			t.Fatalf("legacy fixture already has the current unit contract:\n%s", before)
+		}
+		s.mustOb(t, dir, "schedule", "apply")
+		after := s.run(t, strings.Join([]string{
+			"test -s /etc/systemd/system/ob-observer-chore.run",
+			"test -s /etc/systemd/system/ob-observer-chore.notify",
+			"systemctl cat ob-observer-chore.service",
+		}, "\n"))
+		for _, want := range []string{"ExecStart=/bin/sh", "ExecStopPost=/bin/sh", "TimeoutStartSec="} {
+			if !strings.Contains(after, want) {
+				t.Fatalf("schedule apply did not restore %q:\n%s", want, after)
+			}
+		}
+
 		// A normal host-fired run proves the generated runner, current-release
 		// lookup, Docker invocation and app-wide schedule lock compose on systemd.
 		s.run(t, "systemctl start ob-observer-chore.service")

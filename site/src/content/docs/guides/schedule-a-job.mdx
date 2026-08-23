@@ -56,6 +56,23 @@ The target must provide `flock` (part of `util-linux` on supported Linux hosts).
 Onebox refuses to install or run schedules when that serialization primitive is
 missing.
 
+## Reconcile after upgrading Onebox
+
+The `ob` binary is agentless: upgrading it on the operator workstation does not
+silently connect to or mutate a target. Existing timers therefore keep the unit
+content written by the previous runner until the next deploy or an explicit
+schedule apply:
+
+```sh
+ob schedule apply
+```
+
+This rewrites every declared timer, service, runner, and failure notifier from
+the current contract, and removes units for jobs no longer declared. It runs
+under the same application lock, schedule mutex, fence, and journal boundary as
+a deploy, but it does not stage or activate a release. Run it after upgrading
+Onebox when an application may not be deployed again soon.
+
 ## Failures remain visible
 
 systemd retains the last oneshot result. `ob status` reads it alongside the

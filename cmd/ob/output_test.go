@@ -518,6 +518,7 @@ func TestLeafOutputMatrixIsClosedAndHasNoAliases(t *testing.T) {
 		"ob proxy apply":    {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob resume":         {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob rollback":       {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob schedule apply": {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob schema":         {Class: "finite_envelope", JSON: true},
 		"ob secrets edit":   {Class: "trusted_editor", JSON: true},
 		"ob secrets list":   {Class: "finite_envelope", JSON: true},

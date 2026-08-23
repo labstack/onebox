@@ -71,7 +71,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	secretGraph := lp.resolved.SecretDeclarationGraph()
 	if len(secretGraph) > 0 {
 		if hostState.CurrentRelease != "" {
-			activeSecretGeneration, err = app.SecretGenerationFromCompose([]byte(liveRedacted), secretGraphWorkloads(secretGraph))
+			activeSecretGeneration, err = e.DeployedSecretGeneration(ctx, hostState.CurrentRelease, []byte(liveRedacted))
 			if err != nil {
 				return DeployPlan{}, fmt.Errorf("read live secret generation: %w", err)
 			}
@@ -228,16 +228,6 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		return DeployPlan{}, fmt.Errorf("validate deployment plan: %w", err)
 	}
 	return plan, nil
-}
-
-func secretGraphWorkloads(graph []app.SecretDeclaration) []string {
-	set := map[string]bool{}
-	for _, declaration := range graph {
-		for _, workload := range declaration.AffectedWorkloads {
-			set[workload] = true
-		}
-	}
-	return sortedNames(set)
 }
 
 func classifyDeployment(steps []OperationStep, currentRelease string) (RiskClass, ReversibilityClass, ApprovalClass) {

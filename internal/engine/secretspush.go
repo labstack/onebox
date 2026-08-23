@@ -301,6 +301,20 @@ func (e *Engine) currentSecretEngine(ctx context.Context, current string) (*Engi
 	return releaseEngine, nil
 }
 
+// DeployedSecretGeneration reads the active generation against the immutable
+// declaration graph that produced the deployed release. A new project may add
+// or remove secret-consuming workloads; using its graph to inspect the old
+// runtime mistakes that intentional transition for partial live state.
+func (e *Engine) DeployedSecretGeneration(ctx context.Context, releaseID string, composeBytes []byte) (string, error) {
+	releaseEngine, err := e.engineFromReleaseSnapshotFor(ctx, releaseID, "deploy planning")
+	if err != nil {
+		return "", err
+	}
+	graph := releaseEngine.Spec.SecretDeclarationGraph()
+	workloads := affectedLiveSecretWorkloads(releaseEngine.Spec, graph)
+	return app.SecretGenerationFromCompose(composeBytes, workloads)
+}
+
 func (e *Engine) cleanupSecretUploads(ctx context.Context) error {
 	return e.mutateChecked(ctx, "clean abandoned secret uploads", "rm -rf "+q(e.base()+"/.secret-upload-")+"*")
 }

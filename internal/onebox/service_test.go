@@ -210,3 +210,86 @@ func TestPlanDeployRetainsComposeBuildImageForBoundReplay(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanDeployUsesDeployedSecretGraphDuringTransition(t *testing.T) {
+	fakeSops(t)
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	imageWeb := "ghcr.io/example/web@sha256:" + strings.Repeat("1", 64)
+	imageWorker := "ghcr.io/example/worker@sha256:" + strings.Repeat("2", 64)
+	project := func(workerSecret bool) string {
+		workerEnv := ""
+		if workerSecret {
+			workerEnv = "\n    env_files: [{file: worker.enc.env, provider: sops}]"
+		}
+		return `api_version: onebox.run/v1
+app: demo
+environments:
+  production: {server: deploy@example.invalid}
+workloads:
+  web:
+    role: application
+    image: ` + imageWeb + `
+    strategy: recreate
+    env_files: [{file: web.enc.env, provider: sops}]
+  worker:
+    role: daemon
+    image: ` + imageWorker + workerEnv + `
+deployment: {order: [web, worker]}
+`
+	}
+	write("web.enc.env", "WEB_TOKEN=web\n")
+	write("worker.enc.env", "WORKER_TOKEN=worker\n")
+	write("ob.yml", project(true))
+
+	const oldGeneration = "sg-111111111111111111111111"
+	liveCompose := `services:
+  web:
+    image: ` + imageWeb + `
+    env_file: [.ob-secret-generations/` + oldGeneration + `/.ob-decrypted-sops-web.enc.env]
+    labels: {ob.app: demo, ob.release: R0, ob.workload: web, ob.secret-generation: ` + oldGeneration + `}
+  worker:
+    image: ` + imageWorker + `
+    labels: {ob.app: demo, ob.release: R0, ob.workload: worker}
+`
+	fake := serviceFake()
+	baseDynamic := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ob.snapshot.yml"):
+			return transport.Result{Stdout: project(false)}, true
+		case strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml"):
+			return transport.Result{Stdout: liveCompose}, true
+		case strings.Contains(command, "docker ps") && strings.Contains(command, "--format"):
+			return transport.Result{Stdout: "S1|web|R0|Up\nW1|worker|R0|Up\n"}, true
+		default:
+			return baseDynamic(command)
+		}
+	}
+	service := New(Options{
+		ConfigPath: filepath.Join(dir, "ob.yml"),
+		Now:        func() time.Time { return time.Date(2026, 8, 23, 19, 0, 0, 0, time.UTC) },
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) {
+			return fake, nil
+		},
+	})
+	plan, err := service.PlanDeploy(context.Background(), PlanDeployRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Artifact.SecretGeneration == "" || plan.Artifact.SecretGeneration == oldGeneration {
+		t.Fatalf("replacement generation = %q", plan.Artifact.SecretGeneration)
+	}
+	for _, secret := range []string{"web.enc.env", "worker.enc.env"} {
+		staged := app.EnvFile{File: secret, Provider: "sops"}.StagedPath()
+		want := app.SecretGenerationPath(plan.Artifact.SecretGeneration, staged)
+		if !strings.Contains(plan.Artifact.RenderedCompose, want) {
+			t.Fatalf("planned runtime does not select %s:\n%s", want, plan.Artifact.RenderedCompose)
+		}
+	}
+}

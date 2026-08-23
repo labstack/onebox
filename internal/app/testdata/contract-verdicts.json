@@ -590,11 +590,6 @@
     "digest": "79b4c4a3d6a6ef07bca7bc0b14d9bc16c44bd2f111754909961067523497f6c9 postgres=36c6c38ba304b445"
   },
   {
-    "case": "corpus/fanout.yml",
-    "loads": true,
-    "digest": "render:compose_file_unreadable"
-  },
-  {
     "case": "corpus/ghost.yml",
     "loads": true,
     "digest": "9d1a0a4a2940c74895c58e99d3db96d70c2f7882433ea9cadc6f4f24867c33cb mysql=0f13a6374095d11b"

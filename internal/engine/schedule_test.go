@@ -47,6 +47,125 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 	}
 }
 
+// A package upgrade cannot mutate an agentless target. ScheduleApply is the
+// explicit bridge from a unit written by an older runner to the current unit
+// contract, without requiring an unrelated release deploy.
+func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "45m", CatchUp: false},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "current/compose.yaml"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "list-unit-files"):
+			// v2026.8.5 installed this timer, but its service had no bounded
+			// runner or failure notifier. Presence must not make apply skip it.
+			return transport.Result{Stdout: "ob-sample-nightly.timer\n"}, true
+		case strings.Contains(cmd, "systemd-analyze calendar"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production",
+	})
+	if err := e.ScheduleApply(context.Background(), "R9-schedule-apply"); err != nil {
+		t.Fatalf("schedule apply: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, want := range []string{
+		`"phase":"schedule-apply","event":"start"`,
+		"systemctl enable --now ob-sample-nightly.timer",
+		`"phase":"schedule-apply","event":"finish","status":"ok"`,
+		"rm -f '/var/lib/ob/sample/lock'",
+	} {
+		if !strings.Contains(seq, want) {
+			t.Errorf("schedule apply is missing %q:\n%s", want, seq)
+		}
+	}
+	artifacts := strings.Join(f.Inputs, "\n")
+	for _, want := range []string{
+		"ExecStart=/bin/sh /etc/systemd/system/ob-sample-nightly.run",
+		"ExecStopPost=/bin/sh /etc/systemd/system/ob-sample-nightly.notify",
+		"TimeoutStartSec=45m",
+		"flock --exclusive --nonblock",
+		"Persistent=false",
+	} {
+		if !strings.Contains(artifacts, want) {
+			t.Errorf("upgraded artifacts are missing %q:\n%s", want, artifacts)
+		}
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, "/etc/systemd/system/ob-sample-nightly") &&
+			strings.Contains(command, ".ob-tmp") && !strings.Contains(command, "ob-fenced") {
+			t.Errorf("schedule artifact write escaped the fence: %s", command)
+		}
+	}
+}
+
+func TestScheduleApplyRefusesBeforeFirstRelease(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := happyFake() // its current release has no Compose runtime
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "command -v flock") {
+			return transport.Result{Stdout: "ok\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	err := e.ScheduleApply(context.Background(), "R9-schedule-apply")
+	if err == nil || !strings.Contains(err.Error(), "deploy the application first") {
+		t.Fatalf("error = %v, want first-release refusal", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if len(f.Inputs) != 0 || !strings.Contains(seq, "rm -f '/var/lib/ob/sample/lock'") {
+		t.Fatalf("schedule apply wrote units or leaked its lock before refusing:\n%s", seq)
+	}
+}
+
+func TestScheduleApplyStopsBeforeUnitWritesWhenJournalStartFails(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "current/compose.yaml"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, `"phase":"schedule-apply","event":"start"`):
+			return transport.Result{ExitCode: 74, Stderr: "journal is read-only"}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	err := e.ScheduleApply(context.Background(), "R9-schedule-apply")
+	if err == nil || !strings.Contains(err.Error(), "journal schedule apply start") {
+		t.Fatalf("error = %v, want journal refusal", err)
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, "/etc/systemd/system/ob-sample-nightly") {
+			t.Fatalf("unit mutation followed failed journal start: %s", command)
+		}
+	}
+}
+
 func TestScheduledJobUnitContract(t *testing.T) {
 	job := app.ScheduledJob{
 		Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC",

@@ -104,6 +104,7 @@ var cliOutputMatrix = map[string]cliOutputClass{
 	"ob proxy apply":    {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob resume":         {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob rollback":       {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
+	"ob schedule apply": {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob schema":         {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob secrets edit":   {Class: cliClassTrustedEditor, JSON: true},
 	"ob secrets list":   {Class: cliClassFiniteEnvelope, JSON: true},

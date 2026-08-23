@@ -514,7 +514,13 @@ func (e *Engine) Describe(remoteCompose string) []string {
 			if n := role.Count(); n > 1 {
 				scale = fmt.Sprintf(" --scale %s=%d", svc, n)
 			}
-			if wait := role.DrainWait(); role.Drain != nil && role.DrainSignal() != "TERM" && wait > 0 {
+			// Gated exactly as recreate gates it — an authored `drain.wait`,
+			// nothing else. recreate signals every container and then sleeps,
+			// whatever the signal is, so excluding the default TERM here hid a
+			// kill and a pause the deploy certainly takes. A plan that shows a
+			// step execution skips, or hides one it takes, is a plan nobody can
+			// check against.
+			if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
 				out = append(out,
 					fmt.Sprintf("  docker kill --signal=%s <current %s>; wait %s", role.DrainSignal(), svc, wait),
 				)

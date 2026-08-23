@@ -2,6 +2,7 @@ package app
 
 import (
 	"strings"
+	"time"
 
 	obtarget "github.com/labstack/onebox/internal/target"
 )
@@ -291,7 +292,7 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 		for field, value := range map[string]string{"wait": w.Drain.Wait, "grace": w.Drain.Grace} {
-			if err := gDur.checkOptional(path+".drain."+field, value); err != nil {
+			if err := checkLifecycleDuration(path+".drain."+field, field, value); err != nil {
 				return err
 			}
 		}
@@ -444,12 +445,21 @@ func validateHealth(h *Health, path string) error {
 	for field, value := range map[string]string{
 		"interval": h.Interval, "start_period": h.StartPeriod, "within": h.Within,
 	} {
-		if err := gDur.checkOptional(path+"."+field, value); err != nil {
+		if err := checkLifecycleDuration(path+"."+field, field, value); err != nil {
 			return err
 		}
 	}
+	// Bounded above as well as below. Retries multiplies the probe interval to
+	// give the rollout's drain budget, and a count large enough to overflow
+	// that arithmetic yields a negative budget — one that expires immediately,
+	// stopping a container the proxy may still be routing to. No real
+	// healthcheck needs a four-figure count, so the bound costs nothing.
 	if h.Retries < 0 {
 		return errf("project_invalid", path+".retries", "", "must not be negative")
+	}
+	if h.Retries > maxHealthRetries {
+		return errf("project_invalid", path+".retries", "",
+			"must not exceed %d — retries multiplies the probe interval to give the rollout's drain budget", maxHealthRetries)
 	}
 	return nil
 }
@@ -635,3 +645,39 @@ func validateAddress(kind, path, host, user string, port int) error {
 	}
 	return nil
 }
+
+// checkLifecycleDuration holds a deploy-lifecycle duration to the grammar and
+// to a ceiling. The ceiling matters because these values are multiplied and
+// summed to give budgets a rollout waits on: a duration in the thousands of
+// days wraps that arithmetic, and every one of them is a duration the deploy
+// would sit and sleep through if it did not.
+func checkLifecycleDuration(path, field, value string) error {
+	if err := gDur.checkOptional(path, value); err != nil {
+		return err
+	}
+	if value == "" {
+		return nil
+	}
+	// The grammar matches the shape; parsing decides whether the value is
+	// representable. A day count beyond int64 nanoseconds satisfies the first
+	// and fails the second, and treating that as "no bound to apply" would let
+	// the very value the ceiling exists for pass unchecked.
+	d, ok := ParseDuration(value)
+	if !ok {
+		return errf("project_invalid", path, "", "%s %q is too large to represent", field, value)
+	}
+	if d > maxLifecycleDuration {
+		return errf("project_invalid", path, "", "%s must not exceed %s", field, maxLifecycleDuration)
+	}
+	return nil
+}
+
+const (
+	// maxHealthRetries and maxLifecycleDuration keep retries × interval far
+	// inside int64 nanoseconds while staying orders of magnitude above any real
+	// healthcheck: a week between probes is already far past the point where a
+	// health check is measuring anything, and a week of drain wait is a deploy
+	// nobody is waiting for.
+	maxHealthRetries     = 1000
+	maxLifecycleDuration = 7 * 24 * time.Hour
+)

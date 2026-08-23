@@ -47,10 +47,14 @@ func TestReleaseOrderHonoursExplicitAndKeepsOmissions(t *testing.T) {
 	}
 }
 
-func TestDrainWaitDerivesFromHealthTiming(t *testing.T) {
+// Only an authored wait is a wait. The derived value this used to return was
+// unreachable — roll, recreate and the plan all check `drain.wait` was written
+// before asking for it — so it could only ever be printed by a plan describing
+// a pause the deploy would not take.
+func TestDrainWaitCountsOnlyAnAuthoredWait(t *testing.T) {
 	w := Workload{Role: RoleApplication, Health: &Health{Interval: "1s", Retries: 4}}
-	if got := w.DrainWait(); got != 4*time.Second {
-		t.Errorf("drain wait = %v, want 4s (retries × interval)", got)
+	if got := w.DrainWait(); got != 0 {
+		t.Errorf("drain wait = %v, want 0 without an authored drain.wait", got)
 	}
 	w.Drain = &Drain{Wait: "9s"}
 	if got := w.DrainWait(); got != 9*time.Second {

@@ -93,6 +93,7 @@ export default defineConfig({
             { label: "Run migrations safely", slug: "guides/run-migrations" },
             { label: "Schedule a job", slug: "guides/schedule-a-job" },
             { label: "Roll back a release", slug: "guides/roll-back" },
+            { label: "Deploy through a jump host", slug: "guides/deploy-through-a-jump-host" },
             { label: "Adopt an existing Compose file", slug: "guides/adopt-compose" },
             { label: "Eject", slug: "guides/eject" },
           ],

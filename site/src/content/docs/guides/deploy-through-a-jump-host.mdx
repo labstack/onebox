@@ -1,0 +1,143 @@
+---
+title: Deploy through a jump host
+description: Reach a private server through one bastion, with both hops verified.
+summary: How the optional jump field works, what Onebox verifies on each hop, and how to read a failure by the stage it happened in.
+sidebar:
+  order: 8
+read_when:
+  - "The deploy target has no public SSH port"
+  - "SSH access to the server goes through a bastion or management host"
+---
+
+A deployment target does not need a public SSH port. Name the bastion it is
+reached through, and Onebox tunnels the connection through it:
+
+```yaml
+environments:
+  production:
+    server: root@10.20.0.10
+    jump: deploy@bastion.example.com
+```
+
+`jump` sits beside `server` and takes the same two forms it does — the one-line
+`user@host` above, or an object when you want to be explicit:
+
+```yaml
+environments:
+  production:
+    server: root@10.20.0.10
+    jump:
+      host: bastion.example.com
+      user: deploy
+      port: 2222
+```
+
+The user and port are optional in both forms: port 22 is used when you name
+none, and `$USER` supplies the user — `ob` does not read `~/.ssh/config`, so a
+`User` or `ProxyJump` written there has no effect on it. An environment with no
+`jump` connects directly, exactly as before.
+
+An IPv6 bastion is bracketed in the one-line form, where the brackets are what
+separate the address from the port, and bare in the object form, where `host`
+and `port` are already separate fields. Brackets carried over into `host` are
+stripped rather than refused:
+
+```yaml
+    jump: "deploy@[2001:db8::1]:2222"
+    # or
+    jump: { host: "2001:db8::1", user: deploy, port: 2222 }
+```
+
+Nothing is deployed to the jump host. It forwards one TCP connection to the
+server and runs no commands, holds no releases, and needs no Docker. Onebox
+remains one application on one host; the bastion is only how that host is
+reached.
+
+## What Onebox verifies
+
+Both hops are verified and authenticated separately:
+
+1. The bastion's host key is checked against `known_hosts`.
+2. Onebox authenticates to the bastion.
+3. The bastion opens a forwarded connection to the server.
+4. The **server's** host key is checked against `known_hosts`, independently.
+5. Onebox authenticates to the server.
+
+A trusted bastion does not vouch for the server. Trusting one is not trusting
+the other, and neither key is ever accepted implicitly.
+
+The SSH agent is never forwarded. Your local agent may sign for either hop, but
+its socket is not exposed to the bastion, so a compromised jump host cannot
+borrow your identity to reach anything else.
+
+Exactly one hop is supported. There is no `ProxyCommand`, and Onebox does not
+read `~/.ssh/config` — a `ProxyJump` there has no effect on `ob`, because the
+transport dials and verifies on its own rather than shelling out to `ssh`.
+
+## Enrolling both host keys
+
+Because each hop is verified, `known_hosts` needs an entry for each. The
+bastion is reachable from your machine:
+
+```sh
+ssh-keyscan -H bastion.example.com >> ~/.ssh/known_hosts
+```
+
+The server is not, so scan it from the bastion and append the result locally:
+
+```sh
+ssh deploy@bastion.example.com 'ssh-keyscan -H 10.20.0.10' >> ~/.ssh/known_hosts
+```
+
+Read that second key the way you would any key you did not fetch yourself: it
+arrives over a connection the bastion mediates, so it is only as trustworthy as
+the bastion at the moment you enrolled it. Comparing it against the key printed
+on the server's own console is the stronger move where you can.
+
+If the server listens on a non-default port, `known_hosts` must be keyed with
+it — `ssh-keyscan -p 2222` writes the `[host]:port` form Onebox looks up.
+
+## The route is part of the plan
+
+Plans and approvals name the whole route, not just the server:
+
+```
+target        root@10.20.0.10 via deploy@bastion.example.com:2222
+```
+
+Changing the bastion changes what you approved, so an approval issued for one
+route does not execute against another. Confirm the route on that line before
+approving, exactly as you would the server.
+
+## Reading a failure
+
+Errors name the hop and the stage, so a failure points at one thing to fix:
+
+| Error begins | What failed |
+|---|---|
+| `jump ssh …:` (no stage) | The bastion could not be resolved, connected to, or finished a handshake with — including a timeout |
+| `jump ssh …: host key:` | The bastion's key is missing from, or disagrees with, `known_hosts` |
+| `jump ssh …: authenticate:` | The bastion refused your key |
+| `target ssh …: not reachable from the jump host:` | The bastion connected but could not reach the server — wrong private address, or the bastion's own policy forbids the forward |
+| `target ssh …: host key:` | The **server's** key is missing or mismatched, even though the bastion is trusted |
+| `target ssh …: authenticate:` | The server refused your key |
+
+A failure that names no stage is a transport problem — a timeout, a cancelled
+command, or a peer that hung up — never a rejected key.
+
+The distinction between the last four is the one worth internalising: a working
+bastion tells you nothing about the server, and Onebox will not let a trusted
+first hop paper over a problem with the second.
+
+## Local hooks
+
+A hook declared `local: true` runs on your machine, which has no tunnel of its
+own. Such a hook receives `OB_SSH_JUMP` alongside `OB_SERVER`, empty when the
+connection is direct:
+
+```sh
+ssh ${OB_SSH_JUMP:+-J "$OB_SSH_JUMP"} "$OB_SERVER" -p "$OB_SSH_PORT" 'uptime'
+```
+
+A local hook written before you added a bastion will otherwise try to reach a
+server it can no longer see.

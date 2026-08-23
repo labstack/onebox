@@ -112,7 +112,7 @@ func TestSecretsEditRequiresIDWhenSeveralEntriesExist(t *testing.T) {
 func TestExecMissingReasonFailsBeforeTargetContact(t *testing.T) {
 	previousConnector := cliConnector
 	contacts := 0
-	cliConnector = func(context.Context, string) (transport.Transport, error) {
+	cliConnector = func(context.Context, transport.Route) (transport.Transport, error) {
 		contacts++
 		return nil, errors.New("target must not be contacted")
 	}
@@ -134,7 +134,7 @@ func TestDestroyConfirmationMismatchIsCancelledBeforeTargetContact(t *testing.T)
 	config := writeOpsContractProject(t, dir, false)
 	previousConnector := cliConnector
 	contacts := 0
-	cliConnector = func(context.Context, string) (transport.Transport, error) {
+	cliConnector = func(context.Context, transport.Route) (transport.Transport, error) {
 		contacts++
 		return nil, errors.New("target must not be contacted")
 	}
@@ -195,7 +195,7 @@ services: {postgres: 17}
 		}
 	}}
 	previousConnector := cliConnector
-	cliConnector = func(context.Context, string) (transport.Transport, error) { return fake, nil }
+	cliConnector = func(context.Context, transport.Route) (transport.Transport, error) { return fake, nil }
 	t.Cleanup(func() { cliConnector = previousConnector })
 
 	for name, args := range map[string][]string{

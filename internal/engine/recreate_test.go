@@ -133,3 +133,35 @@ func TestRunHookNoopWhenAbsent(t *testing.T) {
 		t.Fatalf("absent hook must run nothing: %v", f.Commands)
 	}
 }
+
+// A local hook runs on the operator's machine, which has no tunnel of its own,
+// so a hook that reaches the host itself needs the bastion named. Empty on a
+// direct connection, so `ssh ${OB_SSH_JUMP:+-J $OB_SSH_JUMP}` works either way.
+func TestLocalHookGetsTheJumpHostInEnv(t *testing.T) {
+	f := &transport.Fake{
+		HostName: "10.20.0.10", TargetName: "root@10.20.0.10",
+		SSHUserName: "root", SSHPortName: "22", SSHJumpName: "deploy@bastion.example.com:2222",
+	}
+	cfg := testConfig()
+	cfg.Hooks["pre_release"] = app.Command{
+		Run:   `test "$OB_SSH_JUMP" = "deploy@bastion.example.com:2222" || { echo "got jump=[$OB_SSH_JUMP]" >&2; exit 1; }`,
+		Local: true,
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
+	if err := e.RunHook(context.Background(), "pre_release", "/r", "/r/compose.yaml"); err != nil {
+		t.Fatalf("hook must receive the jump host: %v", err)
+	}
+}
+
+func TestLocalHookGetsAnEmptyJumpOnADirectConnection(t *testing.T) {
+	f := &transport.Fake{HostName: "10.20.0.10", TargetName: "root@10.20.0.10", SSHUserName: "root", SSHPortName: "22"}
+	cfg := testConfig()
+	cfg.Hooks["pre_release"] = app.Command{
+		Run:   `test -z "$OB_SSH_JUMP" || { echo "got jump=[$OB_SSH_JUMP]" >&2; exit 1; }`,
+		Local: true,
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir()})
+	if err := e.RunHook(context.Background(), "pre_release", "/r", "/r/compose.yaml"); err != nil {
+		t.Fatalf("a direct connection must leave OB_SSH_JUMP empty: %v", err)
+	}
+}

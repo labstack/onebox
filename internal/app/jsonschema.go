@@ -185,6 +185,7 @@ var authoredForms = []struct {
 	{[]string{"workloads", "*", "entrypoint"}, commandForms(), "an entrypoint or argument list"},
 	{[]string{"workloads", "*", "needs", "items"}, stringForm(), "the name of a prerequisite"},
 	{[]string{"environments", "*", "server"}, stringForm(), "user@host"},
+	{[]string{"environments", "*", "jump"}, stringForm(), "user@host or user@host:port"},
 	{[]string{"runtime", "env_files", "items"}, stringForm(), "a path to an environment file"},
 	{[]string{"environments", "*", "env_files", "items"}, stringForm(), "a path to an environment file"},
 	{[]string{"workloads", "*", "env_files", "items"}, stringForm(), "a path to an environment file"},

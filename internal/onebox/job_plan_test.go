@@ -56,10 +56,10 @@ func newManualJobService(t *testing.T, effect string, requireBackup bool, fake *
 	return New(Options{
 		ConfigPath: writeManualJobProject(t, effect, requireBackup),
 		Now:        func() time.Time { return *now },
-		Connect: func(_ context.Context, target string) (transport.Transport, error) {
+		Connect: func(_ context.Context, route transport.Route) (transport.Transport, error) {
 			*connects++
-			if target != "deploy@example.invalid" {
-				t.Fatalf("connector target = %q", target)
+			if route.String() != "deploy@example.invalid" {
+				t.Fatalf("connector target = %q", route)
 			}
 			return fake, nil
 		},

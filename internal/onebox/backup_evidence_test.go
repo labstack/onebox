@@ -377,7 +377,7 @@ func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingReportBefo
 	service := New(Options{
 		ConfigPath: configPath,
 		Now:        func() time.Time { return now },
-		Connect: func(context.Context, string) (transport.Transport, error) {
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) {
 			connects++
 			return fake, nil
 		},

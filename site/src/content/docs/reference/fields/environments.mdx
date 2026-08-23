@@ -23,7 +23,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_agent_proposals` · `backup_key_material` · `backup_max_age` · `base_path` · `env_files` · `file` · `host` · `migrations` · `min_onebox_version` · `min_plan_schema` · `overrides` · `policy` · `port` · `provider` · `require_approval` · `require_backup` · `require_restore_test` · `server` · `services` · `user` · `workloads`
+`allow_agent_proposals` · `backup_key_material` · `backup_max_age` · `base_path` · `env_files` · `file` · `host` · `jump` · `migrations` · `min_onebox_version` · `min_plan_schema` · `overrides` · `policy` · `port` · `provider` · `require_approval` · `require_backup` · `require_restore_test` · `server` · `services` · `user` · `workloads`
 
 ## Reference
 
@@ -33,6 +33,10 @@ cannot drift from what `ob validate` accepts.
 | `<name>.env_files` | list | — | Default ordered environment-file list for application, worker, and job workloads in this environment. |
 | `<name>.env_files[].file` `*` | string | — | Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.env_files[].provider` | `sops` | — | Decryptor used before staging the file. The supported encrypted provider is sops. |
+| `<name>.jump` | object | — | Optional SSH jump host tunnelling the connection to this server, written as user@host or as an object with host, user, and port. Onebox verifies and authenticates both hops and never forwards the SSH agent. Also accepts user@host or user@host:port. |
+| `<name>.jump.host` | string | — | Jump host name or IP address. |
+| `<name>.jump.port` | integer | — | SSH port on the jump host. The SSH default is used when omitted. |
+| `<name>.jump.user` | string | — | SSH user on the jump host. $USER is used when omitted; ob does not read ~/.ssh/config. |
 | `<name>.overrides` | object | — | Environment-specific operational tuning. Overrides cannot change workload identity or data semantics. |
 | `<name>.overrides.services` | map | — | Allowed service tuning keyed by service name: resources and settings. |
 | `<name>.overrides.workloads` | map | — | Allowed workload tuning keyed by workload name: replicas, resources, env, env_files, strategy, and routes. |
@@ -49,6 +53,6 @@ cannot drift from what `ob validate` accepts.
 | `<name>.server` | object | — | SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host. |
 | `<name>.server.host` | string | — | SSH hostname or IP address. |
 | `<name>.server.port` | integer | — | SSH port. The SSH default is used when omitted. |
-| `<name>.server.user` | string | — | SSH user. The local SSH configuration supplies it when omitted. |
+| `<name>.server.user` | string | — | SSH user. $USER is used when omitted; ob does not read ~/.ssh/config. |
 
 `*` marks a field that is required within its own object.

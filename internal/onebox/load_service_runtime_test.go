@@ -63,7 +63,7 @@ func TestProductionLoadInjectsLifecycleStateBeforeServiceRendering(t *testing.T)
 	}}
 	service := New(Options{
 		ConfigPath: protectedRuntimeProject(t), Environment: "production",
-		Connect: func(context.Context, string) (transport.Transport, error) { return fake, nil },
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) { return fake, nil },
 	})
 	lp, err := service.loadProject(context.Background(), false)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestProductionLoadRefusesProtectedImageAbsentFromRegistryAndCache(t *testin
 	}}
 	service := New(Options{
 		ConfigPath: protectedRuntimeProject(t), Environment: "production",
-		Connect: func(context.Context, string) (transport.Transport, error) { return fake, nil },
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) { return fake, nil },
 	})
 	if _, err := service.loadProject(context.Background(), false); err == nil || !strings.Contains(err.Error(), "service_image_digest_unavailable") {
 		t.Fatalf("unavailable protected image error = %v", err)

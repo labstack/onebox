@@ -63,6 +63,7 @@ not convenience that might be withdrawn.
 | `image: nginx` | `image: {reference: nginx}` |
 | `health: /healthz` | `health: {http: /healthz}` |
 | `server: root@203.0.113.10` | `server: {user: root, host: 203.0.113.10}` |
+| `jump: deploy@bastion.example.com:2222` | `jump: {user: deploy, host: bastion.example.com, port: 2222}` |
 | `needs: [postgres]` | `needs: [{name: postgres}]` |
 | `services: {postgres: 17}` | `services: {postgres: {version: 17}}` |
 | `env_files: [.env]` | `env_files: [{file: .env}]` |

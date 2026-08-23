@@ -45,7 +45,7 @@ func execService(t *testing.T, connect Connector) *Service {
 
 func TestExecRefusesInvalidReasonBeforeConnecting(t *testing.T) {
 	connected := false
-	service := execService(t, func(context.Context, string) (transport.Transport, error) {
+	service := execService(t, func(context.Context, transport.Route) (transport.Transport, error) {
 		connected = true
 		return nil, errors.New("must not connect")
 	})
@@ -64,7 +64,7 @@ func TestExecRefusesIncompleteRequestBeforeConnecting(t *testing.T) {
 		{Target: "api", Reason: "inspect a stuck request"},
 	} {
 		connected := false
-		service := execService(t, func(context.Context, string) (transport.Transport, error) {
+		service := execService(t, func(context.Context, transport.Route) (transport.Transport, error) {
 			connected = true
 			return nil, errors.New("must not connect")
 		})
@@ -89,7 +89,7 @@ func TestExecEnforcesEnvironmentAndRunnerPolicyBeforeConnecting(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			connected := false
-			service := execService(t, func(context.Context, string) (transport.Transport, error) {
+			service := execService(t, func(context.Context, transport.Route) (transport.Transport, error) {
 				connected = true
 				return nil, errors.New("must not connect")
 			})
@@ -129,7 +129,7 @@ func TestExecLocksFencesAndJournalsTheExactContainer(t *testing.T) {
 			}
 		},
 	}
-	service := execService(t, func(context.Context, string) (transport.Transport, error) { return fake, nil })
+	service := execService(t, func(context.Context, transport.Route) (transport.Transport, error) { return fake, nil })
 	var stdout bytes.Buffer
 	const command = "printf secret-output"
 	result, err := service.Exec(context.Background(), ExecRequest{
@@ -185,7 +185,7 @@ func TestExecClassifiesCancellation(t *testing.T) {
 			return nil
 		},
 	}
-	service := execService(t, func(context.Context, string) (transport.Transport, error) { return fake, nil })
+	service := execService(t, func(context.Context, transport.Route) (transport.Transport, error) { return fake, nil })
 	result, err := service.Exec(context.Background(), ExecRequest{
 		Target: "api", Command: "true", Reason: "stop a hung diagnostic",
 	}, &bytes.Buffer{}, &bytes.Buffer{})

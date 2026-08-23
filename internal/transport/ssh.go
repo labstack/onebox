@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -29,6 +30,15 @@ type SSH struct {
 	target string // user@host — valid as an OpenSSH destination
 	port   string // separate because user@host:port is invalid for both tools
 	Logger func(host, cmd string)
+
+	// jumpClient and jumpTCP are the bastion hop, nil on a direct connection.
+	// The raw TCP conn is kept because closing the target client behind a jump
+	// only writes a channel-close message *through* the bastion: if the
+	// bastion is what is wedged, that write blocks and nothing is released.
+	// Closing this conn is what actually unblocks the stack.
+	jumpClient *ssh.Client
+	jumpTCP    net.Conn
+	jump       string // [user@]host[:port] of the bastion, empty when direct
 }
 
 // ParseAddr splits [user@]host[:port]; port defaults to 22.
@@ -44,25 +54,35 @@ func ParseAddr(addr string) (user, host, port string) {
 // cancellation/deadline. A bounded fallback prevents an MCP tool from hanging
 // indefinitely when its target is unreachable or stops during handshake.
 func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
 	parsed, err := obtarget.Parse(addr)
 	if err != nil {
 		return nil, fmt.Errorf("target %q: %w", addr, err)
 	}
-	user, host, port := parsed.User, parsed.Host, parsed.Port
-	if user == "" {
-		user = os.Getenv("USER")
+	return NewSSHRoute(ctx, obtarget.Route{Target: parsed})
+}
+
+// NewSSHRoute connects to the route's target, tunnelling through its jump host
+// when one is declared. Both hops are verified against known_hosts and
+// authenticated independently; the local agent may sign for either, but its
+// socket is never forwarded, so a compromised bastion cannot borrow the
+// operator's identity. Exactly one hop is possible — a Route holds an address,
+// not another route.
+func NewSSHRoute(ctx context.Context, route obtarget.Route) (*SSH, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	hk, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
+	hostKeys, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
 	if err != nil {
 		return nil, fmt.Errorf("known_hosts (required — ob never skips host verification): %w", err)
 	}
+	// Gathered once for the whole route rather than per hop: sshAuths leaves
+	// the agent connection open for the handshake callback to re-list, so a
+	// second call would open a second agent connection and duplicate every
+	// diagnostic.
 	auths, diag := sshAuths(ctx, home, os.Getenv("SSH_AUTH_SOCK"))
 	if len(auths) == 0 {
 		msg := "no usable SSH auth found (need an ssh-agent identity or ~/.ssh/id_ed25519|id_rsa)"
@@ -71,53 +91,219 @@ func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
 		}
 		return nil, errors.New(msg)
 	}
+
+	target := resolveUser(route.Target)
+	if route.Jump == nil {
+		conn, err := dialTCP(ctx, target)
+		if err != nil {
+			return nil, hopError(stageDirect, target, phaseDial, err)
+		}
+		client, err := sshHandshake(ctx, conn, target, auths, hostKeys, stageDirect, nil)
+		if err != nil {
+			return nil, err
+		}
+		return newSSHFromClient(client, target, nil, nil, nil), nil
+	}
+
+	jump := resolveUser(*route.Jump)
+	jumpTCP, err := dialTCP(ctx, jump)
+	if err != nil {
+		return nil, hopError(stageJump, jump, phaseDial, err)
+	}
+	jumpClient, err := sshHandshake(ctx, jumpTCP, jump, auths, hostKeys, stageJump, nil)
+	if err != nil {
+		return nil, err
+	}
+	// The tunnel is opened by the bastion's sshd, which applies its own
+	// policy and its own connect timeout; neither is ours to trust, so the
+	// dial carries an explicit bound of its own.
+	tunnelCtx, cancelTunnel := context.WithTimeout(ctx, dialTimeout)
+	defer cancelTunnel()
+	tunnel, err := jumpClient.DialContext(tunnelCtx, "tcp", net.JoinHostPort(target.Host, target.Port))
+	if err != nil {
+		_ = jumpTCP.Close()
+		_ = jumpClient.Close()
+		return nil, hopError(stageTarget, target, phaseTunnel, err)
+	}
+	client, err := sshHandshake(ctx, tunnel, target, auths, hostKeys, stageTarget, func() { _ = jumpTCP.Close() })
+	if err != nil {
+		_ = tunnel.Close()
+		_ = jumpTCP.Close()
+		_ = jumpClient.Close()
+		return nil, err
+	}
+	return newSSHFromClient(client, target, &jump, jumpClient, jumpTCP), nil
+}
+
+func newSSHFromClient(client *ssh.Client, address obtarget.Address, jump *obtarget.Address, jumpClient *ssh.Client, jumpTCP net.Conn) *SSH {
+	s := &SSH{
+		client: client, user: address.User, host: address.Host, port: address.Port,
+		target:     address.Destination(address.User),
+		jumpClient: jumpClient, jumpTCP: jumpTCP,
+	}
+	if jump != nil {
+		s.jump = jump.String()
+	}
+	return s
+}
+
+// resolveUser fills the SSH user the same way OpenSSH's default does when the
+// author named none.
+func resolveUser(address obtarget.Address) obtarget.Address {
+	if address.User == "" {
+		address.User = os.Getenv("USER")
+	}
+	return address
+}
+
+const dialTimeout = 10 * time.Second
+
+// handshakeTimeout bounds a hop that connects but never completes its
+// handshake. It is a variable so tests can shorten it: this bound is the only
+// thing that stops such a hop behind a jump host, because an SSH channel
+// refuses SetDeadline outright.
+var handshakeTimeout = 15 * time.Second
+
+func dialTCP(ctx context.Context, address obtarget.Address) (net.Conn, error) {
+	return (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(address.Host, address.Port))
+}
+
+// sshHandshake authenticates one hop over an already-established connection and
+// verifies its host key. conn is a TCP connection for a direct target or a
+// bastion, and an SSH channel for a target behind one; the handshake is
+// identical either way, which is what makes both hops verified rather than one
+// inheriting the other's trust.
+func sshHandshake(ctx context.Context, conn net.Conn, address obtarget.Address, auths []ssh.AuthMethod, hostKeys ssh.HostKeyCallback, stage string, hardClose func()) (*ssh.Client, error) {
+	dialed := net.JoinHostPort(address.Host, address.Port)
 	config := &ssh.ClientConfig{
-		User:            user,
+		User:            address.User,
 		Auth:            auths,
-		HostKeyCallback: hk,
+		HostKeyCallback: hostKeys,
 		// Ask the server for the host-key TYPE we actually have pinned. Without
 		// this the client negotiates its own default (often ecdsa/rsa) which may
 		// differ from what known_hosts holds (OpenSSH's TOFU writes a single
 		// ed25519 line), and knownhosts then reports a spurious "key mismatch".
-		HostKeyAlgorithms: knownHostKeyAlgos(hk, net.JoinHostPort(host, port)),
+		HostKeyAlgorithms: knownHostKeyAlgos(hostKeys, dialed),
 	}
-	address := net.JoinHostPort(host, port)
-	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", address)
-	if err != nil {
-		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
-	}
-	handshakeDeadline := time.Now().Add(15 * time.Second)
+	handshakeDeadline := time.Now().Add(handshakeTimeout)
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(handshakeDeadline) {
 		handshakeDeadline = deadline
 	}
+	// Best effort: a TCP conn reports a clean i/o timeout this way, but an SSH
+	// channel refuses deadlines outright ("ssh: tcpChan: deadline not
+	// supported"), so the timer below is what actually bounds the second hop.
 	_ = conn.SetDeadline(handshakeDeadline)
+	timeout := time.NewTimer(time.Until(handshakeDeadline))
+	defer timeout.Stop()
+	// The watcher and the handshake race to decide the connection's fate, so
+	// they settle it under one lock rather than by signalling after the fact.
+	// Signalling after closing leaves a window in which the handshake has
+	// already returned a client whose connection is being torn down — the
+	// failure this guard exists to prevent, arriving opaquely at first use.
+	var settle sync.Mutex
+	var abandoned, established bool
 	cancelWatch := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = conn.Close()
+		case <-timeout.C:
 		case <-cancelWatch:
+			return
+		}
+		settle.Lock()
+		defer settle.Unlock()
+		if established {
+			return
+		}
+		abandoned = true
+		_ = conn.Close()
+		// Closing an SSH channel only sends a message through the hop below
+		// it, so a channel whose bastion has stopped answering stays blocked
+		// on a read that will never complete. hardClose drops the connection
+		// that message would have travelled on, which is the only close that
+		// still lands.
+		if hardClose != nil {
+			hardClose()
 		}
 	}()
-	sshConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
+	sshConn, channels, requests, err := ssh.NewClientConn(conn, dialed, config)
 	close(cancelWatch)
+	settle.Lock()
+	established = err == nil
+	gaveUp := abandoned
+	settle.Unlock()
 	if err != nil {
 		_ = conn.Close()
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return nil, hopError(stage, address, phaseNone, ctxErr)
 		}
-		return nil, fmt.Errorf("ssh %s@%s:%s: %w", user, host, port, err)
+		return nil, hopError(stage, address, phaseOf(err), err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		_ = sshConn.Close()
-		return nil, ctxErr
+		return nil, hopError(stage, address, phaseNone, ctxErr)
+	}
+	if gaveUp {
+		_ = sshConn.Close()
+		return nil, hopError(stage, address, phaseNone, errHandshakeAbandoned)
 	}
 	_ = conn.SetDeadline(time.Time{})
-	client := ssh.NewClient(sshConn, channels, requests)
-	return &SSH{
-		client: client, user: user, host: host, port: port,
-		target: parsed.Destination(user),
-	}, nil
+	return ssh.NewClient(sshConn, channels, requests), nil
+}
+
+var errHandshakeAbandoned = errors.New("connection closed while completing the handshake")
+
+// Connection failures are reported by the hop they happened on and the phase
+// that failed, so an operator can tell a bastion they cannot reach from one
+// they cannot authenticate to, and either from a target the bastion refused to
+// forward them to.
+const (
+	stageDirect = "ssh"
+	stageJump   = "jump ssh"
+	stageTarget = "target ssh"
+)
+
+const (
+	phaseNone    = ""
+	phaseDial    = ""
+	phaseTunnel  = "not reachable from the jump host"
+	phaseHostKey = "host key"
+	phaseAuth    = "authenticate"
+)
+
+// phaseOf names a handshake failure only when it can identify one. A timeout,
+// a cancelled dial, or a peer that hung up are none of the named phases, and
+// labelling them "authenticate" sends the operator to check a key that is
+// fine.
+func phaseOf(err error) string {
+	var keyErr *knownhosts.KeyError
+	var revoked *knownhosts.RevokedError
+	switch {
+	case errors.As(err, &keyErr), errors.As(err, &revoked):
+		return phaseHostKey
+	case isTransportFailure(err):
+		return phaseNone
+	default:
+		return phaseAuth
+	}
+}
+
+func isTransportFailure(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errHandshakeAbandoned)
+}
+
+func hopError(stage string, address obtarget.Address, phase string, err error) error {
+	where := fmt.Sprintf("%s %s@%s:%s", stage, address.User, address.Host, address.Port)
+	if phase == "" {
+		return fmt.Errorf("%s: %w", where, err)
+	}
+	return fmt.Errorf("%s: %s: %w", where, phase, err)
 }
 
 // sshAuths gathers publickey auth methods from the ssh-agent and on-disk keys.
@@ -282,7 +468,7 @@ func (s *SSH) Upload(ctx context.Context, localDir, remoteDir string) error {
 	if s.Logger != nil {
 		s.Logger(s.host, "upload "+localDir+" -> "+remoteDir)
 	}
-	return uploadWithClient(ctx, &sshUploadClient{client: s.client}, localDir, remoteDir)
+	return uploadWithClient(ctx, &sshUploadClient{client: s.client, closeAll: s.Close}, localDir, remoteDir)
 }
 
 type uploadClient interface {
@@ -292,6 +478,10 @@ type uploadClient interface {
 
 type sshUploadClient struct {
 	client *ssh.Client
+	// closeAll releases the jump hop too. Cancellation relies on closing the
+	// connection to unblock a wedged transfer, and behind a bastion the target
+	// client alone is not that connection.
+	closeAll func() error
 }
 
 func (c *sshUploadClient) NewSession() (uploadSession, error) {
@@ -302,7 +492,12 @@ func (c *sshUploadClient) NewSession() (uploadSession, error) {
 	return &sshUploadSession{Session: sess}, nil
 }
 
-func (c *sshUploadClient) Close() error { return c.client.Close() }
+func (c *sshUploadClient) Close() error {
+	if c.closeAll != nil {
+		return c.closeAll()
+	}
+	return c.client.Close()
+}
 
 type uploadSession interface {
 	StdinPipe() (io.WriteCloser, error)
@@ -512,5 +707,54 @@ func uploadCause(ctx context.Context, err error) error {
 func (s *SSH) Host() string        { return s.host }
 func (s *SSH) Destination() string { return s.target }
 func (s *SSH) SSHUser() string     { return s.user }
+func (s *SSH) SSHJump() string     { return s.jump }
 func (s *SSH) SSHPort() string     { return s.port }
-func (s *SSH) Close() error        { return s.client.Close() }
+
+// Close releases the whole connection in reverse order. The jump's TCP conn is
+// closed last and unconditionally: it is the only close that cannot be
+// swallowed by a wedged bastion.
+func (s *SSH) Close() error {
+	if s.jumpTCP == nil {
+		return s.client.Close()
+	}
+	return closeStack(s.jumpTCP, closeGrace, s.client, s.jumpClient)
+}
+
+// closeGrace bounds how long a graceful shutdown may take before the jump's
+// connection is dropped underneath it. A clean close is one round trip; only a
+// bastion that has stopped answering takes longer.
+const closeGrace = 2 * time.Second
+
+// closeStack closes each graceful closer in order, then the jump host's raw
+// connection. Every graceful close writes through that connection, so if the
+// bastion has stopped moving bytes they block; dropping the connection is what
+// unblocks them, which makes it a backstop rather than a formality. An
+// already-closed connection is the normal case — closing the jump client
+// closes it — so that is not reported as a failure.
+func closeStack(raw io.Closer, grace time.Duration, graceful ...io.Closer) error {
+	done := make(chan error, 1)
+	go func() {
+		errs := make([]error, 0, len(graceful))
+		for _, closer := range graceful {
+			errs = append(errs, closer.Close())
+		}
+		done <- errors.Join(errs...)
+	}()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return errors.Join(err, ignoreClosed(raw.Close()))
+	case <-timer.C:
+		// The goroutine is released by this close and is not waited for: it
+		// cannot be, since waiting is the thing that was blocked.
+		return ignoreClosed(raw.Close())
+	}
+}
+
+func ignoreClosed(err error) error {
+	if errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}

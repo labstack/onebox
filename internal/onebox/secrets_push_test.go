@@ -129,7 +129,7 @@ func pushService(t *testing.T, f *transport.Fake) *Service {
 			tick++
 			return base.Add(time.Duration(tick) * time.Minute)
 		},
-		Connect: func(_ context.Context, target string) (transport.Transport, error) {
+		Connect: func(_ context.Context, route transport.Route) (transport.Transport, error) {
 			return f, nil
 		},
 	})
@@ -184,7 +184,7 @@ workloads:
 	s := New(Options{
 		ConfigPath: filepath.Join(dir, "ob.yml"),
 		Now:        func() time.Time { return time.Date(2026, 7, 12, 18, 0, 0, 0, time.UTC) },
-		Connect: func(_ context.Context, _ string) (transport.Transport, error) {
+		Connect: func(_ context.Context, _ transport.Route) (transport.Transport, error) {
 			return f, nil
 		},
 	})

@@ -40,9 +40,9 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 			// User dropped a declared port and connected to 22 instead — a
 			// silent success against the wrong server, which is worse than
 			// any failure this command reports.
-			addr := env.Destination()
+			addr := env.Route().String()
 
-			t, err := transport.NewSSHContext(cmd.Context(), addr)
+			t, err := transport.NewSSHRoute(cmd.Context(), env.Route())
 			if err != nil {
 				return writeStructuredReadFailure(cmd, g, fmt.Errorf("cannot reach %s: %w", addr, err))
 			}

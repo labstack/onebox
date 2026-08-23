@@ -641,6 +641,48 @@
             },
             "type": "array"
           },
+          "jump": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Optional SSH jump host tunnelling the connection to this server, written as user@host or as an object with host, user, and port. Onebox verifies and authenticates both hops and never forwards the SSH agent.",
+                "examples": [
+                  "deploy@bastion.example.com"
+                ],
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "host": {
+                    "description": "Jump host name or IP address.",
+                    "examples": [
+                      "bastion.example.com"
+                    ],
+                    "type": "string"
+                  },
+                  "port": {
+                    "description": "SSH port on the jump host. The SSH default is used when omitted.",
+                    "examples": [
+                      2222
+                    ],
+                    "type": "integer"
+                  },
+                  "user": {
+                    "description": "SSH user on the jump host. $USER is used when omitted; ob does not read ~/.ssh/config.",
+                    "examples": [
+                      "deploy"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Optional SSH jump host tunnelling the connection to this server, written as user@host or as an object with host, user, and port. Onebox verifies and authenticates both hops and never forwards the SSH agent. Also accepts user@host or user@host:port."
+          },
           "overrides": {
             "additionalProperties": false,
             "description": "Environment-specific operational tuning. Overrides cannot change workload identity or data semantics.",
@@ -772,7 +814,7 @@
                     "type": "integer"
                   },
                   "user": {
-                    "description": "SSH user. The local SSH configuration supplies it when omitted.",
+                    "description": "SSH user. $USER is used when omitted; ob does not read ~/.ssh/config.",
                     "examples": [
                       "root"
                     ],

@@ -51,7 +51,7 @@ func (s *Service) executionBinding(lp *loadedProject) (ExecutionBinding, error) 
 		return ExecutionBinding{}, err
 	}
 	return ExecutionBinding{
-		Application: lp.resolved.Name, Environment: s.environment, Server: environment.Destination(),
+		Application: lp.resolved.Name, Environment: s.environment, Server: environment.Route().String(),
 		ConfigDigest: engine.HashBytes(lp.configBytes), ComposeDigest: engine.HashBytes(lp.composeBytes),
 	}, nil
 }

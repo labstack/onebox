@@ -1,6 +1,10 @@
 package app
 
-import "strings"
+import (
+	"strings"
+
+	obtarget "github.com/labstack/onebox/internal/target"
+)
 
 // Applying the constraints is explicit and typed, so the compiler knows when a
 // field moves and a reader can see exactly which rule a field is held to. The
@@ -178,10 +182,11 @@ func validateEnvironment(e Environment, path string) error {
 	if e.Server.Host == "" {
 		return errf("project_invalid", path+".server", "", "an environment must name a server")
 	}
-	if e.Server.Port != 0 {
-		if err := checkPort(path+".server.port", e.Server.Port); err != nil {
-			return err
-		}
+	if err := validateAddress("server", path+".server", e.Server.Host, e.Server.User, e.Server.Port); err != nil {
+		return err
+	}
+	if err := validateJump(e.Jump, path+".jump"); err != nil {
+		return err
 	}
 	if err := gAbsPath.checkOptional(path+".base_path", e.BasePath); err != nil {
 		return err
@@ -589,6 +594,44 @@ func validateChecks(c Checks) error {
 		if strings.TrimSpace(check.Provider) == "" {
 			return errf("project_invalid", path+".provider", "", "a migration check must name the provider that produced the revisions")
 		}
+	}
+	return nil
+}
+
+// validateJump holds the jump to the same address grammar the transport dials
+// with, so a bastion that cannot be reached is reported while reading the
+// project rather than after the operator has approved a plan built around it.
+func validateJump(jump *Jump, path string) error {
+	if jump == nil {
+		return nil
+	}
+	if jump.Host == "" {
+		return errf("project_invalid", path, "", "a jump must name a host")
+	}
+	return validateAddress("jump", path, jump.Host, jump.User, jump.Port)
+}
+
+// validateAddress holds an authored SSH endpoint to the grammar the transport
+// dials with. Each part is checked as it was written: recomposing them into one
+// string and parsing that cannot tell a bad host from a bad user, and lets a
+// host smuggle in a port or a user that only fails once something dials it.
+//
+// Nothing re-parses these fields on the way to the dialler, so an address that
+// is only checked at connect time is an address checked after the operator has
+// already approved a plan built around it.
+func validateAddress(kind, path, host, user string, port int) error {
+	if port != 0 {
+		if err := checkPort(path+".port", port); err != nil {
+			return err
+		}
+	}
+	if !obtarget.ValidHost(host) {
+		return errf("project_invalid", path+".host", "",
+			"%s host %q must be a DNS name, an IPv4 address, or an unbracketed IPv6 address; write the port as `port` and the user as `user`", kind, host)
+	}
+	if user != "" && !obtarget.ValidUser(user) {
+		return errf("project_invalid", path+".user", "",
+			"%s user %q must start with a letter, digit, or underscore and contain only letters, digits, dot, underscore, or hyphen", kind, user)
 	}
 	return nil
 }

@@ -56,7 +56,7 @@ func TestBootstrapAcceptsBuildSourceWithoutStagingApplicationPayload(t *testing.
 	service := New(Options{
 		ConfigPath:  writeBootstrapBuildProject(t),
 		Environment: "production",
-		Connect: func(context.Context, string) (transport.Transport, error) {
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) {
 			return fake, nil
 		},
 	})

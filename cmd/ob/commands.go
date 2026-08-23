@@ -517,11 +517,11 @@ func newUI(cmd *cobra.Command, g *globalFlags) *ui.UI {
 
 // cliConnector is replaceable by in-package tests and honors OB_LOCAL for the
 // existing local-docker workflow. Production uses cancellable SSH dialing.
-var cliConnector onebox.Connector = func(ctx context.Context, target string) (transport.Transport, error) {
+var cliConnector onebox.Connector = func(ctx context.Context, route transport.Route) (transport.Transport, error) {
 	if value := strings.TrimSpace(strings.ToLower(os.Getenv("OB_LOCAL"))); value == "1" || value == "true" {
 		return transport.NewLocal(), nil
 	}
-	return transport.NewSSHContext(ctx, target)
+	return transport.NewSSHRoute(ctx, route)
 }
 
 func attachTransportLogger(t transport.Transport, logger func(string, string)) {
@@ -538,8 +538,8 @@ func operationsService(cmd *cobra.Command, g *globalFlags) *onebox.Service {
 }
 
 func operationsServiceWithUI(cmd *cobra.Command, g *globalFlags, u *ui.UI) *onebox.Service {
-	connector := func(ctx context.Context, target string) (transport.Transport, error) {
-		t, err := cliConnector(ctx, target)
+	connector := func(ctx context.Context, route transport.Route) (transport.Transport, error) {
+		t, err := cliConnector(ctx, route)
 		if err == nil {
 			attachTransportLogger(t, u.Cmd)
 		}
@@ -657,7 +657,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 	if err != nil {
 		return nil, nil, err
 	}
-	t, err := cliConnector(cmd.Context(), env.Destination())
+	t, err := cliConnector(cmd.Context(), env.Route())
 	if err != nil {
 		return nil, nil, err
 	}

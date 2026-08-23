@@ -66,7 +66,12 @@ type Spec struct {
 }
 
 type Environment struct {
-	Server   Server `json:"server" description:"SSH server, written as user@host or as an object with host, user, and port." example:"root@203.0.113.10"`
+	Server Server `json:"server" description:"SSH server, written as user@host or as an object with host, user, and port." example:"root@203.0.113.10"`
+	// Jump sits beside Server rather than inside it so the one-line
+	// `server: root@host` form survives adding a bastion. It is a distinct
+	// type, not another Server: a Jump has no jump of its own, which is how
+	// "exactly one hop" is enforced by the model instead of by validation.
+	Jump     *Jump  `json:"jump,omitempty" description:"Optional SSH jump host tunnelling the connection to this server, written as user@host or as an object with host, user, and port. Onebox verifies and authenticates both hops and never forwards the SSH agent." example:"deploy@bastion.example.com"`
 	BasePath string `json:"base_path,omitempty" description:"Environment-specific replacement for the project base_path." example:"/srv/ob"`
 	// EnvFiles is this environment's default list. It sits on the environment
 	// rather than in an environment-scoped `runtime` block for the same reason
@@ -81,8 +86,17 @@ type Environment struct {
 // Server is a scalar `user@host` or an object. Both decode here.
 type Server struct {
 	Host string `json:"host" description:"SSH hostname or IP address." example:"203.0.113.10"`
-	User string `json:"user,omitempty" description:"SSH user. The local SSH configuration supplies it when omitted." example:"root"`
+	User string `json:"user,omitempty" description:"SSH user. $USER is used when omitted; ob does not read ~/.ssh/config." example:"root"`
 	Port int    `json:"port,omitempty" description:"SSH port. The SSH default is used when omitted." example:"2222"`
+}
+
+// Jump is a scalar `user@host` or an object, decoding exactly as Server does.
+// Nothing is ever deployed to a jump host: it forwards one TCP channel to the
+// server and runs no commands.
+type Jump struct {
+	Host string `json:"host" description:"Jump host name or IP address." example:"bastion.example.com"`
+	User string `json:"user,omitempty" description:"SSH user on the jump host. $USER is used when omitted; ob does not read ~/.ssh/config." example:"deploy"`
+	Port int    `json:"port,omitempty" description:"SSH port on the jump host. The SSH default is used when omitted." example:"2222"`
 }
 
 type Policy struct {

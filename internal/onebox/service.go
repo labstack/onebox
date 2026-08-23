@@ -21,7 +21,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-type Connector func(context.Context, string) (transport.Transport, error)
+type Connector func(context.Context, transport.Route) (transport.Transport, error)
 
 type Options struct {
 	ConfigPath  string
@@ -79,8 +79,8 @@ func New(opts Options) *Service {
 		opts.Now = time.Now
 	}
 	if opts.Connect == nil {
-		opts.Connect = func(ctx context.Context, target string) (transport.Transport, error) {
-			return transport.NewSSHContext(ctx, target)
+		opts.Connect = func(ctx context.Context, route transport.Route) (transport.Transport, error) {
+			return transport.NewSSHRoute(ctx, route)
 		}
 	}
 	if opts.Entropy == nil {
@@ -123,8 +123,9 @@ func (s *Service) engineWith(ctx context.Context, lp *loadedProject, environment
 	if err != nil {
 		return nil, nil, "", err
 	}
-	target := env.Destination()
-	t, err := s.connect(ctx, target)
+	route := env.Route()
+	target := route.String()
+	t, err := s.connect(ctx, route)
 	if err != nil {
 		return nil, nil, "", err
 	}

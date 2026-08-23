@@ -18,7 +18,13 @@ import (
 	"strings"
 
 	"github.com/labstack/onebox/internal/shellquote"
+	obtarget "github.com/labstack/onebox/internal/target"
 )
+
+// Route is the connection a transport dials: a target and, optionally, the one
+// jump host it is reached through. Aliased here so callers that only speak
+// "transport" need not import the address grammar to name a destination.
+type Route = obtarget.Route
 
 type Result struct {
 	Stdout   string
@@ -45,6 +51,10 @@ type Transport interface {
 	// SSHUser is the resolved SSH username, exposed separately for tools whose
 	// remote-spec grammar differs across implementations (notably IPv6 rsync).
 	SSHUser() string
+	// SSHJump names the jump host the connection is tunnelled through, empty
+	// on a direct connection. Local hooks run without that tunnel, so they are
+	// given the bastion rather than a target they cannot reach.
+	SSHJump() string
 	// SSHPort is the server's SSH port, or empty when SSH is not applicable.
 	SSHPort() string
 	Close() error
@@ -125,6 +135,7 @@ func (l *Local) Upload(ctx context.Context, localDir, remoteDir string) error {
 
 func (l *Local) Host() string        { return "local" }
 func (l *Local) Destination() string { return "local" }
+func (l *Local) SSHJump() string     { return "" }
 func (l *Local) SSHUser() string     { return "" }
 func (l *Local) SSHPort() string     { return "" }
 func (l *Local) Close() error        { return nil }

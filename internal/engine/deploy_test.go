@@ -39,8 +39,8 @@ func seedStagedApplicationManifest(f *transport.Fake, releaseID string) {
 func happyFake() *transport.Fake {
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "Config.Healthcheck.Test") {
-			return transport.Result{Stdout: guardedHealthcheck + "\n"}, true
+		if strings.Contains(cmd, "Config.Healthcheck") {
+			return transport.Result{Stdout: `{"Test":` + guardedHealthcheck + `,"Interval":5000000000,"Retries":3}` + "\n"}, true
 		}
 		// server roll state, derived from history so the loop converges: NEW1
 		// appears after a scale, OLD1 disappears once removed, names track renames.

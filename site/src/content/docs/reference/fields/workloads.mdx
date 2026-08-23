@@ -35,9 +35,9 @@ cannot drift from what `ob validate` accepts.
 | `<name>.data_effect` | `none` · `migration` · `destructive` · `unknown` | — | Job data impact used by rollback and abort gates. |
 | `<name>.domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
 | `<name>.drain` | object | — | Signal and timing used to remove a container from traffic before stopping it. |
-| `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.drain.signal` | string | `TERM` | Signal sent to begin graceful shutdown. Expects a signal name such as TERM or QUIT. |
-| `<name>.drain.wait` | string | — | Time allowed for the proxy to stop routing before shutdown begins. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.drain.wait` | string | — | Time allowed for the proxy to stop routing before shutdown begins, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.entrypoint` | list | — | Container entrypoint as a string or argument list. Also accepts an entrypoint or argument list. |
 | `<name>.env` | map | — | Literal container environment values. Managed-service credential variables cannot be overridden. |
 | `<name>.env_files` | list | — | Workload-specific ordered environment-file list. Replaces broader defaults when present. |
@@ -47,12 +47,12 @@ cannot drift from what `ob validate` accepts.
 | `<name>.health` | object | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
 | `<name>.health.exec` | — | — | Health command as a shell string or direct argument list. |
 | `<name>.health.http` | string | — | HTTP path probed inside the container. Expects a path beginning with /. |
-| `<name>.health.interval` | string | — | Delay between container health probes. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.health.interval` | string | `5s` | Delay between container health probes, at most 7d. Always written into the generated healthcheck, so the rollout's drain budget is computed from the value the container actually runs with. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.health.port` | integer | — | Container port probed by HTTP or TCP health checks. |
-| `<name>.health.retries` | integer | — | Consecutive failed probes before the container is unhealthy. |
-| `<name>.health.start_period` | string | — | Startup grace period before failed probes count. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.health.retries` | integer | `3` | Consecutive failed probes before the container is unhealthy. A draining container leaves rotation after this many probes, so it sets how long a rolling deploy waits for each replica. |
+| `<name>.health.start_period` | string | `30s` | Startup grace period before failed probes count, at most 7d. Always written into the generated healthcheck, so writing down a fast probe interval does not call a booting container unhealthy. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.health.tcp` | boolean | `false` | Probe the configured port by opening a TCP connection. |
-| `<name>.health.within` | string | — | Maximum time a rollout waits for readiness. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.health.within` | string | — | Maximum time a rollout waits for readiness, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.hostname` | string | — | Hostname assigned inside the workload container. |
 | `<name>.image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
 | `<name>.image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |

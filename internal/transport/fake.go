@@ -32,6 +32,7 @@ type Fake struct {
 	Uploads     []string
 	HostName    string
 	TargetName  string // full user@host; falls back to HostName
+	SSHJumpName string
 	SSHUserName string
 	SSHPortName string // falls back to 22 when TargetName is set
 	state       map[string]string
@@ -181,6 +182,7 @@ func (f *Fake) Destination() string {
 }
 
 func (f *Fake) SSHUser() string { return f.SSHUserName }
+func (f *Fake) SSHJump() string { return f.SSHJumpName }
 
 func (f *Fake) SSHPort() string {
 	if f.SSHPortName != "" {

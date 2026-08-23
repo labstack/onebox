@@ -55,7 +55,7 @@ func (s *Service) executeJob(
 	if lp.resolved.Name != binding.Application || s.environment != binding.Environment {
 		return "", nil, errors.New("job plan application or environment changed — re-plan")
 	}
-	if environmentConfig.Destination() != binding.Server {
+	if environmentConfig.Route().String() != binding.Server {
 		return "", nil, errors.New("job plan target changed — re-plan")
 	}
 	if engine.HashBytes(lp.configBytes) != binding.ConfigDigest {

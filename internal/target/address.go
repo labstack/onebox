@@ -81,6 +81,17 @@ func Parse(raw string) (Address, error) {
 	return address, nil
 }
 
+// ValidUser reports whether user is a legal SSH user in this grammar. It is
+// exported so config validation can hold an authored field to the same rule the
+// transport dials by, without recomposing a string to parse.
+func ValidUser(user string) bool { return validUser(user) }
+
+// ValidHost reports whether host is a legal host: a DNS name, an IPv4 address,
+// or an *unbracketed* IPv6 literal. Brackets belong to the scalar grammar,
+// where they separate the address from the port; a host field has no port to
+// separate.
+func ValidHost(host string) bool { return validHost(host) }
+
 func validUser(user string) bool {
 	if user == "" || !isUserStart(user[0]) {
 		return false

@@ -23,6 +23,9 @@ You need:
 - one Linux server reachable over SSH, with Docker available to that SSH account
 - the server's host key already recorded in `known_hosts`
 
+If the server has no public SSH port, name the bastion it is reached through —
+see [Deploy through a jump host](/guides/deploy-through-a-jump-host/).
+
 The first three steps are local and contact nothing. `ob bootstrap` is the first
 command that changes the server; the plan after it is read-only.
 

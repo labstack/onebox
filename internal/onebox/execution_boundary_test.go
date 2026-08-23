@@ -225,7 +225,7 @@ func TestSchemaLessDeployPlansAreRejectedBeforeConnecting(t *testing.T) {
 			svc := New(Options{
 				ConfigPath: filepath.Join(t.TempDir(), "must-not-be-read.yml"),
 				Now:        func() time.Time { return base },
-				Connect: func(context.Context, string) (transport.Transport, error) {
+				Connect: func(context.Context, transport.Route) (transport.Transport, error) {
 					connected = true
 					return fake, nil
 				},
@@ -269,7 +269,7 @@ func TestExecuteRejectsExpiredDeployBeforeConnecting(t *testing.T) {
 	svc := New(Options{
 		ConfigPath: filepath.Join(t.TempDir(), "must-not-be-read.yml"),
 		Now:        func() time.Time { return now },
-		Connect: func(context.Context, string) (transport.Transport, error) {
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) {
 			connected = true
 			return serviceFake(), nil
 		},
@@ -314,7 +314,7 @@ func TestExecuteRejectsFutureDeployBeforeConnecting(t *testing.T) {
 	svc := New(Options{
 		ConfigPath: filepath.Join(t.TempDir(), "must-not-be-read.yml"),
 		Now:        func() time.Time { return now },
-		Connect: func(context.Context, string) (transport.Transport, error) {
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) {
 			connected = true
 			return serviceFake(), nil
 		},
@@ -1011,7 +1011,7 @@ func savedPlanCarriesImage(t *testing.T, built string) {
 				tick++
 				return base.Add(time.Duration(tick) * time.Minute)
 			},
-			Connect: func(_ context.Context, _ string) (transport.Transport, error) { return fake, nil },
+			Connect: func(_ context.Context, _ transport.Route) (transport.Transport, error) { return fake, nil },
 		})
 	}
 

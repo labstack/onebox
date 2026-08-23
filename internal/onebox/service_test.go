@@ -118,9 +118,9 @@ func newTestService(t *testing.T, f *transport.Fake) *Service {
 			tick++
 			return base.Add(time.Duration(tick) * time.Minute)
 		},
-		Connect: func(_ context.Context, target string) (transport.Transport, error) {
-			if target != "deploy@example.invalid" {
-				t.Fatalf("connector target = %q", target)
+		Connect: func(_ context.Context, route transport.Route) (transport.Transport, error) {
+			if route.String() != "deploy@example.invalid" {
+				t.Fatalf("connector target = %q", route)
 			}
 			return f, nil
 		},
@@ -180,7 +180,7 @@ func composeBuildService(t *testing.T, images app.Images) *Service {
 	t.Helper()
 	return New(Options{
 		ConfigPath: writeComposeBuildProject(t), Environment: "production", Images: images,
-		Connect: func(context.Context, string) (transport.Transport, error) { return serviceFake(), nil },
+		Connect: func(context.Context, transport.Route) (transport.Transport, error) { return serviceFake(), nil },
 	})
 }
 

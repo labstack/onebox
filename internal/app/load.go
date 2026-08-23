@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	obtarget "github.com/labstack/onebox/internal/target"
 )
 
 // APIVersion is the only authoring contract this package accepts.
@@ -272,15 +275,17 @@ func expandTopLevelUnions(raw map[string]any) {
 				}
 			}
 			if s, ok := em["server"].(string); ok {
-				host, user := s, ""
-				if at := strings.Index(s, "@"); at >= 0 {
-					user, host = s[:at], s[at+1:]
-				}
-				em["server"] = map[string]any{"host": host}
-				if user != "" {
-					em["server"].(map[string]any)["user"] = user
-				}
+				em["server"] = expandAddress(s)
 			}
+			if s, ok := em["jump"].(string); ok {
+				em["jump"] = expandAddress(s)
+			}
+			// The object form is normalised too. Brackets belong to the
+			// scalar grammar, where they mark off an IPv6 address from its
+			// port; a host field has no port to mark off, and a bracketed
+			// value there reaches the dialler as part of the hostname.
+			unbracketHost(em["server"])
+			unbracketHost(em["jump"])
 		}
 	}
 	if secrets, ok := raw["secrets"].(map[string]any); ok {
@@ -734,4 +739,46 @@ func (p *Spec) checkDeclaredFilesExist() error {
 		}
 	}
 	return nil
+}
+
+// expandAddress turns a scalar `[user@]host[:port]` into the object form.
+//
+// It goes through the shared address grammar rather than splitting on "@" by
+// hand, because a hand-rolled split leaves a written port inside the hostname:
+// the value still round-trips through Destination(), so it looks correct
+// everywhere except at the moment something dials it. A form the grammar
+// rejects is left whole as the host, so validation reports it against the
+// field the author wrote rather than as a decode error naming a Go type.
+func expandAddress(scalar string) map[string]any {
+	expanded := map[string]any{"host": scalar}
+	parsed, err := obtarget.Parse(scalar)
+	if err != nil {
+		return expanded
+	}
+	expanded["host"] = parsed.Host
+	if parsed.User != "" {
+		expanded["user"] = parsed.User
+	}
+	if parsed.ExplicitPort {
+		port, _ := strconv.Atoi(parsed.Port)
+		expanded["port"] = port
+	}
+	return expanded
+}
+
+// unbracketHost strips the brackets an author may have carried over from the
+// scalar spelling of an IPv6 address.
+func unbracketHost(value any) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	host, ok := object["host"].(string)
+	if !ok || !strings.HasPrefix(host, "[") || !strings.HasSuffix(host, "]") {
+		return
+	}
+	inner := host[1 : len(host)-1]
+	if strings.Contains(inner, ":") && obtarget.ValidHost(inner) {
+		object["host"] = inner
+	}
 }

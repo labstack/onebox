@@ -64,6 +64,29 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	proxyCmd.AddCommand(proxyApplyCmd)
 	root.AddCommand(proxyCmd)
 
+	// schedule apply — explicitly reconcile runner-owned host timers after an
+	// Onebox upgrade, without coupling package installation to remote mutation.
+	scheduleCmd := &cobra.Command{Use: "schedule", Short: "manage host timers for scheduled jobs",
+		Long: "Manage the systemd timers generated for scheduled jobs.\n\n" +
+			"Timers outlive the Onebox process and the package installed on the operator\n" +
+			"workstation. `apply` explicitly reconciles their units after a runner or\n" +
+			"configuration change without deploying a release.",
+		Args: cobra.NoArgs, RunE: showCommandHelp}
+	var scheduleBreakLock bool
+	scheduleApplyCmd := &cobra.Command{
+		Use:   "apply",
+		Short: "reconcile scheduled-job units without deploying a release",
+		Long:  "Converge every declared scheduled-job timer, service, runner, and failure notifier to what the current Onebox runner generates.\n\nTaken under the application lock and fence so a deploy or host-fired job cannot modify the same runtime concurrently. This is the explicit post-upgrade path; upgrading the local package never mutates a remote host by itself.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindScheduleApply, BreakLock: scheduleBreakLock,
+			}, "schedule apply")
+		},
+	}
+	scheduleApplyCmd.Flags().BoolVar(&scheduleBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	scheduleCmd.AddCommand(scheduleApplyCmd)
+	root.AddCommand(scheduleCmd)
+
 	// secrets list | edit | push
 	secretsCmd := &cobra.Command{Use: "secrets", Short: "SOPS-encrypted secrets",
 		Long: "SOPS-encrypted secrets for this project.\n\n" +

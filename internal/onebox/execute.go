@@ -204,6 +204,9 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindProxyApply:
 		result.EvidenceID = operationID
 		err = e.ProxyApply(ctx, operationID)
+	case KindScheduleApply:
+		result.EvidenceID = operationID
+		err = e.ScheduleApply(ctx, operationID)
 	case KindSecretsPush:
 		entries := encryptedEntries(lp.resolved)
 		externalProjections := externalConnectionProjections(lp.resolved)

@@ -30,16 +30,17 @@ type OperationKind string
 type OperationStatus string
 
 const (
-	KindDeploy       OperationKind = "deploy"
-	KindResume       OperationKind = "resume"
-	KindAbort        OperationKind = "abort"
-	KindRollback     OperationKind = "rollback"
-	KindBootstrap    OperationKind = "bootstrap"
-	KindServiceApply OperationKind = "service_apply"
-	KindProxyApply   OperationKind = "proxy_apply"
-	KindSecretsPush  OperationKind = "secrets_push"
-	KindDestroy      OperationKind = "destroy"
-	KindJobRun       OperationKind = "job_run"
+	KindDeploy        OperationKind = "deploy"
+	KindResume        OperationKind = "resume"
+	KindAbort         OperationKind = "abort"
+	KindRollback      OperationKind = "rollback"
+	KindBootstrap     OperationKind = "bootstrap"
+	KindServiceApply  OperationKind = "service_apply"
+	KindProxyApply    OperationKind = "proxy_apply"
+	KindScheduleApply OperationKind = "schedule_apply"
+	KindSecretsPush   OperationKind = "secrets_push"
+	KindDestroy       OperationKind = "destroy"
+	KindJobRun        OperationKind = "job_run"
 
 	KindServiceImagePatch OperationKind = "service_image_patch"
 	KindBackupEnable      OperationKind = "backup_enable"
@@ -448,7 +449,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 func validOperationKind(kind OperationKind) bool {
 	switch kind {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
-		KindServiceApply, KindProxyApply, KindSecretsPush, KindDestroy,
+		KindServiceApply, KindProxyApply, KindScheduleApply, KindSecretsPush, KindDestroy,
 		KindServiceImagePatch, KindBackupEnable, KindBackupDisable,
 		KindBackupCreate, KindBackupPrune, KindReplayArchive,
 		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,

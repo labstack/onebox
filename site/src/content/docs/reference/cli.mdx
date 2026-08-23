@@ -68,6 +68,7 @@ Available Commands:
   proxy       manage the host-scoped proxy (proxy.managed: true)
   resume      continue an interrupted deploy from the journal (fences the old runner)
   rollback    re-release the previous release dir (pinned local image)
+  schedule    manage host timers for scheduled jobs
   schema      print the JSON Schema for the project file, for editors
   secrets     SOPS-encrypted secrets
   service     manage supporting and data services
@@ -908,6 +909,55 @@ Usage:
 
 Flags:
   -h, --help   help for rollback
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+## ob schedule
+
+```
+Manage the systemd timers generated for scheduled jobs.
+
+Timers outlive the Onebox process and the package installed on the operator
+workstation. `apply` explicitly reconciles their units after a runner or
+configuration change without deploying a release.
+
+Usage:
+  ob schedule [flags]
+  ob schedule [command]
+
+Available Commands:
+  apply       reconcile scheduled-job units without deploying a release
+
+Flags:
+  -h, --help   help for schedule
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+
+Use "ob schedule [command] --help" for more information about a command.
+```
+
+### ob schedule apply
+
+```
+Converge every declared scheduled-job timer, service, runner, and failure notifier to what the current Onebox runner generates.
+
+Taken under the application lock and fence so a deploy or host-fired job cannot modify the same runtime concurrently. This is the explicit post-upgrade path; upgrading the local package never mutates a remote host by itself.
+
+Usage:
+  ob schedule apply [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for apply
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

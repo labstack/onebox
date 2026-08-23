@@ -75,10 +75,10 @@ plus the repository key:
 ```sh
 BACKUP_ACCESS_KEY_ID=...
 BACKUP_SECRET_ACCESS_KEY=...
-OB_REPOSITORY_KEY=$(openssl rand -hex 32)
+ONEBOX_REPOSITORY_KEY=$(openssl rand -hex 32)
 ```
 
-`OB_REPOSITORY_KEY` is a 32-byte key read as hex, so exactly 64 hex characters.
+`ONEBOX_REPOSITORY_KEY` is a 32-byte key read as hex, so exactly 64 hex characters.
 A passphrase-shaped value is refused before anything restarts. You do not stage
 this file yourself: `ob backup enable` decrypts it and installs it mode-0600 on
 the host.

@@ -120,10 +120,10 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	if err != nil {
 		return outcome, err
 	}
-	environment["OB_S3_KEY_ENTRY"] = target.Credentials.AccessKeyEntry
-	environment["OB_S3_SECRET_ENTRY"] = target.Credentials.SecretKeyEntry
+	environment["ONEBOX_S3_KEY_ENTRY"] = target.Credentials.AccessKeyEntry
+	environment["ONEBOX_S3_SECRET_ENTRY"] = target.Credentials.SecretKeyEntry
 	if target.Credentials.SessionTokenEntry != "" {
-		environment["OB_S3_SESSION_TOKEN_ENTRY"] = target.Credentials.SessionTokenEntry
+		environment["ONEBOX_S3_SESSION_TOKEN_ENTRY"] = target.Credentials.SessionTokenEntry
 	}
 
 	st := e.ui.Step("recovery: fetch base backup", false)

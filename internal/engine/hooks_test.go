@@ -19,7 +19,7 @@ func TestLocalHookRunsOnRunnerNotHost(t *testing.T) {
 	f := &transport.Fake{}
 	dir := t.TempDir()
 	cfg := testConfig()
-	cfg.Hooks["publish"] = app.Command{Run: "echo $OB_RELEASE_ID > out.txt", Local: true}
+	cfg.Hooks["publish"] = app.Command{Run: "echo $ONEBOX_RELEASE_ID > out.txt", Local: true}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: dir})
 	if err := e.RunHook(context.Background(), "publish", "/var/lib/ob/sample/releases/R9", "x"); err != nil {
 		t.Fatal(err)

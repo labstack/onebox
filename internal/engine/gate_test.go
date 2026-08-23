@@ -142,11 +142,11 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 		t.Fatalf("deploy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "run --rm --no-deps -e OB_RESULT_FILE=/run/onebox/job-result") {
+	if !strings.Contains(seq, "run --rm --no-deps -e ONEBOX_RESULT_FILE=/run/onebox/job-result") {
 		t.Fatalf("a job without a hook must auto-run compose run:\n%s", seq)
 	}
 	// gate protocol still applies to the auto-run job.
-	if !strings.Contains(seq, "OB_RESULT_FILE=") {
+	if !strings.Contains(seq, "ONEBOX_RESULT_FILE=") {
 		t.Fatalf("auto-run job must run under the gate protocol:\n%s", seq)
 	}
 }
@@ -206,7 +206,7 @@ func TestJobDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the job: %v", err)
 	}
-	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "OB_RESULT_FILE") {
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "ONEBOX_RESULT_FILE") {
 		t.Fatalf("job ran without a durable intent:\n%s", seq)
 	}
 }
@@ -419,7 +419,7 @@ func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 		mount := strings.Index(c, "-v '"+resultFile+":/run/onebox/job-result:rw'")
 		sealedFile := strings.Index(c, "chmod 600 '"+resultFile+"'")
 		if strings.Contains(c, "rm -rf '"+resultDir+"'") &&
-			strings.Contains(c, "run --rm --no-deps -e OB_RESULT_FILE=/run/onebox/job-result") &&
+			strings.Contains(c, "run --rm --no-deps -e ONEBOX_RESULT_FILE=/run/onebox/job-result") &&
 			privateDir >= 0 && privateDir < writableFile && writableFile < mount && mount < sealedFile {
 			found = true
 		}

@@ -48,19 +48,19 @@ type server struct {
 
 func requireServer(t *testing.T) *server {
 	t.Helper()
-	if os.Getenv("OB_SERVER_E2E") != "1" {
-		t.Skip("set OB_SERVER_E2E=1 (see `just server-e2e`)")
+	if os.Getenv("ONEBOX_SERVER_E2E") != "1" {
+		t.Skip("set ONEBOX_SERVER_E2E=1 (see `just server-e2e`)")
 	}
 	// Opting in is a promise the machine is there. Skipping past an
 	// unreachable one turns a gate into a green tick for work nobody did.
-	target := os.Getenv("OB_E2E_SERVER")
-	key := os.Getenv("OB_E2E_SERVER_KEY")
+	target := os.Getenv("ONEBOX_E2E_SERVER")
+	key := os.Getenv("ONEBOX_E2E_SERVER_KEY")
 	if target == "" || key == "" {
-		t.Fatal("OB_SERVER_E2E=1 without OB_E2E_SERVER and OB_E2E_SERVER_KEY")
+		t.Fatal("ONEBOX_SERVER_E2E=1 without ONEBOX_E2E_SERVER and ONEBOX_E2E_SERVER_KEY")
 	}
 	user, rest, ok := strings.Cut(target, "@")
 	if !ok {
-		t.Fatalf("OB_E2E_SERVER %q is not user@host[:port]", target)
+		t.Fatalf("ONEBOX_E2E_SERVER %q is not user@host[:port]", target)
 	}
 	host, port, ok := strings.Cut(rest, ":")
 	if !ok {
@@ -71,12 +71,12 @@ func requireServer(t *testing.T) *server {
 	// under /etc/systemd/system. A server it cannot reach as root fails later,
 	// in a place that looks like a deploy bug.
 	if user != "root" {
-		t.Fatalf("OB_E2E_SERVER is %q; ob writes to /etc/systemd/system and does not elevate, so it must be root", target)
+		t.Fatalf("ONEBOX_E2E_SERVER is %q; ob writes to /etc/systemd/system and does not elevate, so it must be root", target)
 	}
 	s := &server{target: target, user: user, host: host, port: port, key: key,
 		bootstrapped: map[string]bool{}}
 	if err := s.try(t, "true"); err != nil {
-		t.Fatalf("OB_SERVER_E2E=1 but %s is not reachable: %v", target, err)
+		t.Fatalf("ONEBOX_SERVER_E2E=1 but %s is not reachable: %v", target, err)
 	}
 	s.guest = strings.Fields(s.run(t, "hostname -I"))[0]
 	return s

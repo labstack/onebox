@@ -163,7 +163,7 @@ func corpusProjects(t *testing.T) []string {
 func TestContractDidNotMove(t *testing.T) {
 	got := recordVerdicts(t)
 
-	if os.Getenv("OB_UPDATE_VERDICTS") == "1" {
+	if os.Getenv("ONEBOX_UPDATE_VERDICTS") == "1" {
 		b, err := json.MarshalIndent(got, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -177,7 +177,7 @@ func TestContractDidNotMove(t *testing.T) {
 
 	body, err := os.ReadFile(goldenPath)
 	if err != nil {
-		t.Fatalf("no frozen verdict; record one with OB_UPDATE_VERDICTS=1: %v", err)
+		t.Fatalf("no frozen verdict; record one with ONEBOX_UPDATE_VERDICTS=1: %v", err)
 	}
 	var want []verdict
 	if err := json.Unmarshal(body, &want); err != nil {

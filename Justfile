@@ -11,10 +11,10 @@ default: build
 build:
     #!/bin/bash
     set -euo pipefail
-    ob_build_dir="${OB_BIN_DIR:-bin}"
-    ob_build_version="${OB_VERSION:-}"
+    ob_build_dir="${ONEBOX_BIN_DIR:-bin}"
+    ob_build_version="${ONEBOX_VERSION:-}"
     if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
-      echo "OB_VERSION must match vYYYY.M.REVISION" >&2; exit 1
+      echo "ONEBOX_VERSION must match vYYYY.M.REVISION" >&2; exit 1
     fi
     if [ -z "$ob_build_version" ]; then
       # --long keeps the commit suffix even on a tagged commit, so a checkout build
@@ -33,9 +33,9 @@ build:
 install: build
     #!/bin/bash
     set -euo pipefail
-    ob_install_dir="${OB_INSTALL_DIR:-${HOME}/.local/bin}"
+    ob_install_dir="${ONEBOX_INSTALL_DIR:-${HOME}/.local/bin}"
     mkdir -p "$ob_install_dir"
-    install -m 0755 "${OB_BIN_DIR:-bin}/ob" "${ob_install_dir}/ob"
+    install -m 0755 "${ONEBOX_BIN_DIR:-bin}/ob" "${ob_install_dir}/ob"
     echo "installed ${ob_install_dir}/ob ($("${ob_install_dir}/ob" --version))"
 
 # Run the test suite.
@@ -66,7 +66,7 @@ check: _mod-tidy _fmt-check vet test docs-generate-check site-build
 # They are separate from `check` because each needs a tool the repository does
 # not vendor; a contributor without them should still be able to run `just check`
 # and get a truthful answer about their change.
-ci: check lint vuln workflow-check
+ci: check lint vuln workflow-check env-namespace
     @echo "CI checks passed"
 
 [private]
@@ -135,6 +135,53 @@ dead-exports:
     done <<< "${names}"
     echo "checked $(echo "${names}" | wc -l | tr -d ' ') exported identifiers, ${dead} unreferenced"
 
+# Fail on any Onebox-owned environment variable still using the retired OB_
+# prefix. The namespace is a contract other people write into CI settings,
+# secrets stores, and hook scripts, so a single stray reference is a contract
+# that disagrees with itself.
+env-namespace:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # \bOB_ rather than OB_: the unanchored pattern also matches the tail of
+    # identifiers like JOB_SECRET, which have nothing to do with the namespace.
+    #
+    # Each stage is checked on its own rather than chained into one pipeline,
+    # because only the last command's status survives a pipeline: a scan whose
+    # file list failed to build reports a clean tree, which is the one answer a
+    # check like this must never give by accident.
+    listing=$(mktemp)
+    scanned=$(mktemp)
+    trap 'rm -f "${listing}" "${scanned}"' EXIT
+    git ls-files -z > "${listing}"
+    if [ ! -s "${listing}" ]; then
+      echo "no tracked files listed — the scan checked nothing" >&2
+      exit 1
+    fi
+    # The migration table in the environment-variables guide is the one place
+    # the old names are allowed, because naming them is the whole point of it.
+    grep -zZv '^site/src/content/docs/guides/environment-variables.mdx$' < "${listing}" > "${scanned}" || true
+    if [ ! -s "${scanned}" ]; then
+      echo "the exemption matched every tracked file — the scan checked nothing" >&2
+      exit 1
+    fi
+    set +e
+    stray=$(xargs -0 grep -nHE '\bOB_[A-Z0-9_]+' < "${scanned}")
+    status=$?
+    set -e
+    case "${status}" in
+      0)
+        echo "${stray}"
+        echo "retired OB_ prefix found — Onebox environment variables use ONEBOX_" >&2
+        exit 1
+        ;;
+      1|123) ;; # no match, reported by grep itself or relayed by xargs
+      *)
+        echo "the namespace scan failed (exit ${status}) — it did not check anything" >&2
+        exit 1
+        ;;
+    esac
+    echo "no retired OB_ environment references"
+
 # Scan reachable code against the official vulnerability database.
 vuln:
     govulncheck ./...
@@ -155,7 +202,7 @@ workflow-check:
 # The Docker end-to-end suite. Opt-in locally because it needs a working daemon;
 # CI runs it as its own job so a slow suite never hides a fast failure.
 e2e:
-    OB_E2E=1 go test ./e2e/ -count=1 -timeout 20m
+    ONEBOX_E2E=1 go test ./e2e/ -count=1 -timeout 20m
 
 # Boot the throwaway server the `server-e2e` suite deploys to.
 #
@@ -190,11 +237,11 @@ server-env:
 # just built, named explicitly rather than resolved from PATH — otherwise an
 # older `ob` installed elsewhere documents a tree it did not come from.
 docs-generate: build
-    go run ./cmd/ob-docgen --ob "${OB_BIN_DIR:-bin}/ob"
+    go run ./cmd/ob-docgen --ob "${ONEBOX_BIN_DIR:-bin}/ob"
 
 # Fail when a generated documentation page is behind the binary.
 docs-generate-check: build
-    go run ./cmd/ob-docgen --check --ob "${OB_BIN_DIR:-bin}/ob"
+    go run ./cmd/ob-docgen --check --ob "${ONEBOX_BIN_DIR:-bin}/ob"
 
 # Install the documentation site's dependencies.
 site-install:
@@ -230,12 +277,12 @@ release:
 clean:
     #!/bin/bash
     set -euo pipefail
-    rm -f "${OB_BIN_DIR:-bin}/ob"
+    rm -f "${ONEBOX_BIN_DIR:-bin}/ob"
 
 # Remove the copy `just install` placed on PATH.
 uninstall:
     #!/bin/bash
     set -euo pipefail
-    ob_install_dir="${OB_INSTALL_DIR:-${HOME}/.local/bin}"
+    ob_install_dir="${ONEBOX_INSTALL_DIR:-${HOME}/.local/bin}"
     rm -f "${ob_install_dir}/ob"
     echo "removed ${ob_install_dir}/ob"

@@ -236,7 +236,7 @@ func TestResumeFinalizesAfterActivationWithoutReplayingTheDeploy(t *testing.T) {
 		t.Fatalf("resume: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, forbidden := range []string{"--scale web=", "--force-recreate --timeout 30 worker", "ln -sfn 'releases/" + engineTestDeployReleaseID + "'", "OB_RESULT_FILE"} {
+	for _, forbidden := range []string{"--scale web=", "--force-recreate --timeout 30 worker", "ln -sfn 'releases/" + engineTestDeployReleaseID + "'", "ONEBOX_RESULT_FILE"} {
 		if strings.Contains(seq, forbidden) {
 			t.Fatalf("finalize must not replay the deploy (%s):\n%s", forbidden, seq)
 		}

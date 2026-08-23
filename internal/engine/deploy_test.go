@@ -240,7 +240,7 @@ func TestDeployStopsWhenRequiredJournalEvidenceCannotBeWritten(t *testing.T) {
 		forbidden string
 		want      string
 	}{
-		{name: "transfer result", record: `"phase":"transfer","event":"result","status":"ok"`, forbidden: "OB_RESULT_FILE", want: "journal transfer result"},
+		{name: "transfer result", record: `"phase":"transfer","event":"result","status":"ok"`, forbidden: "ONEBOX_RESULT_FILE", want: "journal transfer result"},
 		{name: "release intent", record: `"phase":"release","role":"web","event":"intent"`, forbidden: "--scale web=", want: "journal release web intent"},
 		{name: "release result", record: `"phase":"release","role":"web","event":"result","status":"ok"`, forbidden: "--force-recreate --timeout 30 worker", want: "journal release web result"},
 		{name: "verify result", record: `"phase":"verify","event":"result","status":"ok"`, forbidden: "ln -sfn 'releases/20260101-000000-aaa111'", want: "journal verify result"},

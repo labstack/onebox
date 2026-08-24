@@ -38,11 +38,15 @@
   intentionally running on one Linux server.
 ]
 
-#place(bottom + left, dy: 0pt, block(width: 840pt)[
-  #line(length: 100%, stroke: 0.75pt + rgb("#22291f"))
-  #v(12pt)
-  #grid(columns: (1fr, auto),
-    text(size: 19pt, fill: rgb("#87957f"))[#text(fill: rgb("#4f9a3c"))[\$ ob plan] #h(18pt) sealed diff, then deploy],
-    text(size: 19pt, fill: rgb("#87957f"))[onebox.run],
-  )
-])
+// Pushed down by flexible space rather than placed at the bottom out of flow.
+// Placed, it drew at a fixed offset however tall the text above had grown, so
+// one extra headline line put the divider through the body copy and typst still
+// exited 0. In flow, that overflow spills onto a second page instead, and a
+// two-page render fails the PNG export outright.
+#v(1fr)
+#line(length: 100%, stroke: 0.75pt + rgb("#22291f"))
+#v(12pt)
+#grid(columns: (1fr, auto),
+  text(size: 19pt, fill: rgb("#87957f"))[#text(fill: rgb("#4f9a3c"))[\$ ob plan] #h(18pt) sealed diff, then deploy],
+  text(size: 19pt, fill: rgb("#87957f"))[onebox.run],
+)

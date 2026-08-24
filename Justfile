@@ -299,14 +299,19 @@ social-card:
       echo "social-card: the OFL originals are at https://github.com/google/fonts/tree/main/ofl/ibmplexmono" >&2
       exit 1
     fi
+    # Rendered aside and moved into place only once it is known good, so a run
+    # that fell back to a substitute face cannot leave that card in the tree.
+    staged=$(mktemp -t social-card).png
+    trap 'rm -f "$staged"' EXIT
     render=$(typst compile --root . --font-path "$font_path" --ppi 96 --format png \
-      docs/media/social-card.typ site/public/social-card.png 2>&1)
+      docs/media/social-card.typ "$staged" 2>&1)
     if [ -n "$render" ]; then echo "$render"; fi
     if echo "$render" | grep -qi "unknown font family"; then
       echo "social-card: typst could not find a font it was asked for, so the card above is set in a fallback face." >&2
       echo "social-card: point ONEBOX_FONT_PATH at IBM Plex Mono and render again." >&2
       exit 1
     fi
+    mv "$staged" site/public/social-card.png
     echo "rendered site/public/social-card.png"
 
 # Create and publish the next vYYYY.M.REVISION tag from releasable main.

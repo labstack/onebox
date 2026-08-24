@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro check && astro build && node scripts/check-tables.mjs",
+    "build": "astro check && astro build && node scripts/check-tables.mjs && node scripts/check-social-card.mjs",
     "preview": "astro preview",
     "astro": "astro"
   },

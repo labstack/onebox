@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a change to what Onebox does.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Onebox has an explicit, narrow scope — one application, one active
+        production host — and a documented safety envelope. A change that
+        widens either is a product decision rather than a code review question,
+        which is why it is worth settling here before any code exists.
+
+        [`docs/product.md`](https://github.com/labstack/onebox/blob/main/docs/product.md)
+        records the direction, and
+        [`/status/capabilities`](https://onebox.run/status/capabilities) records
+        what the binary does today versus what the schema merely accepts.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do, and what makes it hard or impossible today?
+        Describe the situation rather than the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should Onebox do instead? Sketch the command or configuration if you have one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: How are you handling this now, and why is that unsatisfactory?
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and safety
+      description: >
+        Does this widen the one-application, one-host scope, or change what
+        Onebox will do to a running production system without asking? If so,
+        say what the new boundary should be.
+    validations:
+      required: false

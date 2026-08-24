@@ -1,0 +1,80 @@
+name: Bug report
+description: Onebox did something other than what it said it would do.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Onebox holds a production application on someone else's server, so a
+        report that lets a maintainer reproduce the failure is worth far more
+        than a description of it. Please include the plan or command output
+        that shows the discrepancy.
+
+        If this is a security vulnerability, do not file it here — follow
+        [SECURITY.md](https://github.com/labstack/onebox/blob/main/SECURITY.md)
+        instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did Onebox do, and what did you expect it to do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The exact commands you ran, in order. Include the relevant part of your
+        configuration if the failure depends on it.
+      placeholder: |
+        1. ob plan
+        2. ob deploy
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Command output
+      description: >
+        Paste the output that shows the problem. `ob --output json <command>`
+        is often the most useful form. Redact hostnames, secrets, and registry
+        credentials before pasting.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: Output of `ob version`.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: target-host
+    attributes:
+      label: Target host
+      description: >
+        Linux distribution and version on the server Onebox is managing, plus
+        the container runtime version if you know it.
+      placeholder: Ubuntu 24.04, Docker 27.3
+    validations:
+      required: false
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: ob doctor output
+      description: >
+        Optional, but it resolves a large share of environment-related reports
+        on the first round trip.
+      render: shell
+    validations:
+      required: false

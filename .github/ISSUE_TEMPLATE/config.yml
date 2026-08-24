@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://onebox.run
+    about: Installation, the first deploy, configuration reference, and command output.
+  - name: Questions and ideas
+    url: https://github.com/labstack/onebox/discussions
+    about: Ask how something works, or float an idea before it becomes a proposal.
+  - name: Security vulnerabilities
+    url: https://github.com/labstack/onebox/blob/main/SECURITY.md
+    about: Report privately. Please do not open a public issue.

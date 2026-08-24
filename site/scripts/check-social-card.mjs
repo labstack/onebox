@@ -5,8 +5,8 @@
 // it, so `src/components/Head.astro` supplies one. That tag is written by hand
 // against a file in `public/`, and nothing else connects the two: rename or drop
 // `social-card.png` and the build still succeeds while every page points a
-// crawler at a 404. An unfurl is the one surface nobody on the team looks at, so
-// the failure would live in production until an outsider mentioned it.
+// crawler at a 404 — a failure that shows up in other people's link previews
+// long before it shows up in anything this repository builds or serves.
 //
 // The dimensions are checked too, because `og:image:width` and `og:image:height`
 // are hand-typed. A card re-rendered at another size with the numbers left

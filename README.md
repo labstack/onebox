@@ -133,6 +133,22 @@ the full rules.
 [Shipped vs proposed](https://onebox.run/status/capabilities) is the complete
 account of what the binary executes today and what remains direction.
 
+## How it compares
+
+Onebox occupies a narrow spot: one application on one Linux server, with a
+review gate in front of every change. Neighbouring tools solve overlapping
+problems differently, and the difference is usually the boundary rather than
+the feature list.
+
+| If you use | Where Onebox differs |
+| --- | --- |
+| **Docker Compose** and a few shell scripts | Compose stays the runtime — Onebox generates it, and `ob eject` hands it back permanently. What you gain is the release layer around it: health-gated rolling replacement, recorded predecessors, rollback, and backups. |
+| **Kamal** | Both deploy containers over SSH with no agent on the host. Kamal spans multiple hosts and applies when you run it; Onebox is deliberately single-host and puts a digest-bound plan and an explicit approval between you and production. |
+| **Dokku**, **CapRover**, **Coolify** | Those run a control plane on the server and lead with git-push or a dashboard. Onebox has no dashboard and nothing resident: a CLI over SSH, a file in your repository, and generated Compose you can read. |
+| **Ansible** | Ansible configures hosts in general; you still model application releases yourself. Onebox models only the release — plan, approve, deploy, roll back — and expects you to administer the Linux host underneath it. |
+| **Kubernetes** or **k3s** | A cluster reconciles desired state continuously and survives a lost node. Onebox does neither, and says so: no failover, no scheduler. It buys the operational habits — a diff before apply, health gates, recorded releases — without the cluster. |
+| **Terraform** | The plan-then-apply ceremony is borrowed on purpose. The subject is different: an application release on one box, not an infrastructure graph across providers. |
+
 ## Built for people and agents
 
 The CLI is the interface for both. Every finite machine result uses one

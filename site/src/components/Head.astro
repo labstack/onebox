@@ -17,10 +17,30 @@ const id = Astro.locals.starlightRoute.entry.id;
 const markdownHref = ids.has(id)
   ? new URL(`/${id}.md`, Astro.site ?? Astro.url).href
   : null;
+
+// Starlight emits `twitter:card: summary_large_image` but never an image to go
+// with it, so every link to the site unfurled as an empty large card. The card
+// is a static asset rather than a per-page render: one image for the whole site
+// is what the tagline is for, and a generated-per-page card would be a build
+// dependency on fonts the site only loads in the browser.
+//
+// Absolute URLs are required here: Open Graph consumers do not resolve relative
+// hrefs. `astro.config.mjs` always sets `site`, so the fallback is not a
+// configuration this repository ships — Astro types `Astro.site` as optional
+// regardless, and the line above resolves its URL the same way.
+const socialCardHref = new URL("/social-card.png", Astro.site ?? Astro.url).href;
 ---
 
 <Default><slot /></Default>
 <Analytics />
+<meta property="og:image" content={socialCardHref} />
+<meta property="og:image:width" content="1280" />
+<meta property="og:image:height" content="640" />
+<meta
+  property="og:image:alt"
+  content="Onebox: plan-before-apply deploys. Zero downtime. One box."
+/>
+<meta name="twitter:image" content={socialCardHref} />
 {
   markdownHref && (
     <>

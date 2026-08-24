@@ -262,6 +262,62 @@ site-build: docs-generate-check
 # Validate that every generated reference page matches the binary.
 docs-check: docs-generate-check
 
+# Render the social preview card into site/public.
+#
+# The card is the repository's GitHub social preview and the site's og:image, so
+# it is generated rather than hand-drawn: edit docs/media/social-card.typ and run
+# this. It is deliberately not part of `check`. Rendering needs IBM Plex Mono on
+# a font path, which CI does not have and this repository does not vendor — the
+# site loads the face through @fontsource for the browser, and carrying a copy in
+# the tree to draw one image is a poor trade. `site-build` asserts the committed
+# PNG is present and correctly sized, which is the part a gate can honestly do.
+#
+# Typst warns on an unknown font family and still exits 0. A missing face would
+# therefore not fail the render; it would quietly ship a card set in a fallback
+# face that no longer looks like the product. This reads the warning back and
+# fails on it.
+#
+# The version is pinned because typst's layout changes between releases: another
+# one re-renders every glyph position and produces a large diff that is not a
+# real change.
+social-card:
+    #!/bin/bash
+    set -euo pipefail
+    want_typst="0.15.1"
+    if ! command -v typst >/dev/null; then
+      echo "social-card: typst ${want_typst} is required — see https://github.com/typst/typst" >&2; exit 1
+    fi
+    have_typst=$(typst --version | awk '{print $2}')
+    if [ "$have_typst" != "$want_typst" ]; then
+      echo "social-card: typst ${have_typst} is installed, but the committed card was rendered with ${want_typst}." >&2
+      echo "social-card: another version re-lays out every glyph, so the diff would not be a real change." >&2
+      exit 1
+    fi
+    font_path="${ONEBOX_FONT_PATH:-}"
+    if [ -z "$font_path" ]; then
+      echo "social-card: set ONEBOX_FONT_PATH to a directory holding IBM Plex Mono (Regular and SemiBold)." >&2
+      echo "social-card: the OFL originals are at https://github.com/google/fonts/tree/main/ofl/ibmplexmono" >&2
+      exit 1
+    fi
+    # Rendered aside and moved into place only once it is known good, so a run
+    # that fell back to a substitute face cannot leave that card in the tree.
+    # A directory, not `mktemp -t <name>`: that reserves a name without the .png
+    # suffix typst needs, so appending one both leaves the reserved file behind
+    # and writes to a path nothing reserved.
+    staged_dir=$(mktemp -d)
+    trap 'rm -rf "$staged_dir"' EXIT
+    staged="$staged_dir/social-card.png"
+    render=$(typst compile --root . --font-path "$font_path" --ppi 96 --format png \
+      docs/media/social-card.typ "$staged" 2>&1)
+    if [ -n "$render" ]; then echo "$render"; fi
+    if echo "$render" | grep -qi "unknown font family"; then
+      echo "social-card: typst could not find a font it was asked for, so the card above is set in a fallback face." >&2
+      echo "social-card: point ONEBOX_FONT_PATH at IBM Plex Mono and render again." >&2
+      exit 1
+    fi
+    mv "$staged" site/public/social-card.png
+    echo "rendered site/public/social-card.png"
+
 # Create and publish the next vYYYY.M.REVISION tag from releasable main.
 release:
     bash scripts/release.sh

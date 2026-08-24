@@ -87,6 +87,15 @@ Then commit the result. `just check` fails if the committed pages do not match
 what the binary produces, and CI fails on any uncommitted change after the
 gate runs.
 
+The social preview card is generated too, but on a looser contract.
+`site/public/social-card.png` comes from `docs/media/social-card.typ` by way of
+`just social-card`, which needs IBM Plex Mono on a font path — set
+`ONEBOX_FONT_PATH` to a directory holding it. CI has no such directory, so the
+gate cannot re-render the card to compare it; what `site-build` does assert is
+that the committed PNG exists and still matches the dimensions the site's head
+advertises. If you edit the `.typ`, run the recipe and commit the PNG beside it,
+because nothing else will notice that the two have drifted apart.
+
 ## Tests
 
 New behavior needs a test that fails without the change. Onebox's test suite is

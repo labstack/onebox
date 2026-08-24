@@ -24,9 +24,10 @@ const markdownHref = ids.has(id)
 // is what the tagline is for, and a generated-per-page card would be a build
 // dependency on fonts the site only loads in the browser.
 //
-// Absolute URLs are required here — Open Graph consumers do not resolve
-// relative hrefs — so both fall back to the current URL when `site` is unset,
-// which only happens in a bare `astro dev`.
+// Absolute URLs are required here: Open Graph consumers do not resolve relative
+// hrefs. `astro.config.mjs` always sets `site`, so the fallback is not a
+// configuration this repository ships — Astro types `Astro.site` as optional
+// regardless, and the line above resolves its URL the same way.
 const socialCardHref = new URL("/social-card.png", Astro.site ?? Astro.url).href;
 ---
 

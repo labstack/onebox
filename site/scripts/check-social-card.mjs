@@ -79,7 +79,16 @@ if (declared.size === 0) {
 }
 
 for (const [href, size] of declared) {
-  const path = new URL(href).pathname;
+  // The tag is written by hand, so an author could reasonably make it relative.
+  // Open Graph consumers do not resolve those, and neither does this check —
+  // saying so beats throwing a URL parse error at whoever runs the build.
+  let path;
+  try {
+    path = new URL(href).pathname;
+  } catch {
+    console.error(`check-social-card: og:image is "${href}", which is not an absolute URL — consumers cannot resolve it`);
+    process.exit(1);
+  }
   let bytes;
   try {
     bytes = await readFile(join(dist, path));

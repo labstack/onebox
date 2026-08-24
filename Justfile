@@ -301,8 +301,12 @@ social-card:
     fi
     # Rendered aside and moved into place only once it is known good, so a run
     # that fell back to a substitute face cannot leave that card in the tree.
-    staged=$(mktemp -t social-card).png
-    trap 'rm -f "$staged"' EXIT
+    # A directory, not `mktemp -t <name>`: that reserves a name without the .png
+    # suffix typst needs, so appending one both leaves the reserved file behind
+    # and writes to a path nothing reserved.
+    staged_dir=$(mktemp -d)
+    trap 'rm -rf "$staged_dir"' EXIT
+    staged="$staged_dir/social-card.png"
     render=$(typst compile --root . --font-path "$font_path" --ppi 96 --format png \
       docs/media/social-card.typ "$staged" 2>&1)
     if [ -n "$render" ]; then echo "$render"; fi

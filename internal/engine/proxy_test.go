@@ -31,7 +31,7 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 	}
 	cfg := testConfig()
 	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
-	hash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "")
+	hash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)
 	// remote compose identical to what we render; only the config hash differs
-	rendered := string(proxy.RenderCompose("", "", true))
+	rendered := string(proxy.RenderCompose("", "", true, nil))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {
@@ -186,7 +186,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)
-	rendered := string(proxy.RenderCompose("", "", true))
+	rendered := string(proxy.RenderCompose("", "", true, nil))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {

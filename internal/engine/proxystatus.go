@@ -155,7 +155,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				return err
 			}
 			defer os.RemoveAll(staging)
-			px.localHash, err = proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network)
+			px.localHash, err = proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
 			return err
 		},
 	}

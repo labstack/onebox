@@ -55,7 +55,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte("ping: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	localHash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "")
+	localHash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

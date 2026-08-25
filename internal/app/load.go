@@ -521,8 +521,16 @@ func crossFieldRules(p *Spec) error {
 		return err
 	}
 	if p.Proxy.Kind != "none" && p.Proxy.Managed && p.Proxy.Config == "" {
+		knownEntrypoints := map[string]struct{}{"web": {}, "websecure": {}}
+		for name := range p.Proxy.Entrypoints {
+			knownEntrypoints[name] = struct{}{}
+		}
 		for _, name := range sortedKeys(p.Workloads) {
 			for i, route := range p.Workloads[name].Routes {
+				if _, exists := knownEntrypoints[route.Entrypoint]; !exists {
+					return errf("project_invalid", indexed("workloads."+name+".routes", i)+".entrypoint", "",
+						"proxy entrypoint %q is not built in or declared under proxy.entrypoints", route.Entrypoint)
+				}
 				if len(route.Middlewares) == 0 {
 					continue
 				}

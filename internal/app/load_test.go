@@ -24,6 +24,45 @@ func TestRoutedProjectRefusesDefaultAsProxyNetwork(t *testing.T) {
 	}
 }
 
+func TestProxyEntrypointsValidateNamesAndPorts(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"valid", "proxy: {entrypoints: {otlp-grpc: {port: 4317}, otlp-http: {port: 4318}}}\n", ""},
+		{"invalid name", "proxy: {entrypoints: {OTLP: {port: 4317}}}\n", "proxy.entrypoints.OTLP"},
+		{"built-in name", "proxy: {entrypoints: {web: {port: 4317}}}\n", "built in"},
+		{"built-in port", "proxy: {entrypoints: {otlp: {port: 443}}}\n", "websecure"},
+		{"duplicate port", "proxy: {entrypoints: {otlp-grpc: {port: 4317}, otlp-http: {port: 4317}}}\n", "both publish port 4317"},
+		{"invalid port", "proxy: {entrypoints: {otlp: {port: 70000}}}\n", "proxy.entrypoints.otlp.port"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadBytes([]byte(min+tc.yaml), "ob.yml")
+			if tc.want == "" && err != nil {
+				t.Fatalf("valid proxy entrypoints: %v", err)
+			}
+			if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("error = %v, want text %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestManagedGeneratedProxyRequiresDeclaredRouteEntrypoint(t *testing.T) {
+	project := base + `workloads:
+  grpc:
+    image: app:1
+    routes: [{domain: grpc.example.com, port: 4317, entrypoint: otlp-grpc, scheme: h2c}]
+`
+	if _, err := LoadBytes([]byte(project), "ob.yml"); err == nil || !strings.Contains(err.Error(), "proxy.entrypoints") {
+		t.Fatalf("an unknown generated entrypoint must be refused: %v", err)
+	}
+	if _, err := LoadBytes([]byte(project+"proxy: {config: traefik}\n"), "ob.yml"); err != nil {
+		t.Fatalf("custom static proxy config owns its entrypoints: %v", err)
+	}
+}
+
 type conformanceCase struct {
 	name string
 	yaml string
@@ -454,6 +493,7 @@ workloads:
     image: y:1
     routes:
       - {domain: shop.example.com, path: /, port: 90, entrypoint: grpc, scheme: h2c}
+proxy: {entrypoints: {grpc: {port: 8443}}}
 `), "ob.yml")
 	if err != nil {
 		t.Fatalf("distinct entrypoints are distinct addresses: %v", err)

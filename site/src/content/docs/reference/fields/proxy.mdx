@@ -17,7 +17,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`cert_resolver` · `config` · `image` · `kind` · `managed` · `network`
+`cert_resolver` · `config` · `entrypoints` · `image` · `kind` · `managed` · `network` · `port`
 
 ## Reference
 
@@ -25,6 +25,8 @@ cannot drift from what `ob validate` accepts.
 | --- | --- | --- | --- |
 | `cert_resolver` | string | — | Traefik certificate resolver used by terminating TLS routes. |
 | `config` | string | — | Repository-relative static proxy configuration directory owned by the project; it must contain exactly one of traefik.yml or traefik.yaml. Expects a path inside the repository, with no control character or shell metacharacter. |
+| `entrypoints` | map | — | Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a declared proxy.config must define matching Traefik entrypoints. |
+| `entrypoints.<name>.port` | integer | — | Host and proxy-container TCP port used by this listener. |
 | `image` | string | — | Container image used for the managed proxy. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `kind` | `traefik-docker` · `none` | `traefik-docker` | Proxy implementation, or none to disable routing. |
 | `managed` | boolean | — | Let Onebox converge the host-scoped proxy when routes are declared. |

@@ -42,7 +42,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return err
 	}
 	defer os.RemoveAll(staging)
-	hash, err := proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network)
+	hash, err := proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
 	if err != nil {
 		return err
 	}

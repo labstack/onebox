@@ -50,6 +50,10 @@ workloads:
     when: pre_release
 services:
   postgres: 16
+proxy:
+  entrypoints:
+    grpc: {port: 9000}
+    pg: {port: 5432}
 `
 
 func purityFixture(t *testing.T) *Spec {

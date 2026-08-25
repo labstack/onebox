@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -46,6 +47,26 @@ func RenderContext(ctx context.Context, configDir, sopsFile string) ([]byte, err
 		return nil, fmt.Errorf("sops not available on this machine: %w", err)
 	}
 	return renderDecrypted(sopsFile, out)
+}
+
+// RenderBytesContext decrypts one immutable source snapshot. The temporary
+// file preserves the original basename so SOPS can infer its input format;
+// callers can fingerprint exactly the ciphertext bytes that produced the
+// returned runtime payload without a second, racy read of the source path.
+func RenderBytesContext(ctx context.Context, sourceName string, encrypted []byte) ([]byte, error) {
+	directory, err := os.MkdirTemp("", "ob-sops-snapshot")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(directory) }()
+	name := filepath.Base(sourceName)
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		return nil, errors.New("encrypted source name is invalid")
+	}
+	if err := os.WriteFile(filepath.Join(directory, name), encrypted, 0o600); err != nil {
+		return nil, err
+	}
+	return RenderContext(ctx, directory, name)
 }
 
 // renderDecrypted turns decrypted bytes into the environment file the

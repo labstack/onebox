@@ -122,6 +122,26 @@ func TestSecretCheckpointRejectsUnsafePayloadPaths(t *testing.T) {
 	}
 }
 
+func TestLegacySecretCheckpointRemainsReadable(t *testing.T) {
+	checkpoint, err := NewSecretCheckpoint("20260809-120000-current", "sg-111111111111111111111111", "sg-222222222222222222222222", []string{"web"}, []string{"web.env"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint.SchemaVersion = LegacySecretCheckpointSchemaVersion
+	checkpoint.ChangedPaths = nil
+	body, err := EncodeSecretCheckpoint(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeSecretCheckpoint(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SchemaVersion != LegacySecretCheckpointSchemaVersion || len(decoded.ChangedPaths) != 0 {
+		t.Fatalf("legacy checkpoint = %#v", decoded)
+	}
+}
+
 func TestReadSecretCheckpointFailsClosed(t *testing.T) {
 	names := app.Names{App: "shop", BasePath: "/srv/onebox"}
 	tests := []struct {

@@ -2,6 +2,7 @@ package onebox
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
@@ -41,7 +42,7 @@ func planWorkloadActions(cfg *app.Resolved, steps []OperationStep, planned strin
 	if err != nil {
 		return nil, err
 	}
-	releaseBound := releaseBoundWorkloads(cfg)
+	nonRetainable := nonRetainableWorkloads(cfg)
 	plannedSteps := append([]OperationStep(nil), steps...)
 	for index := range plannedSteps {
 		step := &plannedSteps[index]
@@ -67,8 +68,8 @@ func planWorkloadActions(cfg *app.Resolved, steps []OperationStep, planned strin
 			// Keep that fresh roll explicit in the sealed graph rather than
 			// approving retain and silently widening execution afterwards.
 			step.Reason = "redeploy_only"
-		case releaseBound[step.Service] != "":
-			step.Reason = releaseBound[step.Service]
+		case nonRetainable[step.Service] != "":
+			step.Reason = nonRetainable[step.Service]
 		case !observedRevisionMatches(host.WorkloadRevisions[step.Service], revision, workload.Count()):
 			if !observedRevisionsAvailable(host.WorkloadRevisions[step.Service]) {
 				step.Reason = "revision_unavailable"
@@ -122,46 +123,22 @@ func observedHealthRetainable(observed []string, count int) bool {
 	return true
 }
 
-func releaseBoundWorkloads(cfg *app.Resolved) map[string]string {
+func nonRetainableWorkloads(cfg *app.Resolved) map[string]string {
 	bound := make(map[string]string, len(cfg.Workloads))
-	secretBound := map[string]bool{}
-	for _, declaration := range cfg.SecretDeclarationGraph() {
-		for _, name := range declaration.AffectedWorkloads {
-			secretBound[name] = true
-		}
-	}
 	for name, workload := range cfg.Workloads {
 		switch {
 		case workload.Compose != "":
 			bound[name] = "compose_reference_ambiguous"
-		case secretBound[name]:
-			bound[name] = "secret_binding_ambiguous"
-		case len(cfg.Spec.EnvFilesFor(workload)) > 0:
-			bound[name] = "env_file_release_bound"
-		case hasBindMount(workload):
-			bound[name] = "bind_mount_ambiguous"
-		case hasConnectionFile(cfg, workload):
-			bound[name] = "connection_binding_ambiguous"
+		case hasReleasePathDependency(workload):
+			bound[name] = "release_path_dependency"
 		}
 	}
 	return bound
 }
 
-func hasBindMount(workload app.Workload) bool {
+func hasReleasePathDependency(workload app.Workload) bool {
 	for _, volume := range workload.Volumes {
-		if volume.IsBind() {
-			return true
-		}
-	}
-	return false
-}
-
-func hasConnectionFile(cfg *app.Resolved, workload app.Workload) bool {
-	for _, need := range workload.Needs {
-		if _, ok := cfg.Services[need.Name]; ok {
-			return true
-		}
-		if _, ok := cfg.ExternalServices[need.Name]; ok {
+		if volume.IsBind() && !path.IsAbs(volume.Source) {
 			return true
 		}
 	}

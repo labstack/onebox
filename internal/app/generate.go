@@ -186,6 +186,10 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 }
 
 func stampWorkloadRevision(service map[string]any) error {
+	return stampWorkloadRevisionWithSecretOutputs(service, nil)
+}
+
+func stampWorkloadRevisionWithSecretOutputs(service map[string]any, secretOutputs map[string]bool) error {
 	canonical := make(map[string]any, len(service))
 	for key, value := range service {
 		canonical[key] = value
@@ -193,11 +197,14 @@ func stampWorkloadRevision(service map[string]any) error {
 	labels, _ := service["labels"].(map[string]any)
 	canonicalLabels := make(map[string]any, len(labels))
 	for key, value := range labels {
-		if key != "ob.release" && key != WorkloadRevisionLabel {
+		if key != "ob.release" && key != WorkloadRevisionLabel && key != "ob.secret-generation" {
 			canonicalLabels[key] = value
 		}
 	}
 	canonical["labels"] = canonicalLabels
+	if raw, ok := service["env_file"]; ok && len(secretOutputs) > 0 {
+		canonical["env_file"] = normalizeSecretGenerationEnvFiles(raw, secretOutputs)
+	}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return err

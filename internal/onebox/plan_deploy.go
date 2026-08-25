@@ -66,6 +66,10 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, err
 	}
+	liveContracts, err := app.WorkloadContractsFromCompose([]byte(liveRedacted))
+	if err != nil {
+		return DeployPlan{}, fmt.Errorf("read live workload contracts: %w", err)
+	}
 	secretGeneration := ""
 	activeSecretGeneration := ""
 	secretGraph := lp.resolved.SecretDeclarationGraph()
@@ -87,7 +91,27 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 			}
 		}
 	}
-	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, releaseID, secretGeneration, pins)
+	desiredSecretInputs, err := lp.resolved.SecretInputRevisions(filepath.Dir(lp.configPath))
+	if err != nil {
+		return DeployPlan{}, err
+	}
+	changedSecretWorkloads := map[string]bool{}
+	if activeSecretGeneration != "" {
+		for workload, revision := range desiredSecretInputs {
+			if liveContracts[workload].SecretInputRevision != revision {
+				changedSecretWorkloads[workload] = true
+			}
+		}
+		if len(changedSecretWorkloads) > 0 {
+			secretGeneration, err = s.newSecretGeneration()
+			if err != nil {
+				return DeployPlan{}, fmt.Errorf("create replacement secret generation: %w", err)
+			}
+		}
+	}
+	secretRevisions := secretRevisionsFor(secretGraph, secretGeneration, liveContracts)
+	markChangedSecretWorkloads(secretRevisions, changedSecretWorkloads, secretGeneration)
+	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, releaseID, secretGeneration, secretRevisions, pins)
 	if err != nil {
 		return DeployPlan{}, err
 	}
@@ -130,43 +154,6 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 			noOp = livePayloadDigest == payloadDigest
 		}
 	}
-	// Reusing the active generation is what allows a truly unchanged plan to be
-	// a no-op. Once any bound input differs, the release gets a fresh opaque
-	// generation and is restaged so new secret bytes can never masquerade under
-	// the old identity.
-	if !noOp && activeSecretGeneration != "" {
-		cleanupStaging()
-		secretGeneration, err = s.newSecretGeneration()
-		if err != nil {
-			return DeployPlan{}, fmt.Errorf("create replacement secret generation: %w", err)
-		}
-		newStaging, newCleanup, stageErr := stageExecution(ctx, lp, s.environment, releaseID, secretGeneration, pins)
-		if stageErr != nil {
-			return DeployPlan{}, stageErr
-		}
-		staging, cleanupStaging = newStaging, newCleanup
-		rendered, err = os.ReadFile(filepath.Join(staging, "compose.yaml"))
-		if err != nil {
-			return DeployPlan{}, fmt.Errorf("read restaged compose: %w", err)
-		}
-		renderedRedacted, err = compose.RedactEnvYAML(rendered)
-		if err != nil {
-			return DeployPlan{}, fmt.Errorf("redact restaged compose: %w", err)
-		}
-		diff, err = difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-			A: difflib.SplitLines(liveRedacted), B: difflib.SplitLines(string(renderedRedacted)),
-			FromFile: "live (" + noneIfEmpty(hostState.CurrentRelease) + ")",
-			ToFile:   "planned (" + releaseID + ")", Context: 3,
-		})
-		if err != nil {
-			return DeployPlan{}, fmt.Errorf("build restaged compose diff: %w", err)
-		}
-		payloadDigest, err = engine.LocalPayloadDigestContext(ctx, lp.resolved, staging)
-		if err != nil {
-			return DeployPlan{}, fmt.Errorf("hash restaged payload: %w", err)
-		}
-	}
-
 	configDigest := engine.HashBytes(lp.configBytes)
 	steps, err := DeploymentGraph(lp.resolved, releaseID)
 	if err != nil {
@@ -291,7 +278,7 @@ func readLiveComposeState(ctx context.Context, e *engine.Engine, currentRelease 
 // env. Generation emits all three from the declaration, so there is nothing to
 // patch into a document afterwards, and no second place where the runtime can
 // differ from what `ob preview` showed.
-func stageExecution(ctx context.Context, lp *loadedProject, environment, releaseID, secretGeneration string, images app.Images) (string, func(), error) {
+func stageExecution(ctx context.Context, lp *loadedProject, environment, releaseID, secretGeneration string, secretRevisions map[string]string, images app.Images) (string, func(), error) {
 	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.Name)
 	if err != nil {
 		return "", nil, err
@@ -388,11 +375,20 @@ func stageExecution(ctx context.Context, lp *loadedProject, environment, release
 		}
 	}
 	body := compose.RewriteSources(rendered.Bytes, rewrites)
-	if len(lp.resolved.SecretDeclarationGraph()) > 0 {
-		body, err = app.ApplySecretGeneration(body, lp.resolved.SecretDeclarationGraph(), secretGeneration)
+	secretGraph := lp.resolved.SecretDeclarationGraph()
+	if len(secretGraph) > 0 {
+		body, err = app.ApplySecretGeneration(body, secretGraph, secretGeneration)
 		if err != nil {
 			return fail(err)
 		}
+	}
+	contracts, err := workloadContracts(lp.resolved, staging, filepath.Dir(lp.configPath), secretRevisions)
+	if err != nil {
+		return fail(err)
+	}
+	body, err = app.ApplyWorkloadContracts(body, secretGraph, contracts)
+	if err != nil {
+		return fail(err)
 	}
 	if err := release.Stage(staging, body, lp.configBytes); err != nil {
 		return fail(err)

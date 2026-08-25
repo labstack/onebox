@@ -493,7 +493,7 @@ func TestExecuteRejectsStagedPayloadDriftBeforeMutation(t *testing.T) {
 	}
 	approval := approvalForTestPlan(t, &plan)
 	result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
-	if err == nil || !strings.Contains(err.Error(), "release payload differs from the plan") {
+	if err == nil || (!strings.Contains(err.Error(), "release payload differs from the plan") && !strings.Contains(err.Error(), "rendered Compose differs from the plan")) {
 		t.Fatalf("payload drift was not rejected: result=%#v err=%v", result, err)
 	}
 	if len(fake.Uploads) != 0 || len(fake.Inputs) != 0 {

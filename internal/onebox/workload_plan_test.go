@@ -33,7 +33,12 @@ workloads:
     image: ghcr.io/example/bind:v1
     strategy: recreate
     volumes: [{source: ./payload, path: /payload, mode: ro}]
-deployment: {order: [api, worker, env-worker, secret-worker, bind-worker]}
+  host-bind-worker:
+    role: worker
+    image: ghcr.io/example/host-bind:v1
+    strategy: recreate
+    volumes: [{source: /data/sample, path: /data, mode: rw}]
+deployment: {order: [api, worker, env-worker, secret-worker, bind-worker, host-bind-worker]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -59,11 +64,13 @@ deployment: {order: [api, worker, env-worker, secret-worker, bind-worker]}
 		WorkloadRevisions: map[string][]string{
 			"api": {revisions["api"], revisions["api"]}, "worker": {revisions["worker"]},
 			"env-worker": {revisions["env-worker"]}, "secret-worker": {revisions["secret-worker"]},
-			"bind-worker": {revisions["bind-worker"]},
+			"bind-worker":      {revisions["bind-worker"]},
+			"host-bind-worker": {revisions["host-bind-worker"]},
 		},
 		WorkloadHealth: map[string][]string{
 			"api": {"healthy", "healthy"}, "worker": {"none"},
 			"env-worker": {"none"}, "secret-worker": {"none"}, "bind-worker": {"none"},
+			"host-bind-worker": {"none"},
 		},
 	}
 	return resolved, string(rendered.Bytes), steps, host
@@ -81,19 +88,13 @@ func TestPlanWorkloadActionsRetainsOnlyProvenRuntimeMatches(t *testing.T) {
 			byName[step.Service] = step
 		}
 	}
-	for _, name := range []string{"api", "worker"} {
+	for _, name := range []string{"api", "worker", "env-worker", "secret-worker", "host-bind-worker"} {
 		step := byName[name]
 		if step.Action != "retain" || step.Mutation || step.Reason != "runtime_unchanged" || !strings.HasPrefix(step.Revision, "sha256:") {
 			t.Errorf("%s plan = %#v, want non-mutating retain", name, step)
 		}
 	}
-	if step := byName["env-worker"]; step.Action != "recreate" || step.Reason != "env_file_release_bound" || !step.Mutation {
-		t.Errorf("env-worker plan = %#v", step)
-	}
-	if step := byName["secret-worker"]; step.Action != "recreate" || step.Reason != "secret_binding_ambiguous" || !step.Mutation {
-		t.Errorf("secret-worker plan = %#v", step)
-	}
-	if step := byName["bind-worker"]; step.Action != "recreate" || step.Reason != "bind_mount_ambiguous" || !step.Mutation {
+	if step := byName["bind-worker"]; step.Action != "recreate" || step.Reason != "release_path_dependency" || !step.Mutation {
 		t.Errorf("bind-worker plan = %#v", step)
 	}
 }

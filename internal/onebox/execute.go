@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
@@ -217,27 +218,40 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		// Render the complete graph before entering the engine. The engine then
 		// compares, checkpoints and replaces it as one generation-wide unit.
 		payloads := make([]engine.SecretPayload, 0, len(entries)+len(externalProjections))
+		sourceSnapshots := map[string][]byte{}
+		decryptedSources := map[string][]byte{}
+		renderSource := func(provider, file string) ([]byte, error) {
+			cacheKey := provider + "\x00" + file
+			if source, ok := decryptedSources[cacheKey]; ok {
+				return source, nil
+			}
+			encrypted, readErr := secretSourceSnapshot(filepath.Dir(lp.configPath), file, sourceSnapshots)
+			if readErr != nil {
+				return nil, readErr
+			}
+			source, renderErr := secrets.RenderBytesContext(ctx, file, encrypted)
+			if renderErr != nil {
+				return nil, renderErr
+			}
+			decryptedSources[cacheKey] = source
+			return source, nil
+		}
 		for _, entry := range entries {
 			var envBytes []byte
-			envBytes, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), entry.File)
+			envBytes, err = renderSource(entry.Provider, entry.File)
 			if err != nil {
 				break
 			}
 			payloads = append(payloads, engine.SecretPayload{Path: entry.StagedPath(), Bytes: envBytes})
 		}
-		decryptedSources := map[string][]byte{}
 		for _, projection := range externalProjections {
 			if err != nil {
 				break
 			}
-			cacheKey := projection.Source.Provider + "\x00" + projection.Source.File
-			source, ok := decryptedSources[cacheKey]
-			if !ok {
-				source, err = secrets.RenderContext(ctx, filepath.Dir(lp.configPath), projection.Source.File)
-				if err != nil {
-					break
-				}
-				decryptedSources[cacheKey] = source
+			source, renderErr := renderSource(projection.Source.Provider, projection.Source.File)
+			if renderErr != nil {
+				err = renderErr
+				break
 			}
 			var envBytes []byte
 			envBytes, err = secrets.ProjectEnvironment(source, projection.Entries)
@@ -246,8 +260,13 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 			}
 		}
 		if err == nil {
+			var inputRevisions map[string]string
+			inputRevisions, err = lp.resolved.SecretInputRevisionsFromSources(sourceSnapshots)
+			if err != nil {
+				break
+			}
 			var push engine.SecretPushResult
-			push, err = e.SecretsPushBatch(ctx, payloads)
+			push, err = e.SecretsPushBatchWithInputs(ctx, payloads, inputRevisions)
 			result.EvidenceID = push.ReleaseID
 			result.NoOp = push.NoOp
 		}
@@ -258,6 +277,18 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		emitProgress("execute", "succeeded", "")
 	}
 	return finish(err)
+}
+
+func secretSourceSnapshot(projectRoot, file string, snapshots map[string][]byte) ([]byte, error) {
+	if body, ok := snapshots[file]; ok {
+		return body, nil
+	}
+	body, err := os.ReadFile(filepath.Join(projectRoot, filepath.FromSlash(file)))
+	if err != nil {
+		return nil, err
+	}
+	snapshots[file] = body
+	return body, nil
 }
 
 func (s *Service) executeDeploy(
@@ -430,7 +461,15 @@ func (s *Service) executeDeploy(
 	emit("binding", "succeeded", "")
 
 	emit("stage", "started", "")
-	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, plan.Operation.ReleaseID, plan.Artifact.SecretGeneration, plan.Artifact.PinnedImages)
+	contracts, err := app.WorkloadContractsFromCompose([]byte(plan.Artifact.RenderedCompose))
+	if err != nil {
+		return false, fmt.Errorf("read planned workload contracts: %w", err)
+	}
+	secretRevisions := make(map[string]string, len(contracts))
+	for workload, contract := range contracts {
+		secretRevisions[workload] = contract.SecretRevision
+	}
+	staging, cleanupStaging, err := stageExecution(ctx, lp, s.environment, plan.Operation.ReleaseID, plan.Artifact.SecretGeneration, secretRevisions, plan.Artifact.PinnedImages)
 	if err != nil {
 		return false, err
 	}

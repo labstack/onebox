@@ -96,6 +96,14 @@ type SecretPushResult struct {
 // content hash: comparison happens with cmp on the host after an opaque upload,
 // and journals contain generation identifiers only.
 func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload) (result SecretPushResult, err error) {
+	return e.SecretsPushBatchWithInputs(ctx, payloads, nil)
+}
+
+// SecretsPushBatchWithInputs binds value-free secret-input revisions derived
+// from the exact encrypted source snapshots that produced payloads. Callers
+// without local source material may omit them; the existing deployed input
+// identity is then preserved.
+func (e *Engine) SecretsPushBatchWithInputs(ctx context.Context, payloads []SecretPayload, inputRevisions map[string]string) (result SecretPushResult, err error) {
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return result, err
 	}
@@ -116,7 +124,7 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 	if err != nil {
 		return result, err
 	}
-	workloads := affectedLiveSecretWorkloads(runtimeEngine.Spec, graph)
+	allWorkloads := affectedLiveSecretWorkloads(runtimeEngine.Spec, graph)
 
 	epoch, err := runtimeEngine.AcquireLock(ctx, current, runtimeEngine.Opts.ForceLock)
 	if err != nil {
@@ -161,7 +169,7 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 
 	checkpoint, checkpointErr := release.ReadSecretCheckpoint(ctx, runtimeEngine.T, runtimeEngine.names())
 	if checkpointErr == nil {
-		if checkpoint.ReleaseID != current || !slices.Equal(checkpoint.AffectedWorkloads, workloads) || !slices.Equal(checkpoint.PayloadPaths, paths) {
+		if checkpoint.ReleaseID != current || !secretCheckpointMatchesGraph(checkpoint, runtimeEngine.Spec, graph, allWorkloads, paths) {
 			return result, &SecretRecoveryIncompleteError{ReleaseID: current, Cause: errors.New("durable secret checkpoint does not match the current release declaration graph")}
 		}
 		result.Generation = checkpoint.NewGeneration
@@ -227,8 +235,7 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 		return result, err
 	}
 	result.Generation = newGeneration
-
-	staging, cleanup, err := stageSecretGeneration(payloads, currentCompose, graph, newGeneration)
+	staging, cleanup, err := stageSecretPayloads(payloads)
 	if err != nil {
 		return result, err
 	}
@@ -244,24 +251,60 @@ func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload)
 			err = errors.Join(err, fmt.Errorf("clean secret upload: %w", cleanupErr))
 		}
 	}()
-
-	match, err := runtimeEngine.secretPayloadsMatch(ctx, current, oldGeneration, remoteUpload, paths)
+	changed, err := runtimeEngine.changedSecretPayloads(ctx, current, oldGeneration, remoteUpload, paths)
 	if err != nil {
 		return result, err
 	}
-	if match {
+	if len(changed) == 0 {
 		result.Generation = oldGeneration
 		result.NoOp = true
 		runtimeEngine.logf("secrets unchanged — nothing to do")
 		return result, nil
 	}
+	workloads := affectedLiveSecretWorkloadsForPaths(runtimeEngine.Spec, graph, changed)
+	currentContracts, err := app.WorkloadContractsFromCompose(currentCompose)
+	if err != nil {
+		return result, err
+	}
+	secretRevisions := map[string]string{}
+	for _, workload := range affectedSecretWorkloads(graph) {
+		if revision := currentContracts[workload].SecretRevision; app.IsSecretGeneration(revision) {
+			secretRevisions[workload] = revision
+		} else {
+			secretRevisions[workload] = oldGeneration
+		}
+	}
+	for _, declaration := range graph {
+		if !changed[declaration.OutputPath] {
+			continue
+		}
+		for _, workload := range declaration.AffectedWorkloads {
+			secretRevisions[workload] = newGeneration
+		}
+	}
+	contracts := make(map[string]app.WorkloadContract, len(currentContracts))
+	for workload, contract := range currentContracts {
+		contract.SecretRevision = secretRevisions[workload]
+		if revision := inputRevisions[workload]; revision != "" {
+			contract.SecretInputRevision = revision
+		}
+		contracts[workload] = contract
+	}
+	newCompose, err := secretGenerationCompose(currentCompose, graph, newGeneration, contracts)
+	if err != nil {
+		return result, err
+	}
+	if err := runtimeEngine.writeServiceFile(ctx, remoteUpload+"/compose.new.yaml", newCompose); err != nil {
+		return result, fmt.Errorf("stage secret generation runtime: %w", err)
+	}
+
 	if err := startJournal("old_generation=" + oldGeneration + " new_generation=" + newGeneration); err != nil {
 		return result, err
 	}
 	if err := runtimeEngine.installSecretGenerationCandidates(ctx, current, oldGeneration, newGeneration, remoteUpload); err != nil {
 		return result, err
 	}
-	checkpoint, err = release.NewSecretCheckpoint(current, oldGeneration, newGeneration, workloads, paths, runtimeEngine.Opts.Now())
+	checkpoint, err = release.NewSelectiveSecretCheckpoint(current, oldGeneration, newGeneration, workloads, paths, sortedSet(changed), runtimeEngine.Opts.Now())
 	if err != nil {
 		return result, err
 	}
@@ -373,6 +416,36 @@ func affectedLiveSecretWorkloads(spec *app.Resolved, graph []app.SecretDeclarati
 	return sortedSet(set)
 }
 
+func affectedLiveSecretWorkloadsForPaths(spec *app.Resolved, graph []app.SecretDeclaration, paths map[string]bool) []string {
+	set := map[string]bool{}
+	for _, declaration := range graph {
+		if !paths[declaration.OutputPath] {
+			continue
+		}
+		for _, workload := range declaration.AffectedWorkloads {
+			if spec.Workloads[workload].Role != app.RoleJob {
+				set[workload] = true
+			}
+		}
+	}
+	return sortedSet(set)
+}
+
+func secretCheckpointMatchesGraph(checkpoint release.SecretCheckpoint, spec *app.Resolved, graph []app.SecretDeclaration, allWorkloads, paths []string) bool {
+	if !slices.Equal(checkpoint.PayloadPaths, paths) {
+		return false
+	}
+	if checkpoint.SchemaVersion == release.LegacySecretCheckpointSchemaVersion {
+		return len(checkpoint.ChangedPaths) == 0 && slices.Equal(checkpoint.AffectedWorkloads, allWorkloads)
+	}
+	changed := map[string]bool{}
+	for _, changedPath := range checkpoint.ChangedPaths {
+		changed[changedPath] = true
+	}
+	expected := affectedLiveSecretWorkloadsForPaths(spec, graph, changed)
+	return slices.Equal(checkpoint.AffectedWorkloads, expected)
+}
+
 func sortedSet(set map[string]bool) []string {
 	values := make([]string, 0, len(set))
 	for value := range set {
@@ -403,7 +476,7 @@ func (e *Engine) freshSecretGeneration(exclude string) (string, error) {
 	return "", errors.New("secret generation source returned invalid or repeated identifiers")
 }
 
-func stageSecretGeneration(payloads []SecretPayload, currentCompose []byte, graph []app.SecretDeclaration, newGeneration string) (string, func(), error) {
+func stageSecretPayloads(payloads []SecretPayload) (string, func(), error) {
 	directory, err := os.MkdirTemp("", "ob-secret-generation")
 	if err != nil {
 		return "", nil, err
@@ -419,14 +492,15 @@ func stageSecretGeneration(payloads []SecretPayload, currentCompose []byte, grap
 			return fail(err)
 		}
 	}
+	return directory, cleanup, nil
+}
+
+func secretGenerationCompose(currentCompose []byte, graph []app.SecretDeclaration, newGeneration string, contracts map[string]app.WorkloadContract) ([]byte, error) {
 	newCompose, err := app.ApplySecretGeneration(currentCompose, graph, newGeneration)
 	if err != nil {
-		return fail(err)
+		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(directory, "compose.new.yaml"), newCompose, 0o600); err != nil {
-		return fail(err)
-	}
-	return directory, cleanup, nil
+	return app.ApplyWorkloadContracts(newCompose, graph, contracts)
 }
 
 func (e *Engine) readReleaseCompose(ctx context.Context, releaseID string) ([]byte, error) {
@@ -441,28 +515,30 @@ func (e *Engine) readReleaseCompose(ctx context.Context, releaseID string) ([]by
 	return []byte(result.Stdout), nil
 }
 
-func (e *Engine) secretPayloadsMatch(ctx context.Context, releaseID, oldGeneration, upload string, paths []string) (bool, error) {
+func (e *Engine) changedSecretPayloads(ctx context.Context, releaseID, oldGeneration, upload string, paths []string) (map[string]bool, error) {
 	releaseDir := release.PathsFor(e.names()).Releases + "/" + releaseID
 	oldDir, err := secretGenerationDir(releaseDir, oldGeneration)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	commands := make([]string, 0, len(paths))
+	changed := map[string]bool{}
 	for _, payloadPath := range paths {
-		commands = append(commands, "cmp -s "+q(path.Join(upload, "payload", payloadPath))+" "+q(path.Join(oldDir, payloadPath)))
+		candidate := path.Join(upload, "payload", payloadPath)
+		remote := path.Join(oldDir, payloadPath)
+		command := "if [ -L " + q(remote) + " ] || [ ! -f " + q(remote) + " ]; then exit 2; fi; cmp -s " + q(candidate) + " " + q(remote)
+		result, err := e.T.Run(ctx, command)
+		if err != nil {
+			return nil, err
+		}
+		switch result.ExitCode {
+		case 0:
+		case 1:
+			changed[payloadPath] = true
+		default:
+			return nil, fmt.Errorf("compare secret input %q failed (exit %d): %s", payloadPath, result.ExitCode, strings.TrimSpace(result.Stderr))
+		}
 	}
-	result, err := e.T.Run(ctx, strings.Join(commands, " && "))
-	if err != nil {
-		return false, err
-	}
-	switch result.ExitCode {
-	case 0:
-		return true, nil
-	case 1:
-		return false, nil
-	default:
-		return false, fmt.Errorf("compare secret generation failed (exit %d): %s", result.ExitCode, strings.TrimSpace(result.Stderr))
-	}
+	return changed, nil
 }
 
 func secretGenerationDir(releaseDir, generation string) (string, error) {

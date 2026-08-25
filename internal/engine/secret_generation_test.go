@@ -207,6 +207,55 @@ func seedSecretCheckpoint(t *testing.T, fake *transport.Fake, engine *Engine, ph
 	fake.Inputs = nil
 }
 
+func seedSelectiveSecretCheckpoint(t *testing.T, fake *transport.Fake, engine *Engine, phase release.SecretPhase, replaced ...string) {
+	t.Helper()
+	at := time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC)
+	checkpoint, err := release.NewSelectiveSecretCheckpoint(
+		"20260809-120000-current", oldSecretGeneration, newSecretGeneration,
+		[]string{"web"},
+		[]string{".ob-decrypted-sops-web.enc.env", ".ob-decrypted-sops-worker.enc.env"},
+		[]string{".ob-decrypted-sops-web.enc.env"},
+		at,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workload := range replaced {
+		at = at.Add(time.Second)
+		if err := checkpoint.MarkReplaced(workload, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for phase != checkpoint.Phase {
+		at = at.Add(time.Second)
+		next := phase
+		if phase != release.SecretRecovering {
+			switch checkpoint.Phase {
+			case release.SecretPrepared:
+				next = release.SecretReplacing
+			case release.SecretReplacing:
+				next = release.SecretVerifying
+			case release.SecretVerifying:
+				next = release.SecretCommitting
+			case release.SecretCommitting:
+				next = release.SecretCommitted
+			}
+		}
+		if err := checkpoint.SetPhase(next, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, input, err := release.SecretCheckpointWrite(engine.Names(), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := fake.RunInput(context.Background(), command, input); err != nil || result.ExitCode != 0 {
+		t.Fatalf("seed selective checkpoint: result=%#v err=%v", result, err)
+	}
+	fake.Commands = nil
+	fake.Inputs = nil
+}
+
 func TestSecretGenerationChangedCommitsAllNewWithoutLeakingContent(t *testing.T) {
 	fake, state := newGenerationFake(t, false)
 	var output bytes.Buffer
@@ -233,13 +282,95 @@ func TestSecretGenerationChangedCommitsAllNewWithoutLeakingContent(t *testing.T)
 		t.Fatalf("pre-checkpoint orphan generations were not swept:\n%s", commands)
 	}
 	allEvidence := commands + "\n" + strings.Join(fake.Inputs, "\n") + "\n" + output.String()
-	for _, forbidden := range []string{"TOP_SECRET_NEW", "sha256:", HashBytesHex([]byte("WEB=TOP_SECRET_NEW\n"))} {
+	for _, forbidden := range []string{"TOP_SECRET_NEW", HashBytesHex([]byte("WEB=TOP_SECRET_NEW\n"))} {
 		if strings.Contains(allEvidence, forbidden) {
 			t.Fatalf("secret evidence leaked %q", forbidden)
 		}
 	}
 	if _, err := release.ReadSecretCheckpoint(context.Background(), fake, engine.Names()); !errors.Is(err, release.ErrSecretCheckpointMissing) {
 		t.Fatalf("successful all-new state retained checkpoint: %v", err)
+	}
+}
+
+func TestSecretGenerationReplacesOnlyChangedConsumers(t *testing.T) {
+	fake, state := newGenerationFake(t, false)
+	baseDynamic := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "cmp -s") && strings.Contains(command, ".ob-decrypted-sops-worker.enc.env") {
+			return transport.Result{}, true
+		}
+		return baseDynamic(command)
+	}
+	engine := generationEngine(t, fake, &bytes.Buffer{})
+	result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NoOp || state.generations[state.containers["web"]] != newSecretGeneration {
+		t.Fatalf("changed web secret was not applied: result=%#v state=%#v", result, state.generations)
+	}
+	if state.generations[state.containers["worker"]] != oldSecretGeneration {
+		t.Fatalf("unchanged worker was replaced: state=%#v", state.generations)
+	}
+	commands := strings.Join(fake.Commands, "\n")
+	if strings.Count(commands, "--force-recreate") != 1 {
+		t.Fatalf("expected one changed consumer replacement:\n%s", commands)
+	}
+}
+
+func TestSelectiveSecretCheckpointResumeReplacesOnlyChangedConsumer(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		phase    release.SecretPhase
+		replaced bool
+	}{
+		{"prepared", release.SecretPrepared, false},
+		{"replacing", release.SecretReplacing, false},
+		{"replacing_marked", release.SecretReplacing, true},
+		{"verifying", release.SecretVerifying, true},
+		{"committing", release.SecretCommitting, true},
+		{"committed", release.SecretCommitted, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake, state := newGenerationFake(t, false)
+			if test.replaced {
+				state.generations[state.containers["web"]] = newSecretGeneration
+			}
+			engine := generationEngine(t, fake, &bytes.Buffer{})
+			if test.replaced {
+				seedSelectiveSecretCheckpoint(t, fake, engine, test.phase, "web")
+			} else {
+				seedSelectiveSecretCheckpoint(t, fake, engine, test.phase)
+			}
+			result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Generation != newSecretGeneration {
+				t.Fatalf("generation = %q", result.Generation)
+			}
+			if state.generations[state.containers["web"]] != newSecretGeneration {
+				t.Fatal("changed web consumer was not resumed onto the new generation")
+			}
+			if state.generations[state.containers["worker"]] != oldSecretGeneration {
+				t.Fatal("unchanged worker was replaced while resuming a selective checkpoint")
+			}
+		})
+	}
+}
+
+func TestSelectiveSecretCheckpointRecoveryRestoresOnlyChangedConsumer(t *testing.T) {
+	fake, state := newGenerationFake(t, false)
+	state.generations[state.containers["web"]] = newSecretGeneration
+	engine := generationEngine(t, fake, &bytes.Buffer{})
+	seedSelectiveSecretCheckpoint(t, fake, engine, release.SecretRecovering, "web")
+	result, err := engine.SecretsPushBatch(context.Background(), generationPayloads())
+	var rolledBack *SecretRotationRolledBackError
+	if !errors.As(err, &rolledBack) || result.Generation != oldSecretGeneration {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if state.generations[state.containers["web"]] != oldSecretGeneration || state.generations[state.containers["worker"]] != oldSecretGeneration {
+		t.Fatalf("selective recovery did not restore the all-old state: %#v", state.generations)
 	}
 }
 

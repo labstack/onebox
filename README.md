@@ -44,6 +44,14 @@ the exact plan you reviewed.
 | Runtime ownership | Generated Compose stays inspectable with `ob preview` and can be taken over permanently with `ob eject`. |
 | Automation | Human output, JSON envelopes, and NDJSON event streams come from the same lifecycle service. |
 
+Workload reconciliation is automatic; it needs no selection flag. Onebox
+fingerprints the effective runtime contract, including the rendered service,
+plain environment-file contents, encrypted secret inputs, managed-connection
+declarations, and bind-mount declarations. An unchanged healthy consumer is
+retained when another workload changes. A relative bind source remains tied to
+its release directory and is recreated safely; an unchanged absolute host bind
+can be retained.
+
 You administer Linux, SSH access, and Docker. Onebox owns the generated
 application runtime inside that boundary.
 

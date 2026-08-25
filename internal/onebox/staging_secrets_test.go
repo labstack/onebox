@@ -80,7 +80,7 @@ func TestRootBindCannotOverwriteProjectedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", nil, app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", nil, app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestAPlaintextEntryKeepsItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", nil, app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ external_services:
 	if err != nil {
 		t.Fatal(err)
 	}
-	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", app.Images{})
+	staging, cleanup, err := stageExecution(context.Background(), lp, "production", "R1", "sg-000000000000000000000001", nil, app.Images{})
 	if err != nil {
 		t.Fatal(err)
 	}

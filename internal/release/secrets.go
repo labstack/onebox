@@ -23,7 +23,8 @@ var ErrSecretCheckpointMissing = errors.New("secret checkpoint missing")
 type SecretPhase string
 
 const (
-	SecretCheckpointSchemaVersion = "onebox.run/secret-checkpoint/v1alpha1"
+	LegacySecretCheckpointSchemaVersion = "onebox.run/secret-checkpoint/v1alpha1"
+	SecretCheckpointSchemaVersion       = "onebox.run/secret-checkpoint/v1alpha2"
 
 	SecretPrepared   SecretPhase = "prepared"
 	SecretReplacing  SecretPhase = "replacing"
@@ -45,16 +46,21 @@ type SecretCheckpoint struct {
 	Phase             SecretPhase `json:"phase"`
 	AffectedWorkloads []string    `json:"affected_workloads"`
 	PayloadPaths      []string    `json:"payload_paths"`
+	ChangedPaths      []string    `json:"changed_paths,omitempty"`
 	ReplacedWorkloads []string    `json:"replaced_workloads,omitempty"`
 	UpdatedAt         string      `json:"updated_at"`
 }
 
 func NewSecretCheckpoint(releaseID, oldGeneration, newGeneration string, workloads, paths []string, at time.Time) (SecretCheckpoint, error) {
+	return NewSelectiveSecretCheckpoint(releaseID, oldGeneration, newGeneration, workloads, paths, paths, at)
+}
+
+func NewSelectiveSecretCheckpoint(releaseID, oldGeneration, newGeneration string, workloads, paths, changedPaths []string, at time.Time) (SecretCheckpoint, error) {
 	checkpoint := SecretCheckpoint{
 		SchemaVersion: SecretCheckpointSchemaVersion,
 		ReleaseID:     releaseID, OldGeneration: oldGeneration, NewGeneration: newGeneration,
 		Phase: SecretPrepared, AffectedWorkloads: sortedUnique(workloads), PayloadPaths: sortedUnique(paths),
-		UpdatedAt: timestamp(at),
+		ChangedPaths: sortedUnique(changedPaths), UpdatedAt: timestamp(at),
 	}
 	if err := checkpoint.Validate(); err != nil {
 		return SecretCheckpoint{}, err
@@ -113,7 +119,7 @@ func (checkpoint *SecretCheckpoint) MarkReplaced(workload string, at time.Time) 
 }
 
 func (checkpoint SecretCheckpoint) Validate() error {
-	if checkpoint.SchemaVersion != SecretCheckpointSchemaVersion {
+	if checkpoint.SchemaVersion != SecretCheckpointSchemaVersion && checkpoint.SchemaVersion != LegacySecretCheckpointSchemaVersion {
 		return fmt.Errorf("secret checkpoint schema %q is not supported", checkpoint.SchemaVersion)
 	}
 	if !IsID(checkpoint.ReleaseID) {
@@ -128,13 +134,24 @@ func (checkpoint SecretCheckpoint) Validate() error {
 	if len(checkpoint.PayloadPaths) == 0 {
 		return errors.New("secret checkpoint must bind payload paths")
 	}
-	if !sortedUniqueExact(checkpoint.AffectedWorkloads) || !sortedUniqueExact(checkpoint.PayloadPaths) || !sortedUniqueExact(checkpoint.ReplacedWorkloads) {
+	if !sortedUniqueExact(checkpoint.AffectedWorkloads) || !sortedUniqueExact(checkpoint.PayloadPaths) || !sortedUniqueExact(checkpoint.ChangedPaths) || !sortedUniqueExact(checkpoint.ReplacedWorkloads) {
 		return errors.New("secret checkpoint lists must be sorted and unique")
+	}
+	if checkpoint.SchemaVersion == LegacySecretCheckpointSchemaVersion && len(checkpoint.ChangedPaths) != 0 {
+		return errors.New("legacy secret checkpoint cannot contain changed paths")
+	}
+	if checkpoint.SchemaVersion == SecretCheckpointSchemaVersion && len(checkpoint.ChangedPaths) == 0 {
+		return errors.New("secret checkpoint must bind changed paths")
 	}
 	for _, payloadPath := range checkpoint.PayloadPaths {
 		if path.IsAbs(payloadPath) || path.Clean(payloadPath) != payloadPath || payloadPath == "." || payloadPath == ".." ||
 			strings.HasPrefix(payloadPath, "../") || strings.ContainsAny(payloadPath, "\\\x00") {
 			return fmt.Errorf("secret checkpoint payload path %q is not a canonical relative path", payloadPath)
+		}
+	}
+	for _, changedPath := range checkpoint.ChangedPaths {
+		if !contains(checkpoint.PayloadPaths, changedPath) {
+			return fmt.Errorf("changed secret path %q is outside the checkpoint payload", changedPath)
 		}
 	}
 	for _, workload := range checkpoint.ReplacedWorkloads {

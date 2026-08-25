@@ -141,7 +141,7 @@ func (f *Fake) recordInputStateLocked(cmd, input string) {
 		f.state["manifest:"+envelope.ID] = input
 	case envelope.SchemaVersion == "onebox.run/activation-checkpoint/v1alpha1" && strings.Contains(cmd, "/activation.json.tmp"):
 		f.state["activation"] = input
-	case envelope.SchemaVersion == "onebox.run/secret-checkpoint/v1alpha1" && envelope.ReleaseID != "" && strings.Contains(cmd, "/secret-activation.json.tmp"):
+	case (envelope.SchemaVersion == "onebox.run/secret-checkpoint/v1alpha1" || envelope.SchemaVersion == "onebox.run/secret-checkpoint/v1alpha2") && envelope.ReleaseID != "" && strings.Contains(cmd, "/secret-activation.json.tmp"):
 		f.state["secret-activation"] = input
 	}
 }

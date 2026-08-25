@@ -27,8 +27,9 @@ This page is the reconciliation. Three states:
   additive.
 - Compose generation and validation, SSH transport with known-host checking,
   state-bound plans, image pinning, rendered diffs.
-- Health-gated rolling or recreate deployments, traffic drain, verification,
-  versioned releases, retention, rollback.
+- Per-workload reconciliation that retains proven-unchanged healthy workloads,
+  health-gated rolling or recreate replacement for changed or uncertain ones,
+  traffic drain, verification, versioned releases, retention, rollback.
 - Locks, fencing, append-only journals, resume, abort, migration gates, status,
   audit, SOPS secrets, supporting services, proxy operations, notifications.
 - A canonical, versioned operation graph and one shared Go service for

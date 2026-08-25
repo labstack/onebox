@@ -20,7 +20,7 @@ import (
 // OperationPlanSchemaVersion identifies the stable, executable operation-plan
 // envelope. Plans are rejected across schema versions instead of being
 // interpreted with possibly different execution semantics.
-const OperationPlanSchemaVersion = "onebox.run/operation-plan/v1alpha1"
+const OperationPlanSchemaVersion = "onebox.run/operation-plan/v1alpha2"
 
 // OperationKind identifies one closed, policy-checked operation contract.
 type OperationKind string
@@ -155,6 +155,9 @@ type OperationStep struct {
 	DataEffect   DataEffectClass   `json:"data_effect,omitempty"`
 	ResultPolicy JobResultPolicy   `json:"result_policy,omitempty"`
 	Strategy     string            `json:"strategy,omitempty"`
+	Action       string            `json:"action,omitempty"`
+	Revision     string            `json:"revision,omitempty"`
+	Reason       string            `json:"reason,omitempty"`
 	Mutation     bool              `json:"mutation"`
 }
 
@@ -316,8 +319,33 @@ func (p OperationPlan) Validate() error {
 		if (step.Kind == StepJob || step.Kind == StepWorkloadRelease) && strings.TrimSpace(step.Service) == "" {
 			return fmt.Errorf("step %q service is required", step.ID)
 		}
-		if step.Kind == StepWorkloadRelease && step.Strategy != "rolling" && step.Strategy != "recreate" {
-			return fmt.Errorf("step %q strategy must be rolling or recreate", step.ID)
+		if step.Kind == StepWorkloadRelease {
+			if step.Strategy != "rolling" && step.Strategy != "recreate" {
+				return fmt.Errorf("step %q strategy must be rolling or recreate", step.ID)
+			}
+			if step.Action != "rolling" && step.Action != "recreate" && step.Action != "retain" {
+				return fmt.Errorf("step %q action must be rolling, recreate, or retain", step.ID)
+			}
+			if step.Action != "retain" && step.Action != step.Strategy {
+				return fmt.Errorf("step %q action must match its configured strategy unless retained", step.ID)
+			}
+			if step.Action == "retain" && step.Mutation {
+				return fmt.Errorf("step %q retained workload must be non-mutating", step.ID)
+			}
+			if step.Action != "retain" && !step.Mutation {
+				return fmt.Errorf("step %q released workload must be mutating", step.ID)
+			}
+			if step.Revision != "" && !lifecycleGraphDigest.MatchString(step.Revision) {
+				return fmt.Errorf("step %q revision must be sha256:<64 lowercase hex>", step.ID)
+			}
+			if step.Action == "retain" && step.Revision == "" {
+				return fmt.Errorf("step %q retained workload revision is required", step.ID)
+			}
+			if !safeLifecycleMetadata(step.Reason) {
+				return fmt.Errorf("step %q reason is invalid metadata", step.ID)
+			}
+		} else if step.Action != "" || step.Revision != "" || step.Reason != "" {
+			return fmt.Errorf("step %q workload action metadata is only valid for workload releases", step.ID)
 		}
 		for _, dependency := range step.DependsOn {
 			if dependency == step.ID {

@@ -168,7 +168,19 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	}
 
 	configDigest := engine.HashBytes(lp.configBytes)
-	commands := e.Describe(release.PathsFor(e.Names()).Releases + "/" + releaseID + "/compose.yaml")
+	steps, err := DeploymentGraph(lp.resolved, releaseID)
+	if err != nil {
+		return DeployPlan{}, err
+	}
+	steps, err = planWorkloadActions(lp.resolved, steps, string(renderedRedacted), hostState, noOp)
+	if err != nil {
+		return DeployPlan{}, fmt.Errorf("plan workload actions: %w", err)
+	}
+	workloadPlans := engineWorkloadPlans(steps)
+	commands := e.DescribeWorkloadPlans(
+		release.PathsFor(e.Names()).Releases+"/"+releaseID+"/compose.yaml",
+		workloadPlans,
+	)
 	artifact := engine.Artifact{
 		ID: releaseID, App: lp.resolved.Name, Env: s.environment, CreatedAt: now,
 		GitSHA: gitSHA, ConfigHash: configDigest, HostState: hostState,
@@ -178,10 +190,6 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		Commands:         commands,
 	}
 	stateDigest, err := artifactDigest(artifact)
-	if err != nil {
-		return DeployPlan{}, err
-	}
-	steps, err := DeploymentGraph(lp.resolved, releaseID)
 	if err != nil {
 		return DeployPlan{}, err
 	}

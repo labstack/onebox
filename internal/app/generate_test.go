@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // A decent-size project of the shape people actually build: a web application,
@@ -80,6 +82,50 @@ func TestRenderIsDeterministic(t *testing.T) {
 		if a != b {
 			t.Fatalf("run %d: digests differ", i)
 		}
+	}
+}
+
+func TestWorkloadRevisionIsReleaseIndependentAndRuntimeSensitive(t *testing.T) {
+	project := `api_version: onebox.run/v1
+app: sample
+environments: {production: {server: deploy@example.test}}
+workloads:
+  api: {role: application, image: ghcr.io/example/api:v1, strategy: rolling, health: {http: /healthz, port: 8080}}
+  worker: {role: worker, image: ghcr.io/example/worker:v1, strategy: recreate, command: [run, worker]}
+deployment: {order: [api, worker]}
+`
+	revisions := func(source, release string) map[string]string {
+		t.Helper()
+		spec, err := LoadBytes([]byte(source), "ob.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rendered, err := spec.Render("production", release, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var runtime struct {
+			Services map[string]struct {
+				Labels map[string]string `yaml:"labels"`
+			} `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(rendered.Bytes, &runtime); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for name, service := range runtime.Services {
+			out[name] = service.Labels[WorkloadRevisionLabel]
+		}
+		return out
+	}
+	first := revisions(project, "20260825-100000-aaaa")
+	second := revisions(project, "20260825-110000-bbbb")
+	if first["api"] == "" || first["worker"] == "" || first["api"] != second["api"] || first["worker"] != second["worker"] {
+		t.Fatalf("release identity changed workload revisions: first=%v second=%v", first, second)
+	}
+	changed := revisions(strings.Replace(project, "worker:v1", "worker:v2", 1), "20260825-120000-cccc")
+	if changed["api"] != first["api"] || changed["worker"] == first["worker"] {
+		t.Fatalf("workload revisions did not isolate the runtime change: first=%v changed=%v", first, changed)
 	}
 }
 

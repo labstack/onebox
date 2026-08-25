@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	ExecutableDeployPlanSchemaVersion = "onebox.run/executable-deploy-plan/v1alpha2"
+	ExecutableDeployPlanSchemaVersion = "onebox.run/executable-deploy-plan/v1alpha3"
 	ExecutableJobPlanSchemaVersion    = "onebox.run/executable-job-plan/v1alpha1"
 	OperationEventSchemaVersion       = "onebox.run/operation-event/v1alpha1"
 	maxExecutableDeployPlanBytes      = 16 << 20

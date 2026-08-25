@@ -235,6 +235,21 @@ func TestSummarizeReconstructsAggregateGate(t *testing.T) {
 	}
 }
 
+func TestSummarizePreservesWorkloadPlansForResume(t *testing.T) {
+	revision := "sha256:" + strings.Repeat("a", 64)
+	summary := Summarize([]Record{
+		{
+			DeployID: "R1", Phase: "workload-plan", Role: "worker", Event: "result", Status: "ok",
+			WorkloadAction: "retain", WorkloadRevision: revision, Reason: "runtime_unchanged",
+		},
+		{DeployID: "R1", Phase: "deploy", Event: "start", Detail: "prev=R0"},
+	})
+	plan := summary.WorkloadPlans["worker"]
+	if plan.Action != "retain" || plan.Revision != revision || plan.Reason != "runtime_unchanged" {
+		t.Fatalf("workload plan evidence = %#v", plan)
+	}
+}
+
 func TestSummarizeDeploySuccessSurvivesMaintenanceFailure(t *testing.T) {
 	s := Summarize([]Record{
 		{Phase: "deploy", Event: "start"},

@@ -68,9 +68,10 @@ type StatusOrphan struct {
 
 // StatusContainer contains only non-secret Docker status facts.
 type StatusContainer struct {
-	ID      string `json:"id"`
-	Release string `json:"release,omitempty"`
-	Health  string `json:"health"`
+	ID       string `json:"id"`
+	Release  string `json:"release,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	Health   string `json:"health"`
 }
 
 // StatusIncomplete is the resumable portion of an unfinished deployment.
@@ -248,7 +249,11 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 	snapshot.RecordedRelease = recorded
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
-		status := makeStatusRole(roleName, role, byService[roleName], recorded, releaseComplete, containersComplete)
+		expectedRevision := ""
+		if service, ok := e.Compose.Services[roleName]; ok {
+			expectedRevision = service.Labels[app.WorkloadRevisionLabel]
+		}
+		status := makeStatusRole(roleName, role, byService[roleName], recorded, expectedRevision, releaseComplete, containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Roles = append(snapshot.Roles, status)
 	}
@@ -302,7 +307,7 @@ func statusSnapshotContextError(ctx context.Context, reads []statusSnapshotRead)
 	return nil
 }
 
-func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded string, releaseComplete, containersComplete bool) StatusRole {
+func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded, expectedRevision string, releaseComplete, containersComplete bool) StatusRole {
 	status := StatusRole{
 		Name:            name,
 		Service:         name,
@@ -323,7 +328,7 @@ func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded
 				status.Issues = append(status.Issues, fmt.Sprintf("container %s is running but no release is recorded", container.ID))
 			case container.Release == "":
 				status.Issues = append(status.Issues, fmt.Sprintf("container %s is not onebox-deployed", container.ID))
-			case container.Release != strings.TrimSpace(recorded):
+			case container.Release != strings.TrimSpace(recorded) && (expectedRevision == "" || container.Revision != expectedRevision):
 				status.Issues = append(status.Issues, fmt.Sprintf("container %s runs release %s; recorded release is %s", container.ID, container.Release, strings.TrimSpace(recorded)))
 			}
 		}
@@ -356,9 +361,10 @@ func makeStatusContainers(raw []svcContainer) []StatusContainer {
 	containers := make([]StatusContainer, 0, len(raw))
 	for _, container := range raw {
 		containers = append(containers, StatusContainer{
-			ID:      container.id,
-			Release: container.release,
-			Health:  container.health,
+			ID:       container.id,
+			Release:  container.release,
+			Revision: container.revision,
+			Health:   container.health,
 		})
 	}
 	sort.Slice(containers, func(i, j int) bool { return containers[i].ID < containers[j].ID })

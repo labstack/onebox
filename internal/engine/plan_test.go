@@ -150,8 +150,12 @@ func TestPinImagesAcceptsAlreadyImmutableRuntimeWithoutRegistry(t *testing.T) {
 func TestArtifactRoundtripAndBinding(t *testing.T) {
 	a := &Artifact{
 		ID: "R1", App: "sample", Env: "production",
-		ConfigHash:      HashBytes([]byte("cfg")),
-		HostState:       HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"web": "sha256:aaaa"}},
+		ConfigHash: HashBytes([]byte("cfg")),
+		HostState: HostState{
+			CurrentRelease: "R0", ImageIDs: map[string]string{"web": "sha256:aaaa"},
+			WorkloadRevisions: map[string][]string{"web": {"sha256:" + strings.Repeat("a", 64)}},
+			WorkloadHealth:    map[string][]string{"web": {"healthy"}},
+		},
 		RenderedCompose: "services: {}\n",
 	}
 	path := filepath.Join(t.TempDir(), "plan.json")
@@ -174,6 +178,12 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 	drifted := HostState{CurrentRelease: "R0", ImageIDs: map[string]string{"web": "sha256:bbbb"}}
 	if err := b.VerifyBinding("production", []byte("cfg"), drifted); err == nil {
 		t.Fatal("host drift must refuse")
+	}
+	// binding: a retained workload changed after planning
+	retainedDrift := b.HostState
+	retainedDrift.WorkloadRevisions = map[string][]string{"web": {"sha256:" + strings.Repeat("b", 64)}}
+	if err := b.VerifyBinding("production", []byte("cfg"), retainedDrift); err == nil || !strings.Contains(err.Error(), "workload replicas or revisions changed") {
+		t.Fatalf("workload revision drift must refuse: %v", err)
 	}
 	// binding: env mismatch
 	if err := b.VerifyBinding("staging", []byte("cfg"), b.HostState); err == nil {

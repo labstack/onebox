@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -22,9 +24,11 @@ import (
 // + running image ids per service. Not all of docker inspect — that would
 // false-positive on every restart.
 type HostState struct {
-	Host           string            `json:"host"`
-	CurrentRelease string            `json:"current_release"`
-	ImageIDs       map[string]string `json:"image_ids"`
+	Host              string              `json:"host"`
+	CurrentRelease    string              `json:"current_release"`
+	ImageIDs          map[string]string   `json:"image_ids"`
+	WorkloadRevisions map[string][]string `json:"workload_revisions,omitempty"`
+	WorkloadHealth    map[string][]string `json:"workload_health,omitempty"`
 }
 
 // Artifact is the plan: what was computed, what it was computed against, and
@@ -96,22 +100,47 @@ func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState
 			return fmt.Errorf("host drift: %s runs image %s, plan saw %s — re-plan", svc, got, id)
 		}
 	}
+	if a.HostState.WorkloadRevisions != nil && !reflect.DeepEqual(fresh.WorkloadRevisions, a.HostState.WorkloadRevisions) {
+		return errors.New("host drift: workload replicas or revisions changed since plan — re-plan")
+	}
+	if a.HostState.WorkloadHealth != nil && !reflect.DeepEqual(fresh.WorkloadHealth, a.HostState.WorkloadHealth) {
+		return errors.New("host drift: workload health changed since plan — re-plan")
+	}
 	return nil
 }
 
 // Refresh gathers the drift set from the host. Nothing mutates.
 func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
-	hs := HostState{Host: e.T.Host(), ImageIDs: map[string]string{}}
+	hs := HostState{
+		Host: e.T.Host(), ImageIDs: map[string]string{},
+		WorkloadRevisions: map[string][]string{}, WorkloadHealth: map[string][]string{},
+	}
 	cur, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return hs, err
 	}
 	hs.CurrentRelease = cur
+	containers, err := e.projectContainers(ctx)
+	if err != nil {
+		return hs, err
+	}
 	svcs := map[string]bool{}
 	for name := range e.Spec.Workloads {
 		svcs[name] = true
 	}
 	for svc := range svcs {
+		if observed := containers[svc]; len(observed) > 0 {
+			revisions := make([]string, 0, len(observed))
+			health := make([]string, 0, len(observed))
+			for _, container := range observed {
+				revisions = append(revisions, container.revision)
+				health = append(health, container.health)
+			}
+			sort.Strings(revisions)
+			sort.Strings(health)
+			hs.WorkloadRevisions[svc] = revisions
+			hs.WorkloadHealth[svc] = health
+		}
 		id, err := e.containerID(ctx, svc)
 		if err != nil {
 			return hs, err
@@ -456,6 +485,12 @@ func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (str
 // Describe renders the choreography as the exact command list with runtime
 // branches as branches. Placeholders <old>/<new> resolve at apply time.
 func (e *Engine) Describe(remoteCompose string) []string {
+	return e.DescribeWorkloadPlans(remoteCompose, nil)
+}
+
+// DescribeWorkloadPlans renders the approved per-workload action. A retained
+// workload has no hidden pull, signal, or Compose command.
+func (e *Engine) DescribeWorkloadPlans(remoteCompose string, plans map[string]WorkloadPlan) []string {
 	cc := e.composeCmd(remoteCompose)
 	var out []string
 
@@ -485,6 +520,10 @@ func (e *Engine) Describe(remoteCompose string) []string {
 	appendHook("pre_release")
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
+		if plan, ok := plans[roleName]; ok && plan.Retained() {
+			out = append(out, fmt.Sprintf("release %s (retain, %s): no runtime mutation", roleName, plan.Reason))
+			continue
+		}
 		svc := roleName
 		head := fmt.Sprintf("release %s (%s", roleName, role.Mode())
 		if n := role.Count(); n > 1 {

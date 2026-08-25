@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -34,6 +35,10 @@ type Rendered struct {
 // reference and no registry serves it, so a runtime carrying it fails at the
 // pull rather than starting something unintended.
 const UnresolvedImage = "ob-unresolved-image:no-release"
+
+// WorkloadRevisionLabel identifies the complete rendered service contract
+// independently of the application release that happened to create it.
+const WorkloadRevisionLabel = "ob.workload-revision"
 
 // Images supplies the exact image reference a release workload will run. It is
 // required for build-sourced workloads and overrides authored tags after a plan
@@ -75,6 +80,9 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 		svc, used, carried, err := p.renderWorkload(n, name, w, releaseID, images)
 		if err != nil {
 			return nil, err
+		}
+		if err := stampWorkloadRevision(svc); err != nil {
+			return nil, errf("render_failed", "workloads."+name, "", "cannot calculate workload revision: %v", err)
 		}
 		services[name] = svc
 		for _, v := range used {
@@ -175,6 +183,37 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 	}
 	rendered.Digest = hex.EncodeToString(sum.Sum(nil))
 	return rendered, nil
+}
+
+func stampWorkloadRevision(service map[string]any) error {
+	canonical := make(map[string]any, len(service))
+	for key, value := range service {
+		canonical[key] = value
+	}
+	labels, _ := service["labels"].(map[string]any)
+	canonicalLabels := make(map[string]any, len(labels))
+	for key, value := range labels {
+		if key != "ob.release" && key != WorkloadRevisionLabel {
+			canonicalLabels[key] = value
+		}
+	}
+	canonical["labels"] = canonicalLabels
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return err
+	}
+	revision := "sha256:" + workloadRevisionHex(encoded)
+	if labels == nil {
+		labels = map[string]any{}
+		service["labels"] = labels
+	}
+	labels[WorkloadRevisionLabel] = revision
+	return nil
+}
+
+func workloadRevisionHex(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
 }
 
 // overlayFor is the enumerated set applied to a Compose-referenced workload.

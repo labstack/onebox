@@ -70,6 +70,29 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	}
 }
 
+func TestStatusSnapshotAcceptsRetainedWorkloadFromEarlierRelease(t *testing.T) {
+	f := statusFake("R2", "R2")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	webRevision := e.Compose.Services["web"].Labels[app.WorkloadRevisionLabel]
+	workerRevision := e.Compose.Services["worker"].Labels[app.WorkloadRevisionLabel]
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+			return transport.Result{Stdout: "S1|web|R2|" + webRevision + "|Up (healthy)\n" +
+				"W1|worker|R1|" + workerRevision + "|Up (healthy)\n" +
+				"PG1|postgres|R2||Up (healthy)\n"}, true
+		}
+		return base(cmd)
+	}
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Diverged || snapshot.Roles[1].Containers[0].Revision != workerRevision {
+		t.Fatalf("retained workload reported as drift: %#v", snapshot.Roles[1])
+	}
+}
+
 func TestStatusSnapshotReportsUndeclaredAppContainer(t *testing.T) {
 	f := statusFake("R2", "R2")
 	base := f.Dynamic

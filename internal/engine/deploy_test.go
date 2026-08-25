@@ -205,6 +205,46 @@ func happyFake() *transport.Fake {
 	return f
 }
 
+func TestDeployRetainsPlannedWorkloadWithoutRuntimeMutation(t *testing.T) {
+	f := happyFake()
+	revision := "sha256:" + strings.Repeat("a", 64)
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker ps --filter label=ob.app=") && strings.Contains(command, "--format") {
+			return transport.Result{Stdout: "OLD1|web|R0||Up (healthy)\nW1|worker|R0|" + revision + "|Up\n"}, true
+		}
+		return base(command)
+	}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{
+		Out: &out, Sleep: noSleep,
+		WorkloadPlans: map[string]WorkloadPlan{
+			"worker": {
+				Action: WorkloadActionRetain, Revision: revision,
+				Reason: "runtime_unchanged",
+			},
+		},
+	})
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	commands := strings.Join(f.Commands, "\n")
+	for _, command := range f.Commands {
+		if strings.Contains(command, "worker") && (strings.Contains(command, "--force-recreate") || strings.Contains(command, "docker kill") || strings.Contains(command, "docker stop")) {
+			t.Fatalf("retained worker was mutated by %q:\n%s", command, commands)
+		}
+	}
+	if !strings.Contains(commands, "--scale web=") {
+		t.Fatalf("changed web workload was not released:\n%s", commands)
+	}
+	evidence := commands + "\n" + strings.Join(f.Inputs, "\n")
+	for _, want := range []string{`"phase":"workload-plan"`, `"workload_action":"retain"`, `"role":"worker"`, `action=retain revision=sha256:`} {
+		if !strings.Contains(evidence, want) {
+			t.Fatalf("deployment journal is missing %q:\n%s", want, evidence)
+		}
+	}
+}
+
 func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 	f := happyFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})

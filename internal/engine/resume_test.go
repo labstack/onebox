@@ -82,6 +82,44 @@ func TestResumeSkipsCompletedStepsAndFinishes(t *testing.T) {
 	}
 }
 
+func TestResumePreservesJournaledRetainAction(t *testing.T) {
+	f := interruptedFake("changed=false")
+	revision := "sha256:" + strings.Repeat("a", 64)
+	jr := journalLines(
+		journal.Record{
+			DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "workload-plan", Role: "worker",
+			Event: "result", Status: "ok", WorkloadAction: "retain",
+			WorkloadRevision: revision, Reason: "runtime_unchanged",
+		},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "deploy", Event: "start", Detail: "prev=" + engineTestPreviousReleaseID, Operator: "v@mac", TS: "2026-07-03T00:00:00Z"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "transfer", Event: "result", Status: "ok"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "pre-release", SubStep: "job:migrate", Event: "result", Status: "ok", Detail: "changed=false"},
+		journal.Record{DeployID: engineTestDeployReleaseID, Epoch: 2, Phase: "release", Role: "web", Event: "result", Status: "ok"},
+	)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
+			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
+		}
+		if strings.Contains(cmd, "docker ps --filter label=ob.app=") && strings.Contains(cmd, "--format") {
+			return transport.Result{Stdout: "OLD1|web|R0||Up (healthy)\nW1|worker|R0|" + revision + "|Up\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Resume(context.Background()); err != nil {
+		t.Fatalf("resume: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	commands := strings.Join(f.Commands, "\n")
+	if strings.Contains(commands, "--force-recreate --timeout 30 worker") {
+		t.Fatalf("resume forgot the retained worker action:\n%s", commands)
+	}
+	evidence := commands + "\n" + strings.Join(f.Inputs, "\n")
+	if !strings.Contains(evidence, "action=retain revision=sha256:") {
+		t.Fatalf("resume did not record retained completion: %s", evidence)
+	}
+}
+
 func TestResumeUsesInterruptedReleaseSnapshotAfterConfigEdit(t *testing.T) {
 	f := happyFake()
 	seedStagedApplicationManifest(f, engineTestDeployReleaseID)

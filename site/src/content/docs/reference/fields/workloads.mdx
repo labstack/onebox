@@ -94,7 +94,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.schedule.timeout` | string | `1h` | Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.stdin_open` | boolean | — | Keep standard input open for the container. |
-| `<name>.strategy` | `rolling` · `recreate` | — | Release strategy. Defaults to rolling only for an application workload with health; all other workloads default to recreate. |
+| `<name>.strategy` | `rolling` · `recreate` | — | Replacement strategy for a changed or uncertain workload. An unchanged healthy workload is retained automatically. Defaults to rolling only for an application workload with health; all other workloads default to recreate. |
 | `<name>.tty` | boolean | — | Allocate a pseudo-TTY for the container. |
 | `<name>.user` | string | — | User or UID used to run the container process. |
 | `<name>.volumes` | list | — | Managed named volumes or bind mounts. Relative bind sources are read-only release content; absolute sources are external host state. |

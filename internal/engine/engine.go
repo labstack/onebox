@@ -71,6 +71,9 @@ type Options struct {
 	// before any journaled deployment effect. State-bound adapters use it to
 	// close the observation-to-lock race.
 	DeployPrecondition func(context.Context, *Engine) error
+	// WorkloadPlans are the sealed per-workload actions approved for this
+	// deployment. An absent entry preserves the historical release behavior.
+	WorkloadPlans map[string]WorkloadPlan
 	// UI is the output layer; built from Out+Verbose when unset (cmd shares
 	// one instance so the command log and narrative interleave in order).
 	UI *ui.UI

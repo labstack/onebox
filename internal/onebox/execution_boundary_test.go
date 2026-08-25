@@ -636,6 +636,11 @@ func TestExecuteNoOpEmitsOrderedEvidenceWithoutMutation(t *testing.T) {
 	if !plan.NoOp {
 		t.Fatalf("fixture did not produce a no-op plan: diff=%q", plan.Diff)
 	}
+	for _, step := range plan.Operation.Steps {
+		if step.Kind == StepWorkloadRelease && (step.Action != step.Strategy || !step.Mutation || step.Reason != "redeploy_only") {
+			t.Fatalf("no-op plan does not seal --redeploy as a fresh roll: %#v", step)
+		}
+	}
 	var events []OperationEvent
 	result, err := svc.Execute(context.Background(), ExecuteRequest{
 		Kind: KindDeploy,

@@ -230,8 +230,20 @@ func (e *Engine) assertNoReleaseContainers(ctx context.Context, releaseID string
 
 func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, previousID string) error {
 	composePath := release.PathsFor(e.names()).Releases + "/" + previousID + "/compose.yaml"
+	revisions, err := previous.releaseWorkloadRevisions(ctx, composePath)
+	if err != nil {
+		return err
+	}
+	observed, err := previous.projectContainers(ctx)
+	if err != nil {
+		return err
+	}
 	for _, roleName := range previous.Spec.ReleaseOrder() {
 		role := previous.Spec.Workloads[roleName]
+		if retainableWorkload(observed[roleName], revisions[roleName], role.Count()) {
+			previous.logf("restore %s: already at target workload revision", roleName)
+			continue
+		}
 		if role.Mode() == "recreate" {
 			ids, err := previous.newcomerIDs(ctx, roleName, previousID)
 			if err != nil {

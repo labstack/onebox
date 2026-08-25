@@ -147,6 +147,32 @@ func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 	}
 }
 
+func TestPublishedSchemaConstrainsProxyEntrypoints(t *testing.T) {
+	schema := compiledSchema(t)
+	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nproxy:\n  entrypoints:\n"
+
+	for _, tc := range []struct {
+		name       string
+		entrypoint string
+		valid      bool
+	}{
+		{name: "valid", entrypoint: "    otlp-grpc: {port: 4317}\n", valid: true},
+		{name: "invalid name", entrypoint: "    OTLP: {port: 4317}\n"},
+		{name: "port below range", entrypoint: "    otlp: {port: 0}\n"},
+		{name: "port above range", entrypoint: "    otlp: {port: 70000}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := schema.Validate(asJSON(t, base+tc.entrypoint))
+			if tc.valid && err != nil {
+				t.Fatalf("valid proxy entrypoint rejected: %v", err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatal("invalid proxy entrypoint accepted")
+			}
+		})
+	}
+}
+
 func TestPublishedSchemaDocumentsEveryPublicField(t *testing.T) {
 	body, err := JSONSchema()
 	if err != nil {

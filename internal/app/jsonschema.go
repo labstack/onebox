@@ -432,6 +432,8 @@ var schemaConstraints = []struct {
 	{[]string{"proxy", "kind"}, enum(eProxyKind)},
 	{[]string{"proxy", "image"}, pattern(gImageRef)},
 	{[]string{"proxy", "config"}, pattern(gRepoPath)},
+	{[]string{"proxy", "entrypoints"}, propertyNames(gIdent)},
+	{[]string{"proxy", "entrypoints", "*", "port"}, portBounds()},
 	{[]string{"deployment", "migration_policy"}, enum(eMigrationPolicy)},
 	{[]string{"deployment", "retain_releases"}, map[string]any{"minimum": 1}},
 	{[]string{"registries", "*", "server"}, pattern(gRegistryHost)},

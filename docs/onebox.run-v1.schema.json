@@ -1184,12 +1184,17 @@
                 "examples": [
                   4317
                 ],
+                "maximum": 65535,
+                "minimum": 1,
                 "type": "integer"
               }
             },
             "type": "object"
           },
           "description": "Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a declared proxy.config must define matching Traefik entrypoints.",
+          "propertyNames": {
+            "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
+          },
           "type": "object"
         },
         "image": {

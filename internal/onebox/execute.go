@@ -316,6 +316,10 @@ func (s *Service) executeDeploy(
 	if err != nil {
 		return false, fmt.Errorf("build expected operation graph: %w", err)
 	}
+	expectedGraph, err = planWorkloadActions(lp.resolved, expectedGraph, plan.Artifact.RenderedCompose, plan.Artifact.HostState, plan.NoOp)
+	if err != nil {
+		return false, fmt.Errorf("build expected workload actions: %w", err)
+	}
 	if !reflect.DeepEqual(plan.Operation.Steps, expectedGraph) {
 		return false, errors.New("operation graph differs from the resolved configuration — re-plan")
 	}
@@ -397,6 +401,7 @@ func (s *Service) executeDeploy(
 		options.Progress = emit
 		options.MigrationBackupWasRequired = plan.MigrationBackup != nil
 		options.MigrationBackup = migrationBackupAudit
+		options.WorkloadPlans = engineWorkloadPlans(plan.Operation.Steps)
 		if request.Approval != nil {
 			options.ApprovalDigest = request.Approval.ApprovalDigest
 			options.ApprovedBy = request.Approval.ApprovedBy

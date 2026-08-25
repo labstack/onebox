@@ -78,11 +78,19 @@ type Record struct {
 	Service       string `json:"service,omitempty"`
 	// Exec invocation evidence is intentionally value-free: command bytes and
 	// passthrough output never cross the durable journal boundary.
-	Target        string `json:"target,omitempty"`
-	TargetKind    string `json:"target_kind,omitempty"`
-	CommandDigest string `json:"command_digest,omitempty"`
-	ContainerID   string `json:"container_id,omitempty"`
-	Reason        string `json:"reason,omitempty"`
+	Target           string `json:"target,omitempty"`
+	TargetKind       string `json:"target_kind,omitempty"`
+	CommandDigest    string `json:"command_digest,omitempty"`
+	ContainerID      string `json:"container_id,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	WorkloadAction   string `json:"workload_action,omitempty"`
+	WorkloadRevision string `json:"workload_revision,omitempty"`
+}
+
+type WorkloadPlanEvidence struct {
+	Action   string
+	Revision string
+	Reason   string
 }
 
 type Writer struct {
@@ -374,6 +382,7 @@ type Summary struct {
 	ApprovalSource          string
 	AllowUnknownMigration   bool
 	JobResults              map[string]JobResultEvidence
+	WorkloadPlans           map[string]WorkloadPlanEvidence
 }
 
 // DoneGateRecorded marks that this journal contains a rollback-effect
@@ -413,7 +422,10 @@ type effectAttemptKey struct {
 }
 
 func Summarize(recs []Record) Summary {
-	s := Summary{Done: map[string]bool{}, JobResults: map[string]JobResultEvidence{}}
+	s := Summary{
+		Done: map[string]bool{}, JobResults: map[string]JobResultEvidence{},
+		WorkloadPlans: map[string]WorkloadPlanEvidence{},
+	}
 	var attempts []effectAttempt
 	active := map[effectAttemptKey]int{}
 	for _, r := range recs {
@@ -438,6 +450,11 @@ func Summarize(recs []Record) Summary {
 		}
 		if r.JobResult != nil && strings.HasPrefix(r.SubStep, "job:") {
 			s.JobResults[strings.TrimPrefix(r.SubStep, "job:")] = *r.JobResult
+		}
+		if r.Phase == "workload-plan" && r.Event == "result" && r.Status == "ok" && r.Role != "" {
+			s.WorkloadPlans[r.Role] = WorkloadPlanEvidence{
+				Action: r.WorkloadAction, Revision: r.WorkloadRevision, Reason: r.Reason,
+			}
 		}
 		effectStep := r.SubStep == EffectBaselineSubStep ||
 			strings.HasPrefix(r.SubStep, "job:") || strings.HasPrefix(r.SubStep, "hook:")

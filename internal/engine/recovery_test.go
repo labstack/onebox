@@ -317,3 +317,29 @@ func TestRecoveryEngineUsesSnapshotChoreography(t *testing.T) {
 		t.Fatalf("recovery omitted snapshot-only role:\n%s", commands)
 	}
 }
+
+func TestRestoreReleaseRolesRetainsMatchingTargetRevisions(t *testing.T) {
+	target := happyFake()
+	webRevision := "sha256:" + strings.Repeat("a", 64)
+	workerRevision := "sha256:" + strings.Repeat("b", 64)
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "/compose.yaml") && strings.HasPrefix(command, "cat "):
+			return transport.Result{Stdout: "services:\n  web:\n    labels:\n      ob.workload-revision: " + webRevision + "\n  worker:\n    labels:\n      ob.workload-revision: " + workerRevision + "\n"}, true
+		case strings.Contains(command, "docker ps --filter label=ob.app="):
+			return transport.Result{Stdout: "WEB1|web|older-release|" + webRevision + "|Up 1 hour (healthy)\n" +
+				"WORKER1|worker|oldest-release|" + workerRevision + "|Up 1 hour\n"}, true
+		}
+		return base(command)
+	}
+	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := engine.restoreReleaseRoles(context.Background(), engine, engineTestPreviousReleaseID); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range target.Commands {
+		if strings.Contains(command, " up -d ") || strings.Contains(command, "docker pull") || strings.Contains(command, "docker kill") || strings.Contains(command, "docker stop") {
+			t.Fatalf("matching rollback target mutated a retained workload: %s", command)
+		}
+	}
+}

@@ -40,6 +40,12 @@ records the transition; it does not select a directory by timestamp or name.
 `deployment.retain_releases` (default `5`) bounds ordinary history while always
 protecting current, predecessor-chain, and checkpoint-referenced releases.
 
+Rollback reconciles each workload against the predecessor's immutable runtime
+revision. A healthy fleet already at that exact revision stays running, even if
+its `ob.release` label names an older release; a missing, unhealthy, incomplete
+or different revision follows the predecessor's configured rolling or recreate
+strategy. Abort uses the same fail-closed rule.
+
 ## What rollback does not do
 
 :::danger[Application rollback is not data recovery]

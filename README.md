@@ -38,7 +38,7 @@ the exact plan you reviewed.
 | Concern | Contract |
 | --- | --- |
 | Change review | A digest-bound plan shows the exact config, images, host state, rendered Compose, payloads, and operation graph before apply. |
-| Deployment | Health-gated rolling replacement drains traffic first and stops on failed readiness. |
+| Deployment | Each full deploy reconciles workloads independently: an unchanged, healthy workload stays running; a changed or uncertain workload uses its configured health-gated rolling or recreate strategy. |
 | Recovery | Every release records its predecessor; interrupted work can be resumed or aborted, and a failed deploy rolls back by default. |
 | Host access | Agentless SSH, key authentication, and mandatory `known_hosts` verification. An optional one-hop jump host reaches private targets, with both hops verified and the agent never forwarded. |
 | Runtime ownership | Generated Compose stays inspectable with `ob preview` and can be taken over permanently with `ob eject`. |

@@ -52,6 +52,18 @@ becomes a question rather than a fact.
   and path is `route_collision`, rather than a proxy that accepts both and routes
   to one with nothing saying which.
 
+## A workload name is its identity
+
+Changing a workload's key is a rename in the declaration but a replacement at
+runtime. Onebox starts and verifies the new workload, activates the release, and
+only then drains and removes the old workload. This ordering keeps a route rename
+from stopping the old endpoint before the new one can serve.
+
+Persistent volumes follow the same identity rule: a renamed workload receives
+new derived volume names. Onebox does not guess that data should move between
+them. Move or reattach persistent data explicitly before treating a workload
+rename as complete.
+
 ## You can still see it, and still leave
 
 Generation is only acceptable because the output is inspectable and the exit is a

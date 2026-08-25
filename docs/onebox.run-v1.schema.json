@@ -2504,7 +2504,7 @@
             "type": "boolean"
           },
           "strategy": {
-            "description": "Release strategy. Defaults to rolling only for an application workload with health; all other workloads default to recreate.",
+            "description": "Replacement strategy for a changed or uncertain workload. An unchanged healthy workload is retained automatically. Defaults to rolling only for an application workload with health; all other workloads default to recreate.",
             "enum": [
               "rolling",
               "recreate"

@@ -95,6 +95,21 @@ command that changes the server; the plan after it is read-only.
    rendered-Compose and payload bindings. **It expires after 15 minutes**, and
    any drift or local payload change requires a new plan.
 
+   Each long-running workload has its own action in that graph:
+
+   - `retain` leaves every healthy replica running when its complete effective
+     runtime is unchanged;
+   - `rolling` or `recreate` applies the workload's configured strategy when it
+     changed;
+   - an uncertain comparison uses the configured strategy and names the reason,
+     such as a release-staged env file, secret, bind-mounted payload, adopted
+     Compose service, missing legacy revision, replica drift or unhealthy state.
+
+   Retention is automatic and adds no configuration or selection flag. A
+   retained workload receives no pull, signal, stop, rename or Compose command.
+   `ob deploy --redeploy` remains the explicit exception: on a whole-application
+   no-op it performs the fresh roll shown in the sealed plan.
+
 6. **Record a short-lived local confirmation for that exact plan.**
 
    ```sh
@@ -118,6 +133,7 @@ command that changes the server; the plan after it is read-only.
    staged    r-0042
    rolling   shop-web-1 … healthy
    rolling   shop-web-2 … healthy
+   retain    shop-worker · runtime unchanged
    verified  checks/url 200 · X-App-Ready: yes
    serving   r-0042 · r-0041 superseded
    ```

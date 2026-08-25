@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/shellquote"
 )
@@ -169,13 +170,14 @@ func (e *Engine) healthDiagnosis(ctx context.Context, id string) string {
 // svcContainer is one container's status as docker ps reports it (a "down"
 // container is present but not serving, so not strictly running).
 type svcContainer struct {
-	id      string
-	release string // the ob.release label ("" for a non-ob container)
-	health  string // healthy | unhealthy | starting | none | down (not running)
+	id       string
+	release  string // the ob.release label ("" for a non-ob container)
+	revision string // the stable per-workload runtime revision
+	health   string // healthy | unhealthy | starting | none | down (not running)
 }
 
 // projectContainers reads every running container in the app's compose project
-// — id, service, ob.release label, and health — in ONE docker ps, grouped by
+// — id, service, release/revision labels, and health — in ONE docker ps, grouped by
 // service in docker's newest-first order. This is the whole of status's app
 // side: `docker ps` already carries the release label and a health hint in
 // `.Status`, so no per-container `docker inspect` is needed. (A single batched
@@ -191,7 +193,7 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 	// running perfectly well as missing.
 	res, err := e.T.Run(ctx,
 		"docker ps --filter label=ob.app="+q(e.Spec.Name)+
-			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Status}}'")
+			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Label \""+app.WorkloadRevisionLabel+"\"}}|{{.Status}}'")
 	if err != nil {
 		return nil, err
 	}
@@ -204,9 +206,15 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "|", 4)
-		if len(parts) != 4 || parts[1] == "" {
+		parts := strings.SplitN(line, "|", 5)
+		if len(parts) != 4 && len(parts) != 5 || parts[1] == "" {
 			continue // blank line, or a container with no compose-service label
+		}
+		// Four fields are accepted for compatibility with older test doubles and
+		// runtime probes that predate workload revisions.
+		revision, status := "", parts[len(parts)-1]
+		if len(parts) == 5 {
+			revision = parts[3]
 		}
 		id := parts[0]
 		// ids aren't reused in a command anymore, but validate defensively so a
@@ -215,7 +223,7 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 			return nil, fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", id)
 		}
 		byService[parts[1]] = append(byService[parts[1]], svcContainer{
-			id: id, release: parts[2], health: healthFromStatus(parts[3]),
+			id: id, release: parts[2], revision: revision, health: healthFromStatus(status),
 		})
 	}
 	return byService, nil

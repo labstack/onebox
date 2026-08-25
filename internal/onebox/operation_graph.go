@@ -77,7 +77,7 @@ func deploymentGraph(cfg *app.Resolved, releaseID string) ([]OperationStep, erro
 		appendStep(OperationStep{
 			ID: "release:" + name, Kind: StepWorkloadRelease, Component: name,
 			Service: name, DataEffect: DataEffectNone,
-			Strategy: strategy, Mutation: true,
+			Strategy: strategy, Action: strategy, Reason: "runtime_not_compared", Mutation: true,
 		})
 	}
 

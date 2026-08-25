@@ -140,7 +140,7 @@ type Workload struct {
 	Compose  string `json:"compose,omitempty" description:"Existing Compose service to adopt, as repository path#service." example:"docker-compose.yml#web"`
 	Command  any    `json:"command,omitempty" description:"Container command as a shell string or argument list." example:"./bin/server"`
 	Replicas int    `json:"replicas" description:"Desired number of long-running workload containers." default:"1" example:"2"`
-	Strategy string `json:"strategy,omitempty" description:"Release strategy. Defaults to rolling only for an application workload with health; all other workloads default to recreate."`
+	Strategy string `json:"strategy,omitempty" description:"Replacement strategy for a changed or uncertain workload. An unchanged healthy workload is retained automatically. Defaults to rolling only for an application workload with health; all other workloads default to recreate."`
 
 	Domain string  `json:"domain,omitempty" description:"Domain shorthand for one HTTPS route; requires port and cannot be combined with routes." example:"shop.example.com"`
 	Port   int     `json:"port,omitempty" description:"Container port used with domain shorthand and as the default HTTP health port." example:"3000"`

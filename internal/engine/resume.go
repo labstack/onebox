@@ -88,6 +88,12 @@ func (e *Engine) ResumeWithJournalID(ctx context.Context) (string, error) {
 	if err != nil {
 		return s.DeployID, err
 	}
+	replay.Opts.WorkloadPlans = make(map[string]WorkloadPlan, len(s.WorkloadPlans))
+	for name, plan := range s.WorkloadPlans {
+		replay.Opts.WorkloadPlans[name] = WorkloadPlan{
+			Action: WorkloadAction(plan.Action), Revision: plan.Revision, Reason: plan.Reason,
+		}
+	}
 	return s.DeployID, replay.deployCore(ctx, s.DeployID, "", s.Done)
 }
 

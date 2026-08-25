@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/labstack/onebox/internal/journal"
@@ -79,6 +80,9 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 			return fmt.Errorf("deploy precondition under lock: %w", err)
 		}
 	}
+	if err := e.validateRetainedWorkloads(ctx); err != nil {
+		return fmt.Errorf("deploy precondition under lock: %w", err)
+	}
 	prev, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return err
@@ -103,6 +107,11 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		Runner:                  &e.Opts.Runner,
 		MigrationBackupRequired: e.Opts.MigrationBackupWasRequired,
 		MigrationBackup:         e.Opts.MigrationBackup,
+	}
+	if done == nil {
+		if err := e.recordWorkloadPlans(ctx, jw); err != nil {
+			return err
+		}
 	}
 	if err := jw.Append(ctx, journal.Record{Phase: "deploy", Event: "start", Detail: "prev=" + prev}); err != nil {
 		return fmt.Errorf("journal deploy start: %w", err)
@@ -270,6 +279,21 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 			continue
 		}
 		role := e.Spec.Workloads[roleName]
+		workloadPlan, planned := e.Opts.WorkloadPlans[roleName]
+		if planned && workloadPlan.Retained() {
+			label := roleName + " retain"
+			st := e.ui.Step(label, false)
+			e.logf("retain %s (%s)", roleName, workloadPlan.Reason)
+			err := jw.Append(ctx, journal.Record{
+				Phase: "release", Role: roleName, Event: "result", Status: "ok",
+				Detail: "action=retain revision=" + workloadPlan.Revision + " reason=" + workloadPlan.Reason,
+			})
+			st(err)
+			if err != nil {
+				return fmt.Errorf("journal retain %s result: %w", roleName, err)
+			}
+			continue
+		}
 		label := roleName + " " + role.Mode()
 		if n := role.Count(); n > 1 {
 			label = fmt.Sprintf("%s ×%d", label, n)
@@ -377,6 +401,24 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	fin(nil)
 	e.progress("activation", "succeeded", "")
 	return e.runPostActivation(ctx, jw, &manifest, done, remoteDir, remoteCompose)
+}
+
+func (e *Engine) recordWorkloadPlans(ctx context.Context, jw *journal.Writer) error {
+	names := make([]string, 0, len(e.Opts.WorkloadPlans))
+	for name := range e.Opts.WorkloadPlans {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		plan := e.Opts.WorkloadPlans[name]
+		if err := jw.Append(ctx, journal.Record{
+			Phase: "workload-plan", Role: name, Event: "result", Status: "ok",
+			WorkloadAction: string(plan.Action), WorkloadRevision: plan.Revision, Reason: plan.Reason,
+		}); err != nil {
+			return fmt.Errorf("journal workload plan %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // runRollbackEffectHook journals untyped lifecycle hooks as rollback-unknown

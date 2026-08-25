@@ -490,12 +490,17 @@ type Registry struct {
 }
 
 type Proxy struct {
-	Managed      bool   `json:"managed" description:"Let Onebox converge the host-scoped proxy when routes are declared."`
-	Kind         string `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
-	Image        string `json:"image,omitempty" description:"Container image used for the managed proxy."`
-	Config       string `json:"config,omitempty" description:"Repository-relative static proxy configuration directory owned by the project; it must contain exactly one of traefik.yml or traefik.yaml."`
-	Network      string `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
-	CertResolver string `json:"cert_resolver,omitempty" description:"Traefik certificate resolver used by terminating TLS routes."`
+	Managed      bool                       `json:"managed" description:"Let Onebox converge the host-scoped proxy when routes are declared."`
+	Kind         string                     `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
+	Image        string                     `json:"image,omitempty" description:"Container image used for the managed proxy."`
+	Config       string                     `json:"config,omitempty" description:"Repository-relative static proxy configuration directory owned by the project; it must contain exactly one of traefik.yml or traefik.yaml."`
+	Network      string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
+	CertResolver string                     `json:"cert_resolver,omitempty" description:"Traefik certificate resolver used by terminating TLS routes."`
+	Entrypoints  map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a declared proxy.config must define matching Traefik entrypoints."`
+}
+
+type ProxyEntrypoint struct {
+	Port int `json:"port" description:"Host and proxy-container TCP port used by this listener." example:"4317"`
 }
 
 // EnvFile is one contributor of environment values.

@@ -136,6 +136,41 @@ external `proxy.network` may be changed, but `default` is reserved for the
 application's own Compose network. The derived `<app>_default` and `ob_<app>`
 names are reserved too; routed projects must use a distinct ingress network.
 
+### Additional proxy entrypoints
+
+Declare an entrypoint when clients must reach the managed proxy on a port other
+than HTTP `80` or HTTPS `443`. Name the same entrypoint on the route that should
+receive that traffic:
+
+```yaml
+proxy:
+  entrypoints:
+    otlp-grpc: {port: 4317}
+    otlp-http: {port: 4318}
+
+workloads:
+  telemetry:
+    image: ghcr.io/acme/telemetry-gateway:1.0.0
+    routes:
+      - domain: telemetry.example.com
+        entrypoint: otlp-grpc
+        port: 4317
+        scheme: h2c
+      - domain: telemetry.example.com
+        entrypoint: otlp-http
+        port: 4318
+```
+
+Each declared port is published on the host by the managed proxy. Use this for
+remote clients; workloads on the same host can communicate over Onebox's
+internal networks without opening another host port. The route's `port` is the
+workload's listening port, while `entrypoint` selects the proxy listener.
+
+When Onebox writes the static proxy configuration, it also writes these named
+entrypoints. If `proxy.config` supplies your own static configuration, Onebox
+still publishes the ports, but that configuration must define matching
+entrypoint names and addresses.
+
 ### Route middleware
 
 Attach dynamic proxy middleware to the exact route that needs it with an

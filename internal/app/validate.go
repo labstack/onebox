@@ -82,6 +82,26 @@ func validateTopLevel(p *Spec) error {
 	if err := gRepoPath.checkOptional("proxy.config", p.Proxy.Config); err != nil {
 		return err
 	}
+	seenEntrypointPorts := map[int]string{80: "web", 443: "websecure"}
+	for _, name := range sortedKeys(p.Proxy.Entrypoints) {
+		path := "proxy.entrypoints." + name
+		if err := gIdent.check(path, name); err != nil {
+			return err
+		}
+		if name == "web" || name == "websecure" {
+			return errf("project_invalid", path, "",
+				"proxy entrypoint %q is built in and cannot be redeclared", name)
+		}
+		port := p.Proxy.Entrypoints[name].Port
+		if err := checkPort(path+".port", port); err != nil {
+			return err
+		}
+		if previous, exists := seenEntrypointPorts[port]; exists {
+			return errf("project_invalid", path+".port", "",
+				"proxy entrypoints %q and %q both publish port %d", previous, name, port)
+		}
+		seenEntrypointPorts[port] = name
+	}
 	// Compose reserves `default` for the application's implicit network, and
 	// Onebox owns the two derived app-scoped networks. Letting ingress reuse one
 	// makes the proxy create it first under different Compose ownership, after

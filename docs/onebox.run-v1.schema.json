@@ -1172,6 +1172,31 @@
           "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
           "type": "string"
         },
+        "entrypoints": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "port": {
+                "description": "Host and proxy-container TCP port used by this listener.",
+                "examples": [
+                  4317
+                ],
+                "maximum": 65535,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "description": "Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a declared proxy.config must define matching Traefik entrypoints.",
+          "propertyNames": {
+            "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
+          },
+          "type": "object"
+        },
         "image": {
           "description": "Container image used for the managed proxy. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:….",
           "pattern": "^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\\[(?:[a-fA-F0-9:]+)\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\\w][\\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$",

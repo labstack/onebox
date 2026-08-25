@@ -122,6 +122,26 @@ func generationFromEngineSecretCommand(command string) string {
 	return ""
 }
 
+func requireGenerationProjectDirectory(t *testing.T, commands []string, generation string) {
+	t.Helper()
+	releaseDir := "/srv/onebox/shop/releases/20260809-120000-current"
+	composePath := releaseDir + "/.ob-secret-generations/" + generation + "/compose.yaml"
+	projectArg := "--project-directory '" + releaseDir + "'"
+	found := false
+	for _, command := range commands {
+		if !strings.Contains(command, "docker compose") || !strings.Contains(command, " up -d ") || !strings.Contains(command, composePath) {
+			continue
+		}
+		found = true
+		if !strings.Contains(command, projectArg) {
+			t.Errorf("generation %s was recreated without release project directory %q:\n%s", generation, projectArg, command)
+		}
+	}
+	if !found {
+		t.Errorf("generation %s had no Compose recreation command:\n%s", generation, strings.Join(commands, "\n"))
+	}
+}
+
 func currentGenerationCompose(generation string) string {
 	return fmt.Sprintf(`services:
   web:
@@ -207,6 +227,7 @@ func TestSecretGenerationChangedCommitsAllNewWithoutLeakingContent(t *testing.T)
 	if strings.Count(commands, "--force-recreate") < 2 || !strings.Contains(commands, newSecretGeneration+"/compose.yaml") {
 		t.Fatalf("generation-wide force replacement was not proved:\n%s", commands)
 	}
+	requireGenerationProjectDirectory(t, fake.Commands, newSecretGeneration)
 	if !strings.Contains(commands, "clean orphaned secret generations") &&
 		(!strings.Contains(commands, "-mindepth 1 -maxdepth 1 -type d") || !strings.Contains(commands, "! -name '"+oldSecretGeneration+"'")) {
 		t.Fatalf("pre-checkpoint orphan generations were not swept:\n%s", commands)
@@ -318,6 +339,8 @@ func TestSecretGenerationPartialFailureRecoversEveryWorkloadToOld(t *testing.T) 
 			t.Fatalf("%s ended on %q after recovery", workload, state.generations[identifier])
 		}
 	}
+	requireGenerationProjectDirectory(t, fake.Commands, newSecretGeneration)
+	requireGenerationProjectDirectory(t, fake.Commands, oldSecretGeneration)
 	if _, checkpointErr := release.ReadSecretCheckpoint(context.Background(), fake, engine.Names()); !errors.Is(checkpointErr, release.ErrSecretCheckpointMissing) {
 		t.Fatalf("all-old recovery retained checkpoint: %v", checkpointErr)
 	}

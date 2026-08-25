@@ -14,7 +14,15 @@ import (
 )
 
 func (e *Engine) composeCmd(remoteComposePath string) string {
-	cmd := "docker compose -p " + e.Spec.Name + " -f " + q(remoteComposePath)
+	return e.composeCmdForProject(remoteComposePath, path.Dir(remoteComposePath))
+}
+
+// composeCmdForProject makes the base for every relative path in a rendered
+// Compose document explicit. Usually the document lives in the release root,
+// but secret-generation candidates live below it while deliberately retaining
+// release-relative paths so the same document can be committed in place.
+func (e *Engine) composeCmdForProject(remoteComposePath, remoteProjectDir string) string {
+	cmd := "docker compose -p " + e.Spec.Name + " --project-directory " + q(remoteProjectDir) + " -f " + q(remoteComposePath)
 	// The same files that fed interpolation when the document was parsed feed
 	// it again when Compose reads it here. Without them a `${VAR}` carried in
 	// verbatim from a referenced Compose source resolves to empty on the
@@ -24,7 +32,6 @@ func (e *Engine) composeCmd(remoteComposePath string) string {
 	// Compose applies repeated --env-file in order, later winning, which is
 	// the order the project declares them in.
 	if e.Spec.Runtime != nil {
-		dir := path.Dir(remoteComposePath)
 		for _, entry := range e.Spec.Runtime.EnvFiles {
 			// An encrypted entry is staged only when a workload resolves it, so
 			// naming one here unconditionally passes `--env-file` for a file
@@ -33,7 +40,7 @@ func (e *Engine) composeCmd(remoteComposePath string) string {
 			if entry.Encrypted() {
 				continue
 			}
-			cmd += " --env-file " + q(path.Join(dir, entry.StagedPath()))
+			cmd += " --env-file " + q(path.Join(remoteProjectDir, entry.StagedPath()))
 		}
 	}
 	return cmd

@@ -163,7 +163,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
-		"docker compose -p sample -f '/var/lib/ob/sample/releases/R1/compose.yaml' pull --quiet web",
+		"docker compose -p sample --project-directory '/var/lib/ob/sample/releases/R1' -f '/var/lib/ob/sample/releases/R1/compose.yaml' pull --quiet web",
 		"up -d --no-deps --no-recreate --scale web=2 web",
 		"docker rename NEW1 sample-web-new",
 		"docker exec OLD1 touch /tmp/ob-drain",

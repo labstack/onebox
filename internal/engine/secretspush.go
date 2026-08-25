@@ -678,7 +678,7 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 		return err
 	}
 	composePath := generationDir + "/compose.yaml"
-	if err := e.recreateRoleForRelease(ctx, workload, composePath, checkpoint.ReleaseID); err != nil {
+	if err := e.recreateRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID); err != nil {
 		return err
 	}
 	after, err := e.containerIDs(ctx, workload)

@@ -15,17 +15,19 @@ import (
 // recreates the whole fleet at the desired count and gives each a clean slot
 // name.
 func (e *Engine) RecreateRole(ctx context.Context, roleName, remoteComposePath string) error {
-	return e.recreateRoleForRelease(ctx, roleName, remoteComposePath, filepath.Base(filepath.Dir(remoteComposePath)))
+	projectDir := filepath.Dir(remoteComposePath)
+	return e.recreateRoleForRelease(ctx, roleName, remoteComposePath, projectDir, filepath.Base(projectDir))
 }
 
 // recreateRoleForRelease is the same guaranteed replacement with an explicit
-// release identity. Secret-generation Compose files live below a release, so
-// deriving the release label from their parent directory would mistake the
-// opaque generation for the release and leave stable slots unverified.
-func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteComposePath, releaseID string) error {
+// Compose project directory and release identity. Secret-generation Compose
+// files live below a release, so deriving either from their parent directory
+// would resolve release-relative files below the generation and mistake the
+// opaque generation for the release label.
+func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteComposePath, remoteProjectDir, releaseID string) error {
 	role := e.Spec.Workloads[roleName]
 	svc := roleName
-	cc := e.composeCmd(remoteComposePath)
+	cc := e.composeCmdForProject(remoteComposePath, remoteProjectDir)
 	desired := role.Count()
 
 	if err := e.pullBeforeRelease(ctx, svc, cc); err != nil {

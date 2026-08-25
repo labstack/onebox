@@ -27,6 +27,7 @@ type StatusSnapshot struct {
 	RecordedRelease string            `json:"recorded_release,omitempty"`
 	Roles           []StatusRole      `json:"roles"`
 	Services        []StatusService   `json:"services"`
+	Orphans         []StatusOrphan    `json:"orphans"`
 	Schedules       []StatusSchedule  `json:"schedules"`
 	Incomplete      *StatusIncomplete `json:"incomplete,omitempty"`
 	Proxy           *StatusProxy      `json:"proxy,omitempty"`
@@ -55,6 +56,14 @@ type StatusService struct {
 	Containers []StatusContainer `json:"containers"`
 	Diverged   bool              `json:"diverged"`
 	Issues     []string          `json:"issues,omitempty"`
+}
+
+// StatusOrphan is an app-owned running Compose service that is absent from the
+// active declaration. It can still be routable, so its presence is always
+// divergence even when the container itself is healthy.
+type StatusOrphan struct {
+	Service    string            `json:"service"`
+	Containers []StatusContainer `json:"containers"`
 }
 
 // StatusContainer contains only non-secret Docker status facts.
@@ -144,6 +153,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		Runner:     e.Opts.Runner,
 		Roles:      make([]StatusRole, 0, len(e.Spec.ReleaseOrder())),
 		Services:   make([]StatusService, 0, len(e.Spec.ServiceNames())),
+		Orphans:    []StatusOrphan{},
 		Schedules:  []StatusSchedule{},
 		Complete:   true,
 	}
@@ -247,6 +257,10 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Services = append(snapshot.Services, status)
 	}
+	if containersComplete {
+		snapshot.Orphans = e.statusOrphans(byService)
+		snapshot.Diverged = snapshot.Diverged || len(snapshot.Orphans) > 0
+	}
 	if reads[3].err == nil {
 		snapshot.Schedules = schedules
 		for _, status := range schedules {
@@ -349,6 +363,28 @@ func makeStatusContainers(raw []svcContainer) []StatusContainer {
 	}
 	sort.Slice(containers, func(i, j int) bool { return containers[i].ID < containers[j].ID })
 	return containers
+}
+
+func (e *Engine) statusOrphans(byService map[string][]svcContainer) []StatusOrphan {
+	declared := make(map[string]struct{}, len(e.Spec.Workloads)+len(e.Spec.Services))
+	for name := range e.Spec.Workloads {
+		declared[name] = struct{}{}
+	}
+	for name := range e.Spec.Services {
+		declared[name] = struct{}{}
+	}
+
+	orphans := []StatusOrphan{}
+	for _, name := range sortedNames(byService) {
+		if _, ok := declared[name]; ok {
+			continue
+		}
+		orphans = append(orphans, StatusOrphan{
+			Service:    name,
+			Containers: makeStatusContainers(byService[name]),
+		})
+	}
+	return orphans
 }
 
 func makeStatusIncomplete(summary journal.Summary) *StatusIncomplete {

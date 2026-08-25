@@ -70,6 +70,28 @@ func TestStatusInSync(t *testing.T) {
 	}
 }
 
+func TestStatusFlagsUndeclaredAppContainer(t *testing.T) {
+	f := statusFake("R2", "R2")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n" +
+				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n" +
+				"OLD1|frontend|R1|Up (healthy)\n"}, true
+		}
+		return base(cmd)
+	}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("an undeclared app container must be divergence:\n%s", out.String())
+	}
+	line := roleLine(out.String(), "frontend")
+	if !strings.Contains(line, "orphan") || !strings.Contains(line, "R1") || !strings.Contains(line, "UNDECLARED") {
+		t.Fatalf("orphan row must identify the service and release, got %q:\n%s", line, out.String())
+	}
+}
+
 // After collapsing the per-service queries into one project-wide ps, a role or
 // service simply absent from the map must still render NOT RUNNING and force
 // divergence — the crashed-service signal must survive the refactor.

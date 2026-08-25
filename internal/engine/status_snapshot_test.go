@@ -45,6 +45,9 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if len(snapshot.Services) != 1 || snapshot.Services[0].Name != "postgres" || snapshot.Services[0].Containers[0].ID != "PG1" {
 		t.Fatalf("unexpected services: %#v", snapshot.Services)
 	}
+	if len(snapshot.Orphans) != 0 {
+		t.Fatalf("converged snapshot must not contain orphans: %#v", snapshot.Orphans)
+	}
 	if snapshot.Incomplete != nil || snapshot.Proxy != nil {
 		t.Fatalf("clean unmanaged app must omit incomplete/proxy: %#v", snapshot)
 	}
@@ -60,10 +63,39 @@ func TestStatusSnapshotCompleteAndJSONFriendly(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"app", "host", "captured_at", "recorded_release", "roles", "services", "schedules", "diverged", "complete"} {
+	for _, key := range []string{"app", "host", "captured_at", "recorded_release", "roles", "services", "orphans", "schedules", "diverged", "complete"} {
 		if _, ok := doc[key]; !ok {
 			t.Fatalf("JSON missing %q: %s", key, b)
 		}
+	}
+}
+
+func TestStatusSnapshotReportsUndeclaredAppContainer(t *testing.T) {
+	f := statusFake("R2", "R2")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n" +
+				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n" +
+				"OLD2|frontend|R1|Up (healthy)\nOLD1|frontend|R1|Up (healthy)\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if !snapshot.Complete || !snapshot.Diverged {
+		t.Fatalf("undeclared container must be observed divergence: %#v", snapshot)
+	}
+	if len(snapshot.Orphans) != 1 || snapshot.Orphans[0].Service != "frontend" {
+		t.Fatalf("unexpected orphans: %#v", snapshot.Orphans)
+	}
+	containers := snapshot.Orphans[0].Containers
+	if len(containers) != 2 || containers[0].ID != "OLD1" || containers[1].ID != "OLD2" || containers[0].Release != "R1" {
+		t.Fatalf("orphan containers must be stable and complete: %#v", containers)
 	}
 }
 

@@ -125,6 +125,16 @@ func (e *Engine) Status(ctx context.Context) error {
 				e.ui.Warn(fmt.Sprintf("REPLICAS %d/%d ⚠", len(cs), want))))
 		}
 	}
+	for _, orphan := range e.statusOrphans(byService) {
+		diverged = true
+		for _, container := range orphan.Containers {
+			actual := container.Release
+			if actual == "" || actual == "<no value>" {
+				actual = "(not ob-deployed)"
+			}
+			e.ui.Println(fmt.Sprintf(row, orphan.Service, "orphan", actual, container.Health, e.ui.Warn("UNDECLARED ⚠")))
+		}
+	}
 
 	// services: running/health only — they converge separately, so an
 	// unhealthy/starting one is shown but not a divergence. Absent (NOT RUNNING)

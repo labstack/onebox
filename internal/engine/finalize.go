@@ -11,13 +11,14 @@ import (
 
 // The post-activation steps, journaled individually so a finalize replay
 // repeats none that already succeeded — a step whose result was never recorded
-// as ok runs again, which is what makes a fix-forward resume work. Retention
-// and schedule sync are idempotent; the post-deploy hook is not, which is the
-// whole reason these keys exist.
+// as ok runs again, which is what makes a fix-forward resume work. Retired
+// workload cleanup, retention and schedule sync are idempotent; the post-deploy
+// hook is not, which is the whole reason these keys exist.
 const (
-	finalizeRetentionSubStep  = journal.FinalizeSubStepPrefix + "retention"
-	finalizeSchedulesSubStep  = journal.FinalizeSubStepPrefix + "schedules"
-	finalizePostDeploySubStep = journal.FinalizeSubStepPrefix + "post_deploy"
+	finalizeRetiredWorkloadsSubStep = journal.FinalizeSubStepPrefix + "retired_workloads"
+	finalizeRetentionSubStep        = journal.FinalizeSubStepPrefix + "retention"
+	finalizeSchedulesSubStep        = journal.FinalizeSubStepPrefix + "schedules"
+	finalizePostDeploySubStep       = journal.FinalizeSubStepPrefix + "post_deploy"
 )
 
 // FinalizeRefusedError reports that the post-activation steps cannot be
@@ -246,6 +247,12 @@ func (e *Engine) runPostActivation(ctx context.Context, jw *journal.Writer, mani
 		label string
 		run   func() (string, error)
 	}{
+		// The new release is verified and serving before an old workload is
+		// drained. Run this before retention so the immutable predecessor snapshot
+		// that supplies the old workload's drain policy is still available.
+		{finalizeRetiredWorkloadsSubStep, "retired workloads", func() (string, error) {
+			return "", e.retireRemovedWorkloads(ctx, manifest.Predecessor)
+		}},
 		{finalizeRetentionSubStep, "prune", func() (string, error) { return e.pruneRetention(ctx) }},
 		// After activation, because a timer invokes the job through `current`
 		// and that pointer has only just moved. Before the post-deploy hook, so

@@ -20,6 +20,21 @@ import (
 // exercise the unguardable path in every test.
 const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
+const enginePreviousFrontendProject = `
+api_version: onebox.run/v1
+app: sample
+environments:
+  production:
+    server: deploy@h
+workloads:
+  frontend:
+    role: application
+    image: ghcr.io/x/app:v1
+    health: {http: /healthz, port: 8080, interval: 5s, start_period: 5s, within: 120s}
+deployment:
+  order: [frontend]
+`
+
 func seedStagedApplicationManifest(f *transport.Fake, releaseID string) {
 	manifest, err := release.NewManifest(releaseID, release.KindApplication, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -324,6 +339,55 @@ func TestDeployPhaseOrder(t *testing.T) {
 	}
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/sample/releases/20260101-000000-aaa111") {
 		t.Fatalf("transfer missing: %v", f.Uploads)
+	}
+}
+
+func TestDeployRetiresWorkloadRemovedByRenameAfterActivation(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		draining := false
+		removed := false
+		for _, previous := range f.Commands {
+			draining = draining || strings.Contains(previous, "docker exec FRONT1 touch /tmp/ob-drain")
+			removed = removed || strings.Contains(previous, "docker rm FRONT1")
+		}
+		switch {
+		case strings.Contains(cmd, "readlink"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case strings.Contains(cmd, "/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+			return transport.Result{Stdout: enginePreviousFrontendProject}, true
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='frontend'"):
+			if removed {
+				return transport.Result{}, true
+			}
+			return transport.Result{Stdout: "FRONT1\n"}, true
+		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "FRONT1") && strings.Contains(cmd, "State.Health"):
+			if draining {
+				return transport.Result{Stdout: "unhealthy\n"}, true
+			}
+			return transport.Result{Stdout: "healthy\n"}, true
+		}
+		return base(cmd)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
+		t.Fatalf("deploy renamed workload: %v\ncommands:\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	verifyAt := strings.Index(seq, "curl -fsS -m 5")
+	activateAt := strings.Index(seq, "ln -sfn 'releases/"+engineTestDeployReleaseID+"'")
+	drainAt := strings.Index(seq, "docker exec FRONT1 touch /tmp/ob-drain")
+	removeAt := strings.Index(seq, "docker rm FRONT1")
+	if verifyAt < 0 || activateAt < verifyAt || drainAt < activateAt || removeAt < drainAt {
+		t.Fatalf("old workload must drain only after verify and activation:\n%s", seq)
+	}
+	if strings.Contains(seq, "--remove-orphans") {
+		t.Fatalf("rename cleanup must not use broad Compose orphan removal:\n%s", seq)
+	}
+	if strings.Contains(seq, "docker volume rm") {
+		t.Fatalf("retiring a workload must preserve its volumes:\n%s", seq)
 	}
 }
 

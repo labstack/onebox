@@ -111,8 +111,8 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				// records contain application and environment as two fields.
 				// Applying the application-name regex to the whole record made
 				// status reject the current format while mutations accepted it.
-				switch {
-				case record == "":
+				switch record {
+				case "":
 					px.ownerIssue = "host owner record is present but empty; an empty record is not a valid claim"
 				default:
 					owner, ok := app.ParseHostOwnerRecord(record)

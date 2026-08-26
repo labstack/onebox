@@ -67,6 +67,9 @@ jobs:
         working-directory: site
         env:
           SITE_URL: https://onebox.run
+          # Repository variable: validated by Analytics.astro and deliberately
+          # absent from local and pull-request builds.
+          PUBLIC_GA_MEASUREMENT_ID: ${{ vars.PUBLIC_GA_MEASUREMENT_ID }}
         run: npm run build
 
       # The published site must be the documentation for the binary it

@@ -52,8 +52,8 @@ retained when another workload changes. A relative bind source remains tied to
 its release directory and is recreated safely; an unchanged absolute host bind
 can be retained.
 
-You administer Linux, SSH access, and Docker. Onebox owns the generated
-application runtime inside that boundary.
+You administer Linux, SSH access, and Docker with the Buildx plugin. Onebox
+owns the generated application runtime inside that boundary.
 
 ## Quick start
 

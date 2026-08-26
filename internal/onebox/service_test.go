@@ -96,8 +96,10 @@ func serviceFake() *transport.Fake {
 				return transport.Result{Stdout: "healthy\n"}, true
 			case strings.Contains(cmd, "docker inspect") && strings.Contains(cmd, "{{.Image}}"):
 				return transport.Result{Stdout: "sha256:" + strings.Repeat("ef", 32) + "\n"}, true
+			case cmd == app.BuildxCapabilityCommand:
+				return transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}, true
 			case strings.Contains(cmd, "docker buildx imagetools inspect"):
-				return transport.Result{Stdout: digest + "\n"}, true
+				return transport.Result{Stdout: `"` + digest + `"` + "\n"}, true
 			case strings.Contains(cmd, "cat ") && strings.Contains(cmd, "compose.yaml"):
 				return transport.Result{Stdout: "services:\n  web:\n    image: ghcr.io/example/app:v0\n    environment:\n      SECRET_TOKEN: live-secret\n"}, true
 			case strings.Contains(cmd, "find . -type f"):

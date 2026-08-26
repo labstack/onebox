@@ -42,6 +42,7 @@ func (f *fakeRunner) Run(_ context.Context, cmd string) (transport.Result, error
 func healthyRunner() *fakeRunner {
 	return &fakeRunner{answers: map[string]transport.Result{
 		"docker version": {Stdout: "27.1.1\n"},
+		"docker buildx imagetools inspect --help": {Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"},
 		"/_host/owner":   {Stdout: "ledger\n"},
 		"docker ps":      {Stdout: ""},
 		"docker volume":  {Stdout: ""},
@@ -93,6 +94,48 @@ func TestPreflightPassesOnAReadyHost(t *testing.T) {
 	if !rep.OK() {
 		t.Fatalf("expected a ready host to pass: %+v", rep.Failures())
 	}
+	found := false
+	for _, check := range rep.Checks {
+		if check.Name == "image resolver" && check.OK {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("compatible Buildx was not reported: %+v", rep.Checks)
+	}
+}
+
+func TestPreflightRejectsMissingBuildxWithSpecificRemedy(t *testing.T) {
+	run := healthyRunner()
+	run.answers["docker buildx imagetools inspect --help"] = transport.Result{
+		ExitCode: 1, Stderr: "docker: 'buildx' is not a docker command.\n",
+	}
+
+	rep := preflight(t, run, preflightProject)
+	for _, failure := range rep.Failures() {
+		if failure.Name == "image resolver" {
+			if !strings.Contains(failure.Detail, "Buildx is unavailable") || failure.Remedy != BuildxRemedy {
+				t.Fatalf("missing Buildx diagnosis = %+v", failure)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing Buildx passed preflight: %+v", rep.Checks)
+}
+
+func TestPreflightRejectsBuildxWithoutDigestFormatSupport(t *testing.T) {
+	run := healthyRunner()
+	run.answers["docker buildx imagetools inspect --help"] = transport.Result{
+		Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n",
+	}
+
+	rep := preflight(t, run, preflightProject)
+	for _, failure := range rep.Failures() {
+		if failure.Name == "image resolver" && strings.Contains(failure.Detail, "does not advertise --format") {
+			return
+		}
+	}
+	t.Fatalf("incompatible Buildx passed preflight: %+v", rep.Checks)
 }
 
 // TestPreflightOnlyReads is the promise the phase is named for. A preflight
@@ -108,6 +151,9 @@ func TestPreflightOnlyReads(t *testing.T) {
 		"mkdir", "rm ", "touch ", "docker rename", "> ",
 	}
 	for _, cmd := range run.ran {
+		if strings.Contains(cmd, "imagetools inspect") && cmd != BuildxCapabilityCommand {
+			t.Errorf("preflight contacted a registry during its Buildx probe: %q", cmd)
+		}
 		for _, m := range mutating {
 			if strings.Contains(cmd, m) {
 				t.Errorf("preflight ran a mutating command: %q", cmd)
@@ -116,6 +162,15 @@ func TestPreflightOnlyReads(t *testing.T) {
 	}
 	if len(run.ran) == 0 {
 		t.Fatal("preflight asked the target nothing")
+	}
+	foundCapabilityProbe := false
+	for _, cmd := range run.ran {
+		if cmd == BuildxCapabilityCommand {
+			foundCapabilityProbe = true
+		}
+	}
+	if !foundCapabilityProbe {
+		t.Fatalf("preflight did not run the local-only Buildx probe: %v", run.ran)
 	}
 }
 

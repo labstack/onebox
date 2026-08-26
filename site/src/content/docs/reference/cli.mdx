@@ -775,8 +775,9 @@ Global Flags:
 
 ```
 Render the project locally, then ask the server what would stand in the way:
-a missing container runtime, a base path this account cannot write, a derived
-name already held by something Onebox does not own, a missing ingress network.
+a missing container runtime, a missing or incompatible Docker Buildx image
+resolver, a base path this account cannot write, a derived name already held
+by something Onebox does not own, or a missing ingress network.
 
 Every problem is reported at once rather than the first one, and nothing is
 created, renamed or removed.

@@ -224,6 +224,7 @@ func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 	}
 	sort.Strings(services)
 	resolved := map[string]string{}
+	buildxChecked := false
 	for _, svc := range services {
 		s, ok := e.Compose.Services[svc]
 		if !ok {
@@ -242,17 +243,33 @@ func (e *Engine) PinImages(ctx context.Context) (map[string]string, error) {
 			pins[svc] = pinned
 			continue
 		}
-		res, err := e.T.Run(ctx, "docker buildx imagetools inspect "+q(s.Image)+" --format '{{.Manifest.Digest}}'")
+		if !buildxChecked {
+			if _, err := app.CheckBuildxDigestSupport(ctx, e.T); err != nil {
+				var capabilityErr *app.BuildxCapabilityError
+				if errors.As(err, &capabilityErr) {
+					return nil, imageResolutionError(svc, s.Image, capabilityErr.Error()+"; "+app.BuildxRemedy)
+				}
+				return nil, imageResolutionError(svc, s.Image, "could not verify Docker Buildx capability: "+err.Error())
+			}
+			buildxChecked = true
+		}
+		res, err := e.T.Run(ctx, "docker buildx imagetools inspect "+q(s.Image)+" --format '{{json .Manifest.Digest}}'")
 		if err != nil {
 			return nil, imageResolutionError(svc, s.Image, err.Error())
 		}
-		digest := strings.TrimSpace(res.Stdout)
-		if res.ExitCode != 0 || !digestRe.MatchString(digest) {
+		if res.ExitCode != 0 {
 			detail := strings.TrimSpace(res.Stderr)
 			if detail == "" {
-				detail = fmt.Sprintf("registry inspection returned exit %d without a valid sha256 digest", res.ExitCode)
+				detail = fmt.Sprintf("registry inspection failed with exit %d", res.ExitCode)
+			} else {
+				detail = "registry inspection failed: " + detail
 			}
 			return nil, imageResolutionError(svc, s.Image, detail)
+		}
+		var digest string
+		if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &digest); err != nil || !digestRe.MatchString(digest) {
+			return nil, imageResolutionError(svc, s.Image,
+				"Docker Buildx accepted --format but returned incompatible digest output; "+app.BuildxRemedy)
 		}
 		pinned, err := imageref.WithDigest(s.Image, digest)
 		if err != nil {

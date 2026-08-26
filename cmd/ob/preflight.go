@@ -18,8 +18,9 @@ func addPreflightCommand(root *cobra.Command, g *globalFlags) {
 		Use:   "preflight",
 		Short: "ask the server whether this project could be deployed (changes nothing)",
 		Long: "Render the project locally, then ask the server what would stand in the way:\n" +
-			"a missing container runtime, a base path this account cannot write, a derived\n" +
-			"name already held by something Onebox does not own, a missing ingress network.\n\n" +
+			"a missing container runtime, a missing or incompatible Docker Buildx image\n" +
+			"resolver, a base path this account cannot write, a derived name already held\n" +
+			"by something Onebox does not own, or a missing ingress network.\n\n" +
 			"Every problem is reported at once rather than the first one, and nothing is\n" +
 			"created, renamed or removed.",
 		RunE: func(cmd *cobra.Command, _ []string) error {

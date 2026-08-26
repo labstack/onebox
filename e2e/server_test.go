@@ -22,17 +22,11 @@ func (s *server) requireDocker(t *testing.T) {
 	}
 	// Docker's own packages, not Ubuntu's.
 	//
-	// `apt install docker.io docker-buildx` looks equivalent and is not: that
-	// buildx (0.30.1-0ubuntu1) accepts `--format` on `imagetools inspect` and
-	// ignores it, printing the human-readable manifest and exiting 0. ob pins
-	// every workload image through exactly that command
-	// (internal/engine/plan.go), so on such a host no deploy can succeed — and
-	// the error it produces blames the registry.
-	//
 	// This installs what an operator following Docker's instructions gets,
-	// which is the configuration the product is really used in. The Ubuntu
-	// packaging is a real gap and belongs in an issue, not in a fixture that
-	// quietly avoids it.
+	// including the Compose and Buildx plugins documented as host requirements.
+	// Some packaged Buildx clients ignore a plain Go template while honoring
+	// its JSON template form; image resolution uses that compatible form and
+	// validates the result before treating it as a digest.
 	s.run(t, strings.Join([]string{
 		"set -e",
 		"export DEBIAN_FRONTEND=noninteractive",

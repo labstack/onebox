@@ -1,14 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"bytes"
 	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 
@@ -97,12 +98,30 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 		Detail: "docker " + strings.TrimSpace(res.Stdout),
 	})
 
-	// 2. The base path. Checked without creating anything: preflight that
+	// 2. The image resolver. This only reads the local help output: using an
+	// image as the probe would spend registry quota before planning begins.
+	buildxDetail, err := CheckBuildxDigestSupport(ctx, run)
+	if err != nil {
+		var capabilityErr *BuildxCapabilityError
+		if !errors.As(err, &capabilityErr) {
+			return nil, errf("server_unreachable", "", "ob doctor",
+				"cannot verify Docker Buildx on the server: %v", err)
+		}
+		report.Checks = append(report.Checks, Check{
+			Name: "image resolver", Detail: capabilityErr.Error(), Remedy: BuildxRemedy,
+		})
+	} else {
+		report.Checks = append(report.Checks, Check{
+			Name: "image resolver", OK: true, Detail: buildxDetail,
+		})
+	}
+
+	// 3. The base path. Checked without creating anything: preflight that
 	// mutates is not preflight.
 	report.Checks = append(report.Checks, basePathCheck(ctx, run, n.BasePath))
 	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostOwnerPath(), p.Name, r.Env))
 
-	// 3. Name collisions. One listing per resource kind rather than one command
+	// 4. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
 	// round trips.
 	owned, err := ownedNames(ctx, run, p, r.Env)
@@ -111,7 +130,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	}
 	report.Checks = append(report.Checks, collisionChecks(p.Name, p.All(r.Env), owned)...)
 
-	// 4. The ingress network, which the proxy owns and this project only joins.
+	// 5. The ingress network, which the proxy owns and this project only joins.
 	if p.Proxy.Kind != "none" && p.routesAnywhere() {
 		report.Checks = append(report.Checks, networkCheck(ctx, run, p.Proxy.Network))
 	}

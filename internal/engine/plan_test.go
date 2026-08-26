@@ -30,8 +30,10 @@ func planFake() *transport.Fake {
 			return transport.Result{Stdout: "\n"}, true
 		case strings.Contains(cmd, "{{.Image}}"):
 			return transport.Result{Stdout: "sha256:aaaa\n"}, true
+		case cmd == app.BuildxCapabilityCommand:
+			return transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}, true
 		case strings.Contains(cmd, "imagetools inspect"):
-			return transport.Result{Stdout: "sha256:" + strings.Repeat("ab", 32) + "\n"}, true
+			return transport.Result{Stdout: `"sha256:` + strings.Repeat("ab", 32) + `"` + "\n"}, true
 		case strings.Contains(cmd, "cat "):
 			return transport.Result{Stdout: "services: {}\n"}, true
 		}
@@ -77,8 +79,11 @@ func TestPinImagesRewritesToDigest(t *testing.T) {
 	}
 	inspections := 0
 	for _, command := range f.Commands {
-		if strings.Contains(command, "imagetools inspect") {
+		if strings.Contains(command, "imagetools inspect") && command != app.BuildxCapabilityCommand {
 			inspections++
+			if !strings.Contains(command, "{{json .Manifest.Digest}}") {
+				t.Fatalf("registry inspection did not use the compatible JSON template: %q", command)
+			}
 		}
 	}
 	if inspections != 1 {
@@ -90,8 +95,8 @@ func TestPinImagesFailsClosedWhenRegistryCannotResolveDigest(t *testing.T) {
 	f := planFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "imagetools inspect") {
-			return transport.Result{ExitCode: 1, Stderr: "buildx: not found"}, true
+		if strings.Contains(cmd, "imagetools inspect") && cmd != app.BuildxCapabilityCommand {
+			return transport.Result{ExitCode: 1, Stderr: "unauthorized: registry credentials rejected"}, true
 		}
 		return base(cmd)
 	}
@@ -105,6 +110,50 @@ func TestPinImagesFailsClosedWhenRegistryCannotResolveDigest(t *testing.T) {
 	if resolution.Code() != "image_unresolved" || resolution.Workload == "" ||
 		!strings.Contains(resolution.ResolvingCommand, "ob plan --image "+resolution.Workload+"=") {
 		t.Fatalf("typed resolution error = %#v", resolution)
+	}
+	if !strings.Contains(resolution.Detail, "registry credentials rejected") || strings.Contains(resolution.Detail, "Buildx") {
+		t.Fatalf("registry failure was misdiagnosed: %#v", resolution)
+	}
+}
+
+func TestPinImagesFailsClosedWhenBuildxIsMissing(t *testing.T) {
+	f := planFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == app.BuildxCapabilityCommand {
+			return transport.Result{ExitCode: 1, Stderr: "docker: 'buildx' is not a docker command"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.PinImages(context.Background())
+	var resolution *ImageResolutionError
+	if !errors.As(err, &resolution) || !strings.Contains(resolution.Detail, "Buildx is unavailable") ||
+		!strings.Contains(resolution.Detail, app.BuildxRemedy) {
+		t.Fatalf("missing Buildx error = %#v (%v)", resolution, err)
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, "imagetools inspect") && command != app.BuildxCapabilityCommand {
+			t.Fatalf("missing Buildx still contacted a registry: %q", command)
+		}
+	}
+}
+
+func TestPinImagesRejectsSuccessfulInspectWithIncompatibleOutput(t *testing.T) {
+	f := planFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "imagetools inspect") && cmd != app.BuildxCapabilityCommand {
+			return transport.Result{Stdout: "Name: ghcr.io/x/app:latest\nMediaType: application/vnd.oci.image.index.v1+json\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.PinImages(context.Background())
+	var resolution *ImageResolutionError
+	if !errors.As(err, &resolution) ||
+		!strings.Contains(resolution.Detail, "Buildx accepted --format but returned incompatible digest output") {
+		t.Fatalf("incompatible successful output error = %#v (%v)", resolution, err)
 	}
 }
 

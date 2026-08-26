@@ -185,9 +185,12 @@ identity can be checked, and a dirty working tree has none.
 
 ## What the host needs
 
-A Linux server you can reach over SSH, with Docker available to the configured
-SSH account. There is no Onebox agent to install on it — the CLI connects over
-SSH, and scheduled work runs from host timers rather than a resident process.
+A Linux server you can reach over SSH, with Docker Engine, Docker Compose, and
+the Docker Buildx plugin available to the configured SSH account. Onebox uses
+`docker buildx imagetools inspect` to bind tagged workload images to immutable
+registry digests. There is no Onebox agent to install on the host — the CLI
+connects over SSH, and scheduled work runs from host timers rather than a
+resident process.
 
 Onebox does not download or run a Docker installer implicitly. Install Docker
 through your normal operator-managed provisioning before `ob bootstrap`. If you
@@ -206,6 +209,13 @@ the hook returns; if it is still unavailable, bootstrap stops with an actionable
 error before registry login, proxy setup, services, or evidence publication.
 A local bootstrap hook runs on the CLI machine and therefore cannot provision
 the remote host.
+
+Run `ob preflight` after host provisioning and before the first plan. Its
+Buildx probe reads only `docker buildx imagetools inspect --help`; it neither
+resolves an image nor uses registry quota. It fails with an image-resolver
+remedy when Buildx is missing or does not advertise the required `--format`
+capability. Planning also validates the formatted output, so a client that
+accepts but ignores the option cannot produce a misleading registry error.
 
 `ob bootstrap` prepares the host. It is the one command that contacts and
 changes a server before any application exists.

@@ -20,14 +20,17 @@ You need:
 
 - Onebox installed on your machine
 - a repository containing the Compose file you already run
-- one Linux server reachable over SSH, with Docker available to that SSH account
+- one Linux server reachable over SSH, with Docker Engine, Compose, and Buildx
+  available to that SSH account
 - the server's host key already recorded in `known_hosts`
 
 If the server has no public SSH port, name the bastion it is reached through —
 see [Deploy through a jump host](/guides/deploy-through-a-jump-host/).
 
 The first three steps are local and contact nothing. `ob bootstrap` is the first
-command that changes the server; the plan after it is read-only.
+command that changes the server. `ob preflight` then reads the provisioned host
+without changing it or contacting a registry; the plan after it is also
+read-only.
 
 ## Deploy once
 
@@ -84,7 +87,18 @@ command that changes the server; the plan after it is read-only.
    ob bootstrap
    ```
 
-5. **Review production without changing it.**
+5. **Check host readiness.** This contacts the server but changes nothing.
+
+   ```sh
+   ob preflight
+   ```
+
+   Among the host, ownership, path, and collision checks, preflight verifies
+   that Docker Buildx can format image-manifest digests. The capability probe
+   reads local help output only, so it does not resolve an image or consume
+   registry quota.
+
+6. **Review production without changing it.**
 
    ```sh
    ob plan --out ob-plan.json
@@ -110,7 +124,7 @@ command that changes the server; the plan after it is read-only.
    `ob deploy --redeploy` remains the explicit exception: on a whole-application
    no-op it performs the fresh roll shown in the sealed plan.
 
-6. **Record a short-lived local confirmation for that exact plan.**
+7. **Record a short-lived local confirmation for that exact plan.**
 
    ```sh
    ob approve --plan ob-plan.json --out ob-approval.json
@@ -120,7 +134,7 @@ command that changes the server; the plan after it is read-only.
    risk, operator label, and expiry. A changed or expired plan needs a new
    confirmation. It is tamper-evident local ceremony, not authenticated identity.
 
-7. **Deploy with both artifacts.**
+8. **Deploy with both artifacts.**
 
    ```sh
    ob deploy --plan ob-plan.json --approval ob-approval.json

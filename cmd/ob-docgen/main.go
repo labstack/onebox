@@ -1,15 +1,16 @@
 // Command ob-docgen writes the generated half of the documentation site.
 //
-// Three references in this product are already enumerated in Go, drift-tested,
-// and published: the project-file schema, the loader's error codes, and the
-// lifecycle failure contract. Writing them again by hand in Markdown would
+// The reference surfaces in this product are already enumerated in Go,
+// drift-tested, and published: the project-file schema, error contracts, CLI,
+// and service-driver catalogue. Writing them again by hand in Markdown would
 // create a second source that can disagree with the first, and a published
 // contract that disagrees with the loader is worse than none — it teaches the
 // author something untrue and they learn to ignore it.
 //
 // So this program is the only writer of `site/src/content/docs/reference/`
-// — the field pages, `errors.mdx` and `cli.mdx` — and of the schema published at
-// `site/public/onebox.run-v1.schema.json`. Those pages carry a generated marker,
+// — the field pages, `drivers.mdx`, `errors.mdx` and `cli.mdx` — and of the
+// schema published at `site/public/onebox.run-v1.schema.json`. Those pages carry
+// a generated marker,
 // which `--check` reads in both directions: it fails when a page differs from
 // what this binary would produce, and when a marked page survives that no
 // generator produces any more.
@@ -192,6 +193,7 @@ func generate(ctx context.Context, obBin string) (map[string]string, error) {
 	}
 
 	files["errors.mdx"] = renderErrorPage()
+	files["drivers.mdx"] = renderDriverPage()
 
 	cli, err := renderCLIPage(ctx, obBin)
 	if err != nil {
@@ -812,6 +814,185 @@ func escapeCell(s string) string {
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// --------------------------------------------------------------- drivers ---
+
+var serviceDriverTypicalUses = map[string]string{
+	"clickhouse":  "Analytical database",
+	"mariadb":     "Relational database",
+	"meilisearch": "Search",
+	"minio":       "S3-compatible object storage",
+	"mongodb":     "Document database",
+	"mysql":       "Relational database",
+	"nats":        "Messaging, JetStream",
+	"postgres":    "Relational database",
+	"rabbitmq":    "Message broker",
+	"redis":       "Cache, queue",
+	"valkey":      "Cache, queue",
+}
+
+func renderDriverPage() string {
+	drivers := app.ServiceDriverReference()
+	var buf bytes.Buffer
+
+	description := fmt.Sprintf("The %d built-in supporting-service drivers and what each provides.", len(drivers))
+	summary := fmt.Sprintf("The closed set of %d service drivers, their runtime facts, connection parts, and known limitations.", len(drivers))
+
+	fmt.Fprintln(&buf, "---")
+	fmt.Fprintln(&buf, "title: Service drivers")
+	fmt.Fprintf(&buf, "description: %s\n", jsonString(description))
+	fmt.Fprintf(&buf, "summary: %s\n", jsonString(summary))
+	fmt.Fprintln(&buf, "status: shipped")
+	fmt.Fprintln(&buf, "generated: true")
+	fmt.Fprintln(&buf, "sidebar:\n  order: 250")
+	fmt.Fprintln(&buf, "read_when:")
+	fmt.Fprintln(&buf, `  - "Choosing a supporting service driver"`)
+	fmt.Fprintln(&buf, `  - "Checking a driver's image, port, storage, health, or connection parts"`)
+	fmt.Fprintln(&buf, `  - "Finding out why a driver name was refused"`)
+	fmt.Fprintln(&buf, "---")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, generatedMarker)
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "The driver set is **closed**. A declaration naming a driver outside it is refused")
+	fmt.Fprintln(&buf, "with `unknown_service_driver`, listing the drivers Onebox can run and directing")
+	fmt.Fprintln(&buf, "you to a `daemon` workload.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "That is deliberate: inventing an image from a name produces a container that")
+	fmt.Fprintln(&buf, "starts and stores nothing durable.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "The runtime and connection tables are generated from the private driver catalogue.")
+	fmt.Fprintln(&buf, "The guidance and limitations below remain deliberately authored in the generator:")
+	fmt.Fprintln(&buf, "they are product explanations, not facts the catalogue can prove.")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## Runtime catalogue")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "| Driver | Image repository | Port | Data path | URL scheme | Health check |")
+	fmt.Fprintln(&buf, "| --- | --- | ---: | --- | --- | --- |")
+	for _, driver := range drivers {
+		dataPath := "—"
+		if driver.DataPath != "" {
+			dataPath = "`" + driver.DataPath + "`"
+		}
+		health := "none"
+		if driver.HealthAvailable {
+			health = "available"
+		}
+		fmt.Fprintf(&buf, "| `%s` | `%s` | `%d` | %s | `%s` | %s |\n",
+			driver.Name, driver.ImageRepository, driver.Port, dataPath, driver.URLScheme, health)
+	}
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## Connection contract")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "| Driver | Typical use | Connection parts |")
+	fmt.Fprintln(&buf, "| --- | --- | --- |")
+	for _, driver := range drivers {
+		fmt.Fprintf(&buf, "| `%s` | %s | %s |\n",
+			driver.Name, escapeCell(serviceDriverTypicalUses[driver.Name]), connectionPartsCell(driver.ConnectionParts))
+	}
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "A part the driver does not have — a database on a cache — is omitted rather than")
+	fmt.Fprintln(&buf, "written empty. Every driver has a password part; `redis` and `valkey` have a")
+	fmt.Fprintln(&buf, "user part because Redis 6+ authenticates the built-in `default` user, and a URL")
+	fmt.Fprintln(&buf, "with an empty username fails AUTH outright.")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, ":::caution[`nats` has no health check]")
+	fmt.Fprintln(&buf, "Its image carries no shell to run a probe in, so the driver declares none. A")
+	fmt.Fprintln(&buf, "`needs` on it resolves to `started` rather than `healthy`, and writing")
+	fmt.Fprintln(&buf, "`condition: healthy` against it is refused at load time rather than left to hang")
+	fmt.Fprintln(&buf, "on the target. Every other driver has one.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Its server is also started without authentication. The `password` part is")
+	fmt.Fprintln(&buf, "written into the connection file like any other, but nothing on the nats side")
+	fmt.Fprintln(&buf, "checks it.")
+	fmt.Fprintln(&buf, ":::")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## What a declaration gets you")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "```yaml")
+	fmt.Fprintln(&buf, "services:")
+	fmt.Fprintln(&buf, "  postgres: 17")
+	fmt.Fprintln(&buf, "```")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "The image, a durable volume, a health check (every driver but `nats`), a")
+	fmt.Fprintln(&buf, "credential generated on the target, and the connection details your application")
+	fmt.Fprintln(&buf, "reads.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "- **The service outlives every release.** Its own Compose project; no deploy and")
+	fmt.Fprintln(&buf, "  no rollback stops it or removes its volume.")
+	fmt.Fprintln(&buf, "- **The credential is generated on the server, once.** Not in your project, the")
+	fmt.Fprintln(&buf, "  generated runtime, or the digest. Never rotated by a re-apply.")
+	fmt.Fprintln(&buf, "- **The version binds into the release digest**, so a database upgrade under an")
+	fmt.Fprintln(&buf, "  untouched application cannot pass unnoticed.")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## Settings are driver-validated")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "```yaml")
+	fmt.Fprintln(&buf, "services:")
+	fmt.Fprintln(&buf, "  postgres:")
+	fmt.Fprintln(&buf, "    version: 17")
+	fmt.Fprintln(&buf, "    settings:")
+	fmt.Fprintln(&buf, "      max_connections: 200")
+	fmt.Fprintln(&buf, "```")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "A setting is applied through the mechanism its driver actually reads. One the")
+	fmt.Fprintln(&buf, "driver has no way to apply is refused with `service_settings_unsupported`, rather")
+	fmt.Fprintln(&buf, "than silently ignored.")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## Known limitations")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, ":::caution[`mongodb` runs a standalone server, not a replica set]")
+	fmt.Fprintln(&buf, "Change streams and multi-document transactions need a replica set. An application")
+	fmt.Fprintln(&buf, "using either will connect, authenticate, and *then* fail — Rocket.Chat reports")
+	fmt.Fprintln(&buf, "`The $changeStream stage is only supported on replica sets`.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Onebox does not configure a replica set, so an application that needs one wants a")
+	fmt.Fprintln(&buf, "`daemon` workload it owns. This is a limitation of the driver rather than of the")
+	fmt.Fprintln(&buf, "contract, and it is stated here because the failure appears in the application's")
+	fmt.Fprintln(&buf, "logs rather than in anything Onebox says.")
+	fmt.Fprintln(&buf, ":::")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, ":::caution[Only `postgres` is backed up]")
+	fmt.Fprintln(&buf, "`postgres` is the one driver with an executable backup contract: declaring")
+	fmt.Fprintln(&buf, "`backup` on it gives a continuous off-host archive and point-in-time recovery.")
+	fmt.Fprintln(&buf, "Every other driver declares `policy_qualified: false`, so a backup policy on it")
+	fmt.Fprintln(&buf, "is refused at `ob validate` rather than accepted and left to do nothing — and its")
+	fmt.Fprintln(&buf, "data lives only on this host until you copy it off yourself.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Onebox also refuses a major version change a driver cannot perform in place,")
+	fmt.Fprintln(&buf, "rather than replacing the container and leaving the data intact and unreachable.")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "For `postgres`, declaring `backup` changes this — see")
+	fmt.Fprintln(&buf, "[Shipped vs proposed](/status/capabilities).")
+	fmt.Fprintln(&buf, ":::")
+	fmt.Fprintln(&buf)
+
+	fmt.Fprintln(&buf, "## Anything else")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "Run it as a `daemon` workload and you own it: the image, the credential, the")
+	fmt.Fprintln(&buf, "volumes, the backup. See [Add a database](/guides/add-a-database) for the")
+	fmt.Fprintln(&buf, "comparison.")
+
+	return buf.String()
+}
+
+func connectionPartsCell(parts []string) string {
+	if len(parts) == 0 {
+		return "—"
+	}
+	quoted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		quoted = append(quoted, "`"+part+"`")
+	}
+	return strings.Join(quoted, " ")
 }
 
 // ---------------------------------------------------------------- errors ---

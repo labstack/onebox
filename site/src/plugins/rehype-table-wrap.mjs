@@ -1,7 +1,7 @@
 /**
  * Wrap every Markdown table in a scrollable container.
  *
- * The generated field reference has tables far wider than a phone. Without a
+ * Generated reference pages have tables far wider than a phone. Without a
  * wrapper the table is clipped at the content edge with no way to reach the
  * rest of it: the page correctly refuses to scroll sideways, and the last two
  * columns simply cannot be read. Wrapping moves the overflow onto an element

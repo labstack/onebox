@@ -49,3 +49,9 @@ just site-build           # build it into site/dist
 The generated pages are committed, so a reader of this repository sees the same
 reference a reader of the site does, and so the check has a baseline to compare
 against. They carry a generated marker; edit the generator, not the page.
+
+For service drivers, the name, image repository, port, data path, URL scheme,
+health-check availability, and derived connection parts come from a sorted,
+read-only projection of the private runtime catalogue. Typical-use labels and
+operational limitations remain authored in `cmd/ob-docgen`: they explain the
+product rather than restating data the catalogue can prove.

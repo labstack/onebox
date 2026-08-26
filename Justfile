@@ -230,12 +230,13 @@ server-env:
 
 # Regenerate the parts of the documentation site that are derived from Go.
 #
-# The project-file field reference, the error-code catalogue and the CLI
-# reference are all enumerated in the binary already. Writing them again by hand
-# would create a second source that can disagree with the first, so this command
-# is their only writer. The CLI reference is read out of the binary this recipe
-# just built, named explicitly rather than resolved from PATH — otherwise an
-# older `ob` installed elsewhere documents a tree it did not come from.
+# The project-file field reference, service-driver catalogue, error-code
+# catalogue and CLI reference are all enumerated in the binary already. Writing
+# them again by hand would create a second source that can disagree with the
+# first, so this command is their only writer. The CLI reference is read out of
+# the binary this recipe just built, named explicitly rather than resolved from
+# PATH — otherwise an older `ob` installed elsewhere documents a tree it did not
+# come from.
 docs-generate: build
     go run ./cmd/ob-docgen --ob "${ONEBOX_BIN_DIR:-bin}/ob"
 

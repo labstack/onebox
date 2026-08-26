@@ -1,6 +1,6 @@
 // Assert that every table in the built site sits inside a scroll container.
 //
-// The generated field reference has tables far wider than a phone. Unwrapped,
+// Generated reference pages have tables far wider than a phone. Unwrapped,
 // they are clipped at the content edge with no way to reach the rest — the page
 // correctly refuses to scroll sideways, and the last two columns simply cannot
 // be read.

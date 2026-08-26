@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,6 +112,7 @@ func TestGeneratedPagesCarryAgentFrontmatter(t *testing.T) {
 		t.Fatalf("cannot render field pages: %v", err)
 	}
 	pages["errors.mdx"] = renderErrorPage()
+	pages["drivers.mdx"] = renderDriverPage()
 
 	for name, body := range pages {
 		for _, required := range []string{"title:", "summary:", "status:", "generated: true", generatedMarker} {
@@ -120,6 +122,47 @@ func TestGeneratedPagesCarryAgentFrontmatter(t *testing.T) {
 		}
 		if strings.Contains(body, "<!--") {
 			t.Errorf("%s contains an HTML comment, which MDX parses as JSX", name)
+		}
+	}
+}
+
+func TestDriverPageCoversTheDocumentationProjection(t *testing.T) {
+	reference := app.ServiceDriverReference()
+	page := renderDriverPage()
+	if len(serviceDriverTypicalUses) != len(reference) {
+		t.Fatalf("typical-use catalogue has %d entries for %d drivers", len(serviceDriverTypicalUses), len(reference))
+	}
+	for _, driver := range reference {
+		use, ok := serviceDriverTypicalUses[driver.Name]
+		if !ok || strings.TrimSpace(use) == "" {
+			t.Errorf("driver %q has no authored typical use", driver.Name)
+		}
+		dataPath := "—"
+		if driver.DataPath != "" {
+			dataPath = "`" + driver.DataPath + "`"
+		}
+		health := "none"
+		if driver.HealthAvailable {
+			health = "available"
+		}
+		runtimeRow := fmt.Sprintf("| `%s` | `%s` | `%d` | %s | `%s` | %s |",
+			driver.Name, driver.ImageRepository, driver.Port, dataPath, driver.URLScheme, health)
+		if !strings.Contains(page, runtimeRow) {
+			t.Errorf("driver %q runtime facts are missing or out of order", driver.Name)
+		}
+		connectionRow := fmt.Sprintf("| `%s` | %s | %s |",
+			driver.Name, escapeCell(use), connectionPartsCell(driver.ConnectionParts))
+		if !strings.Contains(page, connectionRow) {
+			t.Errorf("driver %q connection facts are missing or out of order", driver.Name)
+		}
+	}
+	for name := range serviceDriverTypicalUses {
+		found := false
+		for _, driver := range reference {
+			found = found || driver.Name == name
+		}
+		if !found {
+			t.Errorf("typical-use catalogue names removed driver %q", name)
 		}
 	}
 }
@@ -289,10 +332,10 @@ func TestPublishedSchemaMatchesTheCheckedInCopy(t *testing.T) {
 // `--check` enforces the same thing, but only when someone invokes it. This puts
 // the guarantee in `go test ./...`, where nobody has to remember anything.
 //
-// It covers the field pages and errors.mdx — the pure ones. It does NOT cover
-// cli.mdx, which needs a built binary, the published schema under site/public,
-// or the orphan sweep; those remain `--check`'s alone, and cli.mdx is separately
-// covered by TestEveryCommandIsDocumented in cmd/ob.
+// It covers the field pages, drivers.mdx and errors.mdx — the pure ones. It does
+// NOT cover cli.mdx, which needs a built binary, the published schema under
+// site/public, or the orphan sweep; those remain `--check`'s alone, and cli.mdx
+// is separately covered by TestEveryCommandIsDocumented in cmd/ob.
 func TestCommittedPagesMatchTheGenerator(t *testing.T) {
 	schema, err := loadSchema()
 	if err != nil {
@@ -303,6 +346,7 @@ func TestCommittedPagesMatchTheGenerator(t *testing.T) {
 		t.Fatalf("cannot render: %v", err)
 	}
 	want["errors.mdx"] = renderErrorPage()
+	want["drivers.mdx"] = renderDriverPage()
 
 	root := filepath.Join("..", "..", "site", "src", "content", "docs", "reference")
 	for name, body := range want {

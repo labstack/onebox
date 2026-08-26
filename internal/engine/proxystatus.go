@@ -24,6 +24,7 @@ type proxyRaw struct {
 	health    string // proxy container health, parsed from docker ps .Status
 	applied   string // config hash the host applied
 	owner     string // sole application identity from the host owner record
+	ownerEnv  string // environment identity when the record is not legacy
 	acme      string // raw acme.json; parsed at render, and keys never leave
 	localHash string // hash of the locally staged config (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather
@@ -33,6 +34,19 @@ type proxyRaw struct {
 	ownerIssue   string
 	appliedIssue string
 	acmeIssue    string
+}
+
+func (px proxyRaw) ownershipIssue(application, environment string) string {
+	if px.owner != "" && px.owner != application {
+		return fmt.Sprintf("host is owned by application %s", px.owner)
+	}
+	if px.ownerEnv != "" && px.ownerEnv != environment {
+		return fmt.Sprintf(
+			"host is claimed by the %s environment of application %s; status targets %s",
+			px.ownerEnv, px.owner, environment,
+		)
+	}
+	return ""
 }
 
 // proxyReads returns the managed proxy's independent status reads as thunks for
@@ -91,17 +105,24 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				// Rendering that as "(unclaimed)" would have status
 				// invite a bootstrap that readHostOwner then rejects as
 				// invalid — two answers about one file.
-				px.owner = strings.TrimSpace(res.Stdout)
-				// The same validity rule readHostOwner applies. Publishing a
-				// record that every mutation then refuses is the "two answers
-				// about one file" this read was rewritten to eliminate: an
-				// agent branching on the JSON would read the host as claimed.
+				record := strings.TrimSpace(res.Stdout)
+				// Use the same parser as preflight and every mutation. Owner
+				// records written before environments contain one field; current
+				// records contain application and environment as two fields.
+				// Applying the application-name regex to the whole record made
+				// status reject the current format while mutations accepted it.
 				switch {
-				case px.owner == "":
+				case record == "":
 					px.ownerIssue = "host owner record is present but empty; an empty record is not a valid claim"
-				case !appNameRe.MatchString(px.owner):
-					px.ownerIssue = "the host owner record is not a valid application name; every mutation will refuse this host"
-					px.owner = ""
+				default:
+					owner, ok := app.ParseHostOwnerRecord(record)
+					if !ok {
+						px.ownerIssue = "the host owner record is not a valid application/environment claim; " +
+							"every mutation will refuse this host"
+						return nil
+					}
+					px.owner = owner.Application
+					px.ownerEnv = owner.Environment
 				}
 				return nil
 			case app.ProbeAbsent:
@@ -265,11 +286,17 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		diverged = true
 	}
 	owner := px.owner
+	if px.ownerEnv != "" {
+		owner += "/" + px.ownerEnv
+	}
 	if owner == "" {
 		owner = "(unclaimed)"
 	}
 	if px.ownerIssue != "" {
 		owner = e.ui.Warn(px.ownerIssue + " ⚠")
+		diverged = true
+	} else if issue := px.ownershipIssue(e.Spec.Name, e.Opts.Environment); issue != "" {
+		owner = e.ui.Warn(issue + " ⚠")
 		diverged = true
 	}
 	fmt.Fprintf(e.Opts.Out, "proxy %-12s %-10s %s   owner: %s\n", proxy.ContainerName, health, state, owner)

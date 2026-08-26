@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -17,9 +16,6 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 )
-
-// appNameRe mirrors config's app-name rule for the host owner record.
-var appNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 // EnsureProxy converges the HOST-scoped managed proxy (design: one Traefik
 // per host, owned by its sole Onebox application). Idempotent and ACME-safe: an

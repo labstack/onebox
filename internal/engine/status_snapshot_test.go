@@ -399,7 +399,7 @@ func TestStatusSnapshotDoesNotPublishCertificatesFromARefusedStore(t *testing.T)
 	}
 }
 
-// readHostOwner refuses any record that is not a valid application name, so
+// readHostOwner refuses any record that is not a valid owner record, so
 // status publishing one would be the "two answers about one file" the shared
 // probe exists to eliminate: the JSON reads as correctly claimed while every
 // mutation refuses the host.
@@ -429,12 +429,77 @@ func TestStatusSnapshotDoesNotPublishAnOwnerEveryMutationRefuses(t *testing.T) {
 	}
 	var named bool
 	for _, issue := range snapshot.Proxy.Issues {
-		if strings.Contains(issue, "not a valid application name") {
+		if strings.Contains(issue, "not a valid application/environment claim") {
 			named = true
 		}
 	}
 	if !named {
 		t.Errorf("the invalid owner was not named among the issues: %#v", snapshot.Proxy.Issues)
+	}
+}
+
+func TestStatusSnapshotAcceptsEnvironmentQualifiedOwner(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, "", "healthy")
+	e.Opts.Environment = "production"
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{Stdout: "sample production\n"}, true
+		}
+		return base(cmd)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Proxy == nil {
+		t.Fatal("proxy section was dropped entirely")
+	}
+	if snapshot.Proxy.Owner != "sample" {
+		t.Fatalf("unexpected structured host owner: %q", snapshot.Proxy.Owner)
+	}
+	if !snapshot.Proxy.Complete || snapshot.Proxy.Diverged {
+		t.Fatalf("qualified owner was not accepted as clean, complete state: %#v", snapshot.Proxy)
+	}
+	for _, issue := range snapshot.Proxy.Issues {
+		if strings.Contains(issue, "owner record") {
+			t.Fatalf("qualified owner was reported as invalid: %#v", snapshot.Proxy.Issues)
+		}
+	}
+}
+
+func TestStatusSnapshotReportsEnvironmentOwnerMismatch(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, "", "healthy")
+	e.Opts.Environment = "production"
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{Stdout: "sample staging\n"}, true
+		}
+		return base(cmd)
+	}
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Proxy == nil {
+		t.Fatal("proxy section was dropped entirely")
+	}
+	if !snapshot.Proxy.Complete || !snapshot.Proxy.Diverged {
+		t.Fatalf("observed owner mismatch must be complete divergence: %#v", snapshot.Proxy)
+	}
+	if snapshot.Proxy.Owner != "sample" {
+		t.Fatalf("unexpected structured host owner: %q", snapshot.Proxy.Owner)
+	}
+	issues := strings.Join(snapshot.Proxy.Issues, "\n")
+	for _, want := range []string{"staging environment", "status targets production"} {
+		if !strings.Contains(issues, want) {
+			t.Fatalf("environment mismatch did not mention %q: %#v", want, snapshot.Proxy.Issues)
+		}
 	}
 }
 

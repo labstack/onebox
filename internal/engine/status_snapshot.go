@@ -283,7 +283,7 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 		for i := proxyReadStart; i < len(reads); i++ {
 			proxyComplete[i-proxyReadStart] = reads[i].err == nil
 		}
-		proxyStatus, parseWarning := makeStatusProxy(px, proxyComplete, snapshot.CapturedAt, e.Spec.Name)
+		proxyStatus, parseWarning := makeStatusProxy(px, proxyComplete, snapshot.CapturedAt, e.Spec.Name, e.Opts.Environment)
 		snapshot.Proxy = &proxyStatus
 		snapshot.Diverged = snapshot.Diverged || proxyStatus.Diverged
 		snapshot.Complete = snapshot.Complete && proxyStatus.Complete
@@ -413,7 +413,7 @@ func makeStatusIncomplete(summary journal.Summary) *StatusIncomplete {
 	}
 }
 
-func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, application string) (StatusProxy, *StatusWarning) {
+func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, application, environment string) (StatusProxy, *StatusWarning) {
 	complete := func(index int) bool { return index < len(readComplete) && readComplete[index] }
 	status := StatusProxy{
 		Managed:      true,
@@ -466,8 +466,8 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 		if raw.ownerIssue != "" {
 			status.Complete = false
 			status.Issues = append(status.Issues, raw.ownerIssue)
-		} else if raw.owner != "" && raw.owner != application {
-			status.Issues = append(status.Issues, fmt.Sprintf("host is owned by application %s", raw.owner))
+		} else if issue := raw.ownershipIssue(application, environment); issue != "" {
+			status.Issues = append(status.Issues, issue)
 		}
 	}
 

@@ -113,6 +113,50 @@ func TestStatusManagedProxyInSync(t *testing.T) {
 	}
 }
 
+func TestStatusManagedProxyEnvironmentQualifiedOwner(t *testing.T) {
+	applied := ""
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	e, f, out, _ := statusProxyEngine(t, &applied, acme, "healthy")
+	e.Opts.Environment = "production"
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{Stdout: "sample production\n"}, true
+		}
+		return base(cmd)
+	}
+
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("status rejected an environment-qualified owner: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "owner: sample/production") {
+		t.Fatalf("qualified host owner missing:\n%s", out.String())
+	}
+}
+
+func TestStatusManagedProxyEnvironmentMismatch(t *testing.T) {
+	applied := ""
+	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	e, f, out, _ := statusProxyEngine(t, &applied, acme, "healthy")
+	e.Opts.Environment = "production"
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "_host/owner") {
+			return transport.Result{Stdout: "sample staging\n"}, true
+		}
+		return base(cmd)
+	}
+
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("status accepted another environment's host:\n%s", out.String())
+	}
+	for _, want := range []string{"staging environment", "status targets production"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("environment mismatch did not mention %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestStatusManagedProxyConfigDrift(t *testing.T) {
 	applied := "deadbeefdeadbeef"
 	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))

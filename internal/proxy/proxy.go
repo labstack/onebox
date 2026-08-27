@@ -39,9 +39,10 @@ const (
 	DiscoveryImageRepository = "ghcr.io/labstack/onebox-discovery"
 	// Project is the compose project name; ContainerName the fixed container
 	// name — both host-global, which is the point.
-	Project                = app.ProxyProject
-	ContainerName          = app.ProxyProject
-	DiscoveryContainerName = app.ProxyProject + "-discovery"
+	Project                      = app.ProxyProject
+	ContainerName                = app.ProxyProject
+	DiscoveryContainerName       = "onebox-discovery"
+	LegacyDiscoveryContainerName = app.ProxyProject + "-discovery"
 )
 
 var releaseVersion = regexp.MustCompile(`^v[0-9]{4}\.[0-9]{1,2}\.[0-9]+$`)

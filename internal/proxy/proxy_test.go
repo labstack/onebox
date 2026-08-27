@@ -55,7 +55,7 @@ func TestRenderCompose(t *testing.T) {
 		"container_name: onebox-proxy",
 		"image: traefik:v3.7",
 		`"80:80"`, `"443:443"`,
-		"container_name: onebox-proxy-discovery",
+		"container_name: onebox-discovery",
 		"image: ghcr.io/labstack/onebox-discovery:edge",
 		"./config:/etc/traefik:ro",
 		"./dynamic:/etc/traefik/dynamic:ro",

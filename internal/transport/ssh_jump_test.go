@@ -248,6 +248,9 @@ func TestSilentTargetBehindAJumpIsBoundedByTheHandshakeTimeout(t *testing.T) {
 		if err == nil {
 			t.Fatal("a silent target completed a handshake")
 		}
+		if !errors.Is(err, errHandshakeAbandoned) {
+			t.Fatalf("error = %v, want the handshake timeout", err)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("connect to a silent target never returned")
 	}
@@ -434,5 +437,24 @@ func TestExpiredDeadlineNamesTheHop(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), "target ssh ") {
 		t.Fatalf("error %q does not name the target hop", err)
+	}
+}
+
+// A direct TCP connection honors SetDeadline, so its read can return an I/O
+// timeout just before the context publishes DeadlineExceeded. The caller's
+// deadline remains the public error regardless of which wake-up wins.
+func TestDirectDeadlineWinsTheTCPHandshakeRace(t *testing.T) {
+	home, _ := sshTestHome(t)
+	silent := newSilentListener(t)
+	writeKnownHostsFor(t, home, silent.Addr().String(), generateSigner(t).PublicKey())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := NewSSHContext(ctx, "root@"+silent.Addr().String())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("direct silent handshake = %v, want context deadline", err)
+	}
+	if !strings.HasPrefix(err.Error(), "ssh ") {
+		t.Fatalf("error %q does not name the direct hop", err)
 	}
 }

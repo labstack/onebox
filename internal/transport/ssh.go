@@ -186,8 +186,10 @@ func sshHandshake(ctx context.Context, conn net.Conn, address obtarget.Address, 
 		HostKeyAlgorithms: knownHostKeyAlgos(hostKeys, dialed),
 	}
 	handshakeDeadline := time.Now().Add(handshakeTimeout)
+	deadlineFromContext := false
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(handshakeDeadline) {
 		handshakeDeadline = deadline
+		deadlineFromContext = true
 	}
 	// Best effort: a TCP conn reports a clean i/o timeout this way, but an SSH
 	// channel refuses deadlines outright ("ssh: tcpChan: deadline not
@@ -236,6 +238,17 @@ func sshHandshake(ctx context.Context, conn net.Conn, address obtarget.Address, 
 		_ = conn.Close()
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, hopError(stage, address, phaseNone, ctxErr)
+		}
+		deadlineReached := !time.Now().Before(handshakeDeadline)
+		if gaveUp || (deadlineReached && isTransportFailure(err)) {
+			// The timer and context deadline target the same instant. The timer
+			// or a TCP deadline can close the connection just before context
+			// publishes its error, turning a deadline into a misleading handshake
+			// failure unless the deadline source is retained explicitly.
+			if deadlineFromContext {
+				return nil, hopError(stage, address, phaseNone, context.DeadlineExceeded)
+			}
+			return nil, hopError(stage, address, phaseNone, errHandshakeAbandoned)
 		}
 		return nil, hopError(stage, address, phaseOf(err), err)
 	}

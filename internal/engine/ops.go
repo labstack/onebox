@@ -215,8 +215,10 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
 				"proxy_orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$) || exit $?; " +
 				"discovery_orphans=$(docker ps -aq --filter name=^" + proxy.DiscoveryContainerName + "$) || exit $?; " +
+				"legacy_discovery_orphans=$(docker ps -aq --filter name=^" + proxy.LegacyDiscoveryContainerName + "$) || exit $?; " +
 				"if [ -n \"$proxy_orphans\" ]; then docker rm -f $proxy_orphans || exit $?; fi; " +
-				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans; fi"
+				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans || exit $?; fi; " +
+				"if [ -n \"$legacy_discovery_orphans\" ]; then docker rm -f $legacy_discovery_orphans; fi"
 			if res, err := e.hostMutate(ctx, down); err != nil {
 				return err
 			} else if res.ExitCode != 0 {

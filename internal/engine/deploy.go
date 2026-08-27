@@ -24,8 +24,9 @@ func (e *Engine) Deploy(ctx context.Context, releaseID, localStagingDir string) 
 
 // ValidateDeployNoOp establishes the same lock/fence authority as Deploy and
 // re-runs preflight plus the adapter's bound-state precondition. It performs no
-// release transfer or workload mutation. This makes a no-op result an
-// authoritative point-in-time decision rather than a stale pre-lock guess.
+// release transfer or workload mutation. The host-scoped managed proxy may
+// still converge: application no-op means the release payload is unchanged,
+// not that an older runner's security boundary may remain in service.
 func (e *Engine) ValidateDeployNoOp(ctx context.Context, operationID string) error {
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err
@@ -40,12 +41,17 @@ func (e *Engine) ValidateDeployNoOp(ctx context.Context, operationID string) err
 	}
 	stopHeartbeat := e.StartHeartbeat(ctx)
 	defer stopHeartbeat()
-	if err := e.Preflight(ctx); err != nil {
-		return fmt.Errorf("preflight: %w", err)
-	}
 	if e.Opts.DeployPrecondition != nil {
 		if err := e.Opts.DeployPrecondition(ctx, e); err != nil {
 			return fmt.Errorf("deploy precondition under lock: %w", err)
+		}
+	}
+	if err := e.preflight(ctx, false); err != nil {
+		return fmt.Errorf("preflight: %w", err)
+	}
+	if e.Spec.Proxy.Managed {
+		if err := e.EnsureProxy(ctx, operationID, e.Opts.ForceLock); err != nil {
+			return fmt.Errorf("managed proxy: %w", err)
 		}
 	}
 	return nil
@@ -69,17 +75,20 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 	stopHB := e.StartHeartbeat(ctx)
 	defer stopHB()
-	pf := e.ui.Step("preflight", false)
-	if err := e.Preflight(ctx); err != nil {
-		pf(err)
-		return fmt.Errorf("preflight: %w", err)
-	}
-	pf(nil)
+	// The plan binding is the mutation boundary. Check it under the application
+	// lock before converging even host-scoped support components; a stale plan
+	// must leave both the application and proxy untouched.
 	if e.Opts.DeployPrecondition != nil {
 		if err := e.Opts.DeployPrecondition(ctx, e); err != nil {
 			return fmt.Errorf("deploy precondition under lock: %w", err)
 		}
 	}
+	pf := e.ui.Step("preflight", false)
+	if err := e.preflight(ctx, false); err != nil {
+		pf(err)
+		return fmt.Errorf("preflight: %w", err)
+	}
+	pf(nil)
 	if err := e.validateRetainedWorkloads(ctx); err != nil {
 		return fmt.Errorf("deploy precondition under lock: %w", err)
 	}
@@ -96,6 +105,18 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		if err != nil {
 			return fmt.Errorf("rollback effect history: %w", err)
 		}
+	}
+	// A released runner may change the managed proxy's security/runtime
+	// contract. All plan, host, workload, and rollback preconditions above are
+	// read-only and must pass first; only then may the deploy move an existing
+	// installation to the new proxy boundary internally.
+	if e.Spec.Proxy.Managed {
+		proxyStep := e.ui.Step("managed proxy", false)
+		if err := e.EnsureProxy(ctx, releaseID, e.Opts.ForceLock); err != nil {
+			proxyStep(err)
+			return fmt.Errorf("managed proxy: %w", err)
+		}
+		proxyStep(nil)
 	}
 
 	jw := &journal.Writer{

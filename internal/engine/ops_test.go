@@ -340,6 +340,11 @@ func TestDestroyProxyTeardownForSoleOwner(t *testing.T) {
 	if !strings.Contains(seq, "docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
 		t.Fatalf("sole owner with --proxy must tear the proxy down:\n%s", seq)
 	}
+	for _, name := range []string{"name=^onebox-proxy$", "name=^onebox-proxy-discovery$"} {
+		if !strings.Contains(seq, name) {
+			t.Fatalf("proxy teardown must sweep orphan %s even when Compose state is missing:\n%s", name, seq)
+		}
+	}
 	if !strings.Contains(seq, "rm -rf '/var/lib/ob/_host/proxy'") {
 		t.Fatalf("proxy state dir must go with it:\n%s", seq)
 	}

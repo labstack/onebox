@@ -7,6 +7,7 @@ require (
 	github.com/compose-spec/compose-go/v2 v2.14.0
 	github.com/distribution/reference v0.6.0
 	github.com/opencontainers/go-digest v1.0.0
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2

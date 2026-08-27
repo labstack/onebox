@@ -1,0 +1,66 @@
+name: Discovery controller image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - cmd/onebox-discovery/**
+      - internal/discovery/**
+      - build/package/onebox-discovery.Dockerfile
+      - go.mod
+      - go.sum
+      - .github/workflows/discovery-image.yml
+
+permissions: {}
+
+concurrency:
+  group: discovery-controller-edge
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish edge controller
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish edge controller
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: build/package/onebox-discovery.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/labstack/onebox-discovery:edge
+          provenance: mode=max
+          sbom: true
+
+      # GHCR creates the first version of a granular package as private and
+      # exposes no supported API for changing visibility. The first run creates
+      # the package and fails here; make only this package public in its GitHub
+      # settings, then re-run. The gate prevents a release from ever depending
+      # on a controller anonymous Onebox hosts cannot pull.
+      - name: Verify public anonymous access
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          visibility=$(gh api orgs/labstack/packages/container/onebox-discovery --jq .visibility)
+          if [ "$visibility" != public ]; then
+            echo "::error::Make the onebox-discovery package public at https://github.com/orgs/labstack/packages/container/onebox-discovery/settings and re-run this workflow."
+            exit 1
+          fi
+          docker logout ghcr.io
+          docker buildx imagetools inspect ghcr.io/labstack/onebox-discovery:edge

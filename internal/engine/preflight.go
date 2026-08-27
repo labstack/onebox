@@ -17,6 +17,13 @@ const minDiskKiB = 1 << 20 // 1 GiB
 // Preflight asserts the host is deployable. Nothing mutates except mkdir -p
 // of Onebox's own base directory; preflight never mutates the target.
 func (e *Engine) Preflight(ctx context.Context) error {
+	return e.preflight(ctx, true)
+}
+
+// preflight permits the deploy lifecycle to inspect an older managed proxy
+// before it converges that proxy under the same lock. Every external preflight
+// still requires the discovery controller to already be present.
+func (e *Engine) preflight(ctx context.Context, requireDiscovery bool) error {
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err
 	}
@@ -42,6 +49,15 @@ func (e *Engine) Preflight(ctx context.Context) error {
 		return fmt.Errorf("disk headroom %d KiB < 1 GiB on %s", kib, e.T.Host())
 	}
 	if e.Spec.Proxy.Managed {
+		if requireDiscovery {
+			discoveryIDs, err := e.discoveryContainerIDs(ctx)
+			if err != nil {
+				return err
+			}
+			if len(discoveryIDs) == 0 {
+				return fmt.Errorf("managed proxy discovery controller is not running on %s — run `ob proxy apply`", e.T.Host())
+			}
+		}
 		ids, err := e.proxyContainerIDs(ctx)
 		if err != nil {
 			return err

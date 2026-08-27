@@ -11,30 +11,50 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/labstack/onebox/internal/app"
+	"github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 )
 
 const (
-	DefaultImage   = "traefik:v3.7"
-	DefaultNetwork = app.IngressNetwork
+	DefaultImage             = "traefik:v3.7"
+	DefaultNetwork           = app.IngressNetwork
+	DiscoveryImageRepository = "ghcr.io/labstack/onebox-discovery"
 	// Project is the compose project name; ContainerName the fixed container
 	// name — both host-global, which is the point.
-	Project       = app.ProxyProject
-	ContainerName = app.ProxyProject
+	Project                = app.ProxyProject
+	ContainerName          = app.ProxyProject
+	DiscoveryContainerName = app.ProxyProject + "-discovery"
 )
+
+var releaseVersion = regexp.MustCompile(`^v[0-9]{4}\.[0-9]{1,2}\.[0-9]+$`)
+
+// DiscoveryImage pins the controller to the runner release. Development
+// builds use the explicitly unstable edge tag so they cannot masquerade as a
+// released controller.
+func DiscoveryImage(version string) string {
+	if releaseVersion.MatchString(version) {
+		return DiscoveryImageRepository + ":" + version
+	}
+	return DiscoveryImageRepository + ":edge"
+}
 
 // Paths is the host-scoped layout, sibling of the sole application directory.
 type Paths struct {
@@ -44,6 +64,7 @@ type Paths struct {
 	Dir       string // <root>/_host/proxy
 	Compose   string // <root>/_host/proxy/compose.yaml
 	ConfigDir string // <root>/_host/proxy/config
+	Dynamic   string // <root>/_host/proxy/dynamic
 	Acme      string // <root>/_host/proxy/acme
 	Hash      string // <root>/_host/proxy/config.hash
 	Owner     string // <root>/_host/owner
@@ -61,6 +82,7 @@ func HostPaths(n app.Names) Paths {
 		Dir:       base + "/proxy",
 		Compose:   base + "/proxy/compose.yaml",
 		ConfigDir: base + "/proxy/config",
+		Dynamic:   base + "/proxy/dynamic",
 		Acme:      base + "/proxy/acme",
 		Hash:      base + "/proxy/config.hash",
 		Owner:     n.HostOwnerPath(),
@@ -71,8 +93,21 @@ func HostPaths(n app.Names) Paths {
 // not compose-go construction: the shape IS the contract and a reviewer should
 // be able to read it whole.
 func RenderCompose(image, network string, hasEnv bool, entrypoints map[string]app.ProxyEntrypoint) []byte {
+	return RenderComposeForApp(image, DiscoveryImage(""), "onebox", network, hasEnv, entrypoints)
+}
+
+// RenderComposeForApp emits the socketless proxy and its isolated discovery
+// control plane. Only discovery can reach Docker, and it has no network; only
+// proxy has ingress, and its view of discovery's output is read-only.
+func RenderComposeForApp(image, discoveryImage, application, network string, hasEnv bool, entrypoints map[string]app.ProxyEntrypoint) []byte {
 	if image == "" {
 		image = DefaultImage
+	}
+	if discoveryImage == "" {
+		discoveryImage = DiscoveryImage("")
+	}
+	if application == "" {
+		application = "onebox"
 	}
 	if network == "" {
 		network = DefaultNetwork
@@ -92,11 +127,18 @@ services:
     container_name: %s
     image: %s
     restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
     ports: [%s]
 %s    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config:/etc/traefik:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
       - ./acme:/letsencrypt
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck"]
       interval: 30s
@@ -104,10 +146,26 @@ services:
       retries: 3
       start_period: 15s
     networks: [ingress]
+    depends_on:
+      discovery: {condition: service_started}
+  discovery:
+    container_name: %s
+    image: %s
+    restart: unless-stopped
+    command: ["--app", %q, "--network", %q, "--output", "/dynamic/onebox.yml"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/dynamic
 networks:
   ingress:
     name: %s
-`, ContainerName, image, strings.Join(ports, ", "), envFile, network))
+`, ContainerName, image, strings.Join(ports, ", "), envFile,
+		DiscoveryContainerName, discoveryImage, application, network, network))
 }
 
 func sortedEntrypointNames(entrypoints map[string]app.ProxyEntrypoint) []string {
@@ -178,14 +236,16 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 // config/<the app's flat traefik dir>, and returns the payload hash — the
 // identity used for cross-app conflict detection and change detection.
 // DefaultStaticConfig is the Traefik static configuration Onebox uses when the
-// project declares none.
+// project declares none. Custom dynamic files are staged into the same watched
+// directory as the controller output while the static file remains under
+// /etc/traefik.
 //
 // Onebox owns the proxy. Requiring the author to write Traefik's static
 // configuration before their first deploy contradicts that, and the file they
-// would write is the same one every time: watch Docker, do not expose
-// containers that did not ask, answer the health check, and put ACME where the
-// volume is. A project that needs something else still declares
-// `proxy.config`, and that directory wins entirely.
+// would write is the same one every time: watch the sanitized file-provider
+// directory, answer the health check, and put ACME where the volume is. A
+// project that needs something else still declares `proxy.config`; it owns the
+// static configuration while Onebox retains the socketless discovery boundary.
 //
 // The certificate resolver is defined but no email is set, so it is inert
 // until a route asks for it via `proxy.cert_resolver`.
@@ -193,8 +253,9 @@ const defaultStaticConfigHeader = `# Written by Onebox because the project decla
 # Declare one to take ownership of Traefik's static configuration.
 ping: {}
 providers:
-  docker:
-    exposedByDefault: false
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
 entryPoints:
   web:
     address: ":80"
@@ -226,8 +287,15 @@ func renderStaticConfig(entrypoints map[string]app.ProxyEntrypoint) []byte {
 }
 
 func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
+	return StageForApp(localCfgDir, stagingDir, image, DiscoveryImage(""), "onebox", network, entrypoints)
+}
+
+func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
+	if application == "" {
+		application = "onebox"
+	}
 	if localCfgDir == "" {
-		return stageDefault(stagingDir, image, network, entrypoints)
+		return stageDefault(stagingDir, image, discoveryImage, application, network, entrypoints)
 	}
 	entries, err := os.ReadDir(localCfgDir)
 	if err != nil {
@@ -241,6 +309,9 @@ func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[strin
 			return "", fmt.Errorf("proxy.config must be a flat dir of config files; %s/ is a directory", e.Name())
 		}
 		names = append(names, e.Name())
+		if e.Name() == "onebox.yml" || e.Name() == "onebox.yaml" {
+			return "", fmt.Errorf("proxy.config reserves onebox.yml and onebox.yaml for generated socketless discovery output; rename that file")
+		}
 		if e.Name() == "traefik.yml" || e.Name() == "traefik.yaml" {
 			staticConfigs = append(staticConfigs, e.Name())
 		}
@@ -258,9 +329,20 @@ func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[strin
 			localCfgDir)
 	}
 	sort.Strings(names)
+	staticBody, err := os.ReadFile(filepath.Join(localCfgDir, staticConfigs[0]))
+	if err != nil {
+		return "", err
+	}
+	if err := validateSocketlessStaticConfig(staticBody); err != nil {
+		return "", fmt.Errorf("proxy.config %s: %w", staticConfigs[0], err)
+	}
 
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
+		return "", err
+	}
+	dynamicOut := filepath.Join(stagingDir, "dynamic")
+	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
 		return "", err
 	}
 	h := sha256.New()
@@ -269,15 +351,30 @@ func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[strin
 		if err != nil {
 			return "", err
 		}
+		if name != staticConfigs[0] && dynamicConfigExtension(name) {
+			if err := validateDynamicOwnership(name, b, application); err != nil {
+				return "", fmt.Errorf("proxy.config %s: %w", name, err)
+			}
+		}
+		if name == ".env" {
+			if err := validateSocketlessEnv(b); err != nil {
+				return "", fmt.Errorf("proxy.config .env: %w", err)
+			}
+		}
 		// .env may hold secrets (e.g. the DNS API token) — mode 600, same
 		// trust boundary as the release payload's env files
 		if err := os.WriteFile(filepath.Join(cfgOut, name), b, 0o600); err != nil {
 			return "", err
 		}
+		if name != staticConfigs[0] && dynamicConfigExtension(name) {
+			if err := os.WriteFile(filepath.Join(dynamicOut, name), b, 0o600); err != nil {
+				return "", err
+			}
+		}
 		fmt.Fprintf(h, "%s\x00%d\x00", name, len(b))
 		h.Write(b)
 	}
-	compose := RenderCompose(image, network, hasEnv, entrypoints)
+	compose := RenderComposeForApp(image, discoveryImage, application, network, hasEnv, entrypoints)
 	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
 		return "", err
 	}
@@ -288,9 +385,12 @@ func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[strin
 
 // stageDefault writes the configuration Onebox owns, so a project that declares
 // a domain and nothing else can bootstrap.
-func stageDefault(stagingDir, image, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
+func stageDefault(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(stagingDir, "dynamic"), 0o755); err != nil {
 		return "", err
 	}
 	body := renderStaticConfig(entrypoints)
@@ -301,10 +401,102 @@ func stageDefault(stagingDir, image, network string, entrypoints map[string]app.
 	fmt.Fprintf(h, "%s\x00%d\x00", "traefik.yml", len(body))
 	h.Write(body)
 
-	compose := RenderCompose(image, network, false, entrypoints)
+	compose := RenderComposeForApp(image, discoveryImage, application, network, false, entrypoints)
 	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
 		return "", err
 	}
 	h.Write(compose)
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func dynamicConfigExtension(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yml", ".yaml", ".toml":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateSocketlessStaticConfig prevents a custom configuration from
+// silently keeping the Docker provider enabled or omitting the directory where
+// the isolated controller publishes its sanitized view.
+func validateSocketlessStaticConfig(body []byte) error {
+	var document map[string]any
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		return fmt.Errorf("parse static configuration: %w", err)
+	}
+	providers, ok := document["providers"].(map[string]any)
+	if !ok {
+		return errors.New("socketless managed proxy requires providers.file.directory: /etc/traefik/dynamic")
+	}
+	if _, enabled := providers["docker"]; enabled {
+		return errors.New("remove providers.docker; the managed proxy no longer receives the Docker socket")
+	}
+	fileProvider, ok := providers["file"].(map[string]any)
+	if !ok || fileProvider["directory"] != "/etc/traefik/dynamic" {
+		return errors.New("set providers.file.directory to /etc/traefik/dynamic for Onebox discovery output")
+	}
+	if _, configured := fileProvider["filename"]; configured {
+		return errors.New("remove providers.file.filename; Traefik requires filename or directory, not both")
+	}
+	if watch, configured := fileProvider["watch"]; configured {
+		enabled, ok := watch.(bool)
+		if !ok || !enabled {
+			return errors.New("set providers.file.watch to true or omit it; Onebox discovery requires live configuration updates")
+		}
+	}
+	return nil
+}
+
+// validateDynamicOwnership keeps authored file-provider objects from colliding
+// with the routers and services discovery now emits into the same provider.
+// Before socketless discovery those generated names lived under @docker, so an
+// identically named @file object could coexist; accepting it now would make
+// Traefik discard the conflicting objects during upgrade.
+func validateDynamicOwnership(name string, body []byte, application string) error {
+	var document map[string]any
+	var err error
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yml", ".yaml":
+		err = yaml.Unmarshal(body, &document)
+	case ".toml":
+		err = toml.Unmarshal(body, &document)
+	default:
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("parse dynamic configuration: %w", err)
+	}
+	reservedPrefix := app.Join(application, "")
+	for _, protocol := range []string{"http", "tcp"} {
+		section, _ := document[protocol].(map[string]any)
+		for _, kind := range []string{"routers", "services"} {
+			objects, _ := section[kind].(map[string]any)
+			for object := range objects {
+				if strings.HasPrefix(object, reservedPrefix) {
+					return fmt.Errorf("%s.%s.%s uses Onebox-reserved prefix %q; rename the custom object", protocol, kind, object, reservedPrefix)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateSocketlessEnv prevents environment-based static configuration from
+// bypassing validateSocketlessStaticConfig. Ordinary provider credentials do
+// not use the TRAEFIK_ namespace and remain available to ACME DNS challenges.
+func validateSocketlessEnv(body []byte) error {
+	values, err := dotenv.ParseWithLookup(bytes.NewReader(body), func(string) (string, bool) {
+		return "", false
+	})
+	if err != nil {
+		return fmt.Errorf("parse dotenv: %w", err)
+	}
+	for key := range values {
+		if key == "TRAEFIK_CONFIGFILE" || strings.HasPrefix(key, "TRAEFIK_PROVIDERS_") {
+			return fmt.Errorf("remove %s; managed proxy provider settings must remain in the validated traefik.yml or traefik.yaml", key)
+		}
+	}
+	return nil
 }

@@ -22,6 +22,7 @@ const renewalFloorDays = 21
 type proxyRaw struct {
 	ids       []string
 	health    string // proxy container health, parsed from docker ps .Status
+	discovery bool   // isolated Docker discovery controller is running
 	applied   string // config hash the host applied
 	owner     string // sole application identity from the host owner record
 	ownerEnv  string // environment identity when the record is not legacy
@@ -66,6 +67,11 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				px.ids = []string{id}
 			}
 			px.health = health
+			discoveryIDs, err := e.discoveryContainerIDs(ctx)
+			if err != nil {
+				return err
+			}
+			px.discovery = len(discoveryIDs) > 0
 			return nil
 		},
 		func() error {
@@ -176,7 +182,9 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				return err
 			}
 			defer os.RemoveAll(staging)
-			px.localHash, err = proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
+			px.localHash, err = proxy.StageForApp(localCfg, staging, e.Spec.Proxy.Image,
+				proxy.DiscoveryImage(e.Opts.Runner.Version), e.Spec.Name,
+				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
 			return err
 		},
 	}
@@ -241,6 +249,7 @@ func statusReadResult(component string, result transport.Result, err error) erro
 // from .Status like the app side. Empty id when the proxy isn't running.
 func (e *Engine) proxyContainer(ctx context.Context) (id, health string, err error) {
 	res, err := e.T.Run(ctx, "docker ps --filter label=com.docker.compose.project="+q(proxy.Project)+
+		" --filter label=com.docker.compose.service=proxy"+
 		" --format '{{.ID}}|{{.Status}}'")
 	if err != nil {
 		return "", "", err
@@ -270,6 +279,10 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		return true, nil
 	}
 	diverged := false
+	if !px.discovery {
+		e.ui.Println("  discovery controller NOT RUNNING ⚠ — `ob proxy apply`")
+		diverged = true
+	}
 	health := px.health
 	if health != "healthy" {
 		diverged = true

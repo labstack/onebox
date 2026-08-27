@@ -433,6 +433,9 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 				status.Issues = append(status.Issues, fmt.Sprintf("container health is %s", raw.health))
 			}
 		}
+		if !raw.discovery {
+			status.Issues = append(status.Issues, "discovery controller is not running")
+		}
 	}
 
 	if complete(statusProxyLocalHashRead) {

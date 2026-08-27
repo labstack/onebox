@@ -36,6 +36,7 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,6 +94,44 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Require public discovery controller package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          visibility=$(gh api orgs/labstack/packages/container/onebox-discovery --jq .visibility)
+          if [ "$visibility" != public ]; then
+            echo "The onebox-discovery package must be public before a release can reference it." >&2
+            exit 1
+          fi
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The runner pins this exact release tag in the managed proxy Compose
+      # file. Publish the controller before the binary that references it.
+      - name: Publish matching discovery controller
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: build/package/onebox-discovery.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/labstack/onebox-discovery:${{ github.ref_name }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify released controller is anonymously pullable
+        run: |
+          docker logout ghcr.io
+          docker buildx imagetools inspect "ghcr.io/labstack/onebox-discovery:${GITHUB_REF_NAME}"
 
       - name: Publish immutable release
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3

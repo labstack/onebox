@@ -38,7 +38,9 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return err
 	}
 	defer os.RemoveAll(staging)
-	hash, err := proxy.Stage(localCfg, staging, e.Spec.Proxy.Image, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
+	discoveryImage := proxy.DiscoveryImage(e.Opts.Runner.Version)
+	hash, err := proxy.StageForApp(localCfg, staging, e.Spec.Proxy.Image, discoveryImage,
+		e.Spec.Name, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
 	if err != nil {
 		return err
 	}
@@ -77,7 +79,11 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	}
 
 	acmeJSON := hp.Acme + "/acme.json"
-	if res, err := e.hostMutate(ctx, "mkdir -p "+q(hp.Acme)+" && { test -f "+q(acmeJSON)+" || (touch "+q(acmeJSON)+" && chmod 600 "+q(acmeJSON)+"); }"); err != nil {
+	prepareDirs := "mkdir -p " + q(hp.Acme) + " " + q(hp.Dynamic) +
+		" && { test -f " + q(acmeJSON) + " || (touch " + q(acmeJSON) + " && chmod 600 " + q(acmeJSON) + "); }" +
+		" && chown 65532:65532 " + q(hp.Acme) + " " + q(acmeJSON) +
+		" && chmod 700 " + q(hp.Acme) + " && chmod 600 " + q(acmeJSON)
+	if res, err := e.hostMutate(ctx, prepareDirs); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("host proxy dirs: %s", res.Stderr)
@@ -92,8 +98,17 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	if err != nil {
 		return err
 	}
+	discoveryIDs, err := e.discoveryContainerIDs(ctx)
+	if err != nil {
+		return err
+	}
+	res, err = e.T.Run(ctx, "test -s "+q(hp.Dynamic+"/onebox.yml"))
+	if err != nil {
+		return err
+	}
+	discoveryReady := res.ExitCode == 0
 
-	if remoteHash == hash && len(ids) > 0 {
+	if remoteHash == hash && len(ids) > 0 && len(discoveryIDs) > 0 && discoveryReady {
 		e.logf("proxy: unchanged and running — not touched")
 		return nil
 	}
@@ -139,8 +154,13 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 			return err
 		}
 		swap := "rm -rf " + q(hp.ConfigDir) +
+			" " + q(hp.Dynamic) +
 			" && mv " + q(stagedDir+"/config") + " " + q(hp.ConfigDir) +
+			" && mv " + q(stagedDir+"/dynamic") + " " + q(hp.Dynamic) +
 			" && mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose) +
+			" && chown -R 0:65532 " + q(hp.ConfigDir) + " " + q(hp.Dynamic) +
+			" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type d -exec chmod 750 {} +" +
+			" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type f -exec chmod 640 {} +" +
 			" && rm -rf " + q(stagedDir)
 		res, err = e.hostMutate(ctx, swap)
 		if err != nil {
@@ -157,7 +177,23 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	// the change was config-only — restart so the static config reloads.
 	before := idSet(ids)
 	e.logf("proxy: converging")
-	if res, err := e.hostMutate(ctx, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d"); err != nil {
+	compose := "docker compose -p " + proxy.Project + " -f " + q(hp.Compose)
+	// The discovery bind mount points at a directory inode. Proxy apply swaps
+	// that directory atomically, so discovery must be recreated to bind the new
+	// inode before Traefik is started or restarted against it.
+	if res, err := e.hostMutate(ctx, compose+" up -d --force-recreate discovery"); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("proxy discovery up: %s", strings.TrimSpace(res.Stderr))
+	}
+	ready := "i=0; while [ $i -lt 30 ]; do test -s " + q(hp.Dynamic+"/onebox.yml") +
+		" && exit 0; i=$((i+1)); sleep 1; done; exit 1"
+	if res, err := e.T.Run(ctx, ready); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("proxy discovery did not publish routing state; inspect `docker logs %s`", proxy.DiscoveryContainerName)
+	}
+	if res, err := e.hostMutate(ctx, compose+" up -d proxy"); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("proxy up: %s", strings.TrimSpace(res.Stderr))
@@ -194,7 +230,17 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 }
 
 func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {
-	res, err := e.T.Run(ctx, "docker ps -q --filter label=com.docker.compose.project="+q(proxy.Project))
+	res, err := e.T.Run(ctx, "docker ps -q --filter label=com.docker.compose.project="+q(proxy.Project)+
+		" --filter label=com.docker.compose.service=proxy")
+	if err != nil {
+		return nil, err
+	}
+	return splitIDs(res.Stdout)
+}
+
+func (e *Engine) discoveryContainerIDs(ctx context.Context) ([]string, error) {
+	res, err := e.T.Run(ctx, "docker ps -q --filter label=com.docker.compose.project="+q(proxy.Project)+
+		" --filter label=com.docker.compose.service=discovery")
 	if err != nil {
 		return nil, err
 	}

@@ -3,10 +3,12 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
@@ -242,6 +244,75 @@ func TestDeployRetainsPlannedWorkloadWithoutRuntimeMutation(t *testing.T) {
 		if !strings.Contains(evidence, want) {
 			t.Fatalf("deployment journal is missing %q:\n%s", want, evidence)
 		}
+	}
+}
+
+func TestDeployUpgradesManagedProxyAfterReadOnlyPreconditions(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	proxyRuntime := legacyProxyPS(f)
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if result, ok := proxyRuntime(command); ok {
+			return result, true
+		}
+		return base(command)
+	}
+	cfg := testConfig()
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true}
+	e := New(cfg, testProject(t), f, Options{Sleep: noSleep})
+	if err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir()); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	commands := strings.Join(f.Commands, "\n")
+	proxyUpgrade := strings.Index(commands, "up -d --force-recreate discovery")
+	preflight := strings.Index(commands, "docker version")
+	currentRelease := strings.Index(commands, "readlink")
+	if proxyUpgrade < 0 || preflight < 0 || currentRelease < 0 || preflight > proxyUpgrade || currentRelease > proxyUpgrade {
+		t.Fatalf("managed proxy was not upgraded after read-only preconditions:\n%s", commands)
+	}
+}
+
+func TestDeployNoOpUpgradesManagedProxyAfterReadOnlyPreflight(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	proxyRuntime := legacyProxyPS(f)
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if result, ok := proxyRuntime(command); ok {
+			return result, true
+		}
+		return base(command)
+	}
+	cfg := testConfig()
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true}
+	e := New(cfg, testProject(t), f, Options{Sleep: noSleep})
+	if err := e.ValidateDeployNoOp(context.Background(), "noop-proxy-upgrade"); err != nil {
+		t.Fatalf("validate no-op: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	commands := strings.Join(f.Commands, "\n")
+	proxyUpgrade := strings.Index(commands, "up -d --force-recreate discovery")
+	preflight := strings.Index(commands, "docker version")
+	if proxyUpgrade < 0 || preflight < 0 || preflight > proxyUpgrade {
+		t.Fatalf("no-op deployment did not upgrade managed proxy after read-only preflight:\n%s", commands)
+	}
+}
+
+func TestDeployPreconditionFailureDoesNotMutateManagedProxy(t *testing.T) {
+	f := happyFake()
+	cfg := testConfig()
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true}
+	e := New(cfg, testProject(t), f, Options{
+		Sleep: noSleep,
+		DeployPrecondition: func(context.Context, *Engine) error {
+			return errors.New("plan is stale")
+		},
+	})
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "plan is stale") {
+		t.Fatalf("deploy error = %v", err)
+	}
+	commands := strings.Join(f.Commands, "\n")
+	if strings.Contains(commands, "up -d") || strings.Contains(commands, "docker restart") {
+		t.Fatalf("stale plan mutated managed proxy:\n%s", commands)
 	}
 }
 

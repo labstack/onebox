@@ -22,7 +22,7 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"traefik.yml": "ping: {}\n",
+		"traefik.yml": "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n",
 		".env":        "CF_DNS_API_TOKEN=supersecrettoken\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, "traefik", name), []byte(content), 0o600); err != nil {
@@ -31,7 +31,8 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 	}
 	cfg := testConfig()
 	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
-	hash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "", nil)
+	hash, err := proxy.StageForApp(filepath.Join(dir, "traefik"), t.TempDir(), "",
+		proxy.DiscoveryImage("dev"), cfg.Name, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +60,36 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 			return transport.Result{Stdout: ""}, true
 		}
 		if strings.Contains(cmd, "docker inspect") && strings.Contains(cmd, "PX1") {
+			return transport.Result{Stdout: "healthy\n"}, true
+		}
+		return transport.Result{}, false
+	}
+}
+
+// legacyProxyPS models the upgrade boundary: the old Traefik container is
+// healthy, but the new discovery service does not exist until convergence.
+func legacyProxyPS(f *transport.Fake) func(string) (transport.Result, bool) {
+	discoveryStarted := func() bool {
+		for _, command := range f.Commands {
+			if strings.Contains(command, "up -d --force-recreate discovery") {
+				return true
+			}
+		}
+		return false
+	}
+	return func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker ps -q") && strings.Contains(command, "project='onebox-proxy'") {
+			switch {
+			case strings.Contains(command, "service=discovery"):
+				if discoveryStarted() {
+					return transport.Result{Stdout: "DISC1\n"}, true
+				}
+				return transport.Result{}, true
+			case strings.Contains(command, "service=proxy"):
+				return transport.Result{Stdout: "PX1\n"}, true
+			}
+		}
+		if strings.Contains(command, "docker inspect") && strings.Contains(command, "PX1") {
 			return transport.Result{Stdout: "healthy\n"}, true
 		}
 		return transport.Result{}, false
@@ -138,11 +169,58 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	}
 }
 
+func TestEnsureProxyRepairsMissingDiscoveryController(t *testing.T) {
+	f := &transport.Fake{}
+	e, hash, _ := proxyFixture(t, f)
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
+			return transport.Result{Stdout: hash + "\n"}, true
+		case strings.Contains(cmd, "com.docker.compose.service=discovery") && !strings.Contains(cmd, "up -d"):
+			return transport.Result{Stdout: ""}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "R2-repair", false); err != nil {
+		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "up -d --force-recreate discovery") {
+		t.Fatalf("missing discovery controller was treated as an unchanged proxy:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
+func TestEnsureProxyRepairsMissingDiscoveryOutput(t *testing.T) {
+	f := &transport.Fake{}
+	e, hash, _ := proxyFixture(t, f)
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
+			return transport.Result{Stdout: hash + "\n"}, true
+		case strings.Contains(cmd, "test -s '/var/lib/ob/_host/proxy/dynamic/onebox.yml'"):
+			for _, command := range f.Commands {
+				if strings.Contains(command, "up -d --force-recreate discovery") {
+					return transport.Result{}, true
+				}
+			}
+			return transport.Result{ExitCode: 1}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "R2-repair-output", false); err != nil {
+		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "up -d --force-recreate discovery") {
+		t.Fatalf("missing discovery output was treated as an unchanged proxy:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
 func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)
 	// remote compose identical to what we render; only the config hash differs
-	rendered := string(proxy.RenderCompose("", "", true, nil))
+	rendered := string(proxy.RenderComposeForApp("", proxy.DiscoveryImage("dev"), "sample", "", true, nil))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {
@@ -186,7 +264,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)
-	rendered := string(proxy.RenderCompose("", "", true, nil))
+	rendered := string(proxy.RenderComposeForApp("", proxy.DiscoveryImage("dev"), "sample", "", true, nil))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'") {

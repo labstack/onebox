@@ -196,12 +196,12 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// seizure described below. The sweep already covers ob's own
 			// orphan, which is the only container ob created.
 			//
-			// It matches ob's own fixed container name, not the project
+			// It matches ob's own fixed container names, not the project
 			// label: `docker compose -p onebox-proxy up` run by a user for their
 			// own reasons carries that label too, and force-removing their
 			// containers is the foreign-resource seizure preflight refuses
-			// everywhere else. The compose file declares exactly one service
-			// with this container_name, so the name is complete for ob.
+			// everywhere else. The compose file declares these two fixed names,
+			// so together they are complete for ob.
 			//
 			// Without `|| exit $?` a failed docker ps yields an empty list,
 			// the if is skipped, and teardown "succeeds" — the very outcome
@@ -213,8 +213,10 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// created a onebox-proxy container, so anything answering to the
 			// name would be the operator's.
 			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
-				"orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$) || exit $?; " +
-				"if [ -n \"$orphans\" ]; then docker rm -f $orphans; fi"
+				"proxy_orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$) || exit $?; " +
+				"discovery_orphans=$(docker ps -aq --filter name=^" + proxy.DiscoveryContainerName + "$) || exit $?; " +
+				"if [ -n \"$proxy_orphans\" ]; then docker rm -f $proxy_orphans || exit $?; fi; " +
+				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans; fi"
 			if res, err := e.hostMutate(ctx, down); err != nil {
 				return err
 			} else if res.ExitCode != 0 {

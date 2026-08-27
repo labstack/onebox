@@ -52,10 +52,11 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 	if err := os.Mkdir(filepath.Join(dir, "traefik"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte("ping: {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte("ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	localHash, err := proxy.Stage(filepath.Join(dir, "traefik"), t.TempDir(), "", "", nil)
+	localHash, err := proxy.StageForApp(filepath.Join(dir, "traefik"), t.TempDir(), "",
+		proxy.DiscoveryImage("dev"), "sample", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +68,8 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
+		case strings.Contains(cmd, "com.docker.compose.service=discovery"):
+			return transport.Result{Stdout: "PD1\n"}, true
 		case strings.Contains(cmd, "project='onebox-proxy'"): // proxy id + health in one ps
 			return transport.Result{Stdout: "PX1|Up 2 days (" + proxyHealth + ")\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
@@ -229,6 +232,24 @@ func TestStatusManagedProxyNotRunning(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "NOT RUNNING") {
 		t.Fatalf("absent proxy must be reported:\n%s", out.String())
+	}
+}
+
+func TestStatusManagedProxyReportsMissingDiscoveryController(t *testing.T) {
+	applied := ""
+	e, f, out, _ := statusProxyEngine(t, &applied, "", "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "com.docker.compose.service=discovery") {
+			return transport.Result{Stdout: ""}, true
+		}
+		return base(cmd)
+	}
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("missing discovery controller must be a divergence:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "discovery controller NOT RUNNING") {
+		t.Fatalf("missing discovery controller was not reported:\n%s", out.String())
 	}
 }
 

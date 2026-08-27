@@ -95,3 +95,30 @@ func TestPreflightManagedProxyMustRun(t *testing.T) {
 		t.Fatalf("preflight with healthy proxy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 }
+
+func TestPreflightRequiresProxyDiscoveryController(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "_host/owner"):
+			return transport.Result{Stdout: "sample\n"}, true
+		case strings.Contains(cmd, "docker version"):
+			return transport.Result{Stdout: "27.0.3\n"}, true
+		case strings.Contains(cmd, "docker compose version"):
+			return transport.Result{Stdout: "2.29.1\n"}, true
+		case strings.Contains(cmd, "df -Pk"):
+			return transport.Result{Stdout: "4194304\n"}, true
+		case strings.Contains(cmd, "com.docker.compose.service=discovery"):
+			return transport.Result{Stdout: ""}, true
+		case strings.Contains(cmd, "com.docker.compose.service=proxy"):
+			return transport.Result{Stdout: "PX1\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	cfg := testConfig()
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Preflight(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "discovery controller") {
+		t.Fatalf("preflight error = %v", err)
+	}
+}

@@ -249,7 +249,7 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 // static configuration while Onebox retains the socketless discovery boundary.
 //
 // The certificate resolver is defined but no email is set, so it is inert
-// until a route asks for it via `proxy.cert_resolver`.
+// until a terminating route asks for the private managed resolver identity.
 const defaultStaticConfigHeader = `# Written by Onebox because the project declared no proxy.config.
 # Declare one to take ownership of Traefik's static configuration.
 ping: {}
@@ -268,7 +268,7 @@ entryPoints:
 `
 
 const defaultStaticConfigFooter = `certificatesResolvers:
-  letsencrypt:
+  ` + app.ManagedCertificateResolver + `:
     acme:
       storage: /letsencrypt/acme.json
       httpChallenge:
@@ -287,11 +287,11 @@ func renderStaticConfig(entrypoints map[string]app.ProxyEntrypoint) []byte {
 	return []byte(out.String())
 }
 
-func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
-	return StageForApp(localCfgDir, stagingDir, image, DiscoveryImage(""), "onebox", network, entrypoints)
+func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (string, error) {
+	return StageForApp(localCfgDir, stagingDir, image, DiscoveryImage(""), "onebox", network, entrypoints, requireCertificateResolver)
 }
 
-func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
+func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (string, error) {
 	if application == "" {
 		application = "onebox"
 	}
@@ -334,7 +334,7 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 	if err != nil {
 		return "", err
 	}
-	if err := validateSocketlessStaticConfig(staticBody); err != nil {
+	if err := validateSocketlessStaticConfig(staticBody, requireCertificateResolver); err != nil {
 		return "", fmt.Errorf("proxy.config %s: %w", staticConfigs[0], err)
 	}
 
@@ -422,7 +422,15 @@ func dynamicConfigExtension(name string) bool {
 // validateSocketlessStaticConfig prevents a custom configuration from
 // silently keeping the Docker provider enabled or omitting the directory where
 // the isolated controller publishes its sanitized view.
-func validateSocketlessStaticConfig(body []byte) error {
+// CertificateResolverMissingError identifies the custom-config contract that
+// failed without reducing it to message matching for callers or tests.
+type CertificateResolverMissingError struct{ Name string }
+
+func (e *CertificateResolverMissingError) Error() string {
+	return fmt.Sprintf("terminating TLS routes require certificatesResolvers.%s in the static configuration; define it or remove proxy.config to use Onebox's managed ACME configuration", e.Name)
+}
+
+func validateSocketlessStaticConfig(body []byte, requireCertificateResolver bool) error {
 	var document map[string]any
 	if err := yaml.Unmarshal(body, &document); err != nil {
 		return fmt.Errorf("parse static configuration: %w", err)
@@ -445,6 +453,13 @@ func validateSocketlessStaticConfig(body []byte) error {
 		enabled, ok := watch.(bool)
 		if !ok || !enabled {
 			return errors.New("set providers.file.watch to true or omit it; Onebox discovery requires live configuration updates")
+		}
+	}
+	if requireCertificateResolver {
+		resolvers, ok := document["certificatesResolvers"].(map[string]any)
+		resolver, defined := resolvers[app.ManagedCertificateResolver].(map[string]any)
+		if !ok || !defined || len(resolver) == 0 {
+			return &CertificateResolverMissingError{Name: app.ManagedCertificateResolver}
 		}
 	}
 	return nil

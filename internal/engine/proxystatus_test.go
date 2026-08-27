@@ -52,11 +52,11 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 	if err := os.Mkdir(filepath.Join(dir, "traefik"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte("ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte(testManagedProxyStatic), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	localHash, err := proxy.StageForApp(filepath.Join(dir, "traefik"), t.TempDir(), "",
-		proxy.DiscoveryImage("dev"), "sample", "", nil)
+		proxy.DiscoveryImage("dev"), "sample", "", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,7 +40,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	defer os.RemoveAll(staging)
 	discoveryImage := proxy.DiscoveryImage(e.Opts.Runner.Version)
 	hash, err := proxy.StageForApp(localCfg, staging, e.Spec.Proxy.Image, discoveryImage,
-		e.Spec.Name, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
+		e.Spec.Name, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasTerminatingTLS())
 	if err != nil {
 		return err
 	}

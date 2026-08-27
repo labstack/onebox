@@ -184,7 +184,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			defer os.RemoveAll(staging)
 			px.localHash, err = proxy.StageForApp(localCfg, staging, e.Spec.Proxy.Image,
 				proxy.DiscoveryImage(e.Opts.Runner.Version), e.Spec.Name,
-				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints)
+				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasTerminatingTLS())
 			return err
 		},
 	}

@@ -325,16 +325,40 @@ func TestJobsDoNotRestartOrAutoStart(t *testing.T) {
 	}
 }
 
-// TestTLSTerminationNamesAResolver: terminating TLS without one yields a router
-// that never obtains a certificate.
-func TestTLSTerminationNamesAResolver(t *testing.T) {
-	y := appFixture + "proxy: {cert_resolver: le}\n"
-	out := string(render(t, y))
-	if !strings.Contains(out, "tls.certresolver: le") {
-		t.Errorf("expected a certificate resolver on the terminating router\n%s", out)
+// TestTLSTerminationUsesManagedResolver: certificate acquisition is part of
+// the managed proxy implementation, not an opaque identifier authors align by
+// hand with a separate Traefik file.
+func TestTLSTerminationUsesManagedResolver(t *testing.T) {
+	out := string(render(t, appFixture))
+	if !strings.Contains(out, "tls.certresolver: "+ManagedCertificateResolver) {
+		t.Errorf("expected the managed certificate resolver on the terminating router\n%s", out)
 	}
-	if strings.Contains(string(render(t, appFixture)), "certresolver") {
-		t.Error("no resolver declared, so none should be emitted")
+}
+
+func TestOperatorOwnedProxyDoesNotUseManagedResolver(t *testing.T) {
+	out := string(render(t, appFixture+"proxy: {managed: false}\n"))
+	if strings.Contains(out, "tls.certresolver") {
+		t.Errorf("operator-owned proxy must not reference Onebox's private resolver\n%s", out)
+	}
+}
+
+func TestCertificateResolverIsNotAProjectField(t *testing.T) {
+	_, err := LoadBytes([]byte(appFixture+"proxy: {cert_resolver: le}\n"), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "cert_resolver") {
+		t.Fatalf("implementation-specific resolver name must be refused: %v", err)
+	}
+}
+
+func TestHasTerminatingTLSDistinguishesPassthrough(t *testing.T) {
+	spec := &Spec{Workloads: map[string]Workload{
+		"database": {Routes: []Route{{TLS: "passthrough"}}},
+	}}
+	if spec.HasTerminatingTLS() {
+		t.Fatal("passthrough TLS must not require the proxy to present a certificate")
+	}
+	spec.Workloads["web"] = Workload{Routes: []Route{{TLS: "terminate"}}}
+	if !spec.HasTerminatingTLS() {
+		t.Fatal("terminating TLS must require the managed certificate resolver")
 	}
 }
 

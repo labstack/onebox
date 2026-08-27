@@ -190,32 +190,29 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			// ownership released with something still holding :80/:443, and
 			// the compose file deleted so no ob command can reach it.
 			//
-			// --remove-orphans is deliberately absent for the same reason
-			// the sweep is name-anchored: it removes every container carrying
-			// the project label that the file does not declare, which is the
-			// seizure described below. The sweep already covers ob's own
-			// orphan, which is the only container ob created.
+			// --remove-orphans is deliberately absent because a project label
+			// alone is not proof of ownership: a user can independently run
+			// `docker compose -p onebox-proxy up`. A fixed name alone is not
+			// proof either: after a rename (or on a host installed later), the
+			// old name is free for an unrelated container to use.
 			//
-			// It matches ob's own fixed container names, not the project
-			// label: `docker compose -p onebox-proxy up` run by a user for their
-			// own reasons carries that label too, and force-removing their
-			// containers is the foreign-resource seizure preflight refuses
-			// everywhere else. The compose file declares these two fixed names,
-			// so together they are complete for ob.
+			// The fallback therefore requires the exact generated container
+			// name AND the Compose project/service labels emitted by ob's
+			// generated two-service document. This still finds ob containers
+			// after the file or Compose state disappears without seizing a
+			// same-named foreign container.
 			//
 			// Without `|| exit $?` a failed docker ps yields an empty list,
 			// the if is skipped, and teardown "succeeds" — the very outcome
 			// this exists to prevent.
 			//
-			// Reaching here implies the proxy is managed: Destroy refuses
-			// --proxy for an unmanaged one before any of this runs. That is
-			// what makes the name sweep safe — on an unmanaged host ob never
-			// created a onebox-proxy container, so anything answering to the
-			// name would be the operator's.
+			// Reaching here implies the proxy is managed, but that proves only
+			// the requested operation's scope. The filters below separately
+			// prove ownership of every container selected for force-removal.
 			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
-				"proxy_orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$) || exit $?; " +
-				"discovery_orphans=$(docker ps -aq --filter name=^" + proxy.DiscoveryContainerName + "$) || exit $?; " +
-				"legacy_discovery_orphans=$(docker ps -aq --filter name=^" + proxy.LegacyDiscoveryContainerName + "$) || exit $?; " +
+				"proxy_orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=proxy) || exit $?; " +
+				"discovery_orphans=$(docker ps -aq --filter name=^" + proxy.DiscoveryContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=discovery) || exit $?; " +
+				"legacy_discovery_orphans=$(docker ps -aq --filter name=^" + proxy.LegacyDiscoveryContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=discovery) || exit $?; " +
 				"if [ -n \"$proxy_orphans\" ]; then docker rm -f $proxy_orphans || exit $?; fi; " +
 				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans || exit $?; fi; " +
 				"if [ -n \"$legacy_discovery_orphans\" ]; then docker rm -f $legacy_discovery_orphans; fi"

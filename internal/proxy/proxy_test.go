@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -21,6 +22,7 @@ import (
 )
 
 const testSocketlessStatic = "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n"
+const testSocketlessStaticWithResolver = testSocketlessStatic + "certificatesResolvers:\n  " + app.ManagedCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme.json\n      httpChallenge:\n        entryPoint: web\n"
 
 func writeCfg(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -98,6 +100,35 @@ func TestDefaultProxyRenderingIsSocketless(t *testing.T) {
 	}
 }
 
+func TestManagedTLSRouterReferencesDefaultStaticResolver(t *testing.T) {
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+app: sample
+environments:
+  production: {server: root@example.com}
+workloads:
+  web:
+    role: application
+    image: nginx:1.27
+    domain: app.example.com
+    port: 80
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := spec.Render("production", "r1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	label := "tls.certresolver: " + app.ManagedCertificateResolver
+	if !strings.Contains(string(runtime.Bytes), label) {
+		t.Fatalf("terminating router does not reference the managed resolver %q:\n%s", app.ManagedCertificateResolver, runtime.Bytes)
+	}
+	declaration := "certificatesResolvers:\n  " + app.ManagedCertificateResolver + ":"
+	if !strings.Contains(string(renderStaticConfig(nil)), declaration) {
+		t.Fatalf("default static configuration does not define the router's resolver %q:\n%s", app.ManagedCertificateResolver, renderStaticConfig(nil))
+	}
+}
+
 func TestRenderAdditionalEntrypoints(t *testing.T) {
 	entrypoints := map[string]app.ProxyEntrypoint{
 		"otlp-http": {Port: 4318},
@@ -131,7 +162,7 @@ func TestStage(t *testing.T) {
 		".env":        "CF_DNS_API_TOKEN=x\n",
 	})
 	staging := t.TempDir()
-	hash, err := Stage(cfgDir, staging, "", "", nil)
+	hash, err := Stage(cfgDir, staging, "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +191,7 @@ func TestStage(t *testing.T) {
 
 	// determinism + sensitivity
 	staging2 := t.TempDir()
-	hash2, err := Stage(cfgDir, staging2, "", "", nil)
+	hash2, err := Stage(cfgDir, staging2, "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +201,7 @@ func TestStage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "dynamic.yml"), []byte("http: {middlewares: {}}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	hash3, err := Stage(cfgDir, t.TempDir(), "", "", nil)
+	hash3, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +215,7 @@ func TestStageCustomConfigPublishesEntrypointsWithoutRewritingIt(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{"traefik.yml": staticBody})
 	staging := t.TempDir()
 	entrypoints := map[string]app.ProxyEntrypoint{"otlp-grpc": {Port: 4317}}
-	if _, err := Stage(cfgDir, staging, "", "", entrypoints); err != nil {
+	if _, err := Stage(cfgDir, staging, "", "", entrypoints, false); err != nil {
 		t.Fatal(err)
 	}
 	compose, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
@@ -205,7 +236,7 @@ func TestStageCustomConfigPublishesEntrypointsWithoutRewritingIt(t *testing.T) {
 
 func TestStageRequiresTraefikConfig(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"})
-	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil); err == nil ||
+	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil ||
 		!strings.Contains(err.Error(), "traefik.yml") || !strings.Contains(err.Error(), "traefik.yaml") {
 		t.Fatalf("want both supported static config names in the contract error, got %v", err)
 	}
@@ -214,7 +245,7 @@ func TestStageRequiresTraefikConfig(t *testing.T) {
 func TestStageAcceptsTraefikYAML(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{"traefik.yaml": testSocketlessStatic})
 	staging := t.TempDir()
-	if _, err := Stage(cfgDir, staging, "", "", nil); err != nil {
+	if _, err := Stage(cfgDir, staging, "", "", nil, false); err != nil {
 		t.Fatalf("traefik.yaml must be accepted: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(staging, "config", "traefik.yaml")); err != nil {
@@ -226,7 +257,7 @@ func TestStageRejectsDockerProviderInCustomConfig(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{
 		"traefik.yml": "ping: {}\nproviders:\n  docker: {}\n",
 	})
-	_, err := Stage(cfgDir, t.TempDir(), "", "", nil)
+	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
 	if err == nil || !strings.Contains(err.Error(), "remove providers.docker") {
 		t.Fatalf("Docker provider must be refused for managed Traefik: %v", err)
 	}
@@ -234,7 +265,7 @@ func TestStageRejectsDockerProviderInCustomConfig(t *testing.T) {
 
 func TestStageExplainsCustomFileProviderMigration(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{"traefik.yml": "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik\n"})
-	_, err := Stage(cfgDir, t.TempDir(), "", "", nil)
+	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
 	if err == nil || !strings.Contains(err.Error(), "/etc/traefik/dynamic") {
 		t.Fatalf("custom config migration must name the required directory: %v", err)
 	}
@@ -248,10 +279,27 @@ func TestStageRequiresLiveDirectoryProvider(t *testing.T) {
 	for name, static := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfgDir := writeCfg(t, map[string]string{"traefik.yml": static})
-			if _, err := Stage(cfgDir, t.TempDir(), "", "", nil); err == nil {
+			if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil {
 				t.Fatal("non-live file provider must be refused")
 			}
 		})
+	}
+}
+
+func TestStageRequiresManagedResolverForTerminatingTLS(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{"traefik.yml": testSocketlessStatic})
+	if _, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil, false); err != nil {
+		t.Fatalf("a config without the resolver remains valid when no route terminates TLS: %v", err)
+	}
+	_, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil, true)
+	var missing *CertificateResolverMissingError
+	if !errors.As(err, &missing) || missing.Name != app.ManagedCertificateResolver {
+		t.Fatalf("missing managed resolver must be a typed refusal: %v", err)
+	}
+
+	configured := writeCfg(t, map[string]string{"traefik.yml": testSocketlessStaticWithResolver})
+	if _, err := StageForApp(configured, t.TempDir(), "", "", "onebox", "", nil, true); err != nil {
+		t.Fatalf("custom configuration defining the managed resolver must be accepted: %v", err)
 	}
 }
 
@@ -265,7 +313,7 @@ func TestStageRejectsProviderOverridesInEnv(t *testing.T) {
 			"traefik.yml": testSocketlessStatic,
 			".env":        "CF_DNS_API_TOKEN=allowed\n" + declaration,
 		})
-		if _, err := Stage(cfgDir, t.TempDir(), "", "", nil); err == nil || !strings.Contains(err.Error(), "managed proxy provider settings") {
+		if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "managed proxy provider settings") {
 			t.Fatalf("provider override %q must be refused: %v", declaration, err)
 		}
 	}
@@ -286,7 +334,7 @@ func TestStageRejectsGeneratedDynamicNameCollisions(t *testing.T) {
 				"traefik.yml":   testSocketlessStatic,
 				"dynamic" + ext: dynamic,
 			})
-			_, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil)
+			_, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil, false)
 			if err == nil || !strings.Contains(err.Error(), "Onebox-reserved prefix") {
 				t.Fatalf("generated-name collision must be refused: %v", err)
 			}
@@ -299,7 +347,7 @@ func TestStageAllowsUnrelatedCustomDynamicObjects(t *testing.T) {
 		"traefik.yml": testSocketlessStatic,
 		"dynamic.yml": "http:\n  routers:\n    external_status:\n      rule: Host(`status.example.com`)\n",
 	})
-	if _, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil); err != nil {
+	if _, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil, false); err != nil {
 		t.Fatalf("unrelated file-provider object must remain supported: %v", err)
 	}
 }
@@ -309,7 +357,7 @@ func TestStageReservesGeneratedDiscoveryFilename(t *testing.T) {
 		"traefik.yml": testSocketlessStatic,
 		"onebox.yml":  `{}`,
 	})
-	_, err := Stage(cfgDir, t.TempDir(), "", "", nil)
+	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
 	if err == nil || !strings.Contains(err.Error(), "reserves onebox.yml") {
 		t.Fatalf("generated discovery filename collision = %v", err)
 	}
@@ -320,7 +368,7 @@ func TestStageRejectsAmbiguousTraefikConfig(t *testing.T) {
 		"traefik.yml":  "ping: {}\n",
 		"traefik.yaml": "ping: {}\n",
 	})
-	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil); err == nil || !strings.Contains(err.Error(), "both") {
+	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "both") {
 		t.Fatalf("two static config files must be refused as ambiguous: %v", err)
 	}
 }
@@ -330,7 +378,7 @@ func TestStageRejectsSubdirs(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(cfgDir, "extra"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil); err == nil || !strings.Contains(err.Error(), "flat") {
+	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "flat") {
 		t.Fatalf("want flat-dir contract error, got %v", err)
 	}
 }
@@ -386,7 +434,7 @@ func TestCertExpiries(t *testing.T) {
 // same one every time.
 func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
 	staging := t.TempDir()
-	hash, err := Stage("", staging, "traefik:v3.7", "ob-ingress", nil)
+	hash, err := Stage("", staging, "traefik:v3.7", "ob-ingress", nil, true)
 	if err != nil {
 		t.Fatalf("a project without proxy.config must still bootstrap: %v", err)
 	}
@@ -406,13 +454,13 @@ func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
 
 func TestDeclaredEntrypointsChangeProxyIdentity(t *testing.T) {
 	plainDir := t.TempDir()
-	plainHash, err := Stage("", plainDir, "", "", nil)
+	plainHash, err := Stage("", plainDir, "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	entrypoints := map[string]app.ProxyEntrypoint{"otlp-grpc": {Port: 4317}}
 	staging := t.TempDir()
-	entrypointHash, err := Stage("", staging, "", "", entrypoints)
+	entrypointHash, err := Stage("", staging, "", "", entrypoints, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +483,7 @@ func TestDeclaredConfigStillOwnsItAndSaysWhatIsMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "other.yml"), []byte("x: 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress", nil)
+	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress", nil, false)
 	if err == nil {
 		t.Fatal("a declared config directory without traefik.yml or traefik.yaml must be refused")
 	}

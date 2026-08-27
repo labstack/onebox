@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+const testManagedProxyStatic = "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\ncertificatesResolvers:\n  " + app.ManagedCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme.json\n      httpChallenge:\n        entryPoint: web\n"
+
 // proxyFixture: a managed-proxy engine whose LocalDir holds traefik/{traefik.yml,.env},
 // plus the staged payload hash the engine will compute for it.
 func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buffer) {
@@ -22,7 +25,7 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"traefik.yml": "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n",
+		"traefik.yml": testManagedProxyStatic,
 		".env":        "CF_DNS_API_TOKEN=supersecrettoken\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, "traefik", name), []byte(content), 0o600); err != nil {
@@ -32,13 +35,40 @@ func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buff
 	cfg := testConfig()
 	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
 	hash, err := proxy.StageForApp(filepath.Join(dir, "traefik"), t.TempDir(), "",
-		proxy.DiscoveryImage("dev"), cfg.Name, "", nil)
+		proxy.DiscoveryImage("dev"), cfg.Name, "", nil, cfg.HasTerminatingTLS())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep, LocalDir: dir})
 	return e, hash, &out
+}
+
+func TestEnsureProxyRefusesMissingResolverBeforeHostMutation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "traefik"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	static := "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n"
+	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte(static), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	web := cfg.Workloads["web"]
+	web.Domain = "app.example.com"
+	web.Port = 7500
+	cfg.Workloads["web"] = web
+	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
+	f := &transport.Fake{}
+	e := New(cfg, testProject(t), f, Options{Sleep: noSleep, LocalDir: dir})
+	err := e.EnsureProxy(context.Background(), "D1", false)
+	var missing *proxy.CertificateResolverMissingError
+	if !errors.As(err, &missing) {
+		t.Fatalf("missing resolver must be refused with its typed error: %v", err)
+	}
+	if len(f.Commands) != 0 {
+		t.Fatalf("resolver contract must be checked before host mutation: %v", f.Commands)
+	}
 }
 
 // proxyPS answers container queries for the onebox-proxy project: present only

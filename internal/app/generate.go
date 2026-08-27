@@ -558,10 +558,11 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 			if r.TLS == "passthrough" {
 				out[pre+"tls.passthrough"] = "true"
 			}
-			// Without a resolver the router terminates TLS with no certificate
-			// to terminate it with.
-			if p.Proxy.CertResolver != "" && r.TLS == "terminate" {
-				out[pre+"tls.certresolver"] = p.Proxy.CertResolver
+			// Resolver selection is part of the managed proxy implementation, not
+			// authored project data. The generated static configuration defines
+			// this same private identity.
+			if p.Proxy.Managed && r.TLS == "terminate" {
+				out[pre+"tls.certresolver"] = ManagedCertificateResolver
 			}
 		}
 		// Named explicitly: with more than one service defined on a container,

@@ -488,14 +488,18 @@ type Registry struct {
 	PasswordEnv string `json:"password_env,omitempty" description:"Local environment-variable name containing the registry password or token." example:"GHCR_TOKEN"`
 }
 
+// ManagedCertificateResolver is the private Traefik resolver identity shared
+// by generated static configuration and terminating router labels. It is not a
+// project-file value: Onebox owns both ends of this reference.
+const ManagedCertificateResolver = "letsencrypt"
+
 type Proxy struct {
-	Managed      bool                       `json:"managed" description:"Let Onebox converge the host-scoped proxy when routes are declared."`
-	Kind         string                     `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
-	Image        string                     `json:"image,omitempty" description:"Container image used for the managed proxy."`
-	Config       string                     `json:"config,omitempty" description:"Repository-relative proxy configuration directory owned by the project. It must contain exactly one static traefik.yml or traefik.yaml, use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, and may not reuse Onebox-generated router or service names."`
-	Network      string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
-	CertResolver string                     `json:"cert_resolver,omitempty" description:"Traefik certificate resolver used by terminating TLS routes."`
-	Entrypoints  map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a declared proxy.config must define matching Traefik entrypoints."`
+	Managed     bool                       `json:"managed" description:"Let Onebox converge the host-scoped proxy when routes are declared."`
+	Kind        string                     `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
+	Image       string                     `json:"image,omitempty" description:"Container image used for the managed proxy."`
+	Config      string                     `json:"config,omitempty" description:"Repository-relative proxy configuration directory owned by the project. It must contain exactly one static traefik.yml or traefik.yaml, use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, may not reuse Onebox-generated router or service names, and must define certificatesResolvers.letsencrypt when a route terminates TLS."`
+	Network     string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
+	Entrypoints map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a declared proxy.config must define matching Traefik entrypoints."`
 }
 
 type ProxyEntrypoint struct {

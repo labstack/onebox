@@ -282,7 +282,7 @@ func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "traefik"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte("ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "traefik", "traefik.yml"), []byte(testManagedProxyStatic), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := testConfig()

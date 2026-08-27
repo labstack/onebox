@@ -400,6 +400,23 @@ func routesOf(w Workload) []Route {
 // expanded, so callers never handle two shapes.
 func (w Workload) NormalisedRoutes() []Route { return routesOf(w) }
 
+// HasTerminatingTLS reports whether the resolved project needs the managed
+// proxy's certificate resolver. Passthrough routes carry TLS without asking
+// the proxy to obtain or present a certificate.
+func (p *Spec) HasTerminatingTLS() bool {
+	if p == nil {
+		return false
+	}
+	for _, workload := range p.Workloads {
+		for _, route := range workload.NormalisedRoutes() {
+			if route.TLS == "terminate" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Join is the injective separator rule above, exported for derived identifiers
 // that live outside this file — a backup repository prefix among them.
 func Join(parts ...string) string { return join(parts...) }

@@ -1163,12 +1163,8 @@
         "^x-": {}
       },
       "properties": {
-        "cert_resolver": {
-          "description": "Traefik certificate resolver used by terminating TLS routes.",
-          "type": "string"
-        },
         "config": {
-          "description": "Repository-relative proxy configuration directory owned by the project. It must contain exactly one static traefik.yml or traefik.yaml, use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, and may not reuse Onebox-generated router or service names. Expects a path inside the repository, with no control character or shell metacharacter.",
+          "description": "Repository-relative proxy configuration directory owned by the project. It must contain exactly one static traefik.yml or traefik.yaml, use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, may not reuse Onebox-generated router or service names, and must define certificatesResolvers.letsencrypt when a route terminates TLS. Expects a path inside the repository, with no control character or shell metacharacter.",
           "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
           "type": "string"
         },

@@ -270,7 +270,7 @@ type JobSchedule struct {
 	Timezone   string `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
 	Timeout    string `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
 	CatchUp    bool   `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
-	DeployLock string `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits deployments." default:"exclusive" example:"pinned"`
+	DeployLock string `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
 }
 
 type Service struct {

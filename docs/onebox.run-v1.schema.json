@@ -2501,7 +2501,7 @@
               },
               "deploy_lock": {
                 "default": "exclusive",
-                "description": "Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits deployments.",
+                "description": "Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks.",
                 "enum": [
                   "exclusive",
                   "pinned"

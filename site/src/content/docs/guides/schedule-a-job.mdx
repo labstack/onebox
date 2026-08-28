@@ -70,8 +70,11 @@ schedule:
 The runner briefly meets deployment under the same scheduling mutex, resolves
 `current` to one immutable release, and takes a shared lease on that release.
 It then releases the application-wide mutex and keeps only a per-job lock, so a
-deployment can proceed but a second instance of the same job cannot overlap.
-Release cleanup preserves the leased Compose document, environment files, and
+data-effect-free deployment can proceed but a second instance of the same job
+cannot overlap. Deployments containing migration, destructive, or unknown-effect
+jobs, and deployments containing untyped lifecycle hooks, wait for the pinned
+job to finish. Other application operations also remain exclusive. Release
+cleanup preserves the leased Compose document, environment files, and
 release-bound mounts until the job exits. `ob status` reports the policy, the
 pinned release, start time, and timeout while it runs.
 
@@ -79,8 +82,8 @@ This is deliberately fail-closed. `deploy_lock: pinned` is accepted only for a
 Onebox-rendered job declaring `data_effect: none`. Migration, destructive,
 unknown-effect, and adopted-Compose jobs remain exclusive because pinning their
 files cannot prove that a concurrent deployment is safe for the data or
-external files they use. Destroy also refuses while any pinned release is
-leased.
+external files they use. Destroy and every other non-deploy application
+operation also refuse while any pinned release is leased.
 
 ## Reconcile after upgrading Onebox
 

@@ -91,7 +91,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.schedule` | object | — | Host-resident recurring schedule and run policy for a job. |
 | `<name>.schedule.catch_up` | boolean | `true` | Run once after the host returns if an elapsed schedule was missed while it was offline. |
 | `<name>.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
-| `<name>.schedule.deploy_lock` | `exclusive` · `pinned` | `exclusive` | Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits deployments. |
+| `<name>.schedule.deploy_lock` | `exclusive` · `pinned` | `exclusive` | Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks. |
 | `<name>.schedule.timeout` | string | `1h` | Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.stdin_open` | boolean | — | Keep standard input open for the container. |

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/ui"
@@ -31,7 +33,7 @@ func (e *Engine) ValidateDeployNoOp(ctx context.Context, operationID string) err
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err
 	}
-	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
+	epoch, err := e.acquireLock(ctx, operationID, e.Opts.ForceLock, pinnedScheduleLeasePolicy{allow: true})
 	if err != nil {
 		return err
 	}
@@ -65,7 +67,11 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 	e.ui.Header("deploy " + releaseID)
 	t0 := time.Now()
-	epoch, err := e.AcquireLock(ctx, releaseID, e.Opts.ForceLock)
+	leasePolicy := pinnedScheduleLeasePolicy{allow: true}
+	if conflict := e.pinnedScheduleDeployConflict(); conflict != "" {
+		leasePolicy = pinnedScheduleLeasePolicy{conflict: conflict}
+	}
+	epoch, err := e.acquireLock(ctx, releaseID, e.Opts.ForceLock, leasePolicy)
 	if err != nil {
 		return err
 	}
@@ -179,6 +185,29 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		e.ui.Successf("deployed %s in %s%s", releaseID, ui.FmtDur(time.Since(t0)), hint)
 	}
 	return err
+}
+
+// pinnedScheduleDeployConflict reports lifecycle effects that cannot safely
+// overlap a read-only pinned job. Container replacement itself is compatible:
+// the scheduled container and all release-owned inputs are already pinned.
+// Jobs that change shared data and untyped hooks are not compatible because a
+// running export or indexer may still depend on the schema or data they change.
+func (e *Engine) pinnedScheduleDeployConflict() string {
+	var conflicts []string
+	for _, phase := range []string{"pre_release", "post_release"} {
+		for _, name := range e.Spec.JobOrderFor(phase) {
+			effect := e.Spec.Workloads[name].DataEffect
+			if effect != app.DataEffectNone {
+				conflicts = append(conflicts, fmt.Sprintf("job %s (%s)", name, effect))
+			}
+		}
+	}
+	for _, name := range []string{"pre_release", "post_release", "post_deploy"} {
+		if hook, ok := e.Spec.Hooks[name]; ok && strings.TrimSpace(hook.Run) != "" {
+			conflicts = append(conflicts, "hook "+name+" (unknown data effect)")
+		}
+	}
+	return strings.Join(conflicts, ", ")
 }
 
 // rollbackEffectDebt carries rollback-unknown effects across deploy IDs. A

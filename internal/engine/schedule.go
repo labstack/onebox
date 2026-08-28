@@ -102,7 +102,11 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 
 		runnerPath := "/etc/systemd/system/" + unit + ".run"
 		notifyPath := "/etc/systemd/system/" + unit + ".notify"
-		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath())
+		var runtimeEnvFiles []app.EnvFile
+		if e.Spec.Runtime != nil {
+			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
+		}
+		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles)
 		notifier, err := e.scheduleFailureNotifier(job.Name)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
@@ -165,27 +169,44 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 // job explicitly opts into the narrower pinned-release contract. Pinned mode
 // meets the deploy acquirer briefly under schedule.lock, leases the resolved
 // release before releasing that rendezvous, then retains only its own job lock.
-func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string) string {
+func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
 	if job.DeployLock == "pinned" {
-		return pinnedScheduleRunnerScript(application, job.Name, names, applicationLock)
+		return pinnedScheduleRunnerScript(application, job.Name, names, applicationLock, runtimeEnvFiles)
 	}
-	run := "if [ -e " + q(applicationLock) + " ]; then " +
-		"echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi; " +
-		"exec /usr/bin/docker compose -p " + q(application) + " -f " + q(names.CurrentLink()+"/compose.yaml") +
-		" run --rm --no-deps " + q(job.Name)
+	container := names.Container(job.Name, 1)
+	projectDir := q(names.CurrentLink())
+	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
+		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
+		" run --rm --no-deps --name " + q(container) + " " + q(job.Name)
 	return strings.Join([]string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
-		"exec /usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 " +
-			q(names.ScheduleRunLock()) + " /bin/sh -c " + q(run),
+		"install -d -m 700 " + q(names.AppDir()+"/schedule"),
+		"exec 9>" + q(names.ScheduledJobRunLock(job.Name)),
+		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
+		"exec 8>" + q(names.ScheduleRunLock()),
+		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
+		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
+		scheduleContainerCleanup(container),
+		"cleanup() { " + scheduleContainerCleanup(container) + "; }",
+		"trap cleanup 0",
+		"trap 'exit 129' 1",
+		"trap 'exit 130' 2",
+		"trap 'exit 143' 15",
+		compose,
 		"",
 	}, "\n")
 }
 
-func pinnedScheduleRunnerScript(application, job string, names app.Names, applicationLock string) string {
+func pinnedScheduleRunnerScript(application, job string, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
 	scheduleDir := names.AppDir() + "/schedule"
 	state := names.ScheduledJobRunState(job)
+	container := names.Container(job, 1)
+	projectDir := `"$release_dir"`
+	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
+		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
+		" run --rm --no-deps --name " + q(container) + " " + q(job)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -204,19 +225,38 @@ func pinnedScheduleRunnerScript(application, job string, names app.Names, applic
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
 		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
-		"/usr/bin/flock --unlock 8",
+		scheduleContainerCleanup(container),
 		"state=" + q(state),
 		"tmp=\"$state.$$\"",
-		"cleanup() { rm -f \"$state\" \"$tmp\"; }",
-		"trap cleanup 0 1 2 15",
+		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$state\" \"$tmp\"; }",
+		"trap cleanup 0",
+		"trap 'exit 129' 1",
+		"trap 'exit 130' 2",
+		"trap 'exit 143' 15",
 		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
 		"umask 077",
 		"printf 'release=%s\\nstarted_at=%s\\n' \"$release\" \"$started_at\" >\"$tmp\"",
 		"mv -f \"$tmp\" \"$state\"",
-		"/usr/bin/docker compose -p " + q(application) + " -f \"$release_dir/compose.yaml\" run --rm --no-deps " + q(job),
+		"/usr/bin/flock --unlock 8",
+		compose,
 		"",
 	}
 	return strings.Join(lines, "\n")
+}
+
+func scheduleContainerCleanup(container string) string {
+	return "/usr/bin/docker rm -f " + q(container) + " >/dev/null 2>&1 || true"
+}
+
+func scheduleRuntimeEnvArgs(projectDir string, entries []app.EnvFile) string {
+	args := ""
+	for _, entry := range entries {
+		if entry.Encrypted() {
+			continue
+		}
+		args += " --env-file " + projectDir + "/" + q(entry.StagedPath())
+	}
+	return args
 }
 
 func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string) string {
@@ -230,8 +270,9 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 		"[Service]",
 		"Type=oneshot",
 		"ExecStart=/bin/sh " + runnerPath,
-		// ExecStopPost runs after start failures and timeouts and receives
-		// SERVICE_RESULT from systemd. The script is a no-op after success.
+		// ExecStopPost runs after success, start failures, and timeouts. It always
+		// attempts fenced container cleanup, then uses SERVICE_RESULT to decide
+		// whether failure notifications are needed.
 		"ExecStopPost=/bin/sh " + notifyPath,
 		"TimeoutStartSec=" + job.Timeout,
 		"",
@@ -252,6 +293,10 @@ func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -u",
+		"exec 9>" + q(e.names().ScheduledJobRunLock(job)),
+		"if /usr/bin/flock --exclusive --nonblock 9; then",
+		"  " + scheduleContainerCleanup(e.names().Container(job, 1)),
+		"fi",
 		`[ "${SERVICE_RESULT:-success}" = success ] && exit 0`,
 	}
 	var sends []string

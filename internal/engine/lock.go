@@ -31,6 +31,11 @@ type lockMeta struct {
 	Token      string `json:"token,omitempty"`
 }
 
+type pinnedScheduleLeasePolicy struct {
+	allow    bool
+	conflict string
+}
+
 func (e *Engine) base() string      { return release.PathsFor(e.names()).Base }
 func (e *Engine) lockPath() string  { return e.base() + "/lock" }
 func (e *Engine) epochPath() string { return e.base() + "/epoch" }
@@ -41,6 +46,14 @@ func (e *Engine) fencePath() string { return e.base() + "/fence" }
 // lock refuses (unless force, which prints the holder + its journal tail —
 // the operator sees who they are trampling).
 func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (int, error) {
+	return e.acquireLock(ctx, deployID, force, pinnedScheduleLeasePolicy{})
+}
+
+// acquireLock serializes application operations with scheduled-job startup,
+// then inspects the release leases while the new application lock prevents a
+// later pinned runner from entering. Existing callers fail closed; deploy is
+// the one operation that may supply an explicit compatible lease policy.
+func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, leasePolicy pinnedScheduleLeasePolicy) (int, error) {
 	e.lockVal = ""
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(e.base())); err != nil {
 		return 0, err
@@ -90,6 +103,22 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 		}
 		if res.ExitCode == 0 {
 			e.lockVal = string(b)
+			if useScheduleLock {
+				leased, leaseErr := release.ActiveScheduleLeases(ctx, e.T, e.names())
+				if leaseErr != nil {
+					e.ReleaseLock(ctx)
+					return 0, fmt.Errorf("acquire application lock: cannot establish scheduled-job release leases: %w", leaseErr)
+				}
+				if len(leased) > 0 && !leasePolicy.allow {
+					detail := ""
+					if leasePolicy.conflict != "" {
+						detail = "; this deployment includes " + leasePolicy.conflict
+					}
+					e.ReleaseLock(ctx)
+					return 0, fmt.Errorf("application operation refused: pinned scheduled jobs are running from release(s) %s%s — wait for them to finish",
+						strings.Join(leased, ", "), detail)
+				}
+			}
 			res, err := e.T.Run(ctx, atomicEpochWriteCmd(e.epochPath(), epoch))
 			if err != nil {
 				e.ReleaseLock(ctx)

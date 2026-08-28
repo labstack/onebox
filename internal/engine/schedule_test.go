@@ -178,24 +178,35 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false, DeployLock: "exclusive",
 	}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock")
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil)
 	service := scheduleServiceUnit("sample", job,
 		"/etc/systemd/system/ob-sample-nightly.run",
 		"/etc/systemd/system/ob-sample-nightly.notify")
 	timer := scheduleTimerUnit("sample", job)
 
 	for _, want := range []string{
-		"flock --exclusive --nonblock --conflict-exit-code 75 '/var/lib/ob/sample/schedule.lock'",
+		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
+		"flock --exclusive --nonblock --conflict-exit-code 75 9",
+		"exec 8>'/var/lib/ob/sample/schedule.lock'",
+		"flock --exclusive --nonblock --conflict-exit-code 75 8",
 		"/var/lib/ob/sample/lock",
 		"application operation holds the deploy lock",
 		"docker compose",
-		"/var/lib/ob/sample/current/compose.yaml",
-		"run --rm --no-deps",
+		"--project-directory",
+		"/var/lib/ob/sample/current",
+		"compose.yaml",
+		"run --rm --no-deps --name 'sample-nightly-1'",
+		"docker rm -f 'sample-nightly-1'",
 		"nightly",
 	} {
 		if !strings.Contains(runner, want) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
 		}
+	}
+	command := exec.CommandContext(context.Background(), "sh", "-n")
+	command.Stdin = strings.NewReader(runner)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("exclusive runner is not valid POSIX shell: %v: %s\n%s", err, output, runner)
 	}
 	for _, want := range []string{
 		"Type=oneshot",
@@ -226,7 +237,10 @@ func TestScheduledJobUnitContract(t *testing.T) {
 func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock")
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", []app.EnvFile{
+		{File: "config/runtime.env"},
+		{File: "secrets/runtime.env", Provider: "sops"},
+	})
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/refresh.lock'",
@@ -236,10 +250,14 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
 		"flock --shared 7",
 		"flock --unlock 8",
-		"trap cleanup 0 1 2 15",
+		"trap cleanup 0",
 		"pinned release has no compose.yaml",
 		"/var/lib/ob/sample/schedule/refresh.state",
-		"-f \"$release_dir/compose.yaml\" run --rm --no-deps 'refresh'",
+		"--project-directory \"$release_dir\"",
+		"-f \"$release_dir\"/'compose.yaml'",
+		"--env-file \"$release_dir\"/'config/runtime.env'",
+		"run --rm --no-deps --name 'sample-refresh-1' 'refresh'",
+		"docker rm -f 'sample-refresh-1'",
 	} {
 		if !strings.Contains(runner, want) {
 			t.Errorf("pinned runner is missing %q:\n%s", want, runner)
@@ -248,10 +266,40 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	if strings.Contains(runner, "current/compose.yaml") {
 		t.Fatalf("pinned runner executes through moving current link:\n%s", runner)
 	}
+	if strings.Contains(runner, "secrets/runtime.env") {
+		t.Fatalf("encrypted env file was passed as a Compose interpolation input:\n%s", runner)
+	}
 	command := exec.CommandContext(context.Background(), "sh", "-n")
 	command.Stdin = strings.NewReader(runner)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("pinned runner is not valid POSIX shell: %v: %s\n%s", err, output, runner)
+	}
+}
+
+func TestPinnedScheduleDeployConflictClassifiesLifecycleEffects(t *testing.T) {
+	for _, tc := range []struct {
+		effect app.DataEffect
+		want   bool
+	}{
+		{effect: app.DataEffectNone, want: false},
+		{effect: app.DataEffectMigration, want: true},
+		{effect: app.DataEffectDestructive, want: true},
+		{effect: app.DataEffectUnknown, want: true},
+	} {
+		t.Run(string(tc.effect), func(t *testing.T) {
+			cfg := testConfig()
+			migrate := cfg.Workloads["migrate"]
+			migrate.DataEffect = tc.effect
+			cfg.Workloads["migrate"] = migrate
+			e := New(cfg, testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			conflict := e.pinnedScheduleDeployConflict()
+			if tc.want && !strings.Contains(conflict, "job migrate ("+string(tc.effect)+")") {
+				t.Fatalf("effect %q was not classified: %q", tc.effect, conflict)
+			}
+			if !tc.want && conflict != "" {
+				t.Fatalf("data-effect-free deployment was classified as conflicting: %q", conflict)
+			}
+		})
 	}
 }
 
@@ -281,14 +329,18 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 
 	started := filepath.Join(root, "started")
 	stop := filepath.Join(root, "stop")
+	removed := filepath.Join(root, "removed")
 	stub := filepath.Join(root, "docker-stub")
-	stubBody := "#!/bin/sh\nset -eu\ntouch " + q(started) + "\nwhile [ ! -e " + q(stop) + " ]; do sleep 0.01; done\n"
+	stubBody := "#!/bin/sh\nset -eu\n" +
+		"if [ \"${1:-}\" = rm ]; then touch " + q(removed) + "; exit 0; fi\n" +
+		"touch " + q(started) + "\n" +
+		"while [ ! -e " + q(stop) + " ]; do sleep 0.01; done\n"
 	if err := os.WriteFile(stub, []byte(stubBody), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
-	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"))
+	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"), nil)
 	runner = strings.ReplaceAll(runner, "/usr/bin/docker", q(stub))
 	command := exec.CommandContext(ctx, "sh")
 	command.Stdin = strings.NewReader(runner)
@@ -313,6 +365,9 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 			t.Fatal("pinned runner did not reach the container command")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if err := os.Remove(removed); err != nil {
+		t.Fatalf("initial stale-container cleanup did not run: %v", err)
 	}
 
 	assertLock := func(path string, available bool) {
@@ -339,10 +394,22 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "6h", CatchUp: true, DeployLock: "pinned"},
 	}
 	deploy := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if _, err := deploy.AcquireLock(ctx, "concurrent-deploy", false); err != nil {
+	if _, err := deploy.acquireLock(ctx, "concurrent-deploy", false, pinnedScheduleLeasePolicy{allow: true}); err != nil {
 		t.Fatalf("deployment could not acquire its lock while the pinned job ran: %v", err)
 	}
 	deploy.ReleaseLock(ctx)
+	if _, err := deploy.AcquireLock(ctx, "concurrent-operation", false); err == nil || !strings.Contains(err.Error(), "pinned scheduled jobs") {
+		t.Fatalf("ordinary application operation was not blocked by the pinned job: %v", err)
+	}
+	cfg.Hooks = map[string]app.Command{"pre_release": {Run: "change-shared-data"}}
+	riskyDeploy := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	conflict := riskyDeploy.pinnedScheduleDeployConflict()
+	if conflict == "" || !strings.Contains(conflict, "hook pre_release") {
+		t.Fatalf("risky deployment conflict was not classified: %q", conflict)
+	}
+	if _, err := riskyDeploy.acquireLock(ctx, "risky-deploy", false, pinnedScheduleLeasePolicy{conflict: conflict}); err == nil || !strings.Contains(err.Error(), "hook pre_release") {
+		t.Fatalf("risky deployment was not blocked by the pinned job: %v", err)
+	}
 
 	if err := os.WriteFile(stop, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -351,6 +418,9 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	finished = true
+	if _, err := os.Stat(removed); err != nil {
+		t.Fatalf("completed run did not clean its named container: %v", err)
+	}
 	assertLock(filepath.Join(releaseDir, ".ob-schedule.lease"), true)
 	leases, err = release.ActiveScheduleLeases(ctx, transport.NewLocal(), names)
 	if err != nil || len(leases) != 0 {
@@ -381,6 +451,9 @@ func TestScheduledJobFailureNotifierUsesConfiguredWebhooks(t *testing.T) {
 	}
 	for _, want := range []string{
 		`${SERVICE_RESULT:-success}`,
+		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
+		"flock --exclusive --nonblock 9",
+		"docker rm -f 'sample-nightly-1'",
 		`ts=$(date -u`,
 		`"$ts"`,
 		"curl --fail --silent --show-error --max-time 5 --request POST",

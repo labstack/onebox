@@ -112,6 +112,10 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				w.Schedule.Timeout = "1h"
 				mark(path + ".schedule.timeout")
 			}
+			if w.Schedule.DeployLock == "" {
+				w.Schedule.DeployLock = "exclusive"
+				mark(path + ".schedule.deploy_lock")
+			}
 			if !stated(raw, path+".schedule.catch_up") {
 				w.Schedule.CatchUp = true
 				mark(path + ".schedule.catch_up")

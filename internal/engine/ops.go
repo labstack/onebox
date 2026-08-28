@@ -32,6 +32,13 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		return err
 	}
 	defer e.ReleaseLock(ctx)
+	leased, err := release.ActiveScheduleLeases(ctx, e.T, e.names())
+	if err != nil {
+		return fmt.Errorf("destroy refused: cannot establish scheduled-job release leases: %w", err)
+	}
+	if len(leased) > 0 {
+		return fmt.Errorf("destroy refused: scheduled jobs are still running from release(s) %s; stop or wait for them before destroying the application", strings.Join(leased, ", "))
+	}
 	if err := e.WriteFence(ctx, "destroy", epoch); err != nil {
 		return err
 	}

@@ -1,7 +1,7 @@
 ---
 title: Schedule a job
-description: Bounded host timers, deploy serialization, failure status, and the cron forms Onebox refuses.
-summary: How to declare a scheduled job, bound its run time, choose catch-up behavior, inspect failures, and understand which cron expressions are refused at load.
+description: Bounded host timers, safe deployment coordination, failure status, and the cron forms Onebox refuses.
+summary: How to declare a scheduled job, bound its run time, choose deployment and catch-up behavior, inspect failures, and understand which cron expressions are refused at load.
 sidebar:
   order: 4
 read_when:
@@ -45,7 +45,7 @@ timer runs once after it returns. Set it to `false` for time-sensitive work that
 should be skipped rather than run late. A failed run is not retried implicitly;
 the next attempt is the next cron elapse.
 
-## It cannot overlap a deploy
+## Deployment coordination is exclusive by default
 
 A host-fired job takes an application-wide kernel lock for its whole container
 run. Every operation that establishes Onebox's fenced application lock takes
@@ -55,6 +55,32 @@ fails visibly instead of modifying Docker beside a deploy.
 The target must provide `flock` (part of `util-linux` on supported Linux hosts).
 Onebox refuses to install or run schedules when that serialization primitive is
 missing.
+
+For a long-running job that does not change shared data, opt into a pinned
+release instead:
+
+```yaml
+data_effect: none
+schedule:
+  cron: "0 2 * * *"
+  timeout: 6h
+  deploy_lock: pinned
+```
+
+The runner briefly meets deployment under the same scheduling mutex, resolves
+`current` to one immutable release, and takes a shared lease on that release.
+It then releases the application-wide mutex and keeps only a per-job lock, so a
+deployment can proceed but a second instance of the same job cannot overlap.
+Release cleanup preserves the leased Compose document, environment files, and
+release-bound mounts until the job exits. `ob status` reports the policy, the
+pinned release, start time, and timeout while it runs.
+
+This is deliberately fail-closed. `deploy_lock: pinned` is accepted only for a
+Onebox-rendered job declaring `data_effect: none`. Migration, destructive,
+unknown-effect, and adopted-Compose jobs remain exclusive because pinning their
+files cannot prove that a concurrent deployment is safe for the data or
+external files they use. Destroy also refuses while any pinned release is
+leased.
 
 ## Reconcile after upgrading Onebox
 

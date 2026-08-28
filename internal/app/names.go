@@ -233,6 +233,17 @@ func (n Names) ScheduledJobUnit(job string) string {
 // existing application lock remains the durable owner/fencing record.
 func (n Names) ScheduleRunLock() string { return path.Join(n.AppDir(), "schedule.lock") }
 
+// ScheduledJobRunLock prevents a timer catch-up or manual systemd start from
+// overlapping another run of the same job without serializing unrelated jobs.
+func (n Names) ScheduledJobRunLock(job string) string {
+	return path.Join(n.AppDir(), "schedule", job+".lock")
+}
+
+// ScheduledJobRunState is ephemeral, non-secret status written by the runner.
+func (n Names) ScheduledJobRunState(job string) string {
+	return path.Join(n.AppDir(), "schedule", job+".state")
+}
+
 // ScheduledJobUnitPrefixes returns the current namespace followed by the
 // pre-2026.8.6 spelling when the application name contains a hyphen.
 func (n Names) ScheduledJobUnitPrefixes() []string {

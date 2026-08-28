@@ -60,6 +60,29 @@ func TestDestroySequence(t *testing.T) {
 	}
 }
 
+func TestDestroyRefusesActivePinnedScheduleLease(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, ".ob-schedule.lease") {
+			return transport.Result{Stdout: "20260828-120000-running\n"}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), true, false)
+	if err == nil || !strings.Contains(err.Error(), "scheduled jobs are still running") {
+		t.Fatalf("destroy error = %v", err)
+	}
+	commands := strings.Join(f.Commands, "\n")
+	if strings.Contains(commands, "down --remove-orphans") || strings.Contains(commands, "rm -rf '/var/lib/ob/sample'") {
+		t.Fatalf("destroy mutated the application while a release was leased:\n%s", commands)
+	}
+	if !strings.Contains(commands, "rm -f '/var/lib/ob/sample/lock'") {
+		t.Fatalf("destroy retained its application lock after refusing:\n%s", commands)
+	}
+}
+
 // Destroying with --volumes removes the data, so keeping the credential that
 // opens it would serve nobody.
 func TestDestroyWithVolumesRemovesEverything(t *testing.T) {

@@ -102,7 +102,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 
 		runnerPath := "/etc/systemd/system/" + unit + ".run"
 		notifyPath := "/etc/systemd/system/" + unit + ".notify"
-		runner := scheduleRunnerScript(e.Spec.Name, job.Name, n.CurrentLink(), e.lockPath(), n.ScheduleRunLock())
+		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath())
 		notifier, err := e.scheduleFailureNotifier(job.Name)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
@@ -161,21 +161,62 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	return nil
 }
 
-// scheduleServiceUnit runs one job exactly as a release-phase job runs, through
-// the current release's runtime.
-func scheduleRunnerScript(application, job, currentLink, applicationLock, scheduleLock string) string {
+// scheduleRunnerScript keeps the existing whole-run deploy exclusion unless a
+// job explicitly opts into the narrower pinned-release contract. Pinned mode
+// meets the deploy acquirer briefly under schedule.lock, leases the resolved
+// release before releasing that rendezvous, then retains only its own job lock.
+func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string) string {
+	if job.DeployLock == "pinned" {
+		return pinnedScheduleRunnerScript(application, job.Name, names, applicationLock)
+	}
 	run := "if [ -e " + q(applicationLock) + " ]; then " +
 		"echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi; " +
-		"exec /usr/bin/docker compose -p " + q(application) + " -f " + q(currentLink+"/compose.yaml") +
-		" run --rm --no-deps " + q(job)
+		"exec /usr/bin/docker compose -p " + q(application) + " -f " + q(names.CurrentLink()+"/compose.yaml") +
+		" run --rm --no-deps " + q(job.Name)
 	return strings.Join([]string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
 		"exec /usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 " +
-			q(scheduleLock) + " /bin/sh -c " + q(run),
+			q(names.ScheduleRunLock()) + " /bin/sh -c " + q(run),
 		"",
 	}, "\n")
+}
+
+func pinnedScheduleRunnerScript(application, job string, names app.Names, applicationLock string) string {
+	scheduleDir := names.AppDir() + "/schedule"
+	state := names.ScheduledJobRunState(job)
+	lines := []string{
+		"#!/bin/sh",
+		"# Written by Onebox. Edits are overwritten on the next deploy.",
+		"set -eu",
+		"install -d -m 700 " + q(scheduleDir),
+		"exec 9>" + q(names.ScheduledJobRunLock(job)),
+		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
+		"exec 8>" + q(names.ScheduleRunLock()),
+		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
+		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
+		"release_dir=$(readlink -f " + q(names.CurrentLink()) + ") || { echo 'onebox: current release cannot be resolved' >&2; exit 75; }",
+		"if [ \"${release_dir%/*}\" != " + q(names.ReleasesDir()) + " ]; then echo 'onebox: current release resolves outside the release store' >&2; exit 75; fi",
+		"release=${release_dir##*/}",
+		"if ! printf '%s\\n' \"$release\" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9A-Za-z_-]+$'; then echo 'onebox: current release identity is invalid' >&2; exit 75; fi",
+		"if [ ! -f \"$release_dir/compose.yaml\" ]; then echo 'onebox: pinned release has no compose.yaml' >&2; exit 75; fi",
+		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
+		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
+		"/usr/bin/flock --shared 7",
+		"/usr/bin/flock --unlock 8",
+		"state=" + q(state),
+		"tmp=\"$state.$$\"",
+		"cleanup() { rm -f \"$state\" \"$tmp\"; }",
+		"trap cleanup 0 1 2 15",
+		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+		"umask 077",
+		"printf 'release=%s\\nstarted_at=%s\\n' \"$release\" \"$started_at\" >\"$tmp\"",
+		"mv -f \"$tmp\" \"$state\"",
+		"/usr/bin/docker compose -p " + q(application) + " -f \"$release_dir/compose.yaml\" run --rm --no-deps " + q(job),
+		"",
+	}
+	return strings.Join(lines, "\n")
 }
 
 func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string) string {

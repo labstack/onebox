@@ -3,10 +3,16 @@ package engine
 import (
 	"bytes"
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -169,10 +175,10 @@ func TestScheduleApplyStopsBeforeUnitWritesWhenJournalStartFails(t *testing.T) {
 func TestScheduledJobUnitContract(t *testing.T) {
 	job := app.ScheduledJob{
 		Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC",
-		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false,
+		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false, DeployLock: "exclusive",
 	}
-	runner := scheduleRunnerScript("sample", job.Name, "/var/lib/ob/sample/current",
-		"/var/lib/ob/sample/lock", "/var/lib/ob/sample/schedule.lock")
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock")
 	service := scheduleServiceUnit("sample", job,
 		"/etc/systemd/system/ob-sample-nightly.run",
 		"/etc/systemd/system/ob-sample-nightly.notify")
@@ -214,6 +220,144 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		if strings.Contains(artifact, "Restart=") {
 			t.Errorf("cron-shaped scheduled jobs must not retry implicitly:\n%s", artifact)
 		}
+	}
+}
+
+func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
+	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock")
+
+	for _, want := range []string{
+		"exec 9>'/var/lib/ob/sample/schedule/refresh.lock'",
+		"flock --exclusive --nonblock --conflict-exit-code 75 9",
+		"exec 8>'/var/lib/ob/sample/schedule.lock'",
+		"release_dir=$(readlink -f '/var/lib/ob/sample/current')",
+		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
+		"flock --shared 7",
+		"flock --unlock 8",
+		"trap cleanup 0 1 2 15",
+		"pinned release has no compose.yaml",
+		"/var/lib/ob/sample/schedule/refresh.state",
+		"-f \"$release_dir/compose.yaml\" run --rm --no-deps 'refresh'",
+	} {
+		if !strings.Contains(runner, want) {
+			t.Errorf("pinned runner is missing %q:\n%s", want, runner)
+		}
+	}
+	if strings.Contains(runner, "current/compose.yaml") {
+		t.Fatalf("pinned runner executes through moving current link:\n%s", runner)
+	}
+	command := exec.CommandContext(context.Background(), "sh", "-n")
+	command.Stdin = strings.NewReader(runner)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("pinned runner is not valid POSIX shell: %v: %s\n%s", err, output, runner)
+	}
+}
+
+func TestPinnedScheduledJobLockProtocol(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the installed runner targets Linux systemd hosts")
+	}
+	if _, err := os.Stat("/usr/bin/flock"); err != nil {
+		t.Skip("util-linux flock is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	names := app.Names{App: "sample", BasePath: root}
+	releaseID := "20260828-120000-abc1234"
+	releaseDir := names.ReleaseDir(releaseID)
+	if err := os.MkdirAll(releaseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseDir, "compose.yaml"), []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("releases", releaseID), names.CurrentLink()); err != nil {
+		t.Fatal(err)
+	}
+
+	started := filepath.Join(root, "started")
+	stop := filepath.Join(root, "stop")
+	stub := filepath.Join(root, "docker-stub")
+	stubBody := "#!/bin/sh\nset -eu\ntouch " + q(started) + "\nwhile [ ! -e " + q(stop) + " ]; do sleep 0.01; done\n"
+	if err := os.WriteFile(stub, []byte(stubBody), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
+	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"))
+	runner = strings.ReplaceAll(runner, "/usr/bin/docker", q(stub))
+	command := exec.CommandContext(ctx, "sh")
+	command.Stdin = strings.NewReader(runner)
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	finished := false
+	defer func() {
+		if finished {
+			return
+		}
+		_ = os.WriteFile(stop, nil, 0o600)
+		_ = command.Process.Kill()
+		_ = command.Wait()
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("pinned runner did not reach the container command")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	assertLock := func(path string, available bool) {
+		t.Helper()
+		err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", "75", path, "true").Run()
+		if available && err != nil {
+			t.Fatalf("lock %s remained unavailable: %v", path, err)
+		}
+		if !available && err == nil {
+			t.Fatalf("lock %s was not held", path)
+		}
+	}
+	assertLock(names.ScheduleRunLock(), true)
+	assertLock(names.ScheduledJobRunLock(job.Name), false)
+	assertLock(filepath.Join(releaseDir, ".ob-schedule.lease"), false)
+	leases, err := release.ActiveScheduleLeases(ctx, transport.NewLocal(), names)
+	if err != nil || len(leases) != 1 || leases[0] != releaseID {
+		t.Fatalf("active release lease was not observable: leases=%v err=%v", leases, err)
+	}
+	cfg := testConfig()
+	cfg.BasePath = root
+	cfg.Workloads[job.Name] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "6h", CatchUp: true, DeployLock: "pinned"},
+	}
+	deploy := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if _, err := deploy.AcquireLock(ctx, "concurrent-deploy", false); err != nil {
+		t.Fatalf("deployment could not acquire its lock while the pinned job ran: %v", err)
+	}
+	deploy.ReleaseLock(ctx)
+
+	if err := os.WriteFile(stop, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	finished = true
+	assertLock(filepath.Join(releaseDir, ".ob-schedule.lease"), true)
+	leases, err = release.ActiveScheduleLeases(ctx, transport.NewLocal(), names)
+	if err != nil || len(leases) != 0 {
+		t.Fatalf("completed release remained leased: leases=%v err=%v", leases, err)
+	}
+	if _, err := os.Stat(names.ScheduledJobRunState(job.Name)); !os.IsNotExist(err) {
+		t.Fatalf("runner state survived completion: %v", err)
 	}
 }
 
@@ -316,6 +460,44 @@ ActiveState=active
 	}
 	if !strings.Contains(strings.Join(statuses[0].Issues, "\n"), "last run failed") {
 		t.Fatalf("failure has no actionable issue: %#v", statuses[0])
+	}
+}
+
+func TestScheduleStatusReportsRunningPinnedRelease(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["refresh"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "6h", CatchUp: true, DeployLock: "pinned"},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@refresh:service
+LoadState=loaded
+ActiveState=activating
+Result=success
+ExecMainStatus=0
+@@refresh:timer
+LoadState=loaded
+ActiveState=active
+@@refresh:run
+release=20260828-120000-abc1234
+started_at=2026-08-28T12:01:02Z
+`}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %#v", statuses)
+	}
+	got := statuses[0]
+	if !got.Running || got.DeployLock != "pinned" || got.Timeout != "6h" ||
+		got.PinnedRelease != "20260828-120000-abc1234" || got.StartedAt != "2026-08-28T12:01:02Z" || got.Diverged {
+		t.Fatalf("running pinned status was not surfaced: %#v", got)
 	}
 }
 

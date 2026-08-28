@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `deploy_lock` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `memory` · `middlewares` · `mode` · `name` · `needs` · `options` · `path` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -91,6 +91,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.schedule` | object | — | Host-resident recurring schedule and run policy for a job. |
 | `<name>.schedule.catch_up` | boolean | `true` | Run once after the host returns if an elapsed schedule was missed while it was offline. |
 | `<name>.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
+| `<name>.schedule.deploy_lock` | `exclusive` · `pinned` | `exclusive` | Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits deployments. |
 | `<name>.schedule.timeout` | string | `1h` | Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.stdin_open` | boolean | — | Keep standard input open for the container. |

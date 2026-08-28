@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/labstack/onebox/internal/release"
 )
 
 // StatusSchedule is the host-observed state of one declared scheduled job.
@@ -14,6 +17,11 @@ type StatusSchedule struct {
 	Name           string   `json:"name"`
 	Unit           string   `json:"unit"`
 	TimerState     string   `json:"timer_state"`
+	Running        bool     `json:"running"`
+	DeployLock     string   `json:"deploy_lock"`
+	Timeout        string   `json:"timeout"`
+	PinnedRelease  string   `json:"pinned_release,omitempty"`
+	StartedAt      string   `json:"started_at,omitempty"`
 	LastResult     string   `json:"last_result"`
 	LastExitStatus int      `json:"last_exit_status,omitempty"`
 	Diverged       bool     `json:"diverged"`
@@ -25,6 +33,8 @@ type scheduleUnitObservation struct {
 	activeState string
 	result      string
 	exitStatus  int
+	release     string
+	startedAt   string
 }
 
 func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error) {
@@ -44,6 +54,8 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			"systemctl show "+q(unit+".service")+" --no-pager --property=LoadState --property=ActiveState --property=Result --property=ExecMainStatus",
 			"printf '%s\\n' "+q("@@"+job.Name+":timer"),
 			"systemctl show "+q(unit+".timer")+" --no-pager --property=LoadState --property=ActiveState",
+			"printf '%s\\n' "+q("@@"+job.Name+":run"),
+			"cat "+q(e.names().ScheduledJobRunState(job.Name))+" 2>/dev/null || true",
 		)
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))
@@ -68,6 +80,7 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		observed[name][kind] = scheduleUnitObservation{
 			loadState: values["LoadState"], activeState: values["ActiveState"],
 			result: values["Result"], exitStatus: exit,
+			release: values["release"], startedAt: values["started_at"],
 		}
 		values = map[string]string{}
 	}
@@ -90,9 +103,20 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		unit := e.names().ScheduledJobUnit(job.Name)
 		service := observed[job.Name]["service"]
 		timer := observed[job.Name]["timer"]
+		run := observed[job.Name]["run"]
 		status := StatusSchedule{
 			Name: job.Name, Unit: unit, TimerState: timer.activeState,
+			Running: service.activeState == "activating", DeployLock: job.DeployLock, Timeout: job.Timeout,
 			LastResult: service.result, LastExitStatus: service.exitStatus,
+		}
+		if status.Running && job.DeployLock == "pinned" {
+			_, timeErr := time.Parse(time.RFC3339, run.startedAt)
+			if !release.IsID(run.release) || timeErr != nil {
+				status.Issues = append(status.Issues, "running pinned job state is unavailable or invalid")
+			} else {
+				status.PinnedRelease = run.release
+				status.StartedAt = run.startedAt
+			}
 		}
 		if timer.loadState != "loaded" || timer.activeState != "active" {
 			status.Issues = append(status.Issues, "timer is not active")

@@ -90,6 +90,13 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	for id := range policy.EvidenceIDs {
 		protected[id] = true
 	}
+	leased, leaseErr := ActiveScheduleLeases(ctx, target, names)
+	if leaseErr != nil {
+		return RetentionDecision{}, refuseRetention(leaseErr, fmt.Errorf("scheduled-job lease evidence is unusable: %w", leaseErr))
+	}
+	for _, id := range leased {
+		protected[id] = true
+	}
 
 	current, err := Current(ctx, target, names)
 	if err != nil {

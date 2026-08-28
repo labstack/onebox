@@ -175,7 +175,16 @@ func (e *Engine) Status(ctx context.Context) error {
 		if result == "" {
 			result = "not run yet"
 		}
-		fmt.Fprintf(e.Opts.Out, "schedule %-11s active; last: %s\n", schedule.Name, result)
+		if schedule.Running {
+			detail := fmt.Sprintf("running; policy: %s; timeout: %s", schedule.DeployLock, schedule.Timeout)
+			if schedule.PinnedRelease != "" {
+				detail += fmt.Sprintf("; release: %s; started: %s", schedule.PinnedRelease, schedule.StartedAt)
+			}
+			fmt.Fprintf(e.Opts.Out, "schedule %-11s %s\n", schedule.Name, detail)
+			continue
+		}
+		fmt.Fprintf(e.Opts.Out, "schedule %-11s active; policy: %s; timeout: %s; last: %s\n",
+			schedule.Name, schedule.DeployLock, schedule.Timeout, result)
 	}
 
 	if managed {

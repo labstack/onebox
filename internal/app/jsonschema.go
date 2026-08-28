@@ -386,6 +386,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"workloads", "*", "schedule", "timezone"}, pattern(gTZ)},
 	{[]string{"workloads", "*", "schedule", "timeout"}, pattern(gDur)},
+	{[]string{"workloads", "*", "schedule", "deploy_lock"}, enum(eScheduleDeployLock)},
 
 	{[]string{"services", "*", "driver"}, pattern(gIdent)},
 	{[]string{"services", "*", "persistence", "mode"}, enum(ePersistence)},

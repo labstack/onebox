@@ -107,6 +107,40 @@ func TestRetentionProtectsCurrentChainAndCheckpointReferences(t *testing.T) {
 	}
 }
 
+func TestRetentionProtectsReleaseLeasedByScheduledJob(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	leasedID := "20260101-000000-leased"
+	currentID := "20260102-000000-current"
+	target := &transport.Fake{}
+	writeRetentionManifest(t, target, names, retentionManifest(t, leasedID, KindApplication, StateSuperseded, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, currentID, KindApplication, StateServing, "", old))
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: leasedID + "\n" + currentID + "\n"}, true
+		case strings.Contains(command, ".ob-schedule.lease"):
+			return transport.Result{Stdout: leasedID + "\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names,
+		DefaultRetentionPolicy(1, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(decision.Victims, leasedID) || !slices.Contains(decision.Preserve, leasedID) {
+		t.Fatalf("leased release was not protected: %+v", decision)
+	}
+}
+
 func TestRetentionUsesSeparateAgeAndEvidenceRules(t *testing.T) {
 	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
 	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)

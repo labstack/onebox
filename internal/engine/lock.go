@@ -74,11 +74,12 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 			return 0, errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
 		}
 		if useScheduleLock {
-			// A scheduled job holds this kernel lock for its whole container run.
-			// Take it around the atomic application-lock creation so neither side
-			// can pass its check before the other publishes ownership. Keep doing
-			// this after the last schedule is removed: an old unit may already be
-			// running while that removal deploy begins.
+			// An exclusive scheduled job holds this kernel lock for its whole run;
+			// a pinned job holds it only until its immutable release lease exists.
+			// Take it around atomic application-lock creation so neither side can
+			// pass its check before the other publishes ownership. Keep doing this
+			// after the last schedule is removed: an old unit may already be
+			// starting while that removal deploy begins.
 			create = "/usr/bin/flock --exclusive --nonblock --conflict-exit-code 76 " +
 				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
 		}

@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A schedule that silently never fires looks exactly like one that works,
 // until someone needs what it was supposed to produce. Each of these is a form
@@ -79,8 +82,37 @@ workloads:
 		t.Fatalf("only scheduled jobs belong here: %#v", jobs)
 	}
 	if jobs[0].Timezone != "Europe/Berlin" || jobs[0].Calendar != "*-*-* 03:00:00" ||
-		jobs[0].Timeout != "1h" || !jobs[0].CatchUp {
+		jobs[0].Timeout != "1h" || !jobs[0].CatchUp || jobs[0].DeployLock != "exclusive" {
 		t.Fatalf("schedule lost its meaning: %#v", jobs[0])
+	}
+}
+
+func TestPinnedScheduleEligibilityFailsClosed(t *testing.T) {
+	valid := `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  refresh: {role: job, image: x:1, data_effect: none, schedule: {cron: "0 3 * * *", deploy_lock: pinned}}
+`
+	spec, err := LoadBytes([]byte(valid), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := spec.ScheduledJobs()
+	if err != nil || len(jobs) != 1 || jobs[0].DeployLock != "pinned" {
+		t.Fatalf("pinned policy was not preserved: jobs=%#v err=%v", jobs, err)
+	}
+
+	for name, project := range map[string]string{
+		"migration":       strings.Replace(valid, "data_effect: none", "data_effect: migration", 1),
+		"adopted compose": strings.Replace(valid, "image: x:1", "compose: docker-compose.yml#refresh", 1),
+		"unknown policy":  strings.Replace(valid, "deploy_lock: pinned", "deploy_lock: shared", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadBytes([]byte(project), "ob.yml"); err == nil {
+				t.Fatal("ineligible pinned schedule was accepted")
+			}
+		})
 	}
 }
 

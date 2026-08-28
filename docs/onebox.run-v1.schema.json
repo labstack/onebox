@@ -2499,6 +2499,18 @@
                 "pattern": "^[-0-9*/,A-Za-z ]+$",
                 "type": "string"
               },
+              "deploy_lock": {
+                "default": "exclusive",
+                "description": "Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits deployments.",
+                "enum": [
+                  "exclusive",
+                  "pinned"
+                ],
+                "examples": [
+                  "pinned"
+                ],
+                "type": "string"
+              },
               "timeout": {
                 "default": "1h",
                 "description": "Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",

@@ -24,11 +24,12 @@ import (
 
 // ScheduledJob is a job workload that runs on a schedule.
 type ScheduledJob struct {
-	Name     string
-	Cron     string
-	Timezone string
-	Timeout  string
-	CatchUp  bool
+	Name       string
+	Cron       string
+	Timezone   string
+	Timeout    string
+	CatchUp    bool
+	DeployLock string
 	// Calendar is the host-side expression the cron translates to.
 	Calendar string
 }
@@ -50,9 +51,13 @@ func (p *Spec) ScheduledJobs() ([]ScheduledJob, error) {
 		if tz == "" {
 			tz = "UTC"
 		}
+		deployLock := w.Schedule.DeployLock
+		if deployLock == "" {
+			deployLock = "exclusive"
+		}
 		out = append(out, ScheduledJob{
 			Name: name, Cron: w.Schedule.Cron, Timezone: tz, Calendar: cal,
-			Timeout: w.Schedule.Timeout, CatchUp: w.Schedule.CatchUp,
+			Timeout: w.Schedule.Timeout, CatchUp: w.Schedule.CatchUp, DeployLock: deployLock,
 		})
 	}
 	return out, nil

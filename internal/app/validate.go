@@ -443,6 +443,17 @@ func validateWorkload(w Workload, path string) error {
 		if err := validateJobSchedule(w.Schedule, path+".schedule"); err != nil {
 			return err
 		}
+		if w.Schedule != nil && w.Schedule.DeployLock == "pinned" {
+			if w.DataEffect != DataEffectNone {
+				return errf("project_invalid", path+".schedule.deploy_lock", "",
+					"pinned scheduled runs require data_effect %q; %q jobs remain exclusive because a deployment may change data they are using",
+					DataEffectNone, w.DataEffect)
+			}
+			if w.Compose != "" {
+				return errf("project_invalid", path+".schedule.deploy_lock", "",
+					"pinned scheduled runs require a Onebox-rendered workload; adopted Compose may reference files outside the leased release")
+			}
+		}
 	} else if w.When != "" || w.DataEffect != "" || w.Schedule != nil {
 		return errf("project_invalid", path, "",
 			"when, data_effect and schedule belong to a job; this workload's role is %q", w.Role)
@@ -535,7 +546,10 @@ func validateJobSchedule(s *JobSchedule, path string) error {
 	if err := validateScheduleFields(s.Cron, s.Timezone, path); err != nil {
 		return err
 	}
-	return gDur.check(path+".timeout", s.Timeout)
+	if err := gDur.check(path+".timeout", s.Timeout); err != nil {
+		return err
+	}
+	return checkEnum(path+".deploy_lock", s.DeployLock, eScheduleDeployLock)
 }
 
 func validateSchedule(s *Schedule, path string) error {

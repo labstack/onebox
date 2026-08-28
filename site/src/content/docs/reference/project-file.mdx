@@ -131,10 +131,12 @@ backs up nor removes it; provision and protect that path separately. For data
 Onebox should own, prefer a managed named volume instead.
 
 **The proxy** — if anything is routed, Onebox runs Traefik and writes its static
-configuration. Declare `proxy.config` to own that configuration instead. The
-external `proxy.network` may be changed, but `default` is reserved for the
-application's own Compose network. The derived `<app>_default` and `ob_<app>`
-names are reserved too; routed projects must use a distinct ingress network.
+configuration. Declare `proxy.config` with dynamic YAML or TOML files to extend
+that managed configuration. Include `traefik.yml` or `traefik.yaml` in the same
+directory only when you need to own the static configuration too. The external
+`proxy.network` may be changed, but `default` is reserved for the application's
+own Compose network. The derived `<app>_default` and `ob_<app>` names are
+reserved too; routed projects must use a distinct ingress network.
 
 Managed Traefik runs as a non-root user and never receives the Docker socket.
 An isolated Onebox discovery controller observes only this application's
@@ -149,18 +151,26 @@ application mutation. Updating the Onebox runner therefore upgrades the default
 proxy boundary automatically; an operator does not need to edit the project or
 run a separate migration command.
 
-Custom `proxy.config` keeps this boundary. Its static file must not enable
-`providers.docker` and must configure
-`providers.file.directory: /etc/traefik/dynamic`. Watching must remain enabled,
-and `providers.file.filename` cannot be combined with that directory. Other
-YAML and TOML files in the flat configuration directory are staged into the
-watched directory. The filenames `onebox.yml` and `onebox.yaml`, plus HTTP and
-TCP router or service names beginning with the derived `<app>_` prefix, are
-reserved for generated discovery output. A proxy `.env` may carry ordinary DNS
-provider credentials, but not `TRAEFIK_PROVIDERS_*` or `TRAEFIK_CONFIGFILE`
-static overrides. `ob deploy`, `ob bootstrap`, and `ob proxy apply` refuse an
-incompatible custom configuration with migration guidance rather than silently
-starting a proxy with missing or stale routes.
+`proxy.config` keeps this boundary and has two levels. With dynamic YAML or TOML
+alone, Onebox continues to write the static configuration and stages those files
+into its watched directory. This is the normal way to add middleware, TLS
+options, transports, or other routing policy without duplicating the managed
+entrypoints, health check, provider, and ACME configuration.
+
+If the directory includes `traefik.yml` or `traefik.yaml`, that file becomes the
+project-owned static configuration. It must not enable `providers.docker` and
+must configure `providers.file.directory: /etc/traefik/dynamic`. Watching must
+remain enabled, and `providers.file.filename` cannot be combined with that
+directory. A proxy `.env` is accepted only in this mode; it may carry ordinary
+DNS-provider credentials, but not `TRAEFIK_PROVIDERS_*` or
+`TRAEFIK_CONFIGFILE` static overrides.
+
+In both modes, the filenames `onebox.yml` and `onebox.yaml`, the `dynamic/`
+mountpoint, and HTTP or TCP router or service names beginning with the derived
+`<app>_` prefix are reserved for generated discovery output. `ob deploy`,
+`ob bootstrap`, and `ob proxy apply` refuse an incompatible configuration with
+migration guidance rather than silently starting a proxy with missing or stale
+routes.
 
 ### Additional proxy entrypoints
 
@@ -192,10 +202,11 @@ remote clients; workloads on the same host can communicate over Onebox's
 internal networks without opening another host port. The route's `port` is the
 workload's listening port, while `entrypoint` selects the proxy listener.
 
-When Onebox writes the static proxy configuration, it also writes these named
-entrypoints. If `proxy.config` supplies your own static configuration, Onebox
-still publishes the ports, but that configuration must define matching
-entrypoint names and addresses.
+When Onebox writes the static proxy configuration, including when
+`proxy.config` contains only dynamic extensions, it also writes these named
+entrypoints. If `proxy.config` supplies your own `traefik.yml` or
+`traefik.yaml`, Onebox still publishes the ports, but that configuration must
+define matching entrypoint names and addresses.
 
 ### Route middleware
 
@@ -218,14 +229,15 @@ workloads:
 ```
 
 The definitions belong to the provider named by the suffix. For example,
-`admin-auth@file` names `http.middlewares.admin-auth` in the dynamic Traefik
-configuration supplied through `proxy.config`; that configuration must enable
-the `/etc/traefik/dynamic` file-provider directory. A Onebox-managed proxy therefore requires `proxy.config`
-when a route names middleware. With `proxy.managed: false`, the operator-owned
-proxy provides the referenced resources instead. Onebox preserves list order
-when it attaches the chain to the generated router. HTTP and TCP routes both
-support middleware references; the referenced middleware must match the
-route's protocol.
+`admin-auth@file` names `http.middlewares.admin-auth` in a dynamic Traefik file
+under `proxy.config`. Onebox supplies the watched file provider when the
+directory contains only dynamic extensions; the project must supply it when the
+directory also contains custom static configuration. A Onebox-managed proxy
+therefore requires `proxy.config` when a route names middleware. With
+`proxy.managed: false`, the operator-owned proxy provides the referenced
+resources instead. Onebox preserves list order when it attaches the chain to
+the generated router. HTTP and TCP routes both support middleware references;
+the referenced middleware must match the route's protocol.
 
 :::caution[Compose is an output, not an input]
 A Compose file you wrote cannot be the contract — the declaration is, and Onebox

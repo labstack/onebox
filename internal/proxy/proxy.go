@@ -3,11 +3,11 @@
 // host, shared by every ob app on it, living under /var/lib/ob/_host/ —
 // a name no app can take (app names match ^[a-z][a-z0-9-]*$).
 //
-// The app supplies the Traefik configuration as a flat dir (proxy.config):
-// traefik.yml or traefik.yaml required (static config; must declare ping: {} —
-// the container healthcheck gates on it — and ACME storage at
-// /letsencrypt/acme.json);
-// dynamic.yml and .env optional. ob renders the compose around it.
+// The app may supply Traefik configuration as a flat dir (proxy.config).
+// Dynamic YAML or TOML extends the configuration Onebox writes. Supplying
+// traefik.yml or traefik.yaml instead takes ownership of the static
+// configuration while Onebox retains the socketless discovery boundary. A
+// proxy .env is meaningful only with that custom static configuration.
 package proxy
 
 import (
@@ -20,6 +20,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -245,13 +246,14 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 // configuration before their first deploy contradicts that, and the file they
 // would write is the same one every time: watch the sanitized file-provider
 // directory, answer the health check, and put ACME where the volume is. A
-// project that needs something else still declares `proxy.config`; it owns the
-// static configuration while Onebox retains the socketless discovery boundary.
+// project that needs something else can add dynamic files through
+// `proxy.config`, or include traefik.yml/traefik.yaml there to own the static
+// configuration while Onebox retains the socketless discovery boundary.
 //
 // The certificate resolver is defined but no email is set, so it is inert
 // until a terminating route asks for the private managed resolver identity.
-const defaultStaticConfigHeader = `# Written by Onebox because the project declared no proxy.config.
-# Declare one to take ownership of Traefik's static configuration.
+const defaultStaticConfigHeader = `# Written by Onebox because the project declared no custom static proxy configuration.
+# Add dynamic files through proxy.config, or include traefik.yml/traefik.yaml to own this file.
 ping: {}
 providers:
   file:
@@ -276,6 +278,19 @@ const defaultStaticConfigFooter = `certificatesResolvers:
 `
 
 const DefaultStaticConfig = defaultStaticConfigHeader + defaultStaticConfigFooter
+
+// proxyStagingLayoutIdentity makes required non-file artifacts part of the
+// applied proxy identity. Bump it whenever a deploy must reconcile a changed
+// directory layout even if every authored file and rendered Compose byte stays
+// the same. v2 adds config/dynamic: Docker cannot create that nested mountpoint
+// below the read-only /etc/traefik parent mount.
+const proxyStagingLayoutIdentity = "onebox-proxy-layout:v2\x00config/dynamic:directory\x00"
+
+func newProxyConfigHash() hash.Hash {
+	h := sha256.New()
+	_, _ = h.Write([]byte(proxyStagingLayoutIdentity))
+	return h
+}
 
 func renderStaticConfig(entrypoints map[string]app.ProxyEntrypoint) []byte {
 	var out strings.Builder
@@ -305,54 +320,92 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 	names := make([]string, 0, len(entries))
 	staticConfigs := make([]string, 0, 2)
 	hasEnv := false
+	hasDynamic := false
 	for _, e := range entries {
 		if e.IsDir() {
 			return "", fmt.Errorf("proxy.config must be a flat dir of config files; %s/ is a directory", e.Name())
+		}
+		if e.Name() == "dynamic" {
+			return "", fmt.Errorf("proxy.config reserves dynamic/ as the generated file-provider mountpoint; rename %s", e.Name())
 		}
 		names = append(names, e.Name())
 		if e.Name() == "onebox.yml" || e.Name() == "onebox.yaml" {
 			return "", fmt.Errorf("proxy.config reserves onebox.yml and onebox.yaml for generated socketless discovery output; rename that file")
 		}
+		if e.Name() == "traefik.toml" {
+			return "", fmt.Errorf("proxy.config does not support traefik.toml as static configuration; use traefik.yml or traefik.yaml, or rename it as a dynamic extension")
+		}
 		if e.Name() == "traefik.yml" || e.Name() == "traefik.yaml" {
 			staticConfigs = append(staticConfigs, e.Name())
+		} else if dynamicConfigExtension(e.Name()) {
+			hasDynamic = true
 		}
 		if e.Name() == ".env" {
 			hasEnv = true
 		}
 	}
-	if len(staticConfigs) == 0 {
-		return "", fmt.Errorf("proxy.config: %s contains neither traefik.yml nor traefik.yaml. "+
-			"Remove proxy.config to use the configuration Onebox writes, or add one of those files to own it",
-			localCfgDir)
-	}
 	if len(staticConfigs) > 1 {
 		return "", fmt.Errorf("proxy.config: %s contains both traefik.yml and traefik.yaml; keep exactly one static configuration file",
 			localCfgDir)
 	}
+	customStatic := len(staticConfigs) == 1
+	if !customStatic && !hasDynamic {
+		return "", fmt.Errorf("proxy.config: %s contains no dynamic .yml, .yaml, or .toml files; "+
+			"remove proxy.config to use only Onebox's managed configuration, or add a dynamic extension",
+			localCfgDir)
+	}
+	if !customStatic && hasEnv {
+		return "", fmt.Errorf("proxy.config .env requires traefik.yml or traefik.yaml; " +
+			"Onebox's managed static configuration does not consume custom proxy environment variables")
+	}
+
+	staticName := "traefik.yml"
+	staticBody := renderStaticConfig(entrypoints)
+	if customStatic {
+		staticName = staticConfigs[0]
+		var err error
+		staticBody, err = os.ReadFile(filepath.Join(localCfgDir, staticName))
+		if err != nil {
+			return "", err
+		}
+		if err := validateSocketlessStaticConfig(staticBody, requireCertificateResolver); err != nil {
+			return "", fmt.Errorf("proxy.config %s: %w", staticName, err)
+		}
+	} else {
+		// Hash and stage the effective configuration, not merely the authored
+		// extension. This keeps drift detection sensitive to Onebox default and
+		// entrypoint changes while the user owns only dynamic policy.
+		names = append(names, staticName)
+	}
 	sort.Strings(names)
-	staticBody, err := os.ReadFile(filepath.Join(localCfgDir, staticConfigs[0]))
-	if err != nil {
-		return "", err
-	}
-	if err := validateSocketlessStaticConfig(staticBody, requireCertificateResolver); err != nil {
-		return "", fmt.Errorf("proxy.config %s: %w", staticConfigs[0], err)
-	}
 
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
+		return "", err
+	}
+	// Docker cannot create a nested bind-mount target below the read-only
+	// /etc/traefik mount. The parent source must therefore carry the empty
+	// mountpoint before Compose creates the proxy container.
+	if err := os.MkdirAll(filepath.Join(cfgOut, "dynamic"), 0o755); err != nil {
 		return "", err
 	}
 	dynamicOut := filepath.Join(stagingDir, "dynamic")
 	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
 		return "", err
 	}
-	h := sha256.New()
+	h := newProxyConfigHash()
 	for _, name := range names {
-		b, err := os.ReadFile(filepath.Join(localCfgDir, name))
-		if err != nil {
-			return "", err
+		var b []byte
+		if !customStatic && name == staticName {
+			b = staticBody
+		} else {
+			var err error
+			b, err = os.ReadFile(filepath.Join(localCfgDir, name))
+			if err != nil {
+				return "", err
+			}
 		}
-		if name != staticConfigs[0] && dynamicConfigExtension(name) {
+		if name != staticName && dynamicConfigExtension(name) {
 			if err := validateDynamicOwnership(name, b, application); err != nil {
 				return "", fmt.Errorf("proxy.config %s: %w", name, err)
 			}
@@ -367,7 +420,7 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 		if err := os.WriteFile(filepath.Join(cfgOut, name), b, 0o600); err != nil {
 			return "", err
 		}
-		if name != staticConfigs[0] && dynamicConfigExtension(name) {
+		if name != staticName && dynamicConfigExtension(name) {
 			if err := os.WriteFile(filepath.Join(dynamicOut, name), b, 0o600); err != nil {
 				return "", err
 			}
@@ -391,6 +444,9 @@ func stageDefault(stagingDir, image, discoveryImage, application, network string
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
 		return "", err
 	}
+	if err := os.MkdirAll(filepath.Join(cfgOut, "dynamic"), 0o755); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Join(stagingDir, "dynamic"), 0o755); err != nil {
 		return "", err
 	}
@@ -398,7 +454,7 @@ func stageDefault(stagingDir, image, discoveryImage, application, network string
 	if err := os.WriteFile(filepath.Join(cfgOut, "traefik.yml"), body, 0o600); err != nil {
 		return "", err
 	}
-	h := sha256.New()
+	h := newProxyConfigHash()
 	fmt.Fprintf(h, "%s\x00%d\x00", "traefik.yml", len(body))
 	h.Write(body)
 
@@ -427,7 +483,7 @@ func dynamicConfigExtension(name string) bool {
 type CertificateResolverMissingError struct{ Name string }
 
 func (e *CertificateResolverMissingError) Error() string {
-	return fmt.Sprintf("terminating TLS routes require certificatesResolvers.%s in the static configuration; define it or remove proxy.config to use Onebox's managed ACME configuration", e.Name)
+	return fmt.Sprintf("terminating TLS routes require certificatesResolvers.%s in the custom static configuration; define it or remove traefik.yml/traefik.yaml to use Onebox's managed ACME configuration", e.Name)
 }
 
 func validateSocketlessStaticConfig(body []byte, requireCertificateResolver bool) error {

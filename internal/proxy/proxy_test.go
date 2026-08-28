@@ -4,9 +4,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -188,6 +190,9 @@ func TestStage(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(staging, "dynamic", "dynamic.yml")); err != nil {
 		t.Fatalf("custom dynamic provider file was not staged for the socketless directory: %v", err)
 	}
+	if info, err := os.Stat(filepath.Join(staging, "config", "dynamic")); err != nil || !info.IsDir() {
+		t.Fatalf("nested dynamic mountpoint was not staged below the read-only config mount: %v", err)
+	}
 
 	// determinism + sensitivity
 	staging2 := t.TempDir()
@@ -207,6 +212,40 @@ func TestStage(t *testing.T) {
 	}
 	if hash3 == hash {
 		t.Fatal("hash must change when config content changes")
+	}
+}
+
+func TestStageCustomStaticHashMigratesRequiredMountpoint(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{"traefik.yml": testSocketlessStatic})
+	got, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reproduce the pre-layout-marker identity. The required empty directory
+	// has no file bytes, so without an explicit marker an already-applied custom
+	// configuration would remain a no-op and never receive config/dynamic.
+	legacy := sha256.New()
+	fmt.Fprintf(legacy, "%s\x00%d\x00", "traefik.yml", len(testSocketlessStatic))
+	_, _ = legacy.Write([]byte(testSocketlessStatic))
+	compose := RenderCompose("", "", false, nil)
+	fmt.Fprintf(legacy, "compose.yaml\x00%d\x00", len(compose))
+	_, _ = legacy.Write(compose)
+	if got == hex.EncodeToString(legacy.Sum(nil)) {
+		t.Fatal("the required config/dynamic mountpoint must migrate the applied proxy identity")
+	}
+}
+
+func TestStageDefaultCreatesNestedDynamicMountpoint(t *testing.T) {
+	staging := t.TempDir()
+	if _, err := Stage("", staging, "", "", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{"config/dynamic", "dynamic"} {
+		info, err := os.Stat(filepath.Join(staging, directory))
+		if err != nil || !info.IsDir() {
+			t.Fatalf("staged directory %s: %v", directory, err)
+		}
 	}
 }
 
@@ -234,11 +273,52 @@ func TestStageCustomConfigPublishesEntrypointsWithoutRewritingIt(t *testing.T) {
 	}
 }
 
-func TestStageRequiresTraefikConfig(t *testing.T) {
-	cfgDir := writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"})
-	if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil ||
-		!strings.Contains(err.Error(), "traefik.yml") || !strings.Contains(err.Error(), "traefik.yaml") {
-		t.Fatalf("want both supported static config names in the contract error, got %v", err)
+func TestStageDynamicExtensionUsesManagedStaticConfig(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{
+		"dynamic.yml": "http:\n  middlewares:\n    compress:\n      compress: {}\n",
+	})
+	entrypoints := map[string]app.ProxyEntrypoint{"otlp-grpc": {Port: 4317}}
+	staging := t.TempDir()
+	hash, err := Stage(cfgDir, staging, "", "", entrypoints, true)
+	if err != nil {
+		t.Fatalf("dynamic-only proxy.config must extend the managed configuration: %v", err)
+	}
+	static, err := os.ReadFile(filepath.Join(staging, "config", "traefik.yml"))
+	if err != nil {
+		t.Fatalf("managed static configuration was not staged: %v", err)
+	}
+	for _, want := range []string{
+		"# Written by Onebox",
+		"directory: /etc/traefik/dynamic",
+		"certificatesResolvers:",
+		"otlp-grpc:\n    address: \":4317\"",
+	} {
+		if !strings.Contains(string(static), want) {
+			t.Errorf("managed static configuration is missing %q:\n%s", want, static)
+		}
+	}
+	dynamic, err := os.ReadFile(filepath.Join(staging, "dynamic", "dynamic.yml"))
+	if err != nil || !strings.Contains(string(dynamic), "compress:") {
+		t.Fatalf("dynamic extension was not staged into the watched directory: %v\n%s", err, dynamic)
+	}
+
+	changedHash, err := Stage(cfgDir, t.TempDir(), "", "", map[string]app.ProxyEntrypoint{"otlp-http": {Port: 4318}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedHash == hash {
+		t.Fatal("managed static changes must alter the identity of a dynamic-only configuration")
+	}
+}
+
+func TestStageDynamicExtensionRejectsEnvWithoutCustomStatic(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{
+		"dynamic.yml": "http: {}\n",
+		".env":        "CF_DNS_API_TOKEN=unused\n",
+	})
+	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
+	if err == nil || !strings.Contains(err.Error(), ".env requires traefik.yml or traefik.yaml") {
+		t.Fatalf("an environment file without custom static configuration must be refused: %v", err)
 	}
 }
 
@@ -250,6 +330,14 @@ func TestStageAcceptsTraefikYAML(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(staging, "config", "traefik.yaml")); err != nil {
 		t.Fatalf("traefik.yaml was not staged: %v", err)
+	}
+}
+
+func TestStageRejectsAmbiguousTraefikTOML(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{"traefik.toml": "[http.middlewares.compress.compress]\n"})
+	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
+	if err == nil || !strings.Contains(err.Error(), "does not support traefik.toml as static configuration") {
+		t.Fatalf("Traefik's third native static filename must not be mistaken for a dynamic extension: %v", err)
 	}
 }
 
@@ -330,10 +418,7 @@ func TestStageRejectsGeneratedDynamicNameCollisions(t *testing.T) {
 			if strings.HasPrefix(name, "toml") {
 				ext = ".toml"
 			}
-			cfgDir := writeCfg(t, map[string]string{
-				"traefik.yml":   testSocketlessStatic,
-				"dynamic" + ext: dynamic,
-			})
+			cfgDir := writeCfg(t, map[string]string{"dynamic" + ext: dynamic})
 			_, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil, false)
 			if err == nil || !strings.Contains(err.Error(), "Onebox-reserved prefix") {
 				t.Fatalf("generated-name collision must be refused: %v", err)
@@ -344,7 +429,6 @@ func TestStageRejectsGeneratedDynamicNameCollisions(t *testing.T) {
 
 func TestStageAllowsUnrelatedCustomDynamicObjects(t *testing.T) {
 	cfgDir := writeCfg(t, map[string]string{
-		"traefik.yml": testSocketlessStatic,
 		"dynamic.yml": "http:\n  routers:\n    external_status:\n      rule: Host(`status.example.com`)\n",
 	})
 	if _, err := StageForApp(cfgDir, t.TempDir(), "", "", "onebox", "", nil, false); err != nil {
@@ -360,6 +444,17 @@ func TestStageReservesGeneratedDiscoveryFilename(t *testing.T) {
 	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
 	if err == nil || !strings.Contains(err.Error(), "reserves onebox.yml") {
 		t.Fatalf("generated discovery filename collision = %v", err)
+	}
+}
+
+func TestStageReservesGeneratedDynamicMountpoint(t *testing.T) {
+	cfgDir := writeCfg(t, map[string]string{
+		"traefik.yml": testSocketlessStatic,
+		"dynamic":     "not a directory\n",
+	})
+	_, err := Stage(cfgDir, t.TempDir(), "", "", nil, false)
+	if err == nil || !strings.Contains(err.Error(), "reserves dynamic/") {
+		t.Fatalf("generated dynamic mountpoint collision = %v", err)
 	}
 }
 
@@ -476,18 +571,19 @@ func TestDeclaredEntrypointsChangeProxyIdentity(t *testing.T) {
 	}
 }
 
-// A declared directory still owns the configuration entirely, and one missing
-// either supported static file says what to do about it.
-func TestDeclaredConfigStillOwnsItAndSaysWhatIsMissing(t *testing.T) {
+// A declared directory must contribute meaningful dynamic or static
+// configuration. Silently accepting an unrelated file would make the author
+// believe an extension was active while Traefik never read it.
+func TestDeclaredConfigWithoutTraefikFilesSaysWhatToDo(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "other.yml"), []byte("x: 1\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "README.txt"), []byte("notes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress", nil, false)
 	if err == nil {
-		t.Fatal("a declared config directory without traefik.yml or traefik.yaml must be refused")
+		t.Fatal("a declared config directory without dynamic or static Traefik files must be refused")
 	}
-	if !strings.Contains(err.Error(), "Remove proxy.config") {
+	if !strings.Contains(err.Error(), "remove proxy.config") || !strings.Contains(err.Error(), "dynamic extension") {
 		t.Errorf("the refusal must say how to resolve it: %v", err)
 	}
 }

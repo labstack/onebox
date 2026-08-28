@@ -247,6 +247,30 @@ func TestStageDefaultCreatesNestedDynamicMountpoint(t *testing.T) {
 			t.Fatalf("staged directory %s: %v", directory, err)
 		}
 	}
+	static, err := os.ReadFile(filepath.Join(staging, "config", "traefik.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staticDocument map[string]any
+	if err := yaml.Unmarshal(static, &staticDocument); err != nil {
+		t.Fatalf("managed static configuration is not valid YAML: %v\n%s", err, static)
+	}
+	if !strings.Contains(string(static), managedCompressionMiddleware+"@file") {
+		t.Fatalf("managed static configuration does not attach compression:\n%s", static)
+	}
+	managed, err := os.ReadFile(filepath.Join(staging, "dynamic", managedDynamicConfigName))
+	if err != nil {
+		t.Fatalf("managed dynamic defaults were not staged: %v", err)
+	}
+	var managedDocument map[string]any
+	if err := yaml.Unmarshal(managed, &managedDocument); err != nil {
+		t.Fatalf("managed dynamic defaults are not valid YAML: %v\n%s", err, managed)
+	}
+	for _, want := range []string{managedCompressionMiddleware + ":", "compress:", "text/event-stream"} {
+		if !strings.Contains(string(managed), want) {
+			t.Errorf("managed dynamic defaults are missing %q:\n%s", want, managed)
+		}
+	}
 }
 
 func TestStageCustomConfigPublishesEntrypointsWithoutRewritingIt(t *testing.T) {
@@ -270,6 +294,9 @@ func TestStageCustomConfigPublishesEntrypointsWithoutRewritingIt(t *testing.T) {
 	}
 	if string(static) != staticBody {
 		t.Fatalf("custom static configuration was rewritten:\n%s", static)
+	}
+	if _, err := os.Stat(filepath.Join(staging, "dynamic", managedDynamicConfigName)); !os.IsNotExist(err) {
+		t.Fatalf("custom static configuration must not receive managed middleware, got %v", err)
 	}
 }
 
@@ -301,6 +328,9 @@ func TestStageDynamicExtensionUsesManagedStaticConfig(t *testing.T) {
 	if err != nil || !strings.Contains(string(dynamic), "compress:") {
 		t.Fatalf("dynamic extension was not staged into the watched directory: %v\n%s", err, dynamic)
 	}
+	if _, err := os.Stat(filepath.Join(staging, "dynamic", managedDynamicConfigName)); err != nil {
+		t.Fatalf("managed defaults must be staged beside dynamic extensions: %v", err)
+	}
 
 	changedHash, err := Stage(cfgDir, t.TempDir(), "", "", map[string]app.ProxyEntrypoint{"otlp-http": {Port: 4318}}, true)
 	if err != nil {
@@ -308,6 +338,34 @@ func TestStageDynamicExtensionUsesManagedStaticConfig(t *testing.T) {
 	}
 	if changedHash == hash {
 		t.Fatal("managed static changes must alter the identity of a dynamic-only configuration")
+	}
+}
+
+func TestStageDynamicExtensionRejectsManagedDefaultCollisions(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{
+			name:  "reserved filename",
+			files: map[string]string{managedDynamicConfigName: "http: {}\n"},
+			want:  managedDynamicConfigName,
+		},
+		{
+			name: "reserved middleware",
+			files: map[string]string{
+				"extension.yml": "http:\n  middlewares:\n    " + managedCompressionMiddleware + ":\n      compress: {}\n",
+			},
+			want: managedCompressionMiddleware,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Stage(writeCfg(t, tc.files), t.TempDir(), "", "", nil, false)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("managed default collision must be rejected with %q, got %v", tc.want, err)
+			}
+		})
 	}
 }
 

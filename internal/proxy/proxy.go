@@ -252,6 +252,9 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 //
 // The certificate resolver is defined but no email is set, so it is inert
 // until a terminating route asks for the private managed resolver identity.
+const managedDynamicConfigName = "onebox-managed.yml"
+const managedCompressionMiddleware = "onebox-compress"
+
 const defaultStaticConfigHeader = `# Written by Onebox because the project declared no custom static proxy configuration.
 # Add dynamic files through proxy.config, or include traefik.yml/traefik.yaml to own this file.
 ping: {}
@@ -267,6 +270,9 @@ entryPoints:
         entryPoint: {to: websecure, scheme: https}
   websecure:
     address: ":443"
+    http:
+      middlewares:
+        - ` + managedCompressionMiddleware + `@file
 `
 
 const defaultStaticConfigFooter = `certificatesResolvers:
@@ -278,6 +284,15 @@ const defaultStaticConfigFooter = `certificatesResolvers:
 `
 
 const DefaultStaticConfig = defaultStaticConfigHeader + defaultStaticConfigFooter
+
+const defaultManagedDynamicConfig = `# Written by Onebox. Application extensions are staged beside this file.
+http:
+  middlewares:
+    ` + managedCompressionMiddleware + `:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+`
 
 // proxyStagingLayoutIdentity makes required non-file artifacts part of the
 // applied proxy identity. Bump it whenever a deploy must reconcile a changed
@@ -331,6 +346,9 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 		names = append(names, e.Name())
 		if e.Name() == "onebox.yml" || e.Name() == "onebox.yaml" {
 			return "", fmt.Errorf("proxy.config reserves onebox.yml and onebox.yaml for generated socketless discovery output; rename that file")
+		}
+		if e.Name() == managedDynamicConfigName {
+			return "", fmt.Errorf("proxy.config reserves %s for Onebox-managed proxy defaults; rename that file", managedDynamicConfigName)
 		}
 		if e.Name() == "traefik.toml" {
 			return "", fmt.Errorf("proxy.config does not support traefik.toml as static configuration; use traefik.yml or traefik.yaml, or rename it as a dynamic extension")
@@ -428,6 +446,11 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 		fmt.Fprintf(h, "%s\x00%d\x00", name, len(b))
 		h.Write(b)
 	}
+	if !customStatic {
+		if err := stageManagedDynamicConfig(dynamicOut, h); err != nil {
+			return "", err
+		}
+	}
 	compose := RenderComposeForApp(image, discoveryImage, application, network, hasEnv, entrypoints)
 	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
 		return "", err
@@ -447,7 +470,8 @@ func stageDefault(stagingDir, image, discoveryImage, application, network string
 	if err := os.MkdirAll(filepath.Join(cfgOut, "dynamic"), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Join(stagingDir, "dynamic"), 0o755); err != nil {
+	dynamicOut := filepath.Join(stagingDir, "dynamic")
+	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
 		return "", err
 	}
 	body := renderStaticConfig(entrypoints)
@@ -457,6 +481,9 @@ func stageDefault(stagingDir, image, discoveryImage, application, network string
 	h := newProxyConfigHash()
 	fmt.Fprintf(h, "%s\x00%d\x00", "traefik.yml", len(body))
 	h.Write(body)
+	if err := stageManagedDynamicConfig(dynamicOut, h); err != nil {
+		return "", err
+	}
 
 	compose := RenderComposeForApp(image, discoveryImage, application, network, false, entrypoints)
 	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
@@ -464,6 +491,16 @@ func stageDefault(stagingDir, image, discoveryImage, application, network string
 	}
 	h.Write(compose)
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func stageManagedDynamicConfig(dynamicOut string, h hash.Hash) error {
+	body := []byte(defaultManagedDynamicConfig)
+	if err := os.WriteFile(filepath.Join(dynamicOut, managedDynamicConfigName), body, 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(h, "%s\x00%d\x00", managedDynamicConfigName, len(body))
+	_, _ = h.Write(body)
+	return nil
 }
 
 func dynamicConfigExtension(name string) bool {
@@ -549,6 +586,12 @@ func validateDynamicOwnership(name string, body []byte, application string) erro
 				if strings.HasPrefix(object, reservedPrefix) {
 					return fmt.Errorf("%s.%s.%s uses Onebox-reserved prefix %q; rename the custom object", protocol, kind, object, reservedPrefix)
 				}
+			}
+		}
+		if protocol == "http" {
+			middlewares, _ := section["middlewares"].(map[string]any)
+			if _, exists := middlewares[managedCompressionMiddleware]; exists {
+				return fmt.Errorf("http.middlewares.%s is reserved for Onebox-managed compression; rename the custom object", managedCompressionMiddleware)
 			}
 		}
 	}

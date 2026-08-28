@@ -53,13 +53,22 @@ func (e *Engine) Status(ctx context.Context) error {
 
 	_, stop := e.ui.Busy("querying " + e.T.Host())
 	err := gather(reads...)
+	var expectedRevisions map[string]string
+	if err == nil {
+		recordedRelease := strings.TrimSpace(recorded)
+		expectedRevisions, err = e.statusWorkloadRevisions(ctx, recordedRelease, byService)
+	}
 	stop()
 	if err != nil {
 		return err
 	}
 
-	if recorded == "" {
+	recordedRelease := strings.TrimSpace(recorded)
+
+	if recordedRelease == "" {
 		recorded = "(none — never deployed)"
+	} else {
+		recorded = recordedRelease
 	}
 	fmt.Fprintf(e.Opts.Out, "app:      %s @ %s\n", e.Spec.Name, e.T.Host())
 	fmt.Fprintf(e.Opts.Out, "recorded: %s\n", recorded)
@@ -104,7 +113,7 @@ func (e *Engine) Status(ctx context.Context) error {
 				actual = "(not ob-deployed)"
 			}
 			state := e.ui.OK("in sync")
-			if actual != strings.TrimSpace(recorded) {
+			if !workloadReleaseMatches(c.release, c.revision, recordedRelease, expectedRevisions[roleName]) {
 				state = e.ui.Warn("DIVERGED ⚠")
 				diverged = true
 			}
@@ -191,6 +200,39 @@ func (e *Engine) Status(ctx context.Context) error {
 	fmt.Fprintln(e.Opts.Out)
 	e.ui.Successf("all in sync")
 	return nil
+}
+
+// statusWorkloadRevisions reads the active release's own runtime contract only
+// when an older release label could be a retained workload. The active Compose
+// is the authority: a local inspection render can contain an authored tag or an
+// unresolved build placeholder, while the deployed revision contains the image
+// digest the plan pinned.
+func (e *Engine) statusWorkloadRevisions(ctx context.Context, recorded string, byService map[string][]svcContainer) (map[string]string, error) {
+	recorded = strings.TrimSpace(recorded)
+	if recorded == "" || !e.hasRetainedReleaseCandidate(byService, recorded) {
+		return nil, nil
+	}
+	composePath := release.PathsFor(e.names()).Releases + "/" + recorded + "/compose.yaml"
+	return e.releaseWorkloadRevisions(ctx, composePath)
+}
+
+func (e *Engine) hasRetainedReleaseCandidate(byService map[string][]svcContainer, recorded string) bool {
+	for _, name := range e.Spec.ReleaseOrder() {
+		for _, container := range byService[name] {
+			if container.release != "" && container.release != recorded && container.revision != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func workloadReleaseMatches(containerRelease, containerRevision, recorded, expectedRevision string) bool {
+	recorded = strings.TrimSpace(recorded)
+	if recorded == "" || containerRelease == "" {
+		return false
+	}
+	return containerRelease == recorded || expectedRevision != "" && containerRevision == expectedRevision
 }
 
 // gather runs order-independent reads concurrently over the transport (SSH

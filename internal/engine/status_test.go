@@ -70,6 +70,32 @@ func TestStatusInSync(t *testing.T) {
 	}
 }
 
+func TestStatusAcceptsDigestPinnedRetainedWorkload(t *testing.T) {
+	f := statusFake("R2", "R2")
+	pinnedWorkerRevision := "sha256:" + strings.Repeat("c", 64)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+			return transport.Result{Stdout: "S1|web|R2||Up (healthy)\n" +
+				"W1|worker|R1|" + pinnedWorkerRevision + "|Up (healthy)\n" +
+				"PG1|postgres|R2||Up (healthy)\n"}, true
+		case strings.Contains(cmd, "/releases/R2/compose.yaml"):
+			return transport.Result{Stdout: "services:\n  worker:\n    labels:\n      ob.workload-revision: " + pinnedWorkerRevision + "\n"}, true
+		}
+		return base(cmd)
+	}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("retained workload must be in sync: %v\n%s", err, out.String())
+	}
+	if line := roleLine(out.String(), "worker"); !strings.Contains(line, "R1") || !strings.Contains(line, "in sync") {
+		t.Fatalf("retained workload row must preserve its release fact and report convergence, got %q:\n%s", line, out.String())
+	}
+}
+
 func TestStatusFlagsUndeclaredAppContainer(t *testing.T) {
 	f := statusFake("R2", "R2")
 	base := f.Dynamic

@@ -74,13 +74,20 @@ func TestStatusSnapshotAcceptsRetainedWorkloadFromEarlierRelease(t *testing.T) {
 	f := statusFake("R2", "R2")
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	webRevision := e.Compose.Services["web"].Labels[app.WorkloadRevisionLabel]
-	workerRevision := e.Compose.Services["worker"].Labels[app.WorkloadRevisionLabel]
+	localWorkerRevision := e.Compose.Services["worker"].Labels[app.WorkloadRevisionLabel]
+	pinnedWorkerRevision := "sha256:" + strings.Repeat("a", 64)
+	if localWorkerRevision == pinnedWorkerRevision {
+		t.Fatal("test requires the local inspection revision to differ from the deployed pinned revision")
+	}
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+		switch {
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
 			return transport.Result{Stdout: "S1|web|R2|" + webRevision + "|Up (healthy)\n" +
-				"W1|worker|R1|" + workerRevision + "|Up (healthy)\n" +
+				"W1|worker|R1|" + pinnedWorkerRevision + "|Up (healthy)\n" +
 				"PG1|postgres|R2||Up (healthy)\n"}, true
+		case strings.Contains(cmd, "/releases/R2/compose.yaml"):
+			return transport.Result{Stdout: "services:\n  worker:\n    labels:\n      ob.workload-revision: " + pinnedWorkerRevision + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -88,8 +95,53 @@ func TestStatusSnapshotAcceptsRetainedWorkloadFromEarlierRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Diverged || snapshot.Roles[1].Containers[0].Revision != workerRevision {
+	if snapshot.Diverged || snapshot.Roles[1].Containers[0].Revision != pinnedWorkerRevision {
 		t.Fatalf("retained workload reported as drift: %#v", snapshot.Roles[1])
+	}
+}
+
+func TestStatusSnapshotTreatsUnreadableActiveRuntimeAsPartial(t *testing.T) {
+	f := statusFake("R2", "R2")
+	pinnedWorkerRevision := "sha256:" + strings.Repeat("b", 64)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+			return transport.Result{Stdout: "S1|web|R2||Up (healthy)\n" +
+				"W1|worker|R1|" + pinnedWorkerRevision + "|Up (healthy)\n" +
+				"PG1|postgres|R2||Up (healthy)\n"}, true
+		}
+		return base(cmd)
+	}
+	f.Err = func(cmd string) error {
+		if strings.Contains(cmd, "/releases/R2/compose.yaml") {
+			return errors.New("active runtime read failed")
+		}
+		return nil
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("ordinary active-runtime failure must return partial data, got %v", err)
+	}
+	if snapshot.Complete || snapshot.Diverged {
+		t.Fatalf("unknown retained-workload state must be incomplete, not invented drift: %#v", snapshot)
+	}
+	if len(snapshot.Warnings) != 1 || snapshot.Warnings[0].Component != "current_release_runtime" || !strings.Contains(snapshot.Warnings[0].Message, "active runtime read failed") {
+		t.Fatalf("active runtime warning missing: %#v", snapshot.Warnings)
+	}
+}
+
+func TestStatusRoleKeepsDefiniteReleaseDriftWhenRetentionComparisonIsUnavailable(t *testing.T) {
+	role := testConfig().Workloads["worker"]
+	unowned := makeStatusRole("worker", role, []svcContainer{{id: "W1", health: "healthy"}}, "R2", "", true, false, true)
+	if !unowned.Diverged || !strings.Contains(strings.Join(unowned.Issues, "\n"), "not onebox-deployed") {
+		t.Fatalf("missing release ownership is definite drift: %#v", unowned)
+	}
+
+	retained := makeStatusRole("worker", role, []svcContainer{{id: "W1", release: "R1", revision: "sha256:observed", health: "healthy"}}, "R2", "", true, false, true)
+	if retained.Diverged {
+		t.Fatalf("older release cannot be classified without the active runtime revision: %#v", retained)
 	}
 }
 

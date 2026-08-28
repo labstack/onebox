@@ -246,14 +246,27 @@ func (e *Engine) StatusSnapshot(ctx context.Context) (StatusSnapshot, error) {
 
 	releaseComplete := reads[0].err == nil
 	containersComplete := reads[1].err == nil
+	revisionComparisonComplete := true
 	snapshot.RecordedRelease = recorded
+	var expectedRevisions map[string]string
+	if releaseComplete && containersComplete {
+		var err error
+		expectedRevisions, err = e.statusWorkloadRevisions(ctx, recorded, byService)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return StatusSnapshot{}, err
+			}
+			snapshot.Complete = false
+			revisionComparisonComplete = false
+			snapshot.Warnings = append(snapshot.Warnings, StatusWarning{
+				Component: "current_release_runtime",
+				Message:   err.Error(),
+			})
+		}
+	}
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
-		expectedRevision := ""
-		if service, ok := e.Compose.Services[roleName]; ok {
-			expectedRevision = service.Labels[app.WorkloadRevisionLabel]
-		}
-		status := makeStatusRole(roleName, role, byService[roleName], recorded, expectedRevision, releaseComplete, containersComplete)
+		status := makeStatusRole(roleName, role, byService[roleName], recorded, expectedRevisions[roleName], releaseComplete, revisionComparisonComplete, containersComplete)
 		snapshot.Diverged = snapshot.Diverged || status.Diverged
 		snapshot.Roles = append(snapshot.Roles, status)
 	}
@@ -307,7 +320,7 @@ func statusSnapshotContextError(ctx context.Context, reads []statusSnapshotRead)
 	return nil
 }
 
-func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded, expectedRevision string, releaseComplete, containersComplete bool) StatusRole {
+func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded, expectedRevision string, releaseComplete, revisionComparisonComplete, containersComplete bool) StatusRole {
 	status := StatusRole{
 		Name:            name,
 		Service:         name,
@@ -328,7 +341,7 @@ func makeStatusRole(name string, role app.Workload, raw []svcContainer, recorded
 				status.Issues = append(status.Issues, fmt.Sprintf("container %s is running but no release is recorded", container.ID))
 			case container.Release == "":
 				status.Issues = append(status.Issues, fmt.Sprintf("container %s is not onebox-deployed", container.ID))
-			case container.Release != strings.TrimSpace(recorded) && (expectedRevision == "" || container.Revision != expectedRevision):
+			case revisionComparisonComplete && !workloadReleaseMatches(container.Release, container.Revision, recorded, expectedRevision):
 				status.Issues = append(status.Issues, fmt.Sprintf("container %s runs release %s; recorded release is %s", container.ID, container.Release, strings.TrimSpace(recorded)))
 			}
 		}

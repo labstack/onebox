@@ -1995,7 +1995,7 @@
                 "type": "string"
               },
               "wait": {
-                "description": "Time allowed for the proxy to stop routing before shutdown begins, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "description": "Maximum drain window before shutdown continues, at most 7d. Recreate workloads continue sooner when every old container exits. Rolling workloads wait the full interval before stopping each container when their health check supports drain guarding. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                 "examples": [
                   "10s"
                 ],

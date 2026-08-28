@@ -571,14 +571,14 @@ func (e *Engine) DescribeWorkloadPlans(remoteCompose string, plans map[string]Wo
 				scale = fmt.Sprintf(" --scale %s=%d", svc, n)
 			}
 			// Gated exactly as recreate gates it — an authored `drain.wait`,
-			// nothing else. recreate signals every container and then sleeps,
-			// whatever the signal is, so excluding the default TERM here hid a
-			// kill and a pause the deploy certainly takes. A plan that shows a
-			// step execution skips, or hides one it takes, is a plan nobody can
-			// check against.
+			// nothing else. recreate signals every container and waits up to the
+			// bound for all of them to exit, whatever the signal is. Excluding the
+			// default TERM here hid a kill and a wait the deploy certainly takes.
+			// A plan that shows a step execution skips, or hides one it takes, is
+			// a plan nobody can check against.
 			if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
 				out = append(out,
-					fmt.Sprintf("  docker kill --signal=%s <current %s>; wait %s", role.DrainSignal(), svc, wait),
+					fmt.Sprintf("  docker kill --signal=%s <current %s>; wait up to %s for exit", role.DrainSignal(), svc, wait),
 				)
 			}
 			out = append(out,

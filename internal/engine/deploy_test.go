@@ -149,6 +149,10 @@ func happyFake() *transport.Fake {
 				return transport.Result{Stdout: "unhealthy\n"}, true
 			}
 			return transport.Result{Stdout: "healthy\n"}, true
+		case strings.Contains(cmd, "{{.State.Running}}") && strings.Contains(cmd, "W1"):
+			// Recreate drain observes the old worker after signalling it. The happy
+			// fixture models a worker that exits promptly and can be replaced.
+			return transport.Result{Stdout: "false\n"}, true
 		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release="):
 			if !workerGone || recreateCount > initialRecreateCount {
 				return transport.Result{Stdout: "W1\n"}, true

@@ -37,7 +37,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.drain` | object | — | Signal and timing used to remove a container from traffic before stopping it. |
 | `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.drain.signal` | string | `TERM` | Signal sent to begin graceful shutdown. Expects a signal name such as TERM or QUIT. |
-| `<name>.drain.wait` | string | — | Time allowed for the proxy to stop routing before shutdown begins, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.drain.wait` | string | — | Maximum drain window before shutdown continues, at most 7d. Recreate workloads continue sooner when every old container exits. Rolling workloads wait the full interval before stopping each container when their health check supports drain guarding. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.entrypoint` | list | — | Container entrypoint as a string or argument list. Also accepts an entrypoint or argument list. |
 | `<name>.env` | map | — | Literal container environment values. Managed-service credential variables cannot be overridden. |
 | `<name>.env_files` | list | — | Workload-specific ordered environment-file list. Replaces broader defaults when present. |

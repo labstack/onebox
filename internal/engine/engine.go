@@ -21,8 +21,10 @@ import (
 type Options struct {
 	Verbose bool
 	Out     io.Writer
-	// Sleep and Now are injectable for tests.
+	// Sleep, Wait and Now are injectable for tests. Wait is the context-aware
+	// form used by lifecycle polling; Sleep remains for fixed protocol delays.
 	Sleep func(time.Duration)
+	Wait  func(context.Context, time.Duration) error
 	Now   func() time.Time
 	// SecretGeneration returns a fresh opaque identifier for a secret
 	// transaction. It is injectable so crash-boundary tests remain deterministic.
@@ -123,6 +125,21 @@ func New(a *app.Resolved, c *ctypes.Project, t transport.Transport, o Options) *
 	}
 	if o.Sleep == nil {
 		o.Sleep = time.Sleep
+	}
+	if o.Wait == nil {
+		o.Wait = func(ctx context.Context, d time.Duration) error {
+			if d <= 0 {
+				return ctx.Err()
+			}
+			timer := time.NewTimer(d)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				return nil
+			}
+		}
 	}
 	if o.Now == nil {
 		o.Now = time.Now

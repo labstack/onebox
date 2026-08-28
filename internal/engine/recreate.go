@@ -8,7 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const recreateDrainPollInterval = 250 * time.Millisecond
 
 // RecreateRole replaces a role's containers in place: a stated brief gap, the
 // mode for workers and anything that can't roll. Honors replicas —
@@ -33,7 +36,7 @@ func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteCom
 	if err := e.pullBeforeRelease(ctx, svc, cc); err != nil {
 		return err
 	}
-	// Signal before recreate whenever the contract declares a fixed drain wait.
+	// Signal before recreate whenever the contract declares a bounded drain wait.
 	// Compose sends TERM during replacement too, but doing it only then skipped
 	// drain.wait entirely and left recreate workers at Compose's default timeout.
 	if wait := role.DrainWait(); role.Drain != nil && role.Drain.Wait != "" && wait > 0 {
@@ -53,7 +56,9 @@ func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteCom
 			}
 		}
 		if len(ids) > 0 {
-			e.Opts.Sleep(wait)
+			if err := e.waitForContainersExit(ctx, svc, ids, wait); err != nil {
+				return err
+			}
 		}
 	}
 	scaleArg := ""
@@ -90,6 +95,68 @@ func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteCom
 		}
 	}
 	return e.reslot(ctx, svc, releaseID, desired)
+}
+
+// waitForContainersExit gives the exact containers signalled above up to wait
+// to finish. It observes only runtime lifecycle state: an exited or vanished
+// container is done, while an unknown inspection failure aborts rather than
+// pretending graceful shutdown succeeded.
+func (e *Engine) waitForContainersExit(ctx context.Context, svc string, ids []string, wait time.Duration) error {
+	// Consume successful waits directly. Options.Now may deliberately be fixed for
+	// deterministic operation metadata while Wait still uses a real timer.
+	remaining := wait
+	pending := append([]string(nil), ids...)
+	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		stillRunning := pending[:0]
+		for _, id := range pending {
+			running, err := e.drainingContainerRunning(ctx, id)
+			if err != nil {
+				return fmt.Errorf("wait for %s drain: %w", svc, err)
+			}
+			if running {
+				stillRunning = append(stillRunning, id)
+			}
+		}
+		pending = stillRunning
+		if len(pending) == 0 {
+			return nil
+		}
+		if remaining <= 0 {
+			return nil
+		}
+		delay := min(remaining, recreateDrainPollInterval)
+		if err := e.Opts.Wait(ctx, delay); err != nil {
+			return err
+		}
+		remaining -= delay
+	}
+	return nil
+}
+
+func (e *Engine) drainingContainerRunning(ctx context.Context, id string) (bool, error) {
+	res, err := e.T.Run(ctx, "docker inspect -f '{{.State.Running}}' "+id)
+	if err != nil {
+		return false, err
+	}
+	if res.ExitCode != 0 {
+		message := strings.TrimSpace(res.Stderr)
+		lower := strings.ToLower(message)
+		if strings.Contains(lower, "no such object") || strings.Contains(lower, "no such container") {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect draining container %s failed (exit %d): %s", id, res.ExitCode, message)
+	}
+	switch strings.TrimSpace(res.Stdout) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("inspect draining container %s returned an invalid running state", id)
+	}
 }
 
 // RunHook executes a user hook verbatim. Hooks are unplannable

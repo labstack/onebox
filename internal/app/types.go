@@ -216,7 +216,7 @@ type Health struct {
 
 type Drain struct {
 	Signal string `json:"signal" description:"Signal sent to begin graceful shutdown." default:"TERM"`
-	Wait   string `json:"wait,omitempty" description:"Time allowed for the proxy to stop routing before shutdown begins, at most 7d." example:"10s"`
+	Wait   string `json:"wait,omitempty" description:"Maximum drain window before shutdown continues, at most 7d. Recreate workloads continue sooner when every old container exits. Rolling workloads wait the full interval before stopping each container when their health check supports drain guarding." example:"10s"`
 	Grace  string `json:"grace,omitempty" description:"Maximum graceful-shutdown time before forced termination, at most 7d." example:"30s"`
 }
 

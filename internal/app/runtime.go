@@ -145,8 +145,10 @@ func (w Workload) ReadyTiming() (within, interval time.Duration) {
 	return within, interval
 }
 
-// DrainWait is how long to leave a container marked unhealthy before stopping
-// it, so the proxy has time to notice and stop sending it traffic.
+// DrainWait is the authored drain interval. Rolling workloads with a
+// drain-guardable health check use it as a fixed pre-stop window after the drain
+// attempt; recreate workloads use it as the maximum time allowed for signalled
+// containers to exit.
 //
 // Only an authored wait counts. The derived value this used to fall back to
 // was unreachable — every caller checks `drain.wait` was written before asking

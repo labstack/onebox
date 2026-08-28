@@ -3,24 +3,33 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
 )
 
 func TestRecreateRoleSequence(t *testing.T) {
+	waits := 0
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "docker ps -q") {
 			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Running}}") {
+			return transport.Result{Stdout: "false\n"}, true
 		}
 		if strings.Contains(cmd, "{{.State.Status}}") {
 			return transport.Result{Stdout: "running\n"}, true
 		}
 		return transport.Result{}, false
 	}}
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e := New(testConfig(), testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Sleep: noSleep,
+		Wait: func(context.Context, time.Duration) error { waits++; return nil },
+	})
 	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
@@ -31,12 +40,18 @@ func TestRecreateRoleSequence(t *testing.T) {
 	if !strings.Contains(seq, "docker kill --signal=TERM W1") {
 		t.Fatalf("TERM drain signal must precede recreate:\n%s", seq)
 	}
+	if waits != 0 {
+		t.Fatalf("an immediately exited container consumed %d poll waits", waits)
+	}
 }
 
 func TestRecreateRoleHonorsDrainGrace(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "docker ps -q") {
 			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Running}}") {
+			return transport.Result{Stdout: "false\n"}, true
 		}
 		if strings.Contains(cmd, "{{.State.Status}}") {
 			return transport.Result{Stdout: "running\n"}, true
@@ -65,6 +80,9 @@ func TestRecreateRoleSurfacesFailedDrainSignal(t *testing.T) {
 		if strings.Contains(cmd, "docker ps -q") {
 			return transport.Result{Stdout: "W1\n"}, true
 		}
+		if strings.Contains(cmd, "{{.State.Running}}") {
+			return transport.Result{Stdout: "false\n"}, true
+		}
 		if strings.Contains(cmd, "{{.State.Status}}") {
 			return transport.Result{Stdout: "running\n"}, true
 		}
@@ -82,6 +100,214 @@ func TestRecreateRoleSurfacesFailedDrainSignal(t *testing.T) {
 	}
 	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "up -d --no-deps --force-recreate") {
 		t.Fatalf("recreate must still proceed after a surfaced drain failure:\n%s", seq)
+	}
+}
+
+type recreateClock struct {
+	now    time.Time
+	waits  []time.Duration
+	cancel context.CancelFunc
+}
+
+func (c *recreateClock) current() time.Time { return c.now }
+
+func (c *recreateClock) wait(ctx context.Context, d time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.waits = append(c.waits, d)
+	c.now = c.now.Add(d)
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
+	return ctx.Err()
+}
+
+func (c *recreateClock) totalWait() time.Duration {
+	var total time.Duration
+	for _, wait := range c.waits {
+		total += wait
+	}
+	return total
+}
+
+func TestRecreateDrainContinuesWhenContainerExits(t *testing.T) {
+	inspections := 0
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker ps -q"):
+			return transport.Result{Stdout: "W1\n"}, true
+		case strings.Contains(cmd, "{{.State.Running}}"):
+			inspections++
+			if inspections < 3 {
+				return transport.Result{Stdout: "true\n"}, true
+			}
+			return transport.Result{Stdout: "false\n"}, true
+		case strings.Contains(cmd, "{{.State.Status}}"):
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	clock := &recreateClock{now: time.Unix(0, 0)}
+	cfg := testConfig()
+	worker := cfg.Workloads["worker"]
+	worker.Drain.Wait = "5s"
+	cfg.Workloads["worker"] = worker
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Now: clock.current, Wait: clock.wait})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatal(err)
+	}
+	if got := clock.totalWait(); got != 500*time.Millisecond {
+		t.Fatalf("waited %v after an early exit, want two polls (500ms)", got)
+	}
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "up -d --no-deps --force-recreate") {
+		t.Fatalf("recreate did not continue after exit:\n%s", seq)
+	}
+}
+
+func TestRecreateDrainWaitsForEveryReplica(t *testing.T) {
+	inspections := map[string]int{}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker ps -q"):
+			return transport.Result{Stdout: "W1\nW2\n"}, true
+		case strings.Contains(cmd, "{{.State.Running}}"):
+			id := strings.Fields(cmd)[len(strings.Fields(cmd))-1]
+			inspections[id]++
+			if id == "W1" || inspections[id] > 1 {
+				return transport.Result{Stdout: "false\n"}, true
+			}
+			return transport.Result{Stdout: "true\n"}, true
+		case strings.Contains(cmd, "{{.State.Status}}"):
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	clock := &recreateClock{now: time.Unix(0, 0)}
+	cfg := testConfig()
+	worker := cfg.Workloads["worker"]
+	worker.Replicas = 2
+	cfg.Workloads["worker"] = worker
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Now: clock.current, Wait: clock.wait})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatal(err)
+	}
+	if inspections["W1"] != 1 || inspections["W2"] != 2 {
+		t.Fatalf("inspections = %#v, want exited W1 dropped while W2 remains", inspections)
+	}
+}
+
+func TestRecreateDrainTimeoutStillRecreates(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker ps -q"):
+			return transport.Result{Stdout: "W1\n"}, true
+		case strings.Contains(cmd, "{{.State.Running}}"):
+			return transport.Result{Stdout: "true\n"}, true
+		case strings.Contains(cmd, "{{.State.Status}}"):
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	fixedNow := time.Unix(0, 0)
+	var waits []time.Duration
+	cfg := testConfig()
+	worker := cfg.Workloads["worker"]
+	worker.Drain = &app.Drain{Signal: "USR1", Wait: "600ms", Grace: "7s"}
+	cfg.Workloads["worker"] = worker
+	e := New(cfg, testProject(t), f, Options{
+		Out: &bytes.Buffer{},
+		Now: func() time.Time { return fixedNow },
+		Wait: func(_ context.Context, d time.Duration) error {
+			waits = append(waits, d)
+			if len(waits) > 3 {
+				return errors.New("drain wait did not consume its elapsed budget")
+			}
+			return nil
+		},
+	})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatal(err)
+	}
+	var total time.Duration
+	for _, wait := range waits {
+		total += wait
+	}
+	if got := total; got != 600*time.Millisecond {
+		t.Fatalf("drain wait = %v, want exact 600ms bound", got)
+	}
+	if len(waits) != 3 {
+		t.Fatalf("drain polls = %d, want 3 with fixed Options.Now", len(waits))
+	}
+	if seq := strings.Join(f.Commands, "\n"); !strings.Contains(seq, "--force-recreate --timeout 7 worker") {
+		t.Fatalf("timeout did not continue through existing grace behavior:\n%s", seq)
+	}
+}
+
+func TestRecreateDrainTreatsVanishedContainerAsExited(t *testing.T) {
+	waits := 0
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker ps -q"):
+			return transport.Result{Stdout: "W1\n"}, true
+		case strings.Contains(cmd, "{{.State.Running}}"):
+			return transport.Result{ExitCode: 1, Stderr: "Error: No such object: W1"}, true
+		case strings.Contains(cmd, "{{.State.Status}}"):
+			return transport.Result{Stdout: "running\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Wait: func(context.Context, time.Duration) error { waits++; return nil },
+	})
+	if err := e.RecreateRole(context.Background(), "worker", "F"); err != nil {
+		t.Fatal(err)
+	}
+	if waits != 0 {
+		t.Fatalf("vanished container consumed %d poll waits", waits)
+	}
+}
+
+func TestRecreateDrainFailsClosedOnInspectionFailure(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker ps -q") {
+			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Running}}") {
+			return transport.Result{ExitCode: 1, Stderr: "permission denied"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}})
+	err := e.RecreateRole(context.Background(), "worker", "F")
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("inspection failure = %v, want explicit refusal", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "--force-recreate") {
+		t.Fatalf("inspection failure must halt before replacement:\n%s", seq)
+	}
+}
+
+func TestRecreateDrainCancellationInterruptsWait(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker ps -q") {
+			return transport.Result{Stdout: "W1\n"}, true
+		}
+		if strings.Contains(cmd, "{{.State.Running}}") {
+			return transport.Result{Stdout: "true\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	clock := &recreateClock{now: time.Unix(0, 0), cancel: cancel}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Now: clock.current, Wait: clock.wait})
+	err := e.RecreateRole(ctx, "worker", "F")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation = %v, want context.Canceled", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "--force-recreate") {
+		t.Fatalf("cancelled drain must halt before replacement:\n%s", seq)
 	}
 }
 

@@ -131,7 +131,10 @@ backs up nor removes it; provision and protect that path separately. For data
 Onebox should own, prefer a managed named volume instead.
 
 **The proxy** — if anything is routed, Onebox runs Traefik and writes its static
-configuration. Declare `proxy.config` with dynamic YAML or TOML files to extend
+configuration. When Onebox owns that static configuration, HTTPS routes receive
+managed response compression by default; Traefik skips bodies below its
+threshold, responses already encoded, and `text/event-stream` so streaming is
+not buffered. Declare `proxy.config` with dynamic YAML or TOML files to extend
 that managed configuration. Include `traefik.yml` or `traefik.yaml` in the same
 directory only when you need to own the static configuration too. The external
 `proxy.network` may be changed, but `default` is reserved for the application's
@@ -165,12 +168,12 @@ directory. A proxy `.env` is accepted only in this mode; it may carry ordinary
 DNS-provider credentials, but not `TRAEFIK_PROVIDERS_*` or
 `TRAEFIK_CONFIGFILE` static overrides.
 
-In both modes, the filenames `onebox.yml` and `onebox.yaml`, the `dynamic/`
-mountpoint, and HTTP or TCP router or service names beginning with the derived
-`<app>_` prefix are reserved for generated discovery output. `ob deploy`,
-`ob bootstrap`, and `ob proxy apply` refuse an incompatible configuration with
-migration guidance rather than silently starting a proxy with missing or stale
-routes.
+In both modes, the filenames `onebox.yml`, `onebox.yaml`, and
+`onebox-managed.yml`, the `dynamic/` mountpoint, the `onebox-compress`
+middleware, and HTTP or TCP router or service names beginning with the derived
+`<app>_` prefix are reserved for generated output. `ob deploy`, `ob bootstrap`,
+and `ob proxy apply` refuse an incompatible configuration with migration
+guidance rather than silently starting a proxy with missing or stale routes.
 
 ### Additional proxy entrypoints
 
@@ -209,6 +212,9 @@ entrypoints. If `proxy.config` supplies your own `traefik.yml` or
 define matching entrypoint names and addresses.
 
 ### Route middleware
+
+Managed HTTPS routes already use Onebox's streaming-safe response compression.
+No route declaration or `proxy.config` is needed for that default.
 
 Attach dynamic proxy middleware to the exact route that needs it with an
 ordered, provider-qualified reference:

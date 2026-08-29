@@ -169,6 +169,19 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	}
 	st(nil)
 
+	// A physical backup carries the source cluster's role password hashes. The
+	// target-side client credential is deliberately not part of that backup, so a
+	// generation recovered on another host can start and answer local queries while
+	// refusing every application connection. Prove the managed client contract on
+	// the staged cluster, and reconcile it there when necessary, before promotion
+	// is allowed to touch the live volume.
+	st = e.ui.Step("recovery: verify managed client authentication", false)
+	if err := e.ensureRecoveredClientCredential(ctx, container); err != nil {
+		st(err)
+		return outcome, err
+	}
+	st(nil)
+
 	if !promote {
 		return outcome, nil
 	}
@@ -240,6 +253,10 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 		"--entrypoint", "sleep",
 		"-v", q(staging + ":/var/lib/postgresql/data"),
 		"-v", q(n.BackupRuntimeDir(service) + ":" + app.WalgMountPath + ":ro"),
+		// The target-managed PostgreSQL credential is needed only inside the
+		// recovery container. Passing the file by name keeps its value out of this
+		// command, transport logs, recovery evidence, and process arguments.
+		"--env-file", q(n.ServiceSecretFile(service)),
 		"--env-file", q(n.BackupCredentialFile(service, credentialTarget)),
 	}
 	for _, key := range sortedEnvKeys(environment) {
@@ -542,6 +559,79 @@ func (e *Engine) probeRecoveredCluster(ctx context.Context, container, service, 
 		recovered = replayed
 	}
 	return recovered, tables + " tables in public schema", nil
+}
+
+// ensureRecoveredClientCredential proves that the recovered cluster accepts the
+// target host's managed application credential. Physical recovery restores role
+// password hashes from the source cluster, while the target credential file is
+// host-owned and intentionally survives outside the data volume.
+//
+// A same-host restore normally succeeds on the first probe and leaves pg_authid
+// byte-for-byte as recovered. A cross-host restore reconciles only the staged
+// cluster, then has to pass the same TCP/password query before cutover can begin.
+func (e *Engine) ensureRecoveredClientCredential(ctx context.Context, container string) error {
+	ok, detail, err := e.recoveredClientAnswers(ctx, container)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+
+	// psql reads POSTGRES_PASSWORD from the recovery container's environment and
+	// quotes it as a SQL literal. Neither the command nor stdin contains the
+	// credential value, so transport logging and test captures remain safe.
+	command := "docker exec -i -u postgres " + q(container) +
+		" psql -X -v ON_ERROR_STOP=1 -U " + q(app.PgSuperuser) + " -d postgres"
+	script := "\\getenv ob_managed_password POSTGRES_PASSWORD\n" +
+		"ALTER ROLE \"" + app.PgSuperuser + "\" PASSWORD :'ob_managed_password';\n"
+	res, err := e.T.RunInput(ctx, command, script)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("the recovered cluster refused managed client credential reconciliation after %s: %s",
+			detail, lastLines(res.Stderr+res.Stdout, 3))
+	}
+
+	ok, detail, err = e.recoveredClientAnswers(ctx, container)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("the recovered cluster does not accept the target-managed client credential after reconciliation: %s", detail)
+	}
+	return nil
+}
+
+// recoveredClientAnswers uses TCP deliberately. The administrative recovery
+// checks use a local socket and can succeed without proving password
+// authentication; applications use the generated client credential over the
+// service network. PostgreSQL's image trusts loopback in pg_hba.conf, so the
+// probe uses the staging container's own non-loopback address; that reaches the
+// staged server without colliding with the still-live service's network alias
+// and exercises the catch-all password rule applications use.
+func (e *Engine) recoveredClientAnswers(ctx context.Context, container string) (bool, string, error) {
+	inner := "test -n \"${POSTGRES_PASSWORD:-}\" || { echo 'managed PostgreSQL credential is missing' >&2; exit 1; }; " +
+		"set -- $(hostname -i); test \"$#\" -gt 0 || { echo 'recovery container has no network address' >&2; exit 1; }; host=$1; " +
+		"export PGPASSWORD=\"$POSTGRES_PASSWORD\" PGCONNECT_TIMEOUT=5; " +
+		"exec psql -X -w -h \"$host\" -U " + q(app.PgSuperuser) + " -d " + q(e.Spec.Spec.Name) + " -Atc " + q("SELECT 1;")
+	command := "docker exec -u postgres " + q(container) + " sh -ceu " + q(inner)
+	res, err := e.T.Run(ctx, command)
+	if err != nil {
+		return false, "", err
+	}
+	if res.ExitCode != 0 {
+		detail := lastLines(res.Stderr+res.Stdout, 3)
+		if detail == "" {
+			detail = fmt.Sprintf("client probe exited %d", res.ExitCode)
+		}
+		return false, detail, nil
+	}
+	if strings.TrimSpace(res.Stdout) != "1" {
+		return false, fmt.Sprintf("client probe returned %q instead of 1", strings.TrimSpace(res.Stdout)), nil
+	}
+	return true, "", nil
 }
 
 // promoteRecoveredVolume puts the recovered data in front of the application.

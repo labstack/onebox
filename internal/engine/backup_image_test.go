@@ -106,6 +106,41 @@ func TestReEnableRejectsPinFromDifferentRepository(t *testing.T) {
 	}
 }
 
+func TestReEnableDoesNotCreatePinFromDifferentRepository(t *testing.T) {
+	const stalePin = "postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
+	const managedPin = "ghcr.io/labstack/onebox-postgres@sha256:16cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd942"
+	fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker image inspect") && strings.Contains(cmd, stalePin):
+			return transport.Result{Stdout: "present\n"}, true
+		case strings.Contains(cmd, "docker pull"):
+			return transport.Result{}, true
+		case strings.Contains(cmd, "RepoDigests"):
+			return transport.Result{Stdout: managedPin + "\n"}, true
+		}
+		return transport.Result{Stdout: "absent\n"}, true
+	}}
+	e := protectedImageTestEngine(fake)
+	bound, err := e.Spec.WithServiceRuntimeStates(map[string]app.ServiceRuntimeState{
+		"database": {
+			BackupState: "enabled", ServiceImage: stalePin,
+			PublicationVerified: true, DigestAvailable: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("binding enabled service state: %v", err)
+	}
+	e.Spec = bound
+
+	got, err := e.ResolveProtectedImage(context.Background(), "database", stalePin, "postgres:18")
+	if err != nil {
+		t.Fatalf("resolving after a repository migration: %v", err)
+	}
+	if got != managedPin {
+		t.Fatalf("resolved %q, want %q", got, managedPin)
+	}
+}
+
 // The pin is only reusable while the project still declares the reference that
 // produced it. Changing the declared version is how an operator asks for
 // different bytes, and that has to reach the registry.

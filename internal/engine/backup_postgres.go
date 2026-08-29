@@ -470,11 +470,9 @@ func (e *Engine) RebindServiceRuntimeStates(states map[string]app.ServiceRuntime
 // ResolveProtectedImage pins the service image by the digest the host actually
 // has, after pulling it.
 //
-// It is the stock PostgreSQL image — wal-g is mounted in beside it rather than
-// baked into a derived one — but it is still pinned, because the reason
-// protected image selection is durable state has nothing to do with which image
-// it is: the bytes running over a live data directory must not change because a
-// tag moved.
+// WAL-G is mounted beside the PostgreSQL runtime image rather than baked into
+// it, but the image is still pinned: the bytes running over a live data
+// directory must not change because a tag moved.
 // recordedPin and recordedReference come from the service's lifecycle record:
 // the digest it was last bound with, and the reference that produced it. When
 // the project still declares that same reference and the host still holds those
@@ -486,8 +484,11 @@ func (e *Engine) RebindServiceRuntimeStates(states map[string]app.ServiceRuntime
 // already had everything it needed, so a rate-limited Docker Hub failed a
 // command that had nothing to fetch.
 //
-// Moving a protected service to a new image is a deliberate act with its own
-// path; it is not a side effect of re-running enable.
+// A declared repository migration is the exception: a digest from the old
+// repository cannot be recorded as if the new reference produced it, so the
+// new declaration is resolved before enablement can write the lifecycle pair.
+// Moving between versions within one repository remains a deliberate act with
+// its own path; it is not a side effect of re-running enable.
 func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin, recordedReference string) (string, error) {
 	reference, err := e.Spec.ServiceImageForRuntime(service)
 	if err != nil {
@@ -497,7 +498,11 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin
 	if err != nil {
 		return "", err
 	}
-	st := e.ui.Step("protected image "+reference.Image, false)
+	resolutionReference := reference.Image
+	if !sameImageRepository(resolutionReference, declared) {
+		resolutionReference = declared
+	}
+	st := e.ui.Step("protected image "+resolutionReference, false)
 	if recordedPin != "" && recordedReference == declared && containsDigest(recordedPin) &&
 		sameImageRepository(recordedPin, recordedReference) {
 		held, err := e.imagePresentByDigest(ctx, recordedPin)
@@ -515,26 +520,26 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin
 	// — it only spends registry quota and turns a re-enable into a failure on a
 	// host that is offline or rate-limited while holding exactly what it needs.
 	// A tag still resolves through the registry, because a tag can move.
-	present, err := e.imagePresentByDigest(ctx, reference.Image)
+	present, err := e.imagePresentByDigest(ctx, resolutionReference)
 	if err != nil {
 		st(err)
 		return "", err
 	}
 	if present {
 		st(nil)
-		return reference.Image, nil
+		return resolutionReference, nil
 	}
-	res, err := e.T.Run(ctx, "docker pull "+q(reference.Image))
+	res, err := e.T.Run(ctx, "docker pull "+q(resolutionReference))
 	if err != nil {
 		st(err)
 		return "", err
 	}
 	if res.ExitCode != 0 {
-		err := fmt.Errorf("cannot pull %s: %s", reference.Image, lastLines(res.Stderr, 3))
+		err := fmt.Errorf("cannot pull %s: %s", resolutionReference, lastLines(res.Stderr, 3))
 		st(err)
 		return "", err
 	}
-	res, err = e.T.Run(ctx, "docker image inspect --format '{{index .RepoDigests 0}}' "+q(reference.Image))
+	res, err = e.T.Run(ctx, "docker image inspect --format '{{index .RepoDigests 0}}' "+q(resolutionReference))
 	if err != nil {
 		st(err)
 		return "", err
@@ -543,7 +548,12 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin
 	if res.ExitCode != 0 || !containsDigest(pinned) {
 		err := fmt.Errorf(
 			"%s has no registry digest on this host; a protected service runs an image pinned by digest, so it must come from a registry rather than a local build",
-			reference.Image)
+			resolutionReference)
+		st(err)
+		return "", err
+	}
+	if !sameImageRepository(pinned, resolutionReference) {
+		err := fmt.Errorf("resolved digest %s does not belong to image repository %s", pinned, resolutionReference)
 		st(err)
 		return "", err
 	}

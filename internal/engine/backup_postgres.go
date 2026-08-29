@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	distref "github.com/distribution/reference"
 	"github.com/labstack/onebox/internal/app"
 )
 
@@ -497,7 +498,8 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin
 		return "", err
 	}
 	st := e.ui.Step("protected image "+reference.Image, false)
-	if recordedPin != "" && recordedReference == declared && containsDigest(recordedPin) {
+	if recordedPin != "" && recordedReference == declared && containsDigest(recordedPin) &&
+		sameImageRepository(recordedPin, recordedReference) {
 		held, err := e.imagePresentByDigest(ctx, recordedPin)
 		if err != nil {
 			st(err)
@@ -730,3 +732,19 @@ func (e *Engine) imagePresentByDigest(ctx context.Context, reference string) (bo
 // tag. It is the one place that decides, so the pull-skipping guard and the
 // pinning check cannot disagree about what "pinned" means.
 func containsDigest(reference string) bool { return strings.Contains(reference, "@sha256:") }
+
+// sameImageRepository prevents a lifecycle record from pairing an authored
+// reference with a digest from another repository. That mismatch can happen
+// across a managed-image repository migration; retaining it would restart the
+// service on bytes the current declaration can no longer produce.
+func sameImageRepository(left, right string) bool {
+	leftNamed, err := distref.ParseNormalizedNamed(left)
+	if err != nil {
+		return false
+	}
+	rightNamed, err := distref.ParseNormalizedNamed(right)
+	if err != nil {
+		return false
+	}
+	return distref.TrimNamed(leftNamed).Name() == distref.TrimNamed(rightNamed).Name()
+}

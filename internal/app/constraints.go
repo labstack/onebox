@@ -87,6 +87,9 @@ var (
 	gSettingKey = grammar{"driver setting", regexp.MustCompile(`^[a-z][a-z0-9_-]*$`),
 		"a lowercase setting name such as appendonly, maxmemory-policy or shared_buffers"}
 
+	gExtension = grammar{"PostgreSQL extension", regexp.MustCompile(`^[a-z][a-z0-9_-]*$`),
+		"a lowercase PostgreSQL extension name such as vector, pg_trgm or uuid-ossp"}
+
 	// Docker admits plugin log drivers with arbitrary names, so this cannot be
 	// an enum without refusing a legitimate one. A grammar still catches the
 	// typo and the metacharacter, which is what reaches the generated runtime.

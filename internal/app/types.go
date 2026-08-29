@@ -274,14 +274,24 @@ type JobSchedule struct {
 }
 
 type Service struct {
-	Driver      string         `json:"driver,omitempty" description:"Built-in service driver. Defaults to the service map key." example:"postgres"`
-	Version     any            `json:"version" description:"Driver version or image tag to run." example:"17"`
-	Volumes     []string       `json:"volumes,omitempty" description:"Additional driver-defined persistent volume names."`
-	Persistence *Persistence   `json:"persistence,omitempty" description:"Data-lifetime declaration for this supporting service."`
-	Resources   *Resources     `json:"resources,omitempty" description:"Memory and CPU limits for this supporting service."`
-	Settings    map[string]any `json:"settings,omitempty" description:"Driver-specific settings validated by the selected service driver."`
-	Backup      *BackupPolicy  `json:"backup,omitempty" description:"Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish backup."`
+	Driver      string           `json:"driver,omitempty" description:"Built-in service driver. Defaults to the service map key." example:"postgres"`
+	Version     any              `json:"version" description:"Driver version or image tag to run." example:"17"`
+	Features    *ServiceFeatures `json:"features,omitempty" description:"Capabilities Onebox must establish before application workloads run."`
+	Volumes     []string         `json:"volumes,omitempty" description:"Additional driver-defined persistent volume names."`
+	Persistence *Persistence     `json:"persistence,omitempty" description:"Data-lifetime declaration for this supporting service."`
+	Resources   *Resources       `json:"resources,omitempty" description:"Memory and CPU limits for this supporting service."`
+	Settings    map[string]any   `json:"settings,omitempty" description:"Driver-specific settings validated by the selected service driver."`
+	Backup      *BackupPolicy    `json:"backup,omitempty" description:"Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish backup."`
 }
+
+type ServiceFeatures struct {
+	Extensions map[string]ServiceExtension `json:"extensions,omitempty" description:"PostgreSQL extensions Onebox installs in the managed application database before application migrations run."`
+}
+
+// ServiceExtension is intentionally empty in v1. The selected PostgreSQL image
+// owns component versions, keeping the authored path friction-free and the
+// service runtime represented by the one image digest Onebox already protects.
+type ServiceExtension struct{}
 
 // BackupTarget is a closed S3-compatible destination declaration. It accepts
 // credential references only, never inline values.

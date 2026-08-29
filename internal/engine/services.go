@@ -67,7 +67,23 @@ func (e *Engine) EnsureServiceConnections(ctx context.Context) error {
 
 // ApplyServices converges every declared service and the connections to it.
 func (e *Engine) ApplyServices(ctx context.Context) error {
-	names := e.Spec.ServiceNames()
+	return e.applyServices(ctx, e.Spec.ServiceNames(), true)
+}
+
+// ApplyExtensionServices converges only services whose declared capabilities
+// must exist before an application migration runs. Ordinary deploys keep their
+// historical boundary for every other supporting service.
+func (e *Engine) ApplyExtensionServices(ctx context.Context) error {
+	var names []string
+	for _, name := range e.Spec.ServiceNames() {
+		if len(e.Spec.ServiceExtensions(name)) > 0 {
+			names = append(names, name)
+		}
+	}
+	return e.applyServices(ctx, names, false)
+}
+
+func (e *Engine) applyServices(ctx context.Context, names []string, syncSchedules bool) error {
 	if len(names) == 0 {
 		return nil
 	}
@@ -80,6 +96,15 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	}
 	if err := e.MigrateBackupCredentialFiles(ctx); err != nil {
 		return fmt.Errorf("backup credentials: %w", err)
+	}
+	// This runs before rendering or Compose mutation. Removing the declaration
+	// does not DROP an extension, so unloading a library it still needs would be
+	// a silent behavioral change and, for some extensions, a startup failure.
+	if err := e.refuseInstalledPreloadRemoval(ctx, names); err != nil {
+		return err
+	}
+	if err := e.verifyRunningExtensionCompatibility(ctx, names); err != nil {
+		return err
 	}
 	// Rendered here rather than handed in. A caller that forgot would produce
 	// a host missing a database, and the engine already holds everything the
@@ -142,6 +167,9 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 			return fmt.Errorf("service %s did not become healthy within %s (last: %s)",
 				name, serviceHealthBudget, last)
 		}
+		if err := e.reconcileServiceExtensions(ctx, name); err != nil {
+			return fmt.Errorf("service %s: %w", name, err)
+		}
 		// Recorded only after health, because the fact worth keeping is which
 		// version successfully opened the data directory — not which image
 		// was last started.
@@ -152,10 +180,160 @@ func (e *Engine) ApplyServices(ctx context.Context) error {
 	}
 	// After the services are up, because a timer that fires against a container
 	// that is not running yet is a failed backup in the journal for no reason.
-	if err := e.SyncBackupSchedules(ctx); err != nil {
-		return fmt.Errorf("cannot converge the backup schedules: %w", err)
+	if syncSchedules {
+		if err := e.SyncBackupSchedules(ctx); err != nil {
+			return fmt.Errorf("cannot converge the backup schedules: %w", err)
+		}
 	}
 	return nil
+}
+
+func (e *Engine) refuseInstalledPreloadRemoval(ctx context.Context, services []string) error {
+	for _, service := range services {
+		client, ok := e.Spec.ClientEnvFor(service)
+		if !ok || client.Driver != "postgres" {
+			continue
+		}
+		container := e.Spec.NamesFor(e.Opts.Environment).ServiceContainer(service)
+		running, err := e.T.Run(ctx, "docker inspect --format '{{.State.Running}}' "+q(container))
+		if err != nil {
+			return err
+		}
+		if running.ExitCode != 0 || strings.TrimSpace(running.Stdout) != "true" {
+			continue
+		}
+		declared := map[string]bool{}
+		for _, extension := range e.Spec.ServiceExtensions(service) {
+			declared[extension] = true
+		}
+		for _, extension := range app.PostgresPreloadExtensions() {
+			if declared[extension] {
+				continue
+			}
+			installed, err := e.postgresServiceScalar(ctx, container, client,
+				"SELECT extversion FROM pg_extension WHERE extname = '"+extension+"'")
+			if err != nil {
+				return fmt.Errorf("service %s: cannot inspect installed extension %s before restart: %w", service, extension, err)
+			}
+			if installed != "" {
+				return fmt.Errorf("service %s: installed extension %s requires preload; keep its feature declaration or explicitly DROP EXTENSION before service apply", service, extension)
+			}
+		}
+	}
+	return nil
+}
+
+// verifyRunningExtensionCompatibility compares the catalogue version already
+// installed in a live database with the exact files in the image Compose would
+// select. It runs before the Compose document is written or the server is
+// restarted, so a moved channel tag cannot activate a new shared library over
+// an older SQL extension and only then report the mismatch.
+func (e *Engine) verifyRunningExtensionCompatibility(ctx context.Context, services []string) error {
+	for _, service := range services {
+		client, ok := e.Spec.ClientEnvFor(service)
+		if !ok || client.Driver != "postgres" {
+			continue
+		}
+		container := e.Spec.NamesFor(e.Opts.Environment).ServiceContainer(service)
+		running, err := e.T.Run(ctx, "docker inspect --format '{{.State.Running}}' "+q(container))
+		if err != nil {
+			return err
+		}
+		if running.ExitCode != 0 || strings.TrimSpace(running.Stdout) != "true" {
+			continue
+		}
+		selection, err := e.Spec.ServiceImageForRuntime(service)
+		if err != nil {
+			return err
+		}
+		for _, extension := range e.Spec.ServiceExtensions(service) {
+			control := "/usr/share/postgresql/18/extension/" + extension + ".control"
+			script := `awk -F "'" '/^[[:space:]]*default_version[[:space:]]*=/ {print $2; exit}' ` + control
+			result, err := e.mutate(ctx, "docker run --rm --entrypoint sh "+q(selection.Image)+" -c "+q(script))
+			if err != nil {
+				return fmt.Errorf("service %s: cannot inspect extension %s in candidate image: %w", service, extension, err)
+			}
+			available := strings.TrimSpace(result.Stdout)
+			if result.ExitCode != 0 || available == "" {
+				return fmt.Errorf("service %s: extension %s is not available in candidate image %s", service, extension, selection.Image)
+			}
+			installed, err := e.postgresServiceScalar(ctx, container, client,
+				"SELECT extversion FROM pg_extension WHERE extname = '"+strings.ReplaceAll(extension, "'", "''")+"'")
+			if err != nil {
+				return fmt.Errorf("service %s: cannot inspect installed extension %s before restart: %w", service, extension, err)
+			}
+			if installed != "" && installed != available {
+				return fmt.Errorf("service %s: extension %s is installed at version %s but candidate image %s provides %s; refusing restart before an explicit extension upgrade", service, extension, installed, selection.Image, available)
+			}
+		}
+	}
+	return nil
+}
+
+// reconcileServiceExtensions establishes the extension contract after the
+// server is healthy and before application migrations can run. The managed
+// image supplies extension files; PostgreSQL installation is database-local,
+// so Onebox creates only a missing declaration in the one application database
+// it owns. Existing extensions are left at their installed version: upgrades
+// and removal are deliberate lifecycle operations, never an apply side effect.
+func (e *Engine) reconcileServiceExtensions(ctx context.Context, service string) error {
+	extensions := e.Spec.ServiceExtensions(service)
+	if len(extensions) == 0 {
+		return nil
+	}
+	client, ok := e.Spec.ClientEnvFor(service)
+	if !ok || client.Driver != "postgres" {
+		return fmt.Errorf("extensions require a managed postgres service")
+	}
+	container := e.Spec.NamesFor(e.Opts.Environment).ServiceContainer(service)
+	for _, extension := range extensions {
+		literal := strings.ReplaceAll(extension, "'", "''")
+		available, err := e.postgresServiceScalar(ctx, container, client,
+			"SELECT default_version FROM pg_available_extensions WHERE name = '"+literal+"'")
+		if err != nil {
+			return fmt.Errorf("cannot inspect extension %s: %w", extension, err)
+		}
+		if available == "" {
+			return fmt.Errorf("extension %s is not available in the selected PostgreSQL image", extension)
+		}
+		installed, err := e.postgresServiceScalar(ctx, container, client,
+			"SELECT extversion FROM pg_extension WHERE extname = '"+literal+"'")
+		if err != nil {
+			return fmt.Errorf("cannot inspect extension %s: %w", extension, err)
+		}
+		if installed != "" && installed != available {
+			return fmt.Errorf("extension %s is installed at version %s but the selected image provides %s; automatic extension upgrades are refused", extension, installed, available)
+		}
+		if installed != "" {
+			continue
+		}
+		sql := `CREATE EXTENSION "` + strings.ReplaceAll(extension, `"`, `""`) + `"`
+		cmd := postgresServiceCommand(container, client, sql)
+		result, err := e.mutate(ctx, cmd)
+		if err != nil {
+			return fmt.Errorf("cannot install extension %s: %w", extension, err)
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("cannot install extension %s: %s", extension, strings.TrimSpace(result.Stderr))
+		}
+	}
+	return nil
+}
+
+func (e *Engine) postgresServiceScalar(ctx context.Context, container string, client app.ClientEnv, sql string) (string, error) {
+	result, err := e.T.Run(ctx, postgresServiceCommand(container, client, sql))
+	if err != nil {
+		return "", err
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("%s", strings.TrimSpace(result.Stderr))
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
+func postgresServiceCommand(container string, client app.ClientEnv, sql string) string {
+	return "docker exec " + q(container) + " psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align" +
+		" --username " + q(client.User) + " --dbname " + q(client.Database) + " --command " + q(sql)
 }
 
 // StageServiceCompose writes one service's current rendered runtime without

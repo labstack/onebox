@@ -311,6 +311,9 @@ var schemaConstraints = []struct {
 	{[]string{"api_version"}, map[string]any{"const": APIVersion}},
 	{[]string{"app"}, appNameConstraint()},
 	{[]string{"base_path"}, pattern(gAbsPath)},
+	{[]string{"services", "*", "features", "extensions"}, map[string]any{
+		"propertyNames": map[string]any{"pattern": gExtension.pattern.String()},
+	}},
 
 	{[]string{"environments", "*", "base_path"}, pattern(gAbsPath)},
 	{[]string{"environments", "*", "policy", "min_onebox_version"}, pattern(gCalVer)},

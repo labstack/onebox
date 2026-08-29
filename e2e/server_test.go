@@ -61,22 +61,16 @@ func (s *server) requireDocker(t *testing.T) {
 	}, "\n"))
 }
 
-// primeDriverImage puts the PostgreSQL image on the server from a mirror.
-//
-// The driver names `postgres:18` and the tag is not overridable, so every run
-// would otherwise pull it from Docker Hub — which rate-limits anonymous
-// requests per source address, and a CI runner shares its address with
-// everyone else on it. The image content is identical across registries, so
-// retagging it locally is the same bytes by the same digest: `docker image
-// inspect` reports postgres@sha256:… first, which is what ob reads when it
-// pins the protected image.
+// primeDriverImage makes the public Onebox PostgreSQL distribution available
+// before bootstrap. Release publication is gated on this exact tag being
+// anonymously pullable.
 func (s *server) primeDriverImage(t *testing.T) {
 	t.Helper()
-	if err := s.try(t, "docker image inspect postgres:18 >/dev/null 2>&1"); err == nil {
+	const image = "ghcr.io/labstack/onebox-postgres:18"
+	if err := s.try(t, "docker image inspect "+image+" >/dev/null 2>&1"); err == nil {
 		return
 	}
-	s.run(t, "docker pull -q public.ecr.aws/docker/library/postgres:18 >/dev/null && "+
-		"docker tag public.ecr.aws/docker/library/postgres:18 postgres:18")
+	s.run(t, "docker pull -q "+image+" >/dev/null")
 }
 
 // psql runs a query in the protected server and returns the single value.
@@ -351,7 +345,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 
 	// Issue #88: enable established archiving and then failed every upload
 	// with "x509: certificate signed by unknown authority", because wal-g runs
-	// inside the driver's image and postgres:18 carries no certificate
+	// inside the driver's image and the PostgreSQL 18 distribution carries no certificate
 	// authorities. It failed after the base backup, leaving archiving on.
 	//
 	// This endpoint is signed by an authority that exists only on this server,

@@ -1586,6 +1586,31 @@
                 "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
                 "type": "string"
               },
+              "features": {
+                "additionalProperties": false,
+                "description": "Capabilities Onebox must establish before application workloads run.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "extensions": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "patternProperties": {
+                        "^x-": {}
+                      },
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "description": "PostgreSQL extensions Onebox installs in the managed application database before application migrations run.",
+                    "propertyNames": {
+                      "pattern": "^[a-z][a-z0-9_-]*$"
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
               "persistence": {
                 "additionalProperties": false,
                 "description": "Data-lifetime declaration for this supporting service.",

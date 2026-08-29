@@ -53,6 +53,65 @@ services:
   cache:  {driver: redis, version: "7.4"}
 ```
 
+## Install PostgreSQL extensions
+
+PostgreSQL 18 uses `ghcr.io/labstack/onebox-postgres:18`. No optional extension
+is installed by default. Declare the extensions the application requires and
+Onebox installs them in its managed database before application migrations run:
+
+```yaml
+services:
+  database:
+    driver: postgres
+    version: 18
+    features:
+      extensions:
+        pg_trgm: {}
+        vector: {}
+```
+
+The application does not need a separate `CREATE EXTENSION` migration. Onebox
+creates only missing extensions; it never upgrades or removes an installed
+extension during an ordinary apply. An extension absent from the selected image
+is reported before application migrations start. A deploy automatically
+converges a database with declared extensions before running migration jobs.
+
+The PostgreSQL 18 image includes the common built-in extensions plus a curated
+2026 set: pgvector, pgvectorscale, PostGIS, pg_cron, pgAudit, pg_repack,
+pg_partman, and HypoPG. Onebox automatically configures required preload
+libraries for pg_cron, pgAudit, and `pg_stat_statements`. Optional PostGIS
+extensions such as `postgis_topology` are available through the same declaration.
+
+Use the PostgreSQL extension name in the declaration. For example, the pgvector
+project provides `vector`, while pgvectorscale provides `vectorscale`. Declaring
+`vectorscale` automatically establishes its `vector` dependency:
+
+```yaml
+features:
+  extensions:
+    vectorscale: {}
+```
+
+TimescaleDB is not bundled in this first distribution. Its Apache-only package
+currently creates a maintenance job that repeatedly fails, while its Community
+package has a license unsuitable for a general customer database image. Use a
+dedicated TimescaleDB service until the upstream Apache package is clean.
+
+An existing backup-protected PostgreSQL 18 service may still be pinned to the
+older official image. Migrate it deliberately: disable backup while the old
+project file is still active, add the extension declaration and deploy, then
+enable backup again:
+
+```console
+ob backup disable database --confirm database
+# add features.extensions to onebox.yml
+ob deploy
+ob backup enable database
+```
+
+The off-host backup repository is retained throughout this one-time image
+transition.
+
 Eleven drivers are supported: `postgres`, `mysql`, `mariadb`, `redis`, `valkey`,
 `mongodb`, `rabbitmq`, `minio`, `meilisearch`, `clickhouse`, `nats`. Anything
 else is refused with `unknown_service_driver` — guessing an image from a name

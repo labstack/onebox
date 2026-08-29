@@ -140,7 +140,7 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	st(nil)
 
 	st = e.ui.Step("recovery: replay to "+recoveryTargetLabel(targetTime), false)
-	if err := e.replayRecovery(ctx, container, targetTime); err != nil {
+	if err := e.replayRecovery(ctx, container, service, targetTime); err != nil {
 		st(err)
 		return outcome, err
 	}
@@ -150,7 +150,7 @@ func (e *Engine) RecoverService(ctx context.Context, service, targetTime string,
 	// the data, and "the restore command exited zero" is exactly the assurance
 	// this product exists to distrust.
 	st = e.ui.Step("recovery: verify the recovered cluster answers", false)
-	recoveredTo, rows, err := e.probeRecoveredCluster(ctx, container, targetTime)
+	recoveredTo, rows, err := e.probeRecoveredCluster(ctx, container, service, targetTime)
 	if err != nil {
 		st(err)
 		return outcome, err
@@ -399,7 +399,7 @@ func parseWalgBackupList(out string) ([]walgBackupEntry, error) {
 // recovery_target_time is omitted entirely when no target was asked for, which
 // means "replay everything available" — the newest recoverable point rather
 // than an arbitrary one.
-func (e *Engine) replayRecovery(ctx context.Context, container, targetTime string) error {
+func (e *Engine) replayRecovery(ctx context.Context, container, service, targetTime string) error {
 	settings := []string{
 		"restore_command = '" + app.WalgBinary + " wal-fetch %f %p'",
 		"recovery_target_action = 'promote'",
@@ -448,7 +448,16 @@ func (e *Engine) replayRecovery(ctx context.Context, container, targetTime strin
 		return fmt.Errorf("cannot write the recovery configuration: %s", lastLines(res.Stderr, 3))
 	}
 	start := "docker exec -u postgres " + q(container) +
-		" pg_ctl -D " + q(app.PgDataPath) + " -l /tmp/ob-recovery.log -w -t 300 start"
+		" pg_ctl -D " + q(app.PgDataPath) + " -l /tmp/ob-recovery.log -w -t 300"
+	serviceSettings := e.Spec.PostgresServiceSettings(service)
+	if len(serviceSettings) > 0 {
+		var postgresOptions []string
+		for _, key := range sortedEnvKeys(serviceSettings) {
+			postgresOptions = append(postgresOptions, "-c", fmt.Sprintf("%s=%v", key, serviceSettings[key]))
+		}
+		start += " -o " + q(shellQuoteAll(postgresOptions))
+	}
+	start += " start"
 	res, err = e.T.Run(ctx, start)
 	if err != nil {
 		return err
@@ -465,7 +474,7 @@ func (e *Engine) replayRecovery(ctx context.Context, container, targetTime strin
 //
 // This is the difference between "the restore command exited zero" and "the
 // data is there", which is the whole distinction this product exists to make.
-func (e *Engine) probeRecoveredCluster(ctx context.Context, container, targetTime string) (string, string, error) {
+func (e *Engine) probeRecoveredCluster(ctx context.Context, container, service, targetTime string) (string, string, error) {
 	query := func(sql string) (string, error) {
 		command := "docker exec -u postgres " + q(container) +
 			" psql -U " + q(app.PgSuperuser) + " -d " + q(e.Spec.Spec.Name) + " -tAc " + q(sql)
@@ -502,6 +511,15 @@ func (e *Engine) probeRecoveredCluster(ctx context.Context, container, targetTim
 		return "", "", fmt.Errorf(
 			"the recovered cluster is still replaying after %s, so it never reached the requested point; "+
 				"the WAL needed to reach it may not be archived", recoveryPromotionBudget)
+	}
+	for _, extension := range e.Spec.ServiceExtensions(service) {
+		installed, err := query("SELECT extversion FROM pg_extension WHERE extname = '" + strings.ReplaceAll(extension, "'", "''") + "';")
+		if err != nil {
+			return "", "", err
+		}
+		if installed == "" {
+			return "", "", fmt.Errorf("the recovered cluster is missing declared extension %s", extension)
+		}
 	}
 	tables, err := query("SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
 	if err != nil {

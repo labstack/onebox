@@ -1,0 +1,173 @@
+name: PostgreSQL image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - build/package/postgres.Dockerfile
+      - .github/workflows/postgres-image.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: postgres-18-image
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify PostgreSQL 18 image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build test image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: build/package/postgres.Dockerfile
+          load: true
+          tags: onebox-postgres:test
+
+      - name: Verify bundled extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=onebox-postgres-test
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$container" -e POSTGRES_PASSWORD=test onebox-postgres:test \
+            -c shared_preload_libraries=pg_cron,pgaudit,pg_stat_statements \
+            -c cron.database_name=postgres \
+            -c cron.use_background_workers=on
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker exec "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION vector' \
+            -c 'CREATE EXTENSION vectorscale' \
+            -c 'CREATE EXTENSION postgis' \
+            -c 'CREATE EXTENSION pg_cron' \
+            -c 'CREATE EXTENSION pgaudit' \
+            -c 'CREATE EXTENSION pg_repack' \
+            -c 'CREATE EXTENSION pg_partman' \
+            -c 'CREATE EXTENSION hypopg' \
+            -c 'CREATE EXTENSION pg_stat_statements' \
+            -c "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector" \
+            -c 'CREATE TABLE onebox_vectorscale(id bigint, embedding vector(3))' \
+            -c "INSERT INTO onebox_vectorscale VALUES (1, '[1,2,3]'), (2, '[4,5,6]'), (3, '[7,8,9]')" \
+            -c 'CREATE INDEX onebox_vectorscale_diskann ON onebox_vectorscale USING diskann (embedding vector_l2_ops)' \
+            -c "SELECT indexdef FROM pg_indexes WHERE indexname = 'onebox_vectorscale_diskann'" \
+            -c 'SET enable_seqscan = off' \
+            -c "SELECT id FROM onebox_vectorscale ORDER BY embedding <-> '[1,2,3]' LIMIT 1" \
+            -c "SELECT ST_AsText(ST_Point(1, 2))" \
+            -c "SELECT cron.schedule('onebox-smoke', '0 0 * * *', 'SELECT 1')" \
+            -c "SELECT cron.unschedule('onebox-smoke')" \
+            -c 'CREATE TABLE onebox_hypopg(id bigint)' \
+            -c "SELECT indexrelid IS NOT NULL FROM hypopg_create_index('CREATE INDEX ON onebox_hypopg(id)')" \
+            -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'vectorscale', 'postgis', 'pg_cron', 'pgaudit', 'pg_repack', 'pg_partman', 'hypopg', 'pg_stat_statements') ORDER BY extname"
+          docker exec "$container" pg_repack --version
+
+  publish:
+    name: Publish PostgreSQL 18 image
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish commit-addressed candidate
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: build/package/postgres.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/labstack/onebox-postgres:18-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify exact published platform images
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="ghcr.io/labstack/onebox-postgres:18-${GITHUB_SHA}"
+          for platform in linux/amd64 linux/arm64; do
+            architecture="${platform#linux/}"
+            container="onebox-postgres-${architecture}"
+            trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+            docker run -d --platform "$platform" --name "$container" -e POSTGRES_PASSWORD=test "$candidate" \
+              -c shared_preload_libraries=pg_cron,pgaudit,pg_stat_statements \
+              -c cron.database_name=postgres \
+              -c cron.use_background_workers=on
+            for attempt in $(seq 1 60); do
+              if docker exec "$container" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+                break
+              fi
+              if [ "$attempt" -eq 60 ]; then
+                docker logs "$container"
+                exit 1
+              fi
+              sleep 1
+            done
+            docker exec "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -c 'CREATE EXTENSION vector' \
+              -c 'CREATE EXTENSION vectorscale' \
+              -c 'CREATE EXTENSION postgis' \
+              -c 'CREATE EXTENSION pg_cron' \
+              -c 'CREATE EXTENSION pgaudit' \
+              -c 'CREATE EXTENSION pg_repack' \
+              -c 'CREATE EXTENSION pg_partman' \
+              -c 'CREATE EXTENSION hypopg' \
+              -c 'CREATE EXTENSION pg_stat_statements' \
+              -c "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector" \
+              -c 'CREATE TABLE onebox_vectorscale(id bigint, embedding vector(3))' \
+              -c "INSERT INTO onebox_vectorscale VALUES (1, '[1,2,3]'), (2, '[4,5,6]'), (3, '[7,8,9]')" \
+              -c 'CREATE INDEX onebox_vectorscale_diskann ON onebox_vectorscale USING diskann (embedding vector_l2_ops)' \
+              -c "SELECT indexdef FROM pg_indexes WHERE indexname = 'onebox_vectorscale_diskann'" \
+              -c 'SET enable_seqscan = off' \
+              -c "SELECT id FROM onebox_vectorscale ORDER BY embedding <-> '[1,2,3]' LIMIT 1" \
+              -c "SELECT ST_AsText(ST_Point(1, 2))" \
+              -c "SELECT cron.schedule('onebox-smoke', '0 0 * * *', 'SELECT 1')" \
+              -c "SELECT cron.unschedule('onebox-smoke')" \
+              -c 'CREATE TABLE onebox_hypopg(id bigint)' \
+              -c "SELECT indexrelid IS NOT NULL FROM hypopg_create_index('CREATE INDEX ON onebox_hypopg(id)')"
+            docker exec "$container" pg_repack --version
+            docker rm -f "$container"
+            trap - EXIT
+          done
+
+      - name: Promote tested manifest to PostgreSQL 18
+        run: docker buildx imagetools create --tag ghcr.io/labstack/onebox-postgres:18 "ghcr.io/labstack/onebox-postgres:18-${GITHUB_SHA}"
+
+      - name: Verify public anonymous access
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          visibility=$(gh api orgs/labstack/packages/container/onebox-postgres --jq .visibility)
+          if [ "$visibility" != public ]; then
+            echo "::error::Make the onebox-postgres package public at https://github.com/orgs/labstack/packages/container/onebox-postgres/settings and re-run this workflow."
+            exit 1
+          fi
+          docker logout ghcr.io
+          docker buildx imagetools inspect ghcr.io/labstack/onebox-postgres:18

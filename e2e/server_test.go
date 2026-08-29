@@ -94,6 +94,21 @@ func (s *server) psql(t *testing.T, query string) string {
 		`docker exec `+container+` sh -c 'echo `+encoded+` | base64 -d | psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA'`))
 }
 
+// psqlClient proves the connection contract workloads receive rather than the
+// local administrative socket used by psql above.
+func (s *server) psqlClient(t *testing.T, query string) string {
+	t.Helper()
+	container := strings.TrimSpace(s.run(t,
+		`docker ps -q --filter label=com.docker.compose.service=postgres | head -1`))
+	if container == "" {
+		t.Fatal("no postgres container is running")
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(query))
+	return strings.TrimSpace(s.run(t,
+		`docker exec `+container+` sh -c 'set -- $(hostname -i); export PGPASSWORD="$POSTGRES_PASSWORD"; echo `+encoded+
+			` | base64 -d | psql -X -w -h "$1" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA'`))
+}
+
 // rotateWAL closes the current segment so there is something to archive.
 //
 // pg_switch_wal() alone is not enough: PostgreSQL skips the switch when
@@ -398,9 +413,17 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		s.psql(t, "create table if not exists survivors(note text)")
 		s.psql(t, "insert into survivors values (concat('written', ' ', 'before'))")
 		s.mustOb(t, dir, "backup", "create", "postgres")
-		s.mustOb(t, dir, "backup", "restore", "postgres", "--confirm", "postgres")
+		generation := s.psql(t, "select system_identifier::text from pg_control_system()")
+		// A new host owns a different generated credential while the physical
+		// generation still carries the source role hash. Rotating only the target
+		// file reproduces that boundary without requiring a second test server.
+		s.run(t, "printf 'POSTGRES_PASSWORD=%s\\n' 0123456789abcdef0123456789abcdef0123456789abcdef > /var/lib/ob/observer/services/postgres.secret.env")
+		s.mustOb(t, dir, "backup", "restore", "postgres", "--generation", generation, "--confirm", "postgres")
 		if note := s.psql(t, "select note from survivors limit 1"); note != "written before" {
 			t.Fatalf("the recovered cluster does not hold the row: %q", note)
+		}
+		if note := s.psqlClient(t, "select note from survivors limit 1"); note != "written before" {
+			t.Fatalf("the recovered cluster rejects the target-managed client credential: %q", note)
 		}
 	})
 

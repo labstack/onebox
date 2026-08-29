@@ -31,7 +31,7 @@ func TestRecoveryClearsAnyTargetTheBaseBackupCarried(t *testing.T) {
 	fake := &transport.Fake{}
 	e := recoveryConfigTestEngine(fake)
 
-	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", ""); err != nil {
+	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "database", ""); err != nil {
 		t.Fatalf("replaying to the newest recoverable point: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestAStatedRecoveryTargetSurvivesTheClearing(t *testing.T) {
 	fake := &transport.Fake{}
 	e := recoveryConfigTestEngine(fake)
 
-	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "2026-08-20T13:58:00Z"); err != nil {
+	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "database", "2026-08-20T13:58:00Z"); err != nil {
 		t.Fatalf("replaying to a point in time: %v", err)
 	}
 
@@ -83,6 +83,31 @@ func TestAStatedRecoveryTargetSurvivesTheClearing(t *testing.T) {
 	}
 	if strings.Index(plain, target) < strings.Index(plain, "recovery_target_name = ") {
 		t.Fatalf("the clearing overrides the stated target:\n%s", plain)
+	}
+}
+
+func TestRecoveryStartsWithDeclaredExtensionPreloads(t *testing.T) {
+	fake := &transport.Fake{}
+	e := recoveryConfigTestEngine(fake)
+	service := e.Spec.Services["database"]
+	service.Features = &app.ServiceFeatures{Extensions: map[string]app.ServiceExtension{
+		"pg_cron":            {},
+		"pg_stat_statements": {},
+	}}
+	e.Spec.Services["database"] = service
+
+	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "database", ""); err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Join(fake.Commands, "\n")
+	for _, setting := range []string{
+		"shared_preload_libraries=pg_cron,pg_stat_statements",
+		"cron.database_name=shop",
+		"cron.use_background_workers=on",
+	} {
+		if !strings.Contains(commands, setting) {
+			t.Errorf("recovery server command is missing %q:\n%s", setting, commands)
+		}
 	}
 }
 

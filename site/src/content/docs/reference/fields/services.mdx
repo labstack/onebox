@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_downtime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `keep` · `max_age` · `max_data_loss` · `memory` · `mode` · `persistence` · `recovery_kind` · `resources` · `retention` · `schedule` · `settings` · `target` · `timezone` · `version` · `volumes` · `window`
+`allow_downtime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `extensions` · `features` · `keep` · `max_age` · `max_data_loss` · `memory` · `mode` · `persistence` · `recovery_kind` · `resources` · `retention` · `schedule` · `settings` · `target` · `timezone` · `version` · `volumes` · `window`
 
 ## Reference
 
@@ -41,6 +41,8 @@ cannot drift from what `ob validate` accepts.
 | `<name>.backup.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.backup.target` | string | — | Name of a project-level backup target. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.driver` | string | — | Built-in service driver. Defaults to the service map key. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
+| `<name>.features` | object | — | Capabilities Onebox must establish before application workloads run. |
+| `<name>.features.extensions` | map | — | PostgreSQL extensions Onebox installs in the managed application database before application migrations run. |
 | `<name>.persistence` | object | — | Data-lifetime declaration for this supporting service. |
 | `<name>.persistence.mode` | `durable` · `ephemeral` · `external` | `durable` | Data lifetime: durable, ephemeral, or external. |
 | `<name>.resources` | object | — | Memory and CPU limits for this supporting service. |

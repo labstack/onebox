@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -65,7 +66,7 @@ func validateSpec(p *Spec) error {
 		if err := gIdent.check("services."+name, name); err != nil {
 			return err
 		}
-		if err := validateService(p.Services[name], "services."+name); err != nil {
+		if err := validateService(p.Name, name, p.Services[name], "services."+name); err != nil {
 			return err
 		}
 	}
@@ -495,13 +496,43 @@ func validateHealth(h *Health, path string) error {
 	return nil
 }
 
-func validateService(s Service, path string) error {
+func validateService(appName, name string, s Service, path string) error {
 	if err := gIdent.checkOptional(path+".driver", s.Driver); err != nil {
 		return err
 	}
 	if s.Version == nil || versionString(s.Version) == "" {
 		return errf("project_invalid", path+".version", "",
 			"a service must declare its version; an unpinned database is a future surprise")
+	}
+	if s.Features != nil {
+		driver, _, known := driverOf(name, s)
+		if !known || driver != "postgres" {
+			return errf("project_invalid", path+".features", "",
+				"service features are supported only by the postgres driver")
+		}
+		if len(s.Features.Extensions) > 0 && versionString(s.Version) != "18" {
+			return errf("project_invalid", path+".features.extensions", "",
+				"PostgreSQL extensions require version 18, the version published by the Onebox PostgreSQL image")
+		}
+		for _, extension := range sortedKeys(s.Features.Extensions) {
+			if err := gExtension.check(path+".features.extensions."+extension, extension); err != nil {
+				return err
+			}
+		}
+		if _, requested := s.Features.Extensions["pg_cron"]; requested {
+			if database, authored := s.Settings["cron.database_name"]; authored && fmt.Sprint(database) != appName {
+				return errf("project_invalid", path+".settings.cron.database_name", "",
+					"pg_cron must use the managed application database %q", appName)
+			}
+			if workers, authored := s.Settings["cron.use_background_workers"]; authored {
+				switch strings.ToLower(fmt.Sprint(workers)) {
+				case "1", "on", "true", "yes":
+				default:
+					return errf("project_invalid", path+".settings.cron.use_background_workers", "",
+						"pg_cron requires background workers in a Onebox-managed database")
+				}
+			}
+		}
 	}
 	for i, v := range s.Volumes {
 		if err := gIdent.check(indexed(path+".volumes", i), v); err != nil {

@@ -402,7 +402,7 @@
   {
     "case": "conformance/service scalar",
     "loads": true,
-    "digest": "8ccece3e82ae24e63d91e2a5cc565adfd1b30cd185b644846c24ccce9e3b1742 postgres=51d530eb9102fbd1"
+    "digest": "8ccece3e82ae24e63d91e2a5cc565adfd1b30cd185b644846c24ccce9e3b1742 postgres=16f6016ba043ba3b"
   },
   {
     "case": "conformance/settings key that is a real driver flag",

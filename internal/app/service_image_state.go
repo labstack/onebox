@@ -161,15 +161,7 @@ func (r *Resolved) DeclaredServiceImage(serviceName string) (string, error) {
 	if !ok {
 		return "", errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
 	}
-	driverName := service.Driver
-	if driverName == "" {
-		driverName = serviceName
-	}
-	driver, ok := drivers[driverName]
-	if !ok {
-		return "", errf("unknown_service_driver", "services."+serviceName, "ob validate", "no managed driver named %q", driverName)
-	}
-	return driver.image + ":" + versionString(service.Version), nil
+	return declaredServiceImage(serviceName, service)
 }
 
 // ServiceImageForRuntime exposes the same selection used by generation so
@@ -179,15 +171,20 @@ func (r *Resolved) ServiceImageForRuntime(serviceName string) (ServiceImageSelec
 	if !ok {
 		return ServiceImageSelection{}, errf("project_invalid", "services."+serviceName, "ob validate", "service is not declared")
 	}
-	driverName := service.Driver
-	if driverName == "" {
-		driverName = serviceName
+	image, err := declaredServiceImage(serviceName, service)
+	if err != nil {
+		return ServiceImageSelection{}, err
 	}
-	driver, ok := drivers[driverName]
-	if !ok {
-		return ServiceImageSelection{}, errf("unknown_service_driver", "services."+serviceName, "ob validate", "no managed driver named %q", driverName)
+	if len(r.ServiceExtensions(serviceName)) > 0 {
+		state, observed := r.serviceRuntime[serviceName]
+		protected := observed && state.BackupState != "never-enabled" && state.BackupState != "disabled"
+		if protected && state.RefreshCandidate == nil && !strings.HasPrefix(state.ServiceImage, oneboxPostgresImage+"@") {
+			return ServiceImageSelection{}, errf("service_patch_unsupported", "services."+serviceName+".features.extensions",
+				"ob backup disable "+serviceName+" --confirm "+serviceName,
+				"this protected PostgreSQL service was pinned before extension support; temporarily revert the extension declaration, disable backup, restore the declaration, deploy, then enable backup again")
+		}
 	}
-	return r.selectServiceImage(serviceName, driver.image+":"+versionString(service.Version))
+	return r.selectServiceImage(serviceName, image)
 }
 
 // serviceImageDigest matches a full sha256 reference, which is what "pinned"

@@ -46,7 +46,7 @@ func TestOnlyDigestPinnedReferencesSkipTheRegistry(t *testing.T) {
 // up the same way in a live run: `ob backup enable` on an already-enabled
 // service failed on a Docker Hub 429 while the host held the pinned image.
 func TestReEnableKeepsTheRecordedPinAndDoesNotReachTheRegistry(t *testing.T) {
-	const pin = "postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
+	const pin = "ghcr.io/labstack/onebox-postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
 	fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "docker image inspect") && strings.Contains(cmd, pin) {
 			return transport.Result{Stdout: "present\n"}, true
@@ -57,7 +57,7 @@ func TestReEnableKeepsTheRecordedPinAndDoesNotReachTheRegistry(t *testing.T) {
 
 	// Recorded as the authored reference, which is what an enable after a
 	// disable still declares even though the runtime selection has reverted.
-	got, err := e.ResolveProtectedImage(context.Background(), "database", pin, "postgres:18")
+	got, err := e.ResolveProtectedImage(context.Background(), "database", pin, "ghcr.io/labstack/onebox-postgres:18")
 	if err != nil {
 		t.Fatalf("resolving an already-bound image: %v", err)
 	}
@@ -75,20 +75,20 @@ func TestReEnableKeepsTheRecordedPinAndDoesNotReachTheRegistry(t *testing.T) {
 // produced it. Changing the declared version is how an operator asks for
 // different bytes, and that has to reach the registry.
 func TestADeclaredVersionChangeStillResolvesThroughTheRegistry(t *testing.T) {
-	const stalePin = "postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
+	const stalePin = "ghcr.io/labstack/onebox-postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941"
 	fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "docker pull"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "RepoDigests"):
-			return transport.Result{Stdout: "postgres@sha256:" + strings.Repeat("b", 64) + "\n"}, true
+			return transport.Result{Stdout: "ghcr.io/labstack/onebox-postgres@sha256:" + strings.Repeat("b", 64) + "\n"}, true
 		}
 		return transport.Result{Stdout: "absent\n"}, true
 	}}
 	e := protectedImageTestEngine(fake)
 
 	// Recorded against postgres:17; the project now declares 18.
-	got, err := e.ResolveProtectedImage(context.Background(), "database", stalePin, "postgres:17")
+	got, err := e.ResolveProtectedImage(context.Background(), "database", stalePin, "ghcr.io/labstack/onebox-postgres:17")
 	if err != nil {
 		t.Fatalf("resolving after a declared version change: %v", err)
 	}

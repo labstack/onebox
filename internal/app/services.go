@@ -242,6 +242,8 @@ var drivers = map[string]driver{
 	},
 }
 
+const oneboxPostgresImage = "ghcr.io/labstack/onebox-postgres"
+
 // UpgradeInPlace reports whether a service's driver can start on a data
 // directory written by a previous major version.
 func (p *Spec) UpgradeInPlace(name string) bool {
@@ -260,6 +262,33 @@ func (p *Spec) DeclaredVersion(name string) string {
 		return ""
 	}
 	return versionString(s.Version)
+}
+
+// ServiceExtensions returns the sorted extension requirements for a managed
+// PostgreSQL service. Installation is an apply-time operation, not a rendering
+// side effect, so the same Compose document remains deterministic.
+func (p *Spec) ServiceExtensions(name string) []string {
+	s, ok := p.Services[name]
+	if !ok || s.Features == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.Features.Extensions))
+	for extension := range s.Features.Extensions {
+		out = append(out, extension)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// HasServiceExtensions reports whether deploy must converge a PostgreSQL
+// capability before it can safely start application migrations.
+func (p *Spec) HasServiceExtensions() bool {
+	for name := range p.Services {
+		if len(p.ServiceExtensions(name)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // MajorOf is the leading component of a version, which is the part that decides
@@ -293,6 +322,22 @@ func driverOf(name string, s Service) (string, driver, bool) {
 	return key, d, ok
 }
 
+// declaredServiceImage is the authored tag reference for a managed service.
+// PostgreSQL 18 is the first Onebox-owned distribution. Older declarations
+// retain the official repository instead of being redirected to tags Onebox
+// does not publish.
+func declaredServiceImage(name string, s Service) (string, error) {
+	key, d, ok := driverOf(name, s)
+	if !ok {
+		return "", errf("unknown_service_driver", "services."+name, "ob validate", "no managed driver named %q", key)
+	}
+	repository := d.image
+	if key == "postgres" && versionString(s.Version) == "18" {
+		repository = oneboxPostgresImage
+	}
+	return repository + ":" + versionString(s.Version), nil
+}
+
 // HasHealth reports whether the service's driver can be waited for. A `needs`
 // on a service with no health check resolves to "started": claiming otherwise
 // would produce a runtime that never starts.
@@ -318,7 +363,7 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 
 	image := selectedImage
 	if image == "" {
-		image = d.image + ":" + versionString(s.Version)
+		image, _ = declaredServiceImage(name, s)
 	}
 	if err := checkImageRef("services."+name+".version", image); err != nil {
 		return nil, err
@@ -357,7 +402,11 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 	}
 	command := append([]string(nil), d.command...)
 
-	if err := applySettings(name, d, s, s.Settings, env, &command); err != nil {
+	settings := s.Settings
+	if key == "postgres" {
+		settings = postgresFeatureSettings(p.Name, s)
+	}
+	if err := applySettings(name, d, s, settings, env, &command); err != nil {
 		return nil, err
 	}
 

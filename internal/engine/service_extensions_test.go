@@ -47,6 +47,38 @@ func TestApplyInstallsDeclaredExtensionsBeforeSuccess(t *testing.T) {
 	}
 }
 
+func TestApplyInstallsVectorscaleAfterItsImpliedVectorDependency(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "pg_available_extensions") && strings.Contains(cmd, "vectorscale"):
+			return transport.Result{Stdout: "0.9.0\n"}, true
+		case strings.Contains(cmd, "pg_available_extensions") && strings.Contains(cmd, "vector"):
+			return transport.Result{Stdout: "0.8.6\n"}, true
+		case strings.Contains(cmd, "pg_extension"):
+			return transport.Result{}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	service := cfg.Services["postgres"]
+	service.Features = &app.ServiceFeatures{Extensions: map[string]app.ServiceExtension{
+		"vectorscale": {},
+	}}
+	cfg.Services["postgres"] = service
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	if err := e.ApplyServices(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Join(f.Commands, "\n")
+	vector := strings.Index(commands, `CREATE EXTENSION "vector"`)
+	vectorscale := strings.Index(commands, `CREATE EXTENSION "vectorscale"`)
+	if vector < 0 || vectorscale < 0 || vector > vectorscale {
+		t.Fatalf("vectorscale dependency order is wrong:\n%s", commands)
+	}
+}
+
 func TestApplyRefusesAnUnavailableExtension(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic

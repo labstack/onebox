@@ -272,12 +272,7 @@ func (p *Spec) ServiceExtensions(name string) []string {
 	if !ok || s.Features == nil {
 		return nil
 	}
-	out := make([]string, 0, len(s.Features.Extensions))
-	for extension := range s.Features.Extensions {
-		out = append(out, extension)
-	}
-	sort.Strings(out)
-	return out
+	return postgresFeatureExtensions(s)
 }
 
 // HasServiceExtensions reports whether deploy must converge a PostgreSQL

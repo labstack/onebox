@@ -77,10 +77,20 @@ is reported before application migrations start. A deploy automatically
 converges a database with declared extensions before running migration jobs.
 
 The PostgreSQL 18 image includes the common built-in extensions plus a curated
-2026 set: pgvector, PostGIS, pg_cron, pgAudit, pg_repack, pg_partman, and
-HypoPG. Onebox automatically configures required preload libraries for pg_cron,
-pgAudit, and `pg_stat_statements`. Optional PostGIS extensions such as
-`postgis_topology` are available through the same declaration.
+2026 set: pgvector, pgvectorscale, PostGIS, pg_cron, pgAudit, pg_repack,
+pg_partman, and HypoPG. Onebox automatically configures required preload
+libraries for pg_cron, pgAudit, and `pg_stat_statements`. Optional PostGIS
+extensions such as `postgis_topology` are available through the same declaration.
+
+Use the PostgreSQL extension name in the declaration. For example, the pgvector
+project provides `vector`, while pgvectorscale provides `vectorscale`. Declaring
+`vectorscale` automatically establishes its `vector` dependency:
+
+```yaml
+features:
+  extensions:
+    vectorscale: {}
+```
 
 TimescaleDB is not bundled in this first distribution. Its Apache-only package
 currently creates a maintenance job that repeatedly fails, while its Community

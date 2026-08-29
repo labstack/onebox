@@ -53,6 +53,7 @@ jobs:
           done
           docker exec "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
             -c 'CREATE EXTENSION vector' \
+            -c 'CREATE EXTENSION vectorscale' \
             -c 'CREATE EXTENSION postgis' \
             -c 'CREATE EXTENSION pg_cron' \
             -c 'CREATE EXTENSION pgaudit' \
@@ -61,12 +62,18 @@ jobs:
             -c 'CREATE EXTENSION hypopg' \
             -c 'CREATE EXTENSION pg_stat_statements' \
             -c "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector" \
+            -c 'CREATE TABLE onebox_vectorscale(id bigint, embedding vector(3))' \
+            -c "INSERT INTO onebox_vectorscale VALUES (1, '[1,2,3]'), (2, '[4,5,6]'), (3, '[7,8,9]')" \
+            -c 'CREATE INDEX onebox_vectorscale_diskann ON onebox_vectorscale USING diskann (embedding vector_l2_ops)' \
+            -c "SELECT indexdef FROM pg_indexes WHERE indexname = 'onebox_vectorscale_diskann'" \
+            -c 'SET enable_seqscan = off' \
+            -c "SELECT id FROM onebox_vectorscale ORDER BY embedding <-> '[1,2,3]' LIMIT 1" \
             -c "SELECT ST_AsText(ST_Point(1, 2))" \
             -c "SELECT cron.schedule('onebox-smoke', '0 0 * * *', 'SELECT 1')" \
             -c "SELECT cron.unschedule('onebox-smoke')" \
             -c 'CREATE TABLE onebox_hypopg(id bigint)' \
             -c "SELECT indexrelid IS NOT NULL FROM hypopg_create_index('CREATE INDEX ON onebox_hypopg(id)')" \
-            -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'postgis', 'pg_cron', 'pgaudit', 'pg_repack', 'pg_partman', 'hypopg', 'pg_stat_statements') ORDER BY extname"
+            -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'vectorscale', 'postgis', 'pg_cron', 'pgaudit', 'pg_repack', 'pg_partman', 'hypopg', 'pg_stat_statements') ORDER BY extname"
           docker exec "$container" pg_repack --version
 
   publish:
@@ -125,6 +132,7 @@ jobs:
             done
             docker exec "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
               -c 'CREATE EXTENSION vector' \
+              -c 'CREATE EXTENSION vectorscale' \
               -c 'CREATE EXTENSION postgis' \
               -c 'CREATE EXTENSION pg_cron' \
               -c 'CREATE EXTENSION pgaudit' \
@@ -133,6 +141,12 @@ jobs:
               -c 'CREATE EXTENSION hypopg' \
               -c 'CREATE EXTENSION pg_stat_statements' \
               -c "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector" \
+              -c 'CREATE TABLE onebox_vectorscale(id bigint, embedding vector(3))' \
+              -c "INSERT INTO onebox_vectorscale VALUES (1, '[1,2,3]'), (2, '[4,5,6]'), (3, '[7,8,9]')" \
+              -c 'CREATE INDEX onebox_vectorscale_diskann ON onebox_vectorscale USING diskann (embedding vector_l2_ops)' \
+              -c "SELECT indexdef FROM pg_indexes WHERE indexname = 'onebox_vectorscale_diskann'" \
+              -c 'SET enable_seqscan = off' \
+              -c "SELECT id FROM onebox_vectorscale ORDER BY embedding <-> '[1,2,3]' LIMIT 1" \
               -c "SELECT ST_AsText(ST_Point(1, 2))" \
               -c "SELECT cron.schedule('onebox-smoke', '0 0 * * *', 'SELECT 1')" \
               -c "SELECT cron.unschedule('onebox-smoke')" \

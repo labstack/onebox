@@ -15,6 +15,41 @@ var postgresExtensionPreloads = map[string]string{
 	"pg_stat_statements": "pg_stat_statements",
 }
 
+// Extension dependencies are part of the selected image contract. Users ask
+// for the capability they need; Onebox establishes its exact PostgreSQL
+// prerequisites without requiring duplicate declarations in the project file.
+var postgresExtensionDependencies = map[string][]string{
+	"vectorscale": {"vector"},
+}
+
+func postgresFeatureExtensions(service Service) []string {
+	roots := make([]string, 0, len(service.Features.Extensions))
+	for extension := range service.Features.Extensions {
+		roots = append(roots, extension)
+	}
+	sort.Strings(roots)
+
+	seen := make(map[string]bool, len(roots)+1)
+	out := make([]string, 0, len(roots)+1)
+	var add func(string)
+	add = func(extension string) {
+		if seen[extension] {
+			return
+		}
+		seen[extension] = true
+		dependencies := append([]string(nil), postgresExtensionDependencies[extension]...)
+		sort.Strings(dependencies)
+		for _, dependency := range dependencies {
+			add(dependency)
+		}
+		out = append(out, extension)
+	}
+	for _, extension := range roots {
+		add(extension)
+	}
+	return out
+}
+
 // PostgresPreloadExtensions lists declarations whose installed database object
 // cannot safely outlive its feature declaration. Engine preflight uses this to
 // refuse a restart that would silently unload an installed extension.

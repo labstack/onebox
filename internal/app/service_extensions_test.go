@@ -2,9 +2,26 @@ package app
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestVectorscaleIncludesItsVectorDependency(t *testing.T) {
+	spec := &Spec{Services: map[string]Service{
+		"database": {
+			Driver:  "postgres",
+			Version: "18",
+			Features: &ServiceFeatures{Extensions: map[string]ServiceExtension{
+				"vectorscale": {},
+			}},
+		},
+	}}
+	want := []string{"vector", "vectorscale"}
+	if got := spec.ServiceExtensions("database"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ServiceExtensions() = %v, want %v", got, want)
+	}
+}
 
 func TestPostgresExtensionsSelectTheOneboxImage(t *testing.T) {
 	rendered := renderServices(t, `api_version: onebox.run/v1

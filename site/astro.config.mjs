@@ -71,6 +71,11 @@ export default defineConfig({
         // take the slack so it sits at the bottom of a short page.
         PageFrame: "./src/components/PageFrame.astro",
       },
+      // Starlight derives the canonical URL from the on-disk file name, which
+      // under `build.format: "file"` carries a `.html` no link, sitemap entry
+      // or agent-facing URL on this site uses. See the middleware for why the
+      // tags are rewritten rather than re-declared.
+      routeMiddleware: "./src/starlight-route-data.ts",
       lastUpdated: true,
       pagination: true,
       favicon: "/favicon.svg",

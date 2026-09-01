@@ -80,12 +80,23 @@ func runtimeRemedyFor(detail string) string {
 // deploy needs, and reports each as a Check rather than as an error, so a
 // caller sees the whole set at once.
 //
-// An error is returned only when the server cannot be reached at all. A
-// container runtime that is absent or unusable short-circuits the rest: without
-// it the remaining answers are noise, not diagnosis.
+// An error is returned only when the server cannot be reached at all, and the
+// checks answered before that point come back with it rather than being
+// discarded: a connection that drops on the third probe has not invalidated the
+// first two. A container runtime that is absent or unusable short-circuits the
+// rest — without it the remaining answers are noise, not diagnosis.
 //
 // Nothing here mutates, and nothing contacts a registry.
 func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
+	return checkHostPrerequisites(ctx, run, true)
+}
+
+// checkHostPrerequisites takes reportVersions because only a caller rendering a
+// report reads the version of a prerequisite that passed. The refusing path
+// discards a satisfied check's detail entirely, so fetching the Buildx version
+// for it spends an SSH round trip on a string nobody sees — on every deploy.
+// A failing check always gets the version, which is where it earns its cost.
+func checkHostPrerequisites(ctx context.Context, run Runner, reportVersions bool) ([]Check, error) {
 	res, err := run.Run(ctx, dockerVersionCommand)
 	if err != nil {
 		return nil, err
@@ -108,7 +119,7 @@ func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
 	// `ob deploy` then refused.
 	res, err = run.Run(ctx, composeVersionCommand)
 	if err != nil {
-		return nil, err
+		return checks, err
 	}
 	if res.ExitCode != 0 {
 		checks = append(checks, Check{
@@ -127,7 +138,7 @@ func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
 	if err != nil {
 		var capabilityErr *BuildxCapabilityError
 		if !errors.As(err, &capabilityErr) {
-			return nil, err
+			return checks, err
 		}
 		return append(checks, Check{
 			Name:   PrerequisiteResolver,
@@ -135,9 +146,11 @@ func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
 			Remedy: BuildxRemedy,
 		}), nil
 	}
+	if reportVersions {
+		detail = withBuildxVersion(ctx, run, detail)
+	}
 	return append(checks, Check{
-		Name: PrerequisiteResolver, OK: true,
-		Detail: withBuildxVersion(ctx, run, detail),
+		Name: PrerequisiteResolver, OK: true, Detail: detail,
 	}), nil
 }
 
@@ -167,7 +180,7 @@ func withBuildxVersion(ctx context.Context, run Runner, detail string) string {
 // once, where this path stops at the first. It is never circular — the only
 // callers are bootstrap and the deploy step, not `ob preflight` itself.
 func RequireHostPrerequisites(ctx context.Context, run Runner) error {
-	checks, err := CheckHostPrerequisites(ctx, run)
+	checks, err := checkHostPrerequisites(ctx, run, false)
 	if err != nil {
 		return err
 	}
@@ -183,4 +196,13 @@ func RequireHostPrerequisites(ctx context.Context, run Runner) error {
 			"%s unavailable: %s — %s", check.Name, check.Detail, check.Remedy)
 	}
 	return nil
+}
+
+// HostPrerequisiteRefusal restates an unmet prerequisite with the caller's own
+// framing, as one typed error rather than prose wrapped around a rendered one.
+// Wrapping with %w renders `Error()`, which carries the code, so the caller's
+// sentence ended up with `host_prerequisite_unmet:` buried in the middle of it.
+// Every typed failure prints its code first; this keeps that shape.
+func HostPrerequisiteRefusal(format string, args ...any) error {
+	return errf("host_prerequisite_unmet", "", "ob preflight", format, args...)
 }

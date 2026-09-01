@@ -244,3 +244,44 @@ func TestEveryFailingCheckCarriesARemedy(t *testing.T) {
 		}
 	}
 }
+
+// The refusing path discards a satisfied check's detail, so fetching the Buildx
+// version for one costs an SSH round trip per deploy for a string nobody reads.
+func TestRequireHostPrerequisitesSkipsTheVersionLookupOnAHealthyHost(t *testing.T) {
+	f := prerequisiteFake(nil)
+	if err := RequireHostPrerequisites(context.Background(), f); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, buildxVersionCommand) {
+			t.Fatalf("a satisfied host must not pay for a detail no caller renders: %q", cmd)
+		}
+	}
+	// The report path still reports it, and so does any failure.
+	checks, err := CheckHostPrerequisites(context.Background(), prerequisiteFake(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(checks[2].Detail, "v0.33.0") {
+		t.Fatalf("the report must still name the client version: %q", checks[2].Detail)
+	}
+}
+
+// A connection that drops on a later probe has not invalidated the answers
+// already given. Discarding them contradicted this function's whole contract.
+func TestCheckHostPrerequisitesKeepsWhatItAlreadyLearned(t *testing.T) {
+	f := prerequisiteFake(nil)
+	f.Err = func(cmd string) error {
+		if strings.Contains(cmd, composeVersionCommand) {
+			return errors.New("ssh: connection reset by peer")
+		}
+		return nil
+	}
+	checks, err := CheckHostPrerequisites(context.Background(), f)
+	if err == nil {
+		t.Fatal("a transport failure must still be an error")
+	}
+	if len(checks) != 1 || checks[0].Name != PrerequisiteRuntime || !checks[0].OK {
+		t.Fatalf("checks = %+v, want the runtime answer that already succeeded", checks)
+	}
+}

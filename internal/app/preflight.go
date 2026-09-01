@@ -87,10 +87,14 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 			"cannot reach the server: %v", err)
 	}
 	report.Checks = append(report.Checks, prerequisites...)
-	if len(prerequisites) > 0 && !prerequisites[0].OK {
-		// A runtime failure short-circuits. Everything below asks the runtime
-		// something, so continuing produces a cascade rather than a diagnosis.
-		return report, nil
+	// A runtime failure short-circuits. Everything below asks the runtime
+	// something, so continuing produces a cascade rather than a diagnosis. The
+	// test is by identity rather than by position: if the prerequisite order
+	// ever changes, a positional check would short-circuit on the wrong one.
+	for _, prerequisite := range prerequisites {
+		if prerequisite.Name == PrerequisiteRuntime && !prerequisite.OK {
+			return report, nil
+		}
 	}
 
 	// 3. The base path. Checked without creating anything: preflight that

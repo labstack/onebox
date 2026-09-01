@@ -363,3 +363,33 @@ func TestBootstrapSeparatesAnUnreachableServerFromAnUnmetPrerequisite(t *testing
 		t.Fatalf("a transport failure must not be reported as a prerequisite to provision: %v", err)
 	}
 }
+
+// A typed failure prints its code first, the way every other one does. Wrapping
+// prose around the rendered error buried `host_prerequisite_unmet:` in the
+// middle of the sentence an operator reads on a fresh host.
+func TestBootstrapRefusalReadsAsOneSentence(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "compose version") {
+			return transport.Result{ExitCode: 125, Stderr: "docker: 'compose' is not a docker command"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
+	if err == nil {
+		t.Fatal("a missing Compose plugin must refuse")
+	}
+	message := err.Error()
+	if !strings.HasPrefix(message, "host_prerequisite_unmet: host is not deployable") {
+		t.Fatalf("refusal does not lead with its code and then the sentence: %q", message)
+	}
+	if strings.Count(message, "host_prerequisite_unmet") != 1 {
+		t.Fatalf("the code appears more than once: %q", message)
+	}
+	var typed *app.Error
+	if !errors.As(err, &typed) || typed.Next != "ob preflight" {
+		t.Fatalf("the restated refusal lost its type or command: %v", err)
+	}
+}

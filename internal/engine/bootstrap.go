@@ -88,7 +88,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 		if !errors.As(err, &unmet) {
 			return fmt.Errorf("cannot reach %s to check host prerequisites: %w", e.T.Host(), err)
 		}
-		return fmt.Errorf("host is not deployable after the bootstrap hook: %w. To have Onebox run a pinned installer inside the lock, fence and journal boundary, declare it as a remote bootstrap hook", err)
+		return app.HostPrerequisiteRefusal("host is not deployable after the bootstrap hook: %s. To have Onebox run a pinned installer inside the lock, fence and journal boundary, declare it as a remote bootstrap hook", unmet.Message)
 	}
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
 		return fmt.Errorf("application network: %w", err)

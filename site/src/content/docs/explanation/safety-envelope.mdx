@@ -52,6 +52,13 @@ grant.
 **Drift detection.** A server-side artifact differing from what the plan bound is
 a typed error **before** mutation, not a silent reconciliation.
 
+The observed set covers the current release and the long-running workloads it
+replaces: their image, replica revisions and health. Job containers are excluded
+by design. A job starts, finishes, or is killed on its own schedule, so its
+presence at any instant says nothing about whether the release still matches the
+plan, and comparing it would turn ordinary job churn into a refusal of a plan
+that is still valid.
+
 ## Why plans expire
 
 An approval says: *this exact change, against this exact observed state, is

@@ -27,10 +27,34 @@ const (
 	PrerequisiteResolver = "image resolver"
 )
 
+// A refusal that names no command is a dead end at the worst moment: first
+// contact with a fresh host. Each remedy is an action, and the three causes a
+// failing `docker version` actually has are distinguished, because "install
+// Docker" is the wrong advice for the common case where Docker is installed and
+// the deploy account simply cannot reach its socket.
 const (
-	runtimeRemedy = "install Docker on the server, or grant this account permission to use it"
-	composeRemedy = "install the Docker Compose plugin on the server, then rerun ob preflight"
+	prerequisiteDocs = "https://onebox.run/start/install"
+
+	runtimeAbsentRemedy      = "install Docker Engine, the Compose plugin and Buildx on the server (" + prerequisiteDocs + "), then rerun ob preflight"
+	runtimeDeniedRemedy      = "add the deploy account to the docker group on the server and reconnect so the new membership applies, then rerun ob preflight"
+	runtimeUnreachableRemedy = "start the Docker daemon on the server, then rerun ob preflight"
+	composeRemedy            = "install the Docker Compose plugin on the server (" + prerequisiteDocs + "), then rerun ob preflight"
 )
+
+// runtimeRemedyFor reads the cause out of what the runtime said. Docker reports
+// all three through the same non-zero exit, and only the text separates them.
+func runtimeRemedyFor(detail string) string {
+	lowered := strings.ToLower(detail)
+	switch {
+	case strings.Contains(lowered, "permission denied"):
+		return runtimeDeniedRemedy
+	case strings.Contains(lowered, "cannot connect to the docker daemon"),
+		strings.Contains(lowered, "is the docker daemon running"):
+		return runtimeUnreachableRemedy
+	default:
+		return runtimeAbsentRemedy
+	}
+}
 
 // CheckHostPrerequisites asks the server for every piece of host software a
 // deploy needs, and reports each as a Check rather than as an error, so a
@@ -47,10 +71,11 @@ func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
 		return nil, err
 	}
 	if res.ExitCode != 0 {
+		detail := strings.TrimSpace(firstLine(strings.Join([]string{res.Stderr, res.Stdout}, "\n")))
 		return []Check{{
 			Name:   PrerequisiteRuntime,
-			Detail: strings.TrimSpace(firstLine(strings.Join([]string{res.Stderr, res.Stdout}, "\n"))),
-			Remedy: runtimeRemedy,
+			Detail: detail,
+			Remedy: runtimeRemedyFor(detail),
 		}}, nil
 	}
 	checks := []Check{{

@@ -81,7 +81,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	// installer. The authored hook runs first so an operator may deliberately
 	// provision a pinned runtime inside the lock, fence, and journal boundary.
 	if err := app.RequireHostPrerequisites(ctx, e.T); err != nil {
-		return fmt.Errorf("host is not deployable after the bootstrap hook: %w; provision it with operator-managed provisioning, or configure a remote bootstrap hook that installs a pinned version", err)
+		return fmt.Errorf("host is not deployable after the bootstrap hook: %w. To have Onebox run a pinned installer inside the lock, fence and journal boundary, declare it as a remote bootstrap hook", err)
 	}
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
 		return fmt.Errorf("application network: %w", err)

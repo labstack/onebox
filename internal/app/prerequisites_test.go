@@ -129,3 +129,53 @@ func TestRequireHostPrerequisitesNamesTheUnmetOne(t *testing.T) {
 		t.Fatalf("a satisfied host must not refuse: %v", err)
 	}
 }
+
+// A failing `docker version` has three ordinary causes and they need three
+// different fixes. Telling an operator to install Docker on a host where Docker
+// is installed and the account simply cannot reach the socket is worse than
+// saying nothing: it sends them to reinstall something that is already there.
+func TestRuntimeRemedyNamesTheActualCause(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stderr string
+		want   string
+	}{
+		{"absent", "docker: command not found", runtimeAbsentRemedy},
+		{"denied", "permission denied while trying to connect to the Docker daemon socket", runtimeDeniedRemedy},
+		{"daemon down", "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?", runtimeUnreachableRemedy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := prerequisiteFake(map[string]transport.Result{
+				"docker version": {ExitCode: 1, Stderr: tc.stderr},
+			})
+			checks, err := CheckHostPrerequisites(context.Background(), f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checks[0].Remedy != tc.want {
+				t.Fatalf("remedy = %q, want %q", checks[0].Remedy, tc.want)
+			}
+			if checks[0].Detail == "" {
+				t.Fatal("the runtime's own words must survive into the check")
+			}
+		})
+	}
+}
+
+// Every remedy has to end in something the operator can do. A refusal that
+// names only an abstraction is the dead end this guards against.
+func TestEveryRemedyNamesAnAction(t *testing.T) {
+	for _, remedy := range []string{runtimeAbsentRemedy, runtimeDeniedRemedy, runtimeUnreachableRemedy, composeRemedy, BuildxRemedy} {
+		if !strings.Contains(remedy, "ob preflight") {
+			t.Errorf("remedy does not say how to confirm the fix: %q", remedy)
+		}
+		for _, abstraction := range []string{"operator-managed provisioning", "configuration management"} {
+			if strings.Contains(remedy, abstraction) {
+				t.Errorf("remedy names an abstraction rather than an action: %q", remedy)
+			}
+		}
+	}
+	if !strings.Contains(runtimeAbsentRemedy, prerequisiteDocs) || !strings.Contains(composeRemedy, prerequisiteDocs) {
+		t.Error("an install remedy must point at the documented procedure rather than synthesising one")
+	}
+}

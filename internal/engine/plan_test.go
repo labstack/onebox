@@ -562,3 +562,41 @@ func TestImageResolutionGuidanceDoesNotRefuseWithoutAPlan(t *testing.T) {
 		t.Fatalf("resolving command = %q, want an ob plan --image form naming the workload", command)
 	}
 }
+
+// A job container that happens to be running when the drift set is gathered
+// must not enter it. Jobs are transient by definition: a scheduled job that
+// starts, finishes or is killed between plan and apply is not evidence that
+// the release changed. Recording them made `ob deploy` refuse a valid plan
+// with `host drift: <job> runs image , plan saw sha256:…` — the empty image
+// being the absent map entry for a container that had since exited.
+func TestRefreshIgnoresRunningJobContainers(t *testing.T) {
+	f := planFake()
+	inner := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "label=ob.app='sample'") && strings.Contains(cmd, "docker ps"):
+			return transport.Result{Stdout: "J1|migrate|R0|rev1|Up 3 seconds\n"}, true
+		case strings.Contains(cmd, "service='migrate'") && strings.Contains(cmd, "docker ps"):
+			return transport.Result{Stdout: "J1\n"}, true
+		}
+		return inner(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	hs, err := e.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := hs.ImageIDs["migrate"]; ok {
+		t.Fatalf("running job service must not appear in the image drift set: %+v", hs.ImageIDs)
+	}
+	if _, ok := hs.WorkloadRevisions["migrate"]; ok {
+		t.Fatalf("running job service must not appear in workload revisions: %+v", hs.WorkloadRevisions)
+	}
+	if _, ok := hs.WorkloadHealth["migrate"]; ok {
+		t.Fatalf("running job service must not appear in workload health: %+v", hs.WorkloadHealth)
+	}
+	// The workloads a release actually replaces are still observed.
+	if hs.ImageIDs["web"] != "sha256:aaaa" {
+		t.Fatalf("application workload must still be observed: %+v", hs.ImageIDs)
+	}
+}

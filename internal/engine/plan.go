@@ -124,8 +124,16 @@ func (e *Engine) Refresh(ctx context.Context) (HostState, error) {
 	if err != nil {
 		return hs, err
 	}
+	// Jobs are deliberately absent from the drift set. A job container's presence
+	// is transient — a scheduled run may start, finish, or be killed between plan
+	// and apply — so observing one says nothing about whether the release still
+	// matches the plan, while recording it turns ordinary job churn into a drift
+	// refusal on a plan that is still valid.
 	svcs := map[string]bool{}
-	for name := range e.Spec.Workloads {
+	for name, workload := range e.Spec.Workloads {
+		if workload.IsJob() {
+			continue
+		}
 		svcs[name] = true
 	}
 	for svc := range svcs {

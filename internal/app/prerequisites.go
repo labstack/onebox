@@ -49,6 +49,7 @@ const (
 // fallback this exists for. An empty detail is worse than verbose: it strands
 // the refusal with no reason, and for the runtime it also loses the cause that
 // selects the remedy.
+//
 // It takes the streams rather than the result value so this file keeps naming
 // no transport type, the same way buildx.go does: the package's purity test
 // permits exactly one file to import the transport, and this is not it.
@@ -174,10 +175,10 @@ func RequireHostPrerequisites(ctx context.Context, run Runner) error {
 		if check.OK {
 			continue
 		}
-		if check.Remedy == "" {
-			return errf("host_prerequisite_unmet", "", "ob preflight",
-				"%s unavailable: %s", check.Name, check.Detail)
-		}
+		// Every failing check carries a remedy — that is the point of the
+		// remedy constants — so this needs no branch for the empty case. A
+		// check added without one would produce a dangling em dash, which a
+		// test asserting every remedy names an action catches.
 		return errf("host_prerequisite_unmet", "", "ob preflight",
 			"%s unavailable: %s — %s", check.Name, check.Detail, check.Remedy)
 	}

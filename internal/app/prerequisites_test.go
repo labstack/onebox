@@ -223,3 +223,24 @@ func TestPrerequisiteDetailSurvivesOnStdout(t *testing.T) {
 		t.Fatalf("detail = %q, want the exit status when both streams are empty", checks[1].Detail)
 	}
 }
+
+// The refusal formats one remedy per failing check, so every check this
+// function can fail has to carry one. Without this the message ends in a
+// dangling em dash and the operator is told nothing.
+func TestEveryFailingCheckCarriesARemedy(t *testing.T) {
+	for name, override := range map[string]map[string]transport.Result{
+		PrerequisiteRuntime:  {"docker version": {ExitCode: 127, Stderr: "docker: command not found"}},
+		PrerequisiteCompose:  {"docker compose version": {ExitCode: 125, Stderr: "not a docker command"}},
+		PrerequisiteResolver: {"imagetools inspect --help": {Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n"}},
+	} {
+		checks, err := CheckHostPrerequisites(context.Background(), prerequisiteFake(override))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, check := range checks {
+			if !check.OK && check.Remedy == "" {
+				t.Errorf("%s: failing check %q carries no remedy", name, check.Name)
+			}
+		}
+	}
+}

@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,42 +77,20 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	n := p.NamesFor(r.Env)
 	report := &Report{Env: r.Env}
 
-	// 1. The container runtime. Everything else is meaningless without it, so a
-	// failure here short-circuits rather than producing a cascade.
-	res, err := run.Run(ctx, "docker version --format '{{.Server.Version}}'")
+	// 1. The host prerequisites Onebox requires and never installs: the
+	// container runtime, the Compose plugin, and a Buildx that can resolve an
+	// image digest. One shared assertion, so this report and the refusals raised
+	// by bootstrap and the deploy step cannot describe different sets.
+	prerequisites, err := CheckHostPrerequisites(ctx, run)
 	if err != nil {
 		return nil, errf("server_unreachable", "", "ob doctor",
 			"cannot reach the server: %v", err)
 	}
-	if res.ExitCode != 0 {
-		report.Checks = append(report.Checks, Check{
-			Name:   "container runtime",
-			Detail: strings.TrimSpace(firstLine(res.Stderr)),
-			Remedy: "install Docker on the server, or grant this account permission to use it",
-		})
+	report.Checks = append(report.Checks, prerequisites...)
+	if !prerequisites[0].OK {
+		// A runtime failure short-circuits. Everything below asks the runtime
+		// something, so continuing produces a cascade rather than a diagnosis.
 		return report, nil
-	}
-	report.Checks = append(report.Checks, Check{
-		Name: "container runtime", OK: true,
-		Detail: "docker " + strings.TrimSpace(res.Stdout),
-	})
-
-	// 2. The image resolver. This only reads the local help output: using an
-	// image as the probe would spend registry quota before planning begins.
-	buildxDetail, err := CheckBuildxDigestSupport(ctx, run)
-	if err != nil {
-		var capabilityErr *BuildxCapabilityError
-		if !errors.As(err, &capabilityErr) {
-			return nil, errf("server_unreachable", "", "ob doctor",
-				"cannot verify Docker Buildx on the server: %v", err)
-		}
-		report.Checks = append(report.Checks, Check{
-			Name: "image resolver", Detail: capabilityErr.Error(), Remedy: BuildxRemedy,
-		})
-	} else {
-		report.Checks = append(report.Checks, Check{
-			Name: "image resolver", OK: true, Detail: buildxDetail,
-		})
 	}
 
 	// 3. The base path. Checked without creating anything: preflight that

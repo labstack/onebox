@@ -904,7 +904,9 @@ func TestAMovedTagCannotChangeWhatIsDeployed(t *testing.T) {
 	// Execution must not ask the registry again: the answer it would get is
 	// not the one that was reviewed.
 	for _, c := range fake.Commands {
-		if strings.Contains(c, "imagetools inspect") {
+		// The Buildx capability probe reads local `--help` only and contacts no
+		// registry, so it is not a re-resolution.
+		if strings.Contains(c, "imagetools inspect") && !strings.Contains(c, "--help") {
 			t.Fatalf("execution re-resolved an image the plan had already pinned: %s", c)
 		}
 	}

@@ -43,7 +43,7 @@ func TestBootstrapSequence(t *testing.T) {
 		"> '/var/lib/ob/sample/fence'",                       // mutation fence
 		`"phase":"bootstrap","event":"start"`,                // durable journal boundary
 		"apt-get install -y something-host-specific",         // bootstrap hook
-		"docker version -f '{{.Server.Version}}'",            // prerequisite after authored provisioning
+		"docker version --format '{{.Server.Version}}'",      // prerequisites after authored provisioning
 		"docker login 'ghcr.io' -u 'vishr' --password-stdin", // registry (stdin, quoted)
 		"docker compose -p 'ob_sample_postgres'",             // services
 	}
@@ -125,7 +125,7 @@ func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
 	if err := os.Mkdir(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "docker"), []byte("#!/bin/sh\n[ \"$1\" = version ] && printf '27.0.3\\n'\n[ \"$1\" = network ] && [ \"$2\" = inspect ] && exit 1\nexit 0\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "docker"), []byte("#!/bin/sh\n[ \"$1\" = version ] && printf '27.0.3\\n'\n[ \"$1\" = compose ] && [ \"$2\" = version ] && printf '2.29.1\\n'\n[ \"$1\" = buildx ] && [ \"$2\" = imagetools ] && printf -- '--format string\\n'\n[ \"$1\" = buildx ] && [ \"$2\" = version ] && printf 'buildx v0.33.0\\n'\n[ \"$1\" = network ] && [ \"$2\" = inspect ] && exit 1\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -196,7 +196,8 @@ func TestBootstrapRefusesMissingRuntimeWithoutImplicitInstaller(t *testing.T) {
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
-	if err == nil || !strings.Contains(err.Error(), "container runtime unavailable after bootstrap hook") ||
+	if err == nil || !strings.Contains(err.Error(), "after the bootstrap hook") ||
+		!strings.Contains(err.Error(), "container runtime unavailable") ||
 		!strings.Contains(err.Error(), "install Docker") || !strings.Contains(err.Error(), "remote bootstrap hook") {
 		t.Fatalf("missing runtime error = %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
@@ -309,5 +310,34 @@ func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 			t.Fatalf("%q out of order (proxy must precede services):\n%s", want, seq)
 		}
 		last = i
+	}
+}
+
+// Bootstrap asserted only the container runtime, so a host with a working
+// daemon and no Compose plugin — Ubuntu's `docker.io` package, for one —
+// completed bootstrap and failed two commands later. The gate now asserts the
+// same set every other gate does.
+func TestBootstrapRefusesHostMissingComposePlugin(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "compose version") {
+			return transport.Result{ExitCode: 125, Stderr: "docker: 'compose' is not a docker command"}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
+	if err == nil || !strings.Contains(err.Error(), app.PrerequisiteCompose) ||
+		!strings.Contains(err.Error(), "after the bootstrap hook") {
+		t.Fatalf("missing compose error = %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	// The authored hook still gets its chance first: refusing before it runs
+	// would defeat the pinned-installer escape hatch it exists for.
+	seq := strings.Join(f.Commands, "\n")
+	for _, forbidden := range []string{"get.docker.com", "curl -fsSL", "apt-get install", "docker login"} {
+		if strings.Contains(seq, forbidden) {
+			t.Fatalf("bootstrap ran %q rather than refusing:\n%s", forbidden, seq)
+		}
 	}
 }

@@ -114,6 +114,10 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "abc123|sample|\n"}, true
 		case strings.Contains(cmd, "docker version"):
 			return transport.Result{Stdout: "27.0.3\n"}, true
+		case strings.Contains(cmd, "imagetools inspect --help"):
+			return transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}, true
+		case strings.Contains(cmd, "docker buildx version"):
+			return transport.Result{Stdout: "github.com/docker/buildx v0.33.0\n"}, true
 		case strings.Contains(cmd, "compose version"):
 			return transport.Result{Stdout: "2.29.1\n"}, true
 		case strings.Contains(cmd, "df -Pk"):

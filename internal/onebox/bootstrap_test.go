@@ -47,6 +47,9 @@ func TestBootstrapAcceptsBuildSourceWithoutStagingApplicationPayload(t *testing.
 			if strings.Contains(command, "/_host/owner") {
 				return transport.Result{Stdout: "demo\n"}, true
 			}
+			if strings.Contains(command, "imagetools inspect --help") {
+				return transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}, true
+			}
 			if strings.Contains(command, "docker network inspect --format") {
 				return transport.Result{ExitCode: 1, Stderr: "Error response from daemon: network demo_default not found"}, true
 			}

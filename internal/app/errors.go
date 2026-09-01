@@ -93,6 +93,7 @@ var errorCodes = map[string]string{
 	"render_failed":               "the runtime could not be rendered",
 	"server_unreachable":          "the server could not be reached",
 	"preflight_env_incomplete":    "an environment file is missing keys the project requires",
+	"host_prerequisite_unmet":     "host software a deploy needs is missing or unusable",
 
 	// Ejection.
 	"eject_destination_exists": "the ejection destination already exists",

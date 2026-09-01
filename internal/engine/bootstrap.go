@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 )
@@ -79,14 +80,15 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	// Docker is an explicit host prerequisite, never an implicit network
 	// installer. The authored hook runs first so an operator may deliberately
 	// provision a pinned runtime inside the lock, fence, and journal boundary.
-	if res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'"); err != nil {
-		return err
-	} else if res.ExitCode != 0 {
-		detail := strings.TrimSpace(res.Stderr)
-		if detail != "" {
-			detail = ": " + detail
+	if err := app.RequireHostPrerequisites(ctx, e.T); err != nil {
+		// A transport failure is not a missing prerequisite. Framing an SSH
+		// reset as one would answer "the connection dropped" with "declare an
+		// installer hook", which is the wrong repair entirely.
+		var unmet *app.Error
+		if !errors.As(err, &unmet) {
+			return fmt.Errorf("cannot reach %s to check host prerequisites: %w", e.T.Host(), err)
 		}
-		return fmt.Errorf("container runtime unavailable after bootstrap hook; install Docker with operator-managed provisioning or configure a remote bootstrap hook that installs a pinned runtime%s", detail)
+		return app.HostPrerequisiteRefusal("host is not deployable after the bootstrap hook: %s. To have Onebox run a pinned installer inside the lock, fence and journal boundary, declare it as a remote bootstrap hook", unmet.Message)
 	}
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
 		return fmt.Errorf("application network: %w", err)

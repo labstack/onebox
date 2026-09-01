@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -27,21 +28,20 @@ func (e *Engine) preflight(ctx context.Context, requireDiscovery bool) error {
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err
 	}
-	res, err := e.T.Run(ctx, "docker version -f '{{.Server.Version}}'")
-	if err != nil {
-		return fmt.Errorf("docker daemon unreachable on %s: %w", e.T.Host(), err)
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("docker daemon unreachable on %s: %s", e.T.Host(), strings.TrimSpace(res.Stderr))
-	}
-	if res, err := e.T.Run(ctx, "docker compose version --short"); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("docker compose plugin missing on %s", e.T.Host())
+	// The same prerequisite set bootstrap asserts, so a host cannot pass one
+	// gate and be refused by the other.
+	if err := app.RequireHostPrerequisites(ctx, e.T); err != nil {
+		var unmet *app.Error
+		if !errors.As(err, &unmet) {
+			return fmt.Errorf("cannot reach %s to check host prerequisites: %w", e.T.Host(), err)
+		}
+		return app.HostPrerequisiteRefusal("%s: %s", e.T.Host(), unmet.Message)
 	}
 	base := release.PathsFor(e.names()).Base
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(base)+" && test -w "+q(base)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("%s not writable by deploy user", base)
 	}
-	res, err = e.T.Run(ctx, "df -Pk "+q(base)+" | awk 'NR==2{print $4}'")
+	res, err := e.T.Run(ctx, "df -Pk "+q(base)+" | awk 'NR==2{print $4}'")
 	if err != nil {
 		return err
 	}

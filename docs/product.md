@@ -31,6 +31,16 @@ generated runtime, and any host proxy or supporting services selected in the
 project. It does not silently claim infrastructure or protection it has not
 actually established.
 
+The container runtime is on the user's side of that line. Docker Engine, the
+Compose plugin and Buildx are user-supplied and user-versioned; Onebox verifies
+them and refuses with a named remedy rather than installing them. The rule this
+follows is general: a component is installed by the product that owns its version
+lifecycle, and a component the product needs but does not own is verified, never
+implicitly installed. Owning Docker's version would mean a distribution matrix,
+CVE response, and an upgrade path on a host Onebox otherwise does not manage. An
+operator who wants a pinned installer run inside the lock, fence and journal
+boundary declares it as a bootstrap hook.
+
 Owned application containers have one visible grammar:
 `<app>-<component>-<replica>`, with a one-based replica ordinal that is never
 omitted. The managed host proxy is `onebox-proxy`. These names are generated

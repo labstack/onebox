@@ -192,6 +192,22 @@ registry digests. There is no Onebox agent to install on the host — the CLI
 connects over SSH, and scheduled work runs from host timers rather than a
 resident process.
 
+All three are asserted as one set, by `ob bootstrap`, by `ob preflight`, and by
+every deploy, so a host that passes one of them passes the others. Each reports
+the version it observed alongside the result. This includes a project whose
+workload images are all digest-pinned: such a project never needs Buildx to
+resolve anything, and is still refused on a host without it, because gates that
+disagree about which host is deployable is the failure this set exists to
+prevent.
+
+Distribution packages are a common source of a partial install. Ubuntu's
+`docker.io` gives a working daemon and no Buildx at all, and its `docker-buildx`
+0.30.1 accepts `imagetools inspect --format`, ignores it, and exits 0. Neither is
+caught by a version comparison, so the guard is in two parts: the preflight probe
+requires the client to advertise `--format`, and planning validates the digest it
+actually returns, which is what catches a client that advertises the option and
+ignores it.
+
 Onebox does not download or run a Docker installer implicitly. Install Docker
 through your normal operator-managed provisioning before `ob bootstrap`. If you
 deliberately want Onebox to invoke a pinned or configuration-managed installer,

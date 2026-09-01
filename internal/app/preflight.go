@@ -87,7 +87,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 			"cannot reach the server: %v", err)
 	}
 	report.Checks = append(report.Checks, prerequisites...)
-	if !prerequisites[0].OK {
+	if len(prerequisites) > 0 && !prerequisites[0].OK {
 		// A runtime failure short-circuits. Everything below asks the runtime
 		// something, so continuing produces a cascade rather than a diagnosis.
 		return report, nil

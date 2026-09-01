@@ -8,19 +8,20 @@ import (
 )
 
 // The host software Onebox requires and deliberately never installs. Declaring
-// the set in one place is what keeps the four gates that assert it — bootstrap,
-// `ob preflight`, `ob doctor` and the deploy preflight step — from each
+// the set in one place is what keeps the three gates that assert it —
+// `ob bootstrap`, `ob preflight` and the deploy preflight step — from each
 // checking a different subset, which let a host pass bootstrap and fail two
-// commands later.
+// commands later. `ob doctor` is deliberately not among them: it reports local
+// runner provenance and contacts no server.
 const (
 	dockerVersionCommand  = "docker version --format '{{.Server.Version}}'"
 	composeVersionCommand = "docker compose version --short"
 	buildxVersionCommand  = "docker buildx version"
 )
 
-// Prerequisite names are stable: they appear in `ob preflight` output, in
-// `ob doctor`, and in the refusal bootstrap raises, so an operator reading any
-// of the three sees the same vocabulary.
+// Prerequisite names are stable: they appear in `ob preflight` output and in
+// the refusals bootstrap and the deploy step raise, so an operator reading any
+// of them sees the same vocabulary.
 const (
 	PrerequisiteRuntime  = "container runtime"
 	PrerequisiteCompose  = "compose plugin"
@@ -40,6 +41,24 @@ const (
 	runtimeUnreachableRemedy = "start the Docker daemon on the server, then rerun ob preflight"
 	composeRemedy            = "install the Docker Compose plugin on the server (" + prerequisiteDocs + "), then rerun ob preflight"
 )
+
+// runResultDetail is what the command itself said. Stderr is preferred and
+// stdout is the fallback, because some clients report a failure on stdout — but
+// the join has to be trimmed before the first line is taken, or an empty stderr
+// leaves a leading newline and firstLine returns "", discarding the very
+// fallback this exists for. An empty detail is worse than verbose: it strands
+// the refusal with no reason, and for the runtime it also loses the cause that
+// selects the remedy.
+// It takes the streams rather than the result value so this file keeps naming
+// no transport type, the same way buildx.go does: the package's purity test
+// permits exactly one file to import the transport, and this is not it.
+func runResultDetail(stderr, stdout, command string, exitCode int) string {
+	detail := strings.TrimSpace(firstLine(strings.TrimSpace(stderr + "\n" + stdout)))
+	if detail != "" {
+		return detail
+	}
+	return fmt.Sprintf("%s exited with status %d", command, exitCode)
+}
 
 // runtimeRemedyFor reads the cause out of what the runtime said. Docker reports
 // all three through the same non-zero exit, and only the text separates them.
@@ -71,7 +90,7 @@ func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
 		return nil, err
 	}
 	if res.ExitCode != 0 {
-		detail := strings.TrimSpace(firstLine(strings.Join([]string{res.Stderr, res.Stdout}, "\n")))
+		detail := runResultDetail(res.Stderr, res.Stdout, dockerVersionCommand, res.ExitCode)
 		return []Check{{
 			Name:   PrerequisiteRuntime,
 			Detail: detail,
@@ -93,7 +112,7 @@ func CheckHostPrerequisites(ctx context.Context, run Runner) ([]Check, error) {
 	if res.ExitCode != 0 {
 		checks = append(checks, Check{
 			Name:   PrerequisiteCompose,
-			Detail: strings.TrimSpace(firstLine(strings.Join([]string{res.Stderr, res.Stdout}, "\n"))),
+			Detail: runResultDetail(res.Stderr, res.Stdout, composeVersionCommand, res.ExitCode),
 			Remedy: composeRemedy,
 		})
 	} else {

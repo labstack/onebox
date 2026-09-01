@@ -81,6 +81,13 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	// installer. The authored hook runs first so an operator may deliberately
 	// provision a pinned runtime inside the lock, fence, and journal boundary.
 	if err := app.RequireHostPrerequisites(ctx, e.T); err != nil {
+		// A transport failure is not a missing prerequisite. Framing an SSH
+		// reset as one would answer "the connection dropped" with "declare an
+		// installer hook", which is the wrong repair entirely.
+		var unmet *app.Error
+		if !errors.As(err, &unmet) {
+			return fmt.Errorf("cannot reach %s to check host prerequisites: %w", e.T.Host(), err)
+		}
 		return fmt.Errorf("host is not deployable after the bootstrap hook: %w. To have Onebox run a pinned installer inside the lock, fence and journal boundary, declare it as a remote bootstrap hook", err)
 	}
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {

@@ -192,3 +192,34 @@ func TestEveryRemedyNamesAnAction(t *testing.T) {
 		t.Error("an install remedy must point at the documented procedure rather than synthesising one")
 	}
 }
+
+// Some clients report the failure on stdout. Reading only the first line of an
+// untrimmed stderr+stdout join silently dropped it: an empty stderr left a
+// leading newline, the first line was "", and the detail arrived blank — which
+// for the runtime also loses the cause that selects the remedy, so an operator
+// whose account simply cannot reach the socket was told to install Docker.
+func TestPrerequisiteDetailSurvivesOnStdout(t *testing.T) {
+	f := prerequisiteFake(map[string]transport.Result{
+		"docker version": {ExitCode: 1, Stdout: "permission denied while trying to connect to the Docker daemon socket"},
+	})
+	checks, err := CheckHostPrerequisites(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(checks[0].Detail, "permission denied") {
+		t.Fatalf("detail = %q, want the reason the runtime printed", checks[0].Detail)
+	}
+	if checks[0].Remedy != runtimeDeniedRemedy {
+		t.Fatalf("remedy = %q, want the permission fix rather than an install", checks[0].Remedy)
+	}
+
+	// A failure with nothing on either stream still has to say something.
+	f = prerequisiteFake(map[string]transport.Result{"docker compose version": {ExitCode: 125}})
+	checks, err = CheckHostPrerequisites(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(checks[1].Detail, "exited with status 125") {
+		t.Fatalf("detail = %q, want the exit status when both streams are empty", checks[1].Detail)
+	}
+}

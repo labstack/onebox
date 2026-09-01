@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -30,6 +31,10 @@ func (e *Engine) preflight(ctx context.Context, requireDiscovery bool) error {
 	// The same prerequisite set bootstrap asserts, so a host cannot pass one
 	// gate and be refused by the other.
 	if err := app.RequireHostPrerequisites(ctx, e.T); err != nil {
+		var unmet *app.Error
+		if !errors.As(err, &unmet) {
+			return fmt.Errorf("cannot reach %s to check host prerequisites: %w", e.T.Host(), err)
+		}
 		return fmt.Errorf("%s: %w", e.T.Host(), err)
 	}
 	base := release.PathsFor(e.names()).Base

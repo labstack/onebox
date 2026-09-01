@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -339,5 +340,26 @@ func TestBootstrapRefusesHostMissingComposePlugin(t *testing.T) {
 		if strings.Contains(seq, forbidden) {
 			t.Fatalf("bootstrap ran %q rather than refusing:\n%s", forbidden, seq)
 		}
+	}
+}
+
+// A dropped connection is not a missing prerequisite. Framing one as the other
+// answers "the SSH session reset" with "declare a pinned installer hook", which
+// sends an operator to provision software that may already be installed.
+func TestBootstrapSeparatesAnUnreachableServerFromAnUnmetPrerequisite(t *testing.T) {
+	f := happyFake()
+	f.Err = func(cmd string) error {
+		if strings.Contains(cmd, "docker version") {
+			return errors.New("ssh: connection reset by peer")
+		}
+		return nil
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Bootstrap(context.Background(), engineTestBootstrapReleaseID)
+	if err == nil || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("error = %v, want the transport failure", err)
+	}
+	if strings.Contains(err.Error(), "bootstrap hook") || strings.Contains(err.Error(), "install") {
+		t.Fatalf("a transport failure must not be reported as a prerequisite to provision: %v", err)
 	}
 }

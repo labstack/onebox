@@ -47,7 +47,7 @@ omitted. The managed host proxy is `onebox-proxy`. These names are generated
 identity, not user configuration.
 
 The broader managed-operations goal is direction, not an inventory. Owned today:
-host bootstrap, the container runtime check, the proxy and its TLS, the host
+host bootstrap, the host prerequisite check, the proxy and its TLS, the host
 ingress network, release staging and retention, the supporting data services and
 their credentials, scheduled jobs, and PostgreSQL backup, point-in-time recovery,
 and on-demand restore proof. **Not owned today: workload-volume backups,

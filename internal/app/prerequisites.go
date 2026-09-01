@@ -137,31 +137,30 @@ func withBuildxVersion(ctx context.Context, run Runner, detail string) string {
 	return fmt.Sprintf("%s (%s)", detail, version)
 }
 
-// HostPrerequisiteError reports the first unmet prerequisite to a caller that
-// wants a refusal rather than a report.
-type HostPrerequisiteError struct {
-	Check Check
-}
-
-func (err *HostPrerequisiteError) Error() string {
-	if err.Check.Remedy == "" {
-		return err.Check.Name + " unavailable: " + err.Check.Detail
-	}
-	return fmt.Sprintf("%s unavailable: %s — %s", err.Check.Name, err.Check.Detail, err.Check.Remedy)
-}
-
 // RequireHostPrerequisites is the refusing form of CheckHostPrerequisites, for
 // bootstrap and the deploy preflight step, which stop at the first problem
 // instead of rendering a report.
+//
+// The refusal is typed rather than prose, so a structured caller reads a code
+// and a command rather than parsing a sentence, and `ob preflight` is the
+// honest next step: it is read-only and reports every unmet prerequisite at
+// once, where this path stops at the first. It is never circular — the only
+// callers are bootstrap and the deploy step, not `ob preflight` itself.
 func RequireHostPrerequisites(ctx context.Context, run Runner) error {
 	checks, err := CheckHostPrerequisites(ctx, run)
 	if err != nil {
 		return err
 	}
 	for _, check := range checks {
-		if !check.OK {
-			return &HostPrerequisiteError{Check: check}
+		if check.OK {
+			continue
 		}
+		if check.Remedy == "" {
+			return errf("host_prerequisite_unmet", "", "ob preflight",
+				"%s unavailable: %s", check.Name, check.Detail)
+		}
+		return errf("host_prerequisite_unmet", "", "ob preflight",
+			"%s unavailable: %s — %s", check.Name, check.Detail, check.Remedy)
 	}
 	return nil
 }

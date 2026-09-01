@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -124,6 +125,18 @@ func TestRequireHostPrerequisitesNamesTheUnmetOne(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), PrerequisiteCompose) || !strings.Contains(err.Error(), composeRemedy) {
 		t.Fatalf("error = %v, want the prerequisite name and its remedy", err)
+	}
+	// Typed, so a structured caller branches on a code and is handed a command
+	// rather than parsing the sentence.
+	var typed *Error
+	if !errors.As(err, &typed) {
+		t.Fatalf("refusal is not typed: %T", err)
+	}
+	if typed.Code != "host_prerequisite_unmet" || typed.Next != "ob preflight" {
+		t.Fatalf("typed refusal = %+v, want the registered code and a diagnostic command", typed)
+	}
+	if _, known := ErrorCodeMeaning(typed.Code); !known {
+		t.Fatalf("%q is not published in the error registry", typed.Code)
 	}
 	if err := RequireHostPrerequisites(context.Background(), prerequisiteFake(nil)); err != nil {
 		t.Fatalf("a satisfied host must not refuse: %v", err)

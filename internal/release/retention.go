@@ -98,6 +98,17 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 		protected[id] = true
 	}
 
+	// A release a container still mounts is in use even when it is far past
+	// the retained chain: retention bounds what is worth keeping for rollback,
+	// which is a different question from what is load-bearing right now.
+	mounted, mountErr := MountedReleases(ctx, target, names)
+	if mountErr != nil {
+		return RetentionDecision{}, refuseRetention(mountErr, fmt.Errorf("container release-mount evidence is unusable: %w", mountErr))
+	}
+	for _, id := range mounted {
+		protected[id] = true
+	}
+
 	current, err := Current(ctx, target, names)
 	if err != nil {
 		return RetentionDecision{}, err

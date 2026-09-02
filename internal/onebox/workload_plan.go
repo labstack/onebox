@@ -2,7 +2,6 @@ package onebox
 
 import (
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
@@ -126,23 +125,11 @@ func observedHealthRetainable(observed []string, count int) bool {
 func nonRetainableWorkloads(cfg *app.Resolved) map[string]string {
 	bound := make(map[string]string, len(cfg.Workloads))
 	for name, workload := range cfg.Workloads {
-		switch {
-		case workload.Compose != "":
+		if workload.Compose != "" {
 			bound[name] = "compose_reference_ambiguous"
-		case hasReleasePathDependency(workload):
-			bound[name] = "release_path_dependency"
 		}
 	}
 	return bound
-}
-
-func hasReleasePathDependency(workload app.Workload) bool {
-	for _, volume := range workload.Volumes {
-		if volume.IsBind() && !path.IsAbs(volume.Source) {
-			return true
-		}
-	}
-	return false
 }
 
 func engineWorkloadPlans(steps []OperationStep) map[string]engine.WorkloadPlan {

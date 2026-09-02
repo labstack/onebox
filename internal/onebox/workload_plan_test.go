@@ -88,14 +88,11 @@ func TestPlanWorkloadActionsRetainsOnlyProvenRuntimeMatches(t *testing.T) {
 			byName[step.Service] = step
 		}
 	}
-	for _, name := range []string{"api", "worker", "env-worker", "secret-worker", "host-bind-worker"} {
+	for _, name := range []string{"api", "worker", "env-worker", "secret-worker", "bind-worker", "host-bind-worker"} {
 		step := byName[name]
 		if step.Action != "retain" || step.Mutation || step.Reason != "runtime_unchanged" || !strings.HasPrefix(step.Revision, "sha256:") {
 			t.Errorf("%s plan = %#v, want non-mutating retain", name, step)
 		}
-	}
-	if step := byName["bind-worker"]; step.Action != "recreate" || step.Reason != "release_path_dependency" || !step.Mutation {
-		t.Errorf("bind-worker plan = %#v", step)
 	}
 }
 

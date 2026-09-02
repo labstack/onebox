@@ -5,8 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/labstack/onebox/internal/app"
 )
@@ -39,6 +43,27 @@ func workloadContracts(cfg *app.Resolved, staging, projectRoot string, secretRev
 				Content string `json:"content"`
 			}{"env_file", order, entry.StagedPath(), digestBytes(body)})
 		}
+		// A relative bind source is release content: the rendered service
+		// names the path, never the bytes behind it, so without this a
+		// workload whose config files changed would look unchanged. The
+		// digest is what lets the planner retain such a workload when the
+		// content really is identical, instead of recreating every one of
+		// them on every deploy.
+		for order, volume := range workload.Volumes {
+			if !volume.IsBind() || path.IsAbs(volume.Source) {
+				continue
+			}
+			summary, err := bindMountSummary(staging, volume.Source)
+			if err != nil {
+				return nil, fmt.Errorf("fingerprint bind mount %q for workload %q: %w", volume.Source, name, err)
+			}
+			inputs = append(inputs, struct {
+				Kind    string `json:"kind"`
+				Order   int    `json:"order"`
+				Path    string `json:"path"`
+				Content string `json:"content"`
+			}{"bind_mount", order, volume.Source, digestBytes(summary)})
+		}
 		for order, need := range workload.Needs {
 			service, ok := cfg.Services[need.Name]
 			if !ok {
@@ -67,6 +92,48 @@ func workloadContracts(cfg *app.Resolved, staging, projectRoot string, secretRev
 		contracts[name] = contract
 	}
 	return contracts, nil
+}
+
+// bindMountSummary reduces a staged bind source to one sorted line per file:
+// path, permission bits and a content digest. A retained container keeps the
+// directory it was created with wholesale, so anything left out of this summary
+// is invisible for the life of that container — which is why the mode is here
+// and not only the content, and why a non-regular entry contributes its type
+// rather than being skipped.
+func bindMountSummary(staging, source string) ([]byte, error) {
+	root := filepath.Join(staging, filepath.FromSlash(strings.TrimPrefix(source, "./")))
+	var lines []string
+	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, name)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			lines = append(lines, fmt.Sprintf("%s|%04o|%s", filepath.ToSlash(rel), info.Mode().Perm(), info.Mode().Type()))
+			return nil
+		}
+		body, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, fmt.Sprintf("%s|%04o|%s", filepath.ToSlash(rel), info.Mode().Perm(), digestBytes(body)))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(lines)
+	return []byte(strings.Join(lines, "\n")), nil
 }
 
 func digestBytes(body []byte) string {

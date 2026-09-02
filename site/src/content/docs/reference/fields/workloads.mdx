@@ -102,7 +102,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.volumes[].mode` | `rw` · `ro` | `rw` | Mount access mode: rw or ro. A relative bind source requires ro. |
 | `<name>.volumes[].name` | string | — | Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.volumes[].path` | string | — | Absolute container path where the volume or bind mount is attached. Expects an absolute path with no control character or shell metacharacter. |
-| `<name>.volumes[].source` | string | — | Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content removed by retention. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter. |
+| `<name>.volumes[].source` | string | — | Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content, kept for as long as a container still mounts it. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter. |
 | `<name>.when` | `pre_release` · `post_release` · `manual` | `manual` | When a job runs: manual, pre_release, or post_release. |
 | `<name>.working_dir` | string | — | Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter. |
 

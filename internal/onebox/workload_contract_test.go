@@ -213,3 +213,49 @@ deployment: {order: [api]}
 		t.Fatal("a directory added to a bind source retained its startup revision")
 	}
 }
+
+func bindMountRevision(t *testing.T, mode os.FileMode) string {
+	t.Helper()
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+app: sample
+environments: {production: {server: deploy@example.test}}
+workloads:
+  api: {role: application, image: example/api, volumes: [{source: ./conf, path: /conf, mode: ro}]}
+deployment: {order: [api]}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(staging, "conf"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(staging, "conf", "app.yml")
+	if err := os.WriteFile(file, []byte("mode: api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, mode); err != nil {
+		t.Fatal(err)
+	}
+	contracts, err := workloadContracts(resolved, staging, staging, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contracts["api"].StartupRevision
+}
+
+func TestBindMountContractIgnoresPermissionBitsTheStagingUmaskDecides(t *testing.T) {
+	if group, owner := bindMountRevision(t, 0o644), bindMountRevision(t, 0o600); group != owner {
+		t.Fatalf("the same content staged under a different umask changed the revision: %s vs %s", group, owner)
+	}
+}
+
+func TestBindMountContractNoticesAnExecutableBitChange(t *testing.T) {
+	if plain, executable := bindMountRevision(t, 0o644), bindMountRevision(t, 0o755); plain == executable {
+		t.Fatal("making a mounted file executable retained the startup revision")
+	}
+}

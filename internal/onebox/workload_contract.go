@@ -120,12 +120,19 @@ func (c bindMountSummaries) of(staging, source string) ([]byte, error) {
 }
 
 // bindMountSummary reduces a staged bind source to one sorted line per entry:
-// path, permission bits, and a content digest for a regular file or the entry
-// kind for anything else. A retained container keeps the directory it was
-// created with wholesale, so anything left out of this summary is invisible for
-// the life of that container — which is why the mode is here and not only the
-// content, and why a directory contributes a line even though it holds no
-// bytes: an emptied or renamed directory changes what the workload sees.
+// its path, whether it is executable, and a content digest for a regular file
+// or the entry kind for anything else. A retained container keeps the directory
+// it was created with wholesale, so anything left out of this summary is
+// invisible for the life of that container — which is why a directory
+// contributes a line even though it holds no bytes: an emptied or renamed
+// directory changes what the workload sees.
+//
+// Only the executable bit is read, never the full mode. Staging copies a file
+// through os.OpenFile and creates every directory 0755, so the mode on disk is
+// the runner's umask as much as the repository's, and hashing it would recreate
+// every bind workload the first time a deploy ran from a machine that sets a
+// different one. The executable bit survives a umask the way git records it,
+// and it is the bit the container actually behaves differently on.
 func bindMountSummary(root string) ([]byte, error) {
 	var lines []string
 	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
@@ -141,15 +148,18 @@ func bindMountSummary(root string) ([]byte, error) {
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			lines = append(lines, fmt.Sprintf("%s|%04o|%s", filepath.ToSlash(rel), info.Mode().Perm(), info.Mode().Type()))
+			lines = append(lines, fmt.Sprintf("%s|%s", filepath.ToSlash(rel), info.Mode().Type()))
 			return nil
 		}
-
 		body, err := os.ReadFile(name)
 		if err != nil {
 			return err
 		}
-		lines = append(lines, fmt.Sprintf("%s|%04o|%s", filepath.ToSlash(rel), info.Mode().Perm(), digestBytes(body)))
+		executable := "-"
+		if info.Mode().Perm()&0o111 != 0 {
+			executable = "x"
+		}
+		lines = append(lines, fmt.Sprintf("%s|%s|%s", filepath.ToSlash(rel), executable, digestBytes(body)))
 		return nil
 	})
 	if err != nil {

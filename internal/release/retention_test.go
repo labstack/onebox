@@ -410,7 +410,8 @@ func TestRetentionProtectsReleaseMountedByLiveContainer(t *testing.T) {
 		case strings.Contains(command, "ls -1A"):
 			return transport.Result{Stdout: mountedID + "\n" + currentID + "\n"}, true
 		case strings.Contains(command, "docker ps"):
-			return transport.Result{Stdout: mountedID + "\n" + currentID + "\n"}, true
+			releases := PathsFor(names).Releases
+			return transport.Result{Stdout: releases + "/" + mountedID + "/conf,logs\n" + releases + "/" + currentID + "/conf\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
 		}
@@ -465,7 +466,7 @@ func TestRetentionRefusesWhenLiveContainerEvidenceIsUnusable(t *testing.T) {
 	}
 }
 
-func TestRetentionIgnoresAContainerLabelThatNamesNoRelease(t *testing.T) {
+func TestRetentionDoesNotPinAReleaseAContainerOnlyLabels(t *testing.T) {
 	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
 	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	staleID := "20260101-000000-stale"
@@ -479,7 +480,13 @@ func TestRetentionIgnoresAContainerLabelThatNamesNoRelease(t *testing.T) {
 		case strings.Contains(command, "ls -1A"):
 			return transport.Result{Stdout: staleID + "\n" + currentID + "\n"}, true
 		case strings.Contains(command, "docker ps"):
-			return transport.Result{Stdout: "not-a-release-id\n" + currentID + "\n"}, true
+			// The container was created in the expired release and retained
+			// ever since, so it still carries that label — while mounting
+			// nothing out of the release store.
+			if strings.Contains(command, "ob.release") {
+				return transport.Result{Stdout: staleID + "\n"}, true
+			}
+			return transport.Result{Stdout: "/var/run/docker.sock,app-data\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
 		}
@@ -492,7 +499,7 @@ func TestRetentionIgnoresAContainerLabelThatNamesNoRelease(t *testing.T) {
 	decision, err := RetentionCandidates(context.Background(), target, names,
 		DefaultRetentionPolicy(1, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
-		t.Fatalf("a container label that names no release refused the whole prune: %v", err)
+		t.Fatalf("a container mounting nothing from the release store refused the prune: %v", err)
 	}
 	if !slices.Contains(decision.Victims, staleID) {
 		t.Fatalf("victims = %v, want the expired release", decision.Victims)

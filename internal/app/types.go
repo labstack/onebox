@@ -234,7 +234,7 @@ type Resources struct {
 type Volume struct {
 	Name   string `json:"name,omitempty" description:"Stable logical name of a Onebox-managed volume." example:"data"`
 	Path   string `json:"path,omitempty" description:"Absolute container path where the volume or bind mount is attached." example:"/var/lib/app"`
-	Source string `json:"source,omitempty" description:"Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content removed by retention." example:"./config"`
+	Source string `json:"source,omitempty" description:"Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content, kept for as long as a container still mounts it." example:"./config"`
 
 	Mode string `json:"mode" description:"Mount access mode: rw or ro. A relative bind source requires ro." default:"rw"`
 }

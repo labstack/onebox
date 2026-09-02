@@ -2649,7 +2649,7 @@
                   "type": "string"
                 },
                 "source": {
-                  "description": "Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content removed by retention. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter.",
+                  "description": "Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content, kept for as long as a container still mounts it. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter.",
                   "examples": [
                     "./config"
                   ],

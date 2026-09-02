@@ -122,9 +122,11 @@ workloads:
 ```
 
 A relative source begins with `./` (or is `.`) and resolves inside the release
-directory. It must be read-only because normal `deployment.retain_releases`
-cleanup removes that directory when the release expires. Use it for versioned
-configuration, never changing data.
+directory. It must be read-only because that directory belongs to the
+release: the next deploy ships a new one, and `deployment.retain_releases`
+cleanup removes an expired release once no container still mounts it, so
+anything written there is lost. Use it for versioned configuration, never
+changing data.
 
 An absolute source is external host state. Onebox mounts it but neither creates,
 backs up nor removes it; provision and protect that path separately. For data

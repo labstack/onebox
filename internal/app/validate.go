@@ -360,7 +360,7 @@ func validateWorkload(w Workload, path string) error {
 			if !strings.HasPrefix(v.Source, "/") {
 				if v.Mode != "ro" {
 					return errf("project_invalid", vp+".mode", "",
-						"relative bind source %q is release-scoped and removed by retention; set mode: ro for versioned release content, or use an absolute source for writable host state", v.Source)
+						"relative bind source %q is release-scoped content, not durable host state; set mode: ro for versioned release content, or use an absolute source for writable host state", v.Source)
 				}
 			}
 			if err := gAbsPath.check(vp+".path", v.Path); err != nil {

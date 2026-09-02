@@ -395,3 +395,113 @@ func TestRetentionRejectsZeroAgeWindows(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestRetentionProtectsReleaseMountedByLiveContainer(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	mountedID := "20260101-000000-mounted"
+	currentID := "20260102-000000-current"
+	target := &transport.Fake{}
+	writeRetentionManifest(t, target, names, retentionManifest(t, mountedID, KindApplication, StateSuperseded, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, currentID, KindApplication, StateServing, "", old))
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: mountedID + "\n" + currentID + "\n"}, true
+		case strings.Contains(command, "docker ps"):
+			releases := PathsFor(names).Releases
+			return transport.Result{Stdout: releases + "/" + mountedID + "/conf,logs\n" + releases + "/" + currentID + "/conf\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names,
+		DefaultRetentionPolicy(1, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(decision.Victims, mountedID) {
+		t.Fatalf("a release a running container still mounts was selected for deletion: %+v", decision)
+	}
+	if !slices.Contains(decision.Preserve, mountedID) {
+		t.Fatalf("mounted release was not preserved: %+v", decision)
+	}
+}
+
+func TestRetentionRefusesWhenLiveContainerEvidenceIsUnusable(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	staleID := "20260101-000000-stale"
+	currentID := "20260102-000000-current"
+	target := &transport.Fake{}
+	writeRetentionManifest(t, target, names, retentionManifest(t, staleID, KindApplication, StateSuperseded, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, currentID, KindApplication, StateServing, "", old))
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: staleID + "\n" + currentID + "\n"}, true
+		case strings.Contains(command, "docker ps"):
+			return transport.Result{ExitCode: 1, Stderr: "cannot connect to the docker daemon"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	_, err := RetentionCandidates(context.Background(), target, names,
+		DefaultRetentionPolicy(1, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)))
+	var evidence *RetentionEvidenceError
+	if !errors.As(err, &evidence) {
+		t.Fatalf("error = %v, want a retention evidence refusal", err)
+	}
+}
+
+func TestRetentionDoesNotPinAReleaseAContainerOnlyLabels(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: app.DefaultBasePath}
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	staleID := "20260101-000000-stale"
+	currentID := "20260102-000000-current"
+	target := &transport.Fake{}
+	writeRetentionManifest(t, target, names, retentionManifest(t, staleID, KindApplication, StateSuperseded, "", old))
+	writeRetentionManifest(t, target, names, retentionManifest(t, currentID, KindApplication, StateServing, "", old))
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "ls -1A"):
+			return transport.Result{Stdout: staleID + "\n" + currentID + "\n"}, true
+		case strings.Contains(command, "docker ps"):
+			// The container was created in the expired release and retained
+			// ever since, so it still carries that label — while mounting
+			// nothing out of the release store.
+			if strings.Contains(command, "ob.release") {
+				return transport.Result{Stdout: staleID + "\n"}, true
+			}
+			return transport.Result{Stdout: "/var/run/docker.sock,app-data\n"}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
+		}
+		if base != nil {
+			return base(command)
+		}
+		return transport.Result{}, false
+	}
+
+	decision, err := RetentionCandidates(context.Background(), target, names,
+		DefaultRetentionPolicy(1, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)))
+	if err != nil {
+		t.Fatalf("a container mounting nothing from the release store refused the prune: %v", err)
+	}
+	if !slices.Contains(decision.Victims, staleID) {
+		t.Fatalf("victims = %v, want the expired release", decision.Victims)
+	}
+}

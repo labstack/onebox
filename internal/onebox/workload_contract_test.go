@@ -154,3 +154,62 @@ deployment: {order: [api]}
 		t.Fatalf("identical bind content staged twice produced different revisions: %s vs %s", first, second)
 	}
 }
+
+func TestWorkloadContractsIgnoreVolumesOnAnAdoptedComposeService(t *testing.T) {
+	staging := t.TempDir()
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+app: sample
+environments: {production: {server: deploy@example.test}}
+workloads:
+  api: {role: application, compose: docker-compose.yml#api, volumes: [{source: ./api-conf, path: /conf, mode: ro}]}
+deployment: {order: [api]}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workloadContracts(resolved, staging, staging, nil); err != nil {
+		t.Fatalf("an adopted Compose service renders verbatim, so its declared volumes stage nothing: %v", err)
+	}
+}
+
+func TestBindMountContractNoticesAnAddedEmptyDirectory(t *testing.T) {
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+app: sample
+environments: {production: {server: deploy@example.test}}
+workloads:
+  api: {role: application, image: example/api, volumes: [{source: ./conf, path: /conf, mode: ro}]}
+deployment: {order: [api]}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(staging, "conf"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "conf", "app.yml"), []byte("mode: api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := workloadContracts(resolved, staging, staging, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(staging, "conf", "flows"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	after, err := workloadContracts(resolved, staging, staging, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before["api"].StartupRevision == after["api"].StartupRevision {
+		t.Fatal("a directory added to a bind source retained its startup revision")
+	}
+}

@@ -25,6 +25,7 @@ func workloadContracts(cfg *app.Resolved, staging, projectRoot string, secretRev
 		return nil, err
 	}
 	contracts := make(map[string]app.WorkloadContract, len(cfg.Workloads))
+	summaries := bindMountSummaries{}
 	for _, name := range sortedNames(cfg.Workloads) {
 		workload := cfg.Workloads[name]
 		inputs := make([]any, 0)
@@ -49,11 +50,16 @@ func workloadContracts(cfg *app.Resolved, staging, projectRoot string, secretRev
 		// digest is what lets the planner retain such a workload when the
 		// content really is identical, instead of recreating every one of
 		// them on every deploy.
+		//
+		// An adopted Compose service is exempt: it renders verbatim from the
+		// file it names, so a volume declared beside it describes nothing that
+		// is staged, and walking for it would fail a deploy that works today.
+		// Such a workload is never retainable anyway.
 		for order, volume := range workload.Volumes {
-			if !volume.IsBind() || path.IsAbs(volume.Source) {
+			if workload.Compose != "" || !volume.IsBind() || path.IsAbs(volume.Source) {
 				continue
 			}
-			summary, err := bindMountSummary(staging, volume.Source)
+			summary, err := summaries.of(staging, volume.Source)
 			if err != nil {
 				return nil, fmt.Errorf("fingerprint bind mount %q for workload %q: %w", volume.Source, name, err)
 			}
@@ -94,21 +100,37 @@ func workloadContracts(cfg *app.Resolved, staging, projectRoot string, secretRev
 	return contracts, nil
 }
 
-// bindMountSummary reduces a staged bind source to one sorted line per file:
-// path, permission bits and a content digest. A retained container keeps the
-// directory it was created with wholesale, so anything left out of this summary
-// is invisible for the life of that container — which is why the mode is here
-// and not only the content, and why a non-regular entry contributes its type
-// rather than being skipped.
-func bindMountSummary(staging, source string) ([]byte, error) {
+// bindMountSummaries memoizes summaries by staged root, because several
+// workloads may mount the same source — `source: .` mounts the whole staged
+// project — and hashing that tree once per workload is the difference between
+// a walk and several of them on every deploy.
+type bindMountSummaries map[string][]byte
+
+func (c bindMountSummaries) of(staging, source string) ([]byte, error) {
 	root := filepath.Join(staging, filepath.FromSlash(strings.TrimPrefix(source, "./")))
+	if summary, ok := c[root]; ok {
+		return summary, nil
+	}
+	summary, err := bindMountSummary(root)
+	if err != nil {
+		return nil, err
+	}
+	c[root] = summary
+	return summary, nil
+}
+
+// bindMountSummary reduces a staged bind source to one sorted line per entry:
+// path, permission bits, and a content digest for a regular file or the entry
+// kind for anything else. A retained container keeps the directory it was
+// created with wholesale, so anything left out of this summary is invisible for
+// the life of that container — which is why the mode is here and not only the
+// content, and why a directory contributes a line even though it holds no
+// bytes: an emptied or renamed directory changes what the workload sees.
+func bindMountSummary(root string) ([]byte, error) {
 	var lines []string
 	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if entry.IsDir() {
-			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -122,6 +144,7 @@ func bindMountSummary(staging, source string) ([]byte, error) {
 			lines = append(lines, fmt.Sprintf("%s|%04o|%s", filepath.ToSlash(rel), info.Mode().Perm(), info.Mode().Type()))
 			return nil
 		}
+
 		body, err := os.ReadFile(name)
 		if err != nil {
 			return err

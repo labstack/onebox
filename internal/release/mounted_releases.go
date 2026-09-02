@@ -19,7 +19,10 @@ import (
 //
 // A container with no ob.release label contributes nothing: it predates the
 // label or is not ours to reason about, and neither is evidence that a release
-// is in use.
+// is in use. A label that is not a release id is dropped for the same reason
+// rather than refusing the read: the release store only ever offers valid ids
+// as deletion candidates, so such a label protects nothing, and failing closed
+// on it would let one stray container disable cleanup for good.
 func MountedReleases(ctx context.Context, target transport.Transport, names app.Names) ([]string, error) {
 	command := "docker ps -a --filter label=ob.app=" + q(names.App) + " --format '{{.Label \"ob.release\"}}'"
 	result, err := target.Run(ctx, command)
@@ -37,7 +40,7 @@ func MountedReleases(ctx context.Context, target transport.Transport, names app.
 			continue
 		}
 		if !IsID(id) {
-			return nil, fmt.Errorf("container reported invalid release id %q", id)
+			continue
 		}
 		if !seen[id] {
 			ids = append(ids, id)

@@ -196,7 +196,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		"--project-directory",
 		"/var/lib/ob/sample/current",
 		"compose.yaml",
-		"run --rm --no-deps --name 'sample-nightly-1'",
+		`run --rm --no-deps "$@" --name 'sample-nightly-1'`,
 		"docker rm -f 'sample-nightly-1'",
 		"nightly",
 	} {
@@ -257,7 +257,7 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 		"--project-directory \"$release_dir\"",
 		"-f \"$release_dir\"/'compose.yaml'",
 		"--env-file \"$release_dir\"/'config/runtime.env'",
-		"run --rm --no-deps --name 'sample-refresh-1' 'refresh'",
+		`run --rm --no-deps "$@" --name 'sample-refresh-1' 'refresh'`,
 		"docker rm -f 'sample-refresh-1'",
 	} {
 		if !strings.Contains(runner, want) {
@@ -1213,5 +1213,135 @@ func TestScheduledJobNotifierSendsOnlySelectedOutcomesWithTheRunID(t *testing.T)
 				t.Fatalf("a placeholder leaked into a send:\n%s", joined)
 			}
 		})
+	}
+}
+
+func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *testing.T) {
+	job := app.ScheduledJob{Name: "sync", Timeout: "45m", DeployLock: "pinned", RetryAttempts: 1,
+		Inputs: map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog"}, Default: "catalog"}}}
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil)
+	for _, want := range []string{
+		"inputs_file='/var/lib/ob/sample/schedule/sync.inputs'",
+		`if [ -z "${TRIGGER_UNIT:-}" ] && [ -f "$inputs_file" ]; then`,
+		`while IFS= read -r line || [ -n "$line" ]; do`,
+		`ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;`,
+		`[A-Z]*=*) set -- "$@" -e "$line"`,
+		`rm -f "$inputs_file"`,
+		`run --rm --no-deps "$@" --name 'sample-sync-1' 'sync'`,
+	} {
+		if !strings.Contains(runner, want) {
+			t.Errorf("runner is missing %q:\n%s", want, runner)
+		}
+	}
+	if strings.Contains(runner, ". \"$inputs_file\"") || strings.Contains(runner, "eval") {
+		t.Fatalf("runner evaluates the inputs file as shell:\n%s", runner)
+	}
+	command := exec.CommandContext(context.Background(), "sh", "-n")
+	command.Stdin = strings.NewReader(runner)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("runner is not valid POSIX shell: %v: %s\n%s", err, output, runner)
+	}
+	// The consume block precedes the locks so a skipped manual run cannot
+	// leave its inputs for the next timer firing.
+	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "flock --exclusive --nonblock --conflict-exit-code 75 9") {
+		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
+	}
+	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil)
+	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --name`) {
+		t.Fatalf("exclusive runner does not consume inputs:\n%s", exclusive)
+	}
+}
+
+func TestSyncSchedulesRequiresSystemd252ForInputs(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"a"}, Default: "a"}},
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	for version, wantErr := range map[string]bool{"systemd 249 (249.11-0ubuntu3)\n": true, "systemd 255 (255.4-1ubuntu8)\n": false, "": true} {
+		f := happyFake()
+		base := f.Dynamic
+		f.Dynamic = func(cmd string) (transport.Result, bool) {
+			switch {
+			case strings.Contains(cmd, "list-unit-files"):
+				return transport.Result{}, true
+			case strings.Contains(cmd, "systemd-analyze calendar"):
+				return transport.Result{Stdout: "ok\n"}, true
+			case strings.Contains(cmd, "command -v flock"):
+				return transport.Result{Stdout: "ok\n"}, true
+			case strings.Contains(cmd, "systemctl --version"):
+				return transport.Result{Stdout: version}, true
+			}
+			return base(cmd)
+		}
+		e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+		err := e.SyncSchedules(context.Background())
+		if wantErr && (err == nil || !strings.Contains(err.Error(), "systemd 252")) {
+			t.Fatalf("version %q was accepted for a job with inputs: %v", version, err)
+		}
+		if !wantErr && err != nil {
+			t.Fatalf("version %q was refused: %v", version, err)
+		}
+	}
+}
+
+// The inputs block is the one place operator text meets the runner, so it is
+// executed rather than only inspected: values with spaces and equals signs
+// must arrive as single -e arguments, the metadata line must never become an
+// argument, and the file must be gone afterwards.
+func TestScheduleInputsLinesParseTheFileIntoArguments(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell required")
+	}
+	dir := t.TempDir()
+	inputs := filepath.Join(dir, "sync.inputs")
+	body := "ONEBOX_OPERATION=20260905-151200-schedule_run-7c1e\nSOURCE=prices and more\nSINCE=2026-09-01=ish\n"
+	if err := os.WriteFile(inputs, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := strings.Join(append(append([]string{"#!/bin/sh", "set -eu"}, scheduleInputsLines(inputs)...),
+		`printf 'argc=%s\n' "$#"`,
+		`for arg in "$@"; do printf 'arg=%s\n' "$arg"; done`,
+		`printf 'operation=%s\n' "$operation"`,
+		`printf 'json=%s\n' "$inputs_json"`,
+	), "\n")
+	for _, trigger := range []string{"", "ob-sample-sync.timer"} {
+		command := exec.CommandContext(context.Background(), "sh", "-s")
+		command.Stdin = strings.NewReader(script)
+		command.Env = []string{"PATH=" + os.Getenv("PATH")}
+		if trigger != "" {
+			command.Env = append(command.Env, "TRIGGER_UNIT="+trigger)
+		}
+		out, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("trigger %q: %v\n%s", trigger, err, out)
+		}
+		got := string(out)
+		if trigger != "" {
+			if !strings.Contains(got, "argc=0\n") || !strings.Contains(got, "operation=\n") {
+				t.Fatalf("a timer activation read the inputs file:\n%s", got)
+			}
+			if _, err := os.Stat(inputs); err != nil {
+				t.Fatalf("a timer activation removed the inputs file: %v", err)
+			}
+			continue
+		}
+		for _, want := range []string{
+			"argc=4\n", "arg=-e\narg=SOURCE=prices and more\n", "arg=-e\narg=SINCE=2026-09-01=ish\n",
+			"operation=20260905-151200-schedule_run-7c1e\n",
+			`json="SOURCE":"prices and more","SINCE":"2026-09-01=ish"` + "\n",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("manual activation output is missing %q:\n%s", want, got)
+			}
+		}
+		if _, err := os.Stat(inputs); err == nil {
+			t.Fatal("the inputs file survived a manual activation")
+		}
+		if err := os.WriteFile(inputs, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

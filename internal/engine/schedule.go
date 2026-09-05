@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
@@ -82,6 +83,20 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	wanted := map[string]bool{}
 	if len(jobs) > 0 && !e.hasFlock(ctx) {
 		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+	}
+	if needsTriggerUnit(jobs) {
+		// A manual activation is told apart from a timer firing by the
+		// TRIGGER_UNIT variable systemd 252 introduced. Without it the runner
+		// could not know whether to read the inputs file, so inputs stay
+		// refused on an older host rather than guessed at.
+		res, err := e.T.Run(ctx, "systemctl --version 2>/dev/null | head -1")
+		if err != nil {
+			return err
+		}
+		if version, ok := systemdVersion(res.Stdout); !ok || version < 252 {
+			return fmt.Errorf("a job declares inputs, which need systemd 252 or newer on the host for $TRIGGER_UNIT; the host reports %q",
+				strings.TrimSpace(res.Stdout))
+		}
 	}
 	for _, job := range jobs {
 		unit := n.ScheduledJobUnit(job.Name)
@@ -178,28 +193,31 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	projectDir := q(names.CurrentLink())
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
 		"install -d -m 700 " + q(names.AppDir()+"/schedule"),
-		"exec 9>" + q(names.ScheduledJobRunLock(job.Name)),
+	}
+	lines = append(lines, scheduleInputsLines(names.ScheduledJobRunInputs(job.Name))...)
+	lines = append(lines,
+		"exec 9>"+q(names.ScheduledJobRunLock(job.Name)),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
-		"exec 8>" + q(names.ScheduleRunLock()),
+		"exec 8>"+q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
-		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
+		"if [ -e "+q(applicationLock)+" ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
 		// Best effort: the record names the release that ran, and an exclusive
 		// job runs whatever `current` points at when it starts.
-		"release_dir=$(readlink -f " + q(names.CurrentLink()) + " 2>/dev/null || true)",
+		"release_dir=$(readlink -f "+q(names.CurrentLink())+" 2>/dev/null || true)",
 		"release=${release_dir##*/}",
 		scheduleContainerCleanup(container),
-		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$tmp\"; }",
+		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
-	}
+	)
 	lines = append(lines, scheduleRunPreamble(names.ScheduledJobRunState(job.Name))...)
 	lines = append(lines, scheduleAttemptLoop(job, compose)...)
 	lines = append(lines, "")
@@ -213,19 +231,22 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 	projectDir := `"$release_dir"`
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
 		"install -d -m 700 " + q(scheduleDir),
-		"exec 9>" + q(names.ScheduledJobRunLock(job.Name)),
+	}
+	lines = append(lines, scheduleInputsLines(names.ScheduledJobRunInputs(job.Name))...)
+	lines = append(lines,
+		"exec 9>"+q(names.ScheduledJobRunLock(job.Name)),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
-		"exec 8>" + q(names.ScheduleRunLock()),
+		"exec 8>"+q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
-		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
-		"release_dir=$(readlink -f " + q(names.CurrentLink()) + ") || { echo 'onebox: current release cannot be resolved' >&2; exit 75; }",
-		"if [ \"${release_dir%/*}\" != " + q(names.ReleasesDir()) + " ]; then echo 'onebox: current release resolves outside the release store' >&2; exit 75; fi",
+		"if [ -e "+q(applicationLock)+" ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
+		"release_dir=$(readlink -f "+q(names.CurrentLink())+") || { echo 'onebox: current release cannot be resolved' >&2; exit 75; }",
+		"if [ \"${release_dir%/*}\" != "+q(names.ReleasesDir())+" ]; then echo 'onebox: current release resolves outside the release store' >&2; exit 75; fi",
 		"release=${release_dir##*/}",
 		"if ! printf '%s\\n' \"$release\" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9A-Za-z_-]+$'; then echo 'onebox: current release identity is invalid' >&2; exit 75; fi",
 		"if [ ! -f \"$release_dir/compose.yaml\" ]; then echo 'onebox: pinned release has no compose.yaml' >&2; exit 75; fi",
@@ -233,12 +254,12 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
 		scheduleContainerCleanup(container),
-		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$tmp\"; }",
+		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
-	}
+	)
 	lines = append(lines, scheduleRunPreamble(state)...)
 	// The lease is held; the schedule mutex goes back before the first
 	// attempt so a compatible deploy is not blocked through the backoff.
@@ -277,9 +298,48 @@ func scheduleRunPreamble(state string) []string {
 		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
 		"started_epoch=$(date -u '+%s')",
 		"if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=manual; fi",
+	}, scheduleStateFunction()...)
+}
+
+// scheduleInputsLines consumes the one-shot inputs file on a manual
+// activation. Values reach the container as -e arguments, never as shell
+// text, and the file is gone before any lock is taken so a skipped manual run
+// cannot hand its inputs to the next timer firing. A timer activation never
+// opens the file: TRIGGER_UNIT says which one this is.
+func scheduleInputsLines(inputsPath string) []string {
+	return []string{
 		"operation=''",
 		"inputs_json=''",
-	}, scheduleStateFunction()...)
+		"inputs_file=" + q(inputsPath),
+		"if [ -z \"${TRIGGER_UNIT:-}\" ] && [ -f \"$inputs_file\" ]; then",
+		"  while IFS= read -r line || [ -n \"$line\" ]; do",
+		"    case \"$line\" in",
+		"      ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;",
+		"      [A-Z]*=*) set -- \"$@\" -e \"$line\"; key=${line%%=*}; value=${line#*=}; inputs_json=\"${inputs_json:+$inputs_json,}\\\"$key\\\":\\\"$value\\\"\" ;;",
+		"    esac",
+		"  done <\"$inputs_file\"",
+		"  rm -f \"$inputs_file\"",
+		"fi",
+	}
+}
+
+func needsTriggerUnit(jobs []app.ScheduledJob) bool {
+	for _, job := range jobs {
+		if len(job.Inputs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// systemdVersion reads the leading number from `systemd 255 (255.4-1ubuntu8)`.
+func systemdVersion(firstLine string) (int, bool) {
+	fields := strings.Fields(firstLine)
+	if len(fields) < 2 || fields[0] != "systemd" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(fields[1])
+	return n, err == nil
 }
 
 // scheduleAttemptLoop runs the container until it exits 0 or the attempts are

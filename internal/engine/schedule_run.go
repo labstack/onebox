@@ -126,6 +126,7 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 		if res.ExitCode != 0 {
 			return result, fmt.Errorf("systemctl start %s: %s", unit, strings.TrimSpace(res.Stderr))
 		}
+		e.logf("schedule: %s started as %s; ob schedule history %s shows the outcome", name, operationID, name)
 		return result, nil
 	}
 	records, err := e.ScheduleHistory(ctx, name, 1)
@@ -134,6 +135,12 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	}
 	if len(records) > 0 {
 		result.Record = &records[0]
+		exit := "-"
+		if records[0].ExitStatus != nil {
+			exit = fmt.Sprint(*records[0].ExitStatus)
+		}
+		e.logf("schedule: %s run %s %s after %d attempt(s) in %ds (exit %s)",
+			name, records[0].Run, records[0].Outcome, records[0].Attempts, records[0].DurationSeconds, exit)
 	}
 	// A skipped run exits 75, which SuccessExitStatus makes a clean exit; any
 	// other non-zero exit is the job failing, and the record says how.

@@ -153,6 +153,7 @@ step to complete rather than a line to run verbatim.
 | `recovery_incomplete` | recovery did not reach its verified terminal state | resolving | `ob resume --output ndjson` |
 | `rollback_target_missing` | no previously serving release is recorded as a rollback target | next | `ob plan --output json` |
 | `schedule_history_failed` | the scheduled job's run records could not be read from the host journal | diagnostic | `ob status --output json` |
+| `schedule_input_invalid` | an --input flag is not NAME=VALUE, or names the same input twice | diagnostic | `ob canonical --output json` |
 | `schedule_list_failed` | the scheduled jobs' timer state could not be read | diagnostic | `ob status --output json` |
 | `schedule_logs_failed` | the scheduled run's journal could not be read | next | `ob schedule history <job> --output json` |
 | `secret_cleanup_pending` | the rotation is applied and verified, but removing the retired generation did not finish | resolving | `ob secrets push --output ndjson` |

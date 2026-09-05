@@ -108,6 +108,7 @@ var cliOutputMatrix = map[string]cliOutputClass{
 	"ob schedule history": {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob schedule list":    {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob schedule logs":    {Class: cliClassOperatorPassthrough, JSON: true, NDJSON: true},
+	"ob schedule run":     {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob schema":           {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob secrets edit":     {Class: cliClassTrustedEditor, JSON: true},
 	"ob secrets list":     {Class: cliClassFiniteEnvelope, JSON: true},

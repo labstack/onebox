@@ -170,7 +170,49 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 	logsCmd.Flags().IntVarP(&logsTail, "tail", "n", 200, "lines to show when no run is recorded")
 	scheduleCmd.AddCommand(logsCmd)
 
+	var runInputs []string
+	var runWait, runBreakLock bool
+	runCmd := &cobra.Command{
+		Use:   "run <job>",
+		Short: "start a scheduled job now with declared inputs",
+		Long: "Start one scheduled job's unit now, with values for its declared inputs. Values are validated on the workstation against the declaration; an undeclared name or a value outside its enum or pattern is refused before anything reaches the host.\n\n" +
+			"Only a job with data_effect none may run this way; a migration or destructive job keeps the sealed plan of ob job run. The request is journaled as schedule_run with the operator and inputs, and the host record carries the operation id, so ob audit and ob schedule history join on it.\n\n" +
+			"The outcome is the run record: ob schedule history <job>, or --wait to block until the unit exits and print it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			inputs, err := parseScheduleInputs(runInputs)
+			if err != nil {
+				return writeEarlyOperationFailure(cmd, g, codedError("schedule_input_invalid", "%v", err))
+			}
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindScheduleRun, Job: args[0], Inputs: inputs, Wait: runWait, BreakLock: runBreakLock,
+			}, "schedule run")
+		},
+	}
+	runCmd.Flags().StringArrayVar(&runInputs, "input", nil, "input override as NAME=VALUE; repeatable")
+	runCmd.Flags().BoolVar(&runWait, "wait", false, "block until the unit exits and report the run record")
+	runCmd.Flags().BoolVar(&runBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	scheduleCmd.AddCommand(runCmd)
+
 	root.AddCommand(scheduleCmd)
+}
+
+// parseScheduleInputs turns repeated --input NAME=VALUE flags into overrides.
+// Only the shape is checked here; names and values are validated against the
+// job's declaration by the engine before anything reaches the host.
+func parseScheduleInputs(raw []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, item := range raw {
+		name, value, ok := strings.Cut(item, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("--input %q must be NAME=VALUE", item)
+		}
+		if _, dup := out[name]; dup {
+			return nil, fmt.Errorf("--input %s given twice", name)
+		}
+		out[name] = value
+	}
+	return out, nil
 }
 
 func orDash(s string) string {

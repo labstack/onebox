@@ -125,6 +125,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "the scheduled job's run records could not be read from the host journal",
 		Command: "ob status --output json",
 	},
+	"schedule_input_invalid": {
+		Message: "an --input flag is not NAME=VALUE, or names the same input twice",
+		Command: "ob canonical --output json",
+	},
 	"schedule_list_failed": {
 		Message: "the scheduled jobs' timer state could not be read",
 		Command: "ob status --output json",

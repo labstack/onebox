@@ -941,6 +941,7 @@ Available Commands:
   history     run records of one scheduled job, newest first
   list        declared scheduled jobs with timer state and next elapse
   logs        journal of one scheduled run
+  run         start a scheduled job now with declared inputs
 
 Flags:
   -h, --help   help for schedule
@@ -1029,6 +1030,31 @@ Flags:
   -h, --help         help for logs
       --run string   run id from ob schedule history; default the newest run
   -n, --tail int     lines to show when no run is recorded (default 200)
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob schedule run
+
+```
+Start one scheduled job's unit now, with values for its declared inputs. Values are validated on the workstation against the declaration; an undeclared name or a value outside its enum or pattern is refused before anything reaches the host.
+
+Only a job with data_effect none may run this way; a migration or destructive job keeps the sealed plan of ob job run. The request is journaled as schedule_run with the operator and inputs, and the host record carries the operation id, so ob audit and ob schedule history join on it.
+
+The outcome is the run record: ob schedule history <job>, or --wait to block until the unit exits and print it.
+
+Usage:
+  ob schedule run <job> [flags]
+
+Flags:
+      --break-lock          break a stale operation lock after inspecting its holder
+  -h, --help                help for run
+      --input stringArray   input override as NAME=VALUE; repeatable
+      --wait                block until the unit exits and report the run record
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

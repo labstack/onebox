@@ -10,7 +10,10 @@
 //      That is the state for `npm run dev`, for `just check`, for CI, and for
 //      anyone who builds this site from a fork. Analytics belongs to whoever
 //      runs onebox.run, not to the source.
-//   2. Nothing loads until measurement is allowed. Not the tag, not a request.
+//   2. Nothing reaches Google until measurement is allowed: no tag, no
+//      request, no identifier. One request is made before the answer is
+//      known, and it goes to this site's own /cdn-cgi/trace to find out
+//      whether the question has to be asked at all -- see below.
 //   3. No advertising signals. Google Signals and ad personalisation are off,
 //      so the traffic here is not joined to an advertising profile.
 //   4. Do Not Track and Global Privacy Control are honoured before the script

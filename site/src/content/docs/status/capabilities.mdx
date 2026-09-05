@@ -27,6 +27,11 @@ This page is the reconciliation. Three states:
   additive.
 - Compose generation and validation, SSH transport with known-host checking,
   state-bound plans, image pinning, rendered diffs.
+- Scheduled jobs as host timers with exact cron translation, bounded retry
+  inside one firing, one run record per activation in the host journal
+  (`ob schedule history`, `ob schedule logs`, `ob status`), per-outcome
+  notifications, and declared inputs for operator-initiated runs
+  (`ob schedule run`).
 - Per-workload reconciliation that retains proven-unchanged healthy workloads,
   health-gated rolling or recreate replacement for changed or uncertain ones,
   traffic drain, verification, versioned releases, retention, rollback.

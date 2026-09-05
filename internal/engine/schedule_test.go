@@ -179,7 +179,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false, DeployLock: "exclusive",
 	}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 	service := scheduleServiceUnit("sample", job,
 		"/etc/systemd/system/ob-sample-nightly.run",
 		"/etc/systemd/system/ob-sample-nightly.notify")
@@ -187,9 +187,9 @@ func TestScheduledJobUnitContract(t *testing.T) {
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
-		"flock --exclusive --nonblock --conflict-exit-code 75 9",
+		"flock --exclusive --nonblock 9 || skip",
 		"exec 8>'/var/lib/ob/sample/schedule.lock'",
-		"flock --exclusive --nonblock --conflict-exit-code 75 8",
+		"flock --exclusive --nonblock 8 || skip",
 		"/var/lib/ob/sample/lock",
 		"application operation holds the deploy lock",
 		"docker compose",
@@ -241,11 +241,11 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", []app.EnvFile{
 		{File: "config/runtime.env"},
 		{File: "secrets/runtime.env", Provider: "sops"},
-	})
+	}, 10*time.Minute)
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/refresh.lock'",
-		"flock --exclusive --nonblock --conflict-exit-code 75 9",
+		"flock --exclusive --nonblock 9 || skip",
 		"exec 8>'/var/lib/ob/sample/schedule.lock'",
 		"release_dir=$(readlink -f '/var/lib/ob/sample/current')",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
@@ -341,7 +341,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	}
 
 	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
-	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"), nil)
+	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"), nil, 10*time.Minute)
 	runner = strings.ReplaceAll(runner, "/usr/bin/docker", q(stub))
 	command := exec.CommandContext(ctx, "sh")
 	command.Stdin = strings.NewReader(runner)
@@ -427,8 +427,10 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	if err != nil || len(leases) != 0 {
 		t.Fatalf("completed release remained leased: leases=%v err=%v", leases, err)
 	}
-	if _, err := os.Stat(names.ScheduledJobRunState(job.Name)); !os.IsNotExist(err) {
-		t.Fatalf("runner state survived completion: %v", err)
+	// The notifier, not the runner, removes the state: it is the evidence
+	// ExecStopPost turns into the run record.
+	if _, err := os.Stat(names.ScheduledJobRunState(job.Name)); err != nil {
+		t.Fatalf("runner removed the state the notifier finalises: %v", err)
 	}
 }
 
@@ -501,41 +503,6 @@ func TestSyncSchedulesRefusesMissingFlockBeforeInstallingUnits(t *testing.T) {
 	}
 	if len(f.Inputs) != 0 {
 		t.Fatalf("unit files were written before the capability refusal: %d", len(f.Inputs))
-	}
-}
-
-func TestScheduleStatusSurfacesTheLastSystemdFailure(t *testing.T) {
-	cfg := testConfig()
-	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
-		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
-	}
-	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "systemctl show") {
-			return transport.Result{Stdout: `@@nightly:service
-LoadState=loaded
-ActiveState=failed
-Result=timeout
-ExecMainStatus=15
-@@nightly:timer
-LoadState=loaded
-ActiveState=active
-`}, true
-		}
-		return transport.Result{}, false
-	}}
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	statuses, err := e.scheduleStatuses(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	// systemd's own result is reported, but the verdict is the run record,
-	// and there is none here.
-	if len(statuses) != 1 || statuses[0].LastResult != "timeout" || statuses[0].LastExitStatus != 15 {
-		t.Fatalf("systemd result was not surfaced: %#v", statuses)
-	}
-	if statuses[0].Diverged || len(statuses[0].Issues) != 0 {
-		t.Fatalf("an issue was raised without a run record: %#v", statuses[0])
 	}
 }
 
@@ -836,7 +803,7 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 		{"pinned", app.ScheduledJob{Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC", Calendar: "*-*-* 02:00:00", Timeout: "45m", DeployLock: "pinned"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/ob/sample/lock", nil)
+			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 			for _, want := range []string{
 				"state='/var/lib/ob/sample/schedule/nightly.state'",
 				"write_state() {",
@@ -861,8 +828,8 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 	}
 	service := scheduleServiceUnit("sample", app.ScheduledJob{Name: "nightly", Timeout: "45m"},
 		"/etc/systemd/system/ob-sample-nightly.run", "/etc/systemd/system/ob-sample-nightly.notify")
-	if !strings.Contains(service, "SuccessExitStatus=75") {
-		t.Errorf("a lock-conflict skip must not be a failed unit:\n%s", service)
+	if strings.Contains(service, "SuccessExitStatus") {
+		t.Errorf("a skip is recorded by the runner and exits 0; the unit needs no exit-status remap:\n%s", service)
 	}
 }
 
@@ -885,7 +852,7 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 		`outcome=success`,
 		`outcome=failure`,
 		`"run":"%s","job":"%s","trigger":"%s","operation":"%s","release":"%s"`,
-		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","inputs":{%s}`,
+		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","reason":"%s","inputs":{%s}`,
 		`"${INVOCATION_ID:-}" 'nightly'`,
 		`SYSLOG_IDENTIFIER=ob-run\nONEBOX_APP=%s\nONEBOX_UNIT=%s\nONEBOX_JOB=%s`,
 		`"$record" 'sample' 'ob-sample-nightly' 'nightly' | logger --journald`,
@@ -987,11 +954,12 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 		exit    any
 		attempt float64
 	}{
-		"success":  {state, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "a1b2"}, "success", float64(0), 2},
-		"failure":  {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1"}, "failure", float64(1), 2},
-		"timeout":  {state, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM"}, "timeout", nil, 2},
-		"skipped":  {"", map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "75", "TRIGGER_UNIT": "ob-sample-nightly.timer"}, "skipped", float64(75), 0},
-		"no state": {"", map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "3"}, "failure", float64(3), 0},
+		"success":      {state, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "a1b2"}, "success", float64(0), 2},
+		"failure":      {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1"}, "failure", float64(1), 2},
+		"timeout":      {state, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM"}, "timeout", nil, 2},
+		"skipped":      {"skipped=another run of this job is still in progress\noperation=\ninputs=\n", map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "TRIGGER_UNIT": "ob-sample-nightly.timer"}, "skipped", float64(0), 0},
+		"job exits 75": {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "75"}, "failure", float64(75), 2},
+		"no state":     {"", map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "3"}, "failure", float64(3), 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			record, stateLeft, sends := runNotifier(t, app.ScheduledJob{Name: "nightly", Notify: []string{"failure", "timeout"}}, nil, tc.state, tc.env)
@@ -1004,11 +972,11 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 			if record["job"] != "nightly" || record["run"] != tc.env["INVOCATION_ID"] {
 				t.Fatalf("identity fields wrong: %#v", record)
 			}
-			if tc.state != "" && (record["release"] != "20260905-140000-ab12cd" || record["trigger"] != "timer" || record["duration_s"].(float64) < 1) {
+			if tc.state == state && (record["release"] != "20260905-140000-ab12cd" || record["trigger"] != "timer" || record["duration_s"].(float64) < 1) {
 				t.Fatalf("state fields not carried: %#v", record)
 			}
-			if name == "skipped" && record["trigger"] != "timer" {
-				t.Fatalf("trigger not derived from TRIGGER_UNIT: %#v", record)
+			if name == "skipped" && (record["trigger"] != "timer" || record["reason"] != "another run of this job is still in progress") {
+				t.Fatalf("skip was not recorded with its trigger and reason: %#v", record)
 			}
 			if stateLeft {
 				t.Fatal("state file survived the notifier")
@@ -1109,7 +1077,7 @@ func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 	job := app.ScheduledJob{Name: "nightly", Timeout: "45m", DeployLock: "exclusive",
 		RetryAttempts: 3, RetryBackoff: 30 * time.Second, RetryMaxBackoff: 10 * time.Minute}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 	for _, want := range []string{
 		"max_attempts=3", "backoff=30", "max_backoff=600",
 		"attempt=1", "while :; do", "write_state \"$attempt\"",
@@ -1121,11 +1089,11 @@ func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
 		}
 	}
-	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil)
+	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 	if strings.Contains(single, "while :; do") {
 		t.Errorf("a single-attempt job must not carry a retry loop:\n%s", single)
 	}
-	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil)
+	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 	if !strings.Contains(pinned, "while :; do") || strings.Index(pinned, "flock --unlock 8") > strings.Index(pinned, "while :; do") {
 		t.Errorf("pinned runner must release the schedule mutex before its attempt loop:\n%s", pinned)
 	}
@@ -1182,11 +1150,15 @@ func TestScheduledJobNotifierSendsOnlySelectedOutcomesWithTheRunID(t *testing.T)
 		"failure selected":     {[]string{"failure", "timeout"}, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1", "INVOCATION_ID": "abc123"}, 2, "fail"},
 		"success not selected": {[]string{"failure", "timeout"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "abc123"}, 0, ""},
 		"success selected":     {[]string{"success"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "abc123"}, 1, "ok"},
-		"skipped selected":     {[]string{"skipped"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "75", "INVOCATION_ID": "abc123"}, 2, "fail"},
+		"skipped selected":     {[]string{"skipped"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "abc123"}, 2, "fail"},
 		"timeout not selected": {[]string{"failure"}, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM", "INVOCATION_ID": "abc123"}, 0, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, sends := runNotifier(t, app.ScheduledJob{Name: "nightly", Notify: tc.notify}, webhooks, state, tc.env)
+			runState := state
+			if name == "skipped selected" {
+				runState = "skipped=an application operation holds the deploy lock\noperation=\ninputs=\n"
+			}
+			_, _, sends := runNotifier(t, app.ScheduledJob{Name: "nightly", Notify: tc.notify}, webhooks, runState, tc.env)
 			calls := 0
 			for _, arg := range sends {
 				if arg == "--" {
@@ -1230,7 +1202,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	job := app.ScheduledJob{Name: "sync", Timeout: "45m", DeployLock: "pinned", RetryAttempts: 1,
 		Inputs: map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog"}, Default: "catalog"}}}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 	for _, want := range []string{
 		"inputs_file='/var/lib/ob/sample/schedule/sync.inputs'",
 		`if [ -z "${TRIGGER_UNIT:-}" ] && [ -f "$inputs_file" ]; then`,
@@ -1254,16 +1226,16 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	}
 	// The consume block precedes the locks so a skipped manual run cannot
 	// leave its inputs for the next timer firing.
-	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "flock --exclusive --nonblock --conflict-exit-code 75 9") {
+	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "flock --exclusive --nonblock 9") {
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
 	}
-	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil)
+	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
 	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --name`) {
 		t.Fatalf("exclusive runner does not consume inputs:\n%s", exclusive)
 	}
 }
 
-func TestSyncSchedulesRequiresSystemd252ForInputs(t *testing.T) {
+func TestSyncSchedulesRequireSystemd252ForEveryScheduledJob(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
 		Role: app.RoleJob, When: "manual", DataEffect: "none",
@@ -1289,7 +1261,7 @@ func TestSyncSchedulesRequiresSystemd252ForInputs(t *testing.T) {
 		e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 		err := e.SyncSchedules(context.Background())
 		if wantErr && (err == nil || !strings.Contains(err.Error(), "systemd 252")) {
-			t.Fatalf("version %q was accepted for a job with inputs: %v", version, err)
+			t.Fatalf("version %q was accepted for a scheduled job: %v", version, err)
 		}
 		if !wantErr && err != nil {
 			t.Fatalf("version %q was refused: %v", version, err)
@@ -1353,5 +1325,47 @@ func TestScheduleInputsLinesParseTheFileIntoArguments(t *testing.T) {
 		if err := os.WriteFile(inputs, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestScheduleStatusRaisesAnIssueForASkipStreak(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	skip := `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:01Z","duration_s":0,"attempts":0,"exit_status":0,"outcome":"skipped","reason":"an application operation holds the deploy lock","inputs":{}}`
+	success := `{"run":"c3d4e5f60718293a4b5c6d7e8f901234","job":"nightly","trigger":"timer","started_at":"2026-09-03T02:00:01Z","finished_at":"2026-09-03T02:01:02Z","duration_s":61,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}`
+	for name, tc := range map[string]struct {
+		history string
+		skips   int
+		issue   bool
+	}{
+		"two skips":   {skip + "\n" + skip + "\n" + success, 2, false},
+		"three skips": {skip + "\n" + skip + "\n" + skip + "\n" + success, 3, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, "systemctl show") {
+					return transport.Result{Stdout: "@@journal\npersistent\n@@nightly:service\nLoadState=loaded\nActiveState=inactive\n@@nightly:timer\nLoadState=loaded\nActiveState=active\n@@nightly:run\n@@nightly:history\n" + tc.history + "\n"}, true
+				}
+				return transport.Result{}, false
+			}}
+			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			statuses, err := e.scheduleStatuses(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := statuses[0]
+			if got.ConsecutiveSkips != tc.skips || got.ConsecutiveFailures != 0 || got.LastOutcome != "skipped" || got.LastReason == "" {
+				t.Fatalf("skips not counted: %#v", got)
+			}
+			if got.Diverged != tc.issue {
+				t.Fatalf("issue = %v, want %v: %#v", got.Diverged, tc.issue, got.Issues)
+			}
+			if tc.issue && !strings.Contains(strings.Join(got.Issues, "; "), "skipped 3 firings in a row: an application operation holds the deploy lock") {
+				t.Fatalf("issue does not name the streak and reason: %#v", got.Issues)
+			}
+		})
 	}
 }

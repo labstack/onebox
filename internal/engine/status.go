@@ -171,10 +171,7 @@ func (e *Engine) Status(ctx context.Context) error {
 			e.ui.Println(fmt.Sprintf("schedule %-11s %s", schedule.Name, e.ui.Warn(strings.Join(schedule.Issues, "; ")+" ⚠")))
 			continue
 		}
-		result := schedule.LastResult
-		if result == "" {
-			result = "not run yet"
-		}
+		result := "not recorded"
 		if schedule.Running {
 			detail := fmt.Sprintf("running; policy: %s; timeout: %s", schedule.DeployLock, schedule.Timeout)
 			if schedule.Attempt > 0 {
@@ -190,7 +187,10 @@ func (e *Engine) Status(ctx context.Context) error {
 		if schedule.NextRun != "" {
 			detail += "; next: " + schedule.NextRun
 		}
-		if schedule.LastOutcome != "" {
+		switch {
+		case schedule.LastOutcome == "skipped":
+			result = "skipped (" + schedule.LastReason + ")"
+		case schedule.LastOutcome != "":
 			result = fmt.Sprintf("%s (%ds, %d attempt(s))", schedule.LastOutcome, schedule.LastDurationSeconds, schedule.LastAttempts)
 		}
 		detail += "; last: " + result

@@ -93,14 +93,18 @@ func TestScheduleLogsTargetsOneInvocation(t *testing.T) {
 		return transport.Result{}, false
 	}
 	var out bytes.Buffer
-	if err := e.ScheduleLogs(context.Background(), "nightly", "", &out, &out); err != nil {
+	run, err := e.ScheduleLogs(context.Background(), "nightly", "", &out, &out)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if run != "b2c3d4e5f60718293a4b5c6d7e8f9012" {
+		t.Fatalf("resolved run id = %q; the caller must learn which run was streamed", run)
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "journalctl _SYSTEMD_INVOCATION_ID=b2c3d4e5f60718293a4b5c6d7e8f9012") {
 		t.Fatalf("logs did not target the newest run:\n%s", seq)
 	}
-	if err := e.ScheduleLogs(context.Background(), "nightly", "../etc", &out, &out); err == nil {
+	if _, err := e.ScheduleLogs(context.Background(), "nightly", "../etc", &out, &out); err == nil {
 		t.Fatal("an invalid run id reached the shell")
 	}
 }
@@ -108,7 +112,7 @@ func TestScheduleLogsTargetsOneInvocation(t *testing.T) {
 func TestScheduleLogsRefusesAJobWithoutRecords(t *testing.T) {
 	e, f := scheduledFixture(t)
 	var out bytes.Buffer
-	err := e.ScheduleLogs(context.Background(), "nightly", "", &out, &out)
+	_, err := e.ScheduleLogs(context.Background(), "nightly", "", &out, &out)
 	if err == nil || !strings.Contains(err.Error(), "no recorded runs") {
 		t.Fatalf("err = %v", err)
 	}

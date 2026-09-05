@@ -59,6 +59,10 @@ func happyFake() *transport.Fake {
 		if strings.Contains(cmd, "Config.Healthcheck") {
 			return transport.Result{Stdout: `{"Test":` + guardedHealthcheck + `,"Interval":5000000000,"Retries":3}` + "\n"}, true
 		}
+		// The host scheduled jobs need: systemd 252 or newer.
+		if strings.Contains(cmd, "systemctl --version") {
+			return transport.Result{Stdout: "systemd 255 (255.4-1ubuntu8)\n"}, true
+		}
 		// server roll state, derived from history so the loop converges: NEW1
 		// appears after a scale, OLD1 disappears once removed, names track renames.
 		scaled, oldGone, drained := false, false, false

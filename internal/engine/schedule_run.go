@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
@@ -90,6 +91,14 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if res.ExitCode != 0 {
 		return result, fmt.Errorf("a manual run of %s is already pending (%s exists); wait for it, or remove the file on the host", name, path)
 	}
+	// From here on the file is ours to clean up: a request that fails before
+	// the unit starts must not leave it behind to refuse the next one.
+	pending := true
+	defer func() {
+		if pending {
+			e.discardInputs(ctx, path)
+		}
+	}()
 
 	writer := &journal.Writer{
 		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
@@ -121,23 +130,25 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if err != nil {
 		return result, err
 	}
+	if res.ExitCode != 0 && !wait {
+		return result, fmt.Errorf("systemctl start %s: %s", unit, strings.TrimSpace(res.Stderr))
+	}
+	// The unit was activated, so the runner owns the file now, whether it ran
+	// or skipped; a blocking start that exits non-zero still activated it.
+	pending = false
 	result.Started = true
 	if !wait {
-		if res.ExitCode != 0 {
-			return result, fmt.Errorf("systemctl start %s: %s", unit, strings.TrimSpace(res.Stderr))
-		}
 		e.logf("schedule: %s started as %s; ob schedule history %s shows the outcome", name, operationID, name)
 		return result, nil
 	}
-	records, err := e.ScheduleHistory(ctx, name, 1)
+	last, err := e.awaitScheduleRecord(ctx, name, operationID)
 	if err != nil {
+		if res.ExitCode != 0 {
+			return result, fmt.Errorf("%w; systemctl start exited %d: %s", err, res.ExitCode, strings.TrimSpace(res.Stderr))
+		}
 		return result, err
 	}
-	if len(records) == 0 {
-		return result, fmt.Errorf("job %s ran (systemctl exit %d) but left no run record; the host's notifier did not write one", name, res.ExitCode)
-	}
-	last := records[0]
-	result.Record = &last
+	result.Record = last
 	exit := "-"
 	if last.ExitStatus != nil {
 		exit = fmt.Sprint(*last.ExitStatus)
@@ -145,12 +156,44 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	e.logf("schedule: %s run %s %s after %d attempt(s) in %ds (exit %s)",
 		name, last.Run, last.Outcome, last.Attempts, last.DurationSeconds, exit)
 	// The operator asked for this run and waited for it, so anything but a
-	// success is a failure of the request, a skip included: the unit exits 75
+	// success is a failure of the request, a skip included: the unit exits
 	// cleanly, but the work was not done.
 	if last.Outcome != "success" {
 		return result, fmt.Errorf("job %s run %s ended %s; see ob schedule logs %s --run %s", name, last.Run, last.Outcome, name, last.Run)
 	}
 	return result, nil
+}
+
+// awaitScheduleRecord finds the record of this operation's run. The notifier
+// writes it from ExecStopPost and journald ingests it a moment after the
+// blocking start returns, so a few short retries stand between the start and
+// the read. Matching on the operation id means a record left by an earlier
+// run, or by a timer firing that took this slot, is never reported as ours.
+func (e *Engine) awaitScheduleRecord(ctx context.Context, name, operationID string) (*ScheduleRunRecord, error) {
+	for attempt := 0; attempt < 10; attempt++ {
+		if attempt > 0 {
+			e.Opts.Sleep(200 * time.Millisecond)
+		}
+		records, err := e.ScheduleHistory(ctx, name, 5)
+		if err != nil {
+			return nil, err
+		}
+		for i := range records {
+			if records[i].Operation == operationID {
+				return &records[i], nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no run record carries operation %s for job %s: the unit did not run for this request; a timer firing may have taken the slot, or the host's notifier wrote nothing", operationID, name)
+}
+
+// discardInputs removes a pending inputs file this request wrote and can no
+// longer hand to a run. Best effort: the file is root-only state on the host,
+// and the error the caller is already returning is the one that matters.
+func (e *Engine) discardInputs(ctx context.Context, path string) {
+	if _, err := e.T.Run(ctx, "rm -f "+q(path)); err != nil {
+		e.warnf("could not remove the pending inputs file %s: %v", path, err)
+	}
 }
 
 // scheduleInputsFile is the one-shot file the runner consumes: the operation

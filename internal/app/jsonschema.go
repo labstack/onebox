@@ -343,6 +343,17 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "drain", "signal"}, pattern(gSignal)},
 	{[]string{"workloads", "*", "drain", "wait"}, pattern(gDur)},
 	{[]string{"workloads", "*", "drain", "grace"}, pattern(gDur)},
+	{[]string{"workloads", "*", "schedule", "notify", "items"}, enum(eScheduleNotify)},
+	{[]string{"workloads", "*", "schedule", "retry", "attempts"}, map[string]any{"minimum": 1, "maximum": maxRetryAttempts}},
+	{[]string{"workloads", "*", "schedule", "retry", "backoff"}, pattern(gDur)},
+	{[]string{"workloads", "*", "schedule", "retry", "max_backoff"}, pattern(gDur)},
+	{[]string{"workloads", "*", "inputs"}, propertyNames(gInputName)},
+	// An input says what it accepts, one way, and always has a default: the
+	// timer fires without anyone to ask.
+	{[]string{"workloads", "*", "inputs", "*"}, map[string]any{
+		"required": []any{"default"},
+		"oneOf":    anyRequired([]any{"enum", "pattern"}),
+	}},
 	{[]string{"workloads", "*", "resources", "memory"}, pattern(gSize)},
 	{[]string{"workloads", "*", "resources", "cpus"}, pattern(gCpus)},
 	{[]string{"workloads", "*", "persistence", "mode"}, enum(ePersistence)},
@@ -494,7 +505,7 @@ func applyRoleRules(doc map[string]any) {
 		map[string]any{"anyOf": anyRequired(sources)},
 	}
 
-	jobOnly := []any{"when", "data_effect", "schedule"}
+	jobOnly := []any{"when", "data_effect", "schedule", "inputs"}
 	workload["allOf"] = []any{
 		// Exactly one source. A workload with none cannot run and a workload
 		// with two does not say which image it is.

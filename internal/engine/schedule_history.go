@@ -16,18 +16,20 @@ import (
 // scheduled run ends. The journal is the store: there is no file to trim and
 // nothing that can disagree with the unit's own log.
 type ScheduleRunRecord struct {
-	Run             string            `json:"run"`
-	Job             string            `json:"job"`
-	Trigger         string            `json:"trigger"`
-	Operation       string            `json:"operation,omitempty"`
-	Release         string            `json:"release,omitempty"`
-	StartedAt       string            `json:"started_at"`
-	FinishedAt      string            `json:"finished_at"`
-	DurationSeconds int               `json:"duration_s"`
-	Attempts        int               `json:"attempts"`
-	ExitStatus      *int              `json:"exit_status"`
-	Outcome         string            `json:"outcome"`
-	Inputs          map[string]string `json:"inputs,omitempty"`
+	Run             string `json:"run"`
+	Job             string `json:"job"`
+	Trigger         string `json:"trigger"`
+	Operation       string `json:"operation,omitempty"`
+	Release         string `json:"release,omitempty"`
+	StartedAt       string `json:"started_at"`
+	FinishedAt      string `json:"finished_at"`
+	DurationSeconds int    `json:"duration_s"`
+	Attempts        int    `json:"attempts"`
+	ExitStatus      *int   `json:"exit_status"`
+	Outcome         string `json:"outcome"`
+	// Reason is set on a skipped run: what the runner met instead of running.
+	Reason string            `json:"reason,omitempty"`
+	Inputs map[string]string `json:"inputs,omitempty"`
 }
 
 // ScheduleListing is one declared job beside its timer as the host reports it.
@@ -150,25 +152,26 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 	return out, nil
 }
 
-// ScheduleLogs streams the journal of one run. The run id is systemd's
-// invocation id, so the output is exactly that activation and nothing else.
-// With no run given, the newest record's run is used.
-func (e *Engine) ScheduleLogs(ctx context.Context, name, run string, stdout, stderr io.Writer) error {
+// ScheduleLogs streams the journal of one run and returns the run id it
+// streamed. The run id is systemd's invocation id, so the output is exactly
+// that activation and nothing else. With no run given, the newest record's run
+// is used, and the caller learns which one that was.
+func (e *Engine) ScheduleLogs(ctx context.Context, name, run string, stdout, stderr io.Writer) (string, error) {
 	if _, err := e.scheduledJob(name); err != nil {
-		return err
+		return "", err
 	}
 	if run == "" {
 		records, err := e.ScheduleHistory(ctx, name, 1)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if len(records) == 0 {
-			return fmt.Errorf("job %s has no recorded runs", name)
+			return "", fmt.Errorf("job %s has no recorded runs", name)
 		}
 		run = records[0].Run
 	}
 	if !scheduleRunID.MatchString(run) {
-		return fmt.Errorf("run id %q is not a systemd invocation id", run)
+		return "", fmt.Errorf("run id %q is not a systemd invocation id", run)
 	}
-	return e.T.RunStream(ctx, "journalctl _SYSTEMD_INVOCATION_ID="+run+" --no-pager -o short-iso", stdout, stderr)
+	return run, e.T.RunStream(ctx, "journalctl _SYSTEMD_INVOCATION_ID="+run+" --no-pager -o short-iso", stdout, stderr)
 }

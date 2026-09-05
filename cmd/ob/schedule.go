@@ -135,9 +135,9 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 			defer cleanup()
 			if g.Output == "json" {
 				var stdout, stderr bytes.Buffer
-				err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, &stdout, &stderr)
+				run, err := e.ScheduleLogs(cmd.Context(), args[0], logsRun, &stdout, &stderr)
 				data := map[string]any{
-					"job": args[0], "run": logsRun, "stdout": stdout.String(), "stderr": stderr.String(),
+					"job": args[0], "run": run, "stdout": stdout.String(), "stderr": stderr.String(),
 					"passthrough_unredacted": true,
 				}
 				if err != nil {
@@ -152,8 +152,8 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 			}
 			if g.Output == "ndjson" {
 				stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
-				err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, stream.channelWriter("stdout"), stream.channelWriter("stderr"))
-				data := map[string]any{"job": args[0], "run": logsRun, "passthrough_unredacted": true}
+				run, err := e.ScheduleLogs(cmd.Context(), args[0], logsRun, stream.channelWriter("stdout"), stream.channelWriter("stderr"))
+				data := map[string]any{"job": args[0], "run": run, "passthrough_unredacted": true}
 				if err != nil {
 					if writeErr := stream.terminal(cliOutcomeError, nil, publicError(err, "schedule_logs_failed", "run logs could not be read")); writeErr != nil {
 						return writeErr
@@ -162,7 +162,8 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 				}
 				return stream.terminal(cliOutcomeSuccess, data, nil)
 			}
-			return e.ScheduleLogs(cmd.Context(), args[0], logsRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			_, err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return err
 		},
 	}
 	logsCmd.Flags().StringVar(&logsRun, "run", "", "run id from ob schedule history; default the newest run")

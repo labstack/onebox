@@ -263,7 +263,7 @@ ActiveState=active
 	if !snapshot.Complete || !snapshot.Diverged || len(snapshot.Schedules) != 1 {
 		t.Fatalf("scheduled failure was not included as observed divergence: %#v", snapshot)
 	}
-	if got := snapshot.Schedules[0]; !got.Diverged || got.LastOutcome != "failure" || got.LastResult != "exit-code" || got.LastExitStatus != 9 {
+	if got := snapshot.Schedules[0]; !got.Diverged || got.LastOutcome != "failure" {
 		t.Fatalf("unexpected scheduled-job status: %#v", got)
 	}
 }

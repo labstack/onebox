@@ -41,14 +41,38 @@ workloads:
     data_effect: none
     schedule: { cron: "0 0 1 1 *", timeout: 20s, catch_up: false }
   # A deliberately wedged timer run proves the host-enforced timeout becomes a
-  # failed systemd result and that `ob status` exposes it. Its annual timer never
-  # fires during the suite; the test starts the service directly.
+  # recorded timeout that `ob status` exposes. Its annual timer never fires
+  # during the suite; the test starts the service directly. The SLEEP input
+  # lets a later manual run succeed, which is the only thing that clears a
+  # recorded failure.
   timeout-chore:
     role: job
     image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
-    command: ["sh", "-c", "sleep 30"]
+    command: ["sh", "-c", "sleep $SLEEP"]
     data_effect: none
+    inputs:
+      SLEEP: {enum: ["0", "30"], default: "30"}
     schedule: { cron: "0 0 1 1 *", timeout: 1s, catch_up: false }
+  # Fails once, then succeeds: proves the in-firing retry and that the run
+  # record counts attempts. The marker lives on the host so the second
+  # attempt, a fresh container, can see the first one ran.
+  retry-chore:
+    role: job
+    image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    command: ["sh", "-c", "if [ -f /marker/ran ]; then echo second; else touch /marker/ran; exit 1; fi"]
+    data_effect: none
+    volumes: [{source: /tmp/onebox-e2e-retry, path: /marker}]
+    schedule: { cron: "0 0 1 1 *", timeout: 60s, catch_up: false, retry: {attempts: 2, backoff: 1s} }
+  # A declared input reaches the container as an environment variable: its
+  # default on a timer-shaped start, an override on a manual run.
+  input-chore:
+    role: job
+    image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    command: ["sh", "-c", "echo greeting=$GREETING"]
+    data_effect: none
+    inputs:
+      GREETING: {enum: [hi, hello], default: hi}
+    schedule: { cron: "0 0 1 1 *", timeout: 20s, catch_up: false }
 deployment:
   order: [app]
 services:

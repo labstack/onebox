@@ -1,6 +1,9 @@
 package app
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // The retry defaults reproduce today's behaviour exactly: one attempt, and the
 // backoff values are inert until attempts rises above one.
@@ -15,20 +18,28 @@ const (
 // failure and timeout, stay quiet on success, and never mention a skip.
 var defaultScheduleNotify = []string{"failure", "timeout"}
 
+// RetryBackoffSeconds is the whole-second form the runner sleeps: `sleep`
+// takes seconds, and a fraction rounds up rather than down to a busy loop.
+func RetryBackoffSeconds(d time.Duration) int {
+	return int(math.Ceil(d.Seconds()))
+}
+
 // scheduleRetryWorstCase is the longest a run can spend asleep between
-// attempts: the doubling series, each term capped, over the attempts-1 sleeps.
-// Validation keeps it under the timeout so the last attempt can always start.
+// attempts. It reproduces the runner's own arithmetic step for step: whole
+// seconds, sleep, double, cap, over the attempts-1 sleeps. Validation keeps it
+// under the timeout so the last attempt can always start, and that promise
+// only holds if both sides count the same way.
 func scheduleRetryWorstCase(attempts int, backoff, max time.Duration) time.Duration {
-	var total time.Duration
-	sleep := backoff
+	total := 0
+	sleep, cap := RetryBackoffSeconds(backoff), RetryBackoffSeconds(max)
 	for i := 1; i < attempts; i++ {
-		if sleep > max {
-			sleep = max
-		}
 		total += sleep
 		sleep *= 2
+		if sleep > cap {
+			sleep = cap
+		}
 	}
-	return total
+	return time.Duration(total) * time.Second
 }
 
 // retryPolicy resolves the declared block over the defaults. Unparseable

@@ -77,7 +77,10 @@ release lease is held instead and every attempt runs the same release.
 A host-fired job takes an application-wide kernel lock for its whole container
 run. Every operation that establishes Onebox's fenced application lock takes
 the same scheduling mutex while publishing its ownership. A timer that collides
-fails visibly instead of modifying Docker beside a deploy.
+does not modify Docker beside a deploy: it records a `skipped` run with the
+reason and exits cleanly. An application lock older than its TTL is treated as
+expired, exactly as a deploy treats it, so a runner that died mid-operation
+cannot silence a timer forever.
 
 The target must provide `flock` (part of `util-linux` on supported Linux hosts).
 Onebox refuses to install or run schedules when that serialization primitive is
@@ -137,15 +140,17 @@ its `ONEBOX_UNIT` field, so `journalctl SYSLOG_IDENTIFIER=ob-run
 ONEBOX_UNIT=ob-<app>-<job> -o cat` on the host is the raw history:
 
 ```json
-{"run":"a3f9…","job":"nightly-dump","trigger":"timer","operation":"","release":"20260905-140000-ab12cd","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:04:37Z","duration_s":276,"attempts":2,"exit_status":0,"outcome":"success","inputs":{}}
+{"run":"a3f9…","job":"nightly-dump","trigger":"timer","operation":"","release":"20260905-140000-ab12cd","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:04:37Z","duration_s":276,"attempts":2,"exit_status":0,"outcome":"success","reason":"","inputs":{}}
 ```
 
 `run` is systemd's invocation id, so the record and the run's own log share a
 key. `outcome` is one of `success`, `failure`, `timeout`, or `skipped`. A skip
 is a firing that met a running instance of the same job or an application
-operation holding the deploy lock; it exits `75`, which the unit treats as a
-clean exit, and it is recorded because a job that is silently never running
-looks exactly like one that works.
+operation holding the deploy lock. The runner writes the `reason` and exits
+before any container starts, so the unit is not failed and the job's own exit
+status is never mistaken for a skip. Skips are recorded because a job that is
+silently never running looks exactly like one that works: one skip is timing,
+and three in a row are reported by `ob status` as an issue.
 
 Read the records back from the workstation:
 
@@ -267,11 +272,12 @@ operator-initiated run of it keeps the sealed plan, approval and backup-report
 gates of `ob job run` below.
 
 The runner tells a manual activation from a timer firing by the `TRIGGER_UNIT`
-variable systemd sets on timer activations, which needs systemd 252 or newer
-on the host. Ubuntu 24.04 and Debian 12 qualify; a job that declares inputs is
-refused at deploy time on an older host. A job without inputs still runs on an
-older host, but its records say `manual` for every activation, because nothing
-there tells the runner otherwise.
+variable systemd sets on timer activations, which that project introduced in
+version 252. Every scheduled job therefore needs systemd 252 or newer on the
+host, not only one with inputs: the record's `trigger` is part of the contract,
+and on an older systemd a timer firing would both be recorded as manual and
+consume an operator's pending inputs. `ob preflight` and `ob deploy` refuse an
+older host before anything is staged. Ubuntu 24.04 and Debian 12 qualify.
 
 ## Running one by hand
 

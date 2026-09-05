@@ -132,14 +132,17 @@ func TestScheduleRunWaitReportsTheRecordAndFailsOnAnyOtherOutcome(t *testing.T) 
 			case strings.Contains(cmd, "systemctl start 'ob-sample-sync.service'"):
 				return transport.Result{}, true
 			case strings.Contains(cmd, "SYSLOG_IDENTIFIER=ob-run"):
-				return transport.Result{Stdout: `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"sync","trigger":"manual","started_at":"2026-09-05T15:00:01Z","finished_at":"2026-09-05T15:00:02Z","duration_s":1,"attempts":1,"exit_status":0,"outcome":"` + outcome + `","inputs":{}}` + "\n"}, true
+				// Newest first: a stale record from an earlier run precedes ours,
+				// and must not be mistaken for it.
+				return transport.Result{Stdout: `{"run":"ffffffffffffffffffffffffffffffff","job":"sync","trigger":"timer","operation":"","started_at":"2026-09-05T14:00:01Z","finished_at":"2026-09-05T14:00:02Z","duration_s":1,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}` + "\n" +
+					`{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"sync","trigger":"manual","operation":"op-` + outcome + `","started_at":"2026-09-05T15:00:01Z","finished_at":"2026-09-05T15:00:02Z","duration_s":1,"attempts":1,"exit_status":0,"outcome":"` + outcome + `","inputs":{}}` + "\n"}, true
 			}
 			return base(cmd)
 		}
 		e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 		result, err := e.ScheduleRun(context.Background(), "op-"+outcome, "sync", nil, true)
-		if result.Record == nil || result.Record.Outcome != outcome {
-			t.Fatalf("%s: record not returned: %#v", outcome, result)
+		if result.Record == nil || result.Record.Outcome != outcome || result.Record.Run != "a1b2c3d4e5f60718293a4b5c6d7e8f90" {
+			t.Fatalf("%s: this operation's record not returned: %#v", outcome, result)
 		}
 		if (err != nil) != wantErr {
 			t.Fatalf("%s: err = %v, wantErr %v", outcome, err, wantErr)
@@ -147,5 +150,36 @@ func TestScheduleRunWaitReportsTheRecordAndFailsOnAnyOtherOutcome(t *testing.T) 
 		if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "--no-block") {
 			t.Fatalf("%s: --wait must block on systemctl start:\n%s", outcome, seq)
 		}
+	}
+}
+
+func TestScheduleRunDiscardsItsInputsWhenTheStartFails(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog", "prices"}, Default: "catalog"}},
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "systemctl is-active"):
+			return transport.Result{Stdout: "inactive\n"}, true
+		case strings.Contains(cmd, "systemctl start"):
+			return transport.Result{ExitCode: 5, Stderr: "Unit ob-sample-sync.service not found."}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.ScheduleRun(context.Background(), "op-1", "sync", map[string]string{"SOURCE": "prices"}, false)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("start failure was not reported: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "rm -f '/var/lib/ob/sample/schedule/sync.inputs'") {
+		t.Fatalf("a failed start left the inputs file pending:\n%s", seq)
 	}
 }

@@ -59,7 +59,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `<name>.init` | boolean | — | Run a minimal init process as PID 1 inside the container. |
 | `<name>.inputs` | map | — | Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them. |
-| `<name>.inputs.<name>.default` | string | — | Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint. |
+| `<name>.inputs.<name>.default` `*` | string | — | Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint. |
 | `<name>.inputs.<name>.description` | string | — | What the input controls. |
 | `<name>.inputs.<name>.enum` | list | — | Accepted values. |
 | `<name>.inputs.<name>.pattern` | string | — | Regular expression the whole value must match. |
@@ -97,11 +97,11 @@ cannot drift from what `ob validate` accepts.
 | `<name>.schedule.catch_up` | boolean | `true` | Run once after the host returns if an elapsed schedule was missed while it was offline. |
 | `<name>.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
 | `<name>.schedule.deploy_lock` | `exclusive` · `pinned` | `exclusive` | Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks. |
-| `<name>.schedule.notify` | list | `failure, timeout` | Run outcomes that send the configured notifications: success, failure, timeout, skipped. |
+| `<name>.schedule.notify` | list of `success` · `failure` · `timeout` · `skipped` | `failure, timeout` | Run outcomes that send the configured notifications: success, failure, timeout, skipped. |
 | `<name>.schedule.retry` | object | — | Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run. |
 | `<name>.schedule.retry.attempts` | integer | `1` | Total attempts including the first, 1 to 10. |
-| `<name>.schedule.retry.backoff` | string | `30s` | Sleep before the second attempt; it doubles after each failure. |
-| `<name>.schedule.retry.max_backoff` | string | `10m` | Upper bound for the doubling sleep. |
+| `<name>.schedule.retry.backoff` | string | `30s` | Sleep before the second attempt; it doubles after each failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.schedule.retry.max_backoff` | string | `10m` | Upper bound for the doubling sleep. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timeout` | string | `1h` | Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.stdin_open` | boolean | — | Keep standard input open for the container. |

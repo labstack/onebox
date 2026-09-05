@@ -1878,6 +1878,11 @@
                     "required": [
                       "schedule"
                     ]
+                  },
+                  {
+                    "required": [
+                      "inputs"
+                    ]
                   }
                 ]
               }
@@ -2234,6 +2239,18 @@
           "inputs": {
             "additionalProperties": {
               "additionalProperties": false,
+              "oneOf": [
+                {
+                  "required": [
+                    "enum"
+                  ]
+                },
+                {
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              ],
               "patternProperties": {
                 "^x-": {}
               },
@@ -2264,9 +2281,15 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "default"
+              ],
               "type": "object"
             },
             "description": "Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them.",
+            "propertyNames": {
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
             "type": "object"
           },
           "labels": {
@@ -2578,6 +2601,12 @@
                 "default": "failure, timeout",
                 "description": "Run outcomes that send the configured notifications: success, failure, timeout, skipped.",
                 "items": {
+                  "enum": [
+                    "success",
+                    "failure",
+                    "timeout",
+                    "skipped"
+                  ],
                   "type": "string"
                 },
                 "type": "array"
@@ -2595,22 +2624,26 @@
                     "examples": [
                       3
                     ],
+                    "maximum": 10,
+                    "minimum": 1,
                     "type": "integer"
                   },
                   "backoff": {
                     "default": "30s",
-                    "description": "Sleep before the second attempt; it doubles after each failure.",
+                    "description": "Sleep before the second attempt; it doubles after each failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
                       "1m"
                     ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
                     "type": "string"
                   },
                   "max_backoff": {
                     "default": "10m",
-                    "description": "Upper bound for the doubling sleep.",
+                    "description": "Upper bound for the doubling sleep. Expects a duration such as 30s, 5m, 1h30m or 14d.",
                     "examples": [
                       "30m"
                     ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
                     "type": "string"
                   }
                 },

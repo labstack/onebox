@@ -1,0 +1,90 @@
+---
+title: Privacy
+description: What onebox.run measures, what it never collects, and how to turn analytics off.
+summary: The website's own privacy terms and the control that turns its analytics on or off. Not about the `ob` binary, which reports nothing anywhere.
+read_when:
+  - You want to know what this website records about your visit.
+  - You allowed or declined analytics and want to change that answer.
+status: shipped
+---
+
+import AnalyticsPreference from "../../components/AnalyticsPreference.astro";
+
+This page is about **this website**, `onebox.run`. It is not about the `ob`
+binary. Onebox runs on your machine and talks to your server over SSH; it has no
+phone-home, no licence check and no usage beacon, and it reports nothing to us
+about the hosts you deploy to, the workloads you run, or the plans you apply.
+Nothing on this page changes that, because nothing on this page is in it.
+
+## Website analytics
+
+<AnalyticsPreference />
+
+### When it runs
+
+- **In the EEA, the UK, Guernsey, the Isle of Man and Jersey**, nothing is
+  loaded and no identifier is stored until you say yes. The prompt is the only
+  thing that appears before you answer.
+- **Everywhere else**, analytics run and the control above turns them off.
+- **If your browser sends Do Not Track or Global Privacy Control**, analytics
+  never run and you are never asked. That signal wins over everything else on
+  this page, including the buttons above.
+
+Which of these applies is decided from the country Cloudflare reports for your
+connection. If that lookup fails, the site asks rather than assumes.
+
+### What is sent
+
+When analytics are running, each page view sends the page path, the page title,
+the site you arrived from, and the coarse device, browser and country
+information any web request carries.
+
+Two things are cut down before they leave the browser:
+
+- **Query strings are removed** from the recorded address. Only the path is
+  sent, so anything a link put after the `?` is not. This is the same rule
+  `verifyURL` applies to the URLs Onebox itself handles: that nothing sensitive
+  is in there today is not a property worth assuming.
+- **The referrer is reduced to its site.** We record that you came from a search
+  engine, not what you searched for.
+
+Google's advertising features are switched off — no Google Signals, no ad
+personalisation, and ad data redaction is on — so the data is not used to build
+an advertising profile of you.
+
+### What is never sent
+
+Nothing you enter anywhere is collected, because this site has no forms, no
+accounts, no search box that reports what you typed, and no session recording or
+heatmaps. It does not attempt to identify you. And, to say it once more: no
+hostname, address, credential, plan or release from your own Onebox deployments
+passes through this site.
+
+### Storage
+
+Declining stores nothing that travels with a request. Your answer is kept in
+your browser's local storage under `onebox.analytics-consent.v1`, which is read
+by this site and sent to nobody.
+
+Allowing lets Google Analytics set its `_ga` cookies, which hold a random
+identifier so repeat visits can be recognised as the same browser. Declining
+afterwards deletes them.
+
+Clearing your browser storage for this site clears the answer too, and the
+question comes back if your location requires it.
+
+## Hosting
+
+The site is static files served by Cloudflare Pages. Like any web server,
+Cloudflare receives the IP address and request headers needed to deliver a page,
+and is the reason this site knows which country to apply the rules above to.
+That processing is Cloudflare's, under their terms, and happens whether or not
+you allow analytics.
+
+## Contact
+
+Questions about this page belong in
+[an issue](https://github.com/labstack/onebox/issues). The site's source,
+including the analytics code described here, is in
+[the repository](https://github.com/labstack/onebox/tree/main/site) — this page
+describes what that code does, and the code is the thing you can check.

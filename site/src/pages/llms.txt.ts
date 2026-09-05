@@ -13,7 +13,7 @@ import { getCollection } from "astro:content";
 // it "index", which an ORDER list of directory names does not contain, so it was
 // dropped from an index whose own heading promises every page.
 const ROOT = "index";
-const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status"];
+const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status", "privacy"];
 
 const GROUP_TITLES: Record<string, string> = {
   [ROOT]: "Overview",
@@ -22,6 +22,7 @@ const GROUP_TITLES: Record<string, string> = {
   reference: "Reference",
   explanation: "Explanation",
   status: "Status",
+  privacy: "Site terms",
 };
 
 // Keyed by the status union rather than by string, so adding a fourth status is

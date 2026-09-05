@@ -1,0 +1,148 @@
+---
+/* The consent prompt, for readers whose location requires one.
+ *
+ * Markup only. Analytics.astro decides whether this is ever shown and handles
+ * the clicks: the question of whether to ask is answered in the head, before
+ * anything renders, and putting the logic in two places is how the banner ends
+ * up shown to someone who already declined.
+ *
+ * It renders on every page rather than only where the site footer does, because
+ * a reader who arrives from a search result lands on a documentation page, and
+ * a consent prompt that only appears on the landing page asks the question of
+ * the wrong half of the audience.
+ *
+ * `hidden` in the source, not `display: none` in a stylesheet: the prompt is
+ * absent for the reader whose location does not require it and for the reader
+ * who has already answered, and neither should see it flash while a stylesheet
+ * loads. A build without a measurement id never renders it at all.
+ */
+const enabled =
+  Boolean(import.meta.env.PUBLIC_GA_MEASUREMENT_ID?.trim()) && import.meta.env.PROD;
+---
+
+{
+  enabled && (
+    <section
+      id="ob-analytics-consent"
+      class="ob-consent"
+      role="region"
+      aria-labelledby="ob-consent-title"
+      hidden
+    >
+      <div class="ob-consent-body">
+        <p id="ob-consent-title" class="ob-consent-title">Analytics on this site</p>
+        <p class="ob-consent-copy">
+          Onebox would like to count visits and which pages get read, using Google Analytics.
+          Nothing about the servers you deploy to is involved. <a href="/privacy">
+            What is collected
+          </a>.
+        </p>
+      </div>
+      <div class="ob-consent-actions">
+        <button type="button" class="ob-consent-button" data-consent="denied">
+          Do not allow
+        </button>
+        <button
+          type="button"
+          class="ob-consent-button ob-consent-button-primary"
+          data-consent="granted"
+        >
+          Allow
+        </button>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .ob-consent {
+    position: fixed;
+    z-index: calc(var(--sl-z-index-navbar) + 1);
+    inset-block-end: max(1rem, env(safe-area-inset-bottom));
+    inset-inline: 1rem;
+    margin-inline: auto;
+    max-width: 34rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    padding: 1rem 1.15rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.6rem;
+    background: var(--sl-color-black);
+    box-shadow: 0 1rem 2.5rem -0.75rem rgb(0 0 0 / 0.5);
+  }
+
+  .ob-consent-title {
+    margin: 0 0 0.2rem;
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+
+  .ob-consent-copy {
+    margin: 0;
+    font-size: var(--sl-text-xs);
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ob-consent-body {
+    flex: 1 1 16rem;
+  }
+
+  .ob-consent-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .ob-consent-button {
+    padding: 0.4rem 0.85rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--sl-color-gray-2);
+    font: inherit;
+    font-size: var(--sl-text-xs);
+    cursor: pointer;
+  }
+
+  .ob-consent-button:hover {
+    border-color: var(--sl-color-gray-4);
+    color: var(--sl-color-white);
+  }
+
+  /* The landing page's primary action, in miniature: a solid fill of the
+     token that contrasts with the page, labelled in the token that contrasts
+     with the fill. `--sl-color-white` is a role rather than a colour — it is
+     near-black under the light theme — so a label set in it on an accent fill
+     is dark-on-blue in daylight. The pair below inverts correctly in both. */
+  .ob-consent-button-primary {
+    border-color: var(--sl-color-white);
+    background: var(--sl-color-white);
+    color: var(--sl-color-black);
+  }
+
+  .ob-consent-button-primary:hover {
+    border-color: var(--sl-color-gray-1);
+    background: var(--sl-color-gray-1);
+    color: var(--sl-color-black);
+  }
+
+  .ob-consent-button:focus-visible {
+    outline: 2px solid var(--sl-color-accent-high);
+    outline-offset: 2px;
+  }
+
+  /* Stacked, the buttons want the full width rather than the right edge. */
+  @media (max-width: 30rem) {
+    .ob-consent-actions {
+      flex: 1 1 100%;
+    }
+
+    .ob-consent-button {
+      flex: 1;
+    }
+  }
+</style>

@@ -2,7 +2,7 @@
 // Google Analytics 4, on the terms this product argues for everywhere else.
 //
 // A documentation site for a tool whose pitch is "we do not silently claim
-// anything" cannot ship tracking that behaves like everyone else's. Four rules
+// anything" cannot ship tracking that behaves like everyone else's. Five rules
 // follow from that, and each is enforced here rather than left to a setting in
 // a console nobody in this repository can read:
 //
@@ -10,21 +10,42 @@
 //      That is the state for `npm run dev`, for `just check`, for CI, and for
 //      anyone who builds this site from a fork. Analytics belongs to whoever
 //      runs onebox.run, not to the source.
-//   2. Cookieless. `client_storage: "none"` keeps GA4 from writing `_ga`, which
-//      is what makes a consent banner necessary in the first place. Page views
-//      still count; returning readers are simply not re-identified. A banner
-//      asking permission to do something the site does not need to do would be
-//      the same failure this product refuses elsewhere.
+//   2. Nothing loads until measurement is allowed. Not the tag, not a request.
 //   3. No advertising signals. Google Signals and ad personalisation are off,
 //      so the traffic here is not joined to an advertising profile.
 //   4. Do Not Track and Global Privacy Control are honoured before the script
 //      loads, not after. A reader who has asked not to be measured generates no
-//      request to Google at all.
+//      request to Google at all, and is never asked the question either.
+//   5. Withdrawal works. The control on /privacy revokes what acceptance set.
 //
-// The query string is dropped from the recorded location. Documentation URLs
-// carry nothing sensitive today, but this repository's whole position on
-// secrets is that "nothing sensitive is in there today" is not a property you
-// get to assume — verifyURL redacts queries for exactly this reason.
+// Rule 2 replaces what this file used to do. It loaded gtag on every page and
+// then held it in Consent Mode's denied state, which was described here as
+// being cookieless — true, and the reason given was that a banner asking to do
+// something the site does not need to do would be the failure this product
+// refuses elsewhere. That argument was right about banners and wrong about what
+// it bought. Denied mode still sent a hit for every page view; it simply sent
+// one with no stable client id, so every view arrived as a new user in a new
+// session. The site shipped Google's tag to every reader and got numbers in
+// which users, sessions and returning readers were all noise. Refusing to ask
+// is only principled when the answer is that nothing is collected, and
+// something was.
+//
+// So the question is asked, but only of the readers who are owed it. The EEA,
+// the UK and the Crown Dependencies require permission before an analytics
+// identifier is stored; elsewhere measurement may run with a way to turn it
+// off. Cloudflare already knows which applies and says so at /cdn-cgi/trace, so
+// most readers are measured properly and never see a banner. A failed or
+// unavailable lookup asks — the safe direction, and what a build outside
+// Cloudflare gets.
+//
+// The query string is dropped from the recorded location, and the referrer is
+// reduced to its origin. Documentation URLs carry nothing sensitive today, but
+// this repository's whole position on secrets is that "nothing sensitive is in
+// there today" is not a property you get to assume — verifyURL redacts queries
+// for exactly this reason.
+//
+// The preference lives in localStorage rather than a cookie, so declining
+// stores nothing that travels with a request, and is mirrored across tabs.
 //
 // The script body below is written as the element's plain text content, with no
 // `{...}` expression and no backticks around it. Astro treats script children as
@@ -59,49 +80,257 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
   enabled && (
     <script is:inline define:vars={{ measurementId }}>
       (function () {
+        var STORAGE_KEY = "onebox.analytics-consent.v1";
+        var PREFERENCE_EVENT = "onebox:analytics-preference";
+
+        // The EEA, the UK and the Crown Dependencies: the places that require
+        // permission before a browser stores an analytics identifier. A country
+        // this list does not name gets measurement with an opt-out instead.
+        var PRIOR_CONSENT = [
+          "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE",
+          "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT",
+          "RO", "SK", "SI", "ES", "SE", "IS", "LI", "NO",
+          "GB", "GG", "IM", "JE",
+        ];
+
+        var memoryPreference = null;
+        var started = false;
+        var requirementPromise = null;
+
         // Asked not to be tracked, in any of the spellings a browser uses.
         // Firefox before 32 and Safari answered "yes" where everything modern
         // answers "1", and a reader who opted out on an older browser is
         // exactly the reader least willing to be measured. Checked before the
         // tag is inserted, so honouring the request means no request rather
         // than a discarded one.
-        var signals = [navigator.doNotTrack, window.doNotTrack, navigator.msDoNotTrack];
-        for (var i = 0; i < signals.length; i++) {
-          if (signals[i] === "1" || signals[i] === "yes") return;
+        function signalsRefusal() {
+          var flags = [navigator.doNotTrack, window.doNotTrack, navigator.msDoNotTrack];
+          for (var i = 0; i < flags.length; i++) {
+            if (flags[i] === "1" || flags[i] === "yes") return true;
+          }
+          return navigator.globalPrivacyControl === true;
         }
-        if (navigator.globalPrivacyControl === true) return;
 
-        window.dataLayer = window.dataLayer || [];
-        function gtag() { window.dataLayer.push(arguments); }
-        window.gtag = gtag;
+        function readPreference() {
+          try {
+            var stored = window.localStorage.getItem(STORAGE_KEY);
+            return stored === "granted" || stored === "denied" ? stored : null;
+          } catch (_) {
+            // A locked-down browser throws on access rather than returning
+            // null. The in-memory answer still governs this page.
+            return memoryPreference;
+          }
+        }
 
-        // Consent Mode, declared before anything else, is what actually stops
-        // GA4 writing cookies. Passing `client_storage: "none"` to config does
-        // not: gtag does not recognise it there and forwards it as a custom
-        // event parameter, so every hit carried `ep.client_storage=none` while
-        // `_ga` and `_ga_<id>` were set anyway. Measured in a real browser, not
-        // assumed — the first version of this file claimed to be cookieless and
-        // was not.
-        gtag("consent", "default", {
-          analytics_storage: "denied",
-          ad_storage: "denied",
-          ad_user_data: "denied",
-          ad_personalization: "denied",
+        function writePreference(preference) {
+          memoryPreference = preference;
+          try {
+            window.localStorage.setItem(STORAGE_KEY, preference);
+          } catch (_) {
+            // Storage is unavailable; the choice holds for this page only,
+            // which is the direction that does not weaken the gate.
+          }
+          apply();
+          window.dispatchEvent(new Event(PREFERENCE_EVENT));
+        }
+
+        function consentRequirementFor(country) {
+          if (!country || country === "XX" || country === "T1") return "required";
+          return PRIOR_CONSENT.indexOf(country) === -1 ? "not_required" : "required";
+        }
+
+        function consentRequirement() {
+          if (requirementPromise) return requirementPromise;
+          requirementPromise = window
+            .fetch("/cdn-cgi/trace", {
+              cache: "no-store",
+              credentials: "omit",
+              headers: { Accept: "text/plain" },
+            })
+            .then(function (response) {
+              if (!response.ok) throw new Error("trace " + response.status);
+              return response.text();
+            })
+            .then(function (trace) {
+              var match = trace.match(/^loc=([A-Z0-9]{2})$/m);
+              return consentRequirementFor(match ? match[1] : null);
+            })
+            .catch(function () {
+              return "required";
+            });
+          return requirementPromise;
+        }
+
+        function gtag() {
+          window.dataLayer.push(arguments);
+        }
+
+        function referrerOrigin() {
+          if (!document.referrer) return "";
+          try {
+            return new URL(document.referrer).origin;
+          } catch (_) {
+            return "";
+          }
+        }
+
+        function start() {
+          // Above the stored preference on purpose: a browser-level refusal is
+          // not overridden by a click on this site's own control.
+          if (signalsRefusal()) return;
+
+          window["ga-disable-" + measurementId] = false;
+
+          // Allowing after declining, without leaving the page. The tag is
+          // already loaded and must not be configured twice, but the state
+          // stop() left behind is exactly what has to be undone: clearing the
+          // disable flag above and re-granting here.
+          if (started) {
+            gtag("consent", "update", { analytics_storage: "granted" });
+            return;
+          }
+          started = true;
+
+          window.dataLayer = window.dataLayer || [];
+          window.gtag = gtag;
+
+          gtag("consent", "default", {
+            analytics_storage: "denied",
+            ad_storage: "denied",
+            ad_user_data: "denied",
+            ad_personalization: "denied",
+          });
+          // The tag exists only on the path where measurement is allowed, so
+          // this is the state it is created in rather than a later upgrade.
+          gtag("consent", "update", { analytics_storage: "granted" });
+          gtag("set", "ads_data_redaction", true);
+          gtag("js", new Date());
+          gtag("config", measurementId, {
+            allow_google_signals: false,
+            allow_ad_personalization_signals: false,
+            cookie_flags: "SameSite=Lax;Secure",
+            // The path without its query string, and the referring site
+            // without the rest of its URL. See the note in the component
+            // source for why the query goes even though nothing secret is in
+            // it.
+            page_location: window.location.origin + window.location.pathname,
+            page_referrer: referrerOrigin(),
+          });
+
+          var tag = document.createElement("script");
+          tag.async = true;
+          // Every current browser defaults to strict-origin-when-cross-origin,
+          // which already keeps the path and query out of the `Referer` on this
+          // request. Stating it means the guarantee this file makes about query
+          // strings is the file's own rather than one inherited from whatever
+          // default the reader's browser happens to ship.
+          tag.referrerPolicy = "strict-origin";
+          tag.src =
+            "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(measurementId);
+          document.head.appendChild(tag);
+        }
+
+        // Withdrawal has to actually remove what acceptance stored, or the
+        // control is a checkbox that lies. The disable flag stops a tag that is
+        // already on the page from sending anything further.
+        function stop() {
+          window["ga-disable-" + measurementId] = true;
+          if (window.gtag) {
+            window.gtag("consent", "update", {
+              analytics_storage: "denied",
+              ad_storage: "denied",
+              ad_user_data: "denied",
+              ad_personalization: "denied",
+            });
+          }
+          var names = ["_ga", "_ga_" + measurementId.replace(/^G-/, "")];
+          for (var i = 0; i < names.length; i++) {
+            document.cookie = names[i] + "=; Max-Age=0; Path=/; SameSite=Lax; Secure";
+            document.cookie =
+              names[i] +
+              "=; Max-Age=0; Path=/; Domain=." +
+              window.location.hostname +
+              "; SameSite=Lax; Secure";
+          }
+        }
+
+        function mayRun(requirement, preference) {
+          if (preference === "granted") return true;
+          return requirement === "not_required" && preference !== "denied";
+        }
+
+        function banner() {
+          return document.getElementById("ob-analytics-consent");
+        }
+
+        function apply() {
+          var preference = readPreference();
+          if (preference === "denied") {
+            stop();
+            var element = banner();
+            if (element) element.hidden = true;
+            return;
+          }
+          if (preference === "granted") {
+            start();
+            var accepted = banner();
+            if (accepted) accepted.hidden = true;
+            return;
+          }
+          consentRequirement().then(function (requirement) {
+            if (readPreference() !== null) return;
+            if (mayRun(requirement, null)) {
+              start();
+              return;
+            }
+            var prompt = banner();
+            if (prompt) prompt.hidden = false;
+          });
+        }
+
+        // The privacy page's control and the banner both drive the same state.
+        window.oneboxAnalytics = {
+          preference: readPreference,
+          setPreference: writePreference,
+          requirement: consentRequirement,
+          refused: signalsRefusal,
+          subscribe: function (onChange) {
+            window.addEventListener(PREFERENCE_EVENT, onChange);
+            window.addEventListener("storage", function (event) {
+              if (event.key === STORAGE_KEY) onChange();
+            });
+          },
+        };
+
+        function ready(run) {
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", run, { once: true });
+          } else {
+            run();
+          }
+        }
+
+        if (signalsRefusal()) {
+          // Neither measured nor asked. The banner stays in the document,
+          // hidden, so nothing depends on it having rendered.
+          ready(function () {
+            var element = banner();
+            if (element) element.hidden = true;
+          });
+          return;
+        }
+
+        ready(function () {
+          var element = banner();
+          if (element) {
+            element.addEventListener("click", function (event) {
+              var button = event.target instanceof Element && event.target.closest("button");
+              if (!button || !button.dataset.consent) return;
+              writePreference(button.dataset.consent);
+            });
+          }
+          apply();
         });
-
-        gtag("js", new Date());
-        gtag("config", measurementId, {
-          allow_google_signals: false,
-          allow_ad_personalization_signals: false,
-          // The path without its query string. See the note in the component
-          // source for why the query goes even though nothing secret is in it.
-          page_location: window.location.origin + window.location.pathname,
-        });
-
-        var tag = document.createElement("script");
-        tag.async = true;
-        tag.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(measurementId);
-        document.head.appendChild(tag);
       })();
     </script>
   )

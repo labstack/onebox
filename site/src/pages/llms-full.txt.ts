@@ -11,7 +11,7 @@ import { toPlainMarkdown } from "../lib/markdown";
 // listed explicitly — it was previously dropped from a document headed
 // "complete documentation".
 const ROOT = "index";
-const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status"];
+const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status", "privacy"];
 
 export const GET: APIRoute = async () => {
   const docs = await getCollection("docs");

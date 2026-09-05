@@ -313,6 +313,57 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 
 const scheduleNotificationTimestamp = "__ONEBOX_SCHEDULE_TIMESTAMP__"
 
+// scheduleRunIdentifier is the syslog identifier of the one line the notifier
+// writes per run. `journalctl -u <unit> -t ob-run` is the run history: the
+// journal is the store, so there is no file to trim and nothing that can
+// disagree with the unit's own log.
+const scheduleRunIdentifier = "ob-run"
+
+// scheduleRunRecordLines finalises the run the runner started. This lives in
+// ExecStopPost because only systemd knows how the run ended: a timed-out
+// runner is killed mid-sleep and cannot write its own outcome. Every value
+// interpolated into the JSON is either numeric, a timestamp the runner
+// formatted, a release id, or an input value the loader restricted to a
+// charset that needs no escaping.
+func scheduleRunRecordLines(job, state string) []string {
+	return []string{
+		"state=" + q(state),
+		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''",
+		"if [ -f \"$state\" ]; then",
+		"  while IFS= read -r line || [ -n \"$line\" ]; do",
+		"    case \"$line\" in",
+		"      release=*) release=${line#release=} ;;",
+		"      started_at=*) started_at=${line#started_at=} ;;",
+		"      started_epoch=*) started_epoch=${line#started_epoch=} ;;",
+		"      trigger=*) trigger=${line#trigger=} ;;",
+		"      operation=*) operation=${line#operation=} ;;",
+		"      attempt=*) attempt=${line#attempt=} ;;",
+		"      inputs=*) inputs=${line#inputs=} ;;",
+		"    esac",
+		"  done <\"$state\"",
+		"  rm -f \"$state\"",
+		"fi",
+		"if [ -z \"$trigger\" ]; then if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=manual; fi; fi",
+		"result=${SERVICE_RESULT:-success}",
+		"status=${EXIT_STATUS:-0}",
+		// EXIT_STATUS is a signal name when the main process was killed.
+		"case \"$status\" in ''|*[!0-9]*) status=null ;; esac",
+		"case \"$attempt\" in ''|*[!0-9]*) attempt=0 ;; esac",
+		"if [ \"$result\" = timeout ]; then outcome=timeout",
+		"elif [ \"$status\" = 75 ]; then outcome=skipped",
+		"elif [ \"$result\" = success ] && [ \"$status\" = 0 ]; then outcome=success",
+		"else outcome=failure; fi",
+		"finished_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+		"now=$(date -u '+%s')",
+		"duration=0",
+		"case \"$started_epoch\" in ''|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac",
+		"[ -z \"$started_at\" ] && started_at=$finished_at",
+		"printf '{\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"inputs\":{%s}}\\n' " +
+			"\"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$inputs\" " +
+			"| systemd-cat -t " + scheduleRunIdentifier + " || true",
+	}
+}
+
 // scheduleFailureNotifier extends the existing notification contract to work
 // fired directly by systemd. The generated file is mode 0600, keeping webhook
 // tokens out of unit metadata, and every send is bounded and fail-open.
@@ -329,8 +380,9 @@ func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
 		"if /usr/bin/flock --exclusive --nonblock 9; then",
 		"  " + scheduleContainerCleanup(e.names().Container(job, 1)),
 		"fi",
-		`[ "${SERVICE_RESULT:-success}" = success ] && exit 0`,
 	}
+	lines = append(lines, scheduleRunRecordLines(job, e.names().ScheduledJobRunState(job))...)
+	lines = append(lines, `case "$outcome" in failure|timeout) ;; *) exit 0 ;; esac`)
 	var sends []string
 	for _, name := range sortedNames(e.Spec.Notifications) {
 		cfg := e.Spec.Notifications[name]

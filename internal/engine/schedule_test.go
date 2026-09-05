@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -860,5 +861,133 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 		"/etc/systemd/system/ob-sample-nightly.run", "/etc/systemd/system/ob-sample-nightly.notify")
 	if !strings.Contains(service, "SuccessExitStatus=75") {
 		t.Errorf("a lock-conflict skip must not be a failed unit:\n%s", service)
+	}
+}
+
+func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
+	cfg := testConfig()
+	f := &transport.Fake{TargetName: "root@example.internal"}
+	e := New(cfg, testProject(t), f, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
+	script, err := e.scheduleFailureNotifier("nightly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"state='/var/lib/ob/sample/schedule/nightly.state'",
+		`started_epoch=*) started_epoch=${line#started_epoch=}`,
+		`rm -f "$state"`,
+		`result=${SERVICE_RESULT:-success}`,
+		`status=${EXIT_STATUS:-0}`,
+		`outcome=timeout`,
+		`outcome=skipped`,
+		`outcome=success`,
+		`outcome=failure`,
+		`"run":"%s","job":"%s","trigger":"%s","operation":"%s","release":"%s"`,
+		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","inputs":{%s}`,
+		`"${INVOCATION_ID:-}" 'nightly'`,
+		"systemd-cat -t ob-run",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("notifier is missing %q:\n%s", want, script)
+		}
+	}
+	command := exec.CommandContext(context.Background(), "sh", "-n")
+	command.Stdin = strings.NewReader(script)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("notifier is not valid POSIX shell: %v: %s\n%s", err, output, script)
+	}
+}
+
+// runNotifier executes the generated ExecStopPost script with a stub
+// systemd-cat, the way systemd would after a run. It returns the record the
+// script wrote and whether the state file survived.
+func runNotifier(t *testing.T, state string, env map[string]string) (map[string]any, bool) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell required")
+	}
+	base := t.TempDir()
+	cfg := testConfig()
+	cfg.BasePath = base
+	cfg.Notifications = nil
+	e := New(cfg, testProject(t), &transport.Fake{TargetName: "root@example.internal"}, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
+	script, err := e.scheduleFailureNotifier("nightly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduleDir := filepath.Join(base, "sample", "schedule")
+	if err := os.MkdirAll(scheduleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(scheduleDir, "nightly.state")
+	if state != "" {
+		if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := t.TempDir()
+	record := filepath.Join(bin, "record.jsonl")
+	stub := "#!/bin/sh\n[ \"$1\" = -t ] && [ \"$2\" = ob-run ] || exit 9\ncat >>" + record + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "systemd-cat"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(context.Background(), "sh", "-s")
+	command.Stdin = strings.NewReader(script)
+	command.Env = append([]string{"PATH=" + bin + ":" + os.Getenv("PATH")}, "HOME="+base)
+	for k, v := range env {
+		command.Env = append(command.Env, k+"="+v)
+	}
+	if out, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("notifier exited non-zero: %v\n%s\n%s", err, out, script)
+	}
+	body, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("notifier wrote no record: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("notifier wrote %d records, want 1:\n%s", len(lines), body)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &decoded); err != nil {
+		t.Fatalf("record is not JSON: %v\n%s", err, lines[0])
+	}
+	_, stateErr := os.Stat(statePath)
+	return decoded, stateErr == nil
+}
+
+func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
+	state := "release=20260905-140000-ab12cd\nstarted_at=2026-09-05T15:00:01Z\nstarted_epoch=1\ntrigger=timer\noperation=\nattempt=2\ninputs=\n"
+	for name, tc := range map[string]struct {
+		state   string
+		env     map[string]string
+		outcome string
+		exit    any
+		attempt float64
+	}{
+		"success":  {state, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "a1b2"}, "success", float64(0), 2},
+		"failure":  {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1"}, "failure", float64(1), 2},
+		"timeout":  {state, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM"}, "timeout", nil, 2},
+		"skipped":  {"", map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "75", "TRIGGER_UNIT": "ob-sample-nightly.timer"}, "skipped", float64(75), 0},
+		"no state": {"", map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "3"}, "failure", float64(3), 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			record, stateLeft := runNotifier(t, tc.state, tc.env)
+			if record["outcome"] != tc.outcome || record["exit_status"] != tc.exit || record["attempts"] != tc.attempt {
+				t.Fatalf("record = %#v", record)
+			}
+			if record["job"] != "nightly" || record["run"] != tc.env["INVOCATION_ID"] {
+				t.Fatalf("identity fields wrong: %#v", record)
+			}
+			if tc.state != "" && (record["release"] != "20260905-140000-ab12cd" || record["trigger"] != "timer" || record["duration_s"].(float64) < 1) {
+				t.Fatalf("state fields not carried: %#v", record)
+			}
+			if name == "skipped" && record["trigger"] != "timer" {
+				t.Fatalf("trigger not derived from TRIGGER_UNIT: %#v", record)
+			}
+			if stateLeft {
+				t.Fatal("state file survived the notifier")
+			}
+		})
 	}
 }

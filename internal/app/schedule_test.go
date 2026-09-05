@@ -1,8 +1,10 @@
 package app
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A schedule that silently never fires looks exactly like one that works,
@@ -146,5 +148,79 @@ workloads:
 `
 	if _, err := LoadBytes([]byte(bad), "ob.yml"); err == nil {
 		t.Fatal("an invalid scheduled-job timeout was accepted")
+	}
+}
+
+func TestScheduledJobRetryAndNotifyResolveWithDefaults(t *testing.T) {
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  plain:
+    role: job
+    image: x:1
+    data_effect: none
+    schedule: {cron: "0 3 * * *"}
+  retrying:
+    role: job
+    image: x:1
+    data_effect: none
+    schedule:
+      cron: "0 * * * *"
+      timeout: 45m
+      retry: {attempts: 3, backoff: 30s, max_backoff: 10m}
+      notify: [failure, timeout, skipped]
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := spec.ScheduledJobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]ScheduledJob{}
+	for _, job := range jobs {
+		byName[job.Name] = job
+	}
+	plain := byName["plain"]
+	if plain.RetryAttempts != 1 || plain.RetryBackoff != 30*time.Second || plain.RetryMaxBackoff != 10*time.Minute ||
+		strings.Join(plain.Notify, ",") != "failure,timeout" {
+		t.Fatalf("defaults did not resolve: %#v", plain)
+	}
+	retrying := byName["retrying"]
+	if retrying.RetryAttempts != 3 || strings.Join(retrying.Notify, ",") != "failure,timeout,skipped" {
+		t.Fatalf("declared retry did not resolve: %#v", retrying)
+	}
+}
+
+func TestScheduledJobRetryIsBoundedByTheTimeout(t *testing.T) {
+	for name, tc := range map[string]struct {
+		schedule string
+		code     string
+	}{
+		"too many attempts":       {`{cron: "0 * * * *", retry: {attempts: 11}}`, "project_invalid"},
+		"zero attempts":           {`{cron: "0 * * * *", retry: {attempts: 0}}`, "project_invalid"},
+		"backoff over max":        {`{cron: "0 * * * *", retry: {attempts: 2, backoff: 20m, max_backoff: 10m}}`, "project_invalid"},
+		"backoff exceeds timeout": {`{cron: "0 * * * *", timeout: 5m, retry: {attempts: 3, backoff: 2m, max_backoff: 30m}}`, "project_invalid"},
+		"unknown notify":          {`{cron: "0 * * * *", notify: [warning]}`, "project_invalid"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  j: {role: job, image: x:1, data_effect: none, schedule: `+tc.schedule+`}
+`), "ob.yml")
+			var e *Error
+			if !errors.As(err, &e) || e.Code != tc.code {
+				t.Fatalf("err = %v, want code %s", err, tc.code)
+			}
+		})
+	}
+	if got := scheduleRetryWorstCase(3, 2*time.Minute, 30*time.Minute); got != 6*time.Minute {
+		t.Fatalf("worst case = %s, want 6m", got)
+	}
+	if got := scheduleRetryWorstCase(4, 30*time.Second, time.Minute); got != 150*time.Second {
+		t.Fatalf("capped worst case = %s, want 2m30s", got)
 	}
 }

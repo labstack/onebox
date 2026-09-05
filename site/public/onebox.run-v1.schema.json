@@ -2536,6 +2536,48 @@
                 ],
                 "type": "string"
               },
+              "notify": {
+                "default": "failure, timeout",
+                "description": "Run outcomes that send the configured notifications: success, failure, timeout, skipped.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "retry": {
+                "additionalProperties": false,
+                "description": "Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "attempts": {
+                    "default": 1,
+                    "description": "Total attempts including the first, 1 to 10.",
+                    "examples": [
+                      3
+                    ],
+                    "type": "integer"
+                  },
+                  "backoff": {
+                    "default": "30s",
+                    "description": "Sleep before the second attempt; it doubles after each failure.",
+                    "examples": [
+                      "1m"
+                    ],
+                    "type": "string"
+                  },
+                  "max_backoff": {
+                    "default": "10m",
+                    "description": "Upper bound for the doubling sleep.",
+                    "examples": [
+                      "30m"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
               "timeout": {
                 "default": "1h",
                 "description": "Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",

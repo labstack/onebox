@@ -266,11 +266,22 @@ type Schedule struct {
 }
 
 type JobSchedule struct {
-	Cron       string `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
-	Timezone   string `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
-	Timeout    string `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
-	CatchUp    bool   `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
-	DeployLock string `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
+	Cron       string    `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
+	Timezone   string    `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
+	Timeout    string    `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
+	CatchUp    bool      `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
+	DeployLock string    `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
+	Retry      *JobRetry `json:"retry,omitempty" description:"Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run."`
+	Notify     []string  `json:"notify,omitempty" description:"Run outcomes that send the configured notifications: success, failure, timeout, skipped." default:"failure, timeout"`
+}
+
+// JobRetry bounds how a scheduled run recovers from a transient failure. The
+// sleeps happen under the locks the run already holds, so validation keeps
+// their worst-case sum under the schedule's timeout.
+type JobRetry struct {
+	Attempts   *int   `json:"attempts,omitempty" description:"Total attempts including the first, 1 to 10." default:"1" example:"3"`
+	Backoff    string `json:"backoff,omitempty" description:"Sleep before the second attempt; it doubles after each failure." default:"30s" example:"1m"`
+	MaxBackoff string `json:"max_backoff,omitempty" description:"Upper bound for the doubling sleep." default:"10m" example:"30m"`
 }
 
 type Service struct {

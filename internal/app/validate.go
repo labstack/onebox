@@ -580,6 +580,9 @@ func validateJobSchedule(s *JobSchedule, path string) error {
 	if err := gDur.check(path+".timeout", s.Timeout); err != nil {
 		return err
 	}
+	if err := validateJobRetry(s, path); err != nil {
+		return err
+	}
 	return checkEnum(path+".deploy_lock", s.DeployLock, eScheduleDeployLock)
 }
 

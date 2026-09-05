@@ -300,7 +300,7 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
           subscribe: function (onChange) {
             window.addEventListener(PREFERENCE_EVENT, onChange);
             window.addEventListener("storage", function (event) {
-              if (event.key === STORAGE_KEY) onChange();
+              if (event.key === STORAGE_KEY || event.key === null) onChange();
             });
           },
         };
@@ -332,6 +332,17 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
           });
           return;
         }
+
+        // A choice made in one tab has to reach the tab that is being measured.
+        // `storage` fires in every tab but the one that wrote, so this is the
+        // only place the two are joined, and leaving it out is worse than a
+        // stale display: the withdrawing tab deletes the cookies, and the tab
+        // still running the tag writes them again on its next event and carries
+        // on measuring until something navigates it. A null key is the clear()
+        // case, where the preference is gone rather than changed.
+        window.addEventListener("storage", function (event) {
+          if (event.key === STORAGE_KEY || event.key === null) apply();
+        });
 
         ready(function () {
           var element = banner();

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -107,7 +108,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
 		}
 		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles)
-		notifier, err := e.scheduleFailureNotifier(job.Name)
+		notifier, err := e.scheduleNotifier(job)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
 		}
@@ -171,7 +172,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 // release before releasing that rendezvous, then retains only its own job lock.
 func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
 	if job.DeployLock == "pinned" {
-		return pinnedScheduleRunnerScript(application, job.Name, names, applicationLock, runtimeEnvFiles)
+		return pinnedScheduleRunnerScript(application, job, names, applicationLock, runtimeEnvFiles)
 	}
 	container := names.Container(job.Name, 1)
 	projectDir := q(names.CurrentLink())
@@ -200,24 +201,25 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		"trap 'exit 143' 15",
 	}
 	lines = append(lines, scheduleRunPreamble(names.ScheduledJobRunState(job.Name))...)
-	lines = append(lines, "write_state 1", compose, "")
+	lines = append(lines, scheduleAttemptLoop(job, compose)...)
+	lines = append(lines, "")
 	return strings.Join(lines, "\n")
 }
 
-func pinnedScheduleRunnerScript(application, job string, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
+func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
 	scheduleDir := names.AppDir() + "/schedule"
-	state := names.ScheduledJobRunState(job)
-	container := names.Container(job, 1)
+	state := names.ScheduledJobRunState(job.Name)
+	container := names.Container(job.Name, 1)
 	projectDir := `"$release_dir"`
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps --name " + q(container) + " " + q(job)
+		" run --rm --no-deps --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
 		"install -d -m 700 " + q(scheduleDir),
-		"exec 9>" + q(names.ScheduledJobRunLock(job)),
+		"exec 9>" + q(names.ScheduledJobRunLock(job.Name)),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
 		"exec 8>" + q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
@@ -238,7 +240,11 @@ func pinnedScheduleRunnerScript(application, job string, names app.Names, applic
 		"trap 'exit 143' 15",
 	}
 	lines = append(lines, scheduleRunPreamble(state)...)
-	lines = append(lines, "write_state 1", "/usr/bin/flock --unlock 8", compose, "")
+	// The lease is held; the schedule mutex goes back before the first
+	// attempt so a compatible deploy is not blocked through the backoff.
+	lines = append(lines, "/usr/bin/flock --unlock 8")
+	lines = append(lines, scheduleAttemptLoop(job, compose)...)
+	lines = append(lines, "")
 	return strings.Join(lines, "\n")
 }
 
@@ -274,6 +280,34 @@ func scheduleRunPreamble(state string) []string {
 		"operation=''",
 		"inputs_json=''",
 	}, scheduleStateFunction()...)
+}
+
+// scheduleAttemptLoop runs the container until it exits 0 or the attempts are
+// spent. Backoff doubles and is capped; every sleep happens under the locks
+// the run already holds, which is why validation keeps the sum under the
+// timeout. A single-attempt job gets no loop, so its runner reads as before.
+func scheduleAttemptLoop(job app.ScheduledJob, compose string) []string {
+	if job.RetryAttempts <= 1 {
+		return []string{"write_state 1", compose}
+	}
+	return []string{
+		fmt.Sprintf("max_attempts=%d", job.RetryAttempts),
+		fmt.Sprintf("backoff=%d", int(math.Ceil(job.RetryBackoff.Seconds()))),
+		fmt.Sprintf("max_backoff=%d", int(math.Ceil(job.RetryMaxBackoff.Seconds()))),
+		"attempt=1",
+		"while :; do",
+		"  write_state \"$attempt\"",
+		"  status=0",
+		"  " + compose + " || status=$?",
+		"  [ \"$status\" -eq 0 ] && exit 0",
+		"  if [ \"$attempt\" -ge \"$max_attempts\" ]; then exit \"$status\"; fi",
+		"  echo \"onebox: attempt $attempt of $max_attempts exited $status; retrying in ${backoff}s\" >&2",
+		"  sleep \"$backoff\"",
+		"  backoff=$((backoff * 2))",
+		"  [ \"$backoff\" -gt \"$max_backoff\" ] && backoff=$max_backoff",
+		"  attempt=$((attempt + 1))",
+		"done",
+	}
 }
 
 func scheduleRuntimeEnvArgs(projectDir string, entries []app.EnvFile) string {
@@ -364,10 +398,22 @@ func scheduleRunRecordLines(job, state string) []string {
 	}
 }
 
-// scheduleFailureNotifier extends the existing notification contract to work
-// fired directly by systemd. The generated file is mode 0600, keeping webhook
+// scheduleNotificationRun marks where the notifier substitutes the run id at
+// send time. It travels as the payload's deploy_id: the correlation key an
+// operator hands to `ob schedule logs --run`. Nothing else about the run goes
+// into a notification; the notify package redacts diagnostics on purpose, and
+// attempts, duration and exit status belong to the run record on the host.
+const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
+
+// scheduleNotifier extends the existing notification contract to work fired
+// directly by systemd. It finalises the run record first, then sends for the
+// outcomes the job selected. The generated file is mode 0600, keeping webhook
 // tokens out of unit metadata, and every send is bounded and fail-open.
-func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
+//
+// Bodies are prepared here, once per outcome class, because the payload
+// contract lives in the notify package and the host has no Onebox to ask at
+// 2am. Only the timestamp and the run id are filled in on the host.
+func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 	environment := e.Opts.Environment
 	if environment == "" {
 		environment = e.Spec.Env
@@ -376,46 +422,108 @@ func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -u",
-		"exec 9>" + q(e.names().ScheduledJobRunLock(job)),
+		"exec 9>" + q(e.names().ScheduledJobRunLock(job.Name)),
 		"if /usr/bin/flock --exclusive --nonblock 9; then",
-		"  " + scheduleContainerCleanup(e.names().Container(job, 1)),
+		"  " + scheduleContainerCleanup(e.names().Container(job.Name, 1)),
 		"fi",
 	}
-	lines = append(lines, scheduleRunRecordLines(job, e.names().ScheduledJobRunState(job))...)
-	lines = append(lines, `case "$outcome" in failure|timeout) ;; *) exit 0 ;; esac`)
+	lines = append(lines, scheduleRunRecordLines(job.Name, e.names().ScheduledJobRunState(job.Name))...)
+	lines = append(lines, `case " `+strings.Join(job.Notify, " ")+` " in *" $outcome "*) ;; *) exit 0 ;; esac`)
+	wantsSuccess, wantsFailure := false, false
+	for _, outcome := range job.Notify {
+		if outcome == "success" {
+			wantsSuccess = true
+		} else {
+			wantsFailure = true
+		}
+	}
+	var success, failure []string
+	var err error
+	if wantsSuccess {
+		if success, err = e.scheduleNotificationSends(job.Name, environment, "ok"); err != nil {
+			return "", err
+		}
+	}
+	if wantsFailure {
+		if failure, err = e.scheduleNotificationSends(job.Name, environment, "fail"); err != nil {
+			return "", err
+		}
+	}
+	if len(success)+len(failure) > 0 {
+		lines = append(lines, `ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')`)
+		lines = append(lines, `if [ "$outcome" = success ]; then`)
+		lines = append(lines, orNoop(success)...)
+		lines = append(lines, "else")
+		lines = append(lines, orNoop(failure)...)
+		lines = append(lines, "fi", "wait || true")
+	}
+	lines = append(lines, "exit 0", "")
+	return strings.Join(lines, "\n"), nil
+}
+
+// orNoop keeps a shell branch syntactically present when it has nothing to do.
+func orNoop(lines []string) []string {
+	if len(lines) == 0 {
+		return []string{"  :"}
+	}
+	return lines
+}
+
+// scheduleNotificationSends renders one backgrounded curl per notification
+// that selects the given status. Status is the notify package's word: ok or
+// fail. A failed send is logged and never replaces the job's own result.
+func (e *Engine) scheduleNotificationSends(job, environment, status string) ([]string, error) {
 	var sends []string
 	for _, name := range sortedNames(e.Spec.Notifications) {
 		cfg := e.Spec.Notifications[name]
-		prepared, err := notify.Prepare(cfg, notify.Payload{
+		payload := notify.Payload{
 			App: e.Spec.Name, Env: environment, Host: e.T.Destination(),
-			Verb: "scheduled job " + job, Status: "fail",
-			Error: "scheduled job failed; inspect trusted host diagnostics",
-			TS:    scheduleNotificationTimestamp,
-		})
+			Verb: "scheduled job " + job, Status: status,
+			DeployID: scheduleNotificationRun, TS: scheduleNotificationTimestamp,
+		}
+		if status != "ok" {
+			payload.Error = "scheduled job failed; inspect trusted host diagnostics"
+		}
+		prepared, err := notify.Prepare(cfg, payload)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if prepared == nil {
 			continue
-		}
-		body := q(string(prepared.Body))
-		if before, after, ok := strings.Cut(string(prepared.Body), scheduleNotificationTimestamp); ok {
-			body = q(before) + `"$ts"` + q(after)
 		}
 		curl := "curl --fail --silent --show-error --max-time 5 --request POST" +
 			" --header " + q("Content-Type: "+prepared.ContentType) +
 			" --header " + q("X-Title: "+prepared.Title) +
 			` --data-binary "$body" ` + q(cfg.Webhook)
-		sends = append(sends, "(body="+body+"; if ! "+curl+"; then echo "+
+		sends = append(sends, "  (body="+shellBody(string(prepared.Body))+"; if ! "+curl+"; then echo "+
 			q("onebox: notification "+name+" failed")+" >&2; fi) &")
 	}
-	if len(sends) > 0 {
-		lines = append(lines, `ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')`)
-		lines = append(lines, sends...)
-		lines = append(lines, "wait || true")
+	return sends, nil
+}
+
+// shellBody quotes a prepared body for the shell, leaving the two runtime
+// placeholders as expansions of variables the notifier sets before sending.
+func shellBody(body string) string {
+	var out strings.Builder
+	for body != "" {
+		next, placeholder, expansion := -1, "", ""
+		if i := strings.Index(body, scheduleNotificationTimestamp); i >= 0 {
+			next, placeholder, expansion = i, scheduleNotificationTimestamp, `"$ts"`
+		}
+		if i := strings.Index(body, scheduleNotificationRun); i >= 0 && (next < 0 || i < next) {
+			next, placeholder, expansion = i, scheduleNotificationRun, `"${INVOCATION_ID:-}"`
+		}
+		if next < 0 {
+			out.WriteString(q(body))
+			break
+		}
+		if next > 0 {
+			out.WriteString(q(body[:next]))
+		}
+		out.WriteString(expansion)
+		body = body[next+len(placeholder):]
 	}
-	lines = append(lines, "exit 0", "")
-	return strings.Join(lines, "\n"), nil
+	return out.String()
 }
 
 // calendarExpr is the one string both the host's validator and the installed

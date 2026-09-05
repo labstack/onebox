@@ -446,7 +446,7 @@ func TestScheduledJobFailureNotifierUsesConfiguredWebhooks(t *testing.T) {
 	}
 	f := &transport.Fake{TargetName: "root@example.internal"}
 	e := New(cfg, testProject(t), f, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
-	script, err := e.scheduleFailureNotifier("nightly")
+	script, err := e.scheduleNotifier(app.ScheduledJob{Name: "nightly", Notify: []string{"failure", "timeout"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -868,7 +868,7 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 	cfg := testConfig()
 	f := &transport.Fake{TargetName: "root@example.internal"}
 	e := New(cfg, testProject(t), f, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
-	script, err := e.scheduleFailureNotifier("nightly")
+	script, err := e.scheduleNotifier(app.ScheduledJob{Name: "nightly", Notify: []string{"failure", "timeout"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,10 +898,11 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 	}
 }
 
-// runNotifier executes the generated ExecStopPost script with a stub
-// systemd-cat, the way systemd would after a run. It returns the record the
-// script wrote and whether the state file survived.
-func runNotifier(t *testing.T, state string, env map[string]string) (map[string]any, bool) {
+// runNotifier executes the generated ExecStopPost script with stub systemd-cat
+// and curl binaries, the way systemd would after a run. It returns the record
+// the script wrote, whether the state file survived, and every curl
+// invocation's arguments, one per element.
+func runNotifier(t *testing.T, job app.ScheduledJob, notifications map[string]app.Notification, state string, env map[string]string) (map[string]any, bool, []string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell required")
@@ -909,9 +910,9 @@ func runNotifier(t *testing.T, state string, env map[string]string) (map[string]
 	base := t.TempDir()
 	cfg := testConfig()
 	cfg.BasePath = base
-	cfg.Notifications = nil
+	cfg.Notifications = notifications
 	e := New(cfg, testProject(t), &transport.Fake{TargetName: "root@example.internal"}, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
-	script, err := e.scheduleFailureNotifier("nightly")
+	script, err := e.scheduleNotifier(job)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -929,6 +930,13 @@ func runNotifier(t *testing.T, state string, env map[string]string) (map[string]
 	record := filepath.Join(bin, "record.jsonl")
 	stub := "#!/bin/sh\n[ \"$1\" = -t ] && [ \"$2\" = ob-run ] || exit 9\ncat >>" + record + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "systemd-cat"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sent := filepath.Join(bin, "curl.args")
+	// Sends run in the background concurrently, so each stub call writes its
+	// whole argument list in one printf, keeping calls from interleaving.
+	curl := "#!/bin/sh\nprintf '%s\\n' \"$@\" -- >>" + sent + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "curl"), []byte(curl), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(context.Background(), "sh", "-s")
@@ -953,7 +961,11 @@ func runNotifier(t *testing.T, state string, env map[string]string) (map[string]
 		t.Fatalf("record is not JSON: %v\n%s", err, lines[0])
 	}
 	_, stateErr := os.Stat(statePath)
-	return decoded, stateErr == nil
+	var sends []string
+	if args, err := os.ReadFile(sent); err == nil {
+		sends = strings.Split(strings.TrimSpace(string(args)), "\n")
+	}
+	return decoded, stateErr == nil, sends
 }
 
 func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
@@ -972,7 +984,10 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 		"no state": {"", map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "3"}, "failure", float64(3), 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			record, stateLeft := runNotifier(t, tc.state, tc.env)
+			record, stateLeft, sends := runNotifier(t, app.ScheduledJob{Name: "nightly", Notify: []string{"failure", "timeout"}}, nil, tc.state, tc.env)
+			if len(sends) != 0 {
+				t.Fatalf("no webhook is configured, yet curl ran: %v", sends)
+			}
 			if record["outcome"] != tc.outcome || record["exit_status"] != tc.exit || record["attempts"] != tc.attempt {
 				t.Fatalf("record = %#v", record)
 			}
@@ -1077,5 +1092,126 @@ ActiveState=active
 	}
 	if !strings.Contains(strings.Join(got.Issues, "; "), "last run failed: failure (exit 1)") {
 		t.Fatalf("issue does not name the outcome: %#v", got.Issues)
+	}
+}
+
+func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
+	job := app.ScheduledJob{Name: "nightly", Timeout: "45m", DeployLock: "exclusive",
+		RetryAttempts: 3, RetryBackoff: 30 * time.Second, RetryMaxBackoff: 10 * time.Minute}
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil)
+	for _, want := range []string{
+		"max_attempts=3", "backoff=30", "max_backoff=600",
+		"attempt=1", "while :; do", "write_state \"$attempt\"",
+		"status=0", "|| status=$?", "[ \"$status\" -eq 0 ] && exit 0",
+		"if [ \"$attempt\" -ge \"$max_attempts\" ]; then exit \"$status\"; fi",
+		"sleep \"$backoff\"", "backoff=$((backoff * 2))", "attempt=$((attempt + 1))",
+	} {
+		if !strings.Contains(runner, want) {
+			t.Errorf("runner is missing %q:\n%s", want, runner)
+		}
+	}
+	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil)
+	if strings.Contains(single, "while :; do") {
+		t.Errorf("a single-attempt job must not carry a retry loop:\n%s", single)
+	}
+	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil)
+	if !strings.Contains(pinned, "while :; do") || strings.Index(pinned, "flock --unlock 8") > strings.Index(pinned, "while :; do") {
+		t.Errorf("pinned runner must release the schedule mutex before its attempt loop:\n%s", pinned)
+	}
+	for _, script := range []string{runner, single, pinned} {
+		command := exec.CommandContext(context.Background(), "sh", "-n")
+		command.Stdin = strings.NewReader(script)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("runner is not valid POSIX shell: %v: %s\n%s", err, output, script)
+		}
+	}
+}
+
+func TestScheduledJobNotifierSelectsBodiesByOutcome(t *testing.T) {
+	cfg := testConfig()
+	cfg.Notifications = map[string]app.Notification{
+		"ops": {Webhook: "https://hooks.example.com/ops", On: []string{"success", "failure"}, Format: "json"},
+	}
+	f := &transport.Fake{TargetName: "root@example.internal"}
+	e := New(cfg, testProject(t), f, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
+	script, err := e.scheduleNotifier(app.ScheduledJob{Name: "nightly", Notify: []string{"success", "failure", "skipped"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`case " success failure skipped " in *" $outcome "*) ;; *) exit 0 ;; esac`,
+		`"status":"ok"`,
+		`"status":"fail"`,
+		`if [ "$outcome" = success ]; then`,
+		`"deploy_id":"'"${INVOCATION_ID:-}"'"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("notifier is missing %q:\n%s", want, script)
+		}
+	}
+	command := exec.CommandContext(context.Background(), "sh", "-n")
+	command.Stdin = strings.NewReader(script)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("notifier is not valid POSIX shell: %v: %s\n%s", err, output, script)
+	}
+}
+
+func TestScheduledJobNotifierSendsOnlySelectedOutcomesWithTheRunID(t *testing.T) {
+	state := "release=r1\nstarted_at=2026-09-05T15:00:01Z\nstarted_epoch=1\ntrigger=timer\noperation=\nattempt=2\ninputs=\n"
+	webhooks := map[string]app.Notification{
+		"ops":  {Webhook: "https://hooks.example.com/ops", On: []string{"success", "failure"}, Format: "json"},
+		"chat": {Webhook: "https://hooks.example.com/chat", On: []string{"failure"}, Format: "text"},
+	}
+	for name, tc := range map[string]struct {
+		notify []string
+		env    map[string]string
+		want   int
+		status string
+	}{
+		"failure selected":     {[]string{"failure", "timeout"}, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1", "INVOCATION_ID": "abc123"}, 2, "fail"},
+		"success not selected": {[]string{"failure", "timeout"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "abc123"}, 0, ""},
+		"success selected":     {[]string{"success"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "abc123"}, 1, "ok"},
+		"skipped selected":     {[]string{"skipped"}, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "75", "INVOCATION_ID": "abc123"}, 2, "fail"},
+		"timeout not selected": {[]string{"failure"}, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM", "INVOCATION_ID": "abc123"}, 0, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, sends := runNotifier(t, app.ScheduledJob{Name: "nightly", Notify: tc.notify}, webhooks, state, tc.env)
+			calls := 0
+			for _, arg := range sends {
+				if arg == "--" {
+					calls++
+				}
+			}
+			if calls != tc.want {
+				t.Fatalf("curl ran %d time(s), want %d:\n%s", calls, tc.want, strings.Join(sends, "\n"))
+			}
+			if tc.want == 0 {
+				return
+			}
+			joined := strings.Join(sends, "\n")
+			var jsonBody string
+			for _, arg := range sends {
+				if strings.HasPrefix(arg, "{") {
+					jsonBody = arg
+				}
+			}
+			if jsonBody == "" {
+				t.Fatalf("no JSON body was sent:\n%s", joined)
+			}
+			var body map[string]any
+			if err := json.Unmarshal([]byte(jsonBody), &body); err != nil {
+				t.Fatalf("sent body is not JSON: %v\n%s", err, jsonBody)
+			}
+			if body["status"] != tc.status || body["deploy_id"] != "abc123" || body["verb"] != "scheduled job nightly" {
+				t.Fatalf("body = %#v", body)
+			}
+			if ts, _ := body["ts"].(string); !strings.HasSuffix(ts, "Z") || strings.Contains(ts, "ONEBOX") {
+				t.Fatalf("timestamp was not filled at send time: %#v", body)
+			}
+			if strings.Contains(joined, "ONEBOX_SCHEDULE") {
+				t.Fatalf("a placeholder leaked into a send:\n%s", joined)
+			}
+		})
 	}
 }

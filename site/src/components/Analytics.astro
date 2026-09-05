@@ -48,7 +48,11 @@
 // for exactly this reason.
 //
 // The preference lives in localStorage rather than a cookie, so declining
-// stores nothing that travels with a request, and is mirrored across tabs.
+// stores nothing that travels with a request, and every other open tab is told
+// about the change and acts on it. A browser that refuses storage entirely
+// keeps the answer in memory instead, where it governs the page it was given on
+// and no other -- the direction that does not weaken the gate, but not one to
+// describe as mirrored.
 //
 // The script body below is written as the element's plain text content, with no
 // `{...}` expression and no backticks around it. Astro treats script children as

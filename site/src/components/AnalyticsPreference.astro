@@ -70,9 +70,15 @@ const enabled =
 
       for (var j = 0; j < buttons.length; j++) {
         buttons[j].disabled = false;
+        // No trailing comma after the last argument: `is:inline` ships this
+        // script verbatim, and a trailing comma in a call is ES2017. Every
+        // browser too old for it fails to parse the whole script rather than
+        // one line of it, which would leave this control inert -- a standing
+        // opt-out that renders and does nothing is the worst of the states
+        // this file can be in.
         buttons[j].setAttribute(
           "aria-pressed",
-          String(buttons[j].dataset.consent === preference),
+          String(buttons[j].dataset.consent === preference)
         );
       }
 

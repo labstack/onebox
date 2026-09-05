@@ -529,11 +529,13 @@ ActiveState=active
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 1 || !statuses[0].Diverged || statuses[0].LastResult != "timeout" || statuses[0].LastExitStatus != 15 {
-		t.Fatalf("failed systemd result was not surfaced: %#v", statuses)
+	// systemd's own result is reported, but the verdict is the run record,
+	// and there is none here.
+	if len(statuses) != 1 || statuses[0].LastResult != "timeout" || statuses[0].LastExitStatus != 15 {
+		t.Fatalf("systemd result was not surfaced: %#v", statuses)
 	}
-	if !strings.Contains(strings.Join(statuses[0].Issues, "\n"), "last run failed") {
-		t.Fatalf("failure has no actionable issue: %#v", statuses[0])
+	if statuses[0].Diverged || len(statuses[0].Issues) != 0 {
+		t.Fatalf("an issue was raised without a run record: %#v", statuses[0])
 	}
 }
 

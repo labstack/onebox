@@ -11,10 +11,9 @@ import (
 )
 
 // StatusSchedule is the host-observed state of one declared scheduled job.
-// systemd keeps Result after a oneshot exits, so a failed or timed-out run stays
-// visible until a later successful run clears it. The run records the notifier
-// writes to the journal say more: outcome, attempts, duration, and how many
-// firings in a row have failed.
+// systemd's Result and exit status are reported as observed; the verdict comes
+// from the run records the notifier writes to the journal: outcome, attempts,
+// duration, and how many firings in a row have failed.
 type StatusSchedule struct {
 	Name           string   `json:"name"`
 	Unit           string   `json:"unit"`
@@ -186,19 +185,15 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		if service.loadState != "loaded" {
 			status.Issues = append(status.Issues, "service unit is not loaded")
 		}
-		switch {
-		case status.LastOutcome == "failure" || status.LastOutcome == "timeout":
+		// The record is the verdict. systemd's Result and ExecMainStatus are
+		// still reported as observed, but only a recorded failure or timeout
+		// is an issue.
+		if status.LastOutcome == "failure" || status.LastOutcome == "timeout" {
 			exit := "?"
 			if records[0].ExitStatus != nil {
 				exit = strconv.Itoa(*records[0].ExitStatus)
 			}
 			status.Issues = append(status.Issues, fmt.Sprintf("last run failed: %s (exit %s)", status.LastOutcome, exit))
-		case status.LastOutcome == "":
-			// No record yet: an older runner, or a journal that did not keep
-			// it. systemd's own result is the next best witness.
-			if service.result != "" && service.result != "success" {
-				status.Issues = append(status.Issues, fmt.Sprintf("last run failed: %s (exit %d)", service.result, service.exitStatus))
-			}
 		}
 		status.Diverged = len(status.Issues) > 0
 		statuses = append(statuses, status)

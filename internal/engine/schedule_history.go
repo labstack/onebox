@@ -57,9 +57,8 @@ func scheduleHistoryCommand(unit string, n int) string {
 		" -o cat -r -n " + strconv.Itoa(n) + " --no-pager 2>/dev/null || true"
 }
 
-// parseScheduleRunRecords keeps the lines that decode and drops the rest. A
-// host with a hand-edited unit or an older notifier may leave other text under
-// the same identifier; one bad line must not hide the good ones.
+// parseScheduleRunRecords keeps the lines that decode and drops the rest: a
+// truncated or hand-written entry must not hide the records around it.
 func parseScheduleRunRecords(stdout string) []ScheduleRunRecord {
 	var out []ScheduleRunRecord
 	for _, line := range strings.Split(stdout, "\n") {
@@ -153,34 +152,23 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 
 // ScheduleLogs streams the journal of one run. The run id is systemd's
 // invocation id, so the output is exactly that activation and nothing else.
-// With no run given, the newest record's run is used; with no record at all,
-// the unit's recent log stands in.
-func (e *Engine) ScheduleLogs(ctx context.Context, name, run string, tail int, stdout, stderr io.Writer) error {
-	job, err := e.scheduledJob(name)
-	if err != nil {
+// With no run given, the newest record's run is used.
+func (e *Engine) ScheduleLogs(ctx context.Context, name, run string, stdout, stderr io.Writer) error {
+	if _, err := e.scheduledJob(name); err != nil {
 		return err
 	}
-	unit := e.names().ScheduledJobUnit(job.Name)
 	if run == "" {
 		records, err := e.ScheduleHistory(ctx, name, 1)
 		if err != nil {
 			return err
 		}
-		if len(records) > 0 {
-			run = records[0].Run
+		if len(records) == 0 {
+			return fmt.Errorf("job %s has no recorded runs", name)
 		}
+		run = records[0].Run
 	}
-	if tail <= 0 {
-		tail = 200
-	}
-	var cmd string
-	switch {
-	case run == "":
-		cmd = "journalctl -u " + q(unit+".service") + " -n " + strconv.Itoa(tail) + " --no-pager -o short-iso"
-	case scheduleRunID.MatchString(run):
-		cmd = "journalctl _SYSTEMD_INVOCATION_ID=" + run + " --no-pager -o short-iso"
-	default:
+	if !scheduleRunID.MatchString(run) {
 		return fmt.Errorf("run id %q is not a systemd invocation id", run)
 	}
-	return e.T.RunStream(ctx, cmd, stdout, stderr)
+	return e.T.RunStream(ctx, "journalctl _SYSTEMD_INVOCATION_ID="+run+" --no-pager -o short-iso", stdout, stderr)
 }

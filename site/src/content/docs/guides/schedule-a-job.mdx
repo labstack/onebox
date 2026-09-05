@@ -269,7 +269,9 @@ gates of `ob job run` below.
 The runner tells a manual activation from a timer firing by the `TRIGGER_UNIT`
 variable systemd sets on timer activations, which needs systemd 252 or newer
 on the host. Ubuntu 24.04 and Debian 12 qualify; a job that declares inputs is
-refused at deploy time on an older host.
+refused at deploy time on an older host. A job without inputs still runs on an
+older host, but its records say `manual` for every activation, because nothing
+there tells the runner otherwise.
 
 ## Running one by hand
 

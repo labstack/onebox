@@ -133,19 +133,22 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if err != nil {
 		return result, err
 	}
-	if len(records) > 0 {
-		result.Record = &records[0]
-		exit := "-"
-		if records[0].ExitStatus != nil {
-			exit = fmt.Sprint(*records[0].ExitStatus)
-		}
-		e.logf("schedule: %s run %s %s after %d attempt(s) in %ds (exit %s)",
-			name, records[0].Run, records[0].Outcome, records[0].Attempts, records[0].DurationSeconds, exit)
+	if len(records) == 0 {
+		return result, fmt.Errorf("job %s ran (systemctl exit %d) but left no run record; the host's notifier did not write one", name, res.ExitCode)
 	}
-	// A skipped run exits 75, which SuccessExitStatus makes a clean exit; any
-	// other non-zero exit is the job failing, and the record says how.
-	if res.ExitCode != 0 {
-		return result, fmt.Errorf("job %s did not succeed; see ob schedule logs %s", name, name)
+	last := records[0]
+	result.Record = &last
+	exit := "-"
+	if last.ExitStatus != nil {
+		exit = fmt.Sprint(*last.ExitStatus)
+	}
+	e.logf("schedule: %s run %s %s after %d attempt(s) in %ds (exit %s)",
+		name, last.Run, last.Outcome, last.Attempts, last.DurationSeconds, exit)
+	// The operator asked for this run and waited for it, so anything but a
+	// success is a failure of the request, a skip included: the unit exits 75
+	// cleanly, but the work was not done.
+	if last.Outcome != "success" {
+		return result, fmt.Errorf("job %s run %s ended %s; see ob schedule logs %s --run %s", name, last.Run, last.Outcome, name, last.Run)
 	}
 	return result, nil
 }

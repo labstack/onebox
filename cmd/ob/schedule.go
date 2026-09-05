@@ -118,7 +118,6 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 	scheduleCmd.AddCommand(historyCmd)
 
 	var logsRun string
-	var logsTail int
 	logsCmd := &cobra.Command{
 		Use:   "logs <job>",
 		Short: "journal of one scheduled run",
@@ -136,7 +135,7 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 			defer cleanup()
 			if g.Output == "json" {
 				var stdout, stderr bytes.Buffer
-				err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, logsTail, &stdout, &stderr)
+				err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, &stdout, &stderr)
 				data := map[string]any{
 					"job": args[0], "run": logsRun, "stdout": stdout.String(), "stderr": stderr.String(),
 					"passthrough_unredacted": true,
@@ -153,7 +152,7 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 			}
 			if g.Output == "ndjson" {
 				stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
-				err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, logsTail, stream.channelWriter("stdout"), stream.channelWriter("stderr"))
+				err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, stream.channelWriter("stdout"), stream.channelWriter("stderr"))
 				data := map[string]any{"job": args[0], "run": logsRun, "passthrough_unredacted": true}
 				if err != nil {
 					if writeErr := stream.terminal(cliOutcomeError, nil, publicError(err, "schedule_logs_failed", "run logs could not be read")); writeErr != nil {
@@ -163,11 +162,10 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 				}
 				return stream.terminal(cliOutcomeSuccess, data, nil)
 			}
-			return e.ScheduleLogs(cmd.Context(), args[0], logsRun, logsTail, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return e.ScheduleLogs(cmd.Context(), args[0], logsRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	logsCmd.Flags().StringVar(&logsRun, "run", "", "run id from ob schedule history; default the newest run")
-	logsCmd.Flags().IntVarP(&logsTail, "tail", "n", 200, "lines to show when no run is recorded")
 	scheduleCmd.AddCommand(logsCmd)
 
 	var runInputs []string

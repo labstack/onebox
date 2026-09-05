@@ -929,7 +929,8 @@ Manage the systemd timers generated for scheduled jobs.
 
 Timers outlive the Onebox process and the package installed on the operator
 workstation. `apply` explicitly reconciles their units after a runner or
-configuration change without deploying a release.
+configuration change without deploying a release. `list`, `history` and `logs`
+read the timer state and the run records the host keeps in its journal.
 
 Usage:
   ob schedule [flags]
@@ -937,6 +938,9 @@ Usage:
 
 Available Commands:
   apply       reconcile scheduled-job units without deploying a release
+  history     run records of one scheduled job, newest first
+  list        declared scheduled jobs with timer state and next elapse
+  logs        journal of one scheduled run
 
 Flags:
   -h, --help   help for schedule
@@ -963,6 +967,68 @@ Usage:
 Flags:
       --break-lock   break a stale operation lock after inspecting its holder
   -h, --help         help for apply
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob schedule history
+
+```
+Read the run records the host wrote for one scheduled job. Each record is one activation: run id, trigger, release, start and end, attempts, exit status, outcome and, for a manual run, its inputs.
+
+Records live in the host journal under the job's unit with syslog identifier ob-run; retention is the journal's. Reads only.
+
+Usage:
+  ob schedule history <job> [flags]
+
+Flags:
+  -n, --count int   number of newest runs to show (default 20)
+  -h, --help        help for history
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob schedule list
+
+```
+List every job that declares a schedule beside what the host's timer says: whether it is active, when it fires next, and when it last fired. Reads only.
+
+Usage:
+  ob schedule list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob schedule logs
+
+```
+Stream the host journal for one run of a scheduled job: by default the newest recorded run, or the run named with --run. The run id is systemd's invocation id, so the output is exactly that activation. Reads only.
+
+Log bytes are operator-controlled and may contain secrets; Onebox does not claim
+to redact passthrough output.
+
+Usage:
+  ob schedule logs <job> [flags]
+
+Flags:
+  -h, --help         help for logs
+      --run string   run id from ob schedule history; default the newest run
+  -n, --tail int     lines to show when no run is recorded (default 200)
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

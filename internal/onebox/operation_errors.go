@@ -121,6 +121,18 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "a release manifest is not valid closed JSON for its schema",
 		Command: "ob status --output json",
 	},
+	"schedule_history_failed": {
+		Message: "the scheduled job's run records could not be read from the host journal",
+		Command: "ob status --output json",
+	},
+	"schedule_list_failed": {
+		Message: "the scheduled jobs' timer state could not be read",
+		Command: "ob status --output json",
+	},
+	"schedule_logs_failed": {
+		Message: "the scheduled run's journal could not be read",
+		Command: "ob schedule history <job> --output json",
+	},
 	"manifest_missing": {
 		Message: "a release directory carries no manifest, so its lifecycle state is unknown",
 		Command: "ob status --output json",

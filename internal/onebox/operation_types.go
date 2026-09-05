@@ -41,6 +41,7 @@ const (
 	KindSecretsPush   OperationKind = "secrets_push"
 	KindDestroy       OperationKind = "destroy"
 	KindJobRun        OperationKind = "job_run"
+	KindScheduleRun   OperationKind = "schedule_run"
 
 	KindServiceImagePatch OperationKind = "service_image_patch"
 	KindBackupEnable      OperationKind = "backup_enable"
@@ -477,7 +478,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 func validOperationKind(kind OperationKind) bool {
 	switch kind {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
-		KindServiceApply, KindProxyApply, KindScheduleApply, KindSecretsPush, KindDestroy,
+		KindServiceApply, KindProxyApply, KindScheduleApply, KindScheduleRun, KindSecretsPush, KindDestroy,
 		KindServiceImagePatch, KindBackupEnable, KindBackupDisable,
 		KindBackupCreate, KindBackupPrune, KindReplayArchive,
 		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,

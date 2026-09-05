@@ -1,0 +1,115 @@
+package engine
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/transport"
+)
+
+func TestScheduleRunWritesInputsJournalsThenStartsAfterReleasingTheLock(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog", "prices"}, Default: "catalog"}},
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "systemctl is-active"):
+			return transport.Result{Stdout: "inactive\n"}, true
+		case strings.Contains(cmd, "systemctl start"):
+			return transport.Result{}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	result, err := e.ScheduleRun(context.Background(), "20260905-151200-schedule_run-7c1e", "sync", map[string]string{"SOURCE": "prices"}, false)
+	if err != nil {
+		t.Fatalf("schedule run: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	if !result.Started || result.Unit != "ob-sample-sync" || result.Inputs["SOURCE"] != "prices" || result.Operation != "20260905-151200-schedule_run-7c1e" {
+		t.Fatalf("result = %#v", result)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	inputs := strings.Index(seq, "sync.inputs")
+	start := strings.Index(seq, "systemctl start --no-block 'ob-sample-sync.service'")
+	release := strings.LastIndex(seq, "rm -f '/var/lib/ob/sample/lock'")
+	if inputs < 0 || start < 0 || release < 0 || !(inputs < release && release < start) {
+		t.Fatalf("expected inputs write, lock release, then start:\n%s", seq)
+	}
+	if !strings.Contains(seq, "set -C") {
+		t.Fatalf("inputs file was not created with noclobber:\n%s", seq)
+	}
+	if written := strings.Join(f.Inputs, "\n"); !strings.Contains(written, "ONEBOX_OPERATION=20260905-151200-schedule_run-7c1e\nSOURCE=prices\n") {
+		t.Fatalf("inputs file content is wrong:\n%s", written)
+	}
+	for _, want := range []string{
+		`"phase":"schedule-run","event":"start"`,
+		`"phase":"schedule-run","event":"finish","status":"ok"`,
+		`"target":"sync"`,
+		`inputs: SOURCE=prices`,
+	} {
+		if !strings.Contains(seq, want) {
+			t.Fatalf("journal is missing %q:\n%s", want, seq)
+		}
+	}
+	if journal := strings.Index(seq, `"phase":"schedule-run","event":"finish"`); journal > release {
+		t.Fatalf("journal finish was written after the lock was released:\n%s", seq)
+	}
+}
+
+func TestScheduleRunRefusals(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog"}, Default: "catalog"}},
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	cfg.Workloads["prune"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "destructive",
+		Schedule: &app.JobSchedule{Cron: "0 3 * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	active := false
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "command -v flock") {
+			return transport.Result{Stdout: "ok\n"}, true
+		}
+		if strings.Contains(cmd, "systemctl is-active") {
+			if active {
+				return transport.Result{Stdout: "activating\n"}, true
+			}
+			return transport.Result{Stdout: "inactive\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	ctx := context.Background()
+	if _, err := e.ScheduleRun(ctx, "op", "prune", nil, false); err == nil || !strings.Contains(err.Error(), "ob job run") {
+		t.Fatalf("destructive job accepted: %v", err)
+	}
+	if _, err := e.ScheduleRun(ctx, "op", "sync", map[string]string{"SOURCE": "reviews"}, false); err == nil {
+		t.Fatal("undeclared value accepted")
+	}
+	if _, err := e.ScheduleRun(ctx, "op", "web", nil, false); err == nil {
+		t.Fatal("non-scheduled workload accepted")
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, "systemctl start") || strings.Contains(command, ".inputs") {
+			t.Fatalf("a refused run reached the host: %s", command)
+		}
+	}
+	active = true
+	if _, err := e.ScheduleRun(ctx, "op", "sync", nil, false); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("active unit not refused: %v", err)
+	}
+}

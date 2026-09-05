@@ -2,9 +2,10 @@
 /* The consent prompt, for readers whose location requires one.
  *
  * Markup only. Analytics.astro decides whether this is ever shown and handles
- * the clicks: the question of whether to ask is answered in the head, before
- * anything renders, and putting the logic in two places is how the banner ends
- * up shown to someone who already declined.
+ * the clicks: this renders hidden and is revealed by that script alone, once it
+ * has either a stored preference or an answer from the location lookup. Putting
+ * the logic in two places is how the banner ends up shown to someone who
+ * already declined.
  *
  * It renders on every page rather than only where the site footer does, because
  * a reader who arrives from a search result lands on a documentation page, and

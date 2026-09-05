@@ -316,6 +316,16 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
         if (signalsRefusal()) {
           // Neither measured nor asked. The banner stays in the document,
           // hidden, so nothing depends on it having rendered.
+          //
+          // Revoked as well, because the signal can be switched on by a reader
+          // who allowed measurement before it was. Not loading the tag stops
+          // the next hit, but the identifier that acceptance stored is still in
+          // the browser and would still be there to resume from if the signal
+          // were ever switched off -- which joins the sessions either side of a
+          // refusal into one returning reader. The stored preference is left
+          // alone: consent is still granted, so lifting the signal measures
+          // again, under a new identifier rather than the old one.
+          stop();
           ready(function () {
             var element = banner();
             if (element) element.hidden = true;

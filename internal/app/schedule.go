@@ -39,6 +39,8 @@ type ScheduledJob struct {
 	RetryBackoff    time.Duration
 	RetryMaxBackoff time.Duration
 	Notify          []string
+	// Inputs are the declared parameters a manual run may override.
+	Inputs map[string]JobInput
 }
 
 // ScheduledJobs lists every job with a schedule, in a stable order.
@@ -67,7 +69,7 @@ func (p *Spec) ScheduledJobs() ([]ScheduledJob, error) {
 			Name: name, Cron: w.Schedule.Cron, Timezone: tz, Calendar: cal,
 			Timeout: w.Schedule.Timeout, CatchUp: w.Schedule.CatchUp, DeployLock: deployLock,
 			RetryAttempts: attempts, RetryBackoff: backoff, RetryMaxBackoff: maxBackoff,
-			Notify: w.Schedule.notifyOutcomes(),
+			Notify: w.Schedule.notifyOutcomes(), Inputs: w.Inputs,
 		})
 	}
 	return out, nil

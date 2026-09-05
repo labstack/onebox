@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `attempts` · `backoff` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `deploy_lock` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `interval` · `labels` · `logging` · `max_backoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `options` · `path` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `attempts` · `backoff` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `default` · `deploy_lock` · `description` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `max_backoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `options` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -58,6 +58,11 @@ cannot drift from what `ob validate` accepts.
 | `<name>.image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |
 | `<name>.image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `<name>.init` | boolean | — | Run a minimal init process as PID 1 inside the container. |
+| `<name>.inputs` | map | — | Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them. |
+| `<name>.inputs.<name>.default` | string | — | Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint. |
+| `<name>.inputs.<name>.description` | string | — | What the input controls. |
+| `<name>.inputs.<name>.enum` | list | — | Accepted values. |
+| `<name>.inputs.<name>.pattern` | string | — | Regular expression the whole value must match. |
 | `<name>.labels` | map | — | Additional container labels outside namespaces reserved by Onebox and the proxy. |
 | `<name>.logging` | object | — | Container logging driver and driver-specific options. |
 | `<name>.logging.driver` | string | — | Container runtime logging driver. Expects a log driver name such as local, json-file or an org/plugin:tag. |

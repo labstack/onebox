@@ -2231,6 +2231,44 @@
             "description": "Run a minimal init process as PID 1 inside the container.",
             "type": "boolean"
           },
+          "inputs": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "default": {
+                  "description": "Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint.",
+                  "type": "string"
+                },
+                "description": {
+                  "description": "What the input controls.",
+                  "type": "string"
+                },
+                "enum": {
+                  "description": "Accepted values.",
+                  "examples": [
+                    "catalog"
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "pattern": {
+                  "description": "Regular expression the whole value must match.",
+                  "examples": [
+                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "description": "Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them.",
+            "type": "object"
+          },
           "labels": {
             "additionalProperties": {},
             "description": "Additional container labels outside namespaces reserved by Onebox and the proxy.",

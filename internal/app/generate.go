@@ -344,7 +344,19 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	}
 	svc["labels"] = labels
 
-	if env := stringMap(w.Env); len(env) > 0 {
+	env := stringMap(w.Env)
+	// A declared input's default is part of the release, so a timer firing, a
+	// manual run without overrides, and a hand-typed `docker compose run` all
+	// see the same value. Validation refuses a name that is also an env key.
+	if len(w.Inputs) > 0 {
+		if env == nil {
+			env = map[string]any{}
+		}
+		for name, in := range w.Inputs {
+			env[name] = in.Default
+		}
+	}
+	if len(env) > 0 {
 		svc["environment"] = env
 	}
 	// A workload that needs a service reads how to reach it. The file is

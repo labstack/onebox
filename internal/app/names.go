@@ -244,6 +244,12 @@ func (n Names) ScheduledJobRunState(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".state")
 }
 
+// ScheduledJobRunInputs is the one-shot file `ob schedule run` leaves for the
+// next manual activation. The runner consumes and deletes it.
+func (n Names) ScheduledJobRunInputs(job string) string {
+	return path.Join(n.AppDir(), "schedule", job+".inputs")
+}
+
 // ScheduledJobUnitPrefixes returns the current namespace followed by the
 // pre-2026.8.6 spelling when the application name contains a hyphen.
 func (n Names) ScheduledJobUnitPrefixes() []string {

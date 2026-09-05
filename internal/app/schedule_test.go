@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -222,5 +223,128 @@ workloads:
 	}
 	if got := scheduleRetryWorstCase(4, 30*time.Second, time.Minute); got != 150*time.Second {
 		t.Fatalf("capped worst case = %s, want 2m30s", got)
+	}
+}
+
+func TestJobInputsValidateNamesConstraintsAndDefaults(t *testing.T) {
+	base := `api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  sync:
+    role: job
+    image: x:1
+    data_effect: %s
+    env: {MODE: fast}
+    %s
+    inputs:
+      %s
+`
+	load := func(effect, schedule, inputs string) error {
+		_, err := LoadBytes([]byte(fmt.Sprintf(base, effect, schedule, inputs)), "ob.yml")
+		return err
+	}
+	good := "SOURCE: {enum: [catalog, prices], default: catalog, description: Which upstream.}"
+	if err := load("none", `schedule: {cron: "0 * * * *"}`, good); err != nil {
+		t.Fatalf("valid inputs refused: %v", err)
+	}
+	for name, tc := range map[string]struct{ effect, schedule, inputs string }{
+		"no schedule":         {"none", "", good},
+		"destructive job":     {"destructive", `schedule: {cron: "0 * * * *"}`, good},
+		"lowercase name":      {"none", `schedule: {cron: "0 * * * *"}`, "source: {enum: [a], default: a}"},
+		"reserved prefix":     {"none", `schedule: {cron: "0 * * * *"}`, "ONEBOX_X: {enum: [a], default: a}"},
+		"collides with env":   {"none", `schedule: {cron: "0 * * * *"}`, "MODE: {enum: [a], default: a}"},
+		"enum and pattern":    {"none", `schedule: {cron: "0 * * * *"}`, "S: {enum: [a], pattern: '^a$', default: a}"},
+		"neither":             {"none", `schedule: {cron: "0 * * * *"}`, "S: {default: a}"},
+		"default off enum":    {"none", `schedule: {cron: "0 * * * *"}`, "S: {enum: [a], default: b}"},
+		"default off pattern": {"none", `schedule: {cron: "0 * * * *"}`, "S: {pattern: '^[0-9]+$', default: x}"},
+		"quote in default":    {"none", `schedule: {cron: "0 * * * *"}`, `S: {pattern: '.*', default: 'a"b'}`},
+		"bad regex":           {"none", `schedule: {cron: "0 * * * *"}`, "S: {pattern: '(', default: a}"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var e *Error
+			if err := load(tc.effect, tc.schedule, tc.inputs); !errors.As(err, &e) || e.Code != "project_invalid" {
+				t.Fatalf("err = %v, want project_invalid", err)
+			}
+		})
+	}
+	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  web: {role: application, image: x:1, inputs: {S: {enum: [a], default: a}}}
+`), "ob.yml"); err == nil {
+		t.Fatal("inputs on a non-job workload were accepted")
+	}
+}
+
+func TestValidateJobInputValuesChecksOverrides(t *testing.T) {
+	w := Workload{Role: RoleJob, Inputs: map[string]JobInput{
+		"SOURCE": {Enum: []string{"catalog", "prices"}, Default: "catalog"},
+		"SINCE":  {Pattern: `^([0-9]{4}-[0-9]{2}-[0-9]{2})?$`, Default: ""},
+	}}
+	if err := ValidateJobInputValues(w, map[string]string{"SOURCE": "prices", "SINCE": "2026-09-01"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateJobInputValues(w, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, values := range map[string]map[string]string{
+		"unknown":       {"OTHER": "x"},
+		"off enum":      {"SOURCE": "reviews"},
+		"off pattern":   {"SINCE": "yesterday"},
+		"backslash":     {"SINCE": `2026\-09-01`},
+		"newline":       {"SOURCE": "prices\n"},
+		"partial match": {"SINCE": "x2026-09-01"},
+	} {
+		if err := ValidateJobInputValues(w, values); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if InputValueAllowed(strings.Repeat("a", 257)) {
+		t.Error("an oversized value was allowed")
+	}
+	if !InputValueAllowed("a value with spaces, commas, and unicode ✓") {
+		t.Error("an ordinary value was refused")
+	}
+}
+
+func TestScheduledJobInputDefaultsRenderIntoTheComposeEnvironment(t *testing.T) {
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+app: shop
+environments: {production: {server: root@h}}
+workloads:
+  sync:
+    role: job
+    image: x:1
+    data_effect: none
+    env: {MODE: fast}
+    schedule: {cron: "0 * * * *"}
+    inputs:
+      SOURCE: {enum: [catalog, prices], default: catalog}
+`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := spec.Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(out.Bytes)
+	for _, want := range []string{"SOURCE: catalog", "MODE: fast"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered runtime is missing %q:\n%s", want, rendered)
+		}
+	}
+	jobs, err := spec.ScheduledJobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jobs[0].Inputs["SOURCE"].Default != "catalog" {
+		t.Fatalf("scheduled job did not carry its inputs: %#v", jobs[0])
 	}
 }

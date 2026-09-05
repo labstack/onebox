@@ -168,9 +168,21 @@ type Workload struct {
 	Logging    *Logging       `json:"logging,omitempty" description:"Container logging driver and driver-specific options."`
 
 	// Job only.
-	When       string       `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
-	DataEffect DataEffect   `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
-	Schedule   *JobSchedule `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
+	When       string              `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
+	DataEffect DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
+	Schedule   *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
+	Inputs     map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them."`
+}
+
+// JobInput is one declared parameter of a scheduled job. The constraint is
+// what makes a manual run safe to accept from a command line: a value is
+// either one of the listed words or matches the pattern, and never contains a
+// character the runner would have to escape.
+type JobInput struct {
+	Enum        []string `json:"enum,omitempty" description:"Accepted values." example:"catalog"`
+	Pattern     string   `json:"pattern,omitempty" description:"Regular expression the whole value must match." example:"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"`
+	Default     string   `json:"default" description:"Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint."`
+	Description string   `json:"description,omitempty" description:"What the input controls."`
 }
 
 type Build struct {

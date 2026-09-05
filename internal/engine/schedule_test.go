@@ -885,7 +885,8 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 		`"run":"%s","job":"%s","trigger":"%s","operation":"%s","release":"%s"`,
 		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","inputs":{%s}`,
 		`"${INVOCATION_ID:-}" 'nightly'`,
-		"systemd-cat -t ob-run",
+		`SYSLOG_IDENTIFIER=ob-run\nONEBOX_APP=%s\nONEBOX_UNIT=%s\nONEBOX_JOB=%s`,
+		`"$record" 'sample' 'ob-sample-nightly' 'nightly' | logger --journald`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("notifier is missing %q:\n%s", want, script)
@@ -898,10 +899,10 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 	}
 }
 
-// runNotifier executes the generated ExecStopPost script with stub systemd-cat
-// and curl binaries, the way systemd would after a run. It returns the record
-// the script wrote, whether the state file survived, and every curl
-// invocation's arguments, one per element.
+// runNotifier executes the generated ExecStopPost script with stub logger and
+// curl binaries, the way systemd would after a run. It returns the record the
+// script wrote, whether the state file survived, and every curl invocation's
+// arguments, one per element.
 func runNotifier(t *testing.T, job app.ScheduledJob, notifications map[string]app.Notification, state string, env map[string]string) (map[string]any, bool, []string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -928,8 +929,15 @@ func runNotifier(t *testing.T, job app.ScheduledJob, notifications map[string]ap
 	}
 	bin := t.TempDir()
 	record := filepath.Join(bin, "record.jsonl")
-	stub := "#!/bin/sh\n[ \"$1\" = -t ] && [ \"$2\" = ob-run ] || exit 9\ncat >>" + record + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "systemd-cat"), []byte(stub), 0o755); err != nil {
+	// The stub checks the structured fields the history query relies on and
+	// keeps only the MESSAGE line, as `journalctl -o cat` would show it.
+	stub := "#!/bin/sh\n[ \"$1\" = --journald ] || exit 9\n" +
+		"fields=$(cat)\n" +
+		"printf '%s\\n' \"$fields\" | grep -q '^SYSLOG_IDENTIFIER=ob-run$' || exit 8\n" +
+		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_UNIT=ob-sample-nightly$' || exit 7\n" +
+		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_JOB=nightly$' || exit 6\n" +
+		"printf '%s\\n' \"$fields\" | sed -n 's/^MESSAGE=//p' >>" + record + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "logger"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sent := filepath.Join(bin, "curl.args")

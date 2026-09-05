@@ -47,11 +47,13 @@ type ScheduleListing struct {
 // match, so it is checked against the only shape systemd produces.
 var scheduleRunID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
+// scheduleHistoryCommand matches the record's own fields rather than the
+// unit journald attributed it to; see scheduleRunIdentifier for why.
 func scheduleHistoryCommand(unit string, n int) string {
 	if n <= 0 {
 		n = 20
 	}
-	return "journalctl -u " + q(unit+".service") + " -t " + scheduleRunIdentifier +
+	return "journalctl SYSLOG_IDENTIFIER=" + scheduleRunIdentifier + " ONEBOX_UNIT=" + q(unit) +
 		" -o cat -r -n " + strconv.Itoa(n) + " --no-pager 2>/dev/null || true"
 }
 

@@ -408,9 +408,15 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 const scheduleNotificationTimestamp = "__ONEBOX_SCHEDULE_TIMESTAMP__"
 
 // scheduleRunIdentifier is the syslog identifier of the one line the notifier
-// writes per run. `journalctl -u <unit> -t ob-run` is the run history: the
-// journal is the store, so there is no file to trim and nothing that can
-// disagree with the unit's own log.
+// writes per run. The journal is the store, so there is no file to trim and
+// nothing that can disagree with the unit's own log.
+//
+// The line carries its own ONEBOX_UNIT and ONEBOX_JOB fields and the history
+// query matches on them, not on journald's cgroup attribution. A process that
+// writes one line and exits is often gone before journald reads /proc for it,
+// and such an entry has no _SYSTEMD_UNIT at all; `journalctl -u` would never
+// find it. Explicit fields survive that race, and `logger --journald` is
+// util-linux, which flock already requires.
 const scheduleRunIdentifier = "ob-run"
 
 // scheduleRunRecordLines finalises the run the runner started. This lives in
@@ -419,7 +425,7 @@ const scheduleRunIdentifier = "ob-run"
 // interpolated into the JSON is either numeric, a timestamp the runner
 // formatted, a release id, or an input value the loader restricted to a
 // charset that needs no escaping.
-func scheduleRunRecordLines(job, state string) []string {
+func scheduleRunRecordLines(application, unit, job, state string) []string {
 	return []string{
 		"state=" + q(state),
 		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''",
@@ -452,9 +458,10 @@ func scheduleRunRecordLines(job, state string) []string {
 		"duration=0",
 		"case \"$started_epoch\" in ''|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac",
 		"[ -z \"$started_at\" ] && started_at=$finished_at",
-		"printf '{\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"inputs\":{%s}}\\n' " +
-			"\"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$inputs\" " +
-			"| systemd-cat -t " + scheduleRunIdentifier + " || true",
+		"record=$(printf '{\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"inputs\":{%s}}' " +
+			"\"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$inputs\")",
+		"printf 'MESSAGE=%s\\nPRIORITY=6\\nSYSLOG_IDENTIFIER=" + scheduleRunIdentifier + "\\nONEBOX_APP=%s\\nONEBOX_UNIT=%s\\nONEBOX_JOB=%s\\n' " +
+			"\"$record\" " + q(application) + " " + q(unit) + " " + q(job) + " | logger --journald || true",
 	}
 }
 
@@ -487,7 +494,7 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		"  " + scheduleContainerCleanup(e.names().Container(job.Name, 1)),
 		"fi",
 	}
-	lines = append(lines, scheduleRunRecordLines(job.Name, e.names().ScheduledJobRunState(job.Name))...)
+	lines = append(lines, scheduleRunRecordLines(e.Spec.Name, e.names().ScheduledJobUnit(job.Name), job.Name, e.names().ScheduledJobRunState(job.Name))...)
 	lines = append(lines, `case " `+strings.Join(job.Notify, " ")+` " in *" $outcome "*) ;; *) exit 0 ;; esac`)
 	wantsSuccess, wantsFailure := false, false
 	for _, outcome := range job.Notify {

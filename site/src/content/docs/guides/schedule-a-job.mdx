@@ -132,7 +132,9 @@ Onebox when an application may not be deployed again soon.
 ## Every run leaves a record
 
 When a run ends, for any reason, the unit's `ExecStopPost` writes one record
-to the host journal under the job's unit, with the syslog identifier `ob-run`:
+to the host journal with the syslog identifier `ob-run` and the job's unit in
+its `ONEBOX_UNIT` field, so `journalctl SYSLOG_IDENTIFIER=ob-run
+ONEBOX_UNIT=ob-<app>-<job> -o cat` on the host is the raw history:
 
 ```json
 {"run":"a3f9…","job":"nightly-dump","trigger":"timer","operation":"","release":"20260905-140000-ab12cd","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:04:37Z","duration_s":276,"attempts":2,"exit_status":0,"outcome":"success","inputs":{}}

@@ -78,7 +78,7 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 	historyCmd := &cobra.Command{
 		Use:   "history <job>",
 		Short: "run records of one scheduled job, newest first",
-		Long:  "Read the run records the host wrote for one scheduled job. Each record is one activation: run id, trigger, release, start and end, attempts, exit status, outcome and, for a manual run, its inputs.\n\nRecords live in the host journal under the job's unit with syslog identifier ob-run; retention is the journal's. Reads only.",
+		Long:  "Read the run records the host wrote for one scheduled job. Each record is one activation: run id, trigger, release, start and end, attempts, exit status, outcome and, for a manual run, its inputs.\n\nRecords live in the host journal with syslog identifier ob-run and the job's unit in their ONEBOX_UNIT field; retention is the journal's. Reads only.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)

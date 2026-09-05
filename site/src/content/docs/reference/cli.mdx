@@ -981,7 +981,7 @@ Global Flags:
 ```
 Read the run records the host wrote for one scheduled job. Each record is one activation: run id, trigger, release, start and end, attempts, exit status, outcome and, for a manual run, its inputs.
 
-Records live in the host journal under the job's unit with syslog identifier ob-run; retention is the journal's. Reads only.
+Records live in the host journal with syslog identifier ob-run and the job's unit in their ONEBOX_UNIT field; retention is the journal's. Reads only.
 
 Usage:
   ob schedule history <job> [flags]

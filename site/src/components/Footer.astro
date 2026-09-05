@@ -50,6 +50,7 @@ const isSplash = Astro.locals.starlightRoute.entry.data.template === "splash";
       <div class="meta sl-flex">
         <EditLink />
         <LastUpdated />
+        <a href="/privacy">Privacy</a>
       </div>
     )
   }
@@ -73,6 +74,22 @@ const isSplash = Astro.locals.starlightRoute.entry.data.template === "splash";
 
   .meta > :global(p:only-child) {
     margin-inline-start: auto;
+  }
+
+  /* Outside the regions that require a consent prompt no banner is ever
+     shown, so the control on /privacy is the only way to turn analytics
+     off -- and SiteFooter, which carries the other link to it, renders on
+     splash pages alone. A reader arriving from a search result lands here
+     and would otherwise have no route to it. One text link, not the whole
+     band. */
+  .meta a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+
+  .meta a:hover {
+    color: var(--sl-color-white);
+    text-decoration: underline;
   }
 
 </style>

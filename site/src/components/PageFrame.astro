@@ -24,6 +24,7 @@
  */
 import MobileMenuToggle from "@astrojs/starlight/components/MobileMenuToggle.astro";
 import SiteFooter from "./SiteFooter.astro";
+import AnalyticsConsent from "./AnalyticsConsent.astro";
 
 const { hasSidebar } = Astro.locals.starlightRoute;
 const isSplash = Astro.locals.starlightRoute.entry.data.template === "splash";
@@ -45,6 +46,7 @@ const isSplash = Astro.locals.starlightRoute.entry.data.template === "splash";
   }
   <div class="main-frame"><slot /></div>
   {isSplash && <SiteFooter />}
+  <AnalyticsConsent />
 </div>
 
 <style>

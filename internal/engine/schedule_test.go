@@ -822,3 +822,43 @@ func TestAppNamedBackupDoesNotOwnEveryBackupTimer(t *testing.T) {
 		t.Fatalf("app named backup removed another application's timer:\n%s", seq)
 	}
 }
+
+func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	for _, tc := range []struct {
+		name string
+		job  app.ScheduledJob
+	}{
+		{"exclusive", app.ScheduledJob{Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC", Calendar: "*-*-* 02:00:00", Timeout: "45m", DeployLock: "exclusive"}},
+		{"pinned", app.ScheduledJob{Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC", Calendar: "*-*-* 02:00:00", Timeout: "45m", DeployLock: "pinned"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/ob/sample/lock", nil)
+			for _, want := range []string{
+				"state='/var/lib/ob/sample/schedule/nightly.state'",
+				"write_state() {",
+				"started_epoch=%s",
+				"trigger=%s",
+				"write_state 1",
+				"mv -f \"$tmp\" \"$state\"",
+			} {
+				if !strings.Contains(runner, want) {
+					t.Errorf("%s runner is missing %q:\n%s", tc.name, want, runner)
+				}
+			}
+			if strings.Contains(runner, `rm -f "$state"`) {
+				t.Errorf("%s runner removes the state the notifier finalises:\n%s", tc.name, runner)
+			}
+			command := exec.CommandContext(context.Background(), "sh", "-n")
+			command.Stdin = strings.NewReader(runner)
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("%s runner is not valid POSIX shell: %v: %s\n%s", tc.name, err, output, runner)
+			}
+		})
+	}
+	service := scheduleServiceUnit("sample", app.ScheduledJob{Name: "nightly", Timeout: "45m"},
+		"/etc/systemd/system/ob-sample-nightly.run", "/etc/systemd/system/ob-sample-nightly.notify")
+	if !strings.Contains(service, "SuccessExitStatus=75") {
+		t.Errorf("a lock-conflict skip must not be a failed unit:\n%s", service)
+	}
+}

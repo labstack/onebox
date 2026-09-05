@@ -178,7 +178,7 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
 		" run --rm --no-deps --name " + q(container) + " " + q(job.Name)
-	return strings.Join([]string{
+	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
@@ -188,15 +188,20 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		"exec 8>" + q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
 		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
+		// Best effort: the record names the release that ran, and an exclusive
+		// job runs whatever `current` points at when it starts.
+		"release_dir=$(readlink -f " + q(names.CurrentLink()) + " 2>/dev/null || true)",
+		"release=${release_dir##*/}",
 		scheduleContainerCleanup(container),
-		"cleanup() { " + scheduleContainerCleanup(container) + "; }",
+		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
-		compose,
-		"",
-	}, "\n")
+	}
+	lines = append(lines, scheduleRunPreamble(names.ScheduledJobRunState(job.Name))...)
+	lines = append(lines, "write_state 1", compose, "")
+	return strings.Join(lines, "\n")
 }
 
 func pinnedScheduleRunnerScript(application, job string, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
@@ -226,26 +231,49 @@ func pinnedScheduleRunnerScript(application, job string, names app.Names, applic
 		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
 		scheduleContainerCleanup(container),
-		"state=" + q(state),
-		"tmp=\"$state.$$\"",
-		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$state\" \"$tmp\"; }",
+		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
-		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-		"umask 077",
-		"printf 'release=%s\\nstarted_at=%s\\n' \"$release\" \"$started_at\" >\"$tmp\"",
-		"mv -f \"$tmp\" \"$state\"",
-		"/usr/bin/flock --unlock 8",
-		compose,
-		"",
 	}
+	lines = append(lines, scheduleRunPreamble(state)...)
+	lines = append(lines, "write_state 1", "/usr/bin/flock --unlock 8", compose, "")
 	return strings.Join(lines, "\n")
 }
 
 func scheduleContainerCleanup(container string) string {
 	return "/usr/bin/docker rm -f " + q(container) + " >/dev/null 2>&1 || true"
+}
+
+// scheduleStateFunction renders the shell function both runners use to record
+// the run in progress. The notifier reads it after the run ends, so the runner
+// never removes it: a runner that cleaned up its own state would erase the
+// only evidence a timed-out run leaves behind.
+func scheduleStateFunction() []string {
+	return []string{
+		"write_state() {",
+		"  umask 077",
+		"  printf 'release=%s\\nstarted_at=%s\\nstarted_epoch=%s\\ntrigger=%s\\noperation=%s\\nattempt=%s\\ninputs=%s\\n' " +
+			"\"$release\" \"$started_at\" \"$started_epoch\" \"$trigger\" \"$operation\" \"$1\" \"$inputs_json\" >\"$tmp\"",
+		"  mv -f \"$tmp\" \"$state\"",
+		"}",
+	}
+}
+
+// scheduleRunPreamble sets the variables write_state records. The trigger is
+// systemd's own word for it: a timer activation carries TRIGGER_UNIT (systemd
+// 252 and newer), anything else is an operator.
+func scheduleRunPreamble(state string) []string {
+	return append([]string{
+		"state=" + q(state),
+		"tmp=\"$state.$$\"",
+		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+		"started_epoch=$(date -u '+%s')",
+		"if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=manual; fi",
+		"operation=''",
+		"inputs_json=''",
+	}, scheduleStateFunction()...)
 }
 
 func scheduleRuntimeEnvArgs(projectDir string, entries []app.EnvFile) string {
@@ -275,6 +303,10 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 		// whether failure notifications are needed.
 		"ExecStopPost=/bin/sh " + notifyPath,
 		"TimeoutStartSec=" + job.Timeout,
+		// Exit 75 is the runner's "skipped for a lock conflict". It is a fact
+		// about timing, not a failure of the job, and it must not leave the
+		// unit failed or trip failure notifications.
+		"SuccessExitStatus=75",
 		"",
 	}, "\n")
 }

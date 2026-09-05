@@ -991,3 +991,91 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduleStatusPrefersTheRunRecordOverSystemdResult(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@journal
+persistent
+@@nightly:service
+LoadState=loaded
+ActiveState=inactive
+Result=success
+ExecMainStatus=75
+@@nightly:timer
+LoadState=loaded
+ActiveState=active
+NextElapseUSecRealtime=Sat 2026-09-06 02:00:00 UTC
+@@nightly:run
+@@nightly:history
+{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","release":"r1","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:02Z","duration_s":1,"attempts":0,"exit_status":75,"outcome":"skipped","inputs":{}}
+{"run":"b2c3d4e5f60718293a4b5c6d7e8f9012","job":"nightly","trigger":"timer","release":"r1","started_at":"2026-09-04T02:00:01Z","finished_at":"2026-09-04T02:05:02Z","duration_s":301,"attempts":3,"exit_status":1,"outcome":"failure","inputs":{}}
+{"run":"c3d4e5f60718293a4b5c6d7e8f901234","job":"nightly","trigger":"timer","release":"r1","started_at":"2026-09-03T02:00:01Z","finished_at":"2026-09-03T02:01:02Z","duration_s":61,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}
+`}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statuses[0]
+	if got.LastOutcome != "skipped" || got.NextRun != "Sat 2026-09-06 02:00:00 UTC" || !got.JournalPersistent {
+		t.Fatalf("record fields not surfaced: %#v", got)
+	}
+	// The newest record is a skip: it neither counts as a failure nor clears
+	// the failure before it, and it raises no issue of its own.
+	if got.ConsecutiveFailures != 1 || got.Diverged {
+		t.Fatalf("a skip neither counts as nor clears a failure: %#v", got)
+	}
+	if got.LastAttempts != 0 || got.LastDurationSeconds != 1 {
+		t.Fatalf("last run detail not surfaced: %#v", got)
+	}
+}
+
+func TestScheduleStatusCountsConsecutiveFailuresFromRecords(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@journal
+volatile
+@@nightly:service
+LoadState=loaded
+ActiveState=failed
+Result=exit-code
+ExecMainStatus=1
+@@nightly:timer
+LoadState=loaded
+ActiveState=active
+@@nightly:run
+@@nightly:history
+{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:02Z","duration_s":1,"attempts":2,"exit_status":1,"outcome":"failure","inputs":{}}
+{"run":"b2c3d4e5f60718293a4b5c6d7e8f9012","job":"nightly","trigger":"timer","started_at":"2026-09-04T02:00:01Z","finished_at":"2026-09-04T02:05:02Z","duration_s":301,"attempts":2,"exit_status":null,"outcome":"timeout","inputs":{}}
+{"run":"c3d4e5f60718293a4b5c6d7e8f901234","job":"nightly","trigger":"timer","started_at":"2026-09-03T02:00:01Z","finished_at":"2026-09-03T02:01:02Z","duration_s":61,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}
+`}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statuses[0]
+	if got.ConsecutiveFailures != 2 || !got.Diverged || got.JournalPersistent {
+		t.Fatalf("failures not counted: %#v", got)
+	}
+	if !strings.Contains(strings.Join(got.Issues, "; "), "last run failed: failure (exit 1)") {
+		t.Fatalf("issue does not name the outcome: %#v", got.Issues)
+	}
+}

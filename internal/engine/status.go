@@ -177,14 +177,27 @@ func (e *Engine) Status(ctx context.Context) error {
 		}
 		if schedule.Running {
 			detail := fmt.Sprintf("running; policy: %s; timeout: %s", schedule.DeployLock, schedule.Timeout)
+			if schedule.Attempt > 0 {
+				detail += fmt.Sprintf("; attempt: %d", schedule.Attempt)
+			}
 			if schedule.PinnedRelease != "" {
 				detail += fmt.Sprintf("; release: %s; started: %s", schedule.PinnedRelease, schedule.StartedAt)
 			}
 			fmt.Fprintf(e.Opts.Out, "schedule %-11s %s\n", schedule.Name, detail)
 			continue
 		}
-		fmt.Fprintf(e.Opts.Out, "schedule %-11s active; policy: %s; timeout: %s; last: %s\n",
-			schedule.Name, schedule.DeployLock, schedule.Timeout, result)
+		detail := fmt.Sprintf("active; policy: %s; timeout: %s", schedule.DeployLock, schedule.Timeout)
+		if schedule.NextRun != "" {
+			detail += "; next: " + schedule.NextRun
+		}
+		if schedule.LastOutcome != "" {
+			result = fmt.Sprintf("%s (%ds, %d attempt(s))", schedule.LastOutcome, schedule.LastDurationSeconds, schedule.LastAttempts)
+		}
+		detail += "; last: " + result
+		if !schedule.JournalPersistent {
+			detail += "; journal: volatile, history since boot only"
+		}
+		fmt.Fprintf(e.Opts.Out, "schedule %-11s %s\n", schedule.Name, detail)
 	}
 
 	if managed {

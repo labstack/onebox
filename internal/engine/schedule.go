@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/durable"
 	"github.com/labstack/onebox/internal/notify"
 )
 
@@ -86,6 +87,21 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		return err
 	}
 	for _, job := range jobs {
+		if job.Execution != nil {
+			res, err := e.mutate(ctx, "install -d -m 700 "+q(n.AppDir()+"/schedule"))
+			if err != nil {
+				return err
+			}
+			if res.ExitCode != 0 {
+				return errors.New("cannot create durable execution helper directory")
+			}
+			if err := e.writeServiceFile(ctx, durable.Helper(n.AppDir()), []byte(durable.Script)); err != nil {
+				return fmt.Errorf("install durable execution helper: %w", err)
+			}
+			break
+		}
+	}
+	for _, job := range jobs {
 		unit := n.ScheduledJobUnit(job.Name)
 		wanted[unit] = true
 
@@ -110,6 +126,12 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
 		}
 		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles, e.lockTTL(), e.hasTriggerUnit(ctx))
+		if job.Execution != nil {
+			runner, err = e.durableScheduleRunner(job, runtimeEnvFiles)
+			if err != nil {
+				return err
+			}
+		}
 		notifier, err := e.scheduleNotifier(job)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
@@ -243,6 +265,9 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		"trap 'exit 143' 15",
 	)
 	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
+	if job.DataEffect != app.DataEffectNone {
+		lines = append(lines, invalidateExecutionCommand(names.AppDir()))
+	}
 	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
 	lines = append(lines, "")
 	return strings.Join(lines, "\n")
@@ -355,6 +380,19 @@ func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJo
 	if !e.hasFlock(ctx) {
 		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
 	}
+	for _, job := range jobs {
+		if job.Execution == nil {
+			continue
+		}
+		res, err := e.T.Run(ctx, "/usr/bin/python3 -c 'import sys,fcntl; assert sys.version_info >= (3,8)'")
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return errors.New("durable jobs require Python 3.8 or newer at /usr/bin/python3; install it and apply schedules again")
+		}
+		break
+	}
 	// Declared inputs are the one feature that cannot work without
 	// TRIGGER_UNIT: the runner would have to guess whether an activation is
 	// the operator's, and guessing wrong hands a timer firing the inputs a
@@ -388,7 +426,7 @@ func (e *Engine) hasTriggerUnit(ctx context.Context) bool {
 
 func needsTriggerUnit(jobs []app.ScheduledJob) bool {
 	for _, job := range jobs {
-		if len(job.Inputs) > 0 {
+		if len(job.Inputs) > 0 || job.Execution != nil {
 			return true
 		}
 	}
@@ -441,12 +479,14 @@ func scheduleRunPreamble(triggerUnit bool) []string {
 func scheduleInputsLines(inputsPath string) []string {
 	return []string{
 		"operation=''",
+		"execution=''",
 		"inputs_json=''",
 		"inputs_file=" + q(inputsPath),
 		"if [ -z \"${TRIGGER_UNIT:-}\" ] && [ -f \"$inputs_file\" ]; then",
 		"  while IFS= read -r line || [ -n \"$line\" ]; do",
 		"    case \"$line\" in",
 		"      ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;",
+		"      ONEBOX_EXECUTION=*) execution=${line#ONEBOX_EXECUTION=} ;;",
 		"      [A-Z]*=*) set -- \"$@\" -e \"$line\"; key=${line%%=*}; value=${line#*=}; inputs_json=\"${inputs_json:+$inputs_json,}\\\"$key\\\":\\\"$value\\\"\" ;;",
 		"    esac",
 		"  done <\"$inputs_file\"",
@@ -552,7 +592,7 @@ const scheduleRunIdentifier = "ob-run"
 func scheduleRunRecordLines(application, unit, job, state string) []string {
 	return []string{
 		"state=" + q(state),
-		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''",
+		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''; execution=''",
 		// A run that stood aside left a note under its own invocation. It
 		// never held the job lock, so the state file belongs to whichever run
 		// is still going: read the note and leave that file alone.
@@ -570,6 +610,7 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"  while IFS= read -r line || [ -n \"$line\" ]; do",
 		"    case \"$line\" in",
 		"      release=*) release=${line#release=} ;;",
+		"      execution=*) execution=${line#execution=} ;;",
 		"      started_at=*) started_at=${line#started_at=} ;;",
 		"      started_epoch=*) started_epoch=${line#started_epoch=} ;;",
 		"      trigger=*) trigger=${line#trigger=} ;;",
@@ -598,8 +639,10 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"duration=0",
 		"case \"$started_epoch\" in ''|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac",
 		"[ -z \"$started_at\" ] && started_at=$finished_at",
-		"record=$(printf '{\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"reason\":\"%s\",\"inputs\":{%s}}' " +
-			"\"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$skipped\" \"$inputs\")",
+		"execution_field=''",
+		"if [ -n \"$execution\" ]; then execution_field=$(printf '\"execution\":\"%s\",' \"$execution\"); fi",
+		"record=$(printf '{%s\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"reason\":\"%s\",\"inputs\":{%s}}' " +
+			"\"$execution_field\" \"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$skipped\" \"$inputs\")",
 		"printf 'MESSAGE=%s\\nPRIORITY=6\\nSYSLOG_IDENTIFIER=" + scheduleRunIdentifier + "\\nONEBOX_APP=%s\\nONEBOX_UNIT=%s\\nONEBOX_JOB=%s\\n' " +
 			"\"$record\" " + q(application) + " " + q(unit) + " " + q(job) + " | logger --journald || true",
 	}
@@ -621,6 +664,10 @@ const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
 // contract lives in the notify package and the host has no Onebox to ask at
 // 2am. Only the timestamp and the run id are filled in on the host.
 func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
+	cleanup := scheduleContainerCleanup(e.names().Container(job.Name, 1))
+	if job.Execution != nil {
+		cleanup = durableContainerCleanup(e.names().Container(job.Name, 1))
+	}
 	environment := e.Opts.Environment
 	if environment == "" {
 		environment = e.Spec.Env
@@ -631,7 +678,7 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		"set -u",
 		"exec 9>" + q(e.names().ScheduledJobRunLock(job.Name)),
 		"if /usr/bin/flock --exclusive --nonblock 9; then",
-		"  " + scheduleContainerCleanup(e.names().Container(job.Name, 1)),
+		"  " + cleanup,
 		"fi",
 	}
 	lines = append(lines, scheduleRunRecordLines(e.Spec.Name, e.names().ScheduledJobUnit(job.Name), job.Name, e.names().ScheduledJobRunState(job.Name))...)

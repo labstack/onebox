@@ -30,20 +30,22 @@ type OperationKind string
 type OperationStatus string
 
 const (
-	KindDeploy         OperationKind = "deploy"
-	KindResume         OperationKind = "resume"
-	KindAbort          OperationKind = "abort"
-	KindRollback       OperationKind = "rollback"
-	KindBootstrap      OperationKind = "bootstrap"
-	KindServiceApply   OperationKind = "service_apply"
-	KindProxyApply     OperationKind = "proxy_apply"
-	KindScheduleApply  OperationKind = "schedule_apply"
-	KindSecretsPush    OperationKind = "secrets_push"
-	KindDestroy        OperationKind = "destroy"
-	KindJobRun         OperationKind = "job_run"
-	KindScheduleRun    OperationKind = "schedule_run"
-	KindSchedulePause  OperationKind = "schedule_pause"
-	KindScheduleResume OperationKind = "schedule_resume"
+	KindDeploy           OperationKind = "deploy"
+	KindResume           OperationKind = "resume"
+	KindAbort            OperationKind = "abort"
+	KindRollback         OperationKind = "rollback"
+	KindBootstrap        OperationKind = "bootstrap"
+	KindServiceApply     OperationKind = "service_apply"
+	KindProxyApply       OperationKind = "proxy_apply"
+	KindScheduleApply    OperationKind = "schedule_apply"
+	KindSecretsPush      OperationKind = "secrets_push"
+	KindDestroy          OperationKind = "destroy"
+	KindJobRun           OperationKind = "job_run"
+	KindScheduleRun      OperationKind = "schedule_run"
+	KindSchedulePause    OperationKind = "schedule_pause"
+	KindScheduleResume   OperationKind = "schedule_resume"
+	KindExecutionResume  OperationKind = "execution_resume"
+	KindExecutionAbandon OperationKind = "execution_abandon"
 
 	KindServiceImagePatch OperationKind = "service_image_patch"
 	KindBackupEnable      OperationKind = "backup_enable"
@@ -481,7 +483,7 @@ func validOperationKind(kind OperationKind) bool {
 	switch kind {
 	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
 		KindServiceApply, KindProxyApply, KindScheduleApply, KindScheduleRun,
-		KindSchedulePause, KindScheduleResume, KindSecretsPush, KindDestroy,
+		KindSchedulePause, KindScheduleResume, KindExecutionResume, KindExecutionAbandon, KindSecretsPush, KindDestroy,
 		KindServiceImagePatch, KindBackupEnable, KindBackupDisable,
 		KindBackupCreate, KindBackupPrune, KindReplayArchive,
 		KindRestoreTest, KindRestorePrepare, KindRestoreCutover, KindRestoreAbort,

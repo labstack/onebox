@@ -172,6 +172,20 @@ type Workload struct {
 	DataEffect DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
 	Schedule   *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
 	Inputs     map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them."`
+	Execution  *JobExecution       `json:"execution,omitempty" description:"Opt-in durable scheduled execution. Requires a native manual job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume."`
+}
+
+type JobExecution struct {
+	Retention string    `json:"retention" default:"168h" description:"Time from creation during which an unsuccessful execution may be resumed, at most 30d. Active executions remain protected."`
+	Steps     []JobStep `json:"steps,omitempty" description:"Optional ordered steps using this job's image and entrypoint. Omit to execute the job command as one step. At most 32 steps."`
+}
+
+type JobStep struct {
+	ID      string            `json:"id" description:"Unique stable step identifier, used by output references."`
+	Command []string          `json:"command" description:"Argument vector passed to the job image's entrypoint. No shell evaluation is performed."`
+	Inputs  map[string]string `json:"inputs,omitempty" description:"Environment variables populated from a preceding step's declared output, written as step.OUTPUT."`
+	Outputs []string          `json:"outputs,omitempty" description:"Required string keys in the JSON object written to ONEBOX_OUTPUT_FILE. Values are non-secret, at most 4096 bytes each and 16384 bytes total."`
+	Retry   *JobRetry         `json:"retry,omitempty" description:"Per-step retry policy; defaults to schedule.retry. All steps and backoff share the activation timeout."`
 }
 
 // JobInput is one declared parameter of a scheduled job. The constraint is

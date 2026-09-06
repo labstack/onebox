@@ -115,6 +115,15 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
 	safeByDeclaration := e.jobDataEffect(job) == app.DataEffectNone
+	if !safeByDeclaration {
+		res, err := e.mutate(ctx, invalidateExecutionCommand(e.names().AppDir()))
+		if err != nil {
+			return false, "", err
+		}
+		if res.ExitCode != 0 {
+			return false, "", fmt.Errorf("cannot invalidate durable execution compatibility before data-changing job")
+		}
+	}
 	resultDir := remoteDir + "/" + jobResultDirName(job)
 	resultFile := resultDir + "/result"
 	const containerResultFile = "/run/onebox/job-result"

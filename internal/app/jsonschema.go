@@ -361,6 +361,17 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "drain", "wait"}, pattern(gDur)},
 	{[]string{"workloads", "*", "drain", "grace"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "notify", "items"}, enum(eScheduleNotify)},
+	{[]string{"workloads", "*", "execution", "retention"}, pattern(gDur)},
+	{[]string{"workloads", "*", "execution", "steps"}, map[string]any{"maxItems": 32}},
+	{[]string{"workloads", "*", "execution", "steps", "items"}, map[string]any{"required": []any{"id", "command"}}},
+	{[]string{"workloads", "*", "execution", "steps", "items", "id"}, pattern(gIdent)},
+	{[]string{"workloads", "*", "execution", "steps", "items", "command"}, map[string]any{"minItems": 1, "maxItems": 128}},
+	{[]string{"workloads", "*", "execution", "steps", "items", "inputs"}, propertyNames(gInputName)},
+	{[]string{"workloads", "*", "execution", "steps", "items", "outputs"}, map[string]any{"maxItems": 32, "uniqueItems": true}},
+	{[]string{"workloads", "*", "execution", "steps", "items", "outputs", "items"}, pattern(gInputName)},
+	{[]string{"workloads", "*", "execution", "steps", "items", "retry", "attempts"}, map[string]any{"minimum": 1, "maximum": maxRetryAttempts}},
+	{[]string{"workloads", "*", "execution", "steps", "items", "retry", "backoff"}, pattern(gDur)},
+	{[]string{"workloads", "*", "execution", "steps", "items", "retry", "max_backoff"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "retry", "attempts"}, map[string]any{"minimum": 1, "maximum": maxRetryAttempts}},
 	{[]string{"workloads", "*", "schedule", "retry", "backoff"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "retry", "max_backoff"}, pattern(gDur)},
@@ -522,8 +533,16 @@ func applyRoleRules(doc map[string]any) {
 		map[string]any{"anyOf": anyRequired(sources)},
 	}
 
-	jobOnly := []any{"when", "data_effect", "schedule", "inputs"}
+	jobOnly := []any{"when", "data_effect", "schedule", "inputs", "execution"}
 	workload["allOf"] = []any{
+		map[string]any{
+			"if": map[string]any{"required": []any{"execution"}},
+			"then": map[string]any{
+				"required":   []any{"schedule", "data_effect"},
+				"properties": map[string]any{"data_effect": map[string]any{"const": "none"}, "when": map[string]any{"const": "manual"}},
+				"not":        map[string]any{"required": []any{"compose"}},
+			},
+		},
 		// Exactly one source. A workload with none cannot run and a workload
 		// with two does not say which image it is.
 		map[string]any{"oneOf": anyRequired(sources)},

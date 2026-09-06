@@ -432,6 +432,15 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 			err = errors.Join(err, fmt.Errorf("journal exec finish: %w", journalErr))
 		}
 	}()
+	// Arbitrary exec has unknown data effects, even when its reason sounds
+	// read-only. Invalidate saved compatibility before it can change a schema.
+	res, invalidateErr := e.mutate(ctx, invalidateExecutionCommand(e.names().AppDir()))
+	if invalidateErr != nil {
+		return containerID, invalidateErr
+	}
+	if res.ExitCode != 0 {
+		return containerID, errors.New("cannot invalidate durable execution compatibility before exec")
+	}
 	err = e.mutateStream(ctx, "docker exec "+containerID+" sh -c "+q(command), stdout, stderr)
 	return containerID, err
 }

@@ -130,6 +130,9 @@ step to complete rather than a line to run verbatim.
 | `divergence_detected` | the live release does not match the recorded release state | diagnostic | `ob audit --output json` |
 | `doctor_failed` | a local readiness check failed | — | — |
 | `exec_failed` | the audited exec could not be completed | diagnostic | `ob status --output json` |
+| `execution_count_invalid` | execution count must be between 1 and 1000 | — | — |
+| `execution_inspect_failed` | durable execution could not be read | — | — |
+| `execution_list_failed` | durable executions could not be listed | — | — |
 | `finalize_refused` | the release cannot be finalized because the recorded activation evidence disagrees with the live host | diagnostic | `ob status --output json` |
 | `host_environment_mismatch` | this host is claimed by a different environment of the same application, which would share its container and volume names | diagnostic | `ob preflight --output json` |
 | `host_owner_mismatch` | this host is owned by a different Onebox application, and one host has one owner | diagnostic | `ob preflight --output json` |

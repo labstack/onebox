@@ -226,6 +226,9 @@ func validateEnvironment(e Environment, path string) error {
 }
 
 func validateWorkload(w Workload, path string) error {
+	if err := validateJobExecution(w, path); err != nil {
+		return err
+	}
 	if err := checkEnum(path+".role", w.Role, eRole); err != nil {
 		return err
 	}

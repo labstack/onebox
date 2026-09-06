@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `attempts` · `backoff` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `default` · `deploy_lock` · `description` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `env_files` · `exec` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `max_backoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `options` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `attempts` · `backoff` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `default` · `deploy_lock` · `description` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `env_files` · `exec` · `execution` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `id` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `max_backoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `options` · `outputs` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retention` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `steps` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
 
 ## Reference
 
@@ -43,6 +43,17 @@ cannot drift from what `ob validate` accepts.
 | `<name>.env_files` | list | — | Workload-specific ordered environment-file list. Replaces broader defaults when present. |
 | `<name>.env_files[].file` `*` | string | — | Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.env_files[].provider` | `sops` | — | Decryptor used before staging the file. The supported encrypted provider is sops. |
+| `<name>.execution` | object | — | Opt-in durable scheduled execution. Requires a native manual job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume. |
+| `<name>.execution.retention` | string | `168h` | Time from creation during which an unsuccessful execution may be resumed, at most 30d. Active executions remain protected. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.execution.steps` | list | — | Optional ordered steps using this job's image and entrypoint. Omit to execute the job command as one step. At most 32 steps. |
+| `<name>.execution.steps[].command` `*` | list | — | Argument vector passed to the job image's entrypoint. No shell evaluation is performed. |
+| `<name>.execution.steps[].id` `*` | string | — | Unique stable step identifier, used by output references. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
+| `<name>.execution.steps[].inputs` | map | — | Environment variables populated from a preceding step's declared output, written as step.OUTPUT. |
+| `<name>.execution.steps[].outputs` | list | — | Required string keys in the JSON object written to ONEBOX_OUTPUT_FILE. Values are non-secret, at most 4096 bytes each and 16384 bytes total. |
+| `<name>.execution.steps[].retry` | object | — | Per-step retry policy; defaults to schedule.retry. All steps and backoff share the activation timeout. |
+| `<name>.execution.steps[].retry.attempts` | integer | `1` | Total attempts including the first, 1 to 10. |
+| `<name>.execution.steps[].retry.backoff` | string | `30s` | Sleep before the second attempt; it doubles after each failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.execution.steps[].retry.max_backoff` | string | `10m` | Upper bound for the doubling sleep. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.extra_hosts` | list | — | Additional host-to-address entries added to the container. |
 | `<name>.health` | object | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
 | `<name>.health.exec` | — | — | Health command as a shell string or direct argument list. |

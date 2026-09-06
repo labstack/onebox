@@ -636,6 +636,17 @@ func defaultOf(node map[string]any) string {
 	if !ok {
 		return ""
 	}
+	// A list default is an array in the schema, because that is the only
+	// thing a JSON Schema default for an array property may be. Printing it
+	// with Go's slice syntax puts `[failure timeout]` in a reference table
+	// nobody writes that way; the table reads as the value would be written.
+	if items, ok := v.([]any); ok {
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			parts = append(parts, fmt.Sprint(item))
+		}
+		return strings.Join(parts, ", ")
+	}
 	return fmt.Sprint(v)
 }
 

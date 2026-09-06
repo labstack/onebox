@@ -731,7 +731,9 @@
                   "backup_key_material": {
                     "description": "Key-material identities the backup report must name.",
                     "examples": [
-                      "BACKUP_ACCESS_KEY_ID"
+                      [
+                        "BACKUP_ACCESS_KEY_ID"
+                      ]
                     ],
                     "items": {
                       "type": "string"
@@ -1123,7 +1125,10 @@
             "type": "string"
           },
           "on": {
-            "default": "success, failure",
+            "default": [
+              "success",
+              "failure"
+            ],
             "description": "Operation outcomes that trigger this notification.",
             "items": {
               "enum": [
@@ -2266,7 +2271,9 @@
                 "enum": {
                   "description": "Accepted values.",
                   "examples": [
-                    "catalog"
+                    [
+                      "catalog"
+                    ]
                   ],
                   "items": {
                     "type": "string"
@@ -2598,7 +2605,10 @@
                 "type": "string"
               },
               "notify": {
-                "default": "failure, timeout",
+                "default": [
+                  "failure",
+                  "timeout"
+                ],
                 "description": "Run outcomes that send the configured notifications: success, failure, timeout, skipped.",
                 "items": {
                   "enum": [

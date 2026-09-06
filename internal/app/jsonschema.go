@@ -129,7 +129,8 @@ func annotateSchemaField(schema map[string]any, field reflect.StructField) {
 }
 
 func schemaTagValue(value string, t reflect.Type) any {
-	switch deref(t).Kind() {
+	target := deref(t)
+	switch target.Kind() {
 	case reflect.Bool:
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			return parsed
@@ -142,6 +143,22 @@ func schemaTagValue(value string, t reflect.Type) any {
 		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
 			return parsed
 		}
+	case reflect.Slice:
+		// A list's default is written in the tag the way it reads in prose,
+		// `success, failure`, because that is what the field reference prints.
+		// The schema needs the value itself: a string default on an array
+		// property is a contradiction, and an editor that applies defaults
+		// would fill the list with one sentence.
+		parts := strings.Split(value, ",")
+		out := make([]any, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			out = append(out, schemaTagValue(part, target.Elem()))
+		}
+		return out
 	}
 	return value
 }

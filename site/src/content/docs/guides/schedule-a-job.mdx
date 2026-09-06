@@ -132,6 +132,11 @@ under the same application lock, schedule mutex, fence, and journal boundary as
 a deploy, but it does not stage or activate a release. Run it after upgrading
 Onebox when an application may not be deployed again soon.
 
+Run records are written by the unit, so a host whose units predate them has
+none until this command or a deploy rewrites them. Until then `ob status` falls
+back to what systemd retained, reports a failure as it always did, and says
+that no run record exists yet.
+
 ## Every run leaves a record
 
 When a run ends, for any reason, the unit's `ExecStopPost` writes one record

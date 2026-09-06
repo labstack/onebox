@@ -48,6 +48,8 @@ const skipStreakIssue = 3
 type scheduleUnitObservation struct {
 	loadState   string
 	activeState string
+	result      string
+	exitStatus  int
 	release     string
 	startedAt   string
 	attempt     string
@@ -72,7 +74,9 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		unit := e.names().ScheduledJobUnit(job.Name)
 		commands = append(commands,
 			"printf '%s\\n' "+q("@@"+job.Name+":service"),
-			"systemctl show "+q(unit+".service")+" --no-pager --property=LoadState --property=ActiveState",
+			// Result and ExecMainStatus are the only evidence a host still
+			// running pre-record units has. See the fallback below.
+			"systemctl show "+q(unit+".service")+" --no-pager --property=LoadState --property=ActiveState --property=Result --property=ExecMainStatus",
 			"printf '%s\\n' "+q("@@"+job.Name+":timer"),
 			"systemctl show "+q(unit+".timer")+" --no-pager --property=LoadState --property=ActiveState --property=NextElapseUSecRealtime",
 			"printf '%s\\n' "+q("@@"+job.Name+":run"),
@@ -104,8 +108,10 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		if observed[name] == nil {
 			observed[name] = map[string]scheduleUnitObservation{}
 		}
+		exit, _ := strconv.Atoi(values["ExecMainStatus"])
 		observed[name][kind] = scheduleUnitObservation{
 			loadState: values["LoadState"], activeState: values["ActiveState"],
+			result: values["Result"], exitStatus: exit,
 			release: values["release"], startedAt: values["started_at"], attempt: values["attempt"],
 			next:    values["NextElapseUSecRealtime"],
 			history: parseScheduleRunRecords(strings.Join(raw, "\n"), name),
@@ -212,6 +218,16 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 				issue += ", and nothing has run since"
 			}
 			status.Issues = append(status.Issues, issue)
+		}
+		// No records at all means the host is still running units written
+		// before this runner: they do not write records, so the only thing
+		// that knows how the last run ended is systemd. Upgrading `ob` must
+		// not turn a failing job silent, and the issue says what closes the
+		// gap.
+		if len(records) == 0 && service.result != "" && service.result != "success" {
+			status.Issues = append(status.Issues, fmt.Sprintf(
+				"last run failed: %s (exit %d); no run record — run `ob schedule apply` so runs are recorded",
+				service.result, service.exitStatus))
 		}
 		if status.ConsecutiveSkips >= skipStreakIssue {
 			status.Issues = append(status.Issues, fmt.Sprintf("skipped %d firings in a row: %s", status.ConsecutiveSkips, status.LastReason))

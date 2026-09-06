@@ -639,8 +639,10 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"duration=0",
 		"case \"$started_epoch\" in ''|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac",
 		"[ -z \"$started_at\" ] && started_at=$finished_at",
-		"record=$(printf '{\"execution\":\"%s\",\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"reason\":\"%s\",\"inputs\":{%s}}' " +
-			"\"$execution\" \"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$skipped\" \"$inputs\")",
+		"execution_field=''",
+		"if [ -n \"$execution\" ]; then execution_field=$(printf '\"execution\":\"%s\",' \"$execution\"); fi",
+		"record=$(printf '{%s\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"reason\":\"%s\",\"inputs\":{%s}}' " +
+			"\"$execution_field\" \"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$skipped\" \"$inputs\")",
 		"printf 'MESSAGE=%s\\nPRIORITY=6\\nSYSLOG_IDENTIFIER=" + scheduleRunIdentifier + "\\nONEBOX_APP=%s\\nONEBOX_UNIT=%s\\nONEBOX_JOB=%s\\n' " +
 			"\"$record\" " + q(application) + " " + q(unit) + " " + q(job) + " | logger --journald || true",
 	}

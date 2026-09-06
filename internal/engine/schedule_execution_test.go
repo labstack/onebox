@@ -13,6 +13,22 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
+func TestRunJournalIncludesExecutionOnlyWhenSet(t *testing.T) {
+	for _, id := range []string{"", strings.Repeat("a", 32)} {
+		t.Run("execution="+id, func(t *testing.T) {
+			record, _, _ := runNotifier(t, app.ScheduledJob{Name: "nightly"}, nil,
+				"attempt=1\nexecution="+id+"\n", nil)
+			value, present := record["execution"]
+			if id == "" && present {
+				t.Fatalf("ordinary run contains execution field: %v", record)
+			}
+			if id != "" && value != id {
+				t.Fatalf("durable run execution = %v, want %s", value, id)
+			}
+		})
+	}
+}
+
 func TestDurableRunnerPublishesCheckpointBeforeReleasingRetentionRendezvous(t *testing.T) {
 	e := New(testConfig(), testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	runner, err := e.durableScheduleRunner(app.ScheduledJob{Name: "refresh", Timeout: "1h", DeployLock: "pinned", Execution: &app.JobExecution{}}, nil)

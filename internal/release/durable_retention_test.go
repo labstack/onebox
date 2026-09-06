@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -85,6 +86,9 @@ func TestDurableRetentionUnusableEvidenceRefusesCleanup(t *testing.T) {
 			}
 			if len(decision.Victims) != 0 {
 				t.Fatalf("unusable evidence returned deletion candidates: %v", decision.Victims)
+			}
+			if tc.result.ExitCode != 0 && (!strings.Contains(err.Error(), fmt.Sprintf("exit %d", tc.result.ExitCode)) || !strings.Contains(err.Error(), tc.result.Stderr)) {
+				t.Fatalf("retention refusal lost helper diagnostic: %v", err)
 			}
 		})
 	}

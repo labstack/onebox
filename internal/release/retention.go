@@ -105,7 +105,7 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 		return RetentionDecision{}, refuseRetention(err, err)
 	}
 	if pins.ExitCode != 0 {
-		return RetentionDecision{}, refuseRetention(nil, fmt.Errorf("durable execution retention evidence is unusable"))
+		return RetentionDecision{}, refuseRetention(nil, fmt.Errorf("durable execution retention evidence is unusable (exit %d): %s", pins.ExitCode, strings.TrimSpace(pins.Stderr)))
 	}
 	for _, id := range strings.Fields(pins.Stdout) {
 		if !IsID(id) {

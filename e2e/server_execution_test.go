@@ -68,6 +68,9 @@ workloads:
 		t.Fatal(err)
 	}
 	s.deploy(t, dir)
+	// A legacy compose-run container can survive a crash without durable labels.
+	// The first durable activation must reclaim this stopped, owned container.
+	s.run(t, "docker compose -p "+name+" --project-directory "+root+"/current -f "+root+"/current/compose.yaml run --no-deps --name "+name+"-refresh-1 refresh true")
 	if out, err := s.ob(t, dir, "schedule", "run", "refresh", "--input", "SOURCE=custom", "--wait"); err == nil {
 		t.Fatalf("index should fail before allow marker: %s", out)
 	}

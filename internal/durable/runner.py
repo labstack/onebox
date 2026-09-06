@@ -244,20 +244,31 @@ def cleanup_container(config, invocation=None):
     rows = json.loads(docker(["inspect"] + ids))
     for row in rows:
         labels = row["Config"].get("Labels") or {}
+        legacy_job = (
+            invocation is None
+            and not any(key.startswith("ob.execution.") for key in labels)
+            and row.get("Name") == "/" + config["container"]
+            and labels.get("com.docker.compose.project") == config["application"]
+            and labels.get("com.docker.compose.service") == config["job"]
+            and labels.get("com.docker.compose.oneoff", "").lower() == "true"
+        )
         require(
-            labels.get("ob.execution.job") == config["job"],
-            "existing container has no durable job ownership",
+            labels.get("ob.execution.job") == config["job"] or legacy_job,
+            "existing container has no matching job ownership; inspect and remove it manually",
         )
         if invocation is None:
             require(
-                not row["State"].get("Running"), "previous container is still running"
+                not (row["State"].get("Running") or row["State"].get("Restarting")),
+                "previous container is still running",
             )
         else:
             require(
                 labels.get("ob.execution.invocation") == invocation,
                 "container belongs to another invocation",
             )
-        docker(["rm", "-f", row["Id"]])
+        # Pre-attempt cleanup never forces removal: Docker must also refuse if
+        # the stopped container starts after our inspection.
+        docker(["rm"] + (["-f"] if invocation is not None else []) + [row["Id"]])
 
 
 def compatibility(config, release_dir):

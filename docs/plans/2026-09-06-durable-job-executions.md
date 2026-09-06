@@ -143,7 +143,9 @@ real-host qualification has passed.
 Implementation verification: the targeted Linux server test now exercises the
 public CLI through SSH, deployment and schedule installation, failure/output
 handoff, stable identities, explicit resume, SIGKILL interruption, active-run
-refusal and deployment-lock exclusion. Unit tests cover atomic replacement
+refusal, deployment-lock exclusion, and reclaiming stopped legacy Compose job
+containers using matching ownership labels. Pre-attempt cleanup never forces
+container removal. Unit tests cover atomic replacement
 failure, invalid outputs, service/data-generation changes, and corrupt retention
 evidence. `just check` and Go lint pass. A full host reboot or physical power-cut
 test has not been run; process interruption is not presented as that evidence.

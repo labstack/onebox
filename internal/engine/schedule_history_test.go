@@ -156,3 +156,21 @@ func TestParseScheduleRunRecordsRejectsLinesThatAreNotThisJobsRuns(t *testing.T)
 		})
 	}
 }
+
+// A timer read that fails is not a timer with nothing to say. Dashes in the
+// table must not stand for a host that would not answer.
+func TestScheduleListSurfacesAFailedTimerRead(t *testing.T) {
+	e, f := scheduledFixture(t)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{ExitCode: 1, Stderr: "Failed to connect to bus"}, true
+		}
+		return transport.Result{}, false
+	}
+	if _, err := e.ScheduleList(context.Background()); err == nil || !strings.Contains(err.Error(), "Failed to connect to bus") {
+		t.Fatalf("an unreadable timer was reported as blank state: %v", err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "|| true") {
+		t.Fatalf("the read swallows its own failure:\n%s", seq)
+	}
+}

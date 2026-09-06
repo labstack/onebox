@@ -137,7 +137,10 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 		unit := e.names().ScheduledJobUnit(job.Name)
 		commands = append(commands,
 			"printf '%s\\n' "+q("@@"+job.Name),
-			"systemctl show "+q(unit+".timer")+" --no-pager --property=ActiveState --property=NextElapseUSecRealtime --property=LastTriggerUSec 2>/dev/null || true")
+			// Left to fail: the exit check below distinguishes a timer with
+			// nothing to say from a host that would not answer, and `|| true`
+			// would make that check unreachable.
+			"systemctl show "+q(unit+".timer")+" --no-pager --property=ActiveState --property=NextElapseUSecRealtime --property=LastTriggerUSec")
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))
 	if err != nil {

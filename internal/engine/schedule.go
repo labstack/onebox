@@ -275,9 +275,14 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 		// flight that owns that file, and overwriting it would replace a real
 		// run's outcome with this one's skip.
 		"skip() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$tmp\"; mv -f \"$tmp\" \"$state\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
-		// No lock, no state: the run already in flight will record itself,
-		// and its evidence is not this activation's to overwrite.
-		"stand_aside() { echo \"onebox: skipped: $1\" >&2; exit 0; }",
+		// No lock, so no claim on the state file: the run already in flight
+		// owns it and will record itself. This activation leaves its own note
+		// instead, keyed to its own invocation, and the notifier reads that
+		// rather than the state a different run is still writing. Without the
+		// note the notifier would see a clean exit and record this activation
+		// as a success that never ran.
+		"skip_marker=\"$state.skip.${INVOCATION_ID:-$$}\"",
+		"stand_aside() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$skip_marker\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
 		"exec 9>" + q(names.ScheduledJobRunLock(job)),
 		"/usr/bin/flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'",
 		"exec 8>" + q(names.ScheduleRunLock()),
@@ -497,7 +502,20 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 	return []string{
 		"state=" + q(state),
 		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''",
-		"if [ -f \"$state\" ]; then",
+		// A run that stood aside left a note under its own invocation. It
+		// never held the job lock, so the state file belongs to whichever run
+		// is still going: read the note and leave that file alone.
+		"skip_marker=\"$state.skip.${INVOCATION_ID:-}\"",
+		"if [ -f \"$skip_marker\" ]; then",
+		"  while IFS= read -r line || [ -n \"$line\" ]; do",
+		"    case \"$line\" in",
+		"      skipped=*) skipped=${line#skipped=} ;;",
+		"      operation=*) operation=${line#operation=} ;;",
+		"      inputs=*) inputs=${line#inputs=} ;;",
+		"    esac",
+		"  done <\"$skip_marker\"",
+		"  rm -f \"$skip_marker\"",
+		"elif [ -f \"$state\" ]; then",
 		"  while IFS= read -r line || [ -n \"$line\" ]; do",
 		"    case \"$line\" in",
 		"      release=*) release=${line#release=} ;;",

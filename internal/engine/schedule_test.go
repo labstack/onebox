@@ -874,10 +874,26 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 // arguments, one per element.
 func runNotifier(t *testing.T, job app.ScheduledJob, notifications map[string]app.Notification, state string, env map[string]string) (map[string]any, bool, []string) {
 	t.Helper()
+	base := t.TempDir()
+	if state != "" {
+		scheduleDir := filepath.Join(base, "sample", "schedule")
+		if err := os.MkdirAll(scheduleDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(scheduleDir, "nightly.state"), []byte(state), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return runNotifierIn(t, base, job, notifications, env)
+}
+
+// runNotifierIn is runNotifier over a directory the caller has already laid
+// out, for the cases whose whole point is which files exist beforehand.
+func runNotifierIn(t *testing.T, base string, job app.ScheduledJob, notifications map[string]app.Notification, env map[string]string) (map[string]any, bool, []string) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell required")
 	}
-	base := t.TempDir()
 	cfg := testConfig()
 	cfg.BasePath = base
 	cfg.Notifications = notifications
@@ -891,11 +907,6 @@ func runNotifier(t *testing.T, job app.ScheduledJob, notifications map[string]ap
 		t.Fatal(err)
 	}
 	statePath := filepath.Join(scheduleDir, "nightly.state")
-	if state != "" {
-		if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	bin := t.TempDir()
 	record := filepath.Join(bin, "record.jsonl")
 	// The stub checks the structured fields the history query relies on and
@@ -1434,8 +1445,14 @@ func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
 	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
 	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
-	if !strings.Contains(runner, `stand_aside() { echo "onebox: skipped: $1" >&2; exit 0; }`) {
-		t.Fatalf("runner has no lock-less skip:\n%s", runner)
+	// The note is keyed to this activation, so it cannot be mistaken for the
+	// state file of the run that holds the lock.
+	if !strings.Contains(runner, `skip_marker="$state.skip.${INVOCATION_ID:-$$}"`) ||
+		!strings.Contains(runner, `stand_aside() { umask 077; printf 'skipped=%s\noperation=%s\ninputs=%s\n' "$1" "$operation" "$inputs_json" >"$skip_marker"`) {
+		t.Fatalf("runner has no lock-less skip note:\n%s", runner)
+	}
+	if strings.Contains(runner, `stand_aside`) && strings.Contains(runner, `>"$state"; echo "onebox: skipped`) {
+		t.Fatalf("the lock-less skip writes the running job's state:\n%s", runner)
 	}
 	if !strings.Contains(runner, "flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'") {
 		t.Fatalf("a job-lock conflict still writes state:\n%s", runner)
@@ -1525,5 +1542,43 @@ func TestSyncSchedulesRequiresSystemd252OnlyForInputs(t *testing.T) {
 				t.Fatalf("the runner claims a trigger the host cannot report:\n%s", artifacts)
 			}
 		})
+	}
+}
+
+// An activation that stood aside must record itself as skipped without
+// touching the state file the running job is still writing. Getting this
+// wrong records a run that never happened as a success, and destroys the
+// evidence of the one that did.
+func TestScheduledJobNotifierReadsAStandAsideNoteAndSpareTheRunningState(t *testing.T) {
+	base := t.TempDir()
+	scheduleDir := filepath.Join(base, "sample", "schedule")
+	if err := os.MkdirAll(scheduleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(scheduleDir, "nightly.state")
+	liveState := "release=r1\nstarted_at=2026-09-05T15:00:01Z\nstarted_epoch=1\ntrigger=timer\noperation=\nattempt=2\ninputs=\n"
+	if err := os.WriteFile(statePath, []byte(liveState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := statePath + ".skip.abc123"
+	if err := os.WriteFile(marker, []byte("skipped=another run of this job is still in progress\noperation=op-7\ninputs=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	record, _, _ := runNotifierIn(t, base, app.ScheduledJob{Name: "nightly", Notify: []string{"failure", "timeout"}}, nil, map[string]string{
+		"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "abc123",
+	})
+	if record["outcome"] != "skipped" || record["reason"] != "another run of this job is still in progress" {
+		t.Fatalf("a stand-aside activation was not recorded as skipped: %#v", record)
+	}
+	if record["operation"] != "op-7" {
+		t.Fatalf("the note's operation was lost: %#v", record)
+	}
+	body, err := os.ReadFile(statePath)
+	if err != nil || string(body) != liveState {
+		t.Fatalf("the running job's state was disturbed: %v %q", err, string(body))
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the stand-aside note survived its own notifier")
 	}
 }

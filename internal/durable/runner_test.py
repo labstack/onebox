@@ -197,6 +197,75 @@ class Checkpoints(unittest.TestCase):
         r.abandon(self.store, identity)
         self.assertEqual(self.store.read(identity)["state"], "abandoned")
 
+    def test_abandon_locked_job_refuses_without_changing_checkpoint(self):
+        identity = self.prepare()
+        before = self.store.read(identity)
+        path = self.root / "schedule" / "refresh.lock"
+        with path.open("w") as lock:
+            r.fcntl.flock(lock, r.fcntl.LOCK_EX | r.fcntl.LOCK_NB)
+            with self.assertRaisesRegex(
+                ValueError, "job is locked by an active operation"
+            ):
+                r.abandon(self.store, identity)
+        self.assertEqual(self.store.read(identity), before)
+        r.abandon(self.store, identity)
+        self.assertEqual(self.store.read(identity)["state"], "abandoned")
+
+    def image_lookup(self, response, allow_pull):
+        self.image_patch.stop()
+        self.docker.stop()
+        model = json.dumps(
+            {"services": {"refresh": {"image": "example:latest"}}}
+        ).encode()
+        responses = [
+            subprocess.CompletedProcess([], 0, model, b""),
+            response,
+            subprocess.CompletedProcess([], 0, b"", b""),
+            subprocess.CompletedProcess(
+                [], 0, json.dumps([{"Id": self.image}]).encode(), b""
+            ),
+        ]
+        with patch.object(r.subprocess, "run", side_effect=responses) as commands:
+            self.image_commands = commands
+            return r.image_identity(self.config, self.root / "current", allow_pull)
+
+    def test_only_explicit_missing_image_allows_pull(self):
+        for prefix in [b"Error: ", b"Error response from daemon: "]:
+            with self.subTest(prefix=prefix):
+                response = subprocess.CompletedProcess(
+                    [], 1, b"[]", prefix + b"No such image: example:latest\n"
+                )
+                self.assertEqual(self.image_lookup(response, True), self.image)
+                self.assertEqual(
+                    self.image_commands.call_args_list[2].args[0],
+                    ["/usr/bin/docker", "pull", "example:latest"],
+                )
+                with self.assertRaisesRegex(
+                    ValueError, "original job image is not locally available"
+                ):
+                    self.image_lookup(response, False)
+                self.assertEqual(self.image_commands.call_count, 2)
+
+    def test_failed_or_malformed_image_inspection_never_pulls(self):
+        for allow_pull in [False, True]:
+            for response, message in [
+                (
+                    subprocess.CompletedProcess(
+                        [], 1, b"", b"daemon unavailable secret-token"
+                    ),
+                    "Docker image inspection failed",
+                ),
+                (
+                    subprocess.CompletedProcess([], 0, b"invalid JSON", b""),
+                    "Expecting value",
+                ),
+            ]:
+                with self.subTest(allow_pull=allow_pull, response=response):
+                    with self.assertRaisesRegex(ValueError, message) as raised:
+                        self.image_lookup(response, allow_pull)
+                    self.assertNotIn("secret-token", str(raised.exception))
+                    self.assertEqual(self.image_commands.call_count, 2)
+
     def test_atomic_replace_failure_keeps_previous_checkpoint(self):
         identity = self.prepare()
         previous = self.store.read(identity)

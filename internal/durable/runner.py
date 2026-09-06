@@ -190,6 +190,10 @@ class Store:
             fsync_dir(self.path)
 
 
+class ImageNotFound(ValueError):
+    pass
+
+
 def docker(args, capture=True):
     result = subprocess.run(
         ["/usr/bin/docker"] + args,
@@ -197,6 +201,24 @@ def docker(args, capture=True):
         stderr=subprocess.PIPE if capture else None,
         check=False,
     )
+    if result.returncode != 0 and capture and args[:2] == ["image", "inspect"]:
+        # Only Docker's explicit missing-image diagnostic permits a pull.
+        # Unknown errors fail closed; never expose raw stderr or credentials.
+        diagnostic = result.stderr.decode(errors="replace").strip()
+        if (
+            diagnostic.startswith(
+                (
+                    "Error: No such image: ",
+                    "Error response from daemon: No such image: ",
+                )
+            )
+            and "\n" not in diagnostic
+        ):
+            raise ImageNotFound("job image is not locally available")
+        require(
+            False,
+            "Docker image inspection failed; check Docker daemon access and permissions",
+        )
     # Docker errors may contain expanded secret configuration. Keep them in the
     # operator's container logs, never in durable public state or error metadata.
     require(result.returncode == 0, "Docker operation failed: " + args[0])
@@ -289,7 +311,7 @@ def image_identity(config, release_dir, allow_pull=False):
     reference = model["services"][config["job"]]["image"]
     try:
         rows = json.loads(docker(["image", "inspect", reference]))
-    except ValueError:
+    except ImageNotFound:
         require(allow_pull, "original job image is not locally available")
         docker(["pull", reference])
         rows = json.loads(docker(["image", "inspect", reference]))
@@ -423,7 +445,9 @@ def update_run_status(store, value, invocation):
     if not path.exists():
         return
     lines = path.read_text().splitlines()
-    count = sum(a["invocation"] == invocation for s in value["steps"] for a in s["attempts"])
+    count = sum(
+        a["invocation"] == invocation for s in value["steps"] for a in s["attempts"]
+    )
     lines = [line for line in lines if not line.startswith("attempt=")]
     lines.append("attempt=" + str(count))
     atomic_bytes(path, ("\n".join(lines) + "\n").encode())
@@ -623,7 +647,12 @@ def abandon(store, identity):
     # already running pinned job, which intentionally permits that app lock.
     fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError(
+                "job is locked by an active operation; retry abandonment after it finishes"
+            ) from None
         require(
             not container_running(value["definition"]["container"]),
             "job container is still running",

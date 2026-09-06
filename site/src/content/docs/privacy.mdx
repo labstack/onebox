@@ -26,9 +26,14 @@ Nothing on this page changes that, because nothing on this page is in it.
   loaded and no identifier is stored until you say yes. The prompt is the only
   thing that appears before you answer.
 - **Everywhere else**, analytics run and the control above turns them off.
-- **If your browser sends Do Not Track or Global Privacy Control**, analytics
-  never run and you are never asked. That signal wins over everything else on
-  this page, including the buttons above.
+- **If your browser sends Global Privacy Control**, analytics do not run and
+  you are not asked, because you have already answered. Choosing Allow above
+  overrides it for this browser: it is the more specific answer, and this site
+  does not treat a browser default as outranking your own decision.
+
+Do Not Track is not consulted. The specification was withdrawn in 2019, Safari
+removed the header, and the browsers that still send one leave it off by
+default, so it says nothing reliable about what a reader wants.
 
 Which of these applies is decided from the country Cloudflare reports for your
 connection. If that lookup fails, the site asks rather than assumes.

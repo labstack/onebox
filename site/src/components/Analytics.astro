@@ -16,9 +16,15 @@
 //      whether the question has to be asked at all -- see below.
 //   3. No advertising signals. Google Signals and ad personalisation are off,
 //      so the traffic here is not joined to an advertising profile.
-//   4. Do Not Track and Global Privacy Control are honoured before the script
-//      loads, not after. A reader who has asked not to be measured generates no
-//      request to Google at all, and is never asked the question either.
+//   4. Global Privacy Control is read before the script loads, not after. A
+//      reader who sends one and has said nothing here generates no request to
+//      Google at all, and is never asked the question either. It is a default
+//      standing in for an answer, though, not a veto over one: Allow is the
+//      later and more specific statement of what the reader wants, so a reader
+//      who clicks it is measured with the signal still on. Do Not Track is not
+//      consulted -- the specification was withdrawn in 2019, Safari removed the
+//      header, and the browsers that still carry the setting leave it off, so it
+//      expresses neither an obligation nor an intent.
 //   5. Withdrawal works. The control on /privacy revokes what acceptance set.
 //
 // Rule 2 replaces what this file used to do. It loaded gtag on every page and
@@ -104,17 +110,11 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
         var started = false;
         var requirementPromise = null;
 
-        // Asked not to be tracked, in any of the spellings a browser uses.
-        // Firefox before 32 and Safari answered "yes" where everything modern
-        // answers "1", and a reader who opted out on an older browser is
-        // exactly the reader least willing to be measured. Checked before the
-        // tag is inserted, so honouring the request means no request rather
-        // than a discarded one.
-        function signalsRefusal() {
-          var flags = [navigator.doNotTrack, window.doNotTrack, navigator.msDoNotTrack];
-          for (var i = 0; i < flags.length; i++) {
-            if (flags[i] === "1" || flags[i] === "yes") return true;
-          }
+        // A default answer for a reader who has not given one here, rather than a
+        // veto over the one they do give. apply() is the only caller and the only
+        // place the signal is enforced; mayRun deliberately knows nothing about
+        // it, so do not reach for mayRun as the decision function.
+        function signalsOptOut() {
           return navigator.globalPrivacyControl === true;
         }
 
@@ -187,10 +187,6 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
         }
 
         function start() {
-          // Above the stored preference on purpose: a browser-level refusal is
-          // not overridden by a click on this site's own control.
-          if (signalsRefusal()) return;
-
           window["ga-disable-" + measurementId] = false;
 
           // Allowing after declining, without leaving the page. The tag is
@@ -289,6 +285,17 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
             if (accepted) accepted.hidden = true;
             return;
           }
+          // No answer stored here. A browser-level opt-out supplies one, and a
+          // reader who has already refused globally is not asked again. stop()
+          // rather than nothing, so an identifier left by an earlier grant whose
+          // preference has since been cleared does not survive the signal.
+          if (signalsOptOut()) {
+            stop();
+            var refused = banner();
+            if (refused) refused.hidden = true;
+            return;
+          }
+
           consentRequirement().then(function (requirement) {
             if (readPreference() !== null) return;
             if (mayRun(requirement, null)) {
@@ -305,7 +312,7 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
           preference: readPreference,
           setPreference: writePreference,
           requirement: consentRequirement,
-          refused: signalsRefusal,
+          optedOut: signalsOptOut,
           subscribe: function (onChange) {
             window.addEventListener(PREFERENCE_EVENT, onChange);
             window.addEventListener("storage", function (event) {
@@ -320,26 +327,6 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
           } else {
             run();
           }
-        }
-
-        if (signalsRefusal()) {
-          // Neither measured nor asked. The banner stays in the document,
-          // hidden, so nothing depends on it having rendered.
-          //
-          // Revoked as well, because the signal can be switched on by a reader
-          // who allowed measurement before it was. Not loading the tag stops
-          // the next hit, but the identifier that acceptance stored is still in
-          // the browser and would still be there to resume from if the signal
-          // were ever switched off -- which joins the sessions either side of a
-          // refusal into one returning reader. The stored preference is left
-          // alone: consent is still granted, so lifting the signal measures
-          // again, under a new identifier rather than the old one.
-          stop();
-          ready(function () {
-            var element = banner();
-            if (element) element.hidden = true;
-          });
-          return;
         }
 
         // A choice made in one tab has to reach the tab that is being measured.

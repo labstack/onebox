@@ -60,25 +60,16 @@ const enabled =
     function render() {
       var preference = api.preference();
 
-      if (api.refused()) {
-        status.textContent =
-          "Your browser sends a Do Not Track or Global Privacy Control signal, so " +
-          "analytics do not run here whatever this control says.";
-        for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
-        return;
-      }
-
-      for (var j = 0; j < buttons.length; j++) {
-        buttons[j].disabled = false;
+      for (var i = 0; i < buttons.length; i++) {
         // No trailing comma after the last argument: `is:inline` ships this
         // script verbatim, and a trailing comma in a call is ES2017. Every
         // browser too old for it fails to parse the whole script rather than
         // one line of it, which would leave this control inert -- a standing
         // opt-out that renders and does nothing is the worst of the states
         // this file can be in.
-        buttons[j].setAttribute(
+        buttons[i].setAttribute(
           "aria-pressed",
-          String(buttons[j].dataset.consent === preference)
+          String(buttons[i].dataset.consent === preference)
         );
       }
 
@@ -88,6 +79,16 @@ const enabled =
       }
       if (preference === "denied") {
         status.textContent = "Analytics are not allowed in this browser.";
+        return;
+      }
+
+      // Nothing has been answered here. A Global Privacy Control signal is the
+      // answer until this control gives a different one, which is why the
+      // buttons stay live rather than being disabled underneath the sentence.
+      if (api.optedOut()) {
+        status.textContent =
+          "Your browser sends a Global Privacy Control signal, so analytics are off " +
+          "in this browser. Allow turns them on.";
         return;
       }
 
@@ -144,7 +145,7 @@ const enabled =
     cursor: pointer;
   }
 
-  .ob-preference-button:hover:not(:disabled) {
+  .ob-preference-button:hover {
     border-color: var(--sl-color-gray-4);
     color: var(--sl-color-white);
   }
@@ -156,11 +157,6 @@ const enabled =
     border-color: var(--sl-color-white);
     background: var(--sl-color-white);
     color: var(--sl-color-black);
-  }
-
-  .ob-preference-button:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
   }
 
   .ob-preference-button:focus-visible {

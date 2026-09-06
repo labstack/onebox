@@ -314,6 +314,17 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
           },
         };
 
+        // Every other open tab is told about the change and acts on it, which
+        // this file has claimed from the start and nothing did. The listener
+        // above reaches only subscribers, and the only subscriber is the
+        // privacy page's control, which redraws its own text. So a reader with
+        // a docs page open who went to /privacy and denied kept being measured
+        // in the tab they left behind until it happened to reload. Applying
+        // the preference here is what makes the claim true.
+        window.addEventListener("storage", function (event) {
+          if (event.key === STORAGE_KEY || event.key === null) apply();
+        });
+
         function ready(run) {
           if (document.readyState === "loading") {
             document.addEventListener("DOMContentLoaded", run, { once: true });

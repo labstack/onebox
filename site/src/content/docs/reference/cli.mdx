@@ -941,6 +941,8 @@ Available Commands:
   history     run records of one scheduled job, newest first
   list        declared scheduled jobs with timer state and next elapse
   logs        journal of one scheduled run
+  pause       stop a scheduled job's timer until it is resumed
+  resume      start a paused scheduled job's timer again
   run         start a scheduled job now with declared inputs
 
 Flags:
@@ -1029,6 +1031,47 @@ Usage:
 Flags:
   -h, --help         help for logs
       --run string   run id from ob schedule history; default the newest run
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob schedule pause
+
+```
+Stop one job's timer. The units stay installed and a deploy keeps updating them, so a fix still lands; only the firing stops, and it stays stopped until `ob schedule resume`.
+
+A run already under way is left alone. `--reason` is required and is kept on the host with the operator and the time, because a job that is deliberately not running looks exactly like one that is broken. `ob status` reports a paused job on its own line for the same reason.
+
+Usage:
+  ob schedule pause <job> [flags]
+
+Flags:
+  -h, --help            help for pause
+      --reason string   why this job is being stopped; kept on the host and shown by ob status
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob schedule resume
+
+```
+Start a paused job's timer and clear the record of the pause.
+
+The next run is the next scheduled elapse: resuming does not run the job now, and does not make up the firings missed while it was paused. Use `ob schedule run` for an immediate run.
+
+Usage:
+  ob schedule resume <job> [flags]
+
+Flags:
+  -h, --help   help for resume
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

@@ -166,6 +166,14 @@ func (e *Engine) Status(ctx context.Context) error {
 		fmt.Fprintf(e.Opts.Out, "service %-12s %s\n", acc, cs[0].health)
 	}
 	for _, schedule := range schedules {
+		// Printed before anything else about the job, and printed even when
+		// nothing is wrong: a paused job is not running, and the whole point
+		// of this section is that such a job cannot look like a healthy one.
+		if schedule.Paused != nil {
+			e.ui.Println(fmt.Sprintf("schedule %-11s %s", schedule.Name,
+				e.ui.Warn("PAUSED — "+pauseSummary(*schedule.Paused))))
+			continue
+		}
 		if schedule.Diverged {
 			diverged = true
 			e.ui.Println(fmt.Sprintf("schedule %-11s %s", schedule.Name, e.ui.Warn(strings.Join(schedule.Issues, "; ")+" ⚠")))

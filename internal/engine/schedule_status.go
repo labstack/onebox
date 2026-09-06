@@ -38,6 +38,23 @@ type StatusSchedule struct {
 	// JournalPersistent is false when the host keeps its journal in memory, so
 	// the records above only reach back to the last boot.
 	JournalPersistent bool `json:"journal_persistent"`
+	// Paused is set when an operator stopped this job's timer. A paused job
+	// is not running, which is the state this whole feature exists to make
+	// visible, so it is reported whether or not anything else is wrong.
+	Paused *SchedulePauseState `json:"paused,omitempty"`
+}
+
+// pauseFrom reads a pause marker's fields out of one batch section. Absent
+// means the job is not paused, which is why an empty marker still counts:
+// the file's existence is the statement, and its fields only explain it.
+func pauseFrom(values map[string]string) *SchedulePauseState {
+	operator, hasOperator := values["operator"]
+	pausedAt, hasPausedAt := values["paused_at"]
+	reason, hasReason := values["reason"]
+	if !hasOperator && !hasPausedAt && !hasReason {
+		return nil
+	}
+	return &SchedulePauseState{Operator: operator, PausedAt: pausedAt, Reason: reason}
 }
 
 // skipStreakIssue is how many firings in a row may be skipped before status
@@ -55,6 +72,7 @@ type scheduleUnitObservation struct {
 	attempt     string
 	next        string
 	history     []ScheduleRunRecord
+	pause       *SchedulePauseState
 }
 
 func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error) {
@@ -86,6 +104,8 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			// this section its records, not the whole report. `ob schedule
 			// history` is the command that says why the read failed.
 			scheduleHistoryCommand(unit, 20)+" 2>/dev/null || true",
+			"printf '%s\\n' "+q("@@"+job.Name+":paused"),
+			"cat "+q(e.names().ScheduledJobPause(job.Name))+" 2>/dev/null || true",
 		)
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))
@@ -115,6 +135,7 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			release: values["release"], startedAt: values["started_at"], attempt: values["attempt"],
 			next:    values["NextElapseUSecRealtime"],
 			history: parseScheduleRunRecords(strings.Join(raw, "\n"), name),
+			pause:   pauseFrom(values),
 		}
 		values = map[string]string{}
 		raw = nil
@@ -200,7 +221,13 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 				status.ConsecutiveFailures++
 			}
 		}
-		if timer.loadState != "loaded" || timer.activeState != "active" {
+		// An inactive timer is divergence unless somebody said so on purpose.
+		// A pause is reported on its own line either way, so the state is
+		// never silent — it just is not called a fault.
+		if paused, ok := observed[job.Name]["paused"]; ok && paused.pause != nil {
+			status.Paused = paused.pause
+		}
+		if timer.loadState != "loaded" || (timer.activeState != "active" && status.Paused == nil) {
 			status.Issues = append(status.Issues, "timer is not active")
 		}
 		if service.loadState != "loaded" {

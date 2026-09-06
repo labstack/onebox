@@ -195,6 +195,35 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 	runCmd.Flags().BoolVar(&runBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	scheduleCmd.AddCommand(runCmd)
 
+	var pauseReason string
+	pauseCmd := &cobra.Command{
+		Use:   "pause <job>",
+		Short: "stop a scheduled job's timer until it is resumed",
+		Long: "Stop one job's timer. The units stay installed and a deploy keeps updating them, so a fix still lands; only the firing stops, and it stays stopped until `ob schedule resume`.\n\n" +
+			"A run already under way is left alone. `--reason` is required and is kept on the host with the operator and the time, because a job that is deliberately not running looks exactly like one that is broken. `ob status` reports a paused job on its own line for the same reason.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindSchedulePause, Job: args[0], Reason: pauseReason,
+			}, "schedule pause")
+		},
+	}
+	pauseCmd.Flags().StringVar(&pauseReason, "reason", "", "why this job is being stopped; kept on the host and shown by ob status")
+	scheduleCmd.AddCommand(pauseCmd)
+
+	resumeCmd := &cobra.Command{
+		Use:   "resume <job>",
+		Short: "start a paused scheduled job's timer again",
+		Long:  "Start a paused job's timer and clear the record of the pause.\n\nThe next run is the next scheduled elapse: resuming does not run the job now, and does not make up the firings missed while it was paused. Use `ob schedule run` for an immediate run.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindScheduleResume, Job: args[0],
+			}, "schedule resume")
+		},
+	}
+	scheduleCmd.AddCommand(resumeCmd)
+
 	root.AddCommand(scheduleCmd)
 }
 

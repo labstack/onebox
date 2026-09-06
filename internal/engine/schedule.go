@@ -156,16 +156,51 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	if removalErr != nil {
 		return removalErr
 	}
+	// A pause is the operator's decision about this host, and reconciliation
+	// does not get to overrule it. The units above were still written, so a
+	// fix lands while the job stays stopped; only the timer is left alone.
+	names := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		names = append(names, job.Name)
+	}
+	paused, err := e.pausedJobs(ctx, names)
+	if err != nil {
+		return err
+	}
 	for _, job := range jobs {
 		unit := n.ScheduledJobUnit(job.Name) + ".timer"
-		if res, err := e.mutate(ctx, "systemctl enable --now "+unit); err != nil {
+		action, outcome := "enable --now", fmt.Sprintf("%s at %s (%s)", job.Name, job.Cron, job.Timezone)
+		if state, ok := paused[job.Name]; ok {
+			action = "disable --now"
+			outcome = fmt.Sprintf("%s stays paused (%s)", job.Name, pauseSummary(state))
+		}
+		if res, err := e.mutate(ctx, "systemctl "+action+" "+unit); err != nil {
 			return err
 		} else if res.ExitCode != 0 {
-			return fmt.Errorf("job %s: cannot start its timer: %s", job.Name, strings.TrimSpace(res.Stderr))
+			return fmt.Errorf("job %s: cannot %s its timer: %s", job.Name, action, strings.TrimSpace(res.Stderr))
 		}
-		e.logf("schedule: %s at %s (%s)", job.Name, job.Cron, job.Timezone)
+		e.logf("schedule: %s", outcome)
 	}
 	return nil
+}
+
+// pauseSummary is the one-line account of a pause that status, list and the
+// deploy log all print.
+func pauseSummary(state SchedulePauseState) string {
+	parts := make([]string, 0, 3)
+	if state.Operator != "" {
+		parts = append(parts, "by "+state.Operator)
+	}
+	if state.PausedAt != "" {
+		parts = append(parts, "since "+state.PausedAt)
+	}
+	if state.Reason != "" {
+		parts = append(parts, state.Reason)
+	}
+	if len(parts) == 0 {
+		return "no reason recorded"
+	}
+	return strings.Join(parts, "; ")
 }
 
 // scheduleRunnerScript keeps the existing whole-run deploy exclusion unless a

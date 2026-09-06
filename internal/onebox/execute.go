@@ -208,6 +208,12 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindScheduleApply:
 		result.EvidenceID = operationID
 		err = e.ScheduleApply(ctx, operationID)
+	case KindSchedulePause:
+		result.EvidenceID = operationID
+		err = e.SchedulePause(ctx, operationID, request.Job, request.Reason)
+	case KindScheduleResume:
+		result.EvidenceID = operationID
+		err = e.ScheduleResume(ctx, operationID, request.Job)
 	case KindScheduleRun:
 		result.EvidenceID = operationID
 		var run engine.ScheduleRunResult

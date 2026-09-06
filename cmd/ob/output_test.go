@@ -522,6 +522,8 @@ func TestLeafOutputMatrixIsClosedAndHasNoAliases(t *testing.T) {
 		"ob schedule history": {Class: "finite_envelope", JSON: true},
 		"ob schedule list":    {Class: "finite_envelope", JSON: true},
 		"ob schedule logs":    {Class: "operator_passthrough", JSON: true, NDJSON: true},
+		"ob schedule pause":   {Class: "finite_stream", JSON: true, NDJSON: true},
+		"ob schedule resume":  {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob schedule run":     {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob schema":           {Class: "finite_envelope", JSON: true},
 		"ob secrets edit":     {Class: "trusted_editor", JSON: true},

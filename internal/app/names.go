@@ -250,6 +250,14 @@ func (n Names) ScheduledJobRunInputs(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".inputs")
 }
 
+// ScheduledJobPause records that an operator stopped this job's timer. It
+// lives on the host rather than in the project because a pause is an
+// operational decision about one machine, and it has to outlast the deploy
+// that would otherwise re-enable the timer underneath it.
+func (n Names) ScheduledJobPause(job string) string {
+	return path.Join(n.AppDir(), "schedule", job+".paused")
+}
+
 // ScheduledJobUnitPrefixes returns the current namespace followed by the
 // pre-2026.8.6 spelling when the application name contains a hyphen.
 func (n Names) ScheduledJobUnitPrefixes() []string {

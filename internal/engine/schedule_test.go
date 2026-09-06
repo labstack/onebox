@@ -1604,3 +1604,82 @@ func TestScheduleSkipMarkerIsNamedIdenticallyOnBothSides(t *testing.T) {
 		t.Fatalf("runner names the note %q and the notifier %q", inRunner, inNotifier)
 	}
 }
+
+// Upgrading ob must not make a failing job go quiet. A host still running
+// units written before this runner records nothing, so systemd's own result
+// is the only evidence there is, and status has to use it.
+func TestScheduleStatusFallsBackToSystemdWhenNoRecordsExist(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@journal
+persistent
+@@nightly:service
+LoadState=loaded
+ActiveState=failed
+Result=timeout
+ExecMainStatus=143
+@@nightly:timer
+LoadState=loaded
+ActiveState=active
+@@nightly:run
+@@nightly:history
+`}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statuses[0]
+	if !got.Diverged {
+		t.Fatalf("a failing job on a pre-record host reads as clean: %#v", got)
+	}
+	issues := strings.Join(got.Issues, "; ")
+	if !strings.Contains(issues, "last run failed: timeout (exit 143)") || !strings.Contains(issues, "ob schedule apply") {
+		t.Fatalf("issue does not name the failure or the remedy: %#v", got.Issues)
+	}
+}
+
+// Once records exist they are the verdict, and systemd's retained result must
+// not raise a second, contradictory issue.
+func TestScheduleStatusPrefersRecordsOverSystemdResult(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: `@@journal
+persistent
+@@nightly:service
+LoadState=loaded
+ActiveState=inactive
+Result=timeout
+ExecMainStatus=143
+@@nightly:timer
+LoadState=loaded
+ActiveState=active
+@@nightly:run
+@@nightly:history
+{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:01:02Z","duration_s":61,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}
+`}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statuses[0]; got.Diverged || got.LastOutcome != "success" {
+		t.Fatalf("a stale systemd result outvoted the record: %#v", got)
+	}
+}

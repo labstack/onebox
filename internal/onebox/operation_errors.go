@@ -97,6 +97,9 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "the audited exec could not be completed",
 		Command: "ob status --output json",
 	},
+	"execution_count_invalid":  {Message: "execution count must be between 1 and 1000"},
+	"execution_list_failed":    {Message: "durable executions could not be listed"},
+	"execution_inspect_failed": {Message: "durable execution could not be read"},
 	"finalize_refused": {
 		Message: "the release cannot be finalized because the recorded activation evidence disagrees with the live host",
 		Command: "ob status --output json",

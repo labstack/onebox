@@ -219,6 +219,14 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		var run engine.ScheduleRunResult
 		run, err = e.ScheduleRun(ctx, operationID, request.Job, request.Inputs, request.Wait)
 		result.ScheduleRun = &run
+	case KindExecutionResume:
+		result.EvidenceID = request.ExecutionID
+		var run engine.ScheduleRunResult
+		run, err = e.ExecutionResume(ctx, operationID, request.ExecutionID, request.Wait)
+		result.ScheduleRun = &run
+	case KindExecutionAbandon:
+		result.EvidenceID = request.ExecutionID
+		err = e.ExecutionAbandon(ctx, operationID, request.ExecutionID)
 	case KindSecretsPush:
 		entries := encryptedEntries(lp.resolved)
 		externalProjections := externalConnectionProjections(lp.resolved)

@@ -32,6 +32,13 @@ This page is the reconciliation. Three states:
   (`ob schedule history`, `ob schedule logs`, `ob status`), per-outcome
   notifications, and declared inputs for operator-initiated runs
   (`ob schedule run`).
+- Opt-in durable job executions with named linear steps, declared string outputs,
+  per-step retries, and host-local checkpoints. `ob execution list`, `inspect`,
+  `resume`, and `abandon` expose recovery state. Resume requires the original
+  current release and unchanged observed compatibility evidence; applications own
+  idempotency and out-of-band schema compatibility. Requires Python 3.8+ only for
+  durable jobs; no database or resident orchestration service. See
+  [durable executions](/guides/schedule-a-job#durable-executions).
 - Per-workload reconciliation that retains proven-unchanged healthy workloads,
   health-gated rolling or recreate replacement for changed or uncertain ones,
   traffic drain, verification, versioned releases, retention, rollback.

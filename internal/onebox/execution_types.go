@@ -297,9 +297,10 @@ type ExecuteRequest struct {
 	// Job, Inputs and Wait are the schedule_run arguments: a declared
 	// scheduled job, validated input overrides, and whether to block until
 	// the unit exits and return its run record.
-	Job    string
-	Inputs map[string]string
-	Wait   bool
+	Job         string
+	Inputs      map[string]string
+	Wait        bool
+	ExecutionID string
 	// Reason is the operator's account of a pause, kept on the host so a job
 	// that is deliberately not running says why.
 	Reason string
@@ -360,7 +361,16 @@ func (request ExecuteRequest) Validate() error {
 	if (request.Approval != nil || request.BackupReport != nil || request.MigrationBackupOverride != nil) && request.Kind != KindDeploy && request.Kind != KindJobRun {
 		return errors.New("approval and migration backup authorization are valid only for deploy and job run")
 	}
-	if len(request.Inputs) > 0 || request.Wait {
+	if request.ExecutionID != "" && request.Kind != KindExecutionResume && request.Kind != KindExecutionAbandon {
+		return errors.New("execution_id is valid only for execution resume and abandon")
+	}
+	if (request.Kind == KindExecutionResume || request.Kind == KindExecutionAbandon) && request.ExecutionID == "" {
+		return errors.New("execution_id is required")
+	}
+	if request.Wait && request.Kind != KindScheduleRun && request.Kind != KindExecutionResume {
+		return errors.New("wait is valid only for schedule run and execution resume")
+	}
+	if len(request.Inputs) > 0 {
 		if request.Kind != KindScheduleRun {
 			return errors.New("inputs and wait are valid only for schedule run")
 		}

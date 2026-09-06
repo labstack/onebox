@@ -58,6 +58,7 @@ Available Commands:
   doctor      check local runner provenance and deployment safety capabilities
   eject       write the generated runtime into the repository and hand it over for good
   exec        run a command inside a workload or service container
+  execution   inspect and recover durable job executions
   help        Help about any command
   init        scaffold ob.yml from the compose file + rollability doctor
   job         plan and run a sealed one-shot manual job
@@ -612,6 +613,109 @@ Usage:
 Flags:
   -h, --help            help for exec
       --reason string   single-line operational justification (max 256 bytes; journaled)
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+## ob execution
+
+```
+Inspect durable job checkpoints saved on the managed host. Resume uses the original inputs and successful step outputs, and requires the original release and compatible runtime. Applications remain responsible for idempotency when an interrupted attempt is repeated.
+
+Usage:
+  ob execution [flags]
+  ob execution [command]
+
+Available Commands:
+  abandon     end resumability and release an execution's retention hold
+  inspect     show saved inputs, step outcomes, and resume eligibility
+  list        list durable executions, newest first
+  resume      resume an unsuccessful execution from saved checkpoints
+
+Flags:
+  -h, --help   help for execution
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+
+Use "ob execution [command] --help" for more information about a command.
+```
+
+### ob execution abandon
+
+```
+Mark an inactive execution abandoned. It can no longer be resumed and stops protecting its release from cleanup. Saved execution evidence remains available for inspection. Active work must stop before it can be abandoned.
+
+Usage:
+  ob execution abandon <id> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for abandon
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob execution inspect
+
+```
+Read a durable execution by its stable ID, including original inputs, committed outputs, step attempts and systemd invocation IDs. Works independently of the current job declaration. Resume eligibility is provisional: the runner rechecks compatibility and ownership under locks before running.
+
+Usage:
+  ob execution inspect <id> [flags]
+
+Flags:
+  -h, --help   help for inspect
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob execution list
+
+```
+List the newest durable executions saved on the managed host, including their job, state, original release and provisional resume eligibility. Reads checkpoint files independently of journal retention and the current job declarations.
+
+Usage:
+  ob execution list [flags]
+
+Flags:
+  -n, --count int   number of newest executions to show (1–1000) (default 20)
+  -h, --help        help for list
+
+Global Flags:
+  -c, --config string   path to the project YAML file (default "ob.yml")
+  -e, --env string      environment name (default "production")
+      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
+  -v, --verbose         print every remote command
+```
+
+### ob execution resume
+
+```
+Resume an unsuccessful, unexpired execution with its original inputs and saved outputs. Completed steps are skipped. The host refuses resume while prior work is active or the original release, workflow definition, image, or service runtime is incompatible. An interrupted step may repeat effects; use the stable execution and step IDs for application deduplication.
+
+Usage:
+  ob execution resume <id> [flags]
+
+Flags:
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for resume
+      --wait         wait for the resumed activation to finish
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

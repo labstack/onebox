@@ -20,6 +20,7 @@ type ScheduleRunResult struct {
 	Unit      string             `json:"unit"`
 	Operation string             `json:"operation"`
 	Inputs    map[string]string  `json:"inputs,omitempty"`
+	Execution string             `json:"execution,omitempty"`
 	Started   bool               `json:"started"`
 	Record    *ScheduleRunRecord `json:"record,omitempty"`
 }
@@ -34,7 +35,12 @@ type ScheduleRunResult struct {
 // the inputs is the case the sealed plan of `ob job run` exists for, and a
 // migration or destructive job keeps that path.
 func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool) (_ ScheduleRunResult, err error) {
+	return e.scheduleRun(ctx, operationID, name, inputs, wait, "")
+}
+
+func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool, execution string) (_ ScheduleRunResult, err error) {
 	result := ScheduleRunResult{Job: name, Operation: operationID, Inputs: inputs}
+	result.Execution = execution
 	if strings.TrimSpace(operationID) == "" {
 		return result, errors.New("schedule run requires an operation id")
 	}
@@ -45,6 +51,9 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 		return result, err
 	}
 	workload := e.Spec.Workloads[name]
+	if execution != "" && (workload.Execution == nil || !scheduleRunID.MatchString(execution) || len(inputs) != 0) {
+		return result, errors.New("resume requires a durable job, a valid execution ID, and no input overrides")
+	}
 	if workload.DataEffect != app.DataEffectNone {
 		return result, fmt.Errorf("job %s declares data_effect %q; operator-initiated runs of it go through the sealed plan: ob job plan %s, then ob job run",
 			name, workload.DataEffect, name)
@@ -86,6 +95,15 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if err := e.WriteFence(ctx, operationID, epoch); err != nil {
 		return result, err
 	}
+	if execution != "" {
+		res, err := e.T.Run(ctx, "grep -Fq 'Durable execution protocol v1.' "+q("/etc/systemd/system/"+unit+".run"))
+		if err != nil {
+			return result, err
+		}
+		if res.ExitCode != 0 {
+			return result, errors.New("installed job runner does not support durable resume; run ob schedule apply")
+		}
+	}
 
 	// noclobber: a second manual run before the first is consumed would
 	// otherwise rewrite the file under it and misattribute the inputs. The
@@ -95,7 +113,11 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	path := e.names().ScheduledJobRunInputs(name)
 	create := "if [ -e " + q(path) + " ]; then exit 73; fi; " +
 		"umask 077 && install -d -m 700 " + q(e.names().AppDir()+"/schedule") + " && set -C && cat > " + q(path)
-	res, err := e.mutateInput(ctx, create, scheduleInputsFile(operationID, inputs))
+	payload := scheduleInputsFile(operationID, inputs)
+	if execution != "" {
+		payload += "ONEBOX_EXECUTION=" + execution + "\n"
+	}
+	res, err := e.mutateInput(ctx, create, payload)
 	if err != nil {
 		return result, err
 	}
@@ -119,6 +141,9 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}
 	detail := "inputs: defaults"
+	if execution != "" {
+		detail = "resume execution: " + execution
+	}
 	if len(inputs) > 0 {
 		detail = "inputs: " + scheduleInputsDetail(inputs)
 	}
@@ -181,6 +206,7 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	pending = false
 	result.Started = true
 	result.Record = last
+	result.Execution = last.Execution
 	exit := "-"
 	if last.ExitStatus != nil {
 		exit = fmt.Sprint(*last.ExitStatus)

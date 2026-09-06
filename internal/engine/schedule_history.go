@@ -17,6 +17,7 @@ import (
 // nothing that can disagree with the unit's own log.
 type ScheduleRunRecord struct {
 	Run             string `json:"run"`
+	Execution       string `json:"execution,omitempty"`
 	Job             string `json:"job"`
 	Trigger         string `json:"trigger"`
 	Operation       string `json:"operation,omitempty"`

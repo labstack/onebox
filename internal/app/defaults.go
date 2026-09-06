@@ -108,6 +108,10 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 				w.Schedule.Timezone = "UTC"
 				mark(path + ".schedule.timezone")
 			}
+			if w.Execution != nil && w.Execution.Retention == "" {
+				w.Execution.Retention = "168h"
+				mark(path + ".execution.retention")
+			}
 			if w.Schedule.Timeout == "" {
 				w.Schedule.Timeout = "1h"
 				mark(path + ".schedule.timeout")

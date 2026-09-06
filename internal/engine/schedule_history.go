@@ -61,9 +61,17 @@ func scheduleHistoryCommand(unit string, n int) string {
 		" -o cat -r -n " + strconv.Itoa(n) + " --no-pager"
 }
 
-// parseScheduleRunRecords keeps the lines that decode and drops the rest: a
-// truncated or hand-written entry must not hide the records around it.
-func parseScheduleRunRecords(stdout string) []ScheduleRunRecord {
+// scheduleOutcomes is the closed vocabulary the notifier writes. A record
+// claiming anything else did not come from a runner this binary generated.
+var scheduleOutcomes = map[string]bool{"success": true, "failure": true, "timeout": true, "skipped": true}
+
+// parseScheduleRunRecords keeps the lines that are records of this job's runs
+// and drops the rest. Decoding is not enough on its own: callers read the
+// first entry as the newest run and let it stand for the job's health, so a
+// stray JSON line that happened to be logged under the same identifier could
+// clear a failure. A record has to name this job, carry a systemd invocation
+// id, and report an outcome from the closed set before it counts.
+func parseScheduleRunRecords(stdout, job string) []ScheduleRunRecord {
 	var out []ScheduleRunRecord
 	for _, line := range strings.Split(stdout, "\n") {
 		line = strings.TrimSpace(line)
@@ -72,6 +80,9 @@ func parseScheduleRunRecords(stdout string) []ScheduleRunRecord {
 		}
 		var record ScheduleRunRecord
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			continue
+		}
+		if record.Job != job || !scheduleRunID.MatchString(record.Run) || !scheduleOutcomes[record.Outcome] {
 			continue
 		}
 		out = append(out, record)
@@ -105,7 +116,7 @@ func (e *Engine) ScheduleHistory(ctx context.Context, name string, n int) ([]Sch
 	if res.ExitCode != 0 {
 		return nil, fmt.Errorf("read run records of %s from the host journal (exit %d): %s", name, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
-	records := parseScheduleRunRecords(res.Stdout)
+	records := parseScheduleRunRecords(res.Stdout, job.Name)
 	if records == nil {
 		records = []ScheduleRunRecord{}
 	}

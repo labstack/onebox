@@ -108,7 +108,7 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			loadState: values["LoadState"], activeState: values["ActiveState"],
 			release: values["release"], startedAt: values["started_at"], attempt: values["attempt"],
 			next:    values["NextElapseUSecRealtime"],
-			history: parseScheduleRunRecords(strings.Join(raw, "\n")),
+			history: parseScheduleRunRecords(strings.Join(raw, "\n"), name),
 		}
 		values = map[string]string{}
 		raw = nil

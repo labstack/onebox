@@ -16,7 +16,7 @@ not json
 `
 
 func TestParseScheduleRunRecordsSkipsNoiseAndKeepsOrder(t *testing.T) {
-	records := parseScheduleRunRecords(sampleRunRecords)
+	records := parseScheduleRunRecords(sampleRunRecords, "nightly")
 	if len(records) != 2 {
 		t.Fatalf("records = %#v", records)
 	}
@@ -134,5 +134,25 @@ func TestScheduleHistorySurfacesAJournalReadFailure(t *testing.T) {
 	_, err := e.ScheduleHistory(context.Background(), "nightly", 20)
 	if err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("an unreadable journal was reported as an empty history: %v", err)
+	}
+}
+
+// Callers read the newest record as the job's standing verdict, so a line that
+// merely happens to be JSON must not become one.
+func TestParseScheduleRunRecordsRejectsLinesThatAreNotThisJobsRuns(t *testing.T) {
+	good := `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:02Z","duration_s":1,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}`
+	for name, line := range map[string]string{
+		"another job":     `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"other","outcome":"success"}`,
+		"no run id":       `{"run":"","job":"nightly","outcome":"success"}`,
+		"short run id":    `{"run":"a1b2","job":"nightly","outcome":"success"}`,
+		"unknown outcome": `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","outcome":"cancelled"}`,
+		"unrelated json":  `{"level":"info","msg":"something else"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			records := parseScheduleRunRecords(line+"\n"+good, "nightly")
+			if len(records) != 1 || records[0].Outcome != "success" {
+				t.Fatalf("a line that is not this job's run was kept: %#v", records)
+			}
+		})
 	}
 }

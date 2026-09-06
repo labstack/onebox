@@ -99,10 +99,9 @@ func Prepare(cfg app.Notification, p Payload) (*Request, error) {
 	if p.Status != "ok" && p.Error != "" {
 		p.Error = "operation failed; inspect trusted local diagnostics"
 		if p.Skipped {
-			// A skip's reason is Onebox's own closed vocabulary — a lock was
-			// held, a run was already going — with no provider output in it,
-			// so the sentence that makes the notification useful survives.
-			p.Error = "the run was skipped; inspect trusted host diagnostics"
+			// The line already says the run did not happen, so this is only
+			// where to look for why.
+			p.Error = "inspect trusted host diagnostics"
 		}
 	}
 	p.Text = p.text()

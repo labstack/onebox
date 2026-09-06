@@ -34,8 +34,8 @@ func validateJobExecution(w Workload, path string) error {
 		if err := gIdent.check(sp+".id", step.ID); err != nil {
 			return err
 		}
-		if len(step.ID) > 128 || previous[step.ID] != nil {
-			return errf("project_invalid", sp+".id", "", "step names must be unique and at most 128 bytes")
+		if previous[step.ID] != nil {
+			return errf("project_invalid", sp+".id", "", "step IDs must be unique")
 		}
 		if len(step.Command) == 0 || len(step.Command) > 128 || step.Command[0] == "" {
 			return errf("project_invalid", sp+".command", "", "command requires a nonempty first argument and at most 128 arguments")

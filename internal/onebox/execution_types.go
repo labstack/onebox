@@ -372,7 +372,7 @@ func (request ExecuteRequest) Validate() error {
 	}
 	if len(request.Inputs) > 0 {
 		if request.Kind != KindScheduleRun {
-			return errors.New("inputs and wait are valid only for schedule run")
+			return errors.New("inputs are valid only for schedule run")
 		}
 	}
 	if request.Job != "" && request.Kind != KindScheduleRun && request.Kind != KindSchedulePause && request.Kind != KindScheduleResume {

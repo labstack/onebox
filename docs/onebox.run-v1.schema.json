@@ -731,7 +731,9 @@
                   "backup_key_material": {
                     "description": "Key-material identities the backup report must name.",
                     "examples": [
-                      "BACKUP_ACCESS_KEY_ID"
+                      [
+                        "BACKUP_ACCESS_KEY_ID"
+                      ]
                     ],
                     "items": {
                       "type": "string"
@@ -1123,7 +1125,10 @@
             "type": "string"
           },
           "on": {
-            "default": "success, failure",
+            "default": [
+              "success",
+              "failure"
+            ],
             "description": "Operation outcomes that trigger this notification.",
             "items": {
               "enum": [
@@ -1878,6 +1883,11 @@
                     "required": [
                       "schedule"
                     ]
+                  },
+                  {
+                    "required": [
+                      "inputs"
+                    ]
                   }
                 ]
               }
@@ -2231,6 +2241,64 @@
             "description": "Run a minimal init process as PID 1 inside the container.",
             "type": "boolean"
           },
+          "inputs": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "oneOf": [
+                {
+                  "required": [
+                    "enum"
+                  ]
+                },
+                {
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              ],
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "default": {
+                  "description": "Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint.",
+                  "type": "string"
+                },
+                "description": {
+                  "description": "What the input controls.",
+                  "type": "string"
+                },
+                "enum": {
+                  "description": "Accepted values.",
+                  "examples": [
+                    [
+                      "catalog"
+                    ]
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "pattern": {
+                  "description": "Regular expression the whole value must match.",
+                  "examples": [
+                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "default"
+              ],
+              "type": "object"
+            },
+            "description": "Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them.",
+            "propertyNames": {
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "type": "object"
+          },
           "labels": {
             "additionalProperties": {},
             "description": "Additional container labels outside namespaces reserved by Onebox and the proxy.",
@@ -2535,6 +2603,61 @@
                   "pinned"
                 ],
                 "type": "string"
+              },
+              "notify": {
+                "default": [
+                  "failure",
+                  "timeout"
+                ],
+                "description": "Run outcomes that send the configured notifications: success, failure, timeout, skipped.",
+                "items": {
+                  "enum": [
+                    "success",
+                    "failure",
+                    "timeout",
+                    "skipped"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "retry": {
+                "additionalProperties": false,
+                "description": "Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run.",
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "attempts": {
+                    "default": 1,
+                    "description": "Total attempts including the first, 1 to 10.",
+                    "examples": [
+                      3
+                    ],
+                    "maximum": 10,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "backoff": {
+                    "default": "30s",
+                    "description": "Sleep before the second attempt; it doubles after each failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "1m"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  },
+                  "max_backoff": {
+                    "default": "10m",
+                    "description": "Upper bound for the doubling sleep. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                    "examples": [
+                      "30m"
+                    ],
+                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
               },
               "timeout": {
                 "default": "1h",

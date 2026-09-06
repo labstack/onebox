@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -308,4 +309,63 @@ func TestEveryJSONSchemaExemptionNamesARealCase(t *testing.T) {
 			t.Errorf("%q is exempted from the schema check but is not a conformance case", name)
 		}
 	}
+}
+
+// A JSON Schema default has to be a value of the property's own type. A list
+// whose default is a sentence is a contradiction, and an editor that applies
+// defaults would fill the list with that sentence.
+func TestPublishedSchemaGivesListFieldsListDefaultsAndExamples(t *testing.T) {
+	body, err := JSONSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(node map[string]any, path string)
+	walk = func(node map[string]any, path string) {
+		if node["type"] == "array" {
+			if value, ok := node["default"]; ok {
+				if _, isList := value.([]any); !isList {
+					t.Errorf("%s is an array whose default is %T (%v)", path, value, value)
+				}
+			}
+			for i, example := range asList(node["examples"]) {
+				if _, isList := example.([]any); !isList {
+					t.Errorf("%s example %d is %T (%v), not a value of the array type", path, i, example, example)
+				}
+			}
+		}
+		for _, key := range []string{"properties", "patternProperties"} {
+			for name, child := range asMap(node[key]) {
+				if sub, ok := child.(map[string]any); ok {
+					walk(sub, path+"."+name)
+				}
+			}
+		}
+		for _, key := range []string{"items", "additionalProperties"} {
+			if sub, ok := node[key].(map[string]any); ok {
+				walk(sub, path+"."+key)
+			}
+		}
+		for _, key := range []string{"allOf", "anyOf", "oneOf"} {
+			for i, branch := range asList(node[key]) {
+				if sub, ok := branch.(map[string]any); ok {
+					walk(sub, fmt.Sprintf("%s.%s[%d]", path, key, i))
+				}
+			}
+		}
+	}
+	walk(doc, "")
+}
+
+func asList(v any) []any {
+	out, _ := v.([]any)
+	return out
+}
+
+func asMap(v any) map[string]any {
+	out, _ := v.(map[string]any)
+	return out
 }

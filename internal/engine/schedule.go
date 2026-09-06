@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/notify"
@@ -79,8 +82,8 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	}
 
 	wanted := map[string]bool{}
-	if len(jobs) > 0 && !e.hasFlock(ctx) {
-		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+	if err := e.requireScheduleHost(ctx, jobs); err != nil {
+		return err
 	}
 	for _, job := range jobs {
 		unit := n.ScheduledJobUnit(job.Name)
@@ -106,8 +109,8 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		if e.Spec.Runtime != nil {
 			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
 		}
-		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles)
-		notifier, err := e.scheduleFailureNotifier(job.Name)
+		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles, e.lockTTL(), e.hasTriggerUnit(ctx))
+		notifier, err := e.scheduleNotifier(job)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
 		}
@@ -169,83 +172,289 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 // job explicitly opts into the narrower pinned-release contract. Pinned mode
 // meets the deploy acquirer briefly under schedule.lock, leases the resolved
 // release before releasing that rendezvous, then retains only its own job lock.
-func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
+func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	if job.DeployLock == "pinned" {
-		return pinnedScheduleRunnerScript(application, job.Name, names, applicationLock, runtimeEnvFiles)
+		return pinnedScheduleRunnerScript(application, job, names, applicationLock, runtimeEnvFiles, lockTTL, triggerUnit)
 	}
 	container := names.Container(job.Name, 1)
 	projectDir := q(names.CurrentLink())
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps --name " + q(container) + " " + q(job.Name)
-	return strings.Join([]string{
+		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
+	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
 		"install -d -m 700 " + q(names.AppDir()+"/schedule"),
-		"exec 9>" + q(names.ScheduledJobRunLock(job.Name)),
-		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
-		"exec 8>" + q(names.ScheduleRunLock()),
-		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
-		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
+	}
+	lines = append(lines, scheduleInputsLines(names.ScheduledJobRunInputs(job.Name))...)
+	lines = append(lines, scheduleLockLines(names, job.Name, applicationLock, lockTTL)...)
+	lines = append(lines,
+		// Best effort: the record names the release that ran, and an exclusive
+		// job runs whatever `current` points at when it starts.
+		"release_dir=$(readlink -f "+q(names.CurrentLink())+" 2>/dev/null || true)",
+		"release=${release_dir##*/}",
 		scheduleContainerCleanup(container),
-		"cleanup() { " + scheduleContainerCleanup(container) + "; }",
+		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
-		compose,
-		"",
-	}, "\n")
+	)
+	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
+	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
+	lines = append(lines, "")
+	return strings.Join(lines, "\n")
 }
 
-func pinnedScheduleRunnerScript(application, job string, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile) string {
+func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	scheduleDir := names.AppDir() + "/schedule"
-	state := names.ScheduledJobRunState(job)
-	container := names.Container(job, 1)
+	container := names.Container(job.Name, 1)
 	projectDir := `"$release_dir"`
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps --name " + q(container) + " " + q(job)
+		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -eu",
 		"install -d -m 700 " + q(scheduleDir),
-		"exec 9>" + q(names.ScheduledJobRunLock(job)),
-		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9",
-		"exec 8>" + q(names.ScheduleRunLock()),
-		"/usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 8",
-		"if [ -e " + q(applicationLock) + " ]; then echo 'onebox: an application operation holds the deploy lock' >&2; exit 75; fi",
-		"release_dir=$(readlink -f " + q(names.CurrentLink()) + ") || { echo 'onebox: current release cannot be resolved' >&2; exit 75; }",
-		"if [ \"${release_dir%/*}\" != " + q(names.ReleasesDir()) + " ]; then echo 'onebox: current release resolves outside the release store' >&2; exit 75; fi",
+	}
+	lines = append(lines, scheduleInputsLines(names.ScheduledJobRunInputs(job.Name))...)
+	lines = append(lines, scheduleLockLines(names, job.Name, applicationLock, lockTTL)...)
+	lines = append(lines,
+		// These are misconfigurations, not timing: the run fails, loudly.
+		"release_dir=$(readlink -f "+q(names.CurrentLink())+") || { echo 'onebox: current release cannot be resolved' >&2; exit 1; }",
+		"if [ \"${release_dir%/*}\" != "+q(names.ReleasesDir())+" ]; then echo 'onebox: current release resolves outside the release store' >&2; exit 1; fi",
 		"release=${release_dir##*/}",
-		"if ! printf '%s\\n' \"$release\" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9A-Za-z_-]+$'; then echo 'onebox: current release identity is invalid' >&2; exit 75; fi",
-		"if [ ! -f \"$release_dir/compose.yaml\" ]; then echo 'onebox: pinned release has no compose.yaml' >&2; exit 75; fi",
+		"if ! printf '%s\\n' \"$release\" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9A-Za-z_-]+$'; then echo 'onebox: current release identity is invalid' >&2; exit 1; fi",
+		"if [ ! -f \"$release_dir/compose.yaml\" ]; then echo 'onebox: pinned release has no compose.yaml' >&2; exit 1; fi",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
 		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
 		scheduleContainerCleanup(container),
-		"state=" + q(state),
-		"tmp=\"$state.$$\"",
-		"cleanup() { " + scheduleContainerCleanup(container) + "; rm -f \"$state\" \"$tmp\"; }",
+		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
-		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-		"umask 077",
-		"printf 'release=%s\\nstarted_at=%s\\n' \"$release\" \"$started_at\" >\"$tmp\"",
-		"mv -f \"$tmp\" \"$state\"",
-		"/usr/bin/flock --unlock 8",
-		compose,
-		"",
-	}
+	)
+	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
+	// The lease is held; the schedule mutex goes back before the first
+	// attempt so a compatible deploy is not blocked through the backoff.
+	lines = append(lines, "/usr/bin/flock --unlock 8")
+	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
+	lines = append(lines, "")
 	return strings.Join(lines, "\n")
+}
+
+// scheduleLockLines take the run's locks, and turn a conflict into a recorded
+// skip rather than a failed unit. A skip is a fact about timing: another run
+// of this job, or an application operation, is in progress. The runner writes
+// the reason into the state file and exits 0, so systemd sees a clean unit and
+// the notifier records `skipped` with that reason. The container's own exit
+// status is never mistaken for a skip, because a skip happens before any
+// container starts.
+//
+// The application lock is honoured for as long as AcquireLock would honour it:
+// a lock older than the TTL belongs to a runner that died, and AcquireLock
+// takes it over, so the timer must not defer to it forever either. The age
+// comes from the same shell AcquireLock reads it with, in whole seconds, and
+// that shell fails closed: an unreadable lock reads as fresh.
+func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL time.Duration) []string {
+	ttlSeconds := int(math.Ceil(lockTTL.Seconds()))
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
+	}
+	return []string{
+		"state=" + q(names.ScheduledJobRunState(job)),
+		"tmp=\"$state.$$\"",
+		// The operation and inputs of a manual request are kept on the skip
+		// record too, so `ob schedule run --wait` can find its own outcome.
+		// Writing the state requires holding the job lock: it is the run in
+		// flight that owns that file, and overwriting it would replace a real
+		// run's outcome with this one's skip.
+		"skip() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$tmp\"; mv -f \"$tmp\" \"$state\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
+		// No lock, so no claim on the state file: the run already in flight
+		// owns it and will record itself. This activation leaves its own note
+		// instead, keyed to its own invocation, and the notifier reads that
+		// rather than the state a different run is still writing. Without the
+		// note the notifier would see a clean exit and record this activation
+		// as a success that never ran.
+		// Named for the activation, the same way the notifier looks for it.
+		// The two have to agree exactly: a marker the notifier cannot find
+		// sends it back to the state file, which is the run in flight's.
+		"skip_marker=\"$state.skip.${INVOCATION_ID:-}\"",
+		"stand_aside() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$skip_marker\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
+		"exec 9>" + q(names.ScheduledJobRunLock(job)),
+		"/usr/bin/flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'",
+		// Only the activation that wrote a note removes it, so one lost
+		// between the runner exiting and ExecStopPost — a power cut, a killed
+		// systemd — would sit here forever. Swept a day later, under the job
+		// lock, which is long past any live note's few milliseconds.
+		"find " + q(names.AppDir()+"/schedule") + " -maxdepth 1 -name " + q(job+".state.skip.*") + " -mtime +1 -delete 2>/dev/null || true",
+		"exec 8>" + q(names.ScheduleRunLock()),
+		"/usr/bin/flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
+		"if [ -e " + q(applicationLock) + " ] && [ \"$(" + lockAgeCmd(applicationLock) + ")\" -le " + strconv.Itoa(ttlSeconds) + " ]; then skip 'an application operation holds the deploy lock'; fi",
+	}
+}
+
+// requireScheduleHost is what a host needs before any scheduled job can be
+// installed on it. Preflight asks it so a deploy refuses before staging, and
+// SyncSchedules asks again so `ob schedule apply` cannot bypass it.
+//
+// systemd 252 introduced TRIGGER_UNIT, which is how the runner tells a timer
+// firing from an operator's start. The floor applies only to a job that
+// declares inputs, and to `ob schedule run`; see below for why, and why a host
+// that has been running scheduled jobs for years is not refused one.
+func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJob) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+	if !e.hasFlock(ctx) {
+		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+	}
+	// Declared inputs are the one feature that cannot work without
+	// TRIGGER_UNIT: the runner would have to guess whether an activation is
+	// the operator's, and guessing wrong hands a timer firing the inputs a
+	// person meant for their own run. Everything else works on an older
+	// systemd, so a host that has run scheduled jobs for years keeps running
+	// them — it only records `unknown` where it cannot know the trigger.
+	if !needsTriggerUnit(jobs) || e.hasTriggerUnit(ctx) {
+		return nil
+	}
+	return fmt.Errorf("a job declares inputs, which need systemd 252 or newer on the host: without $TRIGGER_UNIT the runner cannot tell a timer firing from an operator's run")
+}
+
+// hasTriggerUnit reports whether the host's systemd sets TRIGGER_UNIT on a
+// timer activation, which systemd 252 introduced.
+func (e *Engine) hasTriggerUnit(ctx context.Context) bool {
+	if e.triggerUnitProbed {
+		return e.triggerUnitPresent
+	}
+	res, err := e.T.Run(ctx, "systemctl --version 2>/dev/null | head -1")
+	if err != nil {
+		// A transport failure says nothing about the host's systemd. Caching
+		// it would turn one flaky round trip into "this host is too old" for
+		// the rest of the operation, and preflight would refuse the deploy.
+		return false
+	}
+	e.triggerUnitProbed = true
+	version, ok := systemdVersion(res.Stdout)
+	e.triggerUnitPresent = ok && version >= 252
+	return e.triggerUnitPresent
+}
+
+func needsTriggerUnit(jobs []app.ScheduledJob) bool {
+	for _, job := range jobs {
+		if len(job.Inputs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func scheduleContainerCleanup(container string) string {
 	return "/usr/bin/docker rm -f " + q(container) + " >/dev/null 2>&1 || true"
+}
+
+// scheduleStateFunction renders the shell function both runners use to record
+// the run in progress. The notifier reads it after the run ends, so the runner
+// never removes it: a runner that cleaned up its own state would erase the
+// only evidence a timed-out run leaves behind.
+func scheduleStateFunction() []string {
+	return []string{
+		"write_state() {",
+		"  umask 077",
+		"  printf 'release=%s\\nstarted_at=%s\\nstarted_epoch=%s\\ntrigger=%s\\noperation=%s\\nattempt=%s\\ninputs=%s\\n' " +
+			"\"$release\" \"$started_at\" \"$started_epoch\" \"$trigger\" \"$operation\" \"$1\" \"$inputs_json\" >\"$tmp\"",
+		"  mv -f \"$tmp\" \"$state\"",
+		"}",
+	}
+}
+
+// scheduleRunPreamble sets the variables write_state records. The trigger is
+// systemd's own word for it: a timer activation carries TRIGGER_UNIT (systemd
+// 252 and newer), anything else is an operator.
+func scheduleRunPreamble(triggerUnit bool) []string {
+	// TRIGGER_UNIT is set on a timer activation and on nothing else, so its
+	// absence names an operator — but only on a systemd that sets it at all.
+	// On an older host the runner says `unknown` rather than inventing a
+	// trigger it cannot observe.
+	otherwise := "unknown"
+	if triggerUnit {
+		otherwise = "manual"
+	}
+	return append([]string{
+		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+		"started_epoch=$(date -u '+%s')",
+		"if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=" + otherwise + "; fi",
+	}, scheduleStateFunction()...)
+}
+
+// scheduleInputsLines consumes the one-shot inputs file on a manual
+// activation. Values reach the container as -e arguments, never as shell
+// text, and the file is gone before any lock is taken so a skipped manual run
+// cannot hand its inputs to the next timer firing. A timer activation never
+// opens the file: TRIGGER_UNIT says which one this is.
+func scheduleInputsLines(inputsPath string) []string {
+	return []string{
+		"operation=''",
+		"inputs_json=''",
+		"inputs_file=" + q(inputsPath),
+		"if [ -z \"${TRIGGER_UNIT:-}\" ] && [ -f \"$inputs_file\" ]; then",
+		"  while IFS= read -r line || [ -n \"$line\" ]; do",
+		"    case \"$line\" in",
+		"      ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;",
+		"      [A-Z]*=*) set -- \"$@\" -e \"$line\"; key=${line%%=*}; value=${line#*=}; inputs_json=\"${inputs_json:+$inputs_json,}\\\"$key\\\":\\\"$value\\\"\" ;;",
+		"    esac",
+		"  done <\"$inputs_file\"",
+		"  rm -f \"$inputs_file\"",
+		"fi",
+	}
+}
+
+// systemdVersion reads the leading number from `systemd 255 (255.4-1ubuntu8)`.
+func systemdVersion(firstLine string) (int, bool) {
+	fields := strings.Fields(firstLine)
+	if len(fields) < 2 || fields[0] != "systemd" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(fields[1])
+	return n, err == nil
+}
+
+// scheduleAttemptLoop runs the container until it exits 0 or the attempts are
+// spent. Backoff doubles and is capped; every sleep happens under the locks
+// the run already holds, which is why validation keeps the sum under the
+// timeout. A single-attempt job gets no loop, so its runner reads as before.
+func scheduleAttemptLoop(job app.ScheduledJob, compose, container string) []string {
+	if job.RetryAttempts <= 1 {
+		return []string{"write_state 1", compose}
+	}
+	return []string{
+		fmt.Sprintf("max_attempts=%d", job.RetryAttempts),
+		// Whole seconds, the same rounding validation used to bound the sum.
+		fmt.Sprintf("backoff=%d", app.RetryBackoffSeconds(job.RetryBackoff)),
+		fmt.Sprintf("max_backoff=%d", app.RetryBackoffSeconds(job.RetryMaxBackoff)),
+		"attempt=1",
+		"while :; do",
+		"  write_state \"$attempt\"",
+		// The container name is fixed, so a corpse from the previous attempt
+		// would fail every attempt after it with "name already in use" and
+		// turn one transient failure into all of them.
+		"  " + scheduleContainerCleanup(container),
+		"  status=0",
+		"  " + compose + " || status=$?",
+		"  [ \"$status\" -eq 0 ] && exit 0",
+		"  if [ \"$attempt\" -ge \"$max_attempts\" ]; then exit \"$status\"; fi",
+		"  echo \"onebox: attempt $attempt of $max_attempts exited $status; retrying in ${backoff}s\" >&2",
+		"  sleep \"$backoff\"",
+		"  backoff=$((backoff * 2))",
+		"  [ \"$backoff\" -gt \"$max_backoff\" ] && backoff=$max_backoff",
+		"  attempt=$((attempt + 1))",
+		"done",
+	}
 }
 
 func scheduleRuntimeEnvArgs(projectDir string, entries []app.EnvFile) string {
@@ -270,9 +479,9 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 		"[Service]",
 		"Type=oneshot",
 		"ExecStart=/bin/sh " + runnerPath,
-		// ExecStopPost runs after success, start failures, and timeouts. It always
-		// attempts fenced container cleanup, then uses SERVICE_RESULT to decide
-		// whether failure notifications are needed.
+		// ExecStopPost runs after success, failures, and timeouts. It always
+		// attempts fenced container cleanup, writes the run record from the
+		// runner's state and SERVICE_RESULT, then notifies per the job's policy.
 		"ExecStopPost=/bin/sh " + notifyPath,
 		"TimeoutStartSec=" + job.Timeout,
 		"",
@@ -281,10 +490,96 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 
 const scheduleNotificationTimestamp = "__ONEBOX_SCHEDULE_TIMESTAMP__"
 
-// scheduleFailureNotifier extends the existing notification contract to work
-// fired directly by systemd. The generated file is mode 0600, keeping webhook
+// scheduleRunIdentifier is the syslog identifier of the one line the notifier
+// writes per run. The journal is the store, so there is no file to trim and
+// nothing that can disagree with the unit's own log.
+//
+// The line carries its own ONEBOX_UNIT and ONEBOX_JOB fields and the history
+// query matches on them, not on journald's cgroup attribution. A process that
+// writes one line and exits is often gone before journald reads /proc for it,
+// and such an entry has no _SYSTEMD_UNIT at all; `journalctl -u` would never
+// find it. Explicit fields survive that race, and `logger --journald` is
+// util-linux, which flock already requires.
+const scheduleRunIdentifier = "ob-run"
+
+// scheduleRunRecordLines finalises the run the runner started. This lives in
+// ExecStopPost because only systemd knows how the run ended: a timed-out
+// runner is killed mid-sleep and cannot write its own outcome. Every value
+// interpolated into the JSON is either numeric, a timestamp the runner
+// formatted, a release id, or an input value the loader restricted to a
+// charset that needs no escaping.
+func scheduleRunRecordLines(application, unit, job, state string) []string {
+	return []string{
+		"state=" + q(state),
+		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''",
+		// A run that stood aside left a note under its own invocation. It
+		// never held the job lock, so the state file belongs to whichever run
+		// is still going: read the note and leave that file alone.
+		"skip_marker=\"$state.skip.${INVOCATION_ID:-}\"",
+		"if [ -f \"$skip_marker\" ]; then",
+		"  while IFS= read -r line || [ -n \"$line\" ]; do",
+		"    case \"$line\" in",
+		"      skipped=*) skipped=${line#skipped=} ;;",
+		"      operation=*) operation=${line#operation=} ;;",
+		"      inputs=*) inputs=${line#inputs=} ;;",
+		"    esac",
+		"  done <\"$skip_marker\"",
+		"  rm -f \"$skip_marker\"",
+		"elif [ -f \"$state\" ]; then",
+		"  while IFS= read -r line || [ -n \"$line\" ]; do",
+		"    case \"$line\" in",
+		"      release=*) release=${line#release=} ;;",
+		"      started_at=*) started_at=${line#started_at=} ;;",
+		"      started_epoch=*) started_epoch=${line#started_epoch=} ;;",
+		"      trigger=*) trigger=${line#trigger=} ;;",
+		"      operation=*) operation=${line#operation=} ;;",
+		"      attempt=*) attempt=${line#attempt=} ;;",
+		"      inputs=*) inputs=${line#inputs=} ;;",
+		"      skipped=*) skipped=${line#skipped=} ;;",
+		"    esac",
+		"  done <\"$state\"",
+		"  rm -f \"$state\"",
+		"fi",
+		"if [ -z \"$trigger\" ]; then if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=unknown; fi; fi",
+		"result=${SERVICE_RESULT:-success}",
+		"status=${EXIT_STATUS:-0}",
+		// EXIT_STATUS is a signal name when the main process was killed.
+		"case \"$status\" in ''|*[!0-9]*) status=null ;; esac",
+		"case \"$attempt\" in ''|*[!0-9]*) attempt=0 ;; esac",
+		// A skip is the runner's own word, written before any container ran;
+		// a container that exits non-zero, 75 included, is a failure.
+		"if [ \"$result\" = timeout ]; then outcome=timeout",
+		"elif [ -n \"$skipped\" ]; then outcome=skipped",
+		"elif [ \"$result\" = success ] && [ \"$status\" = 0 ]; then outcome=success",
+		"else outcome=failure; fi",
+		"finished_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+		"now=$(date -u '+%s')",
+		"duration=0",
+		"case \"$started_epoch\" in ''|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac",
+		"[ -z \"$started_at\" ] && started_at=$finished_at",
+		"record=$(printf '{\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"reason\":\"%s\",\"inputs\":{%s}}' " +
+			"\"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$skipped\" \"$inputs\")",
+		"printf 'MESSAGE=%s\\nPRIORITY=6\\nSYSLOG_IDENTIFIER=" + scheduleRunIdentifier + "\\nONEBOX_APP=%s\\nONEBOX_UNIT=%s\\nONEBOX_JOB=%s\\n' " +
+			"\"$record\" " + q(application) + " " + q(unit) + " " + q(job) + " | logger --journald || true",
+	}
+}
+
+// scheduleNotificationRun marks where the notifier substitutes the run id at
+// send time. It travels as the payload's deploy_id: the correlation key an
+// operator hands to `ob schedule logs --run`. Nothing else about the run goes
+// into a notification; the notify package redacts diagnostics on purpose, and
+// attempts, duration and exit status belong to the run record on the host.
+const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
+
+// scheduleNotifier extends the existing notification contract to work fired
+// directly by systemd. It finalises the run record first, then sends for the
+// outcomes the job selected. The generated file is mode 0600, keeping webhook
 // tokens out of unit metadata, and every send is bounded and fail-open.
-func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
+//
+// Bodies are prepared here, once per outcome class, because the payload
+// contract lives in the notify package and the host has no Onebox to ask at
+// 2am. Only the timestamp and the run id are filled in on the host.
+func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 	environment := e.Opts.Environment
 	if environment == "" {
 		environment = e.Spec.Env
@@ -293,45 +588,121 @@ func (e *Engine) scheduleFailureNotifier(job string) (string, error) {
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -u",
-		"exec 9>" + q(e.names().ScheduledJobRunLock(job)),
+		"exec 9>" + q(e.names().ScheduledJobRunLock(job.Name)),
 		"if /usr/bin/flock --exclusive --nonblock 9; then",
-		"  " + scheduleContainerCleanup(e.names().Container(job, 1)),
+		"  " + scheduleContainerCleanup(e.names().Container(job.Name, 1)),
 		"fi",
-		`[ "${SERVICE_RESULT:-success}" = success ] && exit 0`,
 	}
-	var sends []string
-	for _, name := range sortedNames(e.Spec.Notifications) {
-		cfg := e.Spec.Notifications[name]
-		prepared, err := notify.Prepare(cfg, notify.Payload{
-			App: e.Spec.Name, Env: environment, Host: e.T.Destination(),
-			Verb: "scheduled job " + job, Status: "fail",
-			Error: "scheduled job failed; inspect trusted host diagnostics",
-			TS:    scheduleNotificationTimestamp,
-		})
+	lines = append(lines, scheduleRunRecordLines(e.Spec.Name, e.names().ScheduledJobUnit(job.Name), job.Name, e.names().ScheduledJobRunState(job.Name))...)
+	lines = append(lines, `case " `+strings.Join(job.Notify, " ")+` " in *" $outcome "*) ;; *) exit 0 ;; esac`)
+	// Three classes, because a skip is neither: the job did not fail, and it
+	// did not do its work either.
+	var wants = map[string]bool{}
+	for _, outcome := range job.Notify {
+		switch outcome {
+		case "success":
+			wants["ok"] = true
+		case "skipped":
+			wants["skipped"] = true
+		default:
+			wants["fail"] = true
+		}
+	}
+	sends := map[string][]string{}
+	for _, class := range []string{"ok", "skipped", "fail"} {
+		if !wants[class] {
+			continue
+		}
+		rendered, err := e.scheduleNotificationSends(job.Name, environment, class)
 		if err != nil {
 			return "", err
 		}
+		sends[class] = rendered
+	}
+	if len(sends["ok"])+len(sends["skipped"])+len(sends["fail"]) > 0 {
+		lines = append(lines, `ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')`)
+		lines = append(lines, `if [ "$outcome" = success ]; then`)
+		lines = append(lines, orNoop(sends["ok"])...)
+		lines = append(lines, `elif [ "$outcome" = skipped ]; then`)
+		lines = append(lines, orNoop(sends["skipped"])...)
+		lines = append(lines, "else")
+		lines = append(lines, orNoop(sends["fail"])...)
+		lines = append(lines, "fi", "wait || true")
+	}
+	lines = append(lines, "exit 0", "")
+	return strings.Join(lines, "\n"), nil
+}
+
+// orNoop keeps a shell branch syntactically present when it has nothing to do.
+func orNoop(lines []string) []string {
+	if len(lines) == 0 {
+		return []string{"  :"}
+	}
+	return lines
+}
+
+// scheduleNotificationSends renders one backgrounded curl per notification
+// that selects the given class: ok, skipped, or fail. A skip routes with the
+// failures, because that is the channel an operator watches, and says what it
+// is rather than claiming the job failed. A failed send is logged and never
+// replaces the job's own result.
+func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]string, error) {
+	var sends []string
+	for _, name := range sortedNames(e.Spec.Notifications) {
+		cfg := e.Spec.Notifications[name]
+		status := "fail"
+		if class == "ok" {
+			status = "ok"
+		}
+		payload := notify.Payload{
+			App: e.Spec.Name, Env: environment, Host: e.T.Destination(),
+			Verb: "scheduled job " + job, Status: status,
+			DeployID: scheduleNotificationRun, TS: scheduleNotificationTimestamp,
+			Skipped: class == "skipped",
+		}
+		if status != "ok" {
+			payload.Error = "scheduled job failed; inspect trusted host diagnostics"
+		}
+		prepared, err := notify.Prepare(cfg, payload)
+		if err != nil {
+			return nil, err
+		}
 		if prepared == nil {
 			continue
-		}
-		body := q(string(prepared.Body))
-		if before, after, ok := strings.Cut(string(prepared.Body), scheduleNotificationTimestamp); ok {
-			body = q(before) + `"$ts"` + q(after)
 		}
 		curl := "curl --fail --silent --show-error --max-time 5 --request POST" +
 			" --header " + q("Content-Type: "+prepared.ContentType) +
 			" --header " + q("X-Title: "+prepared.Title) +
 			` --data-binary "$body" ` + q(cfg.Webhook)
-		sends = append(sends, "(body="+body+"; if ! "+curl+"; then echo "+
+		sends = append(sends, "  (body="+shellBody(string(prepared.Body))+"; if ! "+curl+"; then echo "+
 			q("onebox: notification "+name+" failed")+" >&2; fi) &")
 	}
-	if len(sends) > 0 {
-		lines = append(lines, `ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')`)
-		lines = append(lines, sends...)
-		lines = append(lines, "wait || true")
+	return sends, nil
+}
+
+// shellBody quotes a prepared body for the shell, leaving the two runtime
+// placeholders as expansions of variables the notifier sets before sending.
+func shellBody(body string) string {
+	var out strings.Builder
+	for body != "" {
+		next, placeholder, expansion := -1, "", ""
+		if i := strings.Index(body, scheduleNotificationTimestamp); i >= 0 {
+			next, placeholder, expansion = i, scheduleNotificationTimestamp, `"$ts"`
+		}
+		if i := strings.Index(body, scheduleNotificationRun); i >= 0 && (next < 0 || i < next) {
+			next, placeholder, expansion = i, scheduleNotificationRun, `"${INVOCATION_ID:-}"`
+		}
+		if next < 0 {
+			out.WriteString(q(body))
+			break
+		}
+		if next > 0 {
+			out.WriteString(q(body[:next]))
+		}
+		out.WriteString(expansion)
+		body = body[next+len(placeholder):]
 	}
-	lines = append(lines, "exit 0", "")
-	return strings.Join(lines, "\n"), nil
+	return out.String()
 }
 
 // calendarExpr is the one string both the host's validator and the installed

@@ -168,9 +168,21 @@ type Workload struct {
 	Logging    *Logging       `json:"logging,omitempty" description:"Container logging driver and driver-specific options."`
 
 	// Job only.
-	When       string       `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
-	DataEffect DataEffect   `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
-	Schedule   *JobSchedule `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
+	When       string              `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
+	DataEffect DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
+	Schedule   *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
+	Inputs     map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them."`
+}
+
+// JobInput is one declared parameter of a scheduled job. The constraint is
+// what makes a manual run safe to accept from a command line: a value is
+// either one of the listed words or matches the pattern, and never contains a
+// character the runner would have to escape.
+type JobInput struct {
+	Enum        []string `json:"enum,omitempty" description:"Accepted values." example:"catalog"`
+	Pattern     string   `json:"pattern,omitempty" description:"Regular expression the whole value must match." example:"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"`
+	Default     string   `json:"default" description:"Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint."`
+	Description string   `json:"description,omitempty" description:"What the input controls."`
 }
 
 type Build struct {
@@ -266,11 +278,22 @@ type Schedule struct {
 }
 
 type JobSchedule struct {
-	Cron       string `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
-	Timezone   string `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
-	Timeout    string `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
-	CatchUp    bool   `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
-	DeployLock string `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
+	Cron       string    `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
+	Timezone   string    `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
+	Timeout    string    `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
+	CatchUp    bool      `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
+	DeployLock string    `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
+	Retry      *JobRetry `json:"retry,omitempty" description:"Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run."`
+	Notify     []string  `json:"notify,omitempty" description:"Run outcomes that send the configured notifications: success, failure, timeout, skipped." default:"failure, timeout"`
+}
+
+// JobRetry bounds how a scheduled run recovers from a transient failure. The
+// sleeps happen under the locks the run already holds, so validation keeps
+// their worst-case sum under the schedule's timeout.
+type JobRetry struct {
+	Attempts   *int   `json:"attempts,omitempty" description:"Total attempts including the first, 1 to 10." default:"1" example:"3"`
+	Backoff    string `json:"backoff,omitempty" description:"Sleep before the second attempt; it doubles after each failure." default:"30s" example:"1m"`
+	MaxBackoff string `json:"max_backoff,omitempty" description:"Upper bound for the doubling sleep." default:"10m" example:"30m"`
 }
 
 type Service struct {

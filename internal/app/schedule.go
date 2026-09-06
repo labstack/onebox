@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // A scheduled job is a promise that something runs at a time nobody will be
@@ -32,6 +33,14 @@ type ScheduledJob struct {
 	DeployLock string
 	// Calendar is the host-side expression the cron translates to.
 	Calendar string
+	// Retry and notify policy, resolved over the defaults so the runner and
+	// notifier renderers never see an absent block.
+	RetryAttempts   int
+	RetryBackoff    time.Duration
+	RetryMaxBackoff time.Duration
+	Notify          []string
+	// Inputs are the declared parameters a manual run may override.
+	Inputs map[string]JobInput
 }
 
 // ScheduledJobs lists every job with a schedule, in a stable order.
@@ -55,9 +64,12 @@ func (p *Spec) ScheduledJobs() ([]ScheduledJob, error) {
 		if deployLock == "" {
 			deployLock = "exclusive"
 		}
+		attempts, backoff, maxBackoff := w.Schedule.retryPolicy()
 		out = append(out, ScheduledJob{
 			Name: name, Cron: w.Schedule.Cron, Timezone: tz, Calendar: cal,
 			Timeout: w.Schedule.Timeout, CatchUp: w.Schedule.CatchUp, DeployLock: deployLock,
+			RetryAttempts: attempts, RetryBackoff: backoff, RetryMaxBackoff: maxBackoff,
+			Notify: w.Schedule.notifyOutcomes(), Inputs: w.Inputs,
 		})
 	}
 	return out, nil

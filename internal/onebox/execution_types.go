@@ -294,6 +294,12 @@ type ExecuteRequest struct {
 	MigrationBackupOverride *MigrationBackupOverride
 	BreakLock               bool
 	AllowDestructiveMounts  bool
+	// Job, Inputs and Wait are the schedule_run arguments: a declared
+	// scheduled job, validated input overrides, and whether to block until
+	// the unit exits and return its run record.
+	Job    string
+	Inputs map[string]string
+	Wait   bool
 	// Service is the backup operations' one argument. It is an input to a
 	// mutation rather than a plan, because a backup stages nothing into a
 	// release and has nothing to roll back.
@@ -351,6 +357,9 @@ func (request ExecuteRequest) Validate() error {
 	if (request.Approval != nil || request.BackupReport != nil || request.MigrationBackupOverride != nil) && request.Kind != KindDeploy && request.Kind != KindJobRun {
 		return errors.New("approval and migration backup authorization are valid only for deploy and job run")
 	}
+	if (request.Job != "" || len(request.Inputs) > 0 || request.Wait) && request.Kind != KindScheduleRun {
+		return errors.New("job, inputs and wait are valid only for schedule run")
+	}
 	return nil
 }
 
@@ -370,6 +379,7 @@ type OperationResult struct {
 	MigrationBackupOverrideDigest string                     `json:"migration_backup_override_digest,omitempty"`
 	Runner                        buildinfo.Runner           `json:"runner"`
 	JobResult                     *journal.JobResultEvidence `json:"job_result,omitempty"`
+	ScheduleRun                   *engine.ScheduleRunResult  `json:"schedule_run,omitempty"`
 }
 
 func validateRunnerProvenance(runner buildinfo.Runner, planSchema string) error {

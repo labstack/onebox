@@ -129,7 +129,8 @@ func annotateSchemaField(schema map[string]any, field reflect.StructField) {
 }
 
 func schemaTagValue(value string, t reflect.Type) any {
-	switch deref(t).Kind() {
+	target := deref(t)
+	switch target.Kind() {
 	case reflect.Bool:
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			return parsed
@@ -142,6 +143,22 @@ func schemaTagValue(value string, t reflect.Type) any {
 		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
 			return parsed
 		}
+	case reflect.Slice:
+		// A list's default is written in the tag the way it reads in prose,
+		// `success, failure`, because that is what the field reference prints.
+		// The schema needs the value itself: a string default on an array
+		// property is a contradiction, and an editor that applies defaults
+		// would fill the list with one sentence.
+		parts := strings.Split(value, ",")
+		out := make([]any, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			out = append(out, schemaTagValue(part, target.Elem()))
+		}
+		return out
 	}
 	return value
 }
@@ -343,6 +360,17 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "drain", "signal"}, pattern(gSignal)},
 	{[]string{"workloads", "*", "drain", "wait"}, pattern(gDur)},
 	{[]string{"workloads", "*", "drain", "grace"}, pattern(gDur)},
+	{[]string{"workloads", "*", "schedule", "notify", "items"}, enum(eScheduleNotify)},
+	{[]string{"workloads", "*", "schedule", "retry", "attempts"}, map[string]any{"minimum": 1, "maximum": maxRetryAttempts}},
+	{[]string{"workloads", "*", "schedule", "retry", "backoff"}, pattern(gDur)},
+	{[]string{"workloads", "*", "schedule", "retry", "max_backoff"}, pattern(gDur)},
+	{[]string{"workloads", "*", "inputs"}, propertyNames(gInputName)},
+	// An input says what it accepts, one way, and always has a default: the
+	// timer fires without anyone to ask.
+	{[]string{"workloads", "*", "inputs", "*"}, map[string]any{
+		"required": []any{"default"},
+		"oneOf":    anyRequired([]any{"enum", "pattern"}),
+	}},
 	{[]string{"workloads", "*", "resources", "memory"}, pattern(gSize)},
 	{[]string{"workloads", "*", "resources", "cpus"}, pattern(gCpus)},
 	{[]string{"workloads", "*", "persistence", "mode"}, enum(ePersistence)},
@@ -494,7 +522,7 @@ func applyRoleRules(doc map[string]any) {
 		map[string]any{"anyOf": anyRequired(sources)},
 	}
 
-	jobOnly := []any{"when", "data_effect", "schedule"}
+	jobOnly := []any{"when", "data_effect", "schedule", "inputs"}
 	workload["allOf"] = []any{
 		// Exactly one source. A workload with none cannot run and a workload
 		// with two does not say which image it is.

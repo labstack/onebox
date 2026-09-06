@@ -1,11 +1,13 @@
 ---
 title: Schedule a job
-description: Bounded host timers, safe deployment coordination, failure status, and the cron forms Onebox refuses.
-summary: How to declare a scheduled job, bound its run time, choose deployment and catch-up behavior, inspect failures, and understand which cron expressions are refused at load.
+description: Bounded host timers, retry inside one firing, a record for every run, deployment coordination, manual runs with declared inputs, and the cron forms Onebox refuses.
+summary: How to declare a scheduled job, bound its run time and retries, choose deployment and catch-up behavior, read run records back, run one now with inputs, and understand which cron expressions are refused at load.
 sidebar:
   order: 4
 read_when:
   - "Adding a nightly or recurring task"
+  - "Working out why a scheduled run failed, or whether it ran at all"
+  - "Running a scheduled job now with different parameters"
   - "Understanding why a cron expression was refused"
   - "Working out how a scheduled job resolves secrets with no Onebox process running"
 ---
@@ -42,15 +44,43 @@ result. Set a longer duration for jobs that legitimately need it.
 
 `catch_up` defaults to `true`: if the host was off at the scheduled time, the
 timer runs once after it returns. Set it to `false` for time-sensitive work that
-should be skipped rather than run late. A failed run is not retried implicitly;
-the next attempt is the next cron elapse.
+should be skipped rather than run late.
+
+## Retry inside one firing
+
+By default a failed run is not retried; the next attempt is the next cron
+elapse, which is the right answer for anything that fires every few minutes.
+For a job whose failures are usually transient, a rate limit or an upstream
+that was busy for a moment, declare a bounded retry:
+
+```yaml
+schedule:
+  cron: "0 * * * *"
+  timeout: 45m
+  retry: {attempts: 3, backoff: 30s, max_backoff: 10m}
+```
+
+`attempts` counts every attempt including the first, so the default of `1` is
+today's single run. After a non-zero exit the runner sleeps `backoff`, doubles
+it after each further failure, and never sleeps longer than `max_backoff`. Every
+attempt runs inside the same timer firing, under the same locks and the same
+`timeout`; when the timeout expires the run ends, with no further attempt.
+
+Validation refuses a retry whose worst-case backoff is not smaller than the
+timeout, because the last attempt could never start and the record would say
+it did. With `deploy_lock: exclusive` the deploy lock is held through the
+sleeps, so a deploy waits for the run to finish; with `deploy_lock: pinned` the
+release lease is held instead and every attempt runs the same release.
 
 ## Deployment coordination is exclusive by default
 
 A host-fired job takes an application-wide kernel lock for its whole container
 run. Every operation that establishes Onebox's fenced application lock takes
 the same scheduling mutex while publishing its ownership. A timer that collides
-fails visibly instead of modifying Docker beside a deploy.
+does not modify Docker beside a deploy: it records a `skipped` run with the
+reason and exits cleanly. An application lock older than its TTL is treated as
+expired, exactly as a deploy treats it, so a runner that died mid-operation
+cannot silence a timer forever.
 
 The target must provide `flock` (part of `util-linux` on supported Linux hosts).
 Onebox refuses to install or run schedules when that serialization primitive is
@@ -102,23 +132,77 @@ under the same application lock, schedule mutex, fence, and journal boundary as
 a deploy, but it does not stage or activate a release. Run it after upgrading
 Onebox when an application may not be deployed again soon.
 
-## Failures remain visible
+## Every run leaves a record
 
-systemd retains the last oneshot result. `ob status` reads it alongside the
-timer state; a non-success result or inactive timer is reported as divergence:
+When a run ends, for any reason, the unit's `ExecStopPost` writes one record
+to the host journal with the syslog identifier `ob-run` and the job's unit in
+its `ONEBOX_UNIT` field, so `journalctl SYSLOG_IDENTIFIER=ob-run
+ONEBOX_UNIT=ob-<app>-<job> -o cat` on the host is the raw history:
 
-```text
-schedule nightly-dump last run failed: timeout (exit 15) ⚠
+```json
+{"run":"a3f9…","job":"nightly-dump","trigger":"timer","operation":"","release":"20260905-140000-ab12cd","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:04:37Z","duration_s":276,"attempts":2,"exit_status":0,"outcome":"success","reason":"","inputs":{}}
 ```
 
-Use `journalctl -u ob-<app>-<job>.service` on the target for trusted diagnostic
-output. Every configured notification selecting `failure` also receives a
-bounded, fail-open POST when a host-fired run fails or times out. Onebox writes
-the webhook handler root-only beside the unit, so credentials in webhook
-paths do not appear in `ExecStart` or `ExecStopPost`. A delivery failure is
-recorded in the unit's journal and never replaces the job's original result.
-The webhook must be reachable from the target host; timer delivery uses its
-network path, not the operator workstation's.
+`run` is systemd's invocation id, so the record and the run's own log share a
+key. `outcome` is one of `success`, `failure`, `timeout`, or `skipped`. A skip
+is a firing that met a running instance of the same job or an application
+operation holding the deploy lock. The runner writes the `reason` and exits
+before any container starts, so the unit is not failed and the job's own exit
+status is never mistaken for a skip. Skips are recorded because a job that is
+silently never running looks exactly like one that works: one skip is timing,
+and three in a row are reported by `ob status` as an issue.
+
+A skip is news about timing, not about the job, so it never clears a failure:
+`ob status` keeps reporting the newest run that actually happened, and says
+that nothing has run since. A job that selects `skipped` in `notify` is told
+its run did not happen, not that it failed.
+
+Read the records back from the workstation:
+
+```sh
+ob schedule list                      # every job, its timer state and next elapse
+ob schedule history nightly-dump      # records, newest first; -n 50 for more
+ob schedule logs nightly-dump         # the journal of the newest run
+ob schedule logs nightly-dump --run a3f9…
+```
+
+`ob status` reads the same records. Each scheduled job's line carries the next
+elapse, the last outcome with its duration and attempt count, and, while a run
+is in progress, the attempt it is on. A last outcome of `failure` or `timeout`
+is reported as divergence:
+
+```text
+schedule nightly-dump last run failed: timeout (exit 143) ⚠
+```
+
+Retention is the journal's. A host whose journal lives in memory keeps records
+only since its last boot; `ob status` says so on the job's line, and the fix is
+a persistent journal (`/var/log/journal`), which the supported images have by
+default.
+
+### Notifications per outcome
+
+`schedule.notify` selects which outcomes send the configured notifications. The
+default is `[failure, timeout]`, which is what the failure notifier always did.
+Add `success` for a job whose completion someone waits for, and `skipped` for a
+job whose firings collide often enough that silence would hide it:
+
+```yaml
+schedule:
+  cron: "0 2 * * *"
+  notify: [failure, timeout, skipped]
+```
+
+Each selected outcome sends a bounded, fail-open POST to every webhook whose
+own `on` list accepts that class of outcome. The payload carries the run id as
+its `deploy_id`, so `ob schedule logs <job> --run <id>` finds the run; it
+carries nothing else about the run, because notifications cross the host trust
+boundary and diagnostics stay on the host. Onebox writes the webhook handler
+root-only beside the unit, so credentials in webhook paths do not appear in
+`ExecStart` or `ExecStopPost`. A delivery failure is recorded in the unit's
+journal and never replaces the job's own result. The webhook must be reachable
+from the target host; timer delivery uses its network path, not the operator
+workstation's.
 
 ## Cron is translated exactly, or refused
 
@@ -139,6 +223,73 @@ load rather than running on days nobody chose.
 `data_effect` is required on every job, scheduled or not. A nightly report is
 `none`; a nightly prune is `destructive`. The rollback and abort gates read it,
 and a job that lies about it defeats them.
+
+## Run one now with inputs
+
+A scheduled job may declare inputs: named parameters that reach the container
+as environment variables. A timer firing uses the defaults; an operator may run
+the job now and override them.
+
+```yaml
+workloads:
+  source-sync:
+    role: job
+    image: ghcr.io/acme/ingest:1.8.2
+    command: ["./ingest", "sync"]
+    data_effect: none
+    inputs:
+      SOURCE:
+        enum: [catalog, prices, reviews]
+        default: catalog
+        description: Which upstream to sync.
+      SINCE:
+        pattern: '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'
+        default: ""
+        description: Only records changed since this date. Empty means the stored cursor.
+    schedule:
+      cron: "0 * * * *"
+      deploy_lock: pinned
+```
+
+```sh
+ob schedule run source-sync --input SOURCE=prices --input SINCE=2026-09-01 --wait
+```
+
+Names are upper-case identifiers outside Onebox's `ONEBOX_` namespace and may
+not repeat an `env` key. Each input declares exactly one of `enum` or
+`pattern`, and a `default` that satisfies it; a pattern matches the whole
+value. Whatever the pattern allows, a value may not contain a double quote, a
+backslash, or a control character, and is at most 256 bytes. Those rules are
+what let the runner hand values to the container without escaping anything.
+
+`ob schedule run` validates every value on the workstation, refuses if the
+unit is already running or a manual run is still pending, journals the request
+as `schedule_run` with the operator and the inputs, and starts the unit. It
+holds the application lock only while writing and journaling, because the
+runner skips a run that meets that lock. The host record of the run carries the
+operation id, so `ob audit` and `ob schedule history` join on it. Without
+`--wait` the command returns as soon as the unit is started; with it, the
+command blocks until the unit exits and reports the record.
+
+Only a job with `data_effect: none` accepts inputs or manual runs this way. A
+`migration` or `destructive` job is still run by its timer as declared, but an
+operator-initiated run of it keeps the sealed plan, approval and backup-report
+gates of `ob job run` below.
+
+The runner tells a manual activation from a timer firing by the `TRIGGER_UNIT`
+variable systemd sets on timer activations, which that project introduced in
+version 252. Ubuntu 24.04 and Debian 12 qualify; Ubuntu 22.04 and Debian 11 do
+not.
+
+Scheduled jobs still run on those older hosts, unchanged. Two things narrow:
+
+- A job that declares `inputs` is refused, by `ob preflight` and by `ob deploy`,
+  before anything is staged. Without `TRIGGER_UNIT` the next timer firing would
+  read the file meant for an operator's run.
+- `ob schedule run` is refused for the same reason. The timer keeps firing.
+
+The records on such a host say `trigger: unknown`, because the runner cannot
+observe what started it and will not guess.
 
 ## Running one by hand
 

@@ -248,6 +248,9 @@ ExecMainStatus=9
 @@nightly:timer
 LoadState=loaded
 ActiveState=active
+@@nightly:run
+@@nightly:history
+{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:09Z","duration_s":8,"attempts":1,"exit_status":9,"outcome":"failure","inputs":{}}
 `}, true
 		}
 		return base(cmd)
@@ -260,7 +263,7 @@ ActiveState=active
 	if !snapshot.Complete || !snapshot.Diverged || len(snapshot.Schedules) != 1 {
 		t.Fatalf("scheduled failure was not included as observed divergence: %#v", snapshot)
 	}
-	if got := snapshot.Schedules[0]; !got.Diverged || got.LastResult != "exit-code" || got.LastExitStatus != 9 {
+	if got := snapshot.Schedules[0]; !got.Diverged || got.LastOutcome != "failure" {
 		t.Fatalf("unexpected scheduled-job status: %#v", got)
 	}
 }

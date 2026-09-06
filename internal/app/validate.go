@@ -455,9 +455,12 @@ func validateWorkload(w Workload, path string) error {
 					"pinned scheduled runs require a Onebox-rendered workload; adopted Compose may reference files outside the leased release")
 			}
 		}
-	} else if w.When != "" || w.DataEffect != "" || w.Schedule != nil {
+		if err := validateJobInputs(w, path); err != nil {
+			return err
+		}
+	} else if w.When != "" || w.DataEffect != "" || w.Schedule != nil || len(w.Inputs) > 0 {
 		return errf("project_invalid", path, "",
-			"when, data_effect and schedule belong to a job; this workload's role is %q", w.Role)
+			"when, data_effect, schedule and inputs belong to a job; this workload's role is %q", w.Role)
 	}
 	return nil
 }
@@ -578,6 +581,9 @@ func validateJobSchedule(s *JobSchedule, path string) error {
 		return err
 	}
 	if err := gDur.check(path+".timeout", s.Timeout); err != nil {
+		return err
+	}
+	if err := validateJobRetry(s, path); err != nil {
 		return err
 	}
 	return checkEnum(path+".deploy_lock", s.DeployLock, eScheduleDeployLock)

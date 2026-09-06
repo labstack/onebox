@@ -171,6 +171,7 @@ var (
 	eMigrationPolicy = []string{"manual", "auto", "expand-only"}
 	eNotifyFormat    = []string{"text", "json"}
 	eNotifyEvent     = []string{"success", "failure"}
+	eScheduleNotify  = []string{"success", "failure", "timeout", "skipped"}
 	eProxyKind       = []string{"traefik-docker", "none"}
 	// One provider, because one is implemented. The withdrawn `secrets` block
 	// accepted `age` and nothing ever decrypted it — every path shells out to

@@ -37,6 +37,15 @@ func (e *Engine) preflight(ctx context.Context, requireDiscovery bool) error {
 		}
 		return app.HostPrerequisiteRefusal("%s: %s", e.T.Host(), unmet.Message)
 	}
+	// Scheduled jobs have host requirements of their own. Asked here so a
+	// deploy refuses before staging a release, not after activating it.
+	jobs, err := e.Spec.ScheduledJobs()
+	if err != nil {
+		return err
+	}
+	if err := e.requireScheduleHost(ctx, jobs); err != nil {
+		return err
+	}
 	base := release.PathsFor(e.names()).Base
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(base)+" && test -w "+q(base)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("%s not writable by deploy user", base)

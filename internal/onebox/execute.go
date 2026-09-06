@@ -208,6 +208,11 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 	case KindScheduleApply:
 		result.EvidenceID = operationID
 		err = e.ScheduleApply(ctx, operationID)
+	case KindScheduleRun:
+		result.EvidenceID = operationID
+		var run engine.ScheduleRunResult
+		run, err = e.ScheduleRun(ctx, operationID, request.Job, request.Inputs, request.Wait)
+		result.ScheduleRun = &run
 	case KindSecretsPush:
 		entries := encryptedEntries(lp.resolved)
 		externalProjections := externalConnectionProjections(lp.resolved)

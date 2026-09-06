@@ -46,8 +46,8 @@ cannot drift from what `ob validate` accepts.
 | `<name>.execution` | object | — | Opt-in durable scheduled execution. Requires a native manual job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume. |
 | `<name>.execution.retention` | string | `168h` | Time from creation during which an unsuccessful execution may be resumed, at most 30d. Active executions remain protected. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.execution.steps` | list | — | Optional ordered steps using this job's image and entrypoint. Omit to execute the job command as one step. At most 32 steps. |
-| `<name>.execution.steps[].command` | list | — | Argument vector passed to the job image's entrypoint. No shell evaluation is performed. |
-| `<name>.execution.steps[].id` | string | — | Unique stable step identifier, used by output references. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
+| `<name>.execution.steps[].command` `*` | list | — | Argument vector passed to the job image's entrypoint. No shell evaluation is performed. |
+| `<name>.execution.steps[].id` `*` | string | — | Unique stable step identifier, used by output references. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.execution.steps[].inputs` | map | — | Environment variables populated from a preceding step's declared output, written as step.OUTPUT. |
 | `<name>.execution.steps[].outputs` | list | — | Required string keys in the JSON object written to ONEBOX_OUTPUT_FILE. Values are non-secret, at most 4096 bytes each and 16384 bytes total. |
 | `<name>.execution.steps[].retry` | object | — | Per-step retry policy; defaults to schedule.retry. All steps and backoff share the activation timeout. |

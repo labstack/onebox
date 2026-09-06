@@ -363,6 +363,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "schedule", "notify", "items"}, enum(eScheduleNotify)},
 	{[]string{"workloads", "*", "execution", "retention"}, pattern(gDur)},
 	{[]string{"workloads", "*", "execution", "steps"}, map[string]any{"maxItems": 32}},
+	{[]string{"workloads", "*", "execution", "steps", "items"}, map[string]any{"required": []any{"id", "command"}}},
 	{[]string{"workloads", "*", "execution", "steps", "items", "id"}, pattern(gIdent)},
 	{[]string{"workloads", "*", "execution", "steps", "items", "command"}, map[string]any{"minItems": 1, "maxItems": 128}},
 	{[]string{"workloads", "*", "execution", "steps", "items", "inputs"}, propertyNames(gInputName)},

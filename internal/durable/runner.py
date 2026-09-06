@@ -670,6 +670,19 @@ def abandon(store, identity):
 
 
 def main(args):
+    counts = {
+        "prepare": 8,
+        "run": 4,
+        "inspect": 3,
+        "list": 3,
+        "pins": 2,
+        "abandon": 3,
+        "invalidate": 2,
+    }
+    require(
+        bool(args) and args[0] in counts, "unknown or missing durable execution command"
+    )
+    require(len(args) == counts[args[0]], "invalid argument count for " + args[0])
     command, root = args[:2]
     store = Store(root)
     if command == "prepare":
@@ -711,6 +724,6 @@ def main(args):
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
-    except (ValueError, OSError, KeyError, TypeError) as error:
+    except (ValueError, OSError, KeyError, TypeError, IndexError) as error:
         print("onebox: durable execution refused: " + str(error), file=sys.stderr)
         sys.exit(1)

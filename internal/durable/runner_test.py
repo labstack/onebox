@@ -10,6 +10,29 @@ import runner as r
 
 
 class Checkpoints(unittest.TestCase):
+    def test_malformed_cli_arguments_refuse_without_traceback(self):
+        for args in [
+            [],
+            ["unknown"],
+            ["inspect", "/tmp"],
+            ["prepare", "/tmp"],
+            ["run", "/tmp"],
+            ["pins", "/tmp", "unexpected"],
+        ]:
+            with self.subTest(args=args):
+                result = subprocess.run(
+                    [r.sys.executable, r.__file__] + args,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertTrue(
+                    result.stderr.startswith("onebox: durable execution refused: ")
+                )
+                self.assertEqual(len(result.stderr.splitlines()), 1)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

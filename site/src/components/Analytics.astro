@@ -121,12 +121,17 @@ const enabled = Boolean(measurementId) && import.meta.env.PROD;
         function readPreference() {
           try {
             var stored = window.localStorage.getItem(STORAGE_KEY);
-            return stored === "granted" || stored === "denied" ? stored : null;
+            if (stored === "granted" || stored === "denied") return stored;
           } catch (_) {
             // A locked-down browser throws on access rather than returning
-            // null. The in-memory answer still governs this page.
-            return memoryPreference;
+            // null.
           }
+          // Storage had no answer, or would not give one. Either way the
+          // choice made on this page still governs it: a browser can let the
+          // read succeed and refuse the write — Safari's private mode and a
+          // full quota both do — and reading back null there would discard an
+          // explicit refusal and start measuring anyway.
+          return memoryPreference;
         }
 
         function writePreference(preference) {

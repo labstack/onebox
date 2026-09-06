@@ -226,3 +226,36 @@ func TestScheduleRunTellsAPendingFileFromAWriteFailure(t *testing.T) {
 		})
 	}
 }
+
+// Without TRIGGER_UNIT the next timer firing would read the file this run
+// left, so the manual path is refused rather than being made ambiguous.
+func TestScheduleRunRefusesAHostThatCannotTellTheTriggerApart(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "systemctl is-active"):
+			return transport.Result{Stdout: "inactive\n"}, true
+		case strings.Contains(cmd, "systemctl --version"):
+			return transport.Result{Stdout: "systemd 249 (249.11-0ubuntu3)\n"}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	_, err := e.ScheduleRun(context.Background(), "op", "sync", nil, false)
+	if err == nil || !strings.Contains(err.Error(), "systemd 252") {
+		t.Fatalf("err = %v, want a refusal naming the requirement", err)
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, ".inputs") || strings.Contains(command, "systemctl start") {
+			t.Fatalf("the refused run still touched the host: %s", command)
+		}
+	}
+}

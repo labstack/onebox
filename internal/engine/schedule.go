@@ -109,7 +109,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		if e.Spec.Runtime != nil {
 			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
 		}
-		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles, e.lockTTL())
+		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles, e.lockTTL(), e.hasTriggerUnit(ctx))
 		notifier, err := e.scheduleNotifier(job)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
@@ -172,9 +172,9 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 // job explicitly opts into the narrower pinned-release contract. Pinned mode
 // meets the deploy acquirer briefly under schedule.lock, leases the resolved
 // release before releasing that rendezvous, then retains only its own job lock.
-func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration) string {
+func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	if job.DeployLock == "pinned" {
-		return pinnedScheduleRunnerScript(application, job, names, applicationLock, runtimeEnvFiles, lockTTL)
+		return pinnedScheduleRunnerScript(application, job, names, applicationLock, runtimeEnvFiles, lockTTL, triggerUnit)
 	}
 	container := names.Container(job.Name, 1)
 	projectDir := q(names.CurrentLink())
@@ -201,13 +201,13 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
 	)
-	lines = append(lines, scheduleRunPreamble()...)
-	lines = append(lines, scheduleAttemptLoop(job, compose)...)
+	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
+	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
 	lines = append(lines, "")
 	return strings.Join(lines, "\n")
 }
 
-func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration) string {
+func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	scheduleDir := names.AppDir() + "/schedule"
 	container := names.Container(job.Name, 1)
 	projectDir := `"$release_dir"`
@@ -239,11 +239,11 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"trap 'exit 130' 2",
 		"trap 'exit 143' 15",
 	)
-	lines = append(lines, scheduleRunPreamble()...)
+	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
 	// The lease is held; the schedule mutex goes back before the first
 	// attempt so a compatible deploy is not blocked through the backoff.
 	lines = append(lines, "/usr/bin/flock --unlock 8")
-	lines = append(lines, scheduleAttemptLoop(job, compose)...)
+	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
 	lines = append(lines, "")
 	return strings.Join(lines, "\n")
 }
@@ -271,9 +271,15 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 		"tmp=\"$state.$$\"",
 		// The operation and inputs of a manual request are kept on the skip
 		// record too, so `ob schedule run --wait` can find its own outcome.
+		// Writing the state requires holding the job lock: it is the run in
+		// flight that owns that file, and overwriting it would replace a real
+		// run's outcome with this one's skip.
 		"skip() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$tmp\"; mv -f \"$tmp\" \"$state\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
+		// No lock, no state: the run already in flight will record itself,
+		// and its evidence is not this activation's to overwrite.
+		"stand_aside() { echo \"onebox: skipped: $1\" >&2; exit 0; }",
 		"exec 9>" + q(names.ScheduledJobRunLock(job)),
-		"/usr/bin/flock --exclusive --nonblock 9 || skip 'another run of this job is still in progress'",
+		"/usr/bin/flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'",
 		"exec 8>" + q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
 		"if [ -e " + q(applicationLock) + " ] && [ \"$(" + lockAgeCmd(applicationLock) + ")\" -le " + strconv.Itoa(ttlSeconds) + " ]; then skip 'an application operation holds the deploy lock'; fi",
@@ -296,15 +302,41 @@ func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJo
 	if !e.hasFlock(ctx) {
 		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
 	}
+	// Declared inputs are the one feature that cannot work without
+	// TRIGGER_UNIT: the runner would have to guess whether an activation is
+	// the operator's, and guessing wrong hands a timer firing the inputs a
+	// person meant for their own run. Everything else works on an older
+	// systemd, so a host that has run scheduled jobs for years keeps running
+	// them — it only records `unknown` where it cannot know the trigger.
+	if !needsTriggerUnit(jobs) || e.hasTriggerUnit(ctx) {
+		return nil
+	}
+	return fmt.Errorf("a job declares inputs, which need systemd 252 or newer on the host: without $TRIGGER_UNIT the runner cannot tell a timer firing from an operator's run")
+}
+
+// hasTriggerUnit reports whether the host's systemd sets TRIGGER_UNIT on a
+// timer activation, which systemd 252 introduced.
+func (e *Engine) hasTriggerUnit(ctx context.Context) bool {
+	if e.triggerUnitProbed {
+		return e.triggerUnitPresent
+	}
 	res, err := e.T.Run(ctx, "systemctl --version 2>/dev/null | head -1")
+	e.triggerUnitProbed = true
 	if err != nil {
-		return err
+		return false
 	}
-	if version, ok := systemdVersion(res.Stdout); !ok || version < 252 {
-		return fmt.Errorf("scheduled jobs need systemd 252 or newer on the host, which tells a timer firing from a manual start; the host reports %q",
-			strings.TrimSpace(res.Stdout))
+	version, ok := systemdVersion(res.Stdout)
+	e.triggerUnitPresent = ok && version >= 252
+	return e.triggerUnitPresent
+}
+
+func needsTriggerUnit(jobs []app.ScheduledJob) bool {
+	for _, job := range jobs {
+		if len(job.Inputs) > 0 {
+			return true
+		}
 	}
-	return nil
+	return false
 }
 
 func scheduleContainerCleanup(container string) string {
@@ -329,11 +361,19 @@ func scheduleStateFunction() []string {
 // scheduleRunPreamble sets the variables write_state records. The trigger is
 // systemd's own word for it: a timer activation carries TRIGGER_UNIT (systemd
 // 252 and newer), anything else is an operator.
-func scheduleRunPreamble() []string {
+func scheduleRunPreamble(triggerUnit bool) []string {
+	// TRIGGER_UNIT is set on a timer activation and on nothing else, so its
+	// absence names an operator — but only on a systemd that sets it at all.
+	// On an older host the runner says `unknown` rather than inventing a
+	// trigger it cannot observe.
+	otherwise := "unknown"
+	if triggerUnit {
+		otherwise = "manual"
+	}
 	return append([]string{
 		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
 		"started_epoch=$(date -u '+%s')",
-		"if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=manual; fi",
+		"if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=" + otherwise + "; fi",
 	}, scheduleStateFunction()...)
 }
 
@@ -373,7 +413,7 @@ func systemdVersion(firstLine string) (int, bool) {
 // spent. Backoff doubles and is capped; every sleep happens under the locks
 // the run already holds, which is why validation keeps the sum under the
 // timeout. A single-attempt job gets no loop, so its runner reads as before.
-func scheduleAttemptLoop(job app.ScheduledJob, compose string) []string {
+func scheduleAttemptLoop(job app.ScheduledJob, compose, container string) []string {
 	if job.RetryAttempts <= 1 {
 		return []string{"write_state 1", compose}
 	}
@@ -385,6 +425,10 @@ func scheduleAttemptLoop(job app.ScheduledJob, compose string) []string {
 		"attempt=1",
 		"while :; do",
 		"  write_state \"$attempt\"",
+		// The container name is fixed, so a corpse from the previous attempt
+		// would fail every attempt after it with "name already in use" and
+		// turn one transient failure into all of them.
+		"  " + scheduleContainerCleanup(container),
 		"  status=0",
 		"  " + compose + " || status=$?",
 		"  [ \"$status\" -eq 0 ] && exit 0",
@@ -468,7 +512,7 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"  done <\"$state\"",
 		"  rm -f \"$state\"",
 		"fi",
-		"if [ -z \"$trigger\" ]; then if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=manual; fi; fi",
+		"if [ -z \"$trigger\" ]; then if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=unknown; fi; fi",
 		"result=${SERVICE_RESULT:-success}",
 		"status=${EXIT_STATUS:-0}",
 		// EXIT_STATUS is a signal name when the main process was killed.

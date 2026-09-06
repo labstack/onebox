@@ -278,11 +278,18 @@ gates of `ob job run` below.
 
 The runner tells a manual activation from a timer firing by the `TRIGGER_UNIT`
 variable systemd sets on timer activations, which that project introduced in
-version 252. Every scheduled job therefore needs systemd 252 or newer on the
-host, not only one with inputs: the record's `trigger` is part of the contract,
-and on an older systemd a timer firing would both be recorded as manual and
-consume an operator's pending inputs. `ob preflight` and `ob deploy` refuse an
-older host before anything is staged. Ubuntu 24.04 and Debian 12 qualify.
+version 252. Ubuntu 24.04 and Debian 12 qualify; Ubuntu 22.04 and Debian 11 do
+not.
+
+Scheduled jobs still run on those older hosts, unchanged. Two things narrow:
+
+- A job that declares `inputs` is refused, by `ob preflight` and by `ob deploy`,
+  before anything is staged. Without `TRIGGER_UNIT` the next timer firing would
+  read the file meant for an operator's run.
+- `ob schedule run` is refused for the same reason. The timer keeps firing.
+
+The records on such a host say `trigger: unknown`, because the runner cannot
+observe what started it and will not guess.
 
 ## Running one by hand
 

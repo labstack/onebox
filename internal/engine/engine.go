@@ -90,10 +90,14 @@ type Engine struct {
 	// wal-g invocation needs to know and which cannot change mid-operation.
 	flockProbed  bool
 	flockPresent bool
-	Compose      *ctypes.Project
-	T            transport.Transport
-	Opts         Options
-	ui           *ui.UI
+	// triggerUnitProbed/triggerUnitPresent cache whether the host's systemd
+	// tells a timer activation from a manual one (TRIGGER_UNIT, systemd 252).
+	triggerUnitProbed  bool
+	triggerUnitPresent bool
+	Compose            *ctypes.Project
+	T                  transport.Transport
+	Opts               Options
+	ui                 *ui.UI
 
 	// fenceVal is "<deploy-id> <epoch>" once WriteFence has stamped the host;
 	// mutate() guards every mutating command with it.

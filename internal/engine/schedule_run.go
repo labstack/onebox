@@ -52,6 +52,13 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if err := app.ValidateJobInputValues(workload, inputs); err != nil {
 		return result, err
 	}
+	// The inputs file is addressed to this activation and to no other. Only a
+	// host whose systemd sets TRIGGER_UNIT lets the runner tell them apart; on
+	// an older one the next timer firing would read the file meant for this
+	// run, and the run itself would be recorded as a firing.
+	if !e.hasTriggerUnit(ctx) {
+		return result, errors.New("this host's systemd does not set $TRIGGER_UNIT, so a timer firing cannot be told from this run; ob schedule run needs systemd 252 or newer. The timer itself keeps working")
+	}
 	unit := e.names().ScheduledJobUnit(name)
 	result.Unit = unit
 

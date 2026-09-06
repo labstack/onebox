@@ -71,7 +71,10 @@ func (p Payload) text() string {
 	if p.Skipped {
 		return fmt.Sprintf("⏭️ %s: %s%s did not run on %s — %s", p.App, p.Verb, id, p.Host, p.Error)
 	}
-	return fmt.Sprintf("🚨 %s: %s FAILED on %s — %s", p.App, p.Verb, p.Host, p.Error)
+	// The id belongs on the failure line most of all: a text webhook sends
+	// this sentence and nothing else, so without it the one notification an
+	// operator acts on cannot name the run they should go and read.
+	return fmt.Sprintf("🚨 %s: %s%s FAILED on %s — %s", p.App, p.Verb, id, p.Host, p.Error)
 }
 
 // Prepare renders a selected payload without sending it. An unset webhook and

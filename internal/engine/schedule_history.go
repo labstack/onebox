@@ -143,6 +143,11 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 	if err != nil {
 		return nil, err
 	}
+	if res.ExitCode != 0 {
+		// Blank timer state and "the host would not tell us" are different
+		// answers, and a table of dashes must not stand for the second.
+		return nil, fmt.Errorf("read scheduled-job timers (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
 	observed := map[string]map[string]string{}
 	current := ""
 	for _, line := range strings.Split(res.Stdout, "\n") {

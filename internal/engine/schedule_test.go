@@ -179,7 +179,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false, DeployLock: "exclusive",
 	}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	service := scheduleServiceUnit("sample", job,
 		"/etc/systemd/system/ob-sample-nightly.run",
 		"/etc/systemd/system/ob-sample-nightly.notify")
@@ -187,7 +187,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
-		"flock --exclusive --nonblock 9 || skip",
+		"flock --exclusive --nonblock 9 || stand_aside",
 		"exec 8>'/var/lib/ob/sample/schedule.lock'",
 		"flock --exclusive --nonblock 8 || skip",
 		"/var/lib/ob/sample/lock",
@@ -241,11 +241,11 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", []app.EnvFile{
 		{File: "config/runtime.env"},
 		{File: "secrets/runtime.env", Provider: "sops"},
-	}, 10*time.Minute)
+	}, 10*time.Minute, true)
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/refresh.lock'",
-		"flock --exclusive --nonblock 9 || skip",
+		"flock --exclusive --nonblock 9 || stand_aside",
 		"exec 8>'/var/lib/ob/sample/schedule.lock'",
 		"release_dir=$(readlink -f '/var/lib/ob/sample/current')",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
@@ -341,7 +341,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	}
 
 	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
-	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"), nil, 10*time.Minute)
+	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"), nil, 10*time.Minute, true)
 	runner = strings.ReplaceAll(runner, "/usr/bin/docker", q(stub))
 	command := exec.CommandContext(ctx, "sh")
 	command.Stdin = strings.NewReader(runner)
@@ -803,7 +803,7 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 		{"pinned", app.ScheduledJob{Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC", Calendar: "*-*-* 02:00:00", Timeout: "45m", DeployLock: "pinned"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 			for _, want := range []string{
 				"state='/var/lib/ob/sample/schedule/nightly.state'",
 				"write_state() {",
@@ -1077,7 +1077,7 @@ func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 	job := app.ScheduledJob{Name: "nightly", Timeout: "45m", DeployLock: "exclusive",
 		RetryAttempts: 3, RetryBackoff: 30 * time.Second, RetryMaxBackoff: 10 * time.Minute}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	for _, want := range []string{
 		"max_attempts=3", "backoff=30", "max_backoff=600",
 		"attempt=1", "while :; do", "write_state \"$attempt\"",
@@ -1089,11 +1089,11 @@ func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
 		}
 	}
-	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	if strings.Contains(single, "max_attempts=") {
 		t.Errorf("a single-attempt job must not carry a retry loop:\n%s", single)
 	}
-	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	if !strings.Contains(pinned, "max_attempts=") || strings.Index(pinned, "flock --unlock 8") > strings.Index(pinned, "max_attempts=") {
 		t.Errorf("pinned runner must release the schedule mutex before its attempt loop:\n%s", pinned)
 	}
@@ -1202,7 +1202,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	job := app.ScheduledJob{Name: "sync", Timeout: "45m", DeployLock: "pinned", RetryAttempts: 1,
 		Inputs: map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog"}, Default: "catalog"}}}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	for _, want := range []string{
 		"inputs_file='/var/lib/ob/sample/schedule/sync.inputs'",
 		`if [ -z "${TRIGGER_UNIT:-}" ] && [ -f "$inputs_file" ]; then`,
@@ -1229,7 +1229,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "flock --exclusive --nonblock 9") {
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
 	}
-	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
+	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --name`) {
 		t.Fatalf("exclusive runner does not consume inputs:\n%s", exclusive)
 	}
@@ -1425,5 +1425,105 @@ func TestScheduleStatusDegradesWhenTheJournalCannotBeRead(t *testing.T) {
 	}
 	if got := statuses[0]; got.LastOutcome != "" || got.Diverged {
 		t.Fatalf("missing records must read as unknown, not as failure: %#v", got)
+	}
+}
+
+// A firing that cannot take the job lock must leave the running job's state
+// alone: that file is the evidence its own notifier turns into the record.
+func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	if !strings.Contains(runner, `stand_aside() { echo "onebox: skipped: $1" >&2; exit 0; }`) {
+		t.Fatalf("runner has no lock-less skip:\n%s", runner)
+	}
+	if !strings.Contains(runner, "flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'") {
+		t.Fatalf("a job-lock conflict still writes state:\n%s", runner)
+	}
+	// The other two skips hold the job lock, so the state is theirs to write.
+	for _, want := range []string{
+		"flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
+		"skip 'an application operation holds the deploy lock'",
+	} {
+		if !strings.Contains(runner, want) {
+			t.Fatalf("runner is missing %q:\n%s", want, runner)
+		}
+	}
+}
+
+// The container name is fixed, so a corpse from one attempt would fail every
+// attempt after it.
+func TestScheduledJobRunnerClearsTheContainerBetweenAttempts(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	job := app.ScheduledJob{Name: "nightly", Timeout: "45m", DeployLock: "exclusive",
+		RetryAttempts: 3, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	loop := runner[strings.Index(runner, "while :; do"):]
+	if !strings.Contains(loop, "docker rm -f 'sample-nightly-1'") {
+		t.Fatalf("no cleanup inside the attempt loop:\n%s", loop)
+	}
+}
+
+// On a systemd without TRIGGER_UNIT the runner cannot see the trigger, and
+// says so rather than calling every timer firing an operator's run.
+func TestScheduledJobRunnerRecordsAnUnknownTriggerOnAnOlderSystemd(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
+	modern := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	older := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, false)
+	if !strings.Contains(modern, "else trigger=manual; fi") {
+		t.Fatalf("a host that sets TRIGGER_UNIT must name the operator:\n%s", modern)
+	}
+	if !strings.Contains(older, "else trigger=unknown; fi") {
+		t.Fatalf("a host without TRIGGER_UNIT must not invent a trigger:\n%s", older)
+	}
+}
+
+// The systemd floor is scoped to what actually needs it. A project that has
+// been running scheduled jobs on an older LTS keeps running them.
+func TestSyncSchedulesRequiresSystemd252OnlyForInputs(t *testing.T) {
+	for name, tc := range map[string]struct {
+		inputs  map[string]app.JobInput
+		wantErr bool
+	}{
+		"plain job":       {nil, false},
+		"declares inputs": {map[string]app.JobInput{"SOURCE": {Enum: []string{"a"}, Default: "a"}}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Workloads["sync"] = app.Workload{
+				Role: app.RoleJob, When: "manual", DataEffect: "none", Inputs: tc.inputs,
+				Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+			}
+			f := happyFake()
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch {
+				case strings.Contains(cmd, "list-unit-files"):
+					return transport.Result{}, true
+				case strings.Contains(cmd, "systemd-analyze calendar"):
+					return transport.Result{Stdout: "ok\n"}, true
+				case strings.Contains(cmd, "command -v flock"):
+					return transport.Result{Stdout: "ok\n"}, true
+				case strings.Contains(cmd, "systemctl --version"):
+					return transport.Result{Stdout: "systemd 249 (249.11-0ubuntu3)\n"}, true
+				}
+				return base(cmd)
+			}
+			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			err := e.SyncSchedules(context.Background())
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "systemd 252") {
+					t.Fatalf("inputs were accepted on systemd 249: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a job without inputs was refused on systemd 249: %v", err)
+			}
+			if artifacts := strings.Join(f.Inputs, "\n"); !strings.Contains(artifacts, "else trigger=unknown; fi") {
+				t.Fatalf("the runner claims a trigger the host cannot report:\n%s", artifacts)
+			}
+		})
 	}
 }

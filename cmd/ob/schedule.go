@@ -162,8 +162,10 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 				}
 				return stream.terminal(cliOutcomeSuccess, data, nil)
 			}
-			_, err = e.ScheduleLogs(cmd.Context(), args[0], logsRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
-			return err
+			if _, err := e.ScheduleLogs(cmd.Context(), args[0], logsRun, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+				return writeStructuredCommandFailure(cmd, g, "schedule_logs_failed", "run logs could not be read", err)
+			}
+			return nil
 		},
 	}
 	logsCmd.Flags().StringVar(&logsRun, "run", "", "run id from ob schedule history; default the newest run")

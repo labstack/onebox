@@ -61,8 +61,14 @@ func TestScheduleRunWritesInputsJournalsThenStartsAfterReleasingTheLock(t *testi
 			t.Fatalf("journal is missing %q:\n%s", want, seq)
 		}
 	}
-	if journal := strings.Index(seq, `"phase":"schedule-run","event":"finish"`); journal > release {
-		t.Fatalf("journal finish was written after the lock was released:\n%s", seq)
+	// The start is claimed under the lock; the finish records how the request
+	// ended, so it comes after the unit was actually started. A journal is per
+	// operation id, so no other operation appends to this file meanwhile.
+	if started := strings.Index(seq, `"phase":"schedule-run","event":"start"`); started < 0 || started > release {
+		t.Fatalf("journal start was not written under the lock:\n%s", seq)
+	}
+	if finish := strings.LastIndex(seq, `"phase":"schedule-run","event":"finish","status":"ok"`); finish < start {
+		t.Fatalf("journal finish was written before the unit was started:\n%s", seq)
 	}
 }
 
@@ -257,5 +263,47 @@ func TestScheduleRunRefusesAHostThatCannotTellTheTriggerApart(t *testing.T) {
 		if strings.Contains(command, ".inputs") || strings.Contains(command, "systemctl start") {
 			t.Fatalf("the refused run still touched the host: %s", command)
 		}
+	}
+}
+
+// The journal has to be able to say the request failed. Writing the finish
+// as ok before the unit is even started left ob audit reporting "started" for
+// a run that never began.
+func TestScheduleRunJournalsAFailedRequestAsFailed(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "systemctl --version"):
+			return transport.Result{Stdout: "systemd 255 (255.4-1ubuntu8)\n"}, true
+		case strings.Contains(cmd, "systemctl is-active"):
+			return transport.Result{Stdout: "inactive\n"}, true
+		case strings.Contains(cmd, "systemctl start"):
+			return transport.Result{ExitCode: 5, Stderr: "Unit ob-sample-sync.service not found."}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if _, err := e.ScheduleRun(context.Background(), "op-1", "sync", nil, false); err == nil {
+		t.Fatal("a failed start was reported as success")
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, `"phase":"schedule-run","event":"finish","status":"fail"`) {
+		t.Fatalf("the journal calls a failed request started:\n%s", seq)
+	}
+	// The journal redacts a failure's detail on purpose, so the record says
+	// that the request failed and where to look, not what the host said.
+	if !strings.Contains(seq, `"error_code":"execution_failed"`) {
+		t.Fatalf("the failed finish carries no error code:\n%s", seq)
+	}
+	if strings.Contains(seq, `"phase":"schedule-run","event":"finish","status":"ok"`) {
+		t.Fatalf("a failed request also journaled a success:\n%s", seq)
 	}
 }

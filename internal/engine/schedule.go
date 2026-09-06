@@ -288,6 +288,11 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 		"stand_aside() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$skip_marker\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
 		"exec 9>" + q(names.ScheduledJobRunLock(job)),
 		"/usr/bin/flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'",
+		// Only the activation that wrote a note removes it, so one lost
+		// between the runner exiting and ExecStopPost — a power cut, a killed
+		// systemd — would sit here forever. Swept a day later, under the job
+		// lock, which is long past any live note's few milliseconds.
+		"find " + q(names.AppDir()+"/schedule") + " -maxdepth 1 -name " + q(job+".state.skip.*") + " -mtime +1 -delete 2>/dev/null || true",
 		"exec 8>" + q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
 		"if [ -e " + q(applicationLock) + " ] && [ \"$(" + lockAgeCmd(applicationLock) + ")\" -le " + strconv.Itoa(ttlSeconds) + " ]; then skip 'an application operation holds the deploy lock'; fi",
@@ -328,10 +333,13 @@ func (e *Engine) hasTriggerUnit(ctx context.Context) bool {
 		return e.triggerUnitPresent
 	}
 	res, err := e.T.Run(ctx, "systemctl --version 2>/dev/null | head -1")
-	e.triggerUnitProbed = true
 	if err != nil {
+		// A transport failure says nothing about the host's systemd. Caching
+		// it would turn one flaky round trip into "this host is too old" for
+		// the rest of the operation, and preflight would refuse the deploy.
 		return false
 	}
+	e.triggerUnitProbed = true
 	version, ok := systemdVersion(res.Stdout)
 	e.triggerUnitPresent = ok && version >= 252
 	return e.triggerUnitPresent

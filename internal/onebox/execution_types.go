@@ -357,6 +357,9 @@ func (request ExecuteRequest) Validate() error {
 	if (request.Approval != nil || request.BackupReport != nil || request.MigrationBackupOverride != nil) && request.Kind != KindDeploy && request.Kind != KindJobRun {
 		return errors.New("approval and migration backup authorization are valid only for deploy and job run")
 	}
+	if (request.Job != "" || len(request.Inputs) > 0 || request.Wait) && request.Kind != KindScheduleRun {
+		return errors.New("job, inputs and wait are valid only for schedule run")
+	}
 	return nil
 }
 

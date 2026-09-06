@@ -33,7 +33,7 @@ type ScheduleRunResult struct {
 // runs any scheduled job unattended, but an operator choosing the moment and
 // the inputs is the case the sealed plan of `ob job run` exists for, and a
 // migration or destructive job keeps that path.
-func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool) (ScheduleRunResult, error) {
+func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool) (_ ScheduleRunResult, err error) {
 	result := ScheduleRunResult{Job: name, Operation: operationID, Inputs: inputs}
 	if strings.TrimSpace(operationID) == "" {
 		return result, errors.New("schedule run requires an operation id")
@@ -126,13 +126,24 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if err := writer.Append(ctx, record); err != nil {
 		return result, fmt.Errorf("journal schedule run start: %w", err)
 	}
-	// The finish is written now, under the lock, because the outcome does not
-	// belong to this operation: it is the run record on the host, joined to
-	// this journal entry by the operation id the inputs file carries.
-	record.Event, record.Detail = "finish", "unit started; outcome in ob schedule history "+name
-	if err := writer.Append(ctx, record); err != nil {
-		return result, fmt.Errorf("journal schedule run finish: %w", err)
-	}
+	// The finish records how this request ended, not how the run did: the run
+	// has its own record on the host, joined to this entry by the operation
+	// id. But a request that never started the unit, or that waited and saw
+	// the job fail, is not a success, and `ob audit` has to be able to say so.
+	//
+	// Written after the lock is released, which is safe because a journal is
+	// per operation id: no other operation appends to this file.
+	defer func() {
+		finish := record
+		finish.Event, finish.Status = "finish", "ok"
+		finish.Detail = "unit started; outcome in ob schedule history " + name
+		if err != nil {
+			finish.Status, finish.Detail = "fail", err.Error()
+		}
+		if appendErr := writer.Append(ctx, finish); appendErr != nil {
+			err = errors.Join(err, fmt.Errorf("journal schedule run finish: %w", appendErr))
+		}
+	}()
 	e.ReleaseLock(ctx)
 	locked = false
 
@@ -190,10 +201,14 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 // blocking start returns, so a few short retries stand between the start and
 // the read. Matching on the operation id means a record left by an earlier
 // run, or by a timer firing that took this slot, is never reported as ours.
+// The window is generous because journald ingests the notifier's line
+// asynchronously: the blocking start has returned, so ExecStopPost has run,
+// but the record may not be queryable yet on a loaded host. Giving up early
+// would blame the host for a run that in fact succeeded.
 func (e *Engine) awaitScheduleRecord(ctx context.Context, name, operationID string) (*ScheduleRunRecord, error) {
-	for attempt := range 10 {
+	for attempt := range 40 {
 		if attempt > 0 {
-			e.Opts.Sleep(200 * time.Millisecond)
+			e.Opts.Sleep(250 * time.Millisecond)
 		}
 		records, err := e.ScheduleHistory(ctx, name, 5)
 		if err != nil {
@@ -205,7 +220,8 @@ func (e *Engine) awaitScheduleRecord(ctx context.Context, name, operationID stri
 			}
 		}
 	}
-	return nil, fmt.Errorf("no run record carries operation %s for job %s: the unit did not run for this request; a timer firing may have taken the slot, or the host's notifier wrote nothing", operationID, name)
+	return nil, fmt.Errorf("no run record for operation %s appeared within %s: the run may still be settling in the host journal, a timer firing may have taken the slot, or the notifier wrote nothing. ob schedule history %s shows what the host has",
+		operationID, 10*time.Second, name)
 }
 
 // discardInputs removes a pending inputs file this request wrote and can no

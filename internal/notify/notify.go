@@ -34,7 +34,13 @@ type Payload struct {
 	Error    string `json:"error,omitempty"`
 	Operator string `json:"operator,omitempty"`
 	TS       string `json:"ts"`
-	Text     string `json:"text"` // human line, filled by Send
+	// Skipped marks work that did not run rather than work that failed. It
+	// routes with the failures, because that is where an operator watches,
+	// but it must not be announced as one: a scheduled job that stood aside
+	// for a deploy did nothing wrong, and saying otherwise trains people to
+	// ignore the channel.
+	Skipped bool   `json:"skipped,omitempty"`
+	Text    string `json:"text"` // human line, filled by Send
 }
 
 // Request is the stable HTTP representation of one selected notification.
@@ -55,12 +61,15 @@ func (p Payload) event() string {
 }
 
 func (p Payload) text() string {
+	id := p.DeployID
+	if id != "" {
+		id = " " + id
+	}
 	if p.Status == "ok" {
-		id := p.DeployID
-		if id != "" {
-			id = " " + id
-		}
 		return fmt.Sprintf("✅ %s: %s%s succeeded on %s", p.App, p.Verb, id, p.Host)
+	}
+	if p.Skipped {
+		return fmt.Sprintf("⏭️ %s: %s%s did not run on %s — %s", p.App, p.Verb, id, p.Host, p.Error)
 	}
 	return fmt.Sprintf("🚨 %s: %s FAILED on %s — %s", p.App, p.Verb, p.Host, p.Error)
 }
@@ -89,6 +98,12 @@ func Prepare(cfg app.Notification, p Payload) (*Request, error) {
 	// outcome; operators use the trusted local diagnostics for details.
 	if p.Status != "ok" && p.Error != "" {
 		p.Error = "operation failed; inspect trusted local diagnostics"
+		if p.Skipped {
+			// A skip's reason is Onebox's own closed vocabulary — a lock was
+			// held, a run was already going — with no provider output in it,
+			// so the sentence that makes the notification useful survives.
+			p.Error = "the run was skipped; inspect trusted host diagnostics"
+		}
 	}
 	p.Text = p.text()
 	contentType := "application/json"

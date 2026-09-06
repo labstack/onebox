@@ -88,7 +88,7 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	path := e.names().ScheduledJobRunInputs(name)
 	create := "if [ -e " + q(path) + " ]; then exit 73; fi; " +
 		"umask 077 && install -d -m 700 " + q(e.names().AppDir()+"/schedule") + " && set -C && cat > " + q(path)
-	res, err := e.T.RunInput(ctx, create, scheduleInputsFile(operationID, inputs))
+	res, err := e.mutateInput(ctx, create, scheduleInputsFile(operationID, inputs))
 	if err != nil {
 		return result, err
 	}
@@ -137,17 +137,22 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	if err != nil {
 		return result, err
 	}
-	if res.ExitCode != 0 && !wait {
-		return result, fmt.Errorf("systemctl start %s: %s", unit, strings.TrimSpace(res.Stderr))
-	}
-	// The unit was activated, so the runner owns the file now, whether it ran
-	// or skipped; a blocking start that exits non-zero still activated it.
-	pending = false
-	result.Started = true
 	if !wait {
+		if res.ExitCode != 0 {
+			return result, fmt.Errorf("systemctl start %s: %s", unit, strings.TrimSpace(res.Stderr))
+		}
+		// The unit is queued, so the runner owns the file now.
+		pending = false
+		result.Started = true
 		e.logf("schedule: %s started as %s; ob schedule history %s shows the outcome", name, operationID, name)
 		return result, nil
 	}
+	// A blocking start that exits non-zero may mean the job failed, which is
+	// an outcome, or that the unit never activated, which is not. Only the
+	// record settles it, and only a record carrying this operation says the
+	// runner read the inputs file: a start that merged into a timer firing
+	// already in progress leaves that file untouched, for the next manual run
+	// that would otherwise be refused as pending.
 	last, err := e.awaitScheduleRecord(ctx, name, operationID)
 	if err != nil {
 		if res.ExitCode != 0 {
@@ -155,6 +160,8 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 		}
 		return result, err
 	}
+	pending = false
+	result.Started = true
 	result.Record = last
 	exit := "-"
 	if last.ExitStatus != nil {

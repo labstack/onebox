@@ -1022,10 +1022,10 @@ NextElapseUSecRealtime=Sat 2026-09-06 02:00:00 UTC
 	if got.LastOutcome != "skipped" || got.NextRun != "Sat 2026-09-06 02:00:00 UTC" || !got.JournalPersistent {
 		t.Fatalf("record fields not surfaced: %#v", got)
 	}
-	// The newest record is a skip: it neither counts as a failure nor clears
-	// the failure before it, and it raises no issue of its own.
-	if got.ConsecutiveFailures != 1 || got.Diverged {
-		t.Fatalf("a skip neither counts as nor clears a failure: %#v", got)
+	// The newest record is a skip: it is not itself a failure, and it does not
+	// clear the failure before it, which is still the job's standing verdict.
+	if got.ConsecutiveFailures != 1 || !got.Diverged {
+		t.Fatalf("a skip cleared the failure behind it: %#v", got)
 	}
 	if got.LastAttempts != 0 || got.LastDurationSeconds != 1 {
 		t.Fatalf("last run detail not surfaced: %#v", got)
@@ -1357,7 +1357,7 @@ func TestScheduleStatusRaisesAnIssueForASkipStreak(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := statuses[0]
-			if got.ConsecutiveSkips != tc.skips || got.ConsecutiveFailures != 0 || got.LastOutcome != "skipped" || got.LastReason == "" {
+			if got.ConsecutiveSkips != tc.skips || got.LastOutcome != "skipped" || got.LastReason == "" {
 				t.Fatalf("skips not counted: %#v", got)
 			}
 			if got.Diverged != tc.issue {
@@ -1367,5 +1367,63 @@ func TestScheduleStatusRaisesAnIssueForASkipStreak(t *testing.T) {
 				t.Fatalf("issue does not name the streak and reason: %#v", got.Issues)
 			}
 		})
+	}
+}
+
+// A skip is news about timing. It must not clear a failure that nothing has
+// fixed: the newest record that actually ran is the standing verdict.
+func TestScheduleStatusKeepsAFailureVisibleBehindASkip(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	history := `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:01Z","duration_s":0,"attempts":0,"exit_status":0,"outcome":"skipped","reason":"an application operation holds the deploy lock","inputs":{}}
+{"run":"b2c3d4e5f60718293a4b5c6d7e8f9012","job":"nightly","trigger":"timer","started_at":"2026-09-04T02:00:01Z","finished_at":"2026-09-04T02:05:02Z","duration_s":301,"attempts":2,"exit_status":9,"outcome":"failure","inputs":{}}
+{"run":"c3d4e5f60718293a4b5c6d7e8f901234","job":"nightly","trigger":"timer","started_at":"2026-09-03T02:00:01Z","finished_at":"2026-09-03T02:01:02Z","duration_s":61,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}`
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			return transport.Result{Stdout: "@@journal\npersistent\n@@nightly:service\nLoadState=loaded\nActiveState=inactive\n@@nightly:timer\nLoadState=loaded\nActiveState=active\n@@nightly:run\n@@nightly:history\n" + history + "\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statuses[0]
+	if !got.Diverged || got.ConsecutiveFailures != 1 || got.LastOutcome != "skipped" {
+		t.Fatalf("a skip cleared the failure behind it: %#v", got)
+	}
+	if issues := strings.Join(got.Issues, "; "); !strings.Contains(issues, "last run failed: failure (exit 9)") ||
+		!strings.Contains(issues, "nothing has run since") {
+		t.Fatalf("issue does not name the failure the skip hid: %#v", got.Issues)
+	}
+}
+
+// An unreadable journal costs status its records, not the whole report.
+func TestScheduleStatusDegradesWhenTheJournalCannotBeRead(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "systemctl show") {
+			if !strings.Contains(cmd, "2>/dev/null || true") {
+				return transport.Result{ExitCode: 1, Stderr: "Failed to open journal"}, true
+			}
+			return transport.Result{Stdout: "@@journal\npersistent\n@@nightly:service\nLoadState=loaded\nActiveState=inactive\n@@nightly:timer\nLoadState=loaded\nActiveState=active\n@@nightly:run\n@@nightly:history\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	statuses, err := e.scheduleStatuses(context.Background())
+	if err != nil {
+		t.Fatalf("an unreadable journal broke the whole status read: %v", err)
+	}
+	if got := statuses[0]; got.LastOutcome != "" || got.Diverged {
+		t.Fatalf("missing records must read as unknown, not as failure: %#v", got)
 	}
 }

@@ -78,7 +78,10 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			"printf '%s\\n' "+q("@@"+job.Name+":run"),
 			"cat "+q(e.names().ScheduledJobRunState(job.Name))+" 2>/dev/null || true",
 			"printf '%s\\n' "+q("@@"+job.Name+":history"),
-			scheduleHistoryCommand(unit, 20),
+			// Status degrades rather than fails: an unreadable journal costs
+			// this section its records, not the whole report. `ob schedule
+			// history` is the command that says why the read failed.
+			scheduleHistoryCommand(unit, 20)+" 2>/dev/null || true",
 		)
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))
@@ -162,24 +165,28 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 				}
 			}
 		}
+		// lastRun is the newest record that actually ran: the one whose
+		// outcome is the job's standing verdict. A skip is news about timing,
+		// and it must not clear a failure that nothing has fixed yet.
+		var lastRun *ScheduleRunRecord
 		if len(records) > 0 {
 			last := records[0]
 			status.LastOutcome = last.Outcome
 			status.LastReason = last.Reason
 			status.LastDurationSeconds = last.DurationSeconds
 			status.LastAttempts = last.Attempts
-			// Skips say nothing about the job, so they neither break nor
-			// extend a failure streak; their own streak is counted from the
-			// newest record until something actually ran.
 			for _, record := range records {
 				if record.Outcome != "skipped" {
 					break
 				}
 				status.ConsecutiveSkips++
 			}
-			for _, record := range records {
+			for i, record := range records {
 				if record.Outcome == "skipped" {
 					continue
+				}
+				if lastRun == nil {
+					lastRun = &records[i]
 				}
 				if record.Outcome != "failure" && record.Outcome != "timeout" {
 					break
@@ -193,14 +200,18 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		if service.loadState != "loaded" {
 			status.Issues = append(status.Issues, "service unit is not loaded")
 		}
-		// The record is the verdict: a recorded failure or timeout is an
-		// issue, and so is a job that keeps being skipped.
-		if status.LastOutcome == "failure" || status.LastOutcome == "timeout" {
+		// The record is the verdict: the newest run that actually happened is
+		// the one that counts, and so is a job that keeps being skipped.
+		if lastRun != nil && (lastRun.Outcome == "failure" || lastRun.Outcome == "timeout") {
 			exit := "?"
-			if records[0].ExitStatus != nil {
-				exit = strconv.Itoa(*records[0].ExitStatus)
+			if lastRun.ExitStatus != nil {
+				exit = strconv.Itoa(*lastRun.ExitStatus)
 			}
-			status.Issues = append(status.Issues, fmt.Sprintf("last run failed: %s (exit %s)", status.LastOutcome, exit))
+			issue := fmt.Sprintf("last run failed: %s (exit %s)", lastRun.Outcome, exit)
+			if status.LastOutcome == "skipped" {
+				issue += ", and nothing has run since"
+			}
+			status.Issues = append(status.Issues, issue)
 		}
 		if status.ConsecutiveSkips >= skipStreakIssue {
 			status.Issues = append(status.Issues, fmt.Sprintf("skipped %d firings in a row: %s", status.ConsecutiveSkips, status.LastReason))

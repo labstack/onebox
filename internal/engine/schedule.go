@@ -523,32 +523,38 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 	}
 	lines = append(lines, scheduleRunRecordLines(e.Spec.Name, e.names().ScheduledJobUnit(job.Name), job.Name, e.names().ScheduledJobRunState(job.Name))...)
 	lines = append(lines, `case " `+strings.Join(job.Notify, " ")+` " in *" $outcome "*) ;; *) exit 0 ;; esac`)
-	wantsSuccess, wantsFailure := false, false
+	// Three classes, because a skip is neither: the job did not fail, and it
+	// did not do its work either.
+	var wants = map[string]bool{}
 	for _, outcome := range job.Notify {
-		if outcome == "success" {
-			wantsSuccess = true
-		} else {
-			wantsFailure = true
+		switch outcome {
+		case "success":
+			wants["ok"] = true
+		case "skipped":
+			wants["skipped"] = true
+		default:
+			wants["fail"] = true
 		}
 	}
-	var success, failure []string
-	var err error
-	if wantsSuccess {
-		if success, err = e.scheduleNotificationSends(job.Name, environment, "ok"); err != nil {
+	sends := map[string][]string{}
+	for _, class := range []string{"ok", "skipped", "fail"} {
+		if !wants[class] {
+			continue
+		}
+		rendered, err := e.scheduleNotificationSends(job.Name, environment, class)
+		if err != nil {
 			return "", err
 		}
+		sends[class] = rendered
 	}
-	if wantsFailure {
-		if failure, err = e.scheduleNotificationSends(job.Name, environment, "fail"); err != nil {
-			return "", err
-		}
-	}
-	if len(success)+len(failure) > 0 {
+	if len(sends["ok"])+len(sends["skipped"])+len(sends["fail"]) > 0 {
 		lines = append(lines, `ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')`)
 		lines = append(lines, `if [ "$outcome" = success ]; then`)
-		lines = append(lines, orNoop(success)...)
+		lines = append(lines, orNoop(sends["ok"])...)
+		lines = append(lines, `elif [ "$outcome" = skipped ]; then`)
+		lines = append(lines, orNoop(sends["skipped"])...)
 		lines = append(lines, "else")
-		lines = append(lines, orNoop(failure)...)
+		lines = append(lines, orNoop(sends["fail"])...)
 		lines = append(lines, "fi", "wait || true")
 	}
 	lines = append(lines, "exit 0", "")
@@ -564,16 +570,23 @@ func orNoop(lines []string) []string {
 }
 
 // scheduleNotificationSends renders one backgrounded curl per notification
-// that selects the given status. Status is the notify package's word: ok or
-// fail. A failed send is logged and never replaces the job's own result.
-func (e *Engine) scheduleNotificationSends(job, environment, status string) ([]string, error) {
+// that selects the given class: ok, skipped, or fail. A skip routes with the
+// failures, because that is the channel an operator watches, and says what it
+// is rather than claiming the job failed. A failed send is logged and never
+// replaces the job's own result.
+func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]string, error) {
 	var sends []string
 	for _, name := range sortedNames(e.Spec.Notifications) {
 		cfg := e.Spec.Notifications[name]
+		status := "fail"
+		if class == "ok" {
+			status = "ok"
+		}
 		payload := notify.Payload{
 			App: e.Spec.Name, Env: environment, Host: e.T.Destination(),
 			Verb: "scheduled job " + job, Status: status,
 			DeployID: scheduleNotificationRun, TS: scheduleNotificationTimestamp,
+			Skipped: class == "skipped",
 		}
 		if status != "ok" {
 			payload.Error = "scheduled job failed; inspect trusted host diagnostics"

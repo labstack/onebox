@@ -300,6 +300,9 @@ type ExecuteRequest struct {
 	Job    string
 	Inputs map[string]string
 	Wait   bool
+	// Reason is the operator's account of a pause, kept on the host so a job
+	// that is deliberately not running says why.
+	Reason string
 	// Service is the backup operations' one argument. It is an input to a
 	// mutation rather than a plan, because a backup stages nothing into a
 	// release and has nothing to roll back.
@@ -357,8 +360,16 @@ func (request ExecuteRequest) Validate() error {
 	if (request.Approval != nil || request.BackupReport != nil || request.MigrationBackupOverride != nil) && request.Kind != KindDeploy && request.Kind != KindJobRun {
 		return errors.New("approval and migration backup authorization are valid only for deploy and job run")
 	}
-	if (request.Job != "" || len(request.Inputs) > 0 || request.Wait) && request.Kind != KindScheduleRun {
-		return errors.New("job, inputs and wait are valid only for schedule run")
+	if len(request.Inputs) > 0 || request.Wait {
+		if request.Kind != KindScheduleRun {
+			return errors.New("inputs and wait are valid only for schedule run")
+		}
+	}
+	if request.Job != "" && request.Kind != KindScheduleRun && request.Kind != KindSchedulePause && request.Kind != KindScheduleResume {
+		return errors.New("job is valid only for schedule run, pause and resume")
+	}
+	if request.Reason != "" && request.Kind != KindSchedulePause {
+		return errors.New("reason is valid only for schedule pause")
 	}
 	return nil
 }

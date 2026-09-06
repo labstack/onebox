@@ -175,6 +175,10 @@ func auditAction(phase string) string {
 		return "service apply"
 	case "schedule-run":
 		return "schedule run"
+	case "schedule-pause":
+		return "schedule pause"
+	case "schedule-resume":
+		return "schedule resume"
 	case "":
 		return "deploy"
 	default:
@@ -194,6 +198,10 @@ func auditOutcome(action string) string {
 		return "succeeded"
 	case "schedule run":
 		return "started"
+	case "schedule pause":
+		return "paused"
+	case "schedule resume":
+		return "resumed"
 	default:
 		return "deployed"
 	}

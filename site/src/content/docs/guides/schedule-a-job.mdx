@@ -229,6 +229,52 @@ load rather than running on days nobody chose.
 `none`; a nightly prune is `destructive`. The rollback and abort gates read it,
 and a job that lies about it defeats them.
 
+## Stopping a job without deleting it
+
+```sh
+ob schedule pause nightly-dump --reason "upstream is returning garbage"
+ob schedule resume nightly-dump
+```
+
+Pausing stops the timer and nothing else. The units stay installed and later
+deploys keep updating them, so a fix still lands on the host while the job
+stays stopped. A run already under way is left alone: this stops the next
+firing, it does not kill work in progress.
+
+The pause is recorded on the host, not in the project, which is what lets it
+survive a deploy. Reconciliation will not start a paused timer, so a pause
+cannot be undone by someone else's release. `--reason` is required, and is
+kept with the operator and the time, because a job that is deliberately not
+running is indistinguishable from one that is broken:
+
+```text
+schedule nightly-dump PAUSED — by ops@example.com; since 2026-09-06T10:00:00Z; upstream is returning garbage
+```
+
+`ob status` prints that line whether or not anything else is wrong, and does
+not count the stopped timer as divergence. It does still report everything
+else about the job: a unit that will not load, or a run that failed, is
+printed beside the pause and still fails the command, because a pause explains
+a stopped timer and nothing more. A stopped timer with no pause behind it is
+also still a fault. `ob schedule list` shows a paused job's timer as `paused`
+rather than `inactive`, so the table does not read the same for a job somebody
+stopped and one that broke.
+
+Both `ob schedule pause` and `ob schedule resume` are journaled and appear in
+`ob audit` with the operator. Neither will record a change that did not
+happen: pausing an already-paused job is refused rather than overwriting who
+stopped it and why, and resuming a job nobody paused is refused rather than
+logged. Both take `--break-lock`, because a running job holds the application
+lock for its whole run and a crashed deploy leaves one behind.
+
+Resuming starts the timer again; the next run is the next scheduled elapse. It
+does not run the job now, and does not make up firings missed while paused —
+`ob schedule run` is how you ask for an immediate run.
+
+Deleting a job from the project clears its pause along with its units, so a
+name reused later does not come back stopped for a reason from a previous
+life.
+
 ## Run one now with inputs
 
 A scheduled job may declare inputs: named parameters that reach the container

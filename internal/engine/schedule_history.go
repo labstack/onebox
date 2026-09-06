@@ -43,6 +43,10 @@ type ScheduleListing struct {
 	TimerState  string `json:"timer_state"`
 	NextRun     string `json:"next_run,omitempty"`
 	LastTrigger string `json:"last_trigger,omitempty"`
+	// Paused is set when an operator stopped this job's timer. Without it an
+	// inactive timer in this table reads the same whether somebody stopped the
+	// job on purpose or it broke.
+	Paused *SchedulePauseState `json:"paused,omitempty"`
 }
 
 // A run id is systemd's invocation id. It reaches a shell as a journalctl
@@ -140,7 +144,12 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 			// Left to fail: the exit check below distinguishes a timer with
 			// nothing to say from a host that would not answer, and `|| true`
 			// would make that check unreachable.
-			"systemctl show "+q(unit+".timer")+" --no-pager --property=ActiveState --property=NextElapseUSecRealtime --property=LastTriggerUSec")
+			"systemctl show "+q(unit+".timer")+" --no-pager --property=ActiveState --property=NextElapseUSecRealtime --property=LastTriggerUSec",
+			// In the same round trip, because an inactive timer somebody
+			// stopped on purpose and a broken one render identically without
+			// this, and list is the command people survey jobs with.
+			"printf '%s\\n' "+q("@@paused:"+job.Name),
+			schedulePauseReadCommand(e.names().ScheduledJobPause(job.Name)))
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))
 	if err != nil {
@@ -152,16 +161,22 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 		return nil, fmt.Errorf("read scheduled-job timers (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	observed := map[string]map[string]string{}
-	current := ""
+	paused := map[string]map[string]string{}
+	var current map[string]string
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "@@") {
-			current = strings.TrimPrefix(line, "@@")
-			observed[current] = map[string]string{}
+		if after, ok := strings.CutPrefix(line, "@@paused:"); ok {
+			current = map[string]string{}
+			paused[after] = current
 			continue
 		}
-		if key, value, ok := strings.Cut(line, "="); ok && current != "" {
-			observed[current][key] = value
+		if after, ok := strings.CutPrefix(line, "@@"); ok {
+			current = map[string]string{}
+			observed[after] = current
+			continue
+		}
+		if key, value, ok := strings.Cut(line, "="); ok && current != nil {
+			current[key] = value
 		}
 	}
 	out := make([]ScheduleListing, 0, len(jobs))
@@ -171,6 +186,7 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 			Name: job.Name, Unit: e.names().ScheduledJobUnit(job.Name), Cron: job.Cron, Timezone: job.Timezone,
 			DeployLock: job.DeployLock, Timeout: job.Timeout, TimerState: values["ActiveState"],
 			NextRun: values["NextElapseUSecRealtime"], LastTrigger: values["LastTriggerUSec"],
+			Paused: pauseFrom(paused[job.Name]),
 		})
 	}
 	return out, nil

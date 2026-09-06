@@ -169,10 +169,16 @@ func (e *Engine) Status(ctx context.Context) error {
 		// Printed before anything else about the job, and printed even when
 		// nothing is wrong: a paused job is not running, and the whole point
 		// of this section is that such a job cannot look like a healthy one.
+		// It is printed beside the job's issues rather than instead of them.
+		// A pause explains a stopped timer; it does not explain a unit that
+		// will not load or a run that failed, and an operator who pauses a
+		// failing job must not thereby get a green report over a broken host.
 		if schedule.Paused != nil {
 			e.ui.Println(fmt.Sprintf("schedule %-11s %s", schedule.Name,
 				e.ui.Warn("PAUSED — "+pauseSummary(*schedule.Paused))))
-			continue
+			if !schedule.Diverged {
+				continue
+			}
 		}
 		if schedule.Diverged {
 			diverged = true

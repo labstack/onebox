@@ -44,17 +44,16 @@ type StatusSchedule struct {
 	Paused *SchedulePauseState `json:"paused,omitempty"`
 }
 
-// pauseFrom reads a pause marker's fields out of one batch section. Absent
-// means the job is not paused, which is why an empty marker still counts:
-// the file's existence is the statement, and its fields only explain it.
+// pauseFrom reads a pause marker's fields out of one batch section. The
+// marker's existence is the statement and its fields only explain it, so the
+// answer turns on the sentinel schedulePauseReadCommand prints, not on whether
+// any field parsed: a marker truncated by a dropped connection, or one an
+// operator made by hand, is still a pause.
 func pauseFrom(values map[string]string) *SchedulePauseState {
-	operator, hasOperator := values["operator"]
-	pausedAt, hasPausedAt := values["paused_at"]
-	reason, hasReason := values["reason"]
-	if !hasOperator && !hasPausedAt && !hasReason {
+	if values["exists"] == "" {
 		return nil
 	}
-	return &SchedulePauseState{Operator: operator, PausedAt: pausedAt, Reason: reason}
+	return &SchedulePauseState{Operator: values["operator"], PausedAt: values["paused_at"], Reason: values["reason"]}
 }
 
 // skipStreakIssue is how many firings in a row may be skipped before status
@@ -105,7 +104,7 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			// history` is the command that says why the read failed.
 			scheduleHistoryCommand(unit, 20)+" 2>/dev/null || true",
 			"printf '%s\\n' "+q("@@"+job.Name+":paused"),
-			"cat "+q(e.names().ScheduledJobPause(job.Name))+" 2>/dev/null || true",
+			schedulePauseReadCommand(e.names().ScheduledJobPause(job.Name)),
 		)
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))

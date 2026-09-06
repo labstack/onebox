@@ -24,7 +24,7 @@ import (
 //
 // A run already in flight is left alone. Pausing stops the next firing; it is
 // not a way to kill work that has started.
-func (e *Engine) SchedulePause(ctx context.Context, operationID, name, reason string) (err error) {
+func (e *Engine) SchedulePause(ctx context.Context, operationID, name, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return errors.New("schedule pause requires --reason: a job that is deliberately not running is indistinguishable from one that is broken")
@@ -65,6 +65,23 @@ func (e *Engine) setSchedulePause(ctx context.Context, operationID, name, reason
 		return err
 	}
 
+	// Read the standing pause under the lock, before anything is journaled.
+	// Neither direction may be a no-op that leaves a record of a state change
+	// that did not happen: a second pause would throw away the operator, time
+	// and reason of the first, and a resume of a job nobody paused would put
+	// an event in `ob audit` for work the host did not do.
+	standing, err := e.pausedJobs(ctx, []string{job.Name})
+	if err != nil {
+		return err
+	}
+	state, alreadyPaused := standing[job.Name]
+	switch {
+	case pause && alreadyPaused:
+		return fmt.Errorf("job %s is already paused (%s); resume it first to change the reason", job.Name, pauseSummary(state))
+	case !pause && !alreadyPaused:
+		return fmt.Errorf("job %s is not paused; run `ob schedule apply` if its timer is stopped for some other reason", job.Name)
+	}
+
 	phase, verb := "schedule-resume", "resumed"
 	if pause {
 		phase, verb = "schedule-pause", "paused"
@@ -101,9 +118,20 @@ func (e *Engine) setSchedulePause(ctx context.Context, operationID, name, reason
 		}
 	}
 
-	// The timer is stopped before the marker is removed on resume, and after
-	// it is written on pause, so a failure in between leaves the host in the
-	// state the marker describes rather than one it does not.
+	// Each direction writes the marker on the side of the timer that fails
+	// safe. A pause writes the marker first, so a failure before the timer
+	// stops leaves a job that is running and described as paused — which the
+	// next reconciliation acts on by stopping it. A resume removes the marker
+	// first, so a failure before the timer starts leaves a stopped timer with
+	// nothing explaining it, which status reports as divergence. The opposite
+	// orders both end with the host quietly disagreeing with its own record.
+	if !pause {
+		if res, removeErr := e.mutate(ctx, "rm -f "+q(marker)); removeErr != nil {
+			return removeErr
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("cannot clear the pause at %s: %s", marker, strings.TrimSpace(res.Stderr))
+		}
+	}
 	action := "enable --now"
 	if pause {
 		action = "disable --now"
@@ -115,15 +143,23 @@ func (e *Engine) setSchedulePause(ctx context.Context, operationID, name, reason
 	if res.ExitCode != 0 {
 		return fmt.Errorf("systemctl %s %s: %s", action, unit, strings.TrimSpace(res.Stderr))
 	}
-	if !pause {
-		if res, removeErr := e.mutate(ctx, "rm -f "+q(marker)); removeErr != nil {
-			return removeErr
-		} else if res.ExitCode != 0 {
-			return fmt.Errorf("cannot clear the pause at %s: %s", marker, strings.TrimSpace(res.Stderr))
-		}
-	}
 	e.logf("schedule: %s %s", name, verb)
 	return nil
+}
+
+// schedulePauseReadCommand prints a marker's fields, preceded by a line the
+// marker itself cannot contain. Every line a marker holds is "operator=",
+// "paused_at=" or "reason=", so the sentinel is unforgeable, and it is what
+// tells presence from an empty or truncated file. Presence is the whole
+// statement: the fields only explain it.
+//
+// A marker that exists but cannot be read reports that as data rather than as
+// a non-zero exit. The job is still paused — the sentinel already said so —
+// and this command is the last one in batches whose other answers are worth
+// having, so an unreadable explanation must not cost the caller the report.
+func schedulePauseReadCommand(marker string) string {
+	return "if [ -e " + q(marker) + " ]; then printf 'exists=1\\n'; cat " + q(marker) +
+		" 2>/dev/null || printf 'unreadable=1\\n'; fi"
 }
 
 // SchedulePauseState is what the host records about a paused job.
@@ -143,7 +179,7 @@ func (e *Engine) pausedJobs(ctx context.Context, jobs []string) (map[string]Sche
 	for _, job := range jobs {
 		commands = append(commands,
 			"printf '%s\\n' "+q("@@paused:"+job),
-			"cat "+q(e.names().ScheduledJobPause(job))+" 2>/dev/null || true")
+			schedulePauseReadCommand(e.names().ScheduledJobPause(job)))
 	}
 	res, err := e.T.Run(ctx, strings.Join(commands, "\n"))
 	if err != nil {
@@ -163,9 +199,20 @@ func (e *Engine) pausedJobs(ctx context.Context, jobs []string) (map[string]Sche
 		if name == "" || line == "" {
 			continue
 		}
-		state := out[name]
 		key, value, found := strings.Cut(line, "=")
 		if !found {
+			continue
+		}
+		// The sentinel creates the entry; a marker with no readable fields is
+		// still a pause, and one with fields but no sentinel does not exist.
+		if key == "exists" {
+			if _, seen := out[name]; !seen {
+				out[name] = SchedulePauseState{}
+			}
+			continue
+		}
+		state, seen := out[name]
+		if !seen {
 			continue
 		}
 		switch key {
@@ -179,4 +226,48 @@ func (e *Engine) pausedJobs(ctx context.Context, jobs []string) (map[string]Sche
 		out[name] = state
 	}
 	return out, nil
+}
+
+// pruneSchedulePauses removes the pause markers of jobs the project no longer
+// declares. Nothing else deletes them — removing a job removes its units, not
+// its host state — and job names are reusable, so a name re-added months later
+// would come back stopped, attributed to an operator and a reason from a
+// previous life.
+func (e *Engine) pruneSchedulePauses(ctx context.Context, declared []string) error {
+	dir := e.names().AppDir() + "/schedule"
+	res, err := e.T.Run(ctx, "ls -1 "+q(dir)+" 2>/dev/null | grep '\\.paused$' || true")
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("list scheduled-job pauses (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	keep := setOf(declared)
+	var orphans, paths []string
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		file := strings.TrimSpace(line)
+		job, ok := strings.CutSuffix(file, ".paused")
+		// A name the host reports that is not a plain filename is not one this
+		// code wrote, and is left alone rather than passed to rm.
+		if !ok || job == "" || strings.ContainsAny(file, "/") {
+			continue
+		}
+		if _, declared := keep[job]; declared {
+			continue
+		}
+		orphans = append(orphans, job)
+		paths = append(paths, q(dir+"/"+file))
+	}
+	if len(orphans) == 0 {
+		return nil
+	}
+	if res, err := e.mutate(ctx, "rm -f "+strings.Join(paths, " ")); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("remove orphaned scheduled-job pauses: %s", strings.TrimSpace(res.Stderr))
+	}
+	for _, job := range orphans {
+		e.logf("schedule: cleared the pause of %s (no longer declared)", job)
+	}
+	return nil
 }

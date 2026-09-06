@@ -1002,7 +1002,7 @@ Global Flags:
 ### ob schedule list
 
 ```
-List every job that declares a schedule beside what the host's timer says: whether it is active, when it fires next, and when it last fired. Reads only.
+List every job that declares a schedule beside what the host's timer says: whether it is active, when it fires next, and when it last fired. A job an operator stopped with `ob schedule pause` shows its timer as paused; who paused it and why are in `ob status` and in the JSON output. Reads only.
 
 Usage:
   ob schedule list [flags]
@@ -1050,6 +1050,7 @@ Usage:
   ob schedule pause <job> [flags]
 
 Flags:
+      --break-lock      break a stale operation lock after inspecting its holder
   -h, --help            help for pause
       --reason string   why this job is being stopped; kept on the host and shown by ob status
 
@@ -1071,7 +1072,8 @@ Usage:
   ob schedule resume <job> [flags]
 
 Flags:
-  -h, --help   help for resume
+      --break-lock   break a stale operation lock after inspecting its holder
+  -h, --help         help for resume
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

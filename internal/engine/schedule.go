@@ -145,6 +145,16 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		e.logf("schedule: removed %s (no longer declared)", unit)
 	}
 
+	// A marker is host state that outlives the units, so the schedule
+	// directory is reconciled with the same list the units are.
+	names := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		names = append(names, job.Name)
+	}
+	if err := e.pruneSchedulePauses(ctx, names); err != nil {
+		return errors.Join(removalErr, err)
+	}
+
 	if len(jobs) == 0 && len(stale) == 0 {
 		return nil
 	}
@@ -159,10 +169,6 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	// A pause is the operator's decision about this host, and reconciliation
 	// does not get to overrule it. The units above were still written, so a
 	// fix lands while the job stays stopped; only the timer is left alone.
-	names := make([]string, 0, len(jobs))
-	for _, job := range jobs {
-		names = append(names, job.Name)
-	}
 	paused, err := e.pausedJobs(ctx, names)
 	if err != nil {
 		return err

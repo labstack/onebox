@@ -40,7 +40,7 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "declared scheduled jobs with timer state and next elapse",
-		Long:  "List every job that declares a schedule beside what the host's timer says: whether it is active, when it fires next, and when it last fired. Reads only.",
+		Long:  "List every job that declares a schedule beside what the host's timer says: whether it is active, when it fires next, and when it last fired. A job an operator stopped with `ob schedule pause` shows its timer as paused; who paused it and why are in `ob status` and in the JSON output. Reads only.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, p, err := loadAllLenient(cmd.Context(), g)
@@ -66,8 +66,15 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "JOB\tCRON\tTZ\tTIMER\tNEXT\tLAST TRIGGER\tPOLICY\tTIMEOUT")
 			for _, j := range jobs {
+				// A paused timer and a broken one are both "inactive" to
+				// systemd. Only one of them is somebody's decision, and this
+				// is the table people survey jobs in.
+				timer := orDash(j.TimerState)
+				if j.Paused != nil {
+					timer = "paused"
+				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					j.Name, j.Cron, j.Timezone, orDash(j.TimerState), orDash(j.NextRun), orDash(j.LastTrigger), j.DeployLock, j.Timeout)
+					j.Name, j.Cron, j.Timezone, timer, orDash(j.NextRun), orDash(j.LastTrigger), j.DeployLock, j.Timeout)
 			}
 			return w.Flush()
 		},
@@ -196,6 +203,7 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 	scheduleCmd.AddCommand(runCmd)
 
 	var pauseReason string
+	var pauseBreakLock bool
 	pauseCmd := &cobra.Command{
 		Use:   "pause <job>",
 		Short: "stop a scheduled job's timer until it is resumed",
@@ -204,13 +212,18 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindSchedulePause, Job: args[0], Reason: pauseReason,
+				Kind: onebox.KindSchedulePause, Job: args[0], Reason: pauseReason, BreakLock: pauseBreakLock,
 			}, "schedule pause")
 		},
 	}
 	pauseCmd.Flags().StringVar(&pauseReason, "reason", "", "why this job is being stopped; kept on the host and shown by ob status")
+	// A running job holds the application lock for its whole run, and a
+	// crashed deploy leaves that lock behind. Without this, pause is refused
+	// in exactly the situations someone reaches for it.
+	pauseCmd.Flags().BoolVar(&pauseBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	scheduleCmd.AddCommand(pauseCmd)
 
+	var resumeBreakLock bool
 	resumeCmd := &cobra.Command{
 		Use:   "resume <job>",
 		Short: "start a paused scheduled job's timer again",
@@ -218,10 +231,11 @@ func addScheduleCommands(root *cobra.Command, g *globalFlags) {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMutation(cmd, g, onebox.ExecuteRequest{
-				Kind: onebox.KindScheduleResume, Job: args[0],
+				Kind: onebox.KindScheduleResume, Job: args[0], BreakLock: resumeBreakLock,
 			}, "schedule resume")
 		},
 	}
+	resumeCmd.Flags().BoolVar(&resumeBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	scheduleCmd.AddCommand(resumeCmd)
 
 	root.AddCommand(scheduleCmd)

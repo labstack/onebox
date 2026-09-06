@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -1447,7 +1448,7 @@ func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
 	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	// The note is keyed to this activation, so it cannot be mistaken for the
 	// state file of the run that holds the lock.
-	if !strings.Contains(runner, `skip_marker="$state.skip.${INVOCATION_ID:-$$}"`) ||
+	if !strings.Contains(runner, `skip_marker="$state.skip.${INVOCATION_ID:-}"`) ||
 		!strings.Contains(runner, `stand_aside() { umask 077; printf 'skipped=%s\noperation=%s\ninputs=%s\n' "$1" "$operation" "$inputs_json" >"$skip_marker"`) {
 		t.Fatalf("runner has no lock-less skip note:\n%s", runner)
 	}
@@ -1580,5 +1581,26 @@ func TestScheduledJobNotifierReadsAStandAsideNoteAndSpareTheRunningState(t *test
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the stand-aside note survived its own notifier")
+	}
+}
+
+// The runner writes the stand-aside note and the notifier reads it. They name
+// it with the same expression or the note is invisible, and the notifier goes
+// back to the state file belonging to the run that is still going.
+func TestScheduleSkipMarkerIsNamedIdenticallyOnBothSides(t *testing.T) {
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	cfg := testConfig()
+	e := New(cfg, testProject(t), &transport.Fake{TargetName: "root@example.internal"}, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
+	notifier, err := e.scheduleNotifier(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := regexp.MustCompile(`skip_marker="[^"]+"`)
+	inRunner := marker.FindString(runner)
+	inNotifier := marker.FindString(notifier)
+	if inRunner == "" || inRunner != inNotifier {
+		t.Fatalf("runner names the note %q and the notifier %q", inRunner, inNotifier)
 	}
 }

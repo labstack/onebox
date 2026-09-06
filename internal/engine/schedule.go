@@ -281,7 +281,10 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 		// rather than the state a different run is still writing. Without the
 		// note the notifier would see a clean exit and record this activation
 		// as a success that never ran.
-		"skip_marker=\"$state.skip.${INVOCATION_ID:-$$}\"",
+		// Named for the activation, the same way the notifier looks for it.
+		// The two have to agree exactly: a marker the notifier cannot find
+		// sends it back to the state file, which is the run in flight's.
+		"skip_marker=\"$state.skip.${INVOCATION_ID:-}\"",
 		"stand_aside() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$skip_marker\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
 		"exec 9>" + q(names.ScheduledJobRunLock(job)),
 		"/usr/bin/flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'",
@@ -296,10 +299,9 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 // SyncSchedules asks again so `ob schedule apply` cannot bypass it.
 //
 // systemd 252 introduced TRIGGER_UNIT, which is how the runner tells a timer
-// firing from an operator's start. On an older systemd every activation would
-// look manual: recorded as such, and consuming a pending inputs file that was
-// meant for the operator's run. The floor applies to every scheduled job, not
-// only those with inputs, because the record's trigger is part of the contract.
+// firing from an operator's start. The floor applies only to a job that
+// declares inputs, and to `ob schedule run`; see below for why, and why a host
+// that has been running scheduled jobs for years is not refused one.
 func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJob) error {
 	if len(jobs) == 0 {
 		return nil

@@ -1090,11 +1090,11 @@ func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 		}
 	}
 	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
-	if strings.Contains(single, "while :; do") {
+	if strings.Contains(single, "max_attempts=") {
 		t.Errorf("a single-attempt job must not carry a retry loop:\n%s", single)
 	}
 	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute)
-	if !strings.Contains(pinned, "while :; do") || strings.Index(pinned, "flock --unlock 8") > strings.Index(pinned, "while :; do") {
+	if !strings.Contains(pinned, "max_attempts=") || strings.Index(pinned, "flock --unlock 8") > strings.Index(pinned, "max_attempts=") {
 		t.Errorf("pinned runner must release the schedule mutex before its attempt loop:\n%s", pinned)
 	}
 	for _, script := range []string{runner, single, pinned} {

@@ -81,15 +81,22 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	}
 
 	// noclobber: a second manual run before the first is consumed would
-	// otherwise rewrite the file under it and misattribute the inputs.
+	// otherwise rewrite the file under it and misattribute the inputs. The
+	// existence check in front gives that case its own exit status, so a
+	// host that simply refuses the write is reported as that and not as a
+	// pending run nobody can find.
 	path := e.names().ScheduledJobRunInputs(name)
-	create := "umask 077 && install -d -m 700 " + q(e.names().AppDir()+"/schedule") + " && set -C && cat > " + q(path)
+	create := "if [ -e " + q(path) + " ]; then exit 73; fi; " +
+		"umask 077 && install -d -m 700 " + q(e.names().AppDir()+"/schedule") + " && set -C && cat > " + q(path)
 	res, err := e.T.RunInput(ctx, create, scheduleInputsFile(operationID, inputs))
 	if err != nil {
 		return result, err
 	}
-	if res.ExitCode != 0 {
+	switch {
+	case res.ExitCode == 73:
 		return result, fmt.Errorf("a manual run of %s is already pending (%s exists); wait for it, or remove the file on the host", name, path)
+	case res.ExitCode != 0:
+		return result, fmt.Errorf("cannot write the inputs file %s on the host: %s", path, strings.TrimSpace(res.Stderr))
 	}
 	// From here on the file is ours to clean up: a request that fails before
 	// the unit starts must not leave it behind to refuse the next one.
@@ -170,7 +177,7 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 // the read. Matching on the operation id means a record left by an earlier
 // run, or by a timer firing that took this slot, is never reported as ours.
 func (e *Engine) awaitScheduleRecord(ctx context.Context, name, operationID string) (*ScheduleRunRecord, error) {
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := range 10 {
 		if attempt > 0 {
 			e.Opts.Sleep(200 * time.Millisecond)
 		}

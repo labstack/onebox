@@ -50,13 +50,15 @@ type ScheduleListing struct {
 var scheduleRunID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 // scheduleHistoryCommand matches the record's own fields rather than the
-// unit journald attributed it to; see scheduleRunIdentifier for why.
+// unit journald attributed it to; see scheduleRunIdentifier for why. A read
+// that fails is left to fail: an empty history and an unreadable journal are
+// different answers, and only one of them means the job never ran.
 func scheduleHistoryCommand(unit string, n int) string {
 	if n <= 0 {
 		n = 20
 	}
 	return "journalctl SYSLOG_IDENTIFIER=" + scheduleRunIdentifier + " ONEBOX_UNIT=" + q(unit) +
-		" -o cat -r -n " + strconv.Itoa(n) + " --no-pager 2>/dev/null || true"
+		" -o cat -r -n " + strconv.Itoa(n) + " --no-pager"
 }
 
 // parseScheduleRunRecords keeps the lines that decode and drops the rest: a
@@ -99,6 +101,9 @@ func (e *Engine) ScheduleHistory(ctx context.Context, name string, n int) ([]Sch
 	res, err := e.T.Run(ctx, scheduleHistoryCommand(e.names().ScheduledJobUnit(job.Name), n))
 	if err != nil {
 		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("read run records of %s from the host journal (exit %d): %s", name, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	records := parseScheduleRunRecords(res.Stdout)
 	if records == nil {

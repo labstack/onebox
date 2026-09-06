@@ -258,11 +258,13 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 //
 // The application lock is honoured for as long as AcquireLock would honour it:
 // a lock older than the TTL belongs to a runner that died, and AcquireLock
-// takes it over, so the timer must not defer to it forever either.
+// takes it over, so the timer must not defer to it forever either. The age
+// comes from the same shell AcquireLock reads it with, in whole seconds, and
+// that shell fails closed: an unreadable lock reads as fresh.
 func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL time.Duration) []string {
-	ttlMinutes := int(math.Ceil(lockTTL.Minutes()))
-	if ttlMinutes < 1 {
-		ttlMinutes = 1
+	ttlSeconds := int(math.Ceil(lockTTL.Seconds()))
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
 	}
 	return []string{
 		"state=" + q(names.ScheduledJobRunState(job)),
@@ -274,7 +276,7 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 		"/usr/bin/flock --exclusive --nonblock 9 || skip 'another run of this job is still in progress'",
 		"exec 8>" + q(names.ScheduleRunLock()),
 		"/usr/bin/flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
-		"if [ -e " + q(applicationLock) + " ] && [ -z \"$(find " + q(applicationLock) + " -mmin +" + strconv.Itoa(ttlMinutes) + " 2>/dev/null)\" ]; then skip 'an application operation holds the deploy lock'; fi",
+		"if [ -e " + q(applicationLock) + " ] && [ \"$(" + lockAgeCmd(applicationLock) + ")\" -le " + strconv.Itoa(ttlSeconds) + " ]; then skip 'an application operation holds the deploy lock'; fi",
 	}
 }
 

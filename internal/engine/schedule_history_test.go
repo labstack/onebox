@@ -122,3 +122,17 @@ func TestScheduleLogsRefusesAJobWithoutRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleHistorySurfacesAJournalReadFailure(t *testing.T) {
+	e, f := scheduledFixture(t)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "journalctl") {
+			return transport.Result{ExitCode: 1, Stderr: "Failed to open journal: Permission denied"}, true
+		}
+		return transport.Result{}, false
+	}
+	_, err := e.ScheduleHistory(context.Background(), "nightly", 20)
+	if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("an unreadable journal was reported as an empty history: %v", err)
+	}
+}

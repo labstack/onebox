@@ -183,3 +183,46 @@ func TestScheduleRunDiscardsItsInputsWhenTheStartFails(t *testing.T) {
 		t.Fatalf("a failed start left the inputs file pending:\n%s", seq)
 	}
 }
+
+func TestScheduleRunTellsAPendingFileFromAWriteFailure(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["sync"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
+	}
+	for name, tc := range map[string]struct {
+		exit   int
+		stderr string
+		want   string
+		reject string
+	}{
+		"pending":   {73, "", "already pending", "cannot write"},
+		"read-only": {1, "cat: cannot create: Read-only file system", "Read-only file system", "already pending"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := happyFake()
+			base := f.Dynamic
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch {
+				case strings.Contains(cmd, "command -v flock"):
+					return transport.Result{Stdout: "ok\n"}, true
+				case strings.Contains(cmd, "systemctl is-active"):
+					return transport.Result{Stdout: "inactive\n"}, true
+				case strings.Contains(cmd, "sync.inputs"):
+					return transport.Result{ExitCode: tc.exit, Stderr: tc.stderr}, true
+				}
+				return base(cmd)
+			}
+			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			_, err := e.ScheduleRun(context.Background(), "op", "sync", nil, false)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), tc.reject) {
+				t.Fatalf("err = %v, want %q and not %q", err, tc.want, tc.reject)
+			}
+			for _, command := range f.Commands {
+				if strings.Contains(command, "systemctl start") {
+					t.Fatalf("a failed write still started the unit: %s", command)
+				}
+			}
+		})
+	}
+}

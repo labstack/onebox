@@ -9,6 +9,7 @@ read_when:
   - "Working out why a scheduled run failed, or whether it ran at all"
   - "Running a scheduled job now with different parameters"
   - "Resuming a failed job without repeating completed steps"
+  - "Handing a large result set from one step to the next"
   - "Understanding why a cron expression was refused"
   - "Working out how a scheduled job resolves secrets with no Onebox process running"
 ---
@@ -352,8 +353,8 @@ a native Onebox job with `schedule`, `when: manual` (the default), and
 `data_effect: none`. Adopted Compose jobs and release-phase jobs are refused.
 
 For one command, add `execution: {retention: 168h}` to the job. Onebox treats the
-job's existing command as one step with ID `main`. A job such as Porter's refresh
-can use this form while keeping its internal checkpoints in Porter.
+job's existing command as one step with ID `main`. An ingestion job that already
+keeps its own domain checkpoints can use this form and keep them where they are.
 
 For several ordered commands, declare steps:
 
@@ -392,6 +393,42 @@ must each fit within 16384 bytes. Keep large exports elsewhere and save a small
 reference or checksum. **Inputs and outputs are persisted operational metadata:
 never put credentials or other secrets in them.** Current credentials are
 resolved for an attempt; the execution record does not snapshot them.
+
+### Pass large results by reference
+
+These bounds intentionally limit step outputs to small operational metadata,
+such as identifiers, cursors, or checksums. They do not limit how much data a
+job can process. Thousands of row IDs can exceed the bounds; raising the limits
+alone would not solve large payload handoff, because step inputs are delivered
+through environment variables and outputs are retained in execution checkpoints.
+
+For a large result set, the application stores the data in its own database or
+artifact storage and returns a small reference:
+
+```yaml
+      steps:
+        - id: sync
+          command: ["./ingest", "sync"]
+          # `sync` stores the batch and writes {"BATCH":"batch-id"}
+          # to ONEBOX_OUTPUT_FILE.
+          outputs: [BATCH]
+        - id: index
+          command: ["./ingest", "index"]
+          inputs: {BATCH_ID: "sync.BATCH"}
+```
+
+`index` reads the batch using the `BATCH_ID` environment variable. To resume
+against the same data, the application must save the batch durably before
+returning its reference and retain it unchanged for as long as the execution
+remains resumable. Onebox retains the reference; the application owns the batch's
+availability, access control, and cleanup. References must not contain secrets,
+such as credentials embedded in a URL.
+
+A single command is also appropriate when the application already owns recovery
+for the whole operation. It can keep its own checkpoints and reconcile pending
+work without a separate batch handoff. Retrying that command starts it again,
+so its recovery logic must handle completed effects and unfinished work safely.
+Use separate steps when independent retries and resume boundaries are useful.
 
 Step IDs are unique. An input reference names a declared output of an earlier
 step as `stepID.OUTPUT`; forward and self references are refused. Input and output

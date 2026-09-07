@@ -394,40 +394,41 @@ reference or checksum. **Inputs and outputs are persisted operational metadata:
 never put credentials or other secrets in them.** Current credentials are
 resolved for an attempt; the execution record does not snapshot them.
 
-### A result set is a reference, not an output
+### Pass large results by reference
 
-Those bounds are the contract, not a current implementation limit. An output
-names *what* a later step should work on; it is not the transport for the work
-itself. A step that produced one identifier, a cursor, a batch number, or a
-content digest fits comfortably. A step that produced ten thousand row IDs does
-not, and raising the numbers would not help: outputs reach the next step as
-environment variables, and the checkpoint they live in is what makes a resume
-cheap to read and safe to replace whole.
+These bounds intentionally limit step outputs to small operational metadata,
+such as identifiers, cursors, or checksums. They do not limit how much data a
+job can process. Thousands of row IDs can exceed the bounds; raising the limits
+alone would not solve large payload handoff, because step inputs are delivered
+through environment variables and outputs are retained in execution checkpoints.
 
-So when a step's real result is a set, the application persists the set in its
-own storage and hands over one reference to it:
+For a large result set, the application stores the data in its own database or
+artifact storage and returns a small reference:
 
 ```yaml
       steps:
         - id: sync
           command: ["./ingest", "sync"]
-          # Not the IDs themselves: `sync` writes the batch to its own database
-          # and returns the key that names it.
+          # `sync` stores the batch and writes {"BATCH":"batch-id"}
+          # to ONEBOX_OUTPUT_FILE.
           outputs: [BATCH]
         - id: index
           command: ["./ingest", "index"]
           inputs: {BATCH_ID: "sync.BATCH"}
 ```
 
-`index` reads the batch back by its key, so the set can be any size and a resume
-still skips a completed `sync` and works on exactly what it produced.
+`index` reads the batch using the `BATCH_ID` environment variable. To resume
+against the same data, the application must save the batch durably before
+returning its reference and retain it unchanged for as long as the execution
+remains resumable. Onebox retains the reference; the application owns the batch's
+availability, access control, and cleanup. References must not contain secrets,
+such as credentials embedded in a URL.
 
-The alternative is worth naming, because for many jobs it is the better one: do
-the whole thing in one step. If the second stage is cheap to repeat, or a
-periodic reconciler already repairs whatever it missed, one command that does
-both needs no batch table, no reference, and no step boundary to get wrong.
-Declare steps when you want them recovered independently — not to pass data
-between two halves of one operation.
+A single command is also appropriate when the application already owns recovery
+for the whole operation. It can keep its own checkpoints and reconcile pending
+work without a separate batch handoff. Retrying that command starts it again,
+so its recovery logic must handle completed effects and unfinished work safely.
+Use separate steps when independent retries and resume boundaries are useful.
 
 Step IDs are unique. An input reference names a declared output of an earlier
 step as `stepID.OUTPUT`; forward and self references are refused. Input and output

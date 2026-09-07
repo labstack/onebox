@@ -9,6 +9,7 @@ read_when:
   - "Working out why a scheduled run failed, or whether it ran at all"
   - "Running a scheduled job now with different parameters"
   - "Resuming a failed job without repeating completed steps"
+  - "Handing a large result set from one step to the next"
   - "Understanding why a cron expression was refused"
   - "Working out how a scheduled job resolves secrets with no Onebox process running"
 ---
@@ -352,8 +353,8 @@ a native Onebox job with `schedule`, `when: manual` (the default), and
 `data_effect: none`. Adopted Compose jobs and release-phase jobs are refused.
 
 For one command, add `execution: {retention: 168h}` to the job. Onebox treats the
-job's existing command as one step with ID `main`. A job such as Porter's refresh
-can use this form while keeping its internal checkpoints in Porter.
+job's existing command as one step with ID `main`. An ingestion job that already
+keeps its own domain checkpoints can use this form and keep them where they are.
 
 For several ordered commands, declare steps:
 
@@ -392,6 +393,41 @@ must each fit within 16384 bytes. Keep large exports elsewhere and save a small
 reference or checksum. **Inputs and outputs are persisted operational metadata:
 never put credentials or other secrets in them.** Current credentials are
 resolved for an attempt; the execution record does not snapshot them.
+
+### A result set is a reference, not an output
+
+Those bounds are the contract, not a current implementation limit. An output
+names *what* a later step should work on; it is not the transport for the work
+itself. A step that produced one identifier, a cursor, a batch number, or a
+content digest fits comfortably. A step that produced ten thousand row IDs does
+not, and raising the numbers would not help: outputs reach the next step as
+environment variables, and the checkpoint they live in is what makes a resume
+cheap to read and safe to replace whole.
+
+So when a step's real result is a set, the application persists the set in its
+own storage and hands over one reference to it:
+
+```yaml
+      steps:
+        - id: sync
+          command: ["./ingest", "sync"]
+          # Not the IDs themselves: `sync` writes the batch to its own database
+          # and returns the key that names it.
+          outputs: [BATCH]
+        - id: index
+          command: ["./ingest", "index"]
+          inputs: {BATCH_ID: "sync.BATCH"}
+```
+
+`index` reads the batch back by its key, so the set can be any size and a resume
+still skips a completed `sync` and works on exactly what it produced.
+
+The alternative is worth naming, because for many jobs it is the better one: do
+the whole thing in one step. If the second stage is cheap to repeat, or a
+periodic reconciler already repairs whatever it missed, one command that does
+both needs no batch table, no reference, and no step boundary to get wrong.
+Declare steps when you want them recovered independently — not to pass data
+between two halves of one operation.
 
 Step IDs are unique. An input reference names a declared output of an earlier
 step as `stepID.OUTPUT`; forward and self references are refused. Input and output

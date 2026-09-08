@@ -82,10 +82,10 @@ cleanup_guest() {
 	limactl delete -f "$instance" || cleanup_status=$?
 	if ((cleanup_status != 0)); then
 		if ((run_status != 0)); then
-			echo "server E2E failed with status ${run_status}; deleting ${instance} also failed" >&2
+			echo "server E2E failed with status ${run_status}; deleting ${instance} also failed with status ${cleanup_status}" >&2
 			exit "$run_status"
 		fi
-		echo "server E2E passed, but deleting ${instance} failed" >&2
+		echo "server E2E passed, but deleting ${instance} failed with status ${cleanup_status}" >&2
 		exit "$cleanup_status"
 	fi
 

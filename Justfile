@@ -206,8 +206,8 @@ e2e:
 
 # Boot the throwaway server the `server-e2e` suite deploys to.
 #
-# Separate from the suite because the guest outlives a test run: booting takes
-# about a minute, and iterating on a failing case should not pay for it again.
+# Separate from the suite so a guest can be booted once and reused across
+# several hand-run cases; `server-e2e` boots one itself and removes it again.
 lima-up:
     bash scripts/lima.sh up
 
@@ -218,9 +218,12 @@ lima-down:
 # SSH, which is the transport every operator uses and the one the Docker suite
 # substitutes local docker for.
 #
-# It boots the guest first rather than failing on a missing one, because the
-# common case is not having booted it, and `lima-up` reuses a running instance.
-server-e2e: lima-up
+# The harness boots the guest rather than failing on a missing one, because the
+# common case is not having booted it, and it reuses a running instance.
+# The guest is removed afterwards, pass or fail, since the suite deploys into
+# it and a reused one would no longer be the bare machine the tests assume.
+# Set ONEBOX_KEEP_GUEST=1 to leave it standing for debugging.
+server-e2e:
     bash scripts/lima.sh test
 
 # Print the connection the suite uses, for running a single case by hand:

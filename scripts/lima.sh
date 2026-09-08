@@ -75,9 +75,37 @@ env_lines() {
 	printf 'ONEBOX_E2E_SERVER_KEY=%s\n' "$key"
 }
 
+cleanup_guest() {
+	local run_status=$? cleanup_status=0
+	trap - EXIT
+
+	limactl delete -f "$instance" || cleanup_status=$?
+	if ((cleanup_status != 0)); then
+		if ((run_status != 0)); then
+			echo "server E2E failed with status ${run_status}; deleting ${instance} also failed with status ${cleanup_status}" >&2
+			exit "$run_status"
+		fi
+		echo "server E2E passed, but deleting ${instance} failed with status ${cleanup_status}" >&2
+		exit "$cleanup_status"
+	fi
+
+	exit "$run_status"
+}
+
 run_tests() {
+	# The guest is disposable and the suite deploys into it, so leaving one
+	# behind means the next run starts from a machine the last run altered.
+	# Removing it on the way out costs a boot per run; ONEBOX_KEEP_GUEST=1
+	# keeps it for iterating on a failure, which is the case that wants the
+	# machine still standing.
+	if [[ "${ONEBOX_KEEP_GUEST:-}" != "1" ]]; then
+		trap cleanup_guest EXIT
+	fi
+	up
+
 	local -a env=()
 	while IFS= read -r line; do env+=("$line"); done < <(env_lines)
+
 	# -count=1 because a cached pass against a guest that has since changed is
 	# a green tick for work nobody did.
 	env ONEBOX_E2E=1 "${env[@]}" \

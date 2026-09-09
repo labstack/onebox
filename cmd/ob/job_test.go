@@ -221,6 +221,11 @@ func TestApprovalTokenRefusesAnUnrecognisedKind(t *testing.T) {
 			t.Fatalf("kind %q token = %q %q, want empty so the caller refuses", operation.Kind, label, want)
 		}
 	}
+	// The guard in confirmPlanApprovalAt keys on an empty value, not on the
+	// kind, so a deploy that somehow carries no release id must reach it too.
+	if _, want := approvalToken(onebox.OperationPlan{Kind: onebox.KindDeploy}); want != "" {
+		t.Fatalf("deploy with no release id yielded token %q, want empty", want)
+	}
 }
 
 func TestStrongApprovalRefusesWhenItCannotNameTheTarget(t *testing.T) {
@@ -232,6 +237,9 @@ func TestStrongApprovalRefusesWhenItCannotNameTheTarget(t *testing.T) {
 	var out bytes.Buffer
 	root := newRootCmd()
 	root.SetOut(&out)
+	// A bare newline is the exact input the guard exists to reject; without
+	// setting it the test would pass on the runner's empty stdin instead.
+	root.SetIn(strings.NewReader("\n"))
 	if confirmPlanApprovalAt(root, &plan, &out) {
 		t.Fatalf("approved without naming a target: %s", out.String())
 	}
@@ -240,5 +248,26 @@ func TestStrongApprovalRefusesWhenItCannotNameTheTarget(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "to approve:") {
 		t.Fatalf("prompted for a token it could not name: %s", out.String())
+	}
+}
+
+// The outcome of a mismatch is `cancelled`, whose registry guidance points at
+// the journal — which approving never touches. The prompt itself has to say
+// what it wanted, or a pipeline still sending a release ID for a job learns
+// nothing from the failure.
+func TestStrongJobApprovalExplainsAMismatch(t *testing.T) {
+	plan := cliJobPlanWith(t, onebox.DataEffectDestructive, onebox.RiskCritical, onebox.ApprovalStrong)
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetIn(strings.NewReader(plan.Operation.ReleaseID + "\n"))
+	if confirmPlanApprovalAt(root, &plan, &out) {
+		t.Fatalf("release ID approved a job run: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "confirmation did not match the job name maintenance") {
+		t.Fatalf("mismatch did not say what was expected: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "nothing was recorded") {
+		t.Fatalf("mismatch did not say nothing happened: %s", out.String())
 	}
 }

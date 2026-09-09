@@ -81,7 +81,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		// A typed answer that does not match records nothing and exits
 		// `cancelled`, which is a different code and a different outcome.
 		Message: "the backup report for this local confirmation could not be loaded or does not bind to the plan",
-		Command: "ob approve --plan <path>",
+		// Naming --plan alone would publish the command that skips the report,
+		// so re-running the guidance verbatim would "succeed" by dropping the
+		// input that failed.
+		Command: "ob approve --plan <path> --backup-report <path>",
 	},
 	"divergence_detected": {
 		Message: "the live release does not match the recorded release state",

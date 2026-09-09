@@ -955,7 +955,15 @@ func confirmPlanApprovalAt(cmd *cobra.Command, plan onebox.ExecutablePlan, out i
 	}
 	fmt.Fprintf(out, "Type %s %s to approve: ", label, want)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	return strings.TrimSpace(line) == want
+	if strings.TrimSpace(line) == want {
+		return true
+	}
+	// A mismatch exits `cancelled`, whose published guidance points at the
+	// journal — which approving never touches. Without this line an operator,
+	// or a pipeline still sending a release ID for a job, is told only that
+	// something was cancelled.
+	fmt.Fprintf(out, "confirmation did not match the %s %s; nothing was recorded\n", label, want)
+	return false
 }
 
 func confirmInteractiveDeploy(cmd *cobra.Command, plan *onebox.DeployPlan) bool {

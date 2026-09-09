@@ -81,6 +81,12 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 	stopHB := e.StartHeartbeat(ctx)
 	defer stopHB()
+	// A deploy rolls workloads and runs its own gate jobs; an orphaned job run
+	// still changing data underneath it is exactly the overlap the lock exists
+	// to prevent, and the lock alone does not catch it once its holder is gone.
+	if err := e.reconcileOrphanedJobRuns(ctx); err != nil {
+		return err
+	}
 	// The plan binding is the mutation boundary. Check it under the application
 	// lock before converging even host-scoped support components; a stale plan
 	// must leave both the application and proxy untouched.

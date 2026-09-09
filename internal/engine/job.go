@@ -66,6 +66,12 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	stopHeartbeat := e.StartHeartbeat(ctx)
 	defer stopHeartbeat()
 
+	// Under the lock, before anything mutates: a previous run of this or any
+	// job may still be on the host with no process owning it.
+	if err := e.reconcileOrphanedJobRuns(ctx); err != nil {
+		return operationID, nil, err
+	}
+
 	current, err := release.Current(ctx, e.T, e.names())
 	if err != nil {
 		return operationID, nil, err

@@ -117,7 +117,10 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		// a failure, so the reason has to ride on ErrorCode.
 		journalContext := ctx
 		if interruptedRun(ctx, runErr) {
-			record.Status, record.ErrorCode = "fail", "interrupted"
+			record = journal.Record{
+				Phase: "job", Event: "finish", Status: "fail", ErrorCode: "interrupted",
+				OperationKind: "job_run", Service: job,
+			}
 			var cancel context.CancelFunc
 			journalContext, cancel = context.WithTimeout(context.Background(), journalCleanupTimeout)
 			defer cancel()

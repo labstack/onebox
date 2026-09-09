@@ -154,8 +154,9 @@ func renderJobPlan(cmd *cobra.Command, plan *onebox.JobPlan) {
 	fmt.Fprintf(cmd.OutOrStdout(), "  release:  %s\n", plan.Artifact.CurrentRelease)
 	fmt.Fprintf(cmd.OutOrStdout(), "  image:    %s\n", plan.Artifact.Image)
 	fmt.Fprintf(cmd.OutOrStdout(), "  effect:   %s\n", plan.Artifact.DataEffect)
+	fmt.Fprintf(cmd.OutOrStdout(), "  digest:   %s\n", plan.PlanDigest)
 	fmt.Fprintf(cmd.OutOrStdout(), "  risk:     %s (%s)\n", operation.Risk, operation.Approval)
-	fmt.Fprintf(cmd.OutOrStdout(), "  target:   %s\n", operation.Binding.Server)
+	fmt.Fprintf(cmd.OutOrStdout(), "  target:   %s (%s/%s)\n", operation.Binding.Server, operation.Binding.Application, operation.Binding.Environment)
 	fmt.Fprintf(cmd.OutOrStdout(), "  expires:  %s\n", operation.ExpiresAt)
 	if plan.MigrationBackup != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "  backup:   required (%d resources)\n", len(plan.MigrationBackup.Resources))
@@ -230,7 +231,8 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 	}
 	var approval *onebox.ApprovalGrant
 	if plan.Operation.Approval != onebox.ApprovalNone {
-		renderApprovalSummary(cmd, &plan)
+		// renderJobPlan above already showed every field the approval summary
+		// carries; printing both repeated release, risk, target and expires.
 		if !confirmPlanApproval(cmd, &plan) {
 			fmt.Fprintln(cmd.OutOrStdout(), "not approved")
 			return writeCancelled(cmd, g, "job approval cancelled")

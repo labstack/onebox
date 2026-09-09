@@ -124,7 +124,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	approveCmd := &cobra.Command{
 		Use:   "approve",
 		Short: "record a local human confirmation for one exact executable plan",
-		Long:  "Record a short-lived local confirmation bound to one exact plan and, when supplied, one exact backup report.\n\nPrompts for confirmation, because approving is a human act: a routine plan\nasks yes or no, and one that touches data asks for the release identifier to\nbe typed back. There is no flag to skip it. The artifact is tamper-evident but\nis not an authenticated identity-provider signature. Contacts nothing.",
+		Long:  "Record a short-lived local confirmation bound to one exact plan and, when supplied, one exact backup report.\n\nPrompts for confirmation, because approving is a human act: a routine plan\nasks yes or no, and one that touches data asks for its identity to be typed\nback \u2014 the release ID for a deploy, the job name for a job run. There is no flag to skip it. The artifact is tamper-evident but\nis not an authenticated identity-provider signature. Contacts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runApprove(cmd, g, approvePlanFile, approveBackupReportFile, approveOut)
 		},
@@ -882,11 +882,42 @@ func renderApprovalSummaryTo(out io.Writer, plan onebox.ExecutablePlan) {
 	binding := operation.Binding
 	fmt.Fprintf(out, "\nApprove exact plan:\n")
 	fmt.Fprintf(out, "  operation: %s\n", operation.Kind)
-	fmt.Fprintf(out, "  release: %s\n", operation.ReleaseID)
-	fmt.Fprintf(out, "  digest:  %s\n", plan.ExecutablePlanDigest())
-	fmt.Fprintf(out, "  target:  %s (%s/%s)\n", binding.Server, binding.Application, binding.Environment)
-	fmt.Fprintf(out, "  risk:    %s (%s)\n", operation.Risk, operation.Approval)
-	fmt.Fprintf(out, "  expires: %s\n", operation.ExpiresAt)
+	// A job run's release is the one it runs inside, so without this the whole
+	// summary — and the token below it — never says which job is about to run.
+	if step, ok := jobStepOf(operation); ok {
+		fmt.Fprintf(out, "  job:       %s (%s)\n", step.Component, step.DataEffect)
+	}
+	fmt.Fprintf(out, "  release:   %s\n", operation.ReleaseID)
+	fmt.Fprintf(out, "  digest:    %s\n", plan.ExecutablePlanDigest())
+	fmt.Fprintf(out, "  target:    %s (%s/%s)\n", binding.Server, binding.Application, binding.Environment)
+	fmt.Fprintf(out, "  risk:      %s (%s)\n", operation.Risk, operation.Approval)
+	fmt.Fprintf(out, "  expires:   %s\n", operation.ExpiresAt)
+}
+
+// jobStepOf returns the one job step a sealed job plan carries. JobPlan
+// validation guarantees exactly one, matching the artifact's job and data
+// effect, so the caller does not have to reconcile them.
+func jobStepOf(operation onebox.OperationPlan) (onebox.OperationStep, bool) {
+	if operation.Kind != onebox.KindJobRun {
+		return onebox.OperationStep{}, false
+	}
+	for _, step := range operation.Steps {
+		if step.Kind == onebox.StepJob {
+			return step, true
+		}
+	}
+	return onebox.OperationStep{}, false
+}
+
+// approvalToken is what a strong confirmation asks to be typed back: the thing
+// the plan acts on. A deploy mints a release, so its release ID identifies it.
+// A job runs inside the release already serving — every job planned against
+// that release shares its ID — so for a job the name is what identifies it.
+func approvalToken(operation onebox.OperationPlan) (label, want string) {
+	if step, ok := jobStepOf(operation); ok {
+		return "job name", step.Component
+	}
+	return "release ID", operation.ReleaseID
 }
 
 func confirmPlanApproval(cmd *cobra.Command, plan onebox.ExecutablePlan) bool {
@@ -898,11 +929,12 @@ func confirmPlanApprovalAt(cmd *cobra.Command, plan onebox.ExecutablePlan, out i
 	if operation.Approval == onebox.ApprovalNone {
 		return true
 	}
+	fmt.Fprintln(out)
 	if operation.Approval != onebox.ApprovalStrong && operation.Approval != onebox.ApprovalBreakGlass {
 		return confirmAt(cmd, out, "Approve this exact plan?")
 	}
-	want := operation.ReleaseID
-	fmt.Fprintf(out, "Type release ID %s to approve: ", want)
+	label, want := approvalToken(operation)
+	fmt.Fprintf(out, "Type %s %s to approve: ", label, want)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	return strings.TrimSpace(line) == want
 }

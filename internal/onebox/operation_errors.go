@@ -76,7 +76,7 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "the project file could not be written",
 	},
 	"confirmation_failed": {
-		Message: "the typed confirmation did not match the release identifier",
+		Message: "the typed confirmation did not match the plan identity it asked for",
 		Command: "ob approve --plan <path>",
 	},
 	"divergence_detected": {

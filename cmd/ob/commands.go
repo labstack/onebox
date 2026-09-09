@@ -913,11 +913,23 @@ func jobStepOf(operation onebox.OperationPlan) (onebox.OperationStep, bool) {
 // the plan acts on. A deploy mints a release, so its release ID identifies it.
 // A job runs inside the release already serving — every job planned against
 // that release shares its ID — so for a job the name is what identifies it.
+//
+// Enumerated rather than defaulted. Asking for the release ID whenever the kind
+// is unrecognised is the exact defect this function exists to fix, and a future
+// executable kind would inherit it silently. An unknown kind returns no token,
+// and the caller refuses.
 func approvalToken(operation onebox.OperationPlan) (label, want string) {
-	if step, ok := jobStepOf(operation); ok {
-		return "job name", step.Component
+	switch operation.Kind {
+	case onebox.KindJobRun:
+		if step, ok := jobStepOf(operation); ok {
+			return "job name", step.Component
+		}
+		return "", ""
+	case onebox.KindDeploy:
+		return "release ID", operation.ReleaseID
+	default:
+		return "", ""
 	}
-	return "release ID", operation.ReleaseID
 }
 
 func confirmPlanApproval(cmd *cobra.Command, plan onebox.ExecutablePlan) bool {
@@ -934,6 +946,13 @@ func confirmPlanApprovalAt(cmd *cobra.Command, plan onebox.ExecutablePlan, out i
 		return confirmAt(cmd, out, "Approve this exact plan?")
 	}
 	label, want := approvalToken(operation)
+	// A ceremony that cannot say what it is asking for must not accept an
+	// answer. Without this an empty token would approve on a bare newline,
+	// which is the opposite of what the strong class means.
+	if want == "" {
+		fmt.Fprintf(out, "cannot identify what operation %q acts on — refusing to approve\n", operation.Kind)
+		return false
+	}
 	fmt.Fprintf(out, "Type %s %s to approve: ", label, want)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	return strings.TrimSpace(line) == want

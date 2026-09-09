@@ -206,3 +206,39 @@ func TestApprovalTokenNamesWhatThePlanActsOn(t *testing.T) {
 		t.Fatalf("deploy token = %q %q, want \"release ID\" \"R7\"", label, want)
 	}
 }
+
+// The fallback must not be "ask for the release ID", which is the defect
+// approvalToken exists to fix: a future executable kind would inherit it in
+// silence. An unrecognised kind yields no token, and the prompt refuses rather
+// than accepting a bare newline.
+func TestApprovalTokenRefusesAnUnrecognisedKind(t *testing.T) {
+	for _, operation := range []onebox.OperationPlan{
+		{Kind: onebox.KindScheduleRun, ReleaseID: "R7"},
+		{Kind: onebox.KindJobRun, ReleaseID: "R7"}, // job_run carrying no job step
+		{ReleaseID: "R7"}, // no kind at all
+	} {
+		if label, want := approvalToken(operation); label != "" || want != "" {
+			t.Fatalf("kind %q token = %q %q, want empty so the caller refuses", operation.Kind, label, want)
+		}
+	}
+}
+
+func TestStrongApprovalRefusesWhenItCannotNameTheTarget(t *testing.T) {
+	plan := cliJobPlanWith(t, onebox.DataEffectDestructive, onebox.RiskCritical, onebox.ApprovalStrong)
+	// A job plan whose job step is gone cannot say what it acts on. Validation
+	// prevents this reaching the prompt today; the guard is what keeps a future
+	// path from approving on a bare newline.
+	plan.Operation.Steps = nil
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	if confirmPlanApprovalAt(root, &plan, &out) {
+		t.Fatalf("approved without naming a target: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "cannot identify what operation") {
+		t.Fatalf("refusal did not say why: %s", out.String())
+	}
+	if strings.Contains(out.String(), "to approve:") {
+		t.Fatalf("prompted for a token it could not name: %s", out.String())
+	}
+}

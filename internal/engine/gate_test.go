@@ -142,7 +142,7 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 		t.Fatalf("deploy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "run --rm --no-deps -e ONEBOX_RESULT_FILE=/run/onebox/job-result") {
+	if !strings.Contains(seq, "run --rm --no-deps") || !strings.Contains(seq, "-e ONEBOX_RESULT_FILE=/run/onebox/job-result") {
 		t.Fatalf("a job without a hook must auto-run compose run:\n%s", seq)
 	}
 	// gate protocol still applies to the auto-run job.
@@ -266,7 +266,7 @@ func TestUnknownJobMessagesExplainRollbackConsequence(t *testing.T) {
 	t.Run("no result declaration", func(t *testing.T) {
 		f := happyFake()
 		e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-		safe, detail, err := e.runOneJob(context.Background(), "migrate", "/remote", "/remote/compose.yaml")
+		safe, detail, err := e.runOneJob(context.Background(), "op-1", 1, "migrate", "/remote", "/remote/compose.yaml")
 		if err != nil {
 			t.Fatalf("run job: %v", err)
 		}
@@ -282,7 +282,7 @@ func TestUnknownJobMessagesExplainRollbackConsequence(t *testing.T) {
 		e := New(cfg, testProject(t), happyFake(), Options{
 			Out: &bytes.Buffer{}, Sleep: noSleep, LocalDir: t.TempDir(),
 		})
-		safe, detail, err := e.runOneJob(context.Background(), "migrate", "/remote", "/remote/compose.yaml")
+		safe, detail, err := e.runOneJob(context.Background(), "op-1", 1, "migrate", "/remote", "/remote/compose.yaml")
 		if err != nil {
 			t.Fatalf("run local job: %v", err)
 		}
@@ -419,12 +419,47 @@ func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 		mount := strings.Index(c, "-v '"+resultFile+":/run/onebox/job-result:rw'")
 		sealedFile := strings.Index(c, "chmod 600 '"+resultFile+"'")
 		if strings.Contains(c, "rm -rf '"+resultDir+"'") &&
-			strings.Contains(c, "run --rm --no-deps -e ONEBOX_RESULT_FILE=/run/onebox/job-result") &&
+			strings.Contains(c, "run --rm --no-deps") && strings.Contains(c, "-e ONEBOX_RESULT_FILE=/run/onebox/job-result") &&
 			privateDir >= 0 && privateDir < writableFile && writableFile < mount && mount < sealedFile {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("migrate container must receive a privately staged, writable, subsequently sealed result file:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
+// Without an operation label nothing on the host ties a running one-off
+// container back to the journal that started it, so an interrupted run cannot
+// be refused or reconciled — only guessed at.
+func TestJobContainerCarriesItsOperationIdentity(t *testing.T) {
+	f := happyFake()
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if _, _, err := e.runOneJob(context.Background(), "20260909-053225-abc-job_run-deadbeef", 7, "migrate", "/remote", "/remote/compose.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, want := range []string{
+		"--label 'ob.operation=20260909-053225-abc-job_run-deadbeef'",
+		"--label 'ob.epoch=7'",
+	} {
+		if !strings.Contains(seq, want) {
+			t.Fatalf("job container missing %s:\n%s", want, seq)
+		}
+	}
+}
+
+func TestInjectComposeJobLabelsOnlyTouchesAComposeRun(t *testing.T) {
+	got, ok := injectComposeJobLabels("docker compose -f x.yml run --rm migrate", "op-1", 2)
+	if !ok || !strings.Contains(got, "--label 'ob.operation=op-1'") || !strings.Contains(got, "--label 'ob.epoch=2'") {
+		t.Fatalf("compose run = %q ok=%v", got, ok)
+	}
+	// A hook that is not a compose run has no container to label.
+	if got, ok := injectComposeJobLabels("/usr/local/bin/migrate.sh", "op-1", 2); ok || got != "/usr/local/bin/migrate.sh" {
+		t.Fatalf("non-compose hook = %q ok=%v", got, ok)
+	}
+	// No operation identity, nothing to add.
+	if got, ok := injectComposeJobLabels("docker compose run --rm migrate", "", 0); ok || got != "docker compose run --rm migrate" {
+		t.Fatalf("empty operation = %q ok=%v", got, ok)
 	}
 }

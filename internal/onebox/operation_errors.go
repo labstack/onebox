@@ -119,6 +119,14 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "this host is owned by a different Onebox application, and one host has one owner",
 		Command: "ob preflight --output json",
 	},
+	"interrupted": {
+		// Not a failure of the job and not an incomplete operation: the client
+		// went away, and what the job did is unknown unless it journaled a
+		// result first. Written by the interrupted run itself, on a context of
+		// its own, whenever it can still reach the host.
+		Message: "the operation's client went away before its outcome could be recorded",
+		Command: "ob audit --output json",
+	},
 	"job_plan_failed": {
 		Message: "the one-shot job plan could not be produced",
 		Command: "ob job plan <job> --output json",

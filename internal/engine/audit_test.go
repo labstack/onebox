@@ -129,3 +129,29 @@ func TestAuditReportsFailedJobRun(t *testing.T) {
 		t.Fatalf("failed job run audit = %+v", records)
 	}
 }
+
+// An interrupted run is neither a job failure nor incomplete-forever: the
+// client went away and the outcome is unknown. The record carries Status fail,
+// so it also matches the failure arm and the ordering is what distinguishes it.
+func TestAuditDistinguishesAnInterruptedJobRun(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: "job-3.jsonl\n"}, true
+		case strings.Contains(cmd, "job-3.jsonl"):
+			return transport.Result{Stdout: journalLines(
+				journal.Record{DeployID: "job-3", Phase: "job", Event: "start", Status: "ok", OperationKind: "job_run", Service: "catalog-refresh", Operator: "v@mac", TS: "t1"},
+				journal.Record{DeployID: "job-3", Phase: "job", Event: "finish", Status: "fail", ErrorCode: "interrupted", OperationKind: "job_run", Service: "catalog-refresh"},
+			)}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	records, err := e.AuditSnapshot(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "interrupted" || records[0].Service != "catalog-refresh" {
+		t.Fatalf("interrupted job audit = %+v", records)
+	}
+}

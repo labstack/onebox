@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
@@ -43,7 +44,22 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	if err != nil {
 		return operationID, nil, err
 	}
-	defer e.ReleaseLock(ctx)
+	// Released unless an interrupted run left this operation's container alive.
+	// ReleaseLock runs on its own background context, so on Ctrl-C it succeeds
+	// while the terminal journal append — which uses the cancelled one — does
+	// not: ownership would be dropped, immediately and silently, over a
+	// container still changing data.
+	holdLockForLiveContainer := false
+	defer func() {
+		if holdLockForLiveContainer {
+			e.warnf("operation %s was interrupted while its container is still running; "+
+				"keeping the application lock so nothing else mutates alongside it. "+
+				"Inspect with `docker ps --filter label=%s=%s`; the lock expires on its own after %s",
+				operationID, JobOperationLabel, operationID, e.lockTTL())
+			return
+		}
+		e.ReleaseLock(ctx)
+	}()
 	if err := e.WriteFence(ctx, operationID, epoch); err != nil {
 		return operationID, nil, err
 	}
@@ -93,7 +109,42 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 			record.Status = "fail"
 			record.Detail = runErr.Error()
 		}
-		if journalErr := writer.Append(ctx, record); journalErr != nil {
+		// A cancelled context is exactly when the terminal record matters most,
+		// and exactly when appending on that context cannot work. `ob exec`
+		// already writes its own on a bounded background context; without the
+		// same here an interrupted job stays INCOMPLETE in `ob audit` forever,
+		// with no record that it was ever interrupted. Append redacts Detail on
+		// a failure, so the reason has to ride on ErrorCode.
+		// Two independent questions. WHERE to append: a cancelled caller context
+		// cannot carry the write, whatever the run did, so a job that finished
+		// cleanly a moment before Ctrl-C still records its success. WHAT to
+		// record: only a run that ended because the client went away is
+		// interrupted — an outcome the job itself produced is its own.
+		journalContext := ctx
+		if ctx.Err() != nil {
+			var cancel context.CancelFunc
+			journalContext, cancel = context.WithTimeout(context.Background(), journalCleanupTimeout)
+			defer cancel()
+		}
+		if interruptedRun(ctx, runErr) {
+			record = journal.Record{
+				Phase: "job", Event: "finish", Status: "fail", ErrorCode: "interrupted",
+				OperationKind: "job_run", Service: job,
+			}
+		}
+		journalErr := writer.Append(journalContext, record)
+		if journalErr != nil && journalContext == ctx && ctx.Err() != nil {
+			// Cancellation can land during the write as easily as before it, and
+			// the check above only sees a context that was already gone. Retried
+			// only when the context died in the meantime: any other failure —
+			// a full disk, a refused write — may have landed on the host after
+			// reporting an error, and appending a second terminal record is
+			// worse than reporting the first failure.
+			retryContext, cancel := context.WithTimeout(context.Background(), journalCleanupTimeout)
+			defer cancel()
+			journalErr = writer.Append(retryContext, record)
+		}
+		if journalErr != nil {
 			return errors.Join(runErr, fmt.Errorf("journal job finish: %w", journalErr))
 		}
 		return runErr
@@ -121,10 +172,52 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	e.gateOpen = true
 	e.rollbackCovered = true
 	runErr := e.runJobPhase(ctx, writer, nil, remoteDir, remoteCompose, "job", []string{job})
+	if interruptedRun(ctx, runErr) {
+		// Cancelling the client kills at most the wrapper shell; the container
+		// belongs to the daemon and keeps running.
+		holdLockForLiveContainer = e.jobContainerRunning(operationID)
+	}
 	var result *journal.JobResultEvidence
 	if evidence, ok := e.jobResults[job]; ok {
 		resultCopy := evidence
 		result = &resultCopy
 	}
 	return operationID, result, finish(runErr)
+}
+
+const journalCleanupTimeout = 5 * time.Second
+
+// interruptedRun reports a run that ended because the client went away rather
+// than because the job finished.
+//
+// A run that produced no error finished, whatever became of the client
+// afterwards — its outcome is its own and must be recorded as such. Only once
+// the run failed does a gone context mean the client is why. The transport does
+// not always surface a cancelled context as context.Canceled, so a failure
+// under a cancelled context counts even when the error says something else.
+func interruptedRun(ctx context.Context, runErr error) bool {
+	if runErr == nil {
+		return false
+	}
+	return ctx.Err() != nil ||
+		errors.Is(runErr, context.Canceled) ||
+		errors.Is(runErr, context.DeadlineExceeded)
+}
+
+// jobContainerRunning answers whether this operation's one-off container is
+// still alive, on a context of its own because the caller's is already gone.
+// An unreadable answer is reported as running: keeping the lock over a
+// container that has in fact exited costs an operator one `--break-lock`, while
+// releasing it over one that has not costs them concurrent writers.
+func (e *Engine) jobContainerRunning(operationID string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), journalCleanupTimeout)
+	defer cancel()
+	res, err := e.T.Run(ctx, "docker ps -q --filter label="+q(JobOperationLabel+"="+operationID))
+	if err != nil {
+		return true
+	}
+	if res.ExitCode != 0 {
+		return true
+	}
+	return strings.TrimSpace(res.Stdout) != ""
 }

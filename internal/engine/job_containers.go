@@ -35,7 +35,7 @@ func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperatio
 		if c.operation == currentOperationID {
 			return fmt.Errorf(
 				"an earlier run of operation %s (epoch %s) left a job container running on this host (%.12s); "+
-					"wait for it to finish, or establish what it did and stop it with `docker rm -f %.12s`",
+					"wait for it to finish, or establish what it did and stop it with `docker rm -f %s`",
 				c.operation, labelOrUnknown(c.epoch), c.id, c.id)
 		}
 		if c.operation == "" {
@@ -44,12 +44,12 @@ func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperatio
 			// container is exactly as dangerous as an attributable one.
 			return fmt.Errorf(
 				"a job container is running on this host (%.12s) with an empty %s label, so the operation that "+
-					"started it cannot be identified; establish what it did and stop it with `docker rm -f %.12s`",
+					"started it cannot be identified; establish what it did and stop it with `docker rm -f %s`",
 				c.id, JobOperationLabel, c.id)
 		}
 		return fmt.Errorf(
 			"a job container from operation %s is still running on this host (%.12s) with no process owning it; "+
-				"wait for it to finish, or establish what it did and stop it with `docker rm -f %.12s`",
+				"wait for it to finish, or establish what it did and stop it with `docker rm -f %s`",
 			c.operation, c.id, c.id)
 	}
 	return nil

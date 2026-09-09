@@ -9,9 +9,9 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-// reconcileFake answers the running-container probe. `running` is
+// jobContainerFake answers the running-container probe. `running` is
 // `<id> <operation> <epoch>` lines, exactly as the label probe formats them.
-func reconcileFake(running []string) *transport.Fake {
+func jobContainerFake(running []string) *transport.Fake {
 	return &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "label='ob.operation'"):
@@ -21,15 +21,14 @@ func reconcileFake(running []string) *transport.Fake {
 	}}
 }
 
-func reconcileEngine(t *testing.T, f *transport.Fake) *Engine {
+func jobContainerEngine(t *testing.T, f *transport.Fake) *Engine {
 	t.Helper()
 	return New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 }
 
-// closeAll reads the journals the way a caller does, then closes what it finds.
 func TestRefuseWhileAnotherOperationsJobContainerRuns(t *testing.T) {
-	f := reconcileFake([]string{"abc123def456 J1 4"})
-	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4)
+	f := jobContainerFake([]string{"abc123def456 J1 4"})
+	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4)
 	if err == nil {
 		t.Fatal("a live job container from another operation must refuse")
 	}
@@ -43,15 +42,15 @@ func TestRefuseWhileAnotherOperationsJobContainerRuns(t *testing.T) {
 // This operation's own container is not a reason to refuse itself — a deploy
 // runs gate jobs under its own id.
 func TestRefuseAllowsThisOperationsOwnContainer(t *testing.T) {
-	f := reconcileFake([]string{"abc123def456 J1 4"})
-	if err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4); err != nil {
+	f := jobContainerFake([]string{"abc123def456 J1 4"})
+	if err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4); err != nil {
 		t.Fatalf("own container refused: %v", err)
 	}
 }
 
 func TestRefuseCatchesAContainerWithAnEmptyOperationLabel(t *testing.T) {
-	f := reconcileFake([]string{"abc123def456  "})
-	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4)
+	f := jobContainerFake([]string{"abc123def456  "})
+	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4)
 	if err == nil {
 		t.Fatal("an unattributable job container must refuse")
 	}
@@ -65,8 +64,8 @@ func TestRefuseCatchesAContainerWithAnEmptyOperationLabel(t *testing.T) {
 // presenting the id already written in it. Matching the operation alone would
 // let a second run exempt the container its own earlier run left behind.
 func TestRefuseCatchesAnEarlierRunOfTheSameOperation(t *testing.T) {
-	f := reconcileFake([]string{"abc123def456 J1 4"})
-	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 5)
+	f := jobContainerFake([]string{"abc123def456 J1 4"})
+	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 5)
 	if err == nil {
 		t.Fatal("an earlier invocation of the same plan must refuse")
 	}
@@ -80,13 +79,9 @@ func TestRefuseCatchesAnEarlierRunOfTheSameOperation(t *testing.T) {
 // A container carrying no epoch label cannot be shown to belong to this
 // invocation, so it is not exempt from it either.
 func TestRefuseDoesNotExemptAContainerWithNoEpoch(t *testing.T) {
-	f := reconcileFake([]string{"abc123def456 J1 "})
-	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4)
+	f := jobContainerFake([]string{"abc123def456 J1 "})
+	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4)
 	if err == nil || !strings.Contains(err.Error(), "epoch unknown") {
 		t.Fatalf("unlabelled epoch = %v, want a refusal naming it", err)
 	}
 }
-
-// The reconciling operator must not be recorded as the interrupted run's.
-// Audit takes the last non-empty operator in an epoch group, so stamping it
-// here rewrites the row to name whoever deployed next.

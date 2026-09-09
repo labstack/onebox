@@ -73,3 +73,59 @@ func TestAuditExposesSafeExecInvocationEvidence(t *testing.T) {
 		t.Fatalf("human exec audit = %s", out.String())
 	}
 }
+
+func TestAuditNamesSealedJobRuns(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: "job-1.jsonl\n"}, true
+		case strings.Contains(cmd, "job-1.jsonl"):
+			return transport.Result{Stdout: journalLines(
+				journal.Record{DeployID: "job-1", Phase: "job", Event: "start", Status: "ok", OperationKind: "job_run", Service: "catalog-refresh", Operator: "v@mac", TS: "t1", Detail: "release=R1"},
+				journal.Record{DeployID: "job-1", Phase: "job", Event: "finish", Status: "ok", OperationKind: "job_run", Service: "catalog-refresh"},
+			)}, true
+		}
+		return transport.Result{}, false
+	}}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	records, err := e.AuditSnapshot(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "job" is the journal's phase name and "deployed" is the deploy
+	// vocabulary; neither belongs on a job run, and an unnamed row is the
+	// whole reason this view was unusable.
+	if len(records) != 1 || records[0].Action != "job run" || records[0].Service != "catalog-refresh" || records[0].Outcome != "succeeded" {
+		t.Fatalf("job run audit = %+v", records)
+	}
+	if err := e.Audit(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "job run catalog-refresh") || !strings.Contains(s, "succeeded") {
+		t.Fatalf("human job audit = %s", s)
+	}
+}
+
+func TestAuditReportsFailedJobRun(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "ls -1"):
+			return transport.Result{Stdout: "job-2.jsonl\n"}, true
+		case strings.Contains(cmd, "job-2.jsonl"):
+			return transport.Result{Stdout: journalLines(
+				journal.Record{DeployID: "job-2", Phase: "job", Event: "start", Status: "ok", OperationKind: "job_run", Service: "migrate", Operator: "v@mac", TS: "t1"},
+				journal.Record{DeployID: "job-2", Phase: "job", Event: "finish", Status: "fail", OperationKind: "job_run", Service: "migrate"},
+			)}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	records, err := e.AuditSnapshot(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Action != "job run" || records[0].Outcome != "failed" {
+		t.Fatalf("failed job run audit = %+v", records)
+	}
+}

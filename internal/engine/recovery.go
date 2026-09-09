@@ -245,7 +245,7 @@ func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, prev
 			continue
 		}
 		if role.Mode() == "recreate" {
-			ids, err := previous.newcomerIDs(ctx, roleName, previousID)
+			ids, err := previous.newcomerIDs(ctx, roleName, previousID, "")
 			if err != nil {
 				return err
 			}

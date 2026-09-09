@@ -288,7 +288,7 @@ func (e *Engine) jobRollbackPolicySafe(service string) bool {
 // (identified by the ob.release label the render injected).
 func (e *Engine) removeNewcomers(ctx context.Context, releaseID string) error {
 	for _, roleName := range e.Spec.ReleaseOrder() {
-		ids, err := e.newcomerIDs(ctx, roleName, releaseID)
+		ids, err := e.newcomerIDs(ctx, roleName, releaseID, "")
 		if err != nil {
 			return err
 		}

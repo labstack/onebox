@@ -744,6 +744,15 @@ func (e *Engine) cleanupOrphanSecretGenerations(ctx context.Context, releaseID s
 }
 
 func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.SecretCheckpoint, workload, generation string) error {
+	// Already converged. Two paths reach here that way: a resume after a crash,
+	// and recovery after a roll whose unhealthy newcomer was removed without
+	// any old replica being touched. Neither has anything to replace, and
+	// without this the identity check below would fail them for it.
+	if converged, err := e.workloadOnSecretGeneration(ctx, workload, generation); err != nil {
+		return err
+	} else if converged {
+		return nil
+	}
 	before, err := e.containerIDs(ctx, workload)
 	if err != nil {
 		return err
@@ -754,7 +763,23 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 		return err
 	}
 	composePath := generationDir + "/compose.yaml"
-	if err := e.recreateRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID); err != nil {
+	// A rolling workload rotates its secret the way it takes a release: surge
+	// one replica on the new generation, gate it healthy, retire one old.
+	// Recreating instead destroyed every serving replica before the first
+	// health check, so a value that prevents startup took the workload to zero
+	// — and the recovery path, which lands here too, replaced the fleet a
+	// second time rather than leaving survivors.
+	//
+	// Replicas may straddle generations while this runs. env_file is read at
+	// container creation, both generation directories are on disk for the whole
+	// transition, and uniformity is asserted only after replacement, which a
+	// completed roll satisfies.
+	if e.Spec.Workloads[workload].Mode() == "rolling" {
+		err = e.rollRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID, generation)
+	} else {
+		err = e.recreateRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID)
+	}
+	if err != nil {
 		return err
 	}
 	after, err := e.containerIDs(ctx, workload)
@@ -777,6 +802,24 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 		}
 	}
 	return nil
+}
+
+// workloadOnSecretGeneration reports whether every running replica already
+// carries the generation, at the declared count.
+func (e *Engine) workloadOnSecretGeneration(ctx context.Context, workload, generation string) (bool, error) {
+	ids, err := e.containerIDs(ctx, workload)
+	if err != nil {
+		return false, err
+	}
+	if len(ids) != e.Spec.Workloads[workload].Count() {
+		return false, nil
+	}
+	for _, id := range ids {
+		if err := e.requireContainerSecretGeneration(ctx, id, generation); err != nil {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (e *Engine) requireContainerSecretGeneration(ctx context.Context, containerID, generation string) error {

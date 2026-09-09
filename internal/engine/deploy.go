@@ -105,6 +105,12 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err := e.requireServingApplicationManifest(ctx, prev); err != nil {
 		return err
 	}
+	// After preflight, so an unreachable daemon is reported by the check that
+	// exists for it rather than by a raw `docker ps` failure — and still before
+	// any workload is rolled or any gate job runs.
+	if err := e.refuseForeignJobContainers(ctx, releaseID, epoch); err != nil {
+		return err
+	}
 	rollbackDebt := false
 	if done == nil {
 		rollbackDebt, err = e.rollbackEffectDebt(ctx, prev)

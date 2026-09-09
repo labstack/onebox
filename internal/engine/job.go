@@ -86,6 +86,12 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		return operationID, nil, errors.New("job plan is stale: current release runtime changed — re-plan")
 	}
 
+	// After the staleness checks, so a stale plan is told it is stale rather
+	// than told about a container, and before this run creates one of its own.
+	if err := e.refuseForeignJobContainers(ctx, operationID, epoch); err != nil {
+		return operationID, nil, err
+	}
+
 	writer := &journal.Writer{
 		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,

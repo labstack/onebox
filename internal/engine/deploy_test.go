@@ -563,3 +563,26 @@ func TestRollbackReplaysPreviousRelease(t *testing.T) {
 		t.Fatalf("rollback must re-activate previous:\n%s", seq)
 	}
 }
+
+// A deploy rolls workloads and runs its own gate jobs. An orphaned job
+// container still changing data underneath it is the overlap the lock exists to
+// prevent, and the lock does not catch it once its holder is gone.
+func TestDeployRefusesWhileAForeignJobContainerRuns(t *testing.T) {
+	f := happyFake()
+	inner := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "other-op") {
+		t.Fatalf("deploy = %v, want a refusal naming the foreign operation", err)
+	}
+	// Refused before anything is rolled or any gate job runs.
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "--scale web=") {
+		t.Fatalf("the deploy rolled anyway:\n%s", seq)
+	}
+}

@@ -35,21 +35,24 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 	}
 	// The action cell names a job run's job, so its width is not knowable in
 	// advance the way a fixed column would need. "schedule resume" already
-	// overflowed the old fixed 14.
+	// overflowed the old fixed 14. Built once and indexed alongside rows: the
+	// width scan and the print loop want the same string.
+	cells := make([]string, len(rows))
 	action := len("ACTION")
-	for _, r := range rows {
-		if len(auditActionCell(r)) > action {
-			action = len(auditActionCell(r))
+	for i, r := range rows {
+		cells[i] = auditActionCell(r)
+		if len(cells[i]) > action {
+			action = len(cells[i])
 		}
 	}
 	format := fmt.Sprintf("%%-%ds %%-%ds %%-20s %%-9s %%-12s %%s\n", width, action)
 	fmt.Fprintf(e.Opts.Out, format, "RELEASE", "ACTION", "OPERATOR", "GIT", "OUTCOME", "STARTED")
-	for _, r := range rows {
+	for i, r := range rows {
 		git := r.GitSHA
 		if git == "" {
 			git = "-"
 		}
-		fmt.Fprintf(e.Opts.Out, format, r.ReleaseID, auditActionCell(r), r.Operator, git, r.Outcome, r.StartedAt)
+		fmt.Fprintf(e.Opts.Out, format, r.ReleaseID, cells[i], r.Operator, git, r.Outcome, r.StartedAt)
 		if r.Action == "exec" {
 			fmt.Fprintf(e.Opts.Out, "  target=%s (%s) command_digest=%s reason=%s\n", r.Target, r.TargetKind, r.CommandDigest, r.Reason)
 		}

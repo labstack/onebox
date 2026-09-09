@@ -132,7 +132,18 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 				OperationKind: "job_run", Service: job,
 			}
 		}
-		if journalErr := writer.Append(journalContext, record); journalErr != nil {
+		journalErr := writer.Append(journalContext, record)
+		if journalErr != nil && journalContext == ctx {
+			// Cancellation can land during the write as easily as before it, and
+			// the check above only sees the context that was already gone. One
+			// retry on a context of our own is the difference between an
+			// operation that records its outcome and one that is incomplete
+			// forever.
+			retryContext, cancel := context.WithTimeout(context.Background(), journalCleanupTimeout)
+			defer cancel()
+			journalErr = writer.Append(retryContext, record)
+		}
+		if journalErr != nil {
 			return errors.Join(runErr, fmt.Errorf("journal job finish: %w", journalErr))
 		}
 		return runErr

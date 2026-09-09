@@ -150,8 +150,10 @@ func (e *Engine) runOneJob(ctx context.Context, operationID string, epoch int, j
 		containerized = injected
 		// A hook that runs its own compose command produces a container this
 		// operation owns just as much as the generated one, so it carries the
-		// same identity. A hook that is not a compose run has no container to
-		// label, and is already reported as unresolvable above.
+		// same identity. A hook that is not a compose run gets no label because
+		// there is no container to put one on; that hook is also not
+		// containerized, so its result is unresolvable and reported as such
+		// below.
 		runCmd, _ = injectComposeJobLabels(runCmd, operationID, epoch)
 	}
 	e.ui.Cmd("job", runCmd) // verbose only — the plan lists it

@@ -133,12 +133,13 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 			}
 		}
 		journalErr := writer.Append(journalContext, record)
-		if journalErr != nil && journalContext == ctx {
+		if journalErr != nil && journalContext == ctx && ctx.Err() != nil {
 			// Cancellation can land during the write as easily as before it, and
-			// the check above only sees the context that was already gone. One
-			// retry on a context of our own is the difference between an
-			// operation that records its outcome and one that is incomplete
-			// forever.
+			// the check above only sees a context that was already gone. Retried
+			// only when the context died in the meantime: any other failure —
+			// a full disk, a refused write — may have landed on the host after
+			// reporting an error, and appending a second terminal record is
+			// worse than reporting the first failure.
 			retryContext, cancel := context.WithTimeout(context.Background(), journalCleanupTimeout)
 			defer cancel()
 			journalErr = writer.Append(retryContext, record)

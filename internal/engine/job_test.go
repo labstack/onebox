@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -149,5 +150,25 @@ func TestRunJobUsesPlanIdentityAndJournalsAuthorization(t *testing.T) {
 		if !strings.Contains(commands, want) {
 			t.Fatalf("job journal omitted %q:\n%s", want, commands)
 		}
+	}
+}
+
+// A job that finished cleanly is not interrupted, whatever became of the client
+// in the window before its terminal record. Classification follows the run;
+// only the choice of append context follows the caller's context.
+func TestInterruptedRunClassifiesTheRunNotTheClient(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if interruptedRun(cancelled, nil) {
+		t.Fatal("a run that produced no error must never be recorded interrupted")
+	}
+	if !interruptedRun(cancelled, errors.New("ssh: session closed")) {
+		t.Fatal("a failed run under a cancelled context is interrupted, whatever the transport called it")
+	}
+	if !interruptedRun(context.Background(), context.Canceled) {
+		t.Fatal("a cancellation surfaced by the run itself is interrupted")
+	}
+	if interruptedRun(context.Background(), errors.New("migrate: exit 1")) {
+		t.Fatal("a job that failed on its own terms is not interrupted")
 	}
 }

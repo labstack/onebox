@@ -177,7 +177,16 @@ const journalCleanupTimeout = 5 * time.Second
 
 // interruptedRun reports a run that ended because the client went away rather
 // than because the job finished.
+//
+// A run that produced no error finished, whatever became of the client
+// afterwards — its outcome is its own and must be recorded as such. Only once
+// the run failed does a gone context mean the client is why. The transport does
+// not always surface a cancelled context as context.Canceled, so a failure
+// under a cancelled context counts even when the error says something else.
 func interruptedRun(ctx context.Context, runErr error) bool {
+	if runErr == nil {
+		return false
+	}
 	return ctx.Err() != nil ||
 		errors.Is(runErr, context.Canceled) ||
 		errors.Is(runErr, context.DeadlineExceeded)

@@ -242,3 +242,26 @@ deployment: {order: [api, worker]}
 		t.Fatalf("command preview does not match retain action:\n%s", commands)
 	}
 }
+
+func TestRetainedWorkloadHealthBindsOnlyRetainedWorkloads(t *testing.T) {
+	steps := []OperationStep{
+		{Kind: StepWorkloadRelease, Service: "web", Mutation: false},
+		{Kind: StepWorkloadRelease, Service: "server", Mutation: true},
+		{Kind: StepJob, Service: "migrate", Mutation: true},
+	}
+	observed := map[string][]string{
+		"web":     {"healthy"},
+		"server":  {"down", "starting"},
+		"migrate": {"none"},
+	}
+	bound := retainedWorkloadHealth(steps, observed)
+	if len(bound) != 1 || bound["web"] == nil {
+		t.Fatalf("bound health = %#v, want only the retained web workload", bound)
+	}
+}
+
+func TestRetainedWorkloadHealthKeepsNilWhenNothingObserved(t *testing.T) {
+	if bound := retainedWorkloadHealth(nil, nil); bound != nil {
+		t.Fatalf("bound health = %#v, want nil so the fence stays off", bound)
+	}
+}

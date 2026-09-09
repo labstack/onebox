@@ -600,3 +600,42 @@ func TestRefreshIgnoresRunningJobContainers(t *testing.T) {
 		t.Fatalf("application workload must still be observed: %+v", hs.ImageIDs)
 	}
 }
+
+// A workload the plan retains still has its health bound: the retain decision
+// was made on it, so drift in it invalidates the decision.
+func TestVerifyBindingRefusesRetainedWorkloadHealthDrift(t *testing.T) {
+	a := &Artifact{
+		Env: "production", ConfigHash: HashBytes([]byte("cfg")),
+		HostState: HostState{
+			CurrentRelease: "R0",
+			WorkloadHealth: map[string][]string{"web": {"healthy"}},
+		},
+	}
+	fresh := HostState{CurrentRelease: "R0", WorkloadHealth: map[string][]string{"web": {"unhealthy"}}}
+	err := a.VerifyBinding("production", []byte("cfg"), fresh)
+	if err == nil || !strings.Contains(err.Error(), "health of retained workload web changed") {
+		t.Fatalf("retained health drift must refuse: %v", err)
+	}
+}
+
+// A workload the plan is REPLACING contributes no health to the binding, so a
+// replica crash-looping between "starting" and "down" cannot make the apply
+// refuse. Before, the whole-map comparison meant any such churn did.
+func TestVerifyBindingIgnoresHealthOfWorkloadsNotBound(t *testing.T) {
+	a := &Artifact{
+		Env: "production", ConfigHash: HashBytes([]byte("cfg")),
+		HostState: HostState{
+			CurrentRelease: "R0",
+			WorkloadHealth: map[string][]string{"web": {"healthy"}},
+		},
+	}
+	// server is being replaced, so planning left it out of the bound map.
+	for _, flap := range [][]string{{"down", "down", "starting"}, {"down", "starting", "starting"}} {
+		fresh := HostState{CurrentRelease: "R0", WorkloadHealth: map[string][]string{
+			"web": {"healthy"}, "server": flap,
+		}}
+		if err := a.VerifyBinding("production", []byte("cfg"), fresh); err != nil {
+			t.Fatalf("unbound workload health %v refused the apply: %v", flap, err)
+		}
+	}
+}

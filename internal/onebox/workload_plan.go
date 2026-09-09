@@ -132,6 +132,25 @@ func nonRetainableWorkloads(cfg *app.Resolved) map[string]string {
 	return bound
 }
 
+// retainedWorkloadHealth keeps only the workloads the plan leaves running. A
+// replaced workload's health is not part of what the plan decided, so binding
+// it turns unrelated churn into a refusal to apply.
+func retainedWorkloadHealth(steps []OperationStep, observed map[string][]string) map[string][]string {
+	if observed == nil {
+		return nil
+	}
+	retained := map[string][]string{}
+	for _, step := range steps {
+		if step.Kind != StepWorkloadRelease || step.Mutation {
+			continue
+		}
+		if health, ok := observed[step.Service]; ok {
+			retained[step.Service] = health
+		}
+	}
+	return retained
+}
+
 func engineWorkloadPlans(steps []OperationStep) map[string]engine.WorkloadPlan {
 	plans := map[string]engine.WorkloadPlan{}
 	for _, step := range steps {

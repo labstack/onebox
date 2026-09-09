@@ -115,15 +115,22 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		// same here an interrupted job stays INCOMPLETE in `ob audit` forever,
 		// with no record that it was ever interrupted. Append redacts Detail on
 		// a failure, so the reason has to ride on ErrorCode.
+		// Two independent questions. WHERE to append: a cancelled caller context
+		// cannot carry the write, whatever the run did, so a job that finished
+		// cleanly a moment before Ctrl-C still records its success. WHAT to
+		// record: only a run that ended because the client went away is
+		// interrupted — an outcome the job itself produced is its own.
 		journalContext := ctx
+		if ctx.Err() != nil {
+			var cancel context.CancelFunc
+			journalContext, cancel = context.WithTimeout(context.Background(), journalCleanupTimeout)
+			defer cancel()
+		}
 		if interruptedRun(ctx, runErr) {
 			record = journal.Record{
 				Phase: "job", Event: "finish", Status: "fail", ErrorCode: "interrupted",
 				OperationKind: "job_run", Service: job,
 			}
-			var cancel context.CancelFunc
-			journalContext, cancel = context.WithTimeout(context.Background(), journalCleanupTimeout)
-			defer cancel()
 		}
 		if journalErr := writer.Append(journalContext, record); journalErr != nil {
 			return errors.Join(runErr, fmt.Errorf("journal job finish: %w", journalErr))

@@ -33,14 +33,23 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 			width = len(r.ReleaseID)
 		}
 	}
-	format := fmt.Sprintf("%%-%ds %%-14s %%-20s %%-9s %%-12s %%s\n", width)
+	// The action cell names a job run's job, so its width is not knowable in
+	// advance the way a fixed column would need. "schedule resume" already
+	// overflowed the old fixed 14.
+	action := len("ACTION")
+	for _, r := range rows {
+		if len(auditActionCell(r)) > action {
+			action = len(auditActionCell(r))
+		}
+	}
+	format := fmt.Sprintf("%%-%ds %%-%ds %%-20s %%-9s %%-12s %%s\n", width, action)
 	fmt.Fprintf(e.Opts.Out, format, "RELEASE", "ACTION", "OPERATOR", "GIT", "OUTCOME", "STARTED")
 	for _, r := range rows {
 		git := r.GitSHA
 		if git == "" {
 			git = "-"
 		}
-		fmt.Fprintf(e.Opts.Out, format, r.ReleaseID, r.Action, r.Operator, git, r.Outcome, r.StartedAt)
+		fmt.Fprintf(e.Opts.Out, format, r.ReleaseID, auditActionCell(r), r.Operator, git, r.Outcome, r.StartedAt)
 		if r.Action == "exec" {
 			fmt.Fprintf(e.Opts.Out, "  target=%s (%s) command_digest=%s reason=%s\n", r.Target, r.TargetKind, r.CommandDigest, r.Reason)
 		}
@@ -52,6 +61,7 @@ type AuditRecord struct {
 	ReleaseID     string `json:"release_id"`
 	Epoch         int    `json:"epoch"`
 	Action        string `json:"action"`
+	Service       string `json:"service,omitempty"`
 	Operator      string `json:"operator"`
 	GitSHA        string `json:"git_sha,omitempty"`
 	Outcome       string `json:"outcome"`
@@ -93,7 +103,7 @@ func (e *Engine) AuditSnapshot(ctx context.Context, n int) ([]AuditRecord, error
 	records := make([]AuditRecord, 0, len(rows))
 	for _, row := range rows {
 		records = append(records, AuditRecord{
-			ReleaseID: row.deployID, Epoch: row.epoch, Action: row.action,
+			ReleaseID: row.deployID, Epoch: row.epoch, Action: row.action, Service: row.service,
 			Operator: row.operator, GitSHA: row.gitSHA, Outcome: row.outcome, StartedAt: row.startedAt,
 			Target: row.target, TargetKind: row.targetKind, CommandDigest: row.commandDigest, Reason: row.reason,
 		})
@@ -105,6 +115,7 @@ type auditRow struct {
 	deployID      string
 	epoch         int
 	action        string
+	service       string
 	operator      string
 	gitSHA        string
 	outcome       string
@@ -143,6 +154,9 @@ func auditRows(recs []journal.Record) []auditRow {
 			if r.GitSHA != "" {
 				row.gitSHA = r.GitSHA
 			}
+			if r.Service != "" {
+				row.service = r.Service
+			}
 			if r.Target != "" {
 				row.target = r.Target
 				row.targetKind = r.TargetKind
@@ -179,11 +193,23 @@ func auditAction(phase string) string {
 		return "schedule pause"
 	case "schedule-resume":
 		return "schedule resume"
+	case "job":
+		return "job run"
 	case "":
 		return "deploy"
 	default:
 		return phase
 	}
+}
+
+// auditActionCell is the ACTION column. A job run names its job: the journal
+// carries it on Service, and without it every sealed job run reads as an
+// anonymous "job run" — which is the one thing a reader is looking for.
+func auditActionCell(r AuditRecord) string {
+	if r.Service == "" {
+		return r.Action
+	}
+	return r.Action + " " + r.Service
 }
 
 func auditOutcome(action string) string {
@@ -202,6 +228,8 @@ func auditOutcome(action string) string {
 		return "paused"
 	case "schedule resume":
 		return "resumed"
+	case "job run":
+		return "succeeded"
 	default:
 		return "deployed"
 	}

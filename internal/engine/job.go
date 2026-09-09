@@ -93,6 +93,18 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		return operationID, nil, errors.New("job plan is stale: current release runtime changed — re-plan")
 	}
 
+	// Before this operation writes its own start record, and after the
+	// staleness checks above. Reconciling later would find this run's start
+	// with no finish yet and close the very run about to execute; reconciling
+	// earlier would let a plan that will not execute write to the host.
+	journalIDs, journalsByID, err := journal.Journals(ctx, e.T, e.names())
+	if err != nil {
+		return operationID, nil, err
+	}
+	if err := e.closeInterruptedJobRuns(ctx, journalIDs, journalsByID); err != nil {
+		return operationID, nil, err
+	}
+
 	writer := &journal.Writer{
 		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
@@ -174,15 +186,6 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		}); err != nil {
 			return operationID, nil, finish(fmt.Errorf("journal migration backup authorization: %w", err))
 		}
-	}
-
-	// Past the staleness checks, so a plan that will not execute writes nothing.
-	journalIDs, journalsByID, err := journal.Journals(ctx, e.T, e.names())
-	if err != nil {
-		return operationID, nil, err
-	}
-	if err := e.closeInterruptedJobRuns(ctx, journalIDs, journalsByID); err != nil {
-		return operationID, nil, err
 	}
 
 	e.gateOpen = true

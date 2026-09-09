@@ -172,3 +172,50 @@ func TestInterruptedRunClassifiesTheRunNotTheClient(t *testing.T) {
 		t.Fatal("a job that failed on its own terms is not interrupted")
 	}
 }
+
+// Reconciliation runs before this operation writes its own start record. Run it
+// after, and the snapshot contains a start with no finish yet — this very run —
+// which the reconciler would close as interrupted before the job executes.
+func TestRunJobDoesNotCloseTheRunItIsAboutToStart(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	// The journal listing reflects what this run has appended so far, so the
+	// snapshot's contents depend on when it is taken — which is the whole
+	// question.
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "for f in") {
+			var lines []string
+			for _, c := range target.Commands {
+				start := strings.Index(c, `{"deploy_id":"op-job-run"`)
+				if start < 0 {
+					continue
+				}
+				if end := strings.LastIndex(c, "}"); end > start {
+					lines = append(lines, c[start:end+1])
+				}
+			}
+			if len(lines) == 0 {
+				return transport.Result{}, true
+			}
+			return transport.Result{Stdout: "@@ob-journal@@op-job-run.jsonl\n" + strings.Join(lines, "\n") + "\n"}, true
+		}
+		return inner(cmd)
+	}
+	engine := manualJobEngine(t, target)
+	request := JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), request); err != nil {
+		t.Fatalf("run job: %v", err)
+	}
+	commands := strings.Join(target.Commands, "\n")
+	if strings.Contains(commands, `"error_code":"interrupted"`) {
+		t.Fatalf("the run closed itself as interrupted before executing:\n%s", commands)
+	}
+	// Exactly one terminal record: the real one, written after the job ran.
+	if got := strings.Count(commands, `"phase":"job","event":"finish"`); got != 1 {
+		t.Fatalf("terminal record count = %d, want 1:\n%s", got, commands)
+	}
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Onebox",
+  "description": "Plan-before-apply deploys for one application on one Linux server. Zero downtime, no agent on the host.",
+  "branch": "main",
+  "folders": ["site/src/content/docs", "README.md"],
+  "excludeFolders": [
+    "docs/plans",
+    "docs/superpowers",
+    "docs/media",
+    "site/node_modules",
+    "site/dist",
+    "dist",
+    "bin",
+    "e2e"
+  ],
+  "rules": [
+    "The CLI is `ob`. The application is declared in `ob.yml`, from which Onebox derives the Compose runtime, stable names, routing, supporting services, and release operations.",
+    "Nothing runs against production until a plan is approved: `ob plan` prints a digest-bound diff of config, images, host state, rendered Compose, payloads, and the operation graph; `ob deploy` applies it.",
+    "Onebox connects over SSH with host-key verification. There is no deployment agent to install on the target host.",
+    "Onebox targets a single Linux server running a single application. Do not present it as a multi-node orchestrator or a Kubernetes alternative for clusters.",
+    "Documentation is at https://onebox.run. The Go module path is `github.com/labstack/onebox`."
+  ]
+}

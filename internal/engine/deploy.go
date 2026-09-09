@@ -85,7 +85,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	// changing data underneath it is exactly the overlap the lock exists to
 	// prevent, and the lock alone does not catch it once its holder is gone.
 	// Read-only, so it runs before the plan-binding boundary below.
-	if err := e.refuseForeignJobContainers(ctx, releaseID); err != nil {
+	if err := e.refuseForeignJobContainers(ctx, releaseID, epoch); err != nil {
 		return err
 	}
 	// The plan binding is the mutation boundary. Check it under the application

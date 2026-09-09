@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/onebox/internal/journal"
@@ -17,14 +18,27 @@ import (
 // interruption looks finished on paper while its container keeps changing data,
 // and a plan re-run appends a second invocation to the same journal — both are
 // invisible to any reduction over records, and both are one `docker ps` away.
-func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperationID string) error {
+func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperationID string, currentEpoch int) error {
 	containers, err := e.jobContainers(ctx)
 	if err != nil {
 		return err
 	}
+	currentEpochLabel := strconv.Itoa(currentEpoch)
 	for _, c := range containers {
-		if c.operation == currentOperationID {
+		// Operation AND epoch. A sealed job plan is re-runnable and carries one
+		// operation id for its whole life, and AcquireLock hands the lock
+		// straight back to a caller presenting the id already written in it. So
+		// a second run of one plan would reclaim the lock from a live first run
+		// and then exempt that run's container as its own — two concurrent
+		// data-changing containers, which is the single thing this prevents.
+		if c.operation == currentOperationID && c.epoch == currentEpochLabel {
 			continue
+		}
+		if c.operation == currentOperationID {
+			return fmt.Errorf(
+				"an earlier run of operation %s (epoch %s) left a job container running on this host (%.12s); "+
+					"wait for it to finish, or establish what it did and stop it with `docker rm -f %.12s`",
+				c.operation, labelOrUnknown(c.epoch), c.id, c.id)
 		}
 		if c.operation == "" {
 			// The label is present but carries no value, so the container
@@ -46,6 +60,14 @@ func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperatio
 type jobContainer struct {
 	id        string
 	operation string
+	epoch     string
+}
+
+func labelOrUnknown(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }
 
 // jobContainers lists every running one-off job container, whichever operation
@@ -54,7 +76,7 @@ type jobContainer struct {
 func (e *Engine) jobContainers(ctx context.Context) ([]jobContainer, error) {
 	res, err := e.T.Run(ctx,
 		"docker ps --filter label="+q(JobOperationLabel)+
-			" --format "+q("{{.ID}} {{.Label \""+JobOperationLabel+"\"}}"))
+			" --format "+q("{{.ID}} {{.Label \""+JobOperationLabel+"\"}} {{.Label \""+JobEpochLabel+"\"}}"))
 	if err != nil {
 		return nil, err
 	}
@@ -68,15 +90,16 @@ func (e *Engine) jobContainers(ctx context.Context) ([]jobContainer, error) {
 		// first removes the separator itself — the container would then be
 		// skipped as unparseable, which is precisely the one that most needs
 		// refusing.
-		id, operation, _ := strings.Cut(strings.TrimRight(line, "\r\n"), " ")
-		id, operation = strings.TrimSpace(id), strings.TrimSpace(operation)
+		id, rest, _ := strings.Cut(strings.TrimRight(line, "\r\n"), " ")
+		operation, epoch, _ := strings.Cut(rest, " ")
+		id, operation, epoch = strings.TrimSpace(id), strings.TrimSpace(operation), strings.TrimSpace(epoch)
 		if id == "" {
 			continue
 		}
 		if !validID.MatchString(id) {
 			return nil, fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", id)
 		}
-		out = append(out, jobContainer{id: id, operation: operation})
+		out = append(out, jobContainer{id: id, operation: operation, epoch: epoch})
 	}
 	return out, nil
 }
@@ -173,9 +196,12 @@ func (e *Engine) closeJobRun(ctx context.Context, operationID string, run unfini
 	// The epoch is what groups a journal into invocations, so a terminal record
 	// written without it lands in an invocation of its own and leaves the one it
 	// was meant to close still open.
+	// No Operator: audit takes the last non-empty operator in an epoch group, so
+	// stamping the reconciling operator here would rewrite the interrupted run's
+	// row to name whoever happened to deploy next. The start record already
+	// carries who ran it.
 	writer := &journal.Writer{
 		T: e.T, Names: e.names(), DeployID: operationID, Epoch: run.Epoch,
-		Operator: journal.DefaultOperator(),
 	}
 	if err := writer.Append(ctx, record); err != nil {
 		return fmt.Errorf("close interrupted job run %s: %w", operationID, err)

@@ -69,7 +69,7 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	// Under the lock, before anything mutates and before any host write: a job
 	// container from an earlier operation may still be running with no process
 	// owning it. Read-only, so it is safe on this side of the plan boundary.
-	if err := e.refuseForeignJobContainers(ctx, operationID); err != nil {
+	if err := e.refuseForeignJobContainers(ctx, operationID, epoch); err != nil {
 		return operationID, nil, err
 	}
 

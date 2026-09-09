@@ -46,8 +46,8 @@ const startedJobJournal = journalMarkerLine + "J1.jsonl\n" +
 // container still changing data with no process owning it must stop the next
 // operation.
 func TestRefuseWhileAnotherOperationsJobContainerRuns(t *testing.T) {
-	f := reconcileFake("", []string{"abc123def456 J1"})
-	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2")
+	f := reconcileFake("", []string{"abc123def456 J1 4"})
+	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4)
 	if err == nil {
 		t.Fatal("a live job container from another operation must refuse")
 	}
@@ -61,8 +61,8 @@ func TestRefuseWhileAnotherOperationsJobContainerRuns(t *testing.T) {
 // This operation's own container is not a reason to refuse itself — a deploy
 // runs gate jobs under its own id.
 func TestRefuseAllowsThisOperationsOwnContainer(t *testing.T) {
-	f := reconcileFake("", []string{"abc123def456 J1"})
-	if err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1"); err != nil {
+	f := reconcileFake("", []string{"abc123def456 J1 4"})
+	if err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4); err != nil {
 		t.Fatalf("own container refused: %v", err)
 	}
 }
@@ -72,8 +72,8 @@ func TestRefuseAllowsThisOperationsOwnContainer(t *testing.T) {
 func TestRefuseCatchesAnInterruptedRunThatRecordedItself(t *testing.T) {
 	journals := startedJobJournal +
 		`{"deploy_id":"J1","epoch":4,"phase":"job","event":"finish","status":"fail","error_code":"interrupted","operation_kind":"job_run","service":"catalog-refresh","ts":"t2"}` + "\n"
-	f := reconcileFake(journals, []string{"abc123def456 J1"})
-	if err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2"); err == nil {
+	f := reconcileFake(journals, []string{"abc123def456 J1 4"})
+	if err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4); err == nil {
 		t.Fatal("a recorded interruption must not hide a live container")
 	}
 }
@@ -169,12 +169,54 @@ func TestCloseKeepsARecordedFailureAsAFailure(t *testing.T) {
 // the separator. Trimming the line before the cut removes the separator, and
 // the container is skipped as unparseable — the one that most needs refusing.
 func TestRefuseCatchesAContainerWithAnEmptyOperationLabel(t *testing.T) {
-	f := reconcileFake("", []string{"abc123def456 "})
-	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2")
+	f := reconcileFake("", []string{"abc123def456  "})
+	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2", 4)
 	if err == nil {
 		t.Fatal("an unattributable job container must refuse")
 	}
 	if !strings.Contains(err.Error(), "empty") || !strings.Contains(err.Error(), "abc123def456") {
 		t.Fatalf("refusal did not name the problem: %v", err)
+	}
+}
+
+// A sealed job plan carries one operation id for its whole life and is
+// re-runnable, and AcquireLock hands the lock straight back to a caller
+// presenting the id already written in it. Matching the operation alone would
+// let a second run exempt the container its own earlier run left behind.
+func TestRefuseCatchesAnEarlierRunOfTheSameOperation(t *testing.T) {
+	f := reconcileFake("", []string{"abc123def456 J1 4"})
+	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 5)
+	if err == nil {
+		t.Fatal("an earlier invocation of the same plan must refuse")
+	}
+	for _, want := range []string{"earlier run", "J1", "epoch 4", "abc123def456"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal missing %q: %v", want, err)
+		}
+	}
+}
+
+// A container carrying no epoch label cannot be shown to belong to this
+// invocation, so it is not exempt from it either.
+func TestRefuseDoesNotExemptAContainerWithNoEpoch(t *testing.T) {
+	f := reconcileFake("", []string{"abc123def456 J1 "})
+	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4)
+	if err == nil || !strings.Contains(err.Error(), "epoch unknown") {
+		t.Fatalf("unlabelled epoch = %v, want a refusal naming it", err)
+	}
+}
+
+// The reconciling operator must not be recorded as the interrupted run's.
+// Audit takes the last non-empty operator in an epoch group, so stamping it
+// here rewrites the row to name whoever deployed next.
+func TestCloseDoesNotAttributeTheRunToTheReconciler(t *testing.T) {
+	f := reconcileFake(startedJobJournal, nil)
+	if err := closeAll(t, reconcileEngine(t, f)); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	for _, c := range f.Commands {
+		if strings.Contains(c, `"event":"finish"`) && strings.Contains(c, `"operator"`) {
+			t.Fatalf("terminal record claimed an operator:\n%s", c)
+		}
 	}
 }

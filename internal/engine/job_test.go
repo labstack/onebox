@@ -219,3 +219,29 @@ func TestRunJobDoesNotCloseTheRunItIsAboutToStart(t *testing.T) {
 		t.Fatalf("terminal record count = %d, want 1:\n%s", got, commands)
 	}
 }
+
+// The refusal is only worth having if it is actually called. Deleting the call
+// site left every test green, so this drives the whole run against a host
+// reporting a foreign job container and requires it to stop.
+func TestRunJobRefusesWhileAForeignJobContainerRuns(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	engine := manualJobEngine(t, target)
+	_, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	})
+	if err == nil || !strings.Contains(err.Error(), "other-op") {
+		t.Fatalf("run job = %v, want a refusal naming the foreign operation", err)
+	}
+	if strings.Contains(strings.Join(target.Commands, "\n"), "ONEBOX_RESULT_FILE=") {
+		t.Fatalf("the job ran anyway:\n%s", strings.Join(target.Commands, "\n"))
+	}
+}

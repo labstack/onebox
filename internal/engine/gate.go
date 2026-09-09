@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
@@ -73,7 +74,7 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 			return fmt.Errorf("journal %s intent: %w", key, err)
 		}
 		st := e.ui.Step("job "+job, true)
-		safe, detail, err := e.runOneJob(ctx, job, remoteDir, remoteCompose)
+		safe, detail, err := e.runOneJob(ctx, jw.DeployID, jw.Epoch, job, remoteDir, remoteCompose)
 		if err == nil {
 			e.logf("job %s: %s", job, detail)
 		}
@@ -113,7 +114,7 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 
 // runOneJob runs a single gate step and reports whether it declared itself
 // rollback-safe (changed=false). Returns (safe, detail, err).
-func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose string) (bool, string, error) {
+func (e *Engine) runOneJob(ctx context.Context, operationID string, epoch int, job, remoteDir, remoteCompose string) (bool, string, error) {
 	safeByDeclaration := e.jobDataEffect(job) == app.DataEffectNone
 	if !safeByDeclaration {
 		res, err := e.mutate(ctx, invalidateExecutionCommand(e.names().AppDir()))
@@ -128,7 +129,7 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	resultFile := resultDir + "/result"
 	const containerResultFile = "/run/onebox/job-result"
 	containerized := true
-	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps" +
+	runCmd := e.composeCmd(remoteCompose) + " run --rm --no-deps" + jobRunLabels(operationID, epoch) +
 		" -e ONEBOX_RESULT_FILE=" + containerResultFile +
 		" -v " + q(resultFile+":"+containerResultFile+":rw") + " " + job
 	if h, ok := e.Spec.Hooks[job]; ok && h.Run != "" {
@@ -147,6 +148,11 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 		var injected bool
 		runCmd, injected = injectComposeJobResult(runCmd, resultFile, containerResultFile)
 		containerized = injected
+		// A hook that runs its own compose command produces a container this
+		// operation owns just as much as the generated one, so it carries the
+		// same identity. A hook that is not a compose run has no container to
+		// label, and is already reported as unresolvable above.
+		runCmd, _ = injectComposeJobLabels(runCmd, operationID, epoch)
 	}
 	e.ui.Cmd("job", runCmd) // verbose only — the plan lists it
 	resultMode := "600"
@@ -200,7 +206,43 @@ func (e *Engine) runOneJob(ctx context.Context, job, remoteDir, remoteCompose st
 	return !evidence.Changed, jobResultDetail(evidence), nil
 }
 
+// jobRunLabels ties a one-off container back to the operation that started it.
+// `compose run` names nothing and inherits no operation identity, so without
+// these an interrupted run leaves a container on the host that nothing can
+// match to a journal — every refusal and every reconciliation keys on them.
+func jobRunLabels(operationID string, epoch int) string {
+	if operationID == "" {
+		return ""
+	}
+	return " --label " + q(JobOperationLabel+"="+operationID) +
+		" --label " + q(JobEpochLabel+"="+strconv.Itoa(epoch))
+}
+
+const (
+	// JobOperationLabel carries the operation id of the run that created a
+	// one-off job container.
+	JobOperationLabel = "ob.operation"
+	// JobEpochLabel carries the lock epoch that run held.
+	JobEpochLabel = "ob.epoch"
+)
+
+func injectComposeJobLabels(command, operationID string, epoch int) (string, bool) {
+	labels := jobRunLabels(operationID, epoch)
+	if labels == "" {
+		return command, false
+	}
+	return injectComposeRunFlags(command, labels+" ")
+}
+
 func injectComposeJobResult(command, hostResultFile, containerResultFile string) (string, bool) {
+	return injectComposeRunFlags(command,
+		" -e "+"ONEBOX_RESULT_FILE="+containerResultFile+
+			" -v "+q(hostResultFile+":"+containerResultFile+":rw")+" ")
+}
+
+// injectComposeRunFlags splices flags into a hook's own `docker compose run`.
+// Anything that is not a compose run is left alone and reported as such.
+func injectComposeRunFlags(command, flags string) (string, bool) {
 	runIndex := strings.Index(command, " run ")
 	if runIndex < 0 {
 		return command, false
@@ -209,9 +251,7 @@ func injectComposeJobResult(command, hostResultFile, containerResultFile string)
 	if !strings.Contains(prefix, "docker compose") && !strings.Contains(prefix, "docker-compose") {
 		return command, false
 	}
-	flags := " run -e ONEBOX_RESULT_FILE=" + containerResultFile +
-		" -v " + q(hostResultFile+":"+containerResultFile+":rw") + " "
-	return prefix + flags + command[runIndex+len(" run "):], true
+	return prefix + " run" + flags + command[runIndex+len(" run "):], true
 }
 
 func (e *Engine) unknownJobResult(job, reason string) (bool, string, error) {

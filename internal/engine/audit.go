@@ -170,6 +170,12 @@ func auditRows(recs []journal.Record) []auditRow {
 				row.action = auditAction(r.Phase)
 			}
 			switch {
+			// Ahead of the failure arm, which this record also matches: an
+			// interrupted run is not a failure of the job. The client went away
+			// and the outcome is unknown, which is a different thing to tell an
+			// operator than "it failed" or "it never finished".
+			case r.ErrorCode == "interrupted":
+				row.outcome = "interrupted"
 			case r.Event == "abort":
 				row.outcome = "aborted"
 			case r.Status == "fail":

@@ -150,7 +150,7 @@ func TestDurableCompatibilityInvalidationMustSucceedBeforeDataChangingJob(t *tes
 				return base(command)
 			}
 			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-			_, _, err := e.runOneJob(context.Background(), "change", "/release", "/release/compose.yaml")
+			_, _, err := e.runOneJob(context.Background(), "op-1", 1, "change", "/release", "/release/compose.yaml")
 			if !invalidated || err == nil || !strings.Contains(err.Error(), "invalidate durable execution compatibility") {
 				t.Fatalf("failed invalidation did not stop data-changing job: invalidated=%t err=%v", invalidated, err)
 			}

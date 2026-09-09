@@ -20,8 +20,10 @@ func cliJobPlan(t *testing.T) onebox.JobPlan {
 
 func cliJobPlanWith(t *testing.T, effect onebox.DataEffectClass, risk onebox.RiskClass, approval onebox.ApprovalClass) onebox.JobPlan {
 	t.Helper()
-	// A destructive plan only seals as critical, irreversible and strongly
-	// approved, so the caller picks the effect and the rest follows it.
+	// Reversibility is derived rather than passed: a destructive plan seals
+	// only as irreversible, so there is no combination worth a caller choosing.
+	// Risk and approval stay parameters because a plan can legitimately vary
+	// them — one-time versus strong at the same effect.
 	reversibility := onebox.ReversibilityReversible
 	if effect == onebox.DataEffectDestructive {
 		reversibility = onebox.ReversibilityIrreversible

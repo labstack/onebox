@@ -231,8 +231,10 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 	}
 	var approval *onebox.ApprovalGrant
 	if plan.Operation.Approval != onebox.ApprovalNone {
-		// renderJobPlan above already showed every field the approval summary
-		// carries; printing both repeated release, risk, target and expires.
+		// renderJobPlan above showed this plan's job, release, digest, risk,
+		// target and expiry, so the approval summary would only repeat them —
+		// it adds nothing here but its `operation:` line, and the kind is not
+		// in question when the command itself was `ob job run`.
 		if !confirmPlanApproval(cmd, &plan) {
 			fmt.Fprintln(cmd.OutOrStdout(), "not approved")
 			return writeCancelled(cmd, g, "job approval cancelled")

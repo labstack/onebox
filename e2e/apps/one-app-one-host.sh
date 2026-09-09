@@ -52,8 +52,9 @@ OB="$S/ob"
 #
 # The prompt is answered rather than bypassed, because there is no flag to skip
 # it and there should not be. A routine plan asks y/n; one that touches data
-# asks for the release identifier to be typed back, so read the class from the
-# plan and answer what it actually asked.
+# asks for the plan's identity to be typed back — the release identifier for a
+# deploy, the job name for a job run — so read the class from the plan and
+# answer what it actually asked. This script only plans deploys.
 approval_answer() {
   python3 - "$1" <<'PYEOF'
 import json, sys

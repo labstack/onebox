@@ -76,8 +76,15 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "the project file could not be written",
 	},
 	"confirmation_failed": {
-		Message: "the typed confirmation did not match the plan identity it asked for",
-		Command: "ob approve --plan <path>",
+		// Raised where the confirmation is BUILT, not where it is typed: a
+		// backup report that will not load, or that does not bind to this plan.
+		// A typed answer that does not match records nothing and exits
+		// `cancelled`, which is a different code and a different outcome.
+		Message: "the backup report for this local confirmation could not be loaded or does not bind to the plan",
+		// Naming --plan alone would publish the command that skips the report,
+		// so re-running the guidance verbatim would "succeed" by dropping the
+		// input that failed.
+		Command: "ob approve --plan <path> --backup-report <path>",
 	},
 	"divergence_detected": {
 		Message: "the live release does not match the recorded release state",

@@ -913,11 +913,23 @@ func jobStepOf(operation onebox.OperationPlan) (onebox.OperationStep, bool) {
 // the plan acts on. A deploy mints a release, so its release ID identifies it.
 // A job runs inside the release already serving — every job planned against
 // that release shares its ID — so for a job the name is what identifies it.
+//
+// Enumerated rather than defaulted. Asking for the release ID whenever the kind
+// is unrecognised is the exact defect this function exists to fix, and a future
+// executable kind would inherit it silently. An unknown kind returns no token,
+// and the caller refuses.
 func approvalToken(operation onebox.OperationPlan) (label, want string) {
-	if step, ok := jobStepOf(operation); ok {
-		return "job name", step.Component
+	switch operation.Kind {
+	case onebox.KindJobRun:
+		if step, ok := jobStepOf(operation); ok {
+			return "job name", step.Component
+		}
+		return "", ""
+	case onebox.KindDeploy:
+		return "release ID", operation.ReleaseID
+	default:
+		return "", ""
 	}
-	return "release ID", operation.ReleaseID
 }
 
 func confirmPlanApproval(cmd *cobra.Command, plan onebox.ExecutablePlan) bool {
@@ -934,9 +946,32 @@ func confirmPlanApprovalAt(cmd *cobra.Command, plan onebox.ExecutablePlan, out i
 		return confirmAt(cmd, out, "Approve this exact plan?")
 	}
 	label, want := approvalToken(operation)
+	// A ceremony that cannot say what it is asking for must not accept an
+	// answer. Without this an empty token would approve on a bare newline,
+	// which is the opposite of what the strong class means.
+	//
+	// Unreachable through a validated plan: ExecutablePlan is closed over
+	// DeployPlan and JobPlan, each validates its own kind, and every caller
+	// here hands over a validated one. It therefore reports the generic
+	// cancellation its callers already emit rather than carrying an outcome
+	// code of its own. Whoever makes it reachable — a third executable kind —
+	// must give it one, because automation reading `cancelled` will otherwise
+	// take a tool-side refusal for an operator declining.
+	if want == "" {
+		fmt.Fprintf(out, "cannot identify what operation %q acts on — refusing to approve\n", operation.Kind)
+		return false
+	}
 	fmt.Fprintf(out, "Type %s %s to approve: ", label, want)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	return strings.TrimSpace(line) == want
+	if strings.TrimSpace(line) == want {
+		return true
+	}
+	// A mismatch exits `cancelled`, whose published guidance points at the
+	// journal — which approving never touches. Without this line an operator,
+	// or a pipeline still sending a release ID for a job, is told only that
+	// something was cancelled.
+	fmt.Fprintf(out, "confirmation did not match the %s %s; nothing was recorded\n", label, want)
+	return false
 }
 
 func confirmInteractiveDeploy(cmd *cobra.Command, plan *onebox.DeployPlan) bool {

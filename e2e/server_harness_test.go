@@ -383,8 +383,10 @@ func (s *server) deploy(t *testing.T, dir string) {
 	s.mustOb(t, dir, "plan", "-o", plan)
 
 	// `approve` records a *human* confirmation and deliberately has no flag to
-	// skip it, so the answer arrives on standard input. A strong approval wants
-	// the release ID typed back; anything weaker is a yes-or-no.
+	// skip it, so the answer arrives on standard input. A strong approval on a
+	// DEPLOY plan wants the release ID typed back; a job plan wants its job
+	// name instead, and anything weaker is a yes-or-no. This helper only ever
+	// plans deploys.
 	body, err := os.ReadFile(plan)
 	if err != nil {
 		t.Fatal(err)

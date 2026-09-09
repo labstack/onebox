@@ -58,8 +58,15 @@ plan.
 plan, server, inputs, risk, operator label, backup-report digest, and expiry. A
 changed or expired plan or report needs a new confirmation.
 
-When approval policy is enabled, migrations and unknown data effects use the
-**strong ceremony**, where the operator types the release ID.
+Migrations, destructive effects and unknown data effects use the **strong
+ceremony**, where the operator types back what the plan acts on: the release ID
+for a deploy, the job name for a job run. A deploy mints the release it names,
+while a job runs inside the release already serving — which every job planned
+against that release shares — so the job is what identifies it.
+
+A manual job carrying one of those effects asks whether or not approval policy
+is enabled. Policy decides only whether a deploy that is not critical asks at
+all.
 
 The artifact source is `local_cli`. Its digest detects modification and binds
 the ceremony to reviewed inputs, but it is not an identity-provider signature

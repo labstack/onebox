@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -26,6 +27,16 @@ func reconcileFake(journals string, running []string) *transport.Fake {
 func reconcileEngine(t *testing.T, f *transport.Fake) *Engine {
 	t.Helper()
 	return New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+}
+
+// closeAll reads the journals the way a caller does, then closes what it finds.
+func closeAll(t *testing.T, e *Engine) error {
+	t.Helper()
+	ids, byID, err := journal.Journals(context.Background(), e.T, e.names())
+	if err != nil {
+		t.Fatalf("read journals: %v", err)
+	}
+	return e.closeInterruptedJobRuns(context.Background(), ids, byID)
 }
 
 const startedJobJournal = journalMarkerLine + "J1.jsonl\n" +
@@ -70,7 +81,7 @@ func TestRefuseCatchesAnInterruptedRunThatRecordedItself(t *testing.T) {
 // Gone, and the client never journaled a result: the outcome is unknown.
 func TestCloseRecordsAnUnknownOutcomeAsInterrupted(t *testing.T) {
 	f := reconcileFake(startedJobJournal, nil)
-	if err := reconcileEngine(t, f).closeInterruptedJobRuns(context.Background()); err != nil {
+	if err := closeAll(t, reconcileEngine(t, f)); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	appended := strings.Join(f.Commands, "\n")
@@ -91,7 +102,7 @@ func TestCloseRecordsAJournaledResultAsSuccess(t *testing.T) {
 	journals := startedJobJournal +
 		`{"deploy_id":"J1","epoch":4,"phase":"job","sub_step":"job:catalog-refresh","event":"result","status":"ok","ts":"t2"}` + "\n"
 	f := reconcileFake(journals, nil)
-	if err := reconcileEngine(t, f).closeInterruptedJobRuns(context.Background()); err != nil {
+	if err := closeAll(t, reconcileEngine(t, f)); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	appended := strings.Join(f.Commands, "\n")
@@ -107,7 +118,7 @@ func TestCloseGroupsAJournalByInvocation(t *testing.T) {
 		`{"deploy_id":"J1","epoch":4,"phase":"job","event":"finish","status":"ok","operation_kind":"job_run","service":"catalog-refresh","ts":"t2"}` + "\n" +
 		`{"deploy_id":"J1","epoch":5,"phase":"job","event":"start","status":"ok","operation_kind":"job_run","service":"catalog-refresh","ts":"t3"}` + "\n"
 	f := reconcileFake(journals, nil)
-	if err := reconcileEngine(t, f).closeInterruptedJobRuns(context.Background()); err != nil {
+	if err := closeAll(t, reconcileEngine(t, f)); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	appended := strings.Join(f.Commands, "\n")
@@ -127,7 +138,7 @@ func TestCloseIgnoresDeploysAndFinishedRuns(t *testing.T) {
 		`{"deploy_id":"J2","epoch":1,"phase":"job","event":"start","status":"ok","operation_kind":"job_run","service":"chore","ts":"t"}` + "\n" +
 		`{"deploy_id":"J2","epoch":1,"phase":"job","event":"finish","status":"ok","operation_kind":"job_run","service":"chore","ts":"t"}` + "\n"
 	f := reconcileFake(journals, nil)
-	if err := reconcileEngine(t, f).closeInterruptedJobRuns(context.Background()); err != nil {
+	if err := closeAll(t, reconcileEngine(t, f)); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	if strings.Contains(strings.Join(f.Commands, "\n"), `"event":"finish"`) {
@@ -142,7 +153,7 @@ func TestCloseKeepsARecordedFailureAsAFailure(t *testing.T) {
 	journals := startedJobJournal +
 		`{"deploy_id":"J1","epoch":4,"phase":"job","sub_step":"job:catalog-refresh","event":"result","status":"fail","ts":"t2"}` + "\n"
 	f := reconcileFake(journals, nil)
-	if err := reconcileEngine(t, f).closeInterruptedJobRuns(context.Background()); err != nil {
+	if err := closeAll(t, reconcileEngine(t, f)); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	appended := strings.Join(f.Commands, "\n")

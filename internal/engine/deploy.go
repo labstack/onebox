@@ -96,8 +96,14 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 			return fmt.Errorf("deploy precondition under lock: %w", err)
 		}
 	}
-	// Past the plan boundary, so a stale plan leaves the host untouched.
-	if err := e.closeInterruptedJobRuns(ctx); err != nil {
+	// Past the plan boundary, so a stale plan leaves the host untouched. One
+	// read of the journals serves both this and the rollback-debt scan below;
+	// they are the same bytes off a possibly high-latency host.
+	journalIDs, journalsByID, err := journal.Journals(ctx, e.T, e.names())
+	if err != nil {
+		return err
+	}
+	if err := e.closeInterruptedJobRuns(ctx, journalIDs, journalsByID); err != nil {
 		return err
 	}
 	pf := e.ui.Step("preflight", false)
@@ -118,7 +124,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 	rollbackDebt := false
 	if done == nil {
-		rollbackDebt, err = e.rollbackEffectDebt(ctx, prev)
+		rollbackDebt, err = e.rollbackEffectDebt(prev, journalIDs, journalsByID)
 		if err != nil {
 			return fmt.Errorf("rollback effect history: %w", err)
 		}
@@ -225,11 +231,7 @@ func (e *Engine) pinnedScheduleDeployConflict() string {
 // failed deploy can mutate data even though its runner exits cleanly and writes
 // finish:fail; a later successful activation/current release or an explicit
 // abort clears that historical debt.
-func (e *Engine) rollbackEffectDebt(ctx context.Context, current string) (bool, error) {
-	ids, byID, err := journal.Journals(ctx, e.T, e.names())
-	if err != nil {
-		return false, err
-	}
+func (e *Engine) rollbackEffectDebt(current string, ids []string, byID map[string][]journal.Record) (bool, error) {
 	debt := false
 	for _, id := range ids {
 		summary := journal.Summarize(byID[id])

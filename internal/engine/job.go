@@ -177,7 +177,11 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	}
 
 	// Past the staleness checks, so a plan that will not execute writes nothing.
-	if err := e.closeInterruptedJobRuns(ctx); err != nil {
+	journalIDs, journalsByID, err := journal.Journals(ctx, e.T, e.names())
+	if err != nil {
+		return operationID, nil, err
+	}
+	if err := e.closeInterruptedJobRuns(ctx, journalIDs, journalsByID); err != nil {
 		return operationID, nil, err
 	}
 

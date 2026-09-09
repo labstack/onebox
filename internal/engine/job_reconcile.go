@@ -26,6 +26,15 @@ func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperatio
 		if c.operation == currentOperationID {
 			continue
 		}
+		if c.operation == "" {
+			// The label is present but carries no value, so the container
+			// cannot be attributed. Refuse anyway: an unattributable job
+			// container is exactly as dangerous as an attributable one.
+			return fmt.Errorf(
+				"a job container is running on this host (%.12s) with an empty %s label, so the operation that "+
+					"started it cannot be identified; establish what it did and stop it with `docker rm -f %.12s`",
+				c.id, JobOperationLabel, c.id)
+		}
 		return fmt.Errorf(
 			"a job container from operation %s is still running on this host (%.12s) with no process owning it; "+
 				"wait for it to finish, or establish what it did and stop it with `docker rm -f %.12s`",
@@ -73,11 +82,9 @@ func (e *Engine) jobContainers(ctx context.Context) ([]jobContainer, error) {
 // container, and this runs only once nothing of the sort is running. Being
 // wrong here is therefore cheap, which is why a journal reduction is good
 // enough for it and is not good enough for the refusal.
-func (e *Engine) closeInterruptedJobRuns(ctx context.Context) error {
-	ids, byID, err := journal.Journals(ctx, e.T, e.names())
-	if err != nil {
-		return err
-	}
+// The caller supplies the journals so a deploy, which also scans them for
+// rollback debt, reads them once.
+func (e *Engine) closeInterruptedJobRuns(ctx context.Context, ids []string, byID map[string][]journal.Record) error {
 	for _, id := range ids {
 		for _, run := range unfinishedJobRuns(byID[id]) {
 			if err := e.closeJobRun(ctx, id, run); err != nil {

@@ -81,10 +81,11 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 	stopHB := e.StartHeartbeat(ctx)
 	defer stopHB()
-	// A deploy rolls workloads and runs its own gate jobs; an orphaned job run
-	// still changing data underneath it is exactly the overlap the lock exists
-	// to prevent, and the lock alone does not catch it once its holder is gone.
-	if err := e.reconcileOrphanedJobRuns(ctx); err != nil {
+	// A deploy rolls workloads and runs its own gate jobs; a job container still
+	// changing data underneath it is exactly the overlap the lock exists to
+	// prevent, and the lock alone does not catch it once its holder is gone.
+	// Read-only, so it runs before the plan-binding boundary below.
+	if err := e.refuseForeignJobContainers(ctx, releaseID); err != nil {
 		return err
 	}
 	// The plan binding is the mutation boundary. Check it under the application
@@ -94,6 +95,10 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 		if err := e.Opts.DeployPrecondition(ctx, e); err != nil {
 			return fmt.Errorf("deploy precondition under lock: %w", err)
 		}
+	}
+	// Past the plan boundary, so a stale plan leaves the host untouched.
+	if err := e.closeInterruptedJobRuns(ctx); err != nil {
+		return err
 	}
 	pf := e.ui.Step("preflight", false)
 	if err := e.preflight(ctx, false); err != nil {

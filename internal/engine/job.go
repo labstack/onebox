@@ -66,9 +66,10 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	stopHeartbeat := e.StartHeartbeat(ctx)
 	defer stopHeartbeat()
 
-	// Under the lock, before anything mutates: a previous run of this or any
-	// job may still be on the host with no process owning it.
-	if err := e.reconcileOrphanedJobRuns(ctx); err != nil {
+	// Under the lock, before anything mutates and before any host write: a job
+	// container from an earlier operation may still be running with no process
+	// owning it. Read-only, so it is safe on this side of the plan boundary.
+	if err := e.refuseForeignJobContainers(ctx, operationID); err != nil {
 		return operationID, nil, err
 	}
 
@@ -173,6 +174,11 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		}); err != nil {
 			return operationID, nil, finish(fmt.Errorf("journal migration backup authorization: %w", err))
 		}
+	}
+
+	// Past the staleness checks, so a plan that will not execute writes nothing.
+	if err := e.closeInterruptedJobRuns(ctx); err != nil {
+		return operationID, nil, err
 	}
 
 	e.gateOpen = true

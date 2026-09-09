@@ -112,6 +112,12 @@ func happyFake() *transport.Fake {
 			return fs[len(fs)-1]
 		}
 		switch {
+		// Compose counts stopped replicas toward --scale, so the roll asks for
+		// them separately; these fakes model none.
+		case strings.Contains(cmd, "status=exited"):
+			return transport.Result{Stdout: "\n"}, true
+		case strings.Contains(cmd, "State.Status"):
+			return transport.Result{Stdout: "running\n"}, true
 		case strings.Contains(cmd, "/_host/owner"):
 			return transport.Result{Stdout: "sample\n"}, true
 		case strings.Contains(cmd, "docker network inspect --format"):
@@ -130,12 +136,12 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "PG1\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "compose.service='web'") && strings.Contains(cmd, "ob.release="):
 			if scaled && (!newGone || scaleCount > initialScaleCount) {
 				return transport.Result{Stdout: "NEW1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'"):
+		case strings.Contains(cmd, "compose.service='web'"):
 			var ids []string
 			if !oldGone {
 				ids = append(ids, "OLD1")

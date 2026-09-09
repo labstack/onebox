@@ -152,6 +152,35 @@ func splitIDs(out string) ([]string, error) {
 	return ids, nil
 }
 
+// stateOf is the container's lifecycle state (running, exited, created, dead,
+// restarting, paused) as the runtime reports it.
+func (e *Engine) stateOf(ctx context.Context, id string) (string, error) {
+	res, err := e.T.Run(ctx, "docker inspect -f '{{.State.Status}}' "+id)
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("docker inspect state of %q failed (exit %d): %s", id, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return strings.TrimSpace(res.Stdout), nil
+}
+
+// replicaIDsAnyState lists a service's containers in every state, not only the
+// running ones docker ps reports. Docker names are unique across all states, so
+// a stopped container still holds its slot name.
+func (e *Engine) replicaIDsAnyState(ctx context.Context, svc string) ([]string, error) {
+	res, err := e.T.Run(ctx,
+		"docker ps -aq --filter label=com.docker.compose.project="+q(e.Spec.Name)+
+			" --filter label=com.docker.compose.service="+q(svc))
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("docker ps -a for service %q failed (exit %d): %s", svc, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return splitIDs(res.Stdout)
+}
+
 func (e *Engine) healthOf(ctx context.Context, id string) (string, error) {
 	res, err := e.T.Run(ctx,
 		"docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "+id)

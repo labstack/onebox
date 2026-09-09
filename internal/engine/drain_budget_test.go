@@ -84,9 +84,15 @@ func flippingFake(clock *virtualClock, flipAfter time.Duration, baked string) *t
 			olds = append(olds, "OLD1")
 		}
 		switch {
+		// Compose counts stopped replicas toward --scale, so the roll asks for
+		// them separately; these fakes model none.
+		case strings.Contains(cmd, "status=exited"):
+			return transport.Result{Stdout: "\n"}, true
+		case strings.Contains(cmd, "State.Status"):
+			return transport.Result{Stdout: "running\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "ob.release="):
 			return transport.Result{Stdout: strings.Join(news, "\n") + "\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'"):
+		case strings.Contains(cmd, "compose.service='web'"):
 			return transport.Result{Stdout: strings.Join(append(append([]string{}, olds...), news...), "\n") + "\n"}, true
 		case strings.Contains(cmd, "{{.Name}}"):
 			return transport.Result{Stdout: "/web\n"}, true

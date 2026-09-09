@@ -46,15 +46,59 @@ func (e *Engine) composeCmdForProject(remoteComposePath, remoteProjectDir string
 	return cmd
 }
 
-// newcomerIDs finds containers of a specific release — the ob.release label
-// render injects is what makes resume possible.
+// newcomerIDs finds RUNNING containers of a specific release — the ob.release
+// label render injects is what makes resume possible. Running-only is what the
+// surge loop needs: a newcomer that exited has not converged, and counting it
+// toward the desired count would end the roll with a dead replica.
 func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
+	return e.newcomerIDsWith(ctx, svc, releaseID, false)
+}
+
+// newcomerIDsAnyState also finds newcomers that are no longer running. Only the
+// post-scale detection wants this: a container that started and immediately
+// exited is still the container the scale-up produced, and reporting it as "no
+// new container" both hides the real cause and leaves it behind for the next
+// scale-up to count.
+func (e *Engine) newcomerIDsAnyState(ctx context.Context, svc, releaseID string) ([]string, error) {
+	return e.newcomerIDsWith(ctx, svc, releaseID, true)
+}
+
+func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID string, anyState bool) ([]string, error) {
+	ps := "docker ps -q"
+	if anyState {
+		ps = "docker ps -aq"
+	}
 	res, err := e.T.Run(ctx,
-		"docker ps -q --filter label=com.docker.compose.project="+q(e.Spec.Name)+
+		ps+" --filter label=com.docker.compose.project="+q(e.Spec.Name)+
 			" --filter label=com.docker.compose.service="+q(svc)+
 			" --filter label=ob.release="+q(releaseID))
 	if err != nil {
 		return nil, err
+	}
+	// An unchecked failure here reads as an empty list, which the surge loop
+	// reports as "scale up produced no new container" — the true cause hidden
+	// behind a claim about Compose.
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("docker ps for newcomers of service %q failed (exit %d): %s",
+			svc, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return splitIDs(res.Stdout)
+}
+
+// stoppedReplicaIDs lists the service's containers that `docker ps` hides but
+// Compose still counts: exited, created and dead. Restarting and paused
+// containers are listed by `docker ps`, so they are already in cur.
+func (e *Engine) stoppedReplicaIDs(ctx context.Context, svc string) ([]string, error) {
+	res, err := e.T.Run(ctx,
+		"docker ps -aq --filter label=com.docker.compose.project="+q(e.Spec.Name)+
+			" --filter label=com.docker.compose.service="+q(svc)+
+			" --filter status=exited --filter status=created --filter status=dead")
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("docker ps -a for service %q failed (exit %d): %s",
+			svc, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return splitIDs(res.Stdout)
 }
@@ -110,6 +154,25 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 				}
 				pulled = true
 			}
+			// Compose counts every container of the service toward --scale,
+			// running or not, and stop-and-removes whatever it then considers
+			// surplus. So --scale len(cur)+1 against stopped replicas creates
+			// nothing, deletes containers this roll never chose, and restarts a
+			// survivor on the old image. Clear them first: this workload is
+			// being replaced, and a stopped replica carries no traffic to
+			// protect. A stopped container of the release being rolled TO is a
+			// failed newcomer this loop would have removed anyway.
+			stopped, err := e.stoppedReplicaIDs(ctx, svc)
+			if err != nil {
+				return err
+			}
+			for _, id := range stopped {
+				e.logf("%s: removing stopped replica %s (compose counts it toward --scale)",
+					roleName, id[:min(12, len(id))])
+				if err := e.mutateChecked(ctx, "remove stopped replica "+id, "docker rm -f "+id); err != nil {
+					return err
+				}
+			}
 			known := idSet(news)
 			scale := len(cur) + 1
 			if res, err := e.mutate(ctx, fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=%d %s", cc, svc, scale, svc)); err != nil {
@@ -117,7 +180,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("up --scale %s: %s", svc, res.Stderr)
 			}
-			after, err := e.newcomerIDs(ctx, svc, releaseID)
+			after, err := e.newcomerIDsAnyState(ctx, svc, releaseID)
 			if err != nil {
 				return err
 			}
@@ -286,7 +349,7 @@ func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int)
 	if err != nil {
 		return err
 	}
-	all, err := e.containerIDs(ctx, svc)
+	all, err := e.replicaIDsAnyState(ctx, svc)
 	if err != nil {
 		return err
 	}
@@ -407,6 +470,17 @@ func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interv
 		}
 		if h == want {
 			return nil
+		}
+		// A container that has exited will not report a different health
+		// status later, so waiting out the budget only delays the same answer
+		// with a worse message.
+		if state, err := e.stateOf(ctx, id); err != nil {
+			return err
+		} else if state == "exited" || state == "dead" {
+			if why := e.healthDiagnosis(ctx, id); why != "" {
+				return fmt.Errorf("container %s exited before becoming %s: %s", id, want, why)
+			}
+			return fmt.Errorf("container %s exited before becoming %s (last health: %s)", id, want, h)
 		}
 		if h == "none" && want == "healthy" {
 			return fmt.Errorf("container %s has no healthcheck, and rolling waits for one — declare health: on the workload, or strategy: recreate", id)

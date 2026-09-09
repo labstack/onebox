@@ -40,6 +40,12 @@ func interruptedFakeWithPolicy(gateDetail string, policySafe bool) *transport.Fa
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
+		// Compose counts stopped replicas toward --scale, so the roll asks for
+		// them separately; these fakes model none.
+		case strings.Contains(cmd, "status=exited"):
+			return transport.Result{Stdout: "\n"}, true
+		case strings.Contains(cmd, "State.Status"):
+			return transport.Result{Stdout: "running\n"}, true
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
@@ -333,7 +339,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		}
 		// live server set: OLD1 (the R1 container being replaced) until removed,
 		// plus the R0 newcomer PREV1 once the R0 scale ran.
-		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'") && !strings.Contains(cmd, "ob.release=") {
+		if strings.Contains(cmd, "compose.service='web'") && !strings.Contains(cmd, "ob.release=") {
 			var ids []string
 			if !oldGone() {
 				ids = append(ids, "OLD1")

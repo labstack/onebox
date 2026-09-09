@@ -18,6 +18,13 @@ import (
 // container; renames are tracked so name queries reflect the latest name.
 // resume=true means NEW1 is already running before any scale (adoption path).
 func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resume bool) *transport.Fake {
+	return replicaFakeWithStopped(desired, oldIDs, oldNames, resume, nil)
+}
+
+// replicaFakeWithStopped adds replicas that exist but are not running. They are
+// invisible to `docker ps -q` and visible to `docker ps -aq`, which is exactly
+// the accounting Compose uses for --scale.
+func replicaFakeWithStopped(desired int, oldIDs []string, oldNames map[string]string, resume bool, stoppedIDs []string) *transport.Fake {
 	f := &transport.Fake{}
 	lastField := func(s string) string {
 		fs := strings.Fields(s)
@@ -75,7 +82,31 @@ func replicaFake(desired int, oldIDs []string, oldNames map[string]string, resum
 				olds = append(olds, id)
 			}
 		}
+		var stopped []string
+		for _, id := range stoppedIDs {
+			if !removed[id] {
+				stopped = append(stopped, id)
+			}
+		}
+		lines := func(ids []string) transport.Result {
+			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}
+		}
 		switch {
+		// -aq before -q: "docker ps -aq" does not contain "docker ps -q".
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "status=exited"):
+			return lines(stopped), true
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "ob.release="):
+			return lines(news), true
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "service='web'"):
+			return lines(append(append(append([]string{}, olds...), news...), stopped...)), true
+		case strings.Contains(cmd, "State.Status"):
+			id := lastField(cmd)
+			for _, s := range stopped {
+				if s == id {
+					return transport.Result{Stdout: "exited\n"}, true
+				}
+			}
+			return transport.Result{Stdout: "running\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "ob.release="):
 			return transport.Result{Stdout: strings.Join(news, "\n") + "\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'"):
@@ -278,4 +309,82 @@ func withinMillis(r app.Workload, ms int) app.Workload {
 	h.Interval = "1ms"
 	r.Health = &h
 	return r
+}
+
+// The reported wedge: every replica stopped, so `docker ps -q` reports none and
+// the roll asks Compose for `--scale web=1`. Compose counts the stopped ones
+// toward that target, creates nothing, and removes the surplus itself — which
+// surfaced as "scale up produced no new container" and required manual
+// `docker rm` before `ob resume` could make progress.
+func TestRollRoleReplacesStoppedReplicas(t *testing.T) {
+	stopped := []string{"STOP1", "STOP2", "STOP3"}
+	f := replicaFakeWithStopped(3, nil, nil, false, stopped)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+		t.Fatalf("roll over stopped replicas: %v", err)
+	}
+	joined := strings.Join(f.Commands, "\n")
+	for _, id := range stopped {
+		if !strings.Contains(joined, "docker rm -f "+id) {
+			t.Fatalf("stopped replica %s was left for compose to count:\n%s", id, joined)
+		}
+	}
+	// Order is the whole point: a sweep after the scale would not prevent the
+	// miscount that made the scale a no-op.
+	firstScale := strings.Index(joined, "--scale web=")
+	for _, id := range stopped {
+		if at := strings.Index(joined, "docker rm -f "+id); at > firstScale {
+			t.Fatalf("%s removed after the first --scale:\n%s", id, joined)
+		}
+	}
+}
+
+// A stopped replica alongside running ones must not be counted either, and the
+// running ones must still be retired through the drain protocol rather than
+// swept.
+func TestRollRoleSweepsOnlyStoppedReplicas(t *testing.T) {
+	f := replicaFakeWithStopped(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, false, []string{"STOP1"})
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+		t.Fatalf("roll: %v", err)
+	}
+	joined := strings.Join(f.Commands, "\n")
+	if !strings.Contains(joined, "docker rm -f STOP1") {
+		t.Fatalf("stopped replica not swept:\n%s", joined)
+	}
+	// The running old is drained, not swept: it may still be carrying traffic.
+	if !strings.Contains(joined, "docker exec OLD1") {
+		t.Fatalf("running old was not drained:\n%s", joined)
+	}
+	if strings.Index(joined, "docker rm -f STOP1") > strings.Index(joined, "docker exec OLD1") {
+		t.Fatalf("sweep must precede the roll, not follow it:\n%s", joined)
+	}
+}
+
+// A newcomer that exits on start used to report "scale up produced no new
+// container" — a claim about Compose that hid the real cause and left the dead
+// container behind for the next scale-up to miscount.
+func TestRollRoleReportsNewcomerThatExited(t *testing.T) {
+	f := replicaFakeWithStopped(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, false, nil)
+	inner := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "State.Status") && strings.Contains(cmd, "NEW1") {
+			return transport.Result{Stdout: "exited\n"}, true
+		}
+		if strings.Contains(cmd, "State.Health") && strings.Contains(cmd, "NEW1") {
+			return transport.Result{Stdout: "starting\n"}, true
+		}
+		return inner(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml")
+	if err == nil || !strings.Contains(err.Error(), "exited before becoming healthy") {
+		t.Fatalf("roll error = %v, want the newcomer's own exit", err)
+	}
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "docker rm -f NEW1") {
+		t.Fatalf("dead newcomer was left behind:\n%s", strings.Join(f.Commands, "\n"))
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "docker rm -f OLD1") {
+		t.Fatalf("the old replica must keep serving:\n%s", strings.Join(f.Commands, "\n"))
+	}
 }

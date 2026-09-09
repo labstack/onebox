@@ -567,6 +567,10 @@ func (e *Engine) DescribeWorkloadPlans(remoteCompose string, plans map[string]Wo
 		if role.Mode() == "rolling" {
 			step := "  per replica: "
 			out = append(out,
+				// Compose counts stopped replicas toward --scale, so the roll
+				// clears them first. A plan that hides a removal it performs is
+				// a plan nobody can check against.
+				"  docker rm -f <stopped replicas> (compose counts them toward --scale)",
 				step+fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=<+1> %s", cc, svc, svc),
 				"  wait <new> healthy (ready gate)",
 				"    ├─ healthy → converge → docker exec <old> touch /tmp/ob-drain → wait unhealthy → converge",

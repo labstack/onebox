@@ -123,7 +123,8 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		// Not a failure of the job and not an incomplete operation: the client
 		// went away, and what the job did is unknown unless it journaled a
 		// result first. Written by the interrupted run itself, on a context of
-		// its own, whenever it can still reach the host.
+		// its own, whenever it can still reach the host — and otherwise by the
+		// next operation, which finds the run unfinished and closes it.
 		Message: "the operation's client went away before its outcome could be recorded",
 		Command: "ob audit --output json",
 	},

@@ -201,10 +201,10 @@ ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
 
 `ob approve` always prompts and there is no flag to skip it. A routine plan asks
 yes or no; one that touches data — a migration, a destructive job, or an
-unknown data effect — asks for the release ID to be typed back. It reads the
-answer from stdin without checking for a terminal, so a pipeline supplies `y`,
-or the release ID for the stronger ceremony. Anything else records nothing and
-exits cancelled.
+unknown data effect — asks for the plan's identity to be typed back: the release
+ID for a deploy, the job name for a job run. It reads the answer from stdin
+without checking for a terminal, so a pipeline supplies `y`, or that identity
+for the stronger ceremony. Anything else records nothing and exits cancelled.
 
 A JSON deploy buffers ordered operation events and its result into one envelope.
 NDJSON streams event records and a terminal result or error record. Diagnostics

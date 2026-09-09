@@ -32,7 +32,13 @@ workloads:
     env_files: [{file: worker.enc.env, provider: sops}]
 `
 
+// A two-replica rolling web, so a rotation can be caught part-way through:
+// one replica already on the new generation, one still on the old.
+var rollingGenerationProjectPair = strings.Replace(rollingGenerationProject,
+	"    health: {exec: [\"/health\"]}", "    replicas: 2\n    health: {exec: [\"/health\"]}", 1)
+
 type rollingGenerationState struct {
+	project       string
 	generations   map[string]string
 	worker        string
 	sequence      int
@@ -44,10 +50,19 @@ type rollingGenerationState struct {
 // existing one keeps running until it is drained and removed.
 func newRollingGenerationFake(t *testing.T) (*transport.Fake, *rollingGenerationState) {
 	t.Helper()
+	return newRollingGenerationFakeWith(t, rollingGenerationProject,
+		map[string]string{"W1": oldSecretGeneration, "K1": oldSecretGeneration}, 1)
+}
+
+// newRollingGenerationFakeWith seeds the container set, so a test can start
+// from a rotation that was already part-way through.
+func newRollingGenerationFakeWith(t *testing.T, project string, generations map[string]string, sequence int) (*transport.Fake, *rollingGenerationState) {
+	t.Helper()
 	state := &rollingGenerationState{
-		generations: map[string]string{"W1": oldSecretGeneration, "K1": oldSecretGeneration},
+		project:     project,
+		generations: generations,
 		worker:      "K1",
-		sequence:    1,
+		sequence:    sequence,
 	}
 	fake := &transport.Fake{HostName: "example.invalid", TargetName: "deploy@example.invalid"}
 	lastField := func(s string) string {
@@ -106,7 +121,7 @@ func newRollingGenerationFake(t *testing.T) (*transport.Fake, *rollingGeneration
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
 		case strings.Contains(command, "/ob.snapshot.yml"):
-			return transport.Result{Stdout: rollingGenerationProject}, true
+			return transport.Result{Stdout: state.project}, true
 		case strings.HasPrefix(strings.TrimSpace(command), "cat ") && strings.Contains(command, "/compose.yaml"):
 			return transport.Result{Stdout: currentGenerationCompose(oldSecretGeneration)}, true
 		case strings.Contains(command, "cmp -s"):
@@ -185,7 +200,12 @@ func upCommandsFor(commands []string, svc string) []string {
 
 func rollingGenerationEngine(t *testing.T, fake *transport.Fake, output *bytes.Buffer) *Engine {
 	t.Helper()
-	resolved := resolvedSecretGraph(t, rollingGenerationProject)
+	return rollingGenerationEngineFor(t, rollingGenerationProject, fake, output)
+}
+
+func rollingGenerationEngineFor(t *testing.T, project string, fake *transport.Fake, output *bytes.Buffer) *Engine {
+	t.Helper()
+	resolved := resolvedSecretGraph(t, project)
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	return New(resolved, nil, fake, Options{
 		Environment: "production", Out: output, Sleep: noSleep,
@@ -312,5 +332,43 @@ func TestForceSecretGenerationRefusesWhenTheLabelCannotBeRead(t *testing.T) {
 		if strings.Contains(command, " up -d ") || strings.Contains(command, "docker rm") {
 			t.Fatalf("containers were mutated despite an unreadable label:\n%s", command)
 		}
+	}
+}
+
+// A roll adopts the newcomers a previous attempt already created, so on resume
+// a container from before this attempt is legitimately still running. Requiring
+// every identity to change — which is right for recreate, where one command
+// replaces the fleet — made a crashed rotation unresumable.
+func TestForceSecretGenerationResumesAPartlyRolledWorkload(t *testing.T) {
+	fake, state := newRollingGenerationFakeWith(t, rollingGenerationProjectPair, map[string]string{
+		"W1": oldSecretGeneration, // still to be retired
+		"W2": newSecretGeneration, // surged before the crash, must be adopted
+		"K1": oldSecretGeneration,
+	}, 2)
+	var output bytes.Buffer
+	engine := rollingGenerationEngineFor(t, rollingGenerationProjectPair, fake, &output)
+	checkpoint, err := release.NewSecretCheckpoint(
+		"20260809-120000-current", oldSecretGeneration, newSecretGeneration,
+		[]string{"web", "worker"},
+		[]string{".ob-decrypted-sops-web.enc.env", ".ob-decrypted-sops-worker.enc.env"},
+		time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.forceSecretGeneration(context.Background(), checkpoint, "web", newSecretGeneration); err != nil {
+		t.Fatalf("resume of a part-rolled workload: %v\n%s", err, strings.Join(fake.Commands, "\n"))
+	}
+	commands := strings.Join(fake.Commands, "\n")
+	// The adopted newcomer is not replaced a second time.
+	if strings.Contains(commands, "docker rm -f W2") || strings.Contains(commands, "docker rm W2") {
+		t.Fatalf("the adopted newcomer was destroyed:\n%s", commands)
+	}
+	// The old replica is still retired through the drain protocol.
+	if !strings.Contains(commands, "docker exec W1") {
+		t.Fatalf("the old replica was not drained:\n%s", commands)
+	}
+	if state.generations["W1"] != oldSecretGeneration {
+		t.Fatalf("W1 changed generation instead of being retired: %#v", state.generations)
 	}
 }

@@ -793,10 +793,19 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 	for _, identifier := range before {
 		old[identifier] = true
 	}
+	rolling := e.Spec.Workloads[workload].Mode() == "rolling"
 	for _, identifier := range after {
-		if old[identifier] {
+		// Recreate replaces the whole fleet in one command, so a container that
+		// survived it means nothing was replaced. A roll adopts the newcomers it
+		// already created — which is what makes a crashed rotation resumable —
+		// so there a container present before this attempt may legitimately
+		// still be running, already on the new generation. Requiring its
+		// identity to change would make a mid-roll crash unrecoverable.
+		if !rolling && old[identifier] {
 			return fmt.Errorf("container %s identity did not change", identifier)
 		}
+		// What actually has to hold either way: every replica, at the declared
+		// count, carrying the generation being installed.
 		if err := e.requireContainerSecretGeneration(ctx, identifier, generation); err != nil {
 			return err
 		}

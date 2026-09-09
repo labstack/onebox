@@ -103,8 +103,14 @@ func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState
 	if a.HostState.WorkloadRevisions != nil && !reflect.DeepEqual(fresh.WorkloadRevisions, a.HostState.WorkloadRevisions) {
 		return errors.New("host drift: workload replicas or revisions changed since plan — re-plan")
 	}
-	if a.HostState.WorkloadHealth != nil && !reflect.DeepEqual(fresh.WorkloadHealth, a.HostState.WorkloadHealth) {
-		return errors.New("host drift: workload health changed since plan — re-plan")
+	// Per workload, not a whole-map comparison: the plan binds health only for
+	// the workloads it retains, so the bound map is a subset of a fresh one by
+	// design. A workload appearing or disappearing entirely is already drift
+	// the revisions check above refuses.
+	for svc, want := range a.HostState.WorkloadHealth {
+		if !reflect.DeepEqual(fresh.WorkloadHealth[svc], want) {
+			return fmt.Errorf("host drift: health of retained workload %s changed since plan — re-plan", svc)
+		}
 	}
 	return nil
 }

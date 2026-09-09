@@ -163,6 +163,14 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("plan workload actions: %w", err)
 	}
+	// Health enters the binding only for workloads this plan retains. For one
+	// it is replacing, health at plan time did not inform the decision and
+	// drift in it says nothing — while a crash-looping replica flaps between
+	// "starting" and "down" on every `docker ps`, which made the fence refuse
+	// the apply nondeterministically. Stopping the replicas to steady the
+	// reading is what an operator is then pushed into, and that is its own
+	// failure.
+	hostState.WorkloadHealth = retainedWorkloadHealth(steps, hostState.WorkloadHealth)
 	workloadPlans := engineWorkloadPlans(steps)
 	commands := e.DescribeWorkloadPlans(
 		release.PathsFor(e.Names()).Releases+"/"+releaseID+"/compose.yaml",

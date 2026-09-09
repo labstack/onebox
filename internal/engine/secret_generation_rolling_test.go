@@ -45,7 +45,7 @@ type rollingGenerationState struct {
 func newRollingGenerationFake(t *testing.T) (*transport.Fake, *rollingGenerationState) {
 	t.Helper()
 	state := &rollingGenerationState{
-		generations: map[string]string{"W1": oldSecretGeneration},
+		generations: map[string]string{"W1": oldSecretGeneration, "K1": oldSecretGeneration},
 		worker:      "K1",
 		sequence:    1,
 	}
@@ -275,6 +275,42 @@ func TestForceSecretGenerationIsNoOpWhenAlreadyConverged(t *testing.T) {
 	for _, command := range fake.Commands[before:] {
 		if strings.Contains(command, " up -d ") || strings.Contains(command, "docker rm") {
 			t.Fatalf("converged workload was replaced anyway:\n%s", command)
+		}
+	}
+}
+
+// An unreadable generation label is not evidence that a workload needs
+// replacing. Answering "not converged" there would let a transport failure or
+// a broken inspect fall through into mutating containers whose state could not
+// be established.
+func TestForceSecretGenerationRefusesWhenTheLabelCannotBeRead(t *testing.T) {
+	fake, _ := newRollingGenerationFake(t)
+	inner := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "ob.secret-generation") && strings.HasSuffix(strings.TrimSpace(command), "W1") {
+			return transport.Result{ExitCode: 1, Stderr: "no such object"}, true
+		}
+		return inner(command)
+	}
+	var output bytes.Buffer
+	engine := rollingGenerationEngine(t, fake, &output)
+	checkpoint, err := release.NewSecretCheckpoint(
+		"20260809-120000-current", oldSecretGeneration, newSecretGeneration,
+		[]string{"web", "worker"},
+		[]string{".ob-decrypted-sops-web.enc.env", ".ob-decrypted-sops-worker.enc.env"},
+		time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(fake.Commands)
+	err = engine.forceSecretGeneration(context.Background(), checkpoint, "web", newSecretGeneration)
+	if err == nil || !strings.Contains(err.Error(), "read secret generation label") {
+		t.Fatalf("unreadable label = %v, want a refusal naming the read", err)
+	}
+	for _, command := range fake.Commands[before:] {
+		if strings.Contains(command, " up -d ") || strings.Contains(command, "docker rm") {
+			t.Fatalf("containers were mutated despite an unreadable label:\n%s", command)
 		}
 	}
 }

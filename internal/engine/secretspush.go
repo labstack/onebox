@@ -806,6 +806,10 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 
 // workloadOnSecretGeneration reports whether every running replica already
 // carries the generation, at the declared count.
+//
+// Only a label that disagrees means "not converged". An unreadable label does
+// not: answering false there would let a transport failure or a broken inspect
+// fall through into replacing containers whose state could not be established.
 func (e *Engine) workloadOnSecretGeneration(ctx context.Context, workload, generation string) (bool, error) {
 	ids, err := e.containerIDs(ctx, workload)
 	if err != nil {
@@ -815,19 +819,37 @@ func (e *Engine) workloadOnSecretGeneration(ctx context.Context, workload, gener
 		return false, nil
 	}
 	for _, id := range ids {
-		if err := e.requireContainerSecretGeneration(ctx, id, generation); err != nil {
+		observed, err := e.containerSecretGeneration(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		if observed != generation {
 			return false, nil
 		}
 	}
 	return true, nil
 }
 
-func (e *Engine) requireContainerSecretGeneration(ctx context.Context, containerID, generation string) error {
+// containerSecretGeneration reads one container's generation label. A failure
+// to read it is an error, distinct from reading a value that does not match.
+func (e *Engine) containerSecretGeneration(ctx context.Context, containerID string) (string, error) {
 	result, err := e.T.Run(ctx, "docker inspect -f '{{ index .Config.Labels \"ob.secret-generation\" }}' "+containerID)
+	if err != nil {
+		return "", err
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("read secret generation label of container %s (exit %d): %s",
+			containerID, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
+func (e *Engine) requireContainerSecretGeneration(ctx context.Context, containerID, generation string) error {
+	observed, err := e.containerSecretGeneration(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != generation {
+	if observed != generation {
 		return fmt.Errorf("container %s did not adopt secret generation %s", containerID, generation)
 	}
 	return nil

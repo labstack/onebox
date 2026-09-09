@@ -94,7 +94,11 @@ func (e *Engine) recreateRoleForRelease(ctx context.Context, roleName, remoteCom
 			return fmt.Errorf("recreate %s: container %s is %s", svc, id, s)
 		}
 	}
-	return e.reslot(ctx, svc, releaseID, desired)
+	// No generation narrowing: recreate replaces the whole fleet at once, so
+	// every container carrying this release also carries the generation just
+	// installed. Rolling needs the narrowing because its old and new replicas
+	// coexist under one release.
+	return e.reslot(ctx, svc, releaseID, "", desired)
 }
 
 // waitForContainersExit gives the exact containers signalled above up to wait

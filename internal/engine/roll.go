@@ -50,8 +50,8 @@ func (e *Engine) composeCmdForProject(remoteComposePath, remoteProjectDir string
 // label render injects is what makes resume possible. Running-only is what the
 // surge loop needs: a newcomer that exited has not converged, and counting it
 // toward the desired count would end the roll with a dead replica.
-func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]string, error) {
-	return e.newcomerIDsWith(ctx, svc, releaseID, false)
+func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID, generation string) ([]string, error) {
+	return e.newcomerIDsWith(ctx, svc, releaseID, generation, false)
 }
 
 // newcomerIDsAnyState also finds newcomers that are no longer running. Only the
@@ -59,19 +59,27 @@ func (e *Engine) newcomerIDs(ctx context.Context, svc, releaseID string) ([]stri
 // exited is still the container the scale-up produced, and reporting it as "no
 // new container" both hides the real cause and leaves it behind for the next
 // scale-up to count.
-func (e *Engine) newcomerIDsAnyState(ctx context.Context, svc, releaseID string) ([]string, error) {
-	return e.newcomerIDsWith(ctx, svc, releaseID, true)
+func (e *Engine) newcomerIDsAnyState(ctx context.Context, svc, releaseID, generation string) ([]string, error) {
+	return e.newcomerIDsWith(ctx, svc, releaseID, generation, true)
 }
 
-func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID string, anyState bool) ([]string, error) {
+// generation narrows a newcomer further than the release label can. Rotating a
+// secret replaces containers WITHIN one release, so every container in that
+// roll — old and new — carries the same ob.release. Only the generation label
+// tells them apart, and without it the first pass would adopt the containers it
+// is supposed to replace.
+func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID, generation string, anyState bool) ([]string, error) {
 	ps := "docker ps -q"
 	if anyState {
 		ps = "docker ps -aq"
 	}
-	res, err := e.T.Run(ctx,
-		ps+" --filter label=com.docker.compose.project="+q(e.Spec.Name)+
-			" --filter label=com.docker.compose.service="+q(svc)+
-			" --filter label=ob.release="+q(releaseID))
+	filters := " --filter label=com.docker.compose.project=" + q(e.Spec.Name) +
+		" --filter label=com.docker.compose.service=" + q(svc) +
+		" --filter label=ob.release=" + q(releaseID)
+	if generation != "" {
+		filters += " --filter label=ob.secret-generation=" + q(generation)
+	}
+	res, err := e.T.Run(ctx, ps+filters)
 	if err != nil {
 		return nil, err
 	}
@@ -111,10 +119,20 @@ func (e *Engine) stoppedReplicaIDs(ctx context.Context, svc string) ([]string, e
 // every replica is the new release. Resume-aware: already-running newcomers of
 // this release are adopted, not duplicated.
 func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath string) error {
+	projectDir := filepath.Dir(remoteComposePath)
+	return e.rollRoleForRelease(ctx, roleName, remoteComposePath, projectDir, filepath.Base(projectDir), "")
+}
+
+// rollRoleForRelease is the same protocol with an explicit Compose project
+// directory and release identity, and an optional secret generation that
+// identifies the newcomers. Secret-generation Compose files live below a
+// release, so deriving either from their parent directory would resolve
+// release-relative files below the generation and mistake the opaque generation
+// for the release label — the same reason recreateRoleForRelease exists.
+func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteComposePath, remoteProjectDir, releaseID, generation string) error {
 	role := e.Spec.Workloads[roleName]
 	svc := roleName
-	cc := e.composeCmd(remoteComposePath)
-	releaseID := filepath.Base(filepath.Dir(remoteComposePath))
+	cc := e.composeCmdForProject(remoteComposePath, remoteProjectDir)
 	desired := role.Count()
 	within, pollEvery := role.ReadyTiming()
 
@@ -122,7 +140,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 	// Each pass converges by one step: add a missing new replica, or retire a
 	// surplus/old one. The guard bounds a pathological non-converging loop.
 	for guard := 0; ; guard++ {
-		news, err := e.newcomerIDs(ctx, svc, releaseID)
+		news, err := e.newcomerIDs(ctx, svc, releaseID, generation)
 		if err != nil {
 			return err
 		}
@@ -180,7 +198,7 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("up --scale %s: %s", svc, res.Stderr)
 			}
-			after, err := e.newcomerIDsAnyState(ctx, svc, releaseID)
+			after, err := e.newcomerIDsAnyState(ctx, svc, releaseID, generation)
 			if err != nil {
 				return err
 			}
@@ -215,11 +233,11 @@ func (e *Engine) RollRole(ctx context.Context, roleName, remoteComposePath strin
 		}
 
 		// hand clean slot names to any new container that doesn't have one yet
-		if err := e.reslot(ctx, svc, releaseID, desired); err != nil {
+		if err := e.reslot(ctx, svc, releaseID, generation, desired); err != nil {
 			return err
 		}
 	}
-	if err := e.reslot(ctx, svc, releaseID, desired); err != nil {
+	if err := e.reslot(ctx, svc, releaseID, generation, desired); err != nil {
 		return err
 	}
 	return nil
@@ -344,8 +362,8 @@ const (
 // <app>-<component>-1..<app>-<component>-N for every replica count.
 // A slot still held by an old container counts as taken, so names never clash;
 // as olds retire their slots free and the next reslot fills them.
-func (e *Engine) reslot(ctx context.Context, svc, releaseID string, desired int) error {
-	news, err := e.newcomerIDs(ctx, svc, releaseID)
+func (e *Engine) reslot(ctx context.Context, svc, releaseID, generation string, desired int) error {
+	news, err := e.newcomerIDs(ctx, svc, releaseID, generation)
 	if err != nil {
 		return err
 	}

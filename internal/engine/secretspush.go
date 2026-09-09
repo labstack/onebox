@@ -744,6 +744,15 @@ func (e *Engine) cleanupOrphanSecretGenerations(ctx context.Context, releaseID s
 }
 
 func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.SecretCheckpoint, workload, generation string) error {
+	// Already converged. Two paths reach here that way: a resume after a crash,
+	// and recovery after a roll whose unhealthy newcomer was removed without
+	// any old replica being touched. Neither has anything to replace, and
+	// without this the identity check below would fail them for it.
+	if converged, err := e.workloadOnSecretGeneration(ctx, workload, generation); err != nil {
+		return err
+	} else if converged {
+		return nil
+	}
 	before, err := e.containerIDs(ctx, workload)
 	if err != nil {
 		return err
@@ -754,7 +763,23 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 		return err
 	}
 	composePath := generationDir + "/compose.yaml"
-	if err := e.recreateRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID); err != nil {
+	// A rolling workload rotates its secret the way it takes a release: surge
+	// one replica on the new generation, gate it healthy, retire one old.
+	// Recreating instead destroyed every serving replica before the first
+	// health check, so a value that prevents startup took the workload to zero
+	// — and the recovery path, which lands here too, replaced the fleet a
+	// second time rather than leaving survivors.
+	//
+	// Replicas may straddle generations while this runs. env_file is read at
+	// container creation, both generation directories are on disk for the whole
+	// transition, and uniformity is asserted only after replacement, which a
+	// completed roll satisfies.
+	if e.Spec.Workloads[workload].Mode() == "rolling" {
+		err = e.rollRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID, generation)
+	} else {
+		err = e.recreateRoleForRelease(ctx, workload, composePath, releaseDir, checkpoint.ReleaseID)
+	}
+	if err != nil {
 		return err
 	}
 	after, err := e.containerIDs(ctx, workload)
@@ -768,10 +793,19 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 	for _, identifier := range before {
 		old[identifier] = true
 	}
+	rolling := e.Spec.Workloads[workload].Mode() == "rolling"
 	for _, identifier := range after {
-		if old[identifier] {
+		// Recreate replaces the whole fleet in one command, so a container that
+		// survived it means nothing was replaced. A roll adopts the newcomers it
+		// already created — which is what makes a crashed rotation resumable —
+		// so there a container present before this attempt may legitimately
+		// still be running, already on the new generation. Requiring its
+		// identity to change would make a mid-roll crash unrecoverable.
+		if !rolling && old[identifier] {
 			return fmt.Errorf("container %s identity did not change", identifier)
 		}
+		// What actually has to hold either way: every replica, at the declared
+		// count, carrying the generation being installed.
 		if err := e.requireContainerSecretGeneration(ctx, identifier, generation); err != nil {
 			return err
 		}
@@ -779,12 +813,52 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 	return nil
 }
 
-func (e *Engine) requireContainerSecretGeneration(ctx context.Context, containerID, generation string) error {
+// workloadOnSecretGeneration reports whether every running replica already
+// carries the generation, at the declared count.
+//
+// Only a label that disagrees means "not converged". An unreadable label does
+// not: answering false there would let a transport failure or a broken inspect
+// fall through into replacing containers whose state could not be established.
+func (e *Engine) workloadOnSecretGeneration(ctx context.Context, workload, generation string) (bool, error) {
+	ids, err := e.containerIDs(ctx, workload)
+	if err != nil {
+		return false, err
+	}
+	if len(ids) != e.Spec.Workloads[workload].Count() {
+		return false, nil
+	}
+	for _, id := range ids {
+		observed, err := e.containerSecretGeneration(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		if observed != generation {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// containerSecretGeneration reads one container's generation label. A failure
+// to read it is an error, distinct from reading a value that does not match.
+func (e *Engine) containerSecretGeneration(ctx context.Context, containerID string) (string, error) {
 	result, err := e.T.Run(ctx, "docker inspect -f '{{ index .Config.Labels \"ob.secret-generation\" }}' "+containerID)
+	if err != nil {
+		return "", err
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("read secret generation label of container %s (exit %d): %s",
+			containerID, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
+func (e *Engine) requireContainerSecretGeneration(ctx context.Context, containerID, generation string) error {
+	observed, err := e.containerSecretGeneration(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != generation {
+	if observed != generation {
 		return fmt.Errorf("container %s did not adopt secret generation %s", containerID, generation)
 	}
 	return nil

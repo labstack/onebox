@@ -949,6 +949,14 @@ func confirmPlanApprovalAt(cmd *cobra.Command, plan onebox.ExecutablePlan, out i
 	// A ceremony that cannot say what it is asking for must not accept an
 	// answer. Without this an empty token would approve on a bare newline,
 	// which is the opposite of what the strong class means.
+	//
+	// Unreachable through a validated plan: ExecutablePlan is closed over
+	// DeployPlan and JobPlan, each validates its own kind, and every caller
+	// here hands over a validated one. It therefore reports the generic
+	// cancellation its callers already emit rather than carrying an outcome
+	// code of its own. Whoever makes it reachable — a third executable kind —
+	// must give it one, because automation reading `cancelled` will otherwise
+	// take a tool-side refusal for an operator declining.
 	if want == "" {
 		fmt.Fprintf(out, "cannot identify what operation %q acts on — refusing to approve\n", operation.Kind)
 		return false

@@ -164,3 +164,17 @@ func TestCloseKeepsARecordedFailureAsAFailure(t *testing.T) {
 		t.Fatalf("a known failure must not be reported as an unknown outcome:\n%s", appended)
 	}
 }
+
+// A container whose label carries no value prints "<id> " with nothing after
+// the separator. Trimming the line before the cut removes the separator, and
+// the container is skipped as unparseable — the one that most needs refusing.
+func TestRefuseCatchesAContainerWithAnEmptyOperationLabel(t *testing.T) {
+	f := reconcileFake("", []string{"abc123def456 "})
+	err := reconcileEngine(t, f).refuseForeignJobContainers(context.Background(), "J2")
+	if err == nil {
+		t.Fatal("an unattributable job container must refuse")
+	}
+	if !strings.Contains(err.Error(), "empty") || !strings.Contains(err.Error(), "abc123def456") {
+		t.Fatalf("refusal did not name the problem: %v", err)
+	}
+}

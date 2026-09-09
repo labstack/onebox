@@ -62,9 +62,15 @@ func (e *Engine) jobContainers(ctx context.Context) ([]jobContainer, error) {
 		return nil, fmt.Errorf("list running job containers (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	var out []jobContainer
-	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
-		id, operation, found := strings.Cut(strings.TrimSpace(line), " ")
-		if !found || id == "" {
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		// Not TrimSpace before the cut: a container whose label carries no value
+		// prints "<id> " with nothing after the separator, and trimming the line
+		// first removes the separator itself — the container would then be
+		// skipped as unparseable, which is precisely the one that most needs
+		// refusing.
+		id, operation, _ := strings.Cut(strings.TrimRight(line, "\r\n"), " ")
+		id, operation = strings.TrimSpace(id), strings.TrimSpace(operation)
+		if id == "" {
 			continue
 		}
 		if !validID.MatchString(id) {

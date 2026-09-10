@@ -12,13 +12,20 @@ import (
 
 func manualJobEngine(t *testing.T, target *transport.Fake) *Engine {
 	t.Helper()
+	return manualJobEngineTo(t, target, &bytes.Buffer{})
+}
+
+// manualJobEngineTo is the same engine with its narration captured, for the
+// tests that assert what an operator is told.
+func manualJobEngineTo(t *testing.T, target *transport.Fake, out *bytes.Buffer) *Engine {
+	t.Helper()
 	config := testConfig()
 	job := config.Workloads["migrate"]
 	job.When = "manual"
 	job.DataEffect = "none"
 	config.Workloads["migrate"] = job
 	return New(config, testProject(t), target, Options{
-		Out: &bytes.Buffer{}, Sleep: noSleep,
+		Out: out, Sleep: noSleep,
 		ApprovalDigest: "approval-digest", ApprovalClass: "one_time",
 		ApprovedBy: "operator@example.test", ApprovalSource: "local_cli",
 	})
@@ -170,5 +177,120 @@ func TestInterruptedRunClassifiesTheRunNotTheClient(t *testing.T) {
 	}
 	if interruptedRun(context.Background(), errors.New("migrate: exit 1")) {
 		t.Fatal("a job that failed on its own terms is not interrupted")
+	}
+}
+
+// The refusal is only worth having if it is actually called. Deleting the call
+// site left the unit tests green, so this drives the whole run against a host
+// reporting a foreign job container and requires it to stop before the job
+// starts.
+func TestRunJobRefusesWhileAForeignJobContainerRuns(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	engine := manualJobEngine(t, target)
+	_, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	})
+	if err == nil || !strings.Contains(err.Error(), "other-op") {
+		t.Fatalf("run job = %v, want a refusal naming the foreign operation", err)
+	}
+	if strings.Contains(strings.Join(target.Commands, "\n"), "ONEBOX_RESULT_FILE=") {
+		t.Fatalf("the job ran anyway:\n%s", strings.Join(target.Commands, "\n"))
+	}
+}
+
+// Refusing must not hand the host to the next mutator. Releasing the lock here
+// would leave no lock and a live data-changing container — worse than not
+// refusing, because the lock this run reclaimed from the interrupted one would
+// be gone with it.
+func TestRunJobKeepsTheLockWhenItRefuses(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	engine := manualJobEngine(t, target)
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	for _, c := range target.Commands {
+		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+			t.Fatalf("the lock was released over a live container:\n%s", c)
+		}
+	}
+}
+
+// Both situations keep the lock, and each has to say which it is. Telling an
+// operator their run was interrupted when it never started sends them looking
+// for work that does not exist.
+func TestRunJobExplainsWhyItKeptTheLock(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	var out bytes.Buffer
+	engine := manualJobEngineTo(t, target, &out)
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if s := out.String(); !strings.Contains(s, "nothing was run") {
+		t.Fatalf("refusal did not say the run never started:\n%s", s)
+	}
+	if s := out.String(); strings.Contains(s, "was interrupted while its container") {
+		t.Fatalf("refusal claimed this run was interrupted:\n%s", s)
+	}
+}
+
+// The refusal also fires when the host cannot be asked, and the lock is kept
+// for the same reason: an unanswered question is not an answer of no. The
+// narration must not claim a container was found in that case.
+func TestRunJobKeepsTheLockWhenItCannotAskTheHost(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon"}, true
+		}
+		return inner(cmd)
+	}
+	var out bytes.Buffer
+	engine := manualJobEngineTo(t, target, &out)
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}); err == nil {
+		t.Fatal("an unanswerable host must refuse")
+	}
+	for _, c := range target.Commands {
+		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+			t.Fatalf("the lock was released without an answer:\n%s", c)
+		}
+	}
+	if s := out.String(); strings.Contains(s, "alongside that container") {
+		t.Fatalf("narration claimed a container was found:\n%s", s)
 	}
 }

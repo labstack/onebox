@@ -155,3 +155,20 @@ func TestJobContainersRefusesAnUnusableAnswer(t *testing.T) {
 		t.Fatal("output that is not a container id must not be trusted")
 	}
 }
+
+// Exempting this run's own container must not end the scan. A deploy runs its
+// own gate jobs, so its container is routinely listed first — and a foreign one
+// behind it is exactly what this exists to catch.
+func TestRefuseKeepsScanningPastItsOwnContainer(t *testing.T) {
+	f := jobContainerFake([]string{
+		"aaa111bbb222 op-mine 3",
+		"ccc333ddd444 op-other 9",
+	})
+	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "op-mine", 3)
+	if err == nil {
+		t.Fatal("a foreign container behind an exempt one must still refuse")
+	}
+	if !strings.Contains(err.Error(), "op-other") || !strings.Contains(err.Error(), "ccc333ddd444") {
+		t.Fatalf("refusal named the wrong container: %v", err)
+	}
+}

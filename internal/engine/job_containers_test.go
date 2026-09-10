@@ -62,14 +62,14 @@ func TestRefuseCatchesAContainerWithAnEmptyOperationLabel(t *testing.T) {
 // A sealed job plan carries one operation id for its whole life and is
 // re-runnable, and AcquireLock hands the lock straight back to a caller
 // presenting the id already written in it. Matching the operation alone would
-// let a second run exempt the container its own earlier run left behind.
-func TestRefuseCatchesAnEarlierRunOfTheSameOperation(t *testing.T) {
+// let one run exempt the container another invocation of it left behind.
+func TestRefuseCatchesAnotherInvocationOfTheSameOperation(t *testing.T) {
 	f := jobContainerFake([]string{"abc123def456 J1 4"})
 	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 5)
 	if err == nil {
 		t.Fatal("an earlier invocation of the same plan must refuse")
 	}
-	for _, want := range []string{"earlier run", "J1", "epoch 4", "abc123def456"} {
+	for _, want := range []string{"another invocation", "J1", "epoch 4", "this run is epoch 5", "abc123def456"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("refusal missing %q: %v", want, err)
 		}
@@ -81,7 +81,7 @@ func TestRefuseCatchesAnEarlierRunOfTheSameOperation(t *testing.T) {
 func TestRefuseDoesNotExemptAContainerWithNoEpoch(t *testing.T) {
 	f := jobContainerFake([]string{"abc123def456 J1 "})
 	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4)
-	if err == nil || !strings.Contains(err.Error(), "epoch unknown") {
-		t.Fatalf("unlabelled epoch = %v, want a refusal naming it", err)
+	if err == nil || !strings.Contains(err.Error(), "carrying no ob.epoch label") {
+		t.Fatalf("unlabelled epoch = %v, want a refusal saying it cannot be placed", err)
 	}
 }

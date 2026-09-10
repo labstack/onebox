@@ -33,10 +33,23 @@ func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperatio
 			continue
 		}
 		if c.operation == currentOperationID {
+			// A differing epoch says the container belongs to some other
+			// invocation of this operation, not which one or when — epochs are
+			// not ordered against each other here — and a missing epoch says
+			// only that it cannot be placed at all. Neither supports calling it
+			// an earlier run.
+			if c.epoch == "" {
+				return fmt.Errorf(
+					"a job container of operation %s is running on this host (%.12s) carrying no %s label, "+
+						"so it cannot be placed against this run; establish what it did and stop it with "+
+						"`docker rm -f %s`",
+					c.operation, c.id, JobEpochLabel, c.id)
+			}
 			return fmt.Errorf(
-				"an earlier run of operation %s (epoch %s) left a job container running on this host (%.12s); "+
-					"wait for it to finish, or establish what it did and stop it with `docker rm -f %s`",
-				c.operation, labelOrUnknown(c.epoch), c.id, c.id)
+				"another invocation of operation %s (epoch %s, this run is epoch %s) left a job container "+
+					"running on this host (%.12s); wait for it to finish, or establish what it did and stop "+
+					"it with `docker rm -f %s`",
+				c.operation, c.epoch, currentEpochLabel, c.id, c.id)
 		}
 		if c.operation == "" {
 			// The label is present but carries no value, so the container
@@ -60,13 +73,6 @@ type jobContainer struct {
 	id        string
 	operation string
 	epoch     string
-}
-
-func labelOrUnknown(value string) string {
-	if value == "" {
-		return "unknown"
-	}
-	return value
 }
 
 // jobContainers lists every running one-off job container, whichever operation

@@ -96,3 +96,62 @@ func TestRefuseSeesAContainerOnAPaddedLine(t *testing.T) {
 		t.Fatalf("padded line = %v, want the container refused", err)
 	}
 }
+
+// The parsing has now been wrong twice in ways a single example did not catch —
+// once dropping an empty label, once dropping a padded line. This states the
+// whole shape of what `docker ps` can hand back, so the next mistake fails here
+// rather than in the field, where a dropped line is a container nobody sees.
+func TestJobContainerParsing(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stdout string
+		want   []jobContainer
+	}{
+		{"nothing running", "", nil},
+		{"blank output", "\n\n", nil},
+		{"one container", "abc123def456 op-1 4\n", []jobContainer{{"abc123def456", "op-1", "4"}}},
+		{"several", "abc123def456 op-1 4\nfed654cba321 op-2 9\n",
+			[]jobContainer{{"abc123def456", "op-1", "4"}, {"fed654cba321", "op-2", "9"}}},
+		// A label docker cannot resolve renders empty, and the separators stay.
+		{"no epoch label", "abc123def456 op-1 \n", []jobContainer{{"abc123def456", "op-1", ""}}},
+		{"no operation label", "abc123def456  \n", []jobContainer{{"abc123def456", "", ""}}},
+		{"no trailing separators", "abc123def456\n", []jobContainer{{"abc123def456", "", ""}}},
+		{"padded line", "   abc123def456 op-1 4\n", []jobContainer{{"abc123def456", "op-1", "4"}}},
+		{"carriage return", "abc123def456 op-1 4\r\n", []jobContainer{{"abc123def456", "op-1", "4"}}},
+		{"no trailing newline", "abc123def456 op-1 4", []jobContainer{{"abc123def456", "op-1", "4"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+				return transport.Result{Stdout: tc.stdout}, true
+			}}
+			got, err := jobContainerEngine(t, f).jobContainers(context.Background())
+			if err != nil {
+				t.Fatalf("parse %q: %v", tc.stdout, err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("parse %q = %+v, want %+v", tc.stdout, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("parse %q [%d] = %+v, want %+v", tc.stdout, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// A daemon that cannot answer must stop the operation, not report an empty host.
+func TestJobContainersRefusesAnUnusableAnswer(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		return transport.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon"}, true
+	}}
+	if _, err := jobContainerEngine(t, f).jobContainers(context.Background()); err == nil {
+		t.Fatal("a failed docker ps must not read as no containers")
+	}
+	bad := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		return transport.Result{Stdout: "not-a-container-id op-1 4\n"}, true
+	}}
+	if _, err := jobContainerEngine(t, bad).jobContainers(context.Background()); err == nil {
+		t.Fatal("output that is not a container id must not be trusted")
+	}
+}

@@ -12,13 +12,20 @@ import (
 
 func manualJobEngine(t *testing.T, target *transport.Fake) *Engine {
 	t.Helper()
+	return manualJobEngineTo(t, target, &bytes.Buffer{})
+}
+
+// manualJobEngineTo is the same engine with its narration captured, for the
+// tests that assert what an operator is told.
+func manualJobEngineTo(t *testing.T, target *transport.Fake, out *bytes.Buffer) *Engine {
+	t.Helper()
 	config := testConfig()
 	job := config.Workloads["migrate"]
 	job.When = "manual"
 	job.DataEffect = "none"
 	config.Workloads["migrate"] = job
 	return New(config, testProject(t), target, Options{
-		Out: &bytes.Buffer{}, Sleep: noSleep,
+		Out: out, Sleep: noSleep,
 		ApprovalDigest: "approval-digest", ApprovalClass: "one_time",
 		ApprovedBy: "operator@example.test", ApprovalSource: "local_cli",
 	})
@@ -225,5 +232,34 @@ func TestRunJobKeepsTheLockWhenItRefuses(t *testing.T) {
 		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
 			t.Fatalf("the lock was released over a live container:\n%s", c)
 		}
+	}
+}
+
+// Both situations keep the lock, and each has to say which it is. Telling an
+// operator their run was interrupted when it never started sends them looking
+// for work that does not exist.
+func TestRunJobExplainsWhyItKeptTheLock(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	var out bytes.Buffer
+	engine := manualJobEngineTo(t, target, &out)
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if s := out.String(); !strings.Contains(s, "nothing was run") {
+		t.Fatalf("refusal did not say the run never started:\n%s", s)
+	}
+	if s := out.String(); strings.Contains(s, "was interrupted while its container") {
+		t.Fatalf("refusal claimed this run was interrupted:\n%s", s)
 	}
 }

@@ -49,13 +49,13 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	// while the terminal journal append — which uses the cancelled one — does
 	// not: ownership would be dropped, immediately and silently, over a
 	// container still changing data.
-	holdLockForLiveContainer := false
+	// A non-empty reason keeps the lock and says why. Two different situations
+	// hold it, and telling an operator the wrong one sends them looking for a
+	// run that never started.
+	holdLockReason := ""
 	defer func() {
-		if holdLockForLiveContainer {
-			e.warnf("operation %s was interrupted while its container is still running; "+
-				"keeping the application lock so nothing else mutates alongside it. "+
-				"Inspect with `docker ps --filter label=%s=%s`; the lock expires on its own after %s",
-				operationID, JobOperationLabel, operationID, e.lockTTL())
+		if holdLockReason != "" {
+			e.warnf("%s", holdLockReason)
 			return
 		}
 		e.ReleaseLock(ctx)
@@ -93,7 +93,10 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		// mutator over a container this check has just established is alive —
 		// the opposite of what refusing is for, and worse than not refusing,
 		// because the lock reclaimed from the interrupted run would be gone too.
-		holdLockForLiveContainer = true
+		holdLockReason = fmt.Sprintf(
+			"nothing was run: %v. The application lock is being kept so nothing else "+
+				"mutates alongside that container; it expires on its own after %s",
+			err, e.lockTTL())
 		return operationID, nil, err
 	}
 
@@ -186,7 +189,13 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	if interruptedRun(ctx, runErr) {
 		// Cancelling the client kills at most the wrapper shell; the container
 		// belongs to the daemon and keeps running.
-		holdLockForLiveContainer = e.jobContainerRunning(operationID)
+		if e.jobContainerRunning(operationID) {
+			holdLockReason = fmt.Sprintf(
+				"operation %s was interrupted while its container is still running; "+
+					"keeping the application lock so nothing else mutates alongside it. "+
+					"Inspect with `docker ps --filter label=%s=%s`; the lock expires on its own after %s",
+				operationID, JobOperationLabel, operationID, e.lockTTL())
+		}
 	}
 	var result *journal.JobResultEvidence
 	if evidence, ok := e.jobResults[job]; ok {

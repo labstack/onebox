@@ -48,8 +48,9 @@ func (e *Engine) refuseForeignJobContainers(ctx context.Context, currentOperatio
 				c.id, JobOperationLabel, c.id)
 		}
 		return fmt.Errorf(
-			"a job container from operation %s is still running on this host (%.12s) with no process owning it; "+
-				"wait for it to finish, or establish what it did and stop it with `docker rm -f %s`",
+			"a job container from operation %s is still running on this host (%.12s); "+
+				"if that operation is still in progress, wait for it — otherwise establish what it did "+
+				"and stop it with `docker rm -f %s`",
 			c.operation, c.id, c.id)
 	}
 	return nil

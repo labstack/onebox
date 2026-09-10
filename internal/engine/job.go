@@ -93,9 +93,13 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 		// mutator over a container this check has just established is alive —
 		// the opposite of what refusing is for, and worse than not refusing,
 		// because the lock reclaimed from the interrupted run would be gone too.
+		// Deliberately silent on what was found. This refuses both when a job
+		// container is running and when the host could not be asked, and the
+		// lock is kept for the same reason either way: an unanswered question
+		// is not an answer of no.
 		holdLockReason = fmt.Sprintf(
-			"nothing was run: %v. The application lock is being kept so nothing else "+
-				"mutates alongside that container; it expires on its own after %s",
+			"nothing was run: %v. The application lock is being kept until this is "+
+				"resolved, so nothing else mutates meanwhile; it expires on its own after %s",
 			err, e.lockTTL())
 		return operationID, nil, err
 	}

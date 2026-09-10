@@ -263,3 +263,34 @@ func TestRunJobExplainsWhyItKeptTheLock(t *testing.T) {
 		t.Fatalf("refusal claimed this run was interrupted:\n%s", s)
 	}
 }
+
+// The refusal also fires when the host cannot be asked, and the lock is kept
+// for the same reason: an unanswered question is not an answer of no. The
+// narration must not claim a container was found in that case.
+func TestRunJobKeepsTheLockWhenItCannotAskTheHost(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon"}, true
+		}
+		return inner(cmd)
+	}
+	var out bytes.Buffer
+	engine := manualJobEngineTo(t, target, &out)
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}); err == nil {
+		t.Fatal("an unanswerable host must refuse")
+	}
+	for _, c := range target.Commands {
+		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+			t.Fatalf("the lock was released without an answer:\n%s", c)
+		}
+	}
+	if s := out.String(); strings.Contains(s, "alongside that container") {
+		t.Fatalf("narration claimed a container was found:\n%s", s)
+	}
+}

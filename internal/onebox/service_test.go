@@ -82,7 +82,7 @@ func serviceFake() *transport.Fake {
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/R0\n"}, true
 			// Ahead of the project-container probe, which also uses --format.
-			case strings.Contains(cmd, "label='ob.operation'"):
+			case strings.Contains(cmd, "docker ps --filter label='ob.operation'"):
 				return transport.Result{Stdout: "\n"}, true
 			case strings.Contains(cmd, "docker ps") && strings.Contains(cmd, "--format"):
 				return transport.Result{Stdout: "S1|web|R0|Up (healthy)\nPG1|database|R0|Up (healthy)\n"}, true
@@ -270,7 +270,7 @@ deployment: {order: [web, worker]}
 			return transport.Result{Stdout: project(false)}, true
 		case strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml"):
 			return transport.Result{Stdout: liveCompose}, true
-		case strings.Contains(command, "label='ob.operation'"):
+		case strings.Contains(command, "docker ps --filter label='ob.operation'"):
 			return transport.Result{Stdout: "\n"}, true
 		case strings.Contains(command, "docker ps") && strings.Contains(command, "--format"):
 			return transport.Result{Stdout: "S1|web|R0|Up\nW1|worker|R0|Up\n"}, true

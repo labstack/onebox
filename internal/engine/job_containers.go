@@ -90,11 +90,13 @@ func (e *Engine) jobContainers(ctx context.Context) ([]jobContainer, error) {
 	}
 	var out []jobContainer
 	for _, line := range strings.Split(res.Stdout, "\n") {
-		// TrimRight, not TrimSpace: leading whitespace would cut to an empty id and
-		// drop the line silently, and a container nobody can see is the one failure
-		// this check cannot afford. Each field is trimmed on its own below, so a
-		// label carrying no value still parses.
-		id, rest, _ := strings.Cut(strings.TrimRight(line, "\r\n"), " ")
+		// Leading whitespace is stripped so an id always parses, and the line end
+		// only of its newline — trailing space is the separator that makes an
+		// empty label parse as empty rather than as absent. A dropped line here
+		// is a container nobody can see, which is the one failure this cannot
+		// afford.
+		line = strings.TrimRight(strings.TrimLeft(line, " \t"), "\r\n")
+		id, rest, _ := strings.Cut(line, " ")
 		operation, epoch, _ := strings.Cut(rest, " ")
 		id, operation, epoch = strings.TrimSpace(id), strings.TrimSpace(operation), strings.TrimSpace(epoch)
 		if id == "" {

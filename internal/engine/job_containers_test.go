@@ -85,3 +85,14 @@ func TestRefuseDoesNotExemptAContainerWithNoEpoch(t *testing.T) {
 		t.Fatalf("unlabelled epoch = %v, want a refusal saying it cannot be placed", err)
 	}
 }
+
+// A line with leading whitespace must still yield its container. Cutting on the
+// first space without stripping it yields an empty id, and the container is
+// dropped in silence — invisible to the check that exists to see it.
+func TestRefuseSeesAContainerOnAPaddedLine(t *testing.T) {
+	f := jobContainerFake([]string{"   abc123def456 other-op 2"})
+	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 1)
+	if err == nil || !strings.Contains(err.Error(), "other-op") {
+		t.Fatalf("padded line = %v, want the container refused", err)
+	}
+}

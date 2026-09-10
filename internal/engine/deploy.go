@@ -75,12 +75,15 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err != nil {
 		return err
 	}
-	// Released unless a live job container is found below: handing the host to
-	// the next mutator over a container this deploy refused to run alongside
-	// would defeat the refusal.
-	holdLockForLiveContainer := false
+	// A non-empty reason keeps the lock and says why. The check below refuses
+	// both when a job container is running and when the host could not be
+	// asked, and the lock is kept for the same reason either way: releasing it
+	// would hand the host to the next mutator over a state this deploy declined
+	// to proceed against.
+	holdLockReason := ""
 	defer func() {
-		if holdLockForLiveContainer {
+		if holdLockReason != "" {
+			e.warnf("%s", holdLockReason)
 			return
 		}
 		e.ReleaseLock(ctx)
@@ -118,7 +121,10 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	// exists for it rather than by a raw `docker ps` failure — and still before
 	// any workload is rolled or any gate job runs.
 	if err := e.refuseForeignJobContainers(ctx, releaseID, epoch); err != nil {
-		holdLockForLiveContainer = true
+		holdLockReason = fmt.Sprintf(
+			"nothing was deployed: %v. The application lock is being kept until this is "+
+				"resolved, so nothing else mutates meanwhile; it expires on its own after %s",
+			err, e.lockTTL())
 		return err
 	}
 	rollbackDebt := false

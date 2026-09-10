@@ -586,3 +586,29 @@ func TestDeployRefusesWhileAForeignJobContainerRuns(t *testing.T) {
 		t.Fatalf("the deploy rolled anyway:\n%s", seq)
 	}
 }
+
+// A refused deploy keeps the application lock, and has to say so: an operator
+// who is told only that the deploy stopped will not know the host is still held.
+func TestDeployKeepsAndExplainsTheLockWhenItRefuses(t *testing.T) {
+	f := happyFake()
+	inner := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	var out bytes.Buffer
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.Deploy(context.Background(), "20260101-000000-aaa111", t.TempDir()); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	for _, c := range f.Commands {
+		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+			t.Fatalf("the lock was released over a live container:\n%s", c)
+		}
+	}
+	if s := out.String(); !strings.Contains(s, "lock is being kept") {
+		t.Fatalf("the operator was not told the lock is held:\n%s", s)
+	}
+}

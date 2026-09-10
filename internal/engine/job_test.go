@@ -199,3 +199,31 @@ func TestRunJobRefusesWhileAForeignJobContainerRuns(t *testing.T) {
 		t.Fatalf("the job ran anyway:\n%s", strings.Join(target.Commands, "\n"))
 	}
 }
+
+// Refusing must not hand the host to the next mutator. Releasing the lock here
+// would leave no lock and a live data-changing container — worse than not
+// refusing, because the lock this run reclaimed from the interrupted one would
+// be gone with it.
+func TestRunJobKeepsTheLockWhenItRefuses(t *testing.T) {
+	const runtime = "services:\n  migrate:\n    image: ghcr.io/x/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+	target := currentJobFake(runtime)
+	inner := target.Dynamic
+	target.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "label='ob.operation'") {
+			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
+		}
+		return inner(cmd)
+	}
+	engine := manualJobEngine(t, target)
+	if _, _, err := engine.RunJobWithJournalID(context.Background(), JobRunRequest{
+		OperationID: "op-job-run", Job: "migrate", ExpectedRelease: engineTestPreviousReleaseID,
+		ExpectedRuntimeDigest: HashBytes([]byte(runtime)), ExpectedDataEffect: "none",
+	}); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	for _, c := range target.Commands {
+		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+			t.Fatalf("the lock was released over a live container:\n%s", c)
+		}
+	}
+}

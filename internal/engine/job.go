@@ -89,6 +89,11 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	// After the staleness checks, so a stale plan is told it is stale rather
 	// than told about a container, and before this run creates one of its own.
 	if err := e.refuseForeignJobContainers(ctx, operationID, epoch); err != nil {
+		// Keep the lock. Releasing it here would hand the host to the next
+		// mutator over a container this check has just established is alive —
+		// the opposite of what refusing is for, and worse than not refusing,
+		// because the lock reclaimed from the interrupted run would be gone too.
+		holdLockForLiveContainer = true
 		return operationID, nil, err
 	}
 

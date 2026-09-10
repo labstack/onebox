@@ -75,7 +75,16 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err != nil {
 		return err
 	}
-	defer e.ReleaseLock(ctx)
+	// Released unless a live job container is found below: handing the host to
+	// the next mutator over a container this deploy refused to run alongside
+	// would defeat the refusal.
+	holdLockForLiveContainer := false
+	defer func() {
+		if holdLockForLiveContainer {
+			return
+		}
+		e.ReleaseLock(ctx)
+	}()
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
@@ -109,6 +118,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	// exists for it rather than by a raw `docker ps` failure — and still before
 	// any workload is rolled or any gate job runs.
 	if err := e.refuseForeignJobContainers(ctx, releaseID, epoch); err != nil {
+		holdLockForLiveContainer = true
 		return err
 	}
 	rollbackDebt := false

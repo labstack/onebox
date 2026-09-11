@@ -87,7 +87,7 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Command: "ob approve --plan <path> --backup-report <path>",
 	},
 	"divergence_detected": {
-		Message: "the live release does not match the recorded release state",
+		Message: "the live application state has diverged from its intended state",
 		// Not `ob status`: this code is raised BY ob status, so publishing it
 		// tells a caller to re-run the command that just failed.
 		Command: "ob audit --output json",

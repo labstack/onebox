@@ -251,7 +251,7 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		"install -d -m 700 " + q(names.AppDir()+"/schedule"),
 	}
 	lines = append(lines, scheduleInputsLines(names.ScheduledJobRunInputs(job.Name))...)
-	lines = append(lines, scheduleLockLines(names, job.Name, applicationLock, lockTTL)...)
+	lines = append(lines, scheduleLockLines(names, job.Name, job.DeployLock, applicationLock, lockTTL, scheduleRendezvousWait(job.Timeout))...)
 	lines = append(lines,
 		// Best effort: the record names the release that ran, and an exclusive
 		// job runs whatever `current` points at when it starts.
@@ -287,7 +287,7 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"install -d -m 700 " + q(scheduleDir),
 	}
 	lines = append(lines, scheduleInputsLines(names.ScheduledJobRunInputs(job.Name))...)
-	lines = append(lines, scheduleLockLines(names, job.Name, applicationLock, lockTTL)...)
+	lines = append(lines, scheduleLockLines(names, job.Name, job.DeployLock, applicationLock, lockTTL, scheduleRendezvousWait(job.Timeout))...)
 	lines = append(lines,
 		// These are misconfigurations, not timing: the run fails, loudly.
 		"release_dir=$(readlink -f "+q(names.CurrentLink())+") || { echo 'onebox: current release cannot be resolved' >&2; exit 1; }",
@@ -298,6 +298,10 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
 		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
+		// The immutable release is leased, so the writer rendezvous is complete.
+		// Container cleanup and state bookkeeping are per-job work and must not
+		// keep an application operation waiting behind them.
+		"/usr/bin/flock --unlock 8",
 		scheduleContainerCleanup(container),
 		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
@@ -306,9 +310,6 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"trap 'exit 143' 15",
 	)
 	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
-	// The lease is held; the schedule mutex goes back before the first
-	// attempt so a compatible deploy is not blocked through the backoff.
-	lines = append(lines, "/usr/bin/flock --unlock 8")
 	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
 	lines = append(lines, "")
 	return strings.Join(lines, "\n")
@@ -327,10 +328,27 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 // takes it over, so the timer must not defer to it forever either. The age
 // comes from the same shell AcquireLock reads it with, in whole seconds, and
 // that shell fails closed: an unreadable lock reads as fresh.
-func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL time.Duration) []string {
+func scheduleLockLines(names app.Names, job, deployLock, applicationLock string, lockTTL, rendezvousWait time.Duration) []string {
 	ttlSeconds := int(math.Ceil(lockTTL.Seconds()))
 	if ttlSeconds < 1 {
 		ttlSeconds = 1
+	}
+	waitSeconds := strconv.FormatFloat(rendezvousWait.Seconds(), 'f', -1, 64)
+	waitMode := "--timeout " + waitSeconds
+	busyReason := "the application scheduling lock is busy"
+	if rendezvousWait > 0 {
+		busyReason = "the application scheduling lock remained busy for " + rendezvousWait.String()
+	} else {
+		// util-linux documents --timeout 0 as equivalent to --nonblock, but
+		// spelling the mode explicitly makes the zero-budget contract clear.
+		waitMode = "--nonblock"
+	}
+	rendezvousMode := "--exclusive"
+	if deployLock == "pinned" {
+		// Pinned jobs only need to exclude writers while they establish their
+		// immutable release leases. Different pinned jobs are readers of the
+		// same release state and may safely enter together.
+		rendezvousMode = "--shared"
 	}
 	return []string{
 		"state=" + q(names.ScheduledJobRunState(job)),
@@ -353,16 +371,36 @@ func scheduleLockLines(names app.Names, job, applicationLock string, lockTTL tim
 		"skip_marker=\"$state.skip.${INVOCATION_ID:-}\"",
 		"stand_aside() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$skip_marker\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
 		"exec 9>" + q(names.ScheduledJobRunLock(job)),
-		"/usr/bin/flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'",
+		"lock_code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " 9 || lock_code=$?; case $lock_code in 0) ;; " + strconv.Itoa(flockConflictExitCode) + ") stand_aside 'another run of this job is still in progress' ;; *) echo 'onebox: cannot acquire the scheduled-job lock' >&2; exit \"$lock_code\" ;; esac",
 		// Only the activation that wrote a note removes it, so one lost
 		// between the runner exiting and ExecStopPost — a power cut, a killed
 		// systemd — would sit here forever. Swept a day later, under the job
 		// lock, which is long past any live note's few milliseconds.
 		"find " + q(names.AppDir()+"/schedule") + " -maxdepth 1 -name " + q(job+".state.skip.*") + " -mtime +1 -delete 2>/dev/null || true",
 		"exec 8>" + q(names.ScheduleRunLock()),
-		"/usr/bin/flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
+		"lock_code=0; /usr/bin/flock " + rendezvousMode + " " + waitMode + " --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " 8 || lock_code=$?; case $lock_code in 0) ;; " + strconv.Itoa(flockConflictExitCode) + ") skip " + q(busyReason) + " ;; *) echo 'onebox: cannot acquire the application scheduling lock' >&2; exit \"$lock_code\" ;; esac",
 		"if [ -e " + q(applicationLock) + " ] && [ \"$(" + lockAgeCmd(applicationLock) + ")\" -le " + strconv.Itoa(ttlSeconds) + " ]; then skip 'an application operation holds the deploy lock'; fi",
 	}
+}
+
+// scheduleRendezvousWait keeps the ordinary ten-second handoff without letting
+// it consume a short job's entire systemd TimeoutStartSec. A second is reserved
+// for the runner to record a contention skip and exit; sub-second jobs therefore
+// use a non-blocking rendezvous rather than being killed while waiting.
+func scheduleRendezvousWait(jobTimeout string) time.Duration {
+	wait := time.Duration(scheduleRendezvousWaitSeconds) * time.Second
+	timeout, ok := app.ParseDuration(jobTimeout)
+	if !ok || timeout <= 0 {
+		return wait
+	}
+	const exitReserve = time.Second
+	if timeout <= exitReserve {
+		return 0
+	}
+	if available := timeout - exitReserve; available < wait {
+		return available
+	}
+	return wait
 }
 
 // requireScheduleHost is what a host needs before any scheduled job can be
@@ -377,8 +415,8 @@ func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJo
 	if len(jobs) == 0 {
 		return nil
 	}
-	if !e.hasFlock(ctx) {
-		return errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+	if !e.hasScheduleFlock(ctx) {
+		return errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
 	}
 	for _, job := range jobs {
 		if job.Execution == nil {
@@ -814,6 +852,10 @@ func scheduleTimerUnit(application string, job app.ScheduledJob) string {
 		// the host's zone, so a job declared for 02:00 Europe/Berlin runs at
 		// 02:00 UTC and nothing anywhere says so.
 		"OnCalendar=" + calendarExpr(job),
+		// systemd's one-minute default deliberately coalesces local timers.
+		// Five-field cron already chooses the minute; keep that staggering
+		// instead of bunching unrelated jobs at one host-wide wake-up.
+		"AccuracySec=1s",
 		// A box that was off at 2am still runs the job when it comes back,
 		// which is the behaviour anyone declaring a nightly job expects.
 		fmt.Sprintf("Persistent=%t", job.CatchUp),

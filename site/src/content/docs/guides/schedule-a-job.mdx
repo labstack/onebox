@@ -76,13 +76,18 @@ release lease is held instead and every attempt runs the same release.
 
 ## Deployment coordination is exclusive by default
 
-A host-fired job takes an application-wide kernel lock for its whole container
-run. Every operation that establishes Onebox's fenced application lock takes
-the same scheduling mutex while publishing its ownership. A timer that collides
-does not modify Docker beside a deploy: it records a `skipped` run with the
-reason and exits cleanly. An application lock older than its TTL is treated as
-expired, exactly as a deploy treats it, so a runner that died mid-operation
-cannot silence a timer forever.
+An exclusive host-fired job takes an application-wide kernel lock for its whole
+container run. An ordinary pinned job takes that rendezvous as a shared reader
+until it establishes its immutable release lease; a durable pinned job retains
+the reader through checkpoint preparation and publication. Different pinned
+jobs may still start together. Every operation that establishes Onebox's fenced
+application lock takes the rendezvous as an exclusive writer while publishing
+its ownership. Readers and writers wait briefly for a handoff; the wait is
+shortened for a job whose own timeout is near the ten-second default. A timer
+that still collides does not modify Docker beside a deploy: it records a
+`skipped` run with the reason and exits cleanly. An application lock older than
+its TTL is treated as expired, exactly as a deploy treats it, so a runner that
+died mid-operation cannot silence a timer forever.
 
 The target must provide `flock` (part of `util-linux` on supported Linux hosts).
 Onebox refuses to install or run schedules when that serialization primitive is
@@ -152,12 +157,13 @@ ONEBOX_UNIT=ob-<app>-<job> -o cat` on the host is the raw history:
 
 `run` is systemd's invocation id, so the record and the run's own log share a
 key. `outcome` is one of `success`, `failure`, `timeout`, or `skipped`. A skip
-is a firing that met a running instance of the same job or an application
-operation holding the deploy lock. The runner writes the `reason` and exits
-before any container starts, so the unit is not failed and the job's own exit
-status is never mistaken for a skip. Skips are recorded because a job that is
-silently never running looks exactly like one that works: one skip is timing,
-and three in a row are reported by `ob status` as an issue.
+is a firing that met a running instance of the same job, timed out waiting for
+the application scheduling rendezvous, or found an application operation
+holding the deploy lock. The runner writes the `reason` and exits before any
+container starts, so the unit is not failed and the job's own exit status is
+never mistaken for a skip. Skips are recorded because a job that is silently
+never running looks exactly like one that works: one skip is timing, and three
+in a row are reported by `ob status` as an issue.
 
 A skip is news about timing, not about the job, so it never clears a failure:
 `ob status` keeps reporting the newest run that actually happened, and says
@@ -224,6 +230,8 @@ The last one declares a day-of-month **and** a day-of-week. Cron treats that as
 load rather than running on days nobody chose.
 
 `timezone` takes an IANA zone name and defaults to `UTC`.
+Generated timers use one-second accuracy so systemd does not coalesce distinct
+cron minutes into its default one-minute wake-up window.
 
 ## Jobs still declare a data effect
 

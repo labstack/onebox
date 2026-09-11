@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
@@ -10,6 +11,7 @@ import (
 )
 
 const scheduleLeaseFile = ".ob-schedule.lease"
+const scheduleLeaseConflictExitCode = 200
 
 // ActiveScheduleLeases returns release ids held by pinned scheduled jobs. The
 // runner takes a shared kernel lock; cleanup probes for an exclusive lock while
@@ -19,8 +21,8 @@ func ActiveScheduleLeases(ctx context.Context, target transport.Transport, names
 	command := "for lease in " + glob + "; do " +
 		"[ -e \"$lease\" ] || continue; " +
 		"[ -f \"$lease\" ] && [ ! -L \"$lease\" ] || exit 74; " +
-		"code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 \"$lease\" true || code=$?; " +
-		"case $code in 0) ;; 75) dir=${lease%/" + scheduleLeaseFile + "}; printf '%s\\n' \"${dir##*/}\" ;; *) exit $code ;; esac; " +
+		"code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code " + strconv.Itoa(scheduleLeaseConflictExitCode) + " \"$lease\" true || code=$?; " +
+		"case $code in 0) ;; " + strconv.Itoa(scheduleLeaseConflictExitCode) + ") dir=${lease%/" + scheduleLeaseFile + "}; printf '%s\\n' \"${dir##*/}\" ;; *) exit $code ;; esac; " +
 		"done"
 	result, err := target.Run(ctx, command)
 	if err != nil {

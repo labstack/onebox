@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -188,9 +190,9 @@ func TestScheduledJobUnitContract(t *testing.T) {
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
-		"flock --exclusive --nonblock 9 || stand_aside",
+		"flock --exclusive --nonblock --conflict-exit-code 200 9",
 		"exec 8>'/var/lib/ob/sample/schedule.lock'",
-		"flock --exclusive --nonblock 8 || skip",
+		"flock --exclusive --timeout 10 --conflict-exit-code 200 8",
 		"/var/lib/ob/sample/lock",
 		"application operation holds the deploy lock",
 		"docker compose",
@@ -222,6 +224,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"OnCalendar=*-*-* 02:00:00 UTC",
+		"AccuracySec=1s",
 		"Persistent=false",
 		"WantedBy=timers.target",
 	} {
@@ -236,6 +239,30 @@ func TestScheduledJobUnitContract(t *testing.T) {
 	}
 }
 
+func TestScheduleRendezvousWaitReservesShortJobTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		timeout string
+		want    time.Duration
+	}{
+		{timeout: "", want: 10 * time.Second},
+		{timeout: "30s", want: 10 * time.Second},
+		{timeout: "5s", want: 4 * time.Second},
+		{timeout: "1s", want: 0},
+		{timeout: "500ms", want: 0},
+	} {
+		if got := scheduleRendezvousWait(tc.timeout); got != tc.want {
+			t.Errorf("scheduleRendezvousWait(%q) = %s, want %s", tc.timeout, got, tc.want)
+		}
+	}
+
+	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	runner := scheduleRunnerScript("sample", app.ScheduledJob{Name: "quick", Timeout: "1s", DeployLock: "pinned"}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	if !strings.Contains(runner, "flock --shared --nonblock --conflict-exit-code 200 8") ||
+		!strings.Contains(runner, "skip 'the application scheduling lock is busy'") {
+		t.Fatalf("short-timeout runner can outlive its rendezvous budget:\n%s", runner)
+	}
+}
+
 func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
@@ -246,8 +273,9 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 
 	for _, want := range []string{
 		"exec 9>'/var/lib/ob/sample/schedule/refresh.lock'",
-		"flock --exclusive --nonblock 9 || stand_aside",
+		"flock --exclusive --nonblock --conflict-exit-code 200 9",
 		"exec 8>'/var/lib/ob/sample/schedule.lock'",
+		"flock --shared --timeout 10 --conflict-exit-code 200 8",
 		"release_dir=$(readlink -f '/var/lib/ob/sample/current')",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
 		"flock --shared 7",
@@ -271,10 +299,243 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	if strings.Contains(runner, "secrets/runtime.env") {
 		t.Fatalf("encrypted env file was passed as a Compose interpolation input:\n%s", runner)
 	}
+	unlock := strings.Index(runner, "flock --unlock 8")
+	cleanup := strings.Index(runner, "docker rm -f")
+	if unlock < 0 || cleanup < 0 || unlock > cleanup {
+		t.Fatalf("pinned runner kept the application rendezvous through per-job cleanup:\n%s", runner)
+	}
 	command := exec.CommandContext(context.Background(), "sh", "-n")
 	command.Stdin = strings.NewReader(runner)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("pinned runner is not valid POSIX shell: %v: %s\n%s", err, output, runner)
+	}
+}
+
+func TestPinnedScheduledJobsShareApplicationRendezvous(t *testing.T) {
+	requireUtilLinuxFlock(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	names := app.Names{App: "sample", BasePath: root}
+	if err := os.MkdirAll(filepath.Join(names.AppDir(), "schedule"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gate := filepath.Join(root, "release-readers")
+	var commands []*exec.Cmd
+	for _, job := range []string{"first", "second"} {
+		ready := filepath.Join(root, job+"-ready")
+		lines := []string{"set -eu", "operation=''", "inputs_json=''", "INVOCATION_ID=" + job}
+		lines = append(lines, scheduleLockLines(names, job, "pinned", filepath.Join(names.AppDir(), "lock"), 10*time.Minute, 10*time.Second)...)
+		lines = append(lines,
+			"touch "+q(ready),
+			"while [ ! -e "+q(gate)+" ]; do sleep 0.01; done",
+		)
+		command := exec.CommandContext(ctx, "sh")
+		command.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+		if err := command.Start(); err != nil {
+			t.Fatal(err)
+		}
+		commands = append(commands, command)
+	}
+	defer func() {
+		_ = os.WriteFile(gate, nil, 0o600)
+		for _, command := range commands {
+			if command.ProcessState == nil {
+				_ = command.Process.Kill()
+				_ = command.Wait()
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for _, job := range []string{"first", "second"} {
+		ready := filepath.Join(root, job+"-ready")
+		for {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("different pinned jobs did not enter the application rendezvous together")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", strconv.Itoa(flockConflictExitCode), names.ScheduleRunLock(), "true").Run()
+	var conflict *exec.ExitError
+	if !errors.As(err, &conflict) || conflict.ExitCode() != flockConflictExitCode {
+		t.Fatalf("exclusive writer result while pinned readers held the rendezvous = %v, want exit %d", err, flockConflictExitCode)
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range commands {
+		if err := command.Wait(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", names.ScheduleRunLock(), "true").Run(); err != nil {
+		t.Fatalf("application rendezvous remained locked after pinned readers exited: %v", err)
+	}
+}
+
+func TestScheduledJobApplicationRendezvousWaitsForShortWriter(t *testing.T) {
+	requireUtilLinuxFlock(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	names := app.Names{App: "sample", BasePath: root}
+	if err := os.MkdirAll(filepath.Join(names.AppDir(), "schedule"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	holder, gate := startExclusiveScheduleHolder(t, ctx, names.ScheduleRunLock(), root)
+	defer stopExclusiveScheduleHolder(holder, gate)
+
+	entered := filepath.Join(root, "reader-entered")
+	lines := []string{"set -eu", "operation=''", "inputs_json=''", "INVOCATION_ID=wait-reader"}
+	lines = append(lines, scheduleLockLines(names, "reader", "pinned", filepath.Join(names.AppDir(), "lock"), 10*time.Minute, 10*time.Second)...)
+	lines = append(lines, "touch "+q(entered))
+	command := exec.CommandContext(ctx, "sh")
+	command.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	select {
+	case err := <-done:
+		t.Fatalf("pinned reader did not wait for the short writer: %v: %s", err, output.String())
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("pinned reader failed after the writer released: %v: %s", err, output.String())
+		}
+	case <-ctx.Done():
+		t.Fatal("pinned reader did not enter after the writer released")
+	}
+	if _, err := os.Stat(entered); err != nil {
+		t.Fatalf("pinned reader never entered the rendezvous: %v", err)
+	}
+}
+
+func TestScheduledJobApplicationRendezvousTimeoutRecordsSkip(t *testing.T) {
+	requireUtilLinuxFlock(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	names := app.Names{App: "sample", BasePath: root}
+	if err := os.MkdirAll(filepath.Join(names.AppDir(), "schedule"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	holder, gate := startExclusiveScheduleHolder(t, ctx, names.ScheduleRunLock(), root)
+	defer stopExclusiveScheduleHolder(holder, gate)
+
+	lines := []string{"set -eu", "operation=''", "inputs_json=''", "INVOCATION_ID=timeout-reader"}
+	lines = append(lines, scheduleLockLines(names, "reader", "pinned", filepath.Join(names.AppDir(), "lock"), 10*time.Minute, 10*time.Second)...)
+	for i := range lines {
+		lines[i] = strings.Replace(lines[i], "--timeout 10", "--timeout 0.1", 1)
+	}
+	command := exec.CommandContext(ctx, "sh")
+	command.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("timed-out reader did not exit as a clean skip: %v: %s", err, output)
+	}
+	state, err := os.ReadFile(names.ScheduledJobRunState("reader"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(state, []byte("skipped=the application scheduling lock remained busy for 10s")) {
+		t.Fatalf("timeout state = %q, want application-rendezvous skip", state)
+	}
+}
+
+func TestScheduledJobRunnerDoesNotReportFlockErrorsAsContention(t *testing.T) {
+	root := t.TempDir()
+	names := app.Names{App: "sample", BasePath: root}
+	stub := filepath.Join(root, "broken-flock")
+	count := filepath.Join(root, "flock-count")
+	stubScript := "#!/bin/sh\ncount=0\n[ ! -f " + q(count) + " ] || count=$(cat " + q(count) + ")\ncount=$((count + 1))\nprintf '%s\\n' \"$count\" >" + q(count) + "\n[ \"$count\" -ne 1 ] || exit 0\nexit 74\n"
+	if err := os.WriteFile(stub, []byte(stubScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
+	runner := scheduleRunnerScript("sample", job, names, filepath.Join(names.AppDir(), "lock"), nil, 10*time.Minute, true)
+	runner = strings.ReplaceAll(runner, "/usr/bin/flock", q(stub))
+	command := exec.CommandContext(context.Background(), "sh")
+	command.Stdin = strings.NewReader(runner)
+	output, err := command.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 74 {
+		t.Fatalf("flock infrastructure error was not preserved: err=%v output=%s", err, output)
+	}
+	if strings.Contains(string(output), "onebox: skipped:") {
+		t.Fatalf("flock infrastructure error was reported as contention: %s", output)
+	}
+	if calls, err := os.ReadFile(count); err != nil || string(calls) != "2\n" {
+		t.Fatalf("flock calls = %q, %v; want application rendezvous to be the second call", calls, err)
+	}
+}
+
+func requireUtilLinuxFlock(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("the installed runner targets Linux systemd hosts")
+	}
+	if _, err := os.Stat("/usr/bin/flock"); err != nil {
+		t.Skip("util-linux flock is unavailable")
+	}
+	help, err := exec.CommandContext(context.Background(), "/usr/bin/flock", "--help").CombinedOutput()
+	if err != nil || !bytes.Contains(help, []byte("--conflict-exit-code")) {
+		t.Skip("the installed flock does not provide the util-linux interface")
+	}
+}
+
+func startExclusiveScheduleHolder(t *testing.T, ctx context.Context, lock, root string) (*exec.Cmd, string) {
+	t.Helper()
+	ready := filepath.Join(root, "writer-ready")
+	gate := filepath.Join(root, "release-writer")
+	lines := []string{
+		"set -eu",
+		"exec 6>" + q(lock),
+		"/usr/bin/flock --exclusive 6",
+		"touch " + q(ready),
+		"while [ ! -e " + q(gate) + " ]; do sleep 0.01; done",
+	}
+	holder := exec.CommandContext(ctx, "sh")
+	holder.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			return holder, gate
+		}
+		if time.Now().After(deadline) {
+			_ = holder.Process.Kill()
+			_ = holder.Wait()
+			t.Fatal("exclusive schedule-lock holder did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func stopExclusiveScheduleHolder(holder *exec.Cmd, gate string) {
+	_ = os.WriteFile(gate, nil, 0o600)
+	if holder.ProcessState == nil {
+		_ = holder.Process.Kill()
+		_ = holder.Wait()
 	}
 }
 
@@ -374,7 +635,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 
 	assertLock := func(path string, available bool) {
 		t.Helper()
-		err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", "75", path, "true").Run()
+		err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", strconv.Itoa(flockConflictExitCode), path, "true").Run()
 		if available && err != nil {
 			t.Fatalf("lock %s remained unavailable: %v", path, err)
 		}
@@ -1238,7 +1499,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	}
 	// The consume block precedes the locks so a skipped manual run cannot
 	// leave its inputs for the next timer firing.
-	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "flock --exclusive --nonblock 9") {
+	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "exec 9>") {
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
 	}
 	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
@@ -1455,12 +1716,13 @@ func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
 	if strings.Contains(runner, `stand_aside`) && strings.Contains(runner, `>"$state"; echo "onebox: skipped`) {
 		t.Fatalf("the lock-less skip writes the running job's state:\n%s", runner)
 	}
-	if !strings.Contains(runner, "flock --exclusive --nonblock 9 || stand_aside 'another run of this job is still in progress'") {
+	if !strings.Contains(runner, "200) stand_aside 'another run of this job is still in progress'") {
 		t.Fatalf("a job-lock conflict still writes state:\n%s", runner)
 	}
 	// The other two skips hold the job lock, so the state is theirs to write.
 	for _, want := range []string{
-		"flock --exclusive --nonblock 8 || skip 'an application operation is taking its lock'",
+		"flock --exclusive --timeout 10 --conflict-exit-code 200 8",
+		"200) skip 'the application scheduling lock remained busy for 10s'",
 		"skip 'an application operation holds the deploy lock'",
 	} {
 		if !strings.Contains(runner, want) {

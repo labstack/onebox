@@ -85,7 +85,7 @@ func TestRunJobRejectsDeclarationDriftBeforeLock(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
-			if strings.Contains(strings.Join(target.Commands, "\n"), "set -C; echo") {
+			if strings.Contains(strings.Join(target.Commands, "\n"), "lock.candidate.XXXXXX") {
 				t.Fatalf("declaration refusal acquired the app lock: %#v", target.Commands)
 			}
 		})
@@ -124,7 +124,7 @@ func TestRunJobRechecksReleaseAndRuntimeUnderLock(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
 			commands := strings.Join(target.Commands, "\n")
-			if !strings.Contains(commands, "set -C; echo") || !strings.Contains(commands, "/fence") {
+			if !strings.Contains(commands, "lock.candidate.XXXXXX") || !strings.Contains(commands, "/fence") {
 				t.Fatalf("post-lock recheck was not lock/fence protected:\n%s", commands)
 			}
 			if strings.Contains(commands, "ONEBOX_RESULT_FILE") {
@@ -229,7 +229,7 @@ func TestRunJobKeepsTheLockWhenItRefuses(t *testing.T) {
 		t.Fatal("expected a refusal")
 	}
 	for _, c := range target.Commands {
-		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+		if strings.Contains(c, "rm -f '/var/lib/ob/sample/lock'") {
 			t.Fatalf("the lock was released over a live container:\n%s", c)
 		}
 	}
@@ -286,7 +286,7 @@ func TestRunJobKeepsTheLockWhenItCannotAskTheHost(t *testing.T) {
 		t.Fatal("an unanswerable host must refuse")
 	}
 	for _, c := range target.Commands {
-		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+		if strings.Contains(c, "rm -f '/var/lib/ob/sample/lock'") {
 			t.Fatalf("the lock was released without an answer:\n%s", c)
 		}
 	}

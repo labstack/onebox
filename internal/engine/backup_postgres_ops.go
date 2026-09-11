@@ -496,6 +496,25 @@ func (e *Engine) hasFlock(ctx context.Context) bool {
 	return e.flockPresent
 }
 
+// hasScheduleFlock is deliberately stricter than hasFlock. Backup locking only
+// needs the historical short options, while generated schedule units invoke
+// /usr/bin/flock directly and need this complete util-linux long-option
+// interface. Reject an incompatible host before installing units rather than
+// discovering it when a timer fires.
+func (e *Engine) hasScheduleFlock(ctx context.Context) bool {
+	if e.scheduleFlockProbed {
+		return e.scheduleFlockPresent
+	}
+	res, err := e.T.Run(ctx, scheduleFlockProbe("/usr/bin/flock"))
+	e.scheduleFlockProbed = true
+	e.scheduleFlockPresent = err == nil && strings.TrimSpace(res.Stdout) == "ok"
+	return e.scheduleFlockPresent
+}
+
+func scheduleFlockProbe(path string) string {
+	return "command -v flock >/dev/null 2>&1 || exit; test -x " + q(path) + " || exit; help=$(" + q(path) + " --help 2>&1) || exit; for option in --conflict-exit-code --exclusive --nonblock --shared --timeout --unlock; do printf '%s\\n' \"$help\" | grep -q -- \"$option\" || exit; done; echo ok"
+}
+
 // walgLockPrefix is the flock every repository operation runs behind, as a
 // command prefix so callers that build their own docker exec can use it too.
 // Empty when the host has no flock — see hasFlock for why that is not a silent

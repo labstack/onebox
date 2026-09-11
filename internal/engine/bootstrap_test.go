@@ -40,7 +40,7 @@ func TestBootstrapSequence(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
 		"mkdir -p",                                           // dirs
-		"> '/var/lib/ob/sample/lock'",                        // application lock
+		`link "$tmp" '/var/lib/ob/sample/lock'`,              // application lock
 		"> '/var/lib/ob/sample/fence'",                       // mutation fence
 		`"phase":"bootstrap","event":"start"`,                // durable journal boundary
 		"apt-get install -y something-host-specific",         // bootstrap hook
@@ -212,7 +212,7 @@ func TestBootstrapRefusesMissingRuntimeWithoutImplicitInstaller(t *testing.T) {
 	if runtimeCheck < 0 {
 		t.Fatalf("bootstrap did not check the runtime:\n%s", seq)
 	}
-	for _, before := range []string{"> '/var/lib/ob/sample/lock'", "> '/var/lib/ob/sample/fence'", `"phase":"bootstrap","event":"start"`} {
+	for _, before := range []string{`link "$tmp" '/var/lib/ob/sample/lock'`, "> '/var/lib/ob/sample/fence'", `"phase":"bootstrap","event":"start"`} {
 		if index := strings.Index(seq, before); index < 0 || index > runtimeCheck {
 			t.Fatalf("%q did not precede the runtime check:\n%s", before, seq)
 		}

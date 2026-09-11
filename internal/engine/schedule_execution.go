@@ -120,7 +120,7 @@ func (e *Engine) durableScheduleRunner(job app.ScheduledJob, envFiles []app.EnvF
 	helper := "/usr/bin/python3 " + q(durable.Helper(n.AppDir()))
 	lines := []string{"#!/bin/sh", "# Written by Onebox. Durable execution protocol v1.", "set -eu", "install -d -m 700 " + q(n.AppDir()+"/schedule")}
 	lines = append(lines, scheduleInputsLines(n.ScheduledJobRunInputs(job.Name))...)
-	lines = append(lines, scheduleLockLines(n, job.Name, e.lockPath(), e.lockTTL())...)
+	lines = append(lines, scheduleLockLines(n, job.Name, job.DeployLock, e.lockPath(), e.lockTTL(), scheduleRendezvousWait(job.Timeout))...)
 	lines = append(lines,
 		"release_dir=$(readlink -f "+q(n.CurrentLink())+")",
 		"release=${release_dir##*/}",

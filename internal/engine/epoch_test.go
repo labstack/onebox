@@ -228,7 +228,8 @@ func assertEpochAcquisition(t *testing.T, fake *transport.Fake, got int, err err
 		if err == nil {
 			t.Fatal("invalid epoch was accepted")
 		}
-		if strings.Contains(strings.Join(fake.Commands, "\n"), "set -C") {
+		commands := strings.Join(fake.Commands, "\n")
+		if strings.Contains(commands, "set -C") || strings.Contains(commands, "lock.candidate.XXXXXX") {
 			t.Fatalf("lock was created after epoch validation failed:\n%s", strings.Join(fake.Commands, "\n"))
 		}
 		return

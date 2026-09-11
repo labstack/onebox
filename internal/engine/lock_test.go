@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,13 +38,99 @@ func TestAcquireLockHappyPath(t *testing.T) {
 		t.Fatalf("epoch: %d", epoch)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/ob/sample/lock") {
-		t.Fatalf("noclobber lock creation missing:\n%s", seq)
+	if !strings.Contains(seq, "lock.candidate.XXXXXX") || !strings.Contains(seq, `link "$tmp" '/var/lib/ob/sample/lock'`) {
+		t.Fatalf("atomic lock publication missing:\n%s", seq)
 	}
 	if !strings.Contains(seq, "mktemp '/var/lib/ob/sample/epoch.tmp.XXXXXX'") ||
 		!strings.Contains(seq, "printf '%s\\n' 7") ||
 		!strings.Contains(seq, `mv -f "$tmp" '/var/lib/ob/sample/epoch'`) {
 		t.Fatalf("epoch not persisted:\n%s", seq)
+	}
+}
+
+func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) {
+	ctx := context.Background()
+	target := transport.NewLocal()
+	root := t.TempDir()
+	lock := filepath.Join(root, "lock")
+
+	result, err := target.Run(ctx, atomicApplicationLockCreateCmd(lock, "complete metadata"))
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("publish lock: result=%+v err=%v", result, err)
+	}
+	content, err := os.ReadFile(lock)
+	if err != nil || string(content) != "complete metadata\n" {
+		t.Fatalf("published lock = %q, %v", content, err)
+	}
+	if candidates, err := filepath.Glob(lock + ".candidate.*"); err != nil || len(candidates) != 0 {
+		t.Fatalf("temporary lock candidates leaked: %v, %v", candidates, err)
+	}
+
+	result, err = target.Run(ctx, atomicApplicationLockCreateCmd(lock, "replacement"))
+	if err != nil || result.ExitCode != applicationLockHeldExitCode {
+		t.Fatalf("existing lock result=%+v err=%v, want exit %d", result, err, applicationLockHeldExitCode)
+	}
+	content, err = os.ReadFile(lock)
+	if err != nil || string(content) != "complete metadata\n" {
+		t.Fatalf("existing lock was replaced: %q, %v", content, err)
+	}
+
+	failedLock := filepath.Join(root, "failed-lock")
+	unwritableCandidate := filepath.Join(root, "candidate-is-a-directory")
+	if err := os.Mkdir(unwritableCandidate, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Override mktemp so the metadata redirect fails before the hard-link
+	// claim. The shared lock path must remain absent and the error must stay an
+	// infrastructure failure, not applicationLockHeldExitCode.
+	command := "mktemp() { printf '%s\\n' " + q(unwritableCandidate) + "; }; " +
+		atomicApplicationLockCreateCmd(failedLock, "never published")
+	result, err = target.Run(ctx, command)
+	if err != nil || result.ExitCode != 80 {
+		t.Fatalf("failed metadata write result=%+v err=%v, want exit 80", result, err)
+	}
+	if _, err := os.Lstat(failedLock); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed metadata write published a lock: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		symlink bool
+	}{
+		{name: "directory"},
+		{name: "directory symlink", symlink: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			targetDir := filepath.Join(root, strings.ReplaceAll(tc.name, " ", "-"), "target")
+			if err := os.MkdirAll(targetDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			lockPath := targetDir
+			if tc.symlink {
+				lockPath = filepath.Join(root, "directory-link")
+				if err := os.Symlink(targetDir, lockPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := target.Run(ctx, atomicApplicationLockCreateCmd(lockPath, "not published"))
+			if err != nil || result.ExitCode != applicationLockHeldExitCode {
+				t.Fatalf("directory lock result=%+v err=%v, want exit %d", result, err, applicationLockHeldExitCode)
+			}
+			entries, err := os.ReadDir(targetDir)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("hard link was created inside directory lock: entries=%v err=%v", entries, err)
+			}
+		})
+	}
+
+	interruptedLock := filepath.Join(root, "interrupted-lock")
+	command = "link() { kill -HUP $$; return 0; }; " + atomicApplicationLockCreateCmd(interruptedLock, "not published")
+	result, err = target.Run(ctx, command)
+	if err != nil || result.ExitCode != 129 {
+		t.Fatalf("interrupted claim result=%+v err=%v, want exit 129", result, err)
+	}
+	if _, err := os.Lstat(interruptedLock); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted claim published a lock: %v", err)
 	}
 }
 
@@ -58,18 +145,62 @@ func TestAcquireLockSerializesWithScheduledJobs(t *testing.T) {
 		case strings.Contains(cmd, "command -v flock"):
 			return transport.Result{Stdout: "ok\n"}, true
 		case strings.Contains(cmd, "/usr/bin/flock"):
-			return transport.Result{ExitCode: 76}, true
+			return transport.Result{ExitCode: flockConflictExitCode}, true
 		}
 		return transport.Result{}, false
 	}}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	_, err := e.AcquireLock(context.Background(), "R9", false)
-	if err == nil || !strings.Contains(err.Error(), "scheduled job") {
-		t.Fatalf("error = %v, want scheduled-job contention", err)
+	if err == nil || !strings.Contains(err.Error(), "scheduled job or application operation") {
+		t.Fatalf("error = %v, want schedule-rendezvous contention", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, cfg.NamesFor("production").ScheduleRunLock()) || !strings.Contains(seq, "--conflict-exit-code 76") {
+	if !strings.Contains(seq, cfg.NamesFor("production").ScheduleRunLock()) ||
+		!strings.Contains(seq, "--exclusive --timeout 10 --conflict-exit-code 200") {
 		t.Fatalf("application lock was not created under the schedule mutex:\n%s", seq)
+	}
+}
+
+func TestAcquireLockReportsScheduleRendezvousFailure(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "/usr/bin/flock"):
+			return transport.Result{ExitCode: 74, Stderr: "flock: I/O error\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := lockEngine(t, f)
+	_, err := e.AcquireLock(context.Background(), "R9", false)
+	if err == nil || !strings.Contains(err.Error(), "lock creation or schedule rendezvous failed (exit 74): flock: I/O error") {
+		t.Fatalf("error = %v, want preserved flock failure", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "cat '/var/lib/ob/sample/lock'") {
+		t.Fatalf("infrastructure failure was treated as a held application lock:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
+func TestAcquireLockKeepsLegacyRendezvousAfterLastScheduleIsRemoved(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock") && strings.Contains(cmd, "--conflict-exit-code"):
+			return transport.Result{}, true // flock exists, but lacks the strict schedule interface
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "/usr/bin/flock -x -w 10"):
+			return transport.Result{ExitCode: 1, Stderr: "legacy rendezvous unavailable\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	e := lockEngine(t, f) // no jobs in the current spec
+	_, err := e.AcquireLock(context.Background(), "R9", false)
+	if err == nil || !strings.Contains(err.Error(), "legacy rendezvous unavailable") {
+		t.Fatalf("legacy schedule rendezvous failure was not preserved: %v", err)
+	}
+	sequence := strings.Join(f.Commands, "\n")
+	if !strings.Contains(sequence, "/usr/bin/flock -x -w 10") || strings.Contains(sequence, "/usr/bin/flock --exclusive --timeout 10 --conflict-exit-code 200") {
+		t.Fatalf("last-schedule transition did not use the legacy-compatible rendezvous:\n%s", sequence)
 	}
 }
 
@@ -99,8 +230,8 @@ func TestReleaseLockRemovesOnlyOwnedToken(t *testing.T) {
 
 func TestAcquireLockHeldFreshRefuses(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") {
-			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
+		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
+			return transport.Result{ExitCode: applicationLockHeldExitCode, Stderr: "cannot overwrite"}, true
 		}
 		if strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'") {
 			return transport.Result{Stdout: `{"owner":"alice@laptop","deploy_id":"R8","epoch":6}`}, true
@@ -121,10 +252,10 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 	creates := 0
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") {
+		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: 1}, true
+				return transport.Result{ExitCode: applicationLockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		}
@@ -149,10 +280,10 @@ func TestAcquireLockSameDeployReclaims(t *testing.T) {
 	creates := 0
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") {
+		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: 1}, true
+				return transport.Result{ExitCode: applicationLockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		}
@@ -191,10 +322,10 @@ func TestAcquireLockReReadsEpochAfterBreakingStaleLock(t *testing.T) {
 				return transport.Result{Stdout: "5\n"}, true // stale holder's value
 			}
 			return transport.Result{Stdout: "6\n"}, true // advanced by a concurrent winner before our retry
-		case strings.Contains(cmd, "set -C"):
+		case strings.Contains(cmd, "lock.candidate.XXXXXX"):
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: 1}, true // held → forces a break + retry
+				return transport.Result{ExitCode: applicationLockHeldExitCode}, true // held → forces a break + retry
 			}
 			return transport.Result{}, true // win on retry
 		case strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'"):
@@ -368,10 +499,10 @@ func TestForceBreakPrintsHolderJournalTail(t *testing.T) {
 	creates := 0
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") {
+		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: 1}, true
+				return transport.Result{ExitCode: applicationLockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		}

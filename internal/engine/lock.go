@@ -36,6 +36,19 @@ type pinnedScheduleLeasePolicy struct {
 	conflict string
 }
 
+// scheduleRendezvousWaitSeconds lets a reader or writer already inside the
+// short schedule/deploy handoff finish without turning ordinary concurrency
+// into a missed firing or a refused operation. It does not wait for the
+// durable application lock: that lock may cover a whole deploy or exec.
+const scheduleRendezvousWaitSeconds = 10
+
+// Commands run under flock normalize expected collisions so their exit status
+// does not depend on shell or flock defaults. util-linux reserves 64–78 for its
+// own errors; keep both sentinels above that range and distinct so
+// infrastructure failures remain visible.
+const applicationLockHeldExitCode = 79
+const flockConflictExitCode = 200
+
 func (e *Engine) base() string      { return release.PathsFor(e.names()).Base }
 func (e *Engine) lockPath() string  { return e.base() + "/lock" }
 func (e *Engine) epochPath() string { return e.base() + "/epoch" }
@@ -76,15 +89,22 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339),
 		}
 		b, _ := json.Marshal(meta)
-		// noclobber: the remote shell refuses the redirect if the lock exists
-		create := "set -C; echo " + q(string(b)) + " > " + q(e.lockPath()) + " 2>/dev/null"
+		create := atomicApplicationLockCreateCmd(e.lockPath(), string(b))
 		jobs, scheduleErr := e.Spec.ScheduledJobs()
 		if scheduleErr != nil {
 			return 0, scheduleErr
 		}
-		useScheduleLock := e.hasFlock(ctx)
+		useScheduleLock := e.hasScheduleFlock(ctx)
+		useLegacyScheduleLock := false
+		if !useScheduleLock {
+			// The current spec may have just removed its last schedule while an
+			// old unit is already starting. Preserve the pre-upgrade rendezvous
+			// with the short-option interface in that transition. Its ambiguous
+			// nonzero exits fail visibly below instead of being called contention.
+			useLegacyScheduleLock = e.hasFlock(ctx)
+		}
 		if len(jobs) > 0 && !useScheduleLock {
-			return 0, errors.New("scheduled jobs require flock on the target so they cannot overlap deployments; install util-linux and deploy again")
+			return 0, errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
 		}
 		if useScheduleLock {
 			// An exclusive scheduled job holds this kernel lock for its whole run;
@@ -93,7 +113,10 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			// pass its check before the other publishes ownership. Keep doing this
 			// after the last schedule is removed: an old unit may already be
 			// starting while that removal deploy begins.
-			create = "/usr/bin/flock --exclusive --nonblock --conflict-exit-code 76 " +
+			create = "/usr/bin/flock --exclusive --timeout " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " " +
+				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
+		} else if useLegacyScheduleLock {
+			create = "/usr/bin/flock -x -w " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " " +
 				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
 		}
 
@@ -130,8 +153,15 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			}
 			return epoch, nil
 		}
-		if res.ExitCode == 76 {
-			return 0, fmt.Errorf("deploy lock held by a scheduled job — wait for the job to finish")
+		if useScheduleLock && res.ExitCode == flockConflictExitCode {
+			return 0, fmt.Errorf("application scheduling rendezvous remained busy — wait for the current scheduled job or application operation to finish")
+		}
+		if res.ExitCode != applicationLockHeldExitCode {
+			detail := strings.TrimSpace(res.Stderr)
+			if detail == "" {
+				detail = "no diagnostic output"
+			}
+			return 0, fmt.Errorf("acquire application lock: lock creation or schedule rendezvous failed (exit %d): %s", res.ExitCode, detail)
 		}
 		// held — inspect holder + age
 		hres, err := e.T.Run(ctx, "cat "+q(e.lockPath())+" 2>/dev/null || true")
@@ -178,6 +208,22 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 		}
 	}
 	return 0, fmt.Errorf("could not acquire deploy lock")
+}
+
+// atomicApplicationLockCreateCmd writes complete metadata before publishing
+// the lock path. A noclobber redirect can create an empty lock before its write
+// fails (for example on ENOSPC), which makes an infrastructure error look like
+// contention. A same-directory hard link is an atomic no-replace claim, and
+// removing the temporary name leaves the claimed inode at lockPath.
+func atomicApplicationLockCreateCmd(lockPath, value string) string {
+	tmpPattern := lockPath + ".candidate.XXXXXX"
+	return "umask 077; tmp=$(mktemp " + q(tmpPattern) + ") || exit 80; " +
+		"cleanup() { rm -f \"$tmp\" || true; }; trap cleanup 0; trap 'exit 129' 1; trap 'exit 130' 2; trap 'exit 143' 15; " +
+		"printf '%s\\n' " + q(value) + " >\"$tmp\" || exit 80; " +
+		// Unlike ln, the POSIX link utility treats its second operand as the
+		// exact new path even when that path names a directory.
+		"if link \"$tmp\" " + q(lockPath) + "; then exit 0; fi; " +
+		"{ [ -e " + q(lockPath) + " ] || [ -L " + q(lockPath) + " ]; } && exit " + strconv.Itoa(applicationLockHeldExitCode) + "; exit 80"
 }
 
 func (e *Engine) ReleaseLock(ctx context.Context) {

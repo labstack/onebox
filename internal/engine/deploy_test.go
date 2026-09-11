@@ -604,7 +604,7 @@ func TestDeployKeepsAndExplainsTheLockWhenItRefuses(t *testing.T) {
 		t.Fatal("expected a refusal")
 	}
 	for _, c := range f.Commands {
-		if strings.Contains(c, "rm -f") && strings.Contains(c, "/lock") {
+		if strings.Contains(c, "rm -f '/var/lib/ob/sample/lock'") {
 			t.Fatalf("the lock was released over a live container:\n%s", c)
 		}
 	}

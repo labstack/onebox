@@ -127,7 +127,7 @@ step to complete rather than a line to run verbatim.
 | `config_exists` | a project file already exists and init refuses to overwrite it | diagnostic | `ob validate --output json` |
 | `config_write_failed` | the project file could not be written | — | — |
 | `confirmation_failed` | the backup report for this local confirmation could not be loaded or does not bind to the plan | next | `ob approve --plan <path> --backup-report <path>` |
-| `divergence_detected` | the live release does not match the recorded release state | diagnostic | `ob audit --output json` |
+| `divergence_detected` | the live application state has diverged from its intended state | diagnostic | `ob audit --output json` |
 | `doctor_failed` | a local readiness check failed | — | — |
 | `exec_failed` | the audited exec could not be completed | diagnostic | `ob status --output json` |
 | `execution_count_invalid` | execution count must be between 1 and 1000 | — | — |

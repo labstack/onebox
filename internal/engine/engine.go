@@ -88,8 +88,10 @@ type Engine struct {
 	Spec *app.Resolved
 	// flockProbed/flockPresent cache whether the target has flock, which every
 	// wal-g invocation needs to know and which cannot change mid-operation.
-	flockProbed  bool
-	flockPresent bool
+	flockProbed          bool
+	flockPresent         bool
+	scheduleFlockProbed  bool
+	scheduleFlockPresent bool
 	// triggerUnitProbed/triggerUnitPresent cache whether the host's systemd
 	// tells a timer activation from a manual one (TRIGGER_UNIT, systemd 252).
 	triggerUnitProbed  bool

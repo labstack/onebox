@@ -17,7 +17,7 @@ import (
 //
 // The order is forced: check the credentials, pin the image, record the state
 // that makes rendering produce a protected server, restart under it — which is
-// also what places the verified wal-g binary and turns archive_mode on — and
+// also what mounts the credential adapter and turns archive_mode on — and
 // only then take the base backup the recovery window is measured from.
 //
 // Re-running it on an already-enabled service re-converges rather than
@@ -195,8 +195,8 @@ func executeBackupEnable(ctx context.Context, e *engine.Engine, resolved *app.Re
 	if err := e.RebindServiceRuntimeStates(map[string]app.ServiceRuntimeState{service: runtime}); err != nil {
 		return err
 	}
-	// ApplyServices stages the verified wal-g binary and the generated wrapper
-	// before starting anything that mounts them, then restarts the server with
+	// ApplyServices stages the generated wrapper before starting anything that
+	// mounts it, then restarts the server with
 	// archive_mode on.
 	if err := e.ApplyServices(ctx); err != nil {
 		failure := fmt.Errorf("service %s could not restart under backup: %w", service, err)

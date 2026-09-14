@@ -165,16 +165,16 @@ func TestTheWrapperPointsWalgAtTheStagedTrustStore(t *testing.T) {
 func runWrapper(t *testing.T, target BackupTarget, env []string) (stdout, stderr string, code int) {
 	t.Helper()
 	dir := t.TempDir()
-	// A stub standing in for the staged binary, reporting whether the wrapper
-	// handed it an encryption key. The wrapper execs wal-g by its absolute
-	// staged path, so only that one line is redirected; everything the guard
+	// A stub standing in for the image binary, reporting whether the wrapper
+	// handed it an encryption key. The wrapper execs WAL-G by its absolute image
+	// path, so only that one line is redirected; everything the guard
 	// does above it runs verbatim.
 	stub := filepath.Join(dir, "wal-g")
 	body := "#!/bin/sh\nprintf 'libsodium=[%s]\\n' \"${WALG_LIBSODIUM_KEY-}\"\n"
 	if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rendered := strings.Replace(string(RenderWalgWrapper(target)), WalgMountPath+"/wal-g", stub, 1)
+	rendered := strings.Replace(string(RenderWalgWrapper(target)), WalgExecutable, stub, 1)
 	script := filepath.Join(dir, "wrapper.sh")
 	if err := os.WriteFile(script, []byte(rendered), 0o755); err != nil {
 		t.Fatal(err)

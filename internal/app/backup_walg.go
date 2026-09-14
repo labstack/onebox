@@ -15,19 +15,9 @@ import (
 // and a copy of a running data directory is the generic live-volume archive the
 // contract refuses outright.
 //
-// It runs from a verified binary staged on the host and mounted into the stock
-// PostgreSQL image, rather than from a PostgreSQL image Onebox builds and
-// publishes. That is the whole reason this file is short. wal-g links against
-// libc and nothing else, and takes its entire configuration from the
-// environment — so there is no image to maintain, no configuration file to
-// place, and no second copy of anything to keep in step with the project.
-//
-// pgBackRest was implemented first and replaced. It is a fine tool, but it
-// needs 41 shared libraries, so it cannot be dropped into the official image
-// and forces a derived one; and it is configured by a file, which brought the
-// file's own problems — an atomically replaced config vanishing from a running
-// container, credential names colliding with its option namespace, and a
-// restore_command it writes as the absolute path of its own binary.
+// It runs from the Onebox PostgreSQL image, where it is versioned, verified and
+// published with the server that invokes it. Onebox mounts only a small
+// generated adapter for project-specific credential names.
 
 // PgDataPath is the data directory the postgres driver runs with. Every wal-g
 // command that touches the cluster needs it exactly: the driver sets PGDATA to
@@ -35,12 +25,16 @@ import (
 // initdb, and pointing a backup at the volume root captures the wrong tree.
 const PgDataPath = "/var/lib/postgresql/data/pgdata"
 
-// WalgMountPath is where the staged binary and its wrapper are mounted inside
-// the container, read-only. Outside /usr/local/bin deliberately: the mount must
-// not shadow anything the official image ships.
+// WalgMountPath is where Onebox's generated adapter is mounted inside the
+// container, read-only. It deliberately does not shadow image-owned binaries.
 const WalgMountPath = "/opt/onebox/backup"
 
-// WalgBinary is the wrapper Onebox stages beside wal-g, and what every caller
+// WalgExecutable is bundled into the pinned onebox-postgres image. The
+// per-service wrapper remains a generated, read-only mount because it maps the
+// project's credential entry names without baking credentials into the image.
+const WalgExecutable = "/usr/local/bin/wal-g"
+
+// WalgBinary is the wrapper Onebox stages beside its configuration, and what every caller
 // invokes. It exists because wal-g reads its credentials from fixed AWS_* names
 // while a backup target names its own entries, so something has to bridge the
 // two — and doing it here keeps the project's vocabulary out of wal-g's and
@@ -231,51 +225,13 @@ func RenderWalgWrapper(target BackupTarget) []byte {
 		b.WriteString("    export " + name + "\n")
 	}
 	b.WriteString("fi\n")
-	b.WriteString("exec " + WalgMountPath + "/wal-g \"$@\"\n")
+	b.WriteString("exec " + WalgExecutable + " \"$@\"\n")
 	return []byte(b.String())
 }
 
-// WalgVersion is the wal-g release Onebox stages, pinned in the binary rather
-// than resolved at run time, together with the checksum of each architecture's
-// asset. The checksums are the provenance: the binary is verified against these
-// before it is ever placed on a host, so a compromised release page cannot
-// substitute one. They were taken from the release and confirmed against the
-// binary this was validated with.
-const WalgVersion = "v3.0.8"
-
-// walgChecksums maps the target's `uname -m` to the published asset and its
-// SHA-256. A host reporting anything else is refused rather than guessed at.
-var walgChecksums = map[string]struct{ Asset, SHA256 string }{
-	"x86_64": {
-		Asset:  "wal-g-pg-22.04-amd64",
-		SHA256: "f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb",
-	},
-	"aarch64": {
-		Asset:  "wal-g-pg-22.04-aarch64",
-		SHA256: "794d1a81f0c27825a1603bd39c0f2cf5dd8bed7cc36b598ca05d8d963c3d5fcf",
-	},
-}
-
-// WalgAssetFor returns the download name and expected checksum for a target's
-// machine architecture.
-//
-// The assets are built against Ubuntu 22.04 and link against glibc, which is
-// what the official Debian-based PostgreSQL images provide. An Alpine variant
-// would not run them, which is why the driver's image is not a matter of taste.
-func WalgAssetFor(machine string) (asset, sha256 string, err error) {
-	entry, ok := walgChecksums[normalizeMachine(machine)]
-	if !ok {
-		return "", "", fmt.Errorf(
-			"no verified wal-g build for machine architecture %q; backup supports x86_64 and aarch64", machine)
-	}
-	return entry.Asset, entry.SHA256, nil
-}
-
-// WalgDownloadURL is where the pinned asset comes from. Check is by the
-// checksum above, not by trusting this location.
-func WalgDownloadURL(asset string) string {
-	return "https://github.com/wal-g/wal-g/releases/download/" + WalgVersion + "/" + asset
-}
+// BackupAdapterFormat versions the host-mounted wrapper contract. It does not
+// version WAL-G: the PostgreSQL image digest owns that executable version.
+const BackupAdapterFormat = "v1"
 
 // serviceBackup is everything renderService needs to run a service under
 // backup. It is derived from observed durable lifecycle state rather than
@@ -284,7 +240,7 @@ func WalgDownloadURL(asset string) string {
 // an archive_command pointing at a repository that was never initialised would
 // take the database down at its next WAL switch.
 type serviceBackup struct {
-	RuntimeHostDir string
+	AdapterHostDir string
 	CredentialFile string
 	ArchiveCommand string
 	ArchiveTimeout string
@@ -343,7 +299,7 @@ func (r *Resolved) backupForRender(n Names, serviceName string) (*serviceBackup,
 	environment["ONEBOX_S3_KEY_ENTRY"] = projection.Target.Credentials.AccessKeyEntry
 	environment["ONEBOX_S3_SECRET_ENTRY"] = projection.Target.Credentials.SecretKeyEntry
 	return &serviceBackup{
-		RuntimeHostDir: n.BackupRuntimeDir(serviceName),
+		AdapterHostDir: n.BackupAdapterDir(serviceName),
 		CredentialFile: n.BackupCredentialFile(serviceName, projection.Policy.Target),
 		ArchiveCommand: WalgArchiveCommand(),
 		ArchiveTimeout: fmt.Sprintf("%ds", int(maximumDataLoss.Seconds())),
@@ -418,24 +374,6 @@ func (r *Resolved) BackupRepository(serviceName string) (string, error) {
 		return "", err
 	}
 	return WalgPrefix(projection.Target, r.Spec.Name, serviceName, state.BackupRepositoryGeneration), nil
-}
-
-// normalizeMachine folds the spellings of one architecture onto a single name.
-//
-// `uname -m` is not standardised: Linux says aarch64 where Darwin says arm64,
-// and amd64 appears for x86_64. The architecture that matters is the one the
-// *container* runs, which is Linux — so a Darwin host reporting arm64 still
-// needs the Linux aarch64 build, and folding the names is exactly right rather
-// than merely convenient.
-func normalizeMachine(machine string) string {
-	switch strings.TrimSpace(strings.ToLower(machine)) {
-	case "aarch64", "arm64", "armv8l":
-		return "aarch64"
-	case "x86_64", "amd64", "x64":
-		return "x86_64"
-	default:
-		return strings.TrimSpace(machine)
-	}
 }
 
 // ValidateWalgCredentials checks decrypted credential material against what the

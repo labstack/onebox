@@ -25,9 +25,9 @@ import (
 //   - the drill schedule verifies the archived WAL forms an unbroken
 //     chain, which is the check a green backup does not imply.
 //
-// They run wal-g directly rather than through `ob`, because there is no `ob` on
-// the target — Onebox is agentless, and the only thing it has already placed
-// there is the verified binary these units invoke.
+// They run WAL-G through the generated wrapper rather than through `ob`,
+// because there is no `ob` on the target. The wrapper invokes the image-owned
+// executable with the target's credential file.
 //
 // That agentlessness is also why the drill schedule verifies rather than
 // actually restoring. A real drill recovers into a throwaway volume and proves

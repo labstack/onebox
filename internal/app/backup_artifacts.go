@@ -17,8 +17,7 @@ type BackupEffectiveProjection struct {
 // None of it ever had a caller, and the design it described no longer exists:
 // the schedules are systemd units derived from the policy, retention is applied
 // by the prune command from the same policy, and the provenance that matters is
-// the wal-g checksum pinned in this binary and verified before the binary is
-// ever placed on a host.
+// the digest of the PostgreSQL image that contains WAL-G.
 //
 // Drift is now asked of the target directly rather than of a descriptor written
 // beside it — see VerifyBackupRuntime. A second description of the truth is

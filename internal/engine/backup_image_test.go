@@ -81,7 +81,7 @@ func TestReEnableRejectsPinFromDifferentRepository(t *testing.T) {
 		case strings.Contains(cmd, "docker pull"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "RepoDigests"):
-			return transport.Result{Stdout: managedPin + "\n"}, true
+			return transport.Result{Stdout: `["` + managedPin + `"]` + "\n"}, true
 		}
 		return transport.Result{Stdout: "absent\n"}, true
 	}}
@@ -116,7 +116,7 @@ func TestReEnableDoesNotCreatePinFromDifferentRepository(t *testing.T) {
 		case strings.Contains(cmd, "docker pull"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "RepoDigests"):
-			return transport.Result{Stdout: managedPin + "\n"}, true
+			return transport.Result{Stdout: `["` + managedPin + `"]` + "\n"}, true
 		}
 		return transport.Result{Stdout: "absent\n"}, true
 	}}
@@ -151,7 +151,7 @@ func TestADeclaredVersionChangeStillResolvesThroughTheRegistry(t *testing.T) {
 		case strings.Contains(cmd, "docker pull"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "RepoDigests"):
-			return transport.Result{Stdout: "ghcr.io/labstack/onebox-postgres@sha256:" + strings.Repeat("b", 64) + "\n"}, true
+			return transport.Result{Stdout: `["ghcr.io/labstack/onebox-postgres@sha256:` + strings.Repeat("b", 64) + `"]` + "\n"}, true
 		}
 		return transport.Result{Stdout: "absent\n"}, true
 	}}
@@ -173,6 +173,31 @@ func TestADeclaredVersionChangeStillResolvesThroughTheRegistry(t *testing.T) {
 	}
 	if !pulled {
 		t.Fatal("a changed declared reference resolved without reaching the registry")
+	}
+}
+
+func TestProtectedImageSelectsTheDigestForThePulledRepository(t *testing.T) {
+	const wanted = "ghcr.io/labstack/onebox-postgres@sha256:16cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd942"
+	fake := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "docker pull"):
+			return transport.Result{}, true
+		case strings.Contains(cmd, "RepoDigests"):
+			return transport.Result{Stdout: `[` +
+				`"onebox-postgres@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941",` +
+				`"` + wanted + `"]` + "\n"}, true
+		}
+		return transport.Result{Stdout: "absent\n"}, true
+	}}
+
+	got, err := protectedImageTestEngine(fake).ResolveProtectedImage(
+		context.Background(), "database", "", "",
+	)
+	if err != nil {
+		t.Fatalf("resolving an image with several repository digests: %v", err)
+	}
+	if got != wanted {
+		t.Fatalf("resolved %q, want %q", got, wanted)
 	}
 }
 

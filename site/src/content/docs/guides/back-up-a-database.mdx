@@ -49,20 +49,20 @@ nothing archives.
 
 ```console
 $ ob backup enable database
-✓ protected image postgres:18
-✓ backup runtime wal-g v3.0.8 (aarch64)
+✓ protected image ghcr.io/labstack/onebox-postgres:18
 ✓ service database
 → backup schedule: ob-backup-shop-production-database-backup at 0 2 * * *
 → backup schedule: ob-backup-shop-production-database-verify at 0 4 * * *
 ✓ backup database
 ```
 
-That one command pins the image by registry digest, stages a checksum-verified
-wal-g onto the host, decrypts and installs the destination credentials, restarts
-the server with WAL archiving on, installs the timers, and takes the first base
-backup. **It is not finished until that base backup exists** — WAL archiving with
-nothing to replay onto recovers nothing, and reporting success there would be
-telling you the database is protected at the moment it is not.
+That one command pins the image by registry digest. That image contains the
+compatible WAL-G executable; Onebox stages only the generated credential adapter
+on the host. It decrypts and installs the destination credentials, restarts the
+server with WAL archiving on, installs the timers, and takes the first base
+backup. **It is not finished until that base backup exists** — WAL archiving
+with nothing to replay onto recovers nothing, and reporting success there would
+be telling you the database is protected at the moment it is not.
 
 The restart is a real restart. Enabling is a maintenance action, not a
 configuration change.
@@ -119,8 +119,8 @@ A repository younger than its window says so rather than implying otherwise:
 yet`. That is not a fault on a service enabled this morning, but it is not the
 promise either, and only the report can tell you which one you are looking at.
 
-Status also asks the server whether it is still archiving. A correct wal-g
-binary on the host says the tooling is in place; it says nothing about
+Status also asks the server whether it is still archiving. A correct WAL-G
+binary in the pinned PostgreSQL image says the tooling is in place; it says nothing about
 `archive_mode` still being on or `archive_command` still being the one Onebox
 installed. Anything that drifted is printed as a `drift` line above the figures.
 

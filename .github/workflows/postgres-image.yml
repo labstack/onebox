@@ -51,6 +51,7 @@ jobs:
             fi
             sleep 1
           done
+          docker run --rm onebox-postgres:test wal-g --version
           docker exec "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
             -c 'CREATE EXTENSION vector' \
             -c 'CREATE EXTENSION vectorscale' \
@@ -153,6 +154,7 @@ jobs:
               -c 'CREATE TABLE onebox_hypopg(id bigint)' \
               -c "SELECT indexrelid IS NOT NULL FROM hypopg_create_index('CREATE INDEX ON onebox_hypopg(id)')"
             docker exec "$container" pg_repack --version
+            docker exec "$container" wal-g --version
             docker rm -f "$container"
             trap - EXIT
           done

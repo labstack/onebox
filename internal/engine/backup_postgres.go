@@ -2,14 +2,10 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,45 +30,18 @@ import (
 // produces an ordinary server rather than one archiving to a repository nobody
 // initialised.
 
-// StageBackupRuntime places the verified wal-g binary and its generated
-// wrapper on the target, then makes them readable by the service.
-//
-// The binary is fetched here — on the machine running `ob` — and uploaded,
-// rather than downloaded by the target. That keeps the agentless model intact
-// and, more importantly, keeps verification on this side of the trust boundary:
-// the checksum is pinned in the Onebox binary, so a host with no outbound
-// internet still gets backup, and a compromised release page cannot
-// substitute a binary that a target-side `curl | sha256sum` would happily
-// accept against a checksum from the same source.
+// StageBackupRuntime writes the generated wrapper and trust store the bundled
+// image needs. WAL-G itself is bundled into the pinned multi-arch
+// onebox-postgres image, so no operator-side download or target upload exists.
 func (e *Engine) StageBackupRuntime(ctx context.Context, service string, wrapper []byte) error {
-	machine, err := e.targetMachine(ctx)
-	if err != nil {
-		return err
-	}
-	asset, expected, err := app.WalgAssetFor(machine)
-	if err != nil {
-		return err
-	}
 	n := e.names()
-	destination := n.BackupBinaryFile(service)
-
-	present, err := e.fileHasChecksum(ctx, destination, expected)
+	adapterDir := n.BackupAdapterDir(service)
+	res, err := e.T.Run(ctx, "mkdir -p "+q(adapterDir))
 	if err != nil {
 		return err
 	}
-	if !present {
-		st := e.ui.Step("backup runtime wal-g "+app.WalgVersion+" ("+machine+")", false)
-		staged, cleanup, err := fetchVerifiedBinary(ctx, app.WalgDownloadURL(asset), expected)
-		if err != nil {
-			st(err)
-			return err
-		}
-		defer cleanup()
-		if err := e.uploadBackupBinary(ctx, n.BackupRuntimeDir(service), staged, destination); err != nil {
-			st(err)
-			return err
-		}
-		st(nil)
+	if res.ExitCode != 0 {
+		return fmt.Errorf("cannot create backup adapter directory %s: %s", adapterDir, strings.TrimSpace(res.Stderr))
 	}
 
 	// The wrapper is passed in rather than rendered here, because enablement
@@ -94,7 +63,7 @@ func (e *Engine) StageBackupRuntime(ctx context.Context, service string, wrapper
 	if err := e.stageTrustStore(ctx, service); err != nil {
 		return err
 	}
-	return e.chmodPath(ctx, n.BackupRuntimeDir(service), "0755")
+	return e.chmodPath(ctx, n.BackupAdapterDir(service), "0755")
 }
 
 // trustStoreCandidates are the certificate authority bundles a Linux host is
@@ -107,19 +76,10 @@ var trustStoreCandidates = []string{
 	"/etc/ssl/cert.pem",
 }
 
-// stageTrustStore copies the host's certificate authorities in beside the
-// binary, because wal-g runs in the driver's image and that image has none.
-//
-// `postgres:18` ships two entries under /etc/ssl/certs and no bundle among
-// them, so every upload to the HTTPS endpoint an s3-compatible target is
-// required to declare fails verification. It failed *late*: the base backup
-// completed first, so the error arrived a quarter of an hour in, against a
-// server whose archiving was already on.
-//
-// A host with no bundle is refused here rather than discovered there. The
-// alternative is staging nothing, letting the wrapper fall back to the image's
-// empty store, and reproducing exactly the failure this exists to prevent —
-// only later, and with the database already archiving.
+// stageTrustStore optionally copies the host's certificate authorities beside
+// the wrapper. The image carries public roots; a host bundle lets a private
+// endpoint use its additional trusted roots. When the host has
+// no bundle, remove a stale staged copy so the wrapper uses the image default.
 func (e *Engine) stageTrustStore(ctx context.Context, service string) error {
 	destination := e.names().BackupTrustStoreFile(service)
 	// Copied on the target rather than uploaded from here: the bundle that
@@ -140,18 +100,15 @@ func (e *Engine) stageTrustStore(ctx context.Context, service string) error {
 		probe.WriteString("  exit 0\n")
 		probe.WriteString("fi\n")
 	}
-	probe.WriteString("exit 1\n")
+	probe.WriteString("rm -f " + q(destination) + "\n")
+	probe.WriteString("exit 0\n")
 
 	res, err := e.T.Run(ctx, probe.String())
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf(
-			"service %s: the target holds no certificate authority bundle at any of %s, "+
-				"so wal-g cannot verify the backup endpoint from inside the container; "+
-				"install the host's CA certificates (on Debian and Ubuntu: apt-get install ca-certificates)",
-			service, strings.Join(trustStoreCandidates, ", "))
+		return fmt.Errorf("service %s: stage host certificate authorities: %s", service, res.Stderr)
 	}
 	return nil
 }
@@ -311,108 +268,6 @@ func postgresControlSystemIdentifier(output string) string {
 
 var databaseSystemIdentifier = regexp.MustCompile(`^[0-9]{1,20}$`)
 
-func (e *Engine) targetMachine(ctx context.Context) (string, error) {
-	res, err := e.T.Run(ctx, "uname -m")
-	if err != nil {
-		return "", err
-	}
-	machine := strings.TrimSpace(res.Stdout)
-	if res.ExitCode != 0 || machine == "" {
-		return "", fmt.Errorf("cannot determine the target's machine architecture")
-	}
-	return machine, nil
-}
-
-// fileHasChecksum reports whether the target already holds exactly the expected
-// bytes. Re-uploading 60MB on every enable would be the kind of cost that makes
-// people avoid running the command.
-func (e *Engine) fileHasChecksum(ctx context.Context, remotePath, expected string) (bool, error) {
-	res, err := e.T.Run(ctx, "sha256sum "+q(remotePath)+" 2>/dev/null | cut -d' ' -f1")
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(res.Stdout) == expected, nil
-}
-
-// fetchVerifiedBinary downloads an asset and refuses it unless it hashes to the
-// pinned value. The file is never made executable and never leaves the
-// temporary directory until it has matched.
-func fetchVerifiedBinary(ctx context.Context, url, expected string) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "ob-backup-runtime-")
-	if err != nil {
-		return "", nil, fmt.Errorf("create staging directory: %w", err)
-	}
-	cleanup := func() { os.RemoveAll(dir) }
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	client := &http.Client{Timeout: 10 * time.Minute}
-	response, err := client.Do(request)
-	if err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("fetch %s: %w", url, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		cleanup()
-		return "", nil, fmt.Errorf("fetch %s: %s", url, response.Status)
-	}
-
-	staged := filepath.Join(dir, "wal-g")
-	file, err := os.OpenFile(staged, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
-	if err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	digest := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(file, digest), response.Body); err != nil {
-		file.Close()
-		cleanup()
-		return "", nil, fmt.Errorf("download %s: %w", url, err)
-	}
-	if err := file.Close(); err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	if observed := hex.EncodeToString(digest.Sum(nil)); observed != expected {
-		cleanup()
-		return "", nil, fmt.Errorf(
-			"the wal-g download does not match its pinned checksum (expected %s, got %s); refusing to place it on the host",
-			expected, observed)
-	}
-	return staged, cleanup, nil
-}
-
-// uploadBackupBinary moves the verified binary into place. Upload writes a
-// directory, so the staged file is placed alone in one and moved across.
-func (e *Engine) uploadBackupBinary(ctx context.Context, runtimeDir, staged, destination string) error {
-	res, err := e.T.Run(ctx, "mkdir -p "+q(runtimeDir))
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot create the backup runtime directory: %s", strings.TrimSpace(res.Stderr))
-	}
-	remoteStaging := runtimeDir + "/.staging"
-	if err := e.T.Upload(ctx, filepath.Dir(staged), remoteStaging); err != nil {
-		return fmt.Errorf("upload the wal-g binary: %w", err)
-	}
-	install := "mv -f " + q(remoteStaging+"/"+filepath.Base(staged)) + " " + q(destination) +
-		" && chmod 0755 " + q(destination) +
-		" && rm -rf " + q(remoteStaging)
-	res, err = e.T.Run(ctx, install)
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot install the wal-g binary: %s", strings.TrimSpace(res.Stderr))
-	}
-	return nil
-}
-
 func (e *Engine) chmodPath(ctx context.Context, target, mode string) error {
 	res, err := e.T.Run(ctx, "chmod "+mode+" "+q(target))
 	if err != nil {
@@ -470,9 +325,9 @@ func (e *Engine) RebindServiceRuntimeStates(states map[string]app.ServiceRuntime
 // ResolveProtectedImage pins the service image by the digest the host actually
 // has, after pulling it.
 //
-// WAL-G is mounted beside the PostgreSQL runtime image rather than baked into
-// it, but the image is still pinned: the bytes running over a live data
-// directory must not change because a tag moved.
+// WAL-G is baked into the PostgreSQL runtime image, so the image is pinned:
+// the bytes running over a live data directory must not change because a tag
+// moved.
 // recordedPin and recordedReference come from the service's lifecycle record:
 // the digest it was last bound with, and the reference that produced it. When
 // the project still declares that same reference and the host still holds those
@@ -539,21 +394,30 @@ func (e *Engine) ResolveProtectedImage(ctx context.Context, service, recordedPin
 		st(err)
 		return "", err
 	}
-	res, err = e.T.Run(ctx, "docker image inspect --format '{{index .RepoDigests 0}}' "+q(resolutionReference))
+	res, err = e.T.Run(ctx, "docker image inspect --format '{{json .RepoDigests}}' "+q(resolutionReference))
 	if err != nil {
 		st(err)
 		return "", err
 	}
-	pinned := strings.TrimSpace(res.Stdout)
-	if res.ExitCode != 0 || !containsDigest(pinned) {
+	var repoDigests []string
+	if res.ExitCode == 0 {
+		if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &repoDigests); err != nil {
+			err := errors.New("docker returned invalid repository digest metadata")
+			st(err)
+			return "", err
+		}
+	}
+	pinned := ""
+	for _, candidate := range repoDigests {
+		if containsDigest(candidate) && sameImageRepository(candidate, resolutionReference) {
+			pinned = candidate
+			break
+		}
+	}
+	if pinned == "" {
 		err := fmt.Errorf(
 			"%s has no registry digest on this host; a protected service runs an image pinned by digest, so it must come from a registry rather than a local build",
 			resolutionReference)
-		st(err)
-		return "", err
-	}
-	if !sameImageRepository(pinned, resolutionReference) {
-		err := fmt.Errorf("resolved digest %s does not belong to image repository %s", pinned, resolutionReference)
 		st(err)
 		return "", err
 	}
@@ -618,24 +482,6 @@ func (e *Engine) ReportTargetMoved(service, from, to string) {
 func (e *Engine) VerifyBackupRuntime(ctx context.Context, service string) ([]string, error) {
 	n := e.names()
 	var issues []string
-
-	machine, err := e.targetMachine(ctx)
-	if err != nil {
-		return nil, err
-	}
-	_, expected, err := app.WalgAssetFor(machine)
-	if err != nil {
-		return nil, err
-	}
-	matches, err := e.fileHasChecksum(ctx, n.BackupBinaryFile(service), expected)
-	if err != nil {
-		return nil, err
-	}
-	if !matches {
-		issues = append(issues, fmt.Sprintf(
-			"the wal-g binary at %s is not the %s build this release pins; re-run `ob service apply` to replace it",
-			n.BackupBinaryFile(service), app.WalgVersion))
-	}
 
 	wrappers, err := e.Spec.RenderServiceBackupWrappers(e.Opts.Environment)
 	if err != nil {

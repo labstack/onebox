@@ -201,11 +201,23 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		"compose.yaml",
 		`run --rm --no-deps "$@" --name 'sample-nightly-1'`,
 		"docker rm -f 'sample-nightly-1'",
+		"ONEBOX_EXPECTED_RELEASE",
+		"ONEBOX_EXPECTED_RUNTIME",
+		sealedManualJobBindingMarker,
+		"sha256sum",
+		"serving release changed after job approval",
+		"serving runtime changed after job approval",
 		"nightly",
 	} {
 		if !strings.Contains(runner, want) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
 		}
+	}
+	locked := strings.Index(runner, "flock --exclusive --timeout 10")
+	bound := strings.Index(runner, "serving release changed after job approval")
+	run := strings.Index(runner, "docker compose")
+	if locked < 0 || bound < 0 || run < 0 || !(locked < bound && bound < run) {
+		t.Fatalf("planned binding must be checked under the app lock before the container runs:\n%s", runner)
 	}
 	command := exec.CommandContext(context.Background(), "sh", "-n")
 	command.Stdin = strings.NewReader(runner)

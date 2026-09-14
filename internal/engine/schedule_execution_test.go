@@ -167,7 +167,7 @@ func TestDurableResumeRefusesLegacyRunnerBeforePublishingRequest(t *testing.T) {
 		return base(command)
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	_, err := e.scheduleRun(context.Background(), "resume-op", "refresh", nil, false, strings.Repeat("a", 32))
+	_, err := e.scheduleRun(context.Background(), "resume-op", "refresh", nil, false, strings.Repeat("a", 32), nil)
 	if err == nil || !strings.Contains(err.Error(), "ob schedule apply") {
 		t.Fatalf("legacy runner accepted: %v", err)
 	}

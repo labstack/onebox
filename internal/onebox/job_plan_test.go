@@ -293,3 +293,75 @@ func TestExecuteJobRunsOnceAndJournalsTerminalResult(t *testing.T) {
 		}
 	}
 }
+
+func TestExecuteScheduledDestructiveJobDetachesToHostUnit(t *testing.T) {
+	current := "R0"
+	runtime := manualJobRuntime("ghcr.io/example/maintenance@sha256:" + strings.Repeat("ab", 32))
+	fake := jobPlanFake(&current, runtime)
+	base := fake.Dynamic
+	fake.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "systemctl --version"):
+			return transport.Result{Stdout: "systemd 255 (255.4-1ubuntu8)\n"}, true
+		case strings.Contains(cmd, "systemctl is-active"):
+			return transport.Result{Stdout: "inactive\n"}, true
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "systemctl start"):
+			return transport.Result{}, true
+		}
+		return base(cmd)
+	}
+	now := time.Date(2026, 9, 14, 19, 0, 0, 0, time.UTC)
+	connects := 0
+	path := writeManualJobProject(t, "destructive", false)
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := strings.Replace(string(encoded),
+		"    data_effect: destructive\n",
+		"    data_effect: destructive\n    schedule: {cron: '0 4 * * 1', timezone: UTC, timeout: 8h}\n", 1)
+	if err := os.WriteFile(path, []byte(project), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := New(Options{
+		ConfigPath: path,
+		Now:        func() time.Time { return now },
+		Connect: func(_ context.Context, route transport.Route) (transport.Transport, error) {
+			connects++
+			return fake, nil
+		},
+	})
+	plan, err := service.PlanJob(context.Background(), PlanJobRequest{Job: "maintenance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := NewApprovalGrant(&plan, nil, "operator@example.test", now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	result, err := service.Execute(context.Background(), ExecuteRequest{
+		Kind: KindJobRun, JobPlan: &plan, Approval: &approval, Detach: true,
+	})
+	if err != nil {
+		t.Fatalf("execute detached job: %v", err)
+	}
+	if result.Status != OperationStatusSuccess || result.ScheduleRun == nil || !result.ScheduleRun.Started {
+		t.Fatalf("detached result = %+v", result)
+	}
+	commands := strings.Join(fake.Commands, "\n")
+	if !strings.Contains(commands, "systemctl start --no-block 'ob-demo-maintenance.service'") {
+		t.Fatalf("job was not submitted to its host unit:\n%s", commands)
+	}
+	if strings.Contains(commands, "ONEBOX_RESULT_FILE=/run/onebox/job-result") {
+		t.Fatalf("detached job also ran in the SSH session:\n%s", commands)
+	}
+	written := strings.Join(fake.Inputs, "\n")
+	for _, want := range []string{"ONEBOX_EXPECTED_RELEASE=R0", "ONEBOX_EXPECTED_RUNTIME=" + plan.Artifact.RuntimeDigest} {
+		if !strings.Contains(written, want) {
+			t.Fatalf("host activation omitted %q:\n%s", want, written)
+		}
+	}
+}

@@ -59,11 +59,31 @@ func TestFmtDur(t *testing.T) {
 		12 * time.Second:        "12s",
 		84 * time.Second:        "1m24s",
 		134 * time.Second:       "2m14s",
-		61 * time.Minute:        "61m0s",
+		61 * time.Minute:        "1h1m",
+		8 * time.Hour:           "8h0m",
 	}
 	for d, want := range cases {
 		if got := FmtDur(d); got != want {
 			t.Fatalf("FmtDur(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestAnnouncedStepIsLineHonestOffTTY(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	u.now = func() time.Time { return time.Unix(0, 0) }
+	done := u.Step("job catalog-refresh", true)
+	u.now = func() time.Time { return time.Unix(61, 0) }
+	done(nil)
+
+	s := out.String()
+	if strings.ContainsAny(s, "\r\x1b") {
+		t.Fatalf("non-TTY step must not emit control sequences: %q", s)
+	}
+	for _, want := range []string{"⟳ job catalog-refresh", "✓ job catalog-refresh", "1m1s"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
 		}
 	}
 }

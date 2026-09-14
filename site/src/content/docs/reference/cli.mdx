@@ -803,6 +803,10 @@ Global Flags:
 ```
 Run one manual job through the canonical lock, fence, local-confirmation and journal boundary.
 
+A job with schedule configured runs under its installed systemd unit and is
+followed by default; Ctrl-C stops following, not the host job. --detach returns
+after that unit accepts the run. Unscheduled and migration jobs stay attached.
+
 Humans may pass an id and confirm interactively. Automation should supply a
 saved --plan and its separately created local-confirmation artifact through
 --approval; migration plans may also require the exact plan-bound --backup-report.
@@ -814,6 +818,7 @@ Flags:
       --approval string                    apply a plan-bound local confirmation artifact
       --backup-report string               apply the backup report bound into the local confirmation
       --break-lock                         break a stale operation lock after inspecting its holder
+      --detach                             return after the installed host unit accepts the job
   -h, --help                               help for run
       --override-migration-backup string   audited break-glass reason (requires --approval)
       --plan string                        apply a saved job plan artifact

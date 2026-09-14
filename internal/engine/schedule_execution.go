@@ -199,7 +199,7 @@ func (e *Engine) ExecutionResume(ctx context.Context, operation, id string, wait
 		return ScheduleRunResult{}, fmt.Errorf("resume requires the original current release")
 	}
 	// Host runner rechecks the saved definition and compatibility under locks.
-	return e.scheduleRun(ctx, operation, job, nil, wait, id)
+	return e.scheduleRun(ctx, operation, job, nil, wait, id, nil)
 }
 
 func (e *Engine) ExecutionAbandon(ctx context.Context, operation, id string) (err error) {

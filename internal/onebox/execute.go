@@ -117,9 +117,10 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		}
 		result.ReleaseID = request.JobPlan.Operation.ReleaseID
 		emitProgress("operation", "started", "")
-		evidenceID, jobResult, jobErr := s.executeJob(ctx, request, emitProgress)
+		evidenceID, jobResult, scheduleRun, jobErr := s.executeJob(ctx, request, emitProgress)
 		result.EvidenceID = evidenceID
 		result.JobResult = jobResult
+		result.ScheduleRun = scheduleRun
 		return finish(jobErr)
 	}
 

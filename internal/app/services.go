@@ -455,11 +455,11 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		full := n.ServiceVolume(name, vol)
 		mounts := []string{full + ":" + d.dataPath}
 		if backup != nil {
-			// The directory, not the files — see BackupRuntimeDir for why
+			// The directory, not the files — see BackupAdapterDir for why
 			// an atomically replaced file vanishes from a running container.
 			// Read-only, because a container that could rewrite the binary it
 			// archives with could send the archive anywhere.
-			mounts = append(mounts, backup.RuntimeHostDir+":"+WalgMountPath+":ro")
+			mounts = append(mounts, backup.AdapterHostDir+":"+WalgMountPath+":ro")
 		}
 		svc["volumes"] = mounts
 		volumes[full] = map[string]any{

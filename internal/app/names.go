@@ -92,9 +92,9 @@ func (n Names) ServiceFile(service string) string {
 	return path.Join(n.ServiceDir(), service+".yaml")
 }
 
-// BackupRuntimeDir holds what a protected service needs at run time: the
-// verified wal-g binary and the generated wrapper that puts its credentials in
-// scope. The whole directory is mounted read-only into the container.
+// BackupAdapterDir holds generated backup configuration: a credential wrapper
+// and optional additional certificate authorities. The whole directory is
+// mounted read-only; WAL-G itself belongs to the PostgreSQL image.
 //
 // A directory rather than two file mounts, and that is not tidiness. Onebox
 // replaces generated files atomically, by writing a temporary file and renaming
@@ -103,38 +103,24 @@ func (n Names) ServiceFile(service string) string {
 // disappears from inside the running container: the mount still points at the
 // inode that was unlinked. Mounting the directory keeps the mount stable.
 //
-// It is keyed by wal-g version, so upgrading the pinned version changes the
-// mount path and the container is recreated onto the new binary rather than
-// having it swapped underneath a running server.
-func (n Names) BackupRuntimeDir(service string) string {
-	return path.Join(n.AppDir(), "backup", "runtime", service, WalgVersion)
-}
-
-// BackupBinaryFile is the verified wal-g binary on the target.
-func (n Names) BackupBinaryFile(service string) string {
-	return path.Join(n.BackupRuntimeDir(service), "wal-g")
+// It is keyed by the adapter format, not WAL-G's version. Image and tool
+// versions are selected together by the image digest.
+func (n Names) BackupAdapterDir(service string) string {
+	return path.Join(n.AppDir(), "backup", "runtime", service, BackupAdapterFormat)
 }
 
 // BackupWrapperFile is the generated credential wrapper. It sits beside the
-// binary and holds no secret: it names the credential entries and reads their
-// values from the environment.
+// optional trust store and holds no secret: it names credential entries and
+// reads their values from the environment.
 func (n Names) BackupWrapperFile(service string) string {
-	return path.Join(n.BackupRuntimeDir(service), "ob-wal-g")
+	return path.Join(n.BackupAdapterDir(service), "ob-wal-g")
 }
 
-// BackupTrustStoreFile is the host's certificate authority bundle, copied in
-// beside the binary.
-//
-// wal-g runs inside the driver's image, and the official PostgreSQL images
-// carry no trust store: `postgres:18` has no /etc/ssl/certs/ca-certificates.crt
-// at all. Since every S3-compatible target is required to be HTTPS, a wal-g
-// with nothing to verify against cannot upload anywhere — it fails the
-// handshake with "x509: certificate signed by unknown authority" after the
-// base backup has already been written, and archiving has already been turned
-// on. The trust store therefore travels the same way the binary does, through
-// the directory that is already mounted read-only into the container.
+// BackupTrustStoreFile is an optional host certificate authority bundle. It is
+// mounted only when present, supplementing the public certificate roots in the
+// image for private backup endpoints.
 func (n Names) BackupTrustStoreFile(service string) string {
-	return path.Join(n.BackupRuntimeDir(service), "ca-certificates.crt")
+	return path.Join(n.BackupAdapterDir(service), "ca-certificates.crt")
 }
 
 // ServiceSecretFile holds the credential Onebox generates on the target. It is

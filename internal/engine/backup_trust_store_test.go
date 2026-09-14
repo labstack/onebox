@@ -2,18 +2,14 @@ package engine
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/labstack/onebox/internal/transport"
 )
 
-// wal-g executes inside the driver's image. `postgres:18` carries no
-// certificate authorities, so unless the host's bundle travels with the binary
-// every upload to the HTTPS endpoint an s3-compatible target must declare
-// fails with "certificate signed by unknown authority" — after the base backup
-// has been written and archiving is already on.
+// The image provides public certificate authorities. When the host has a
+// bundle, stage it so private endpoint roots work as they do for Docker.
 func TestStagingTheRuntimeCopiesTheHostTrustStoreInBesideTheBinary(t *testing.T) {
 	fake := &transport.Fake{}
 	engine := backupLockTestEngine(fake)
@@ -37,23 +33,16 @@ func TestStagingTheRuntimeCopiesTheHostTrustStoreInBesideTheBinary(t *testing.T)
 	}
 }
 
-// A target with no bundle anywhere is refused while the service is still
-// exactly as it was. Staging nothing and letting the wrapper fall back to the
-// image's empty store reproduces the original failure, only a quarter of an
-// hour later and with the database already archiving.
-func TestATargetWithNoTrustStoreIsRefusedBeforeArchivingIsTurnedOn(t *testing.T) {
-	fake := &transport.Fake{Script: []transport.Rule{
-		{Match: regexp.MustCompile("ca-certificates|ca-bundle|cert.pem"), Result: transport.Result{ExitCode: 1}},
-	}}
+func TestStagingTheRuntimeCreatesTheAdapterDirectory(t *testing.T) {
+	fake := &transport.Fake{}
 	engine := backupLockTestEngine(fake)
 
-	err := engine.stageTrustStore(context.Background(), "database")
-	if err == nil {
-		t.Fatal("a target with no certificate authorities was accepted")
+	if err := engine.StageBackupRuntime(context.Background(), "database", []byte("#!/bin/sh\n")); err != nil {
+		t.Fatalf("staging the backup adapter: %v", err)
 	}
-	for _, want := range []string{"/etc/ssl/certs/ca-certificates.crt", "ca-certificates"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the error does not tell the operator what to install (%q): %v", want, err)
-		}
+	commands := strings.Join(fake.Commands, "\n")
+	want := engine.names().BackupAdapterDir("database")
+	if !strings.Contains(commands, "mkdir -p") || !strings.Contains(commands, want) {
+		t.Errorf("adapter directory %s was not created:\n%s", want, commands)
 	}
 }

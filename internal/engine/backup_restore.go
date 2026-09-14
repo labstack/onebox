@@ -242,8 +242,8 @@ func (e *Engine) discardRecoveryStaging(ctx context.Context, container, staging 
 	return nil
 }
 
-// startRecoveryContainer runs the protected image with the staged wal-g mounted
-// and the data directory empty, doing nothing. The server is started later, by
+// startRecoveryContainer runs the protected image with the staged adapter
+// mounted and the data directory empty, doing nothing. The server is started later, by
 // hand, so recovery configuration is in place before it reads anything.
 func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging, image string, environment map[string]any, service, credentialTarget string) error {
 	n := e.names()
@@ -252,7 +252,7 @@ func (e *Engine) startRecoveryContainer(ctx context.Context, container, staging,
 		"--network", q(n.ServiceNetwork()),
 		"--entrypoint", "sleep",
 		"-v", q(staging + ":/var/lib/postgresql/data"),
-		"-v", q(n.BackupRuntimeDir(service) + ":" + app.WalgMountPath + ":ro"),
+		"-v", q(n.BackupAdapterDir(service) + ":" + app.WalgMountPath + ":ro"),
 		// The target-managed PostgreSQL credential is needed only inside the
 		// recovery container. Passing the file by name keeps its value out of this
 		// command, transport logs, recovery evidence, and process arguments.
@@ -329,7 +329,7 @@ func (e *Engine) fetchRecoveryBase(ctx context.Context, container, service, targ
 // requested point, which is the only kind replay can carry forward to it.
 //
 // Read from the recovery container rather than the live service: it already has
-// the staged wal-g and the repository credentials, and a recovery must not
+// the image-owned WAL-G, adapter and repository credentials, and a recovery must not
 // depend on the database it may be about to replace.
 func (e *Engine) baseBackupFor(ctx context.Context, container, service, targetTime string) (string, error) {
 	target, err := time.Parse(time.RFC3339, targetTime)

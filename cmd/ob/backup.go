@@ -42,7 +42,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		Short: "establish backup — restarts the service archiving and takes the first backup",
 		Long: "Make a declared backup policy real.\n\n" +
 			"The order is forced: the credentials are checked, the image is pinned by\n" +
-			"registry digest, the verified wal-g binary is staged on the host, and only\n" +
+			"registry digest, the generated credential adapter is staged on the host, and only\n" +
 			"then does the server restart with archiving on.\n\n" +
 			"The restart is a real restart of the database. It is not complete until the\n" +
 			"first base backup exists, because WAL archiving with nothing to replay onto\n" +

@@ -2,6 +2,29 @@
 
 ARG PG_MAJOR=18
 ARG DEBIAN_CODENAME=trixie
+
+FROM debian:trixie-slim AS walg-build
+
+# The official release has separate Linux binaries. This mapping is build-time
+# only: Buildx selects TARGETARCH and the resulting multi-arch image manifest
+# selects the matching image at the host. ob neither detects an architecture
+# nor transfers a WAL-G binary.
+ARG TARGETARCH
+ARG WALG_VERSION=v3.0.8
+ARG WALG_AMD64_SHA256=f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb
+ARG WALG_ARM64_SHA256=794d1a81f0c27825a1603bd39c0f2cf5dd8bed7cc36b598ca05d8d963c3d5fcf
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    case "${TARGETARCH}" in \
+        amd64) walg_asset="wal-g-pg-22.04-amd64"; walg_sha="${WALG_AMD64_SHA256}" ;; \
+        arm64) walg_asset="wal-g-pg-22.04-aarch64"; walg_sha="${WALG_ARM64_SHA256}" ;; \
+        *) echo "unsupported WAL-G architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    install -d /out && \
+    curl -fsSL "https://github.com/wal-g/wal-g/releases/download/${WALG_VERSION}/${walg_asset}" -o /out/wal-g && \
+    echo "${walg_sha}  /out/wal-g" | sha256sum -c - && \
+    chmod 0755 /out/wal-g
+
 FROM postgres:${PG_MAJOR}-${DEBIAN_CODENAME}
 
 ARG PG_MAJOR
@@ -22,6 +45,8 @@ ARG HYPOPG_PACKAGE_VERSION=1.4.3-1.pgdg13+1
 LABEL org.opencontainers.image.source="https://github.com/labstack/onebox" \
       org.opencontainers.image.description="PostgreSQL for Onebox-managed applications" \
       org.opencontainers.image.licenses="PostgreSQL AND GPL-2.0-or-later"
+
+COPY --from=walg-build /out/wal-g /usr/local/bin/wal-g
 
 # The full commit is immutable. BuildKit checks out that exact source instead
 # of trusting a movable release tag, and the final image contains no compiler.
@@ -77,7 +102,7 @@ RUN apt-get update && \
     echo "4e204f7b0aa175af0a3b38c3bc56852954adf0110e25babe94eab6e35eeef114  /usr/share/doc/pgvectorscale/NOTICE" | sha256sum -c - && \
     cd / && \
     rm -rf /tmp/pgvector /tmp/pgvectorscale-package "/tmp/${pgvectorscale_archive}" && \
-    apt-get remove -y build-essential ca-certificates curl postgresql-server-dev-${PG_MAJOR} unzip && \
+    apt-get remove -y build-essential curl postgresql-server-dev-${PG_MAJOR} unzip && \
     apt-get autoremove -y && \
     apt-mark unhold locales && \
     rm -rf /var/lib/apt/lists/*

@@ -55,6 +55,10 @@ unattended full restore drills, and log rotation.** Onebox says so rather than
 implying otherwise — `ob doctor` reports every durable workload or service that
 has no executable backup contract, because silence there would read as approval.
 
+PostgreSQL backup is delivered as part of the pinned Onebox PostgreSQL image:
+the image owns the compatible WAL-G executable; Onebox owns policy, generated
+credential adaptation, scheduling, verification, and recovery orchestration.
+
 The distinction matters more than it looks. A product direction that reads as a
 capability list is how an operator ends up believing their database is backed
 up by something that has never taken a backup.

@@ -114,6 +114,10 @@ the backup reference. Only the `postgres` driver has an executable contract
 today; every other driver declares `policy_qualified: false` and its backup
 policy is refused rather than accepted and ignored.
 
+For PostgreSQL, the digest-pinned Onebox image carries the compatible WAL-G
+executable. The host receives generated configuration only; no backup binary is
+installed by Onebox.
+
 **Restore proof.** `ob backup drill` proves it on demand: it recovers the
 repository into a throwaway volume, waits for the cluster to promote, and makes
 it answer a query — the same code a real restore runs, stopped before the last

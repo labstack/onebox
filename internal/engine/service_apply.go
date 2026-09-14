@@ -96,14 +96,14 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, allowDestru
 			if strings.Contains(src[1], "/releases/") {
 				continue
 			}
-			// Everything Onebox stages for backup — the verified wal-g
-			// binary and the generated credential wrapper — is mounted
+			// Everything Onebox stages for backup — generated configuration
+			// and its credential wrapper — is mounted
 			// read-only and replaced from the project on every apply. Treating
 			// it as data would make each apply of a protected service demand
 			// --allow-destructive-mounts to detach files Onebox wrote itself,
 			// which teaches operators to pass that flag by reflex — the exact
-			// habit it exists to prevent. The path is keyed by wal-g version,
-			// so an upgrade legitimately changes it.
+			// habit it exists to prevent. The path is keyed by adapter format,
+			// so a wrapper-contract upgrade legitimately changes it.
 			if strings.HasPrefix(src[1], path.Join(n.AppDir(), "backup")+"/") {
 				continue
 			}

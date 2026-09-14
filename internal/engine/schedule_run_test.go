@@ -72,6 +72,68 @@ func TestScheduleRunWritesInputsJournalsThenStartsAfterReleasingTheLock(t *testi
 	}
 }
 
+func TestPlannedJobRunStagesItsExactBindingAndDetachesToSystemd(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["refresh"] = app.Workload{
+		Role: app.RoleJob, When: "manual", DataEffect: "destructive",
+		Schedule: &app.JobSchedule{Cron: "0 4 * * 1", Timezone: "UTC", Timeout: "8h"},
+	}
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "systemctl --version"):
+			return transport.Result{Stdout: "systemd 255 (255.4-1ubuntu8)\n"}, true
+		case strings.Contains(cmd, "systemctl is-active"):
+			return transport.Result{Stdout: "inactive\n"}, true
+		case strings.Contains(cmd, "systemctl start"):
+			return transport.Result{}, true
+		}
+		return base(cmd)
+	}
+	e := New(cfg, testProject(t), f, Options{
+		Out: &bytes.Buffer{}, Sleep: noSleep,
+		ApprovalDigest: "approval-digest", ApprovalClass: "strong",
+		ApprovedBy: "operator", ApprovalSource: "local_confirmation",
+	})
+	const (
+		operation = "20260914-191943-job_run-9503bc4cfa47"
+		release   = "20260914-190602-deploy-731e31b2d992"
+		runtime   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	result, err := e.PlannedJobRun(context.Background(), operation, "refresh", release, runtime, false)
+	if err != nil {
+		t.Fatalf("planned job run: %v\n%s", err, strings.Join(f.Commands, "\n"))
+	}
+	if !result.Started || result.Operation != operation || result.Unit != "ob-sample-refresh" {
+		t.Fatalf("result = %#v", result)
+	}
+	written := strings.Join(f.Inputs, "\n")
+	for _, want := range []string{
+		"ONEBOX_OPERATION=" + operation,
+		"ONEBOX_EXPECTED_RELEASE=" + release,
+		"ONEBOX_EXPECTED_RUNTIME=" + runtime,
+	} {
+		if !strings.Contains(written, want) {
+			t.Fatalf("planned activation omitted %q:\n%s", want, written)
+		}
+	}
+	commands := strings.Join(f.Commands, "\n")
+	if !strings.Contains(commands, "grep -Fq '"+sealedManualJobBindingMarker+"' '/etc/systemd/system/ob-sample-refresh.run'") {
+		t.Fatalf("planned job did not verify the installed runner protocol:\n%s", commands)
+	}
+	if !strings.Contains(commands, "systemctl start --no-block 'ob-sample-refresh.service'") {
+		t.Fatalf("planned job was not detached to systemd:\n%s", commands)
+	}
+	for _, want := range []string{`"approval_digest":"approval-digest"`, `"approval_class":"strong"`} {
+		if !strings.Contains(commands, want) {
+			t.Fatalf("planned job journal omitted %q:\n%s", want, commands)
+		}
+	}
+}
+
 func TestScheduleRunRefusals(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{

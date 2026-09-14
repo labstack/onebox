@@ -35,10 +35,29 @@ type ScheduleRunResult struct {
 // the inputs is the case the sealed plan of `ob job run` exists for, and a
 // migration or destructive job keeps that path.
 func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool) (_ ScheduleRunResult, err error) {
-	return e.scheduleRun(ctx, operationID, name, inputs, wait, "")
+	return e.scheduleRun(ctx, operationID, name, inputs, wait, "", nil)
 }
 
-func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool, execution string) (_ ScheduleRunResult, err error) {
+// PlannedJobRun submits a sealed manual job plan to the job's installed
+// systemd unit. The runner checks the plan's release and runtime digest after
+// taking the host-side application exclusion, so releasing the admission lock
+// before systemd schedules the unit cannot move the job onto different bytes.
+func (e *Engine) PlannedJobRun(ctx context.Context, operationID, name, expectedRelease, expectedRuntime string, wait bool) (_ ScheduleRunResult, err error) {
+	if expectedRelease == "" || expectedRuntime == "" {
+		return ScheduleRunResult{}, errors.New("planned job run requires an expected release and runtime digest")
+	}
+	return e.scheduleRun(ctx, operationID, name, nil, wait, "", &plannedJobBinding{
+		release: expectedRelease,
+		runtime: expectedRuntime,
+	})
+}
+
+type plannedJobBinding struct {
+	release string
+	runtime string
+}
+
+func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inputs map[string]string, wait bool, execution string, planned *plannedJobBinding) (_ ScheduleRunResult, err error) {
 	result := ScheduleRunResult{Job: name, Operation: operationID, Inputs: inputs}
 	result.Execution = execution
 	if strings.TrimSpace(operationID) == "" {
@@ -54,9 +73,12 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	if execution != "" && (workload.Execution == nil || !scheduleRunID.MatchString(execution) || len(inputs) != 0) {
 		return result, errors.New("resume requires a durable job, a valid execution ID, and no input overrides")
 	}
-	if workload.DataEffect != app.DataEffectNone {
+	if workload.DataEffect != app.DataEffectNone && planned == nil {
 		return result, fmt.Errorf("job %s declares data_effect %q; operator-initiated runs of it go through the sealed plan: ob job plan %s, then ob job run",
 			name, workload.DataEffect, name)
+	}
+	if planned != nil && execution != "" {
+		return result, errors.New("a planned job run cannot resume a durable execution")
 	}
 	if err := app.ValidateJobInputValues(workload, inputs); err != nil {
 		return result, err
@@ -70,6 +92,15 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	}
 	unit := e.names().ScheduledJobUnit(name)
 	result.Unit = unit
+	if planned != nil {
+		res, err := e.T.Run(ctx, "grep -Fq "+q(sealedManualJobBindingMarker)+" "+q("/etc/systemd/system/"+unit+".run"))
+		if err != nil {
+			return result, err
+		}
+		if res.ExitCode != 0 {
+			return result, fmt.Errorf("installed job runner does not support sealed manual-job binding; run `ob schedule apply` before running %s", name)
+		}
+	}
 
 	// Starting an active unit is a no-op to systemd and would consume the
 	// inputs file for a run that never happens; say so instead.
@@ -113,7 +144,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	path := e.names().ScheduledJobRunInputs(name)
 	create := "if [ -e " + q(path) + " ]; then exit 73; fi; " +
 		"umask 077 && install -d -m 700 " + q(e.names().AppDir()+"/schedule") + " && set -C && cat > " + q(path)
-	payload := scheduleInputsFile(operationID, inputs)
+	payload := scheduleInputsFile(operationID, inputs, planned)
 	if execution != "" {
 		payload += "ONEBOX_EXECUTION=" + execution + "\n"
 	}
@@ -139,6 +170,8 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	writer := &journal.Writer{
 		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
+		ApprovalDigest: e.Opts.ApprovalDigest, ApprovalClass: e.Opts.ApprovalClass,
+		ApprovedBy: e.Opts.ApprovedBy, ApprovalSource: e.Opts.ApprovalSource,
 	}
 	detail := "inputs: defaults"
 	if execution != "" {
@@ -148,6 +181,15 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 		detail = "inputs: " + scheduleInputsDetail(inputs)
 	}
 	record := journal.Record{Phase: "schedule-run", Event: "start", Status: "ok", Target: name, TargetKind: "job", Detail: detail}
+	if planned != nil {
+		// This journal describes host-unit admission, not the job's eventual
+		// outcome. Keep schedule-run's truthful "started" audit semantics while
+		// retaining the sealed job plan's authorization evidence.
+		record.ApprovalDigest = e.Opts.ApprovalDigest
+		record.ApprovalClass = e.Opts.ApprovalClass
+		record.ApprovedBy = e.Opts.ApprovedBy
+		record.ApprovalSource = e.Opts.ApprovalSource
+	}
 	if err := writer.Append(ctx, record); err != nil {
 		return result, fmt.Errorf("journal schedule run start: %w", err)
 	}
@@ -176,6 +218,14 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	if wait {
 		start = "systemctl start " + q(unit+".service")
 	}
+	finishStep := func(error) {}
+	if wait {
+		if planned != nil {
+			e.ui.Infof("host run %s; Ctrl-C detaches; inspect with `ob schedule history %s`", operationID, name)
+		}
+		finishStep = e.ui.Step("job "+name, true)
+		defer func() { finishStep(err) }()
+	}
 	res, err = e.mutate(ctx, start)
 	if err != nil {
 		return result, err
@@ -187,7 +237,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 		// The unit is queued, so the runner owns the file now.
 		pending = false
 		result.Started = true
-		e.logf("schedule: %s started as %s; ob schedule history %s shows the outcome", name, operationID, name)
+		e.ui.Successf("job %s accepted as %s; inspect with `ob schedule history %s`", name, operationID, name)
 		return result, nil
 	}
 	// A blocking start that exits non-zero may mean the job failed, which is
@@ -263,8 +313,14 @@ func (e *Engine) discardInputs(ctx context.Context, path string) {
 // id on its reserved line, then one declared override per line. Values were
 // validated against a charset that has no newline or quote, so the format
 // needs no escaping.
-func scheduleInputsFile(operationID string, inputs map[string]string) string {
+func scheduleInputsFile(operationID string, inputs map[string]string, planned *plannedJobBinding) string {
 	lines := []string{app.ReservedInputPrefix + "OPERATION=" + operationID}
+	if planned != nil {
+		lines = append(lines,
+			app.ReservedInputPrefix+"EXPECTED_RELEASE="+planned.release,
+			app.ReservedInputPrefix+"EXPECTED_RUNTIME="+planned.runtime,
+		)
+	}
 	for _, name := range sortedInputNames(inputs) {
 		lines = append(lines, name+"="+inputs[name])
 	}

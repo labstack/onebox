@@ -293,7 +293,11 @@ type ExecuteRequest struct {
 	BackupReport            *BackupReport
 	MigrationBackupOverride *MigrationBackupOverride
 	BreakLock               bool
-	AllowDestructiveMounts  bool
+	// Detach asks a planned manual job to return after its installed host unit
+	// accepts the run. It is valid only for job_run; the job's schedule history
+	// remains the outcome authority.
+	Detach                 bool
+	AllowDestructiveMounts bool
 	// Job, Inputs and Wait are the schedule_run arguments: a declared
 	// scheduled job, validated input overrides, and whether to block until
 	// the unit exits and return its run record.
@@ -345,6 +349,9 @@ func (request ExecuteRequest) Validate() error {
 	}
 	if request.AllowDestructiveMounts && request.Kind != KindServiceApply {
 		return errors.New("allow_destructive_mounts is valid only for service apply")
+	}
+	if request.Detach && request.Kind != KindJobRun {
+		return errors.New("detach is valid only for job run")
 	}
 	if request.BreakMigrationGate && request.Kind != KindAbort {
 		return errors.New("break_migration_gate is valid only for abort")

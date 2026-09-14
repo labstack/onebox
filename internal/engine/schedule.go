@@ -265,6 +265,7 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		"trap 'exit 143' 15",
 	)
 	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
+	lines = append(lines, schedulePlannedBindingLines()...)
 	if job.DataEffect != app.DataEffectNone {
 		lines = append(lines, invalidateExecutionCommand(names.AppDir()))
 	}
@@ -310,6 +311,7 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"trap 'exit 143' 15",
 	)
 	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
+	lines = append(lines, schedulePlannedBindingLines()...)
 	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
 	lines = append(lines, "")
 	return strings.Join(lines, "\n")
@@ -518,6 +520,8 @@ func scheduleInputsLines(inputsPath string) []string {
 	return []string{
 		"operation=''",
 		"execution=''",
+		"expected_release=''",
+		"expected_runtime=''",
 		"inputs_json=''",
 		"inputs_file=" + q(inputsPath),
 		"if [ -z \"${TRIGGER_UNIT:-}\" ] && [ -f \"$inputs_file\" ]; then",
@@ -525,10 +529,30 @@ func scheduleInputsLines(inputsPath string) []string {
 		"    case \"$line\" in",
 		"      ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;",
 		"      ONEBOX_EXECUTION=*) execution=${line#ONEBOX_EXECUTION=} ;;",
+		"      ONEBOX_EXPECTED_RELEASE=*) expected_release=${line#ONEBOX_EXPECTED_RELEASE=} ;;",
+		"      ONEBOX_EXPECTED_RUNTIME=*) expected_runtime=${line#ONEBOX_EXPECTED_RUNTIME=} ;;",
 		"      [A-Z]*=*) set -- \"$@\" -e \"$line\"; key=${line%%=*}; value=${line#*=}; inputs_json=\"${inputs_json:+$inputs_json,}\\\"$key\\\":\\\"$value\\\"\" ;;",
 		"    esac",
 		"  done <\"$inputs_file\"",
 		"  rm -f \"$inputs_file\"",
+		"fi",
+	}
+}
+
+// schedulePlannedBindingLines makes a sealed manual job plan authoritative at
+// the point that owns execution: after the host runner has acquired its locks,
+// immediately before it can start the container. Timer firings carry no
+// expected binding and pass through unchanged.
+const sealedManualJobBindingMarker = "Sealed manual job binding protocol v1."
+
+func schedulePlannedBindingLines() []string {
+	return []string{
+		"# " + sealedManualJobBindingMarker,
+		"if [ -n \"$expected_release\" ] && [ \"$release\" != \"$expected_release\" ]; then write_state 0; echo 'onebox: serving release changed after job approval' >&2; exit 74; fi",
+		"if [ -n \"$expected_runtime\" ]; then",
+		"  runtime_hash=$(sha256sum \"$release_dir/compose.yaml\") || { write_state 0; echo 'onebox: cannot hash the approved job runtime' >&2; exit 74; }",
+		"  runtime_digest=sha256:${runtime_hash%% *}",
+		"  if [ \"$runtime_digest\" != \"$expected_runtime\" ]; then write_state 0; echo 'onebox: serving runtime changed after job approval' >&2; exit 74; fi",
 		"fi",
 	}
 }

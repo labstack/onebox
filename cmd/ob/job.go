@@ -34,18 +34,20 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 	plan.Flags().StringVar(&backupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration backup is required")
 
 	var planPath, approvalPath, backupReportPath, overrideReason string
-	var breakLock bool
+	var breakLock, detach bool
 	run := &cobra.Command{
 		Use:   "run [id]",
 		Short: "run one manual job from an inline or saved sealed plan",
-		Long:  "Run one manual job through the canonical lock, fence, local-confirmation and journal boundary.\n\nHumans may pass an id and confirm interactively. Automation should supply a\nsaved --plan and its separately created local-confirmation artifact through\n--approval; migration plans may also require the exact plan-bound --backup-report.",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Run one manual job through the canonical lock, fence, local-confirmation and journal boundary.\n\n" +
+			"A job with schedule configured runs under its installed systemd unit and is\nfollowed by default; Ctrl-C stops following, not the host job. --detach returns\nafter that unit accepts the run. Unscheduled and migration jobs stay attached.\n\n" +
+			"Humans may pass an id and confirm interactively. Automation should supply a\nsaved --plan and its separately created local-confirmation artifact through\n--approval; migration plans may also require the exact plan-bound --backup-report.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jobID := ""
 			if len(args) == 1 {
 				jobID = args[0]
 			}
-			return runJob(cmd, g, jobID, planPath, approvalPath, backupReportPath, overrideReason, breakLock)
+			return runJob(cmd, g, jobID, planPath, approvalPath, backupReportPath, overrideReason, breakLock, detach)
 		},
 	}
 	run.Flags().StringVar(&planPath, "plan", "", "apply a saved job plan artifact")
@@ -53,6 +55,7 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 	run.Flags().StringVar(&backupReportPath, "backup-report", "", "apply the backup report bound into the local confirmation")
 	run.Flags().StringVar(&overrideReason, "override-migration-backup", "", "audited break-glass reason (requires --approval)")
 	run.Flags().BoolVar(&breakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	run.Flags().BoolVar(&detach, "detach", false, "return after the installed host unit accepts the job")
 
 	group.AddCommand(plan, run)
 	root.AddCommand(group)
@@ -163,7 +166,7 @@ func renderJobPlan(cmd *cobra.Command, plan *onebox.JobPlan) {
 	}
 }
 
-func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, backupReportPath, overrideReason string, breakLock bool) error {
+func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, backupReportPath, overrideReason string, breakLock, detach bool) error {
 	if planPath != "" && jobID != "" {
 		return writeEarlyOperationFailure(cmd, g, errors.New("supply either a job id or --plan, not both"))
 	}
@@ -217,7 +220,7 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 		}
 		return runMutation(cmd, g, onebox.ExecuteRequest{
 			Kind: onebox.KindJobRun, JobPlan: plan, Approval: approval, BreakLock: breakLock,
-			BackupReport: backupReport, MigrationBackupOverride: override,
+			BackupReport: backupReport, MigrationBackupOverride: override, Detach: detach,
 		}, "job run")
 	}
 
@@ -245,7 +248,7 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 		}
 		approval = &grant
 	}
-	return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindJobRun, JobPlan: &plan, Approval: approval, BreakLock: breakLock}, "job run")
+	return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindJobRun, JobPlan: &plan, Approval: approval, BreakLock: breakLock, Detach: detach}, "job run")
 }
 
 func loadJobMigrationOverride(

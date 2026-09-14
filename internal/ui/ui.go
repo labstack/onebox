@@ -97,14 +97,18 @@ func (u *UI) Done(label string, d time.Duration, err error) {
 	u.println(u.sOK.Render("✓ "+label) + u.sDim.Render("  "+FmtDur(d)))
 }
 
-// Step times a step: call the returned func with the outcome. announce prints
-// a Begin line for steps long enough that silence reads as a hang.
+// Step times a step: call the returned func with the outcome. Announced steps
+// get a live elapsed-time spinner on a TTY and a durable Begin line elsewhere.
 func (u *UI) Step(label string, announce bool) func(error) {
-	if announce {
-		u.Begin(label)
-	}
 	start := u.now()
-	return func(err error) { u.Done(label, u.now().Sub(start), err) }
+	stop := func() {}
+	if announce {
+		_, stop = u.Busy(label)
+	}
+	return func(err error) {
+		stop()
+		u.Done(label, u.now().Sub(start), err)
+	}
 }
 
 // Cmd is the forensic command log — verbose only, dimmed.
@@ -133,8 +137,10 @@ func FmtDur(d time.Duration) string {
 		return fmt.Sprintf("%.1fs", d.Seconds())
 	case d < time.Minute:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
-	default:
+	case d < time.Hour:
 		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 	}
 }
 
@@ -201,6 +207,7 @@ func (u *UI) Busy(label string) (update func(string), stop func()) {
 	u.spinLabel, u.spinOn = label, true
 	_, _ = io.WriteString(u.out, hideCursor) // the blinking cursor at line end is just noise
 	u.mu.Unlock()
+	started := u.now()
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
@@ -219,7 +226,8 @@ func (u *UI) Busy(label string) (update func(string), stop func()) {
 			case <-t.C:
 				u.mu.Lock()
 				if u.spinOn {
-					_, _ = io.WriteString(u.out, "\r\x1b[K"+u.sDim.Render(spinFrames[i%len(spinFrames)]+" "+u.spinLabel))
+					line := fmt.Sprintf("%s %s · %s elapsed", spinFrames[i%len(spinFrames)], u.spinLabel, FmtDur(u.now().Sub(started)))
+					_, _ = io.WriteString(u.out, "\r\x1b[K"+u.sDim.Render(line))
 				}
 				u.mu.Unlock()
 				i++

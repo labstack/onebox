@@ -401,6 +401,21 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		if err != nil {
 			t.Fatalf("job run failed: %v\n%s", err, out)
 		}
+		for _, want := range []string{"host run ", "⟳ job chore", "✓ job chore", "ob schedule history chore"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("host-owned job output is missing %q:\n%s", want, out)
+			}
+		}
+
+		detachedPlan := filepath.Join(dir, "ob-detached-job-plan.json")
+		s.mustOb(t, dir, "job", "plan", "chore", "-o", detachedPlan)
+		out, err = s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "--plan", detachedPlan, "--detach")
+		if err != nil {
+			t.Fatalf("detached job run failed: %v\n%s", err, out)
+		}
+		if !strings.Contains(out, "job chore accepted as ") || !strings.Contains(out, "ob schedule history chore") {
+			t.Fatalf("detached job did not report durable acceptance:\n%s", out)
+		}
 	})
 
 	t.Run("doctor", func(t *testing.T) {

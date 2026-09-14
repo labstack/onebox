@@ -523,6 +523,17 @@ ob approve --plan ob-job-plan.json --out ob-job-approval.json
 ob job run --plan ob-job-plan.json --approval ob-job-approval.json
 ```
 
+When the manual job also declares `schedule`, Onebox submits this run to the
+same installed systemd unit used by its timer. The host therefore owns the
+container, timeout, overlap lock, retries, and run record if the SSH session or
+operator terminal disappears. The command follows the unit by default and
+shows elapsed time. Ctrl-C stops following but does not stop the host job; use
+`--detach` to return immediately after the unit accepts it. Inspect either form
+with `ob schedule history <job>` and `ob schedule logs <job>`.
+
+Jobs without `schedule` keep the direct foreground path. Migration jobs also
+stay attached because their result evidence is part of the approved operation.
+
 `ob job plan` accepts a job only when its resolved `when` is `manual`, which is
 the default for a job that declares none. A `pre_release` or `post_release` job
 is refused: it belongs to the deploy graph, and one-shot invocation is reserved

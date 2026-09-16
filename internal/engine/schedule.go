@@ -755,7 +755,7 @@ const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
 func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 	cleanup := scheduleContainerRemove(e.names().Container(job.Name, 1))
 	if job.Execution != nil {
-		cleanup = durableContainerCleanup(e.names().Container(job.Name, 1))
+		cleanup = durableContainerStop(e.names().Container(job.Name, 1), job.ShutdownGrace)
 	}
 	environment := e.Opts.Environment
 	if environment == "" {
@@ -765,6 +765,7 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -u",
+		"state=" + q(e.names().ScheduledJobRunState(job.Name)),
 		"exec 9>" + q(e.names().ScheduledJobRunLock(job.Name)),
 		"if /usr/bin/flock --exclusive --nonblock 9; then",
 		"  " + cleanup,

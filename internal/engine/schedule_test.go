@@ -482,7 +482,7 @@ func TestScheduledJobApplicationRendezvousTimeoutRecordsSkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(state, []byte("skipped=the application scheduling lock remained busy for 10s")) {
+	if !bytes.Contains(state, []byte("skipped=the scheduling rendezvous remained busy for 10s")) {
 		t.Fatalf("timeout state = %q, want application-rendezvous skip", state)
 	}
 }

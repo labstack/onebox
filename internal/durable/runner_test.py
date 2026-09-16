@@ -352,6 +352,61 @@ class Checkpoints(unittest.TestCase):
             r.cleanup_container(self.config, self.invocation)
         self.assertEqual(docker.call_count, 2)
 
+    def test_owned_running_container_gets_term_before_removal(self):
+        row = {
+            "Id": "container",
+            "State": {"Running": True, "Restarting": False},
+            "Config": {
+                "Labels": {
+                    "ob.execution.job": "refresh",
+                    "ob.execution.invocation": self.invocation,
+                }
+            },
+        }
+        with (
+            patch.object(
+                r,
+                "docker",
+                side_effect=["container", json.dumps([row]), "", ""],
+            ) as docker,
+            patch.object(r, "container_running", return_value=False),
+        ):
+            r.cleanup_container(self.config, self.invocation)
+        calls = [call.args[0] for call in docker.call_args_list]
+        self.assertIn(["kill", "--signal", "TERM", "container"], calls)
+        self.assertNotIn(["kill", "--signal", "KILL", "container"], calls)
+
+    def test_owned_running_container_records_forced_kill_after_grace(self):
+        row = {
+            "Id": "container",
+            "State": {"Running": True, "Restarting": False},
+            "Config": {
+                "Labels": {
+                    "ob.execution.job": "refresh",
+                    "ob.execution.invocation": self.invocation,
+                }
+            },
+        }
+        state = self.root / "schedule" / "refresh.state"
+        state.parent.mkdir(parents=True)
+        state.write_text("phase=stopping\n")
+        with (
+            patch.object(
+                r,
+                "docker",
+                side_effect=["container", json.dumps([row]), "", "", "container", ""],
+            ) as docker,
+            patch.object(r, "container_running", return_value=True),
+            patch.object(r.time, "monotonic", return_value=0),
+        ):
+            r.cleanup_container(self.config, self.invocation, 0, state)
+        calls = [call.args[0] for call in docker.call_args_list]
+        self.assertLess(
+            calls.index(["kill", "--signal", "TERM", "container"]),
+            calls.index(["kill", "--signal", "KILL", "container"]),
+        )
+        self.assertIn("forced_kill=true", state.read_text())
+
     def test_legacy_cleanup_requires_stopped_matching_compose_job(self):
         original = {
             "Id": "legacy",

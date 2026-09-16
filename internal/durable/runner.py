@@ -235,7 +235,7 @@ def container_running(name):
     )
 
 
-def cleanup_container(config, invocation=None):
+def cleanup_container(config, invocation=None, shutdown_grace=30, state_path=None):
     ids = docker(
         ["ps", "-aq", "--filter", "name=^/" + config["container"] + "$"]
     ).split()
@@ -266,9 +266,29 @@ def cleanup_container(config, invocation=None):
                 labels.get("ob.execution.invocation") == invocation,
                 "container belongs to another invocation",
             )
+            running = row["State"].get("Running") or row["State"].get("Restarting")
+            forced = False
+            if running:
+                docker(["kill", "--signal", "TERM", row["Id"]], capture=False)
+                deadline = time.monotonic() + shutdown_grace
+                while container_running(config["container"]):
+                    if time.monotonic() >= deadline:
+                        docker(["kill", "--signal", "KILL", row["Id"]], capture=False)
+                        forced = True
+                        break
+                    time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+            if forced and state_path is not None:
+                with open(state_path, "a", encoding="utf-8") as state:
+                    state.write("forced_kill=true\n")
+            remaining = docker(
+                ["ps", "-aq", "--filter", "name=^/" + config["container"] + "$"]
+            ).split()
+            if row["Id"] in remaining:
+                docker(["rm", "-f", row["Id"]], capture=False)
+            continue
         # Pre-attempt cleanup never forces removal: Docker must also refuse if
         # the stopped container starts after our inspection.
-        docker(["rm"] + (["-f"] if invocation is not None else []) + [row["Id"]])
+        docker(["rm", row["Id"]])
 
 
 def compatibility(config, release_dir):
@@ -464,7 +484,7 @@ def update_run_status(store, value, invocation):
     atomic_bytes(path, ("\n".join(lines) + "\n").encode())
 
 
-def execute(store, identity, invocation):
+def execute(store, identity, invocation, shutdown_grace=30):
     value = store.read(identity)
     require(
         value["invocation"] == invocation and value["state"] == "running",
@@ -583,7 +603,12 @@ def execute(store, identity, invocation):
                         attempt["reason"] = "output validation or execution failed"
                         print("onebox: " + str(error), file=sys.stderr)
                     finally:
-                        cleanup_container(config, invocation)
+                        cleanup_container(
+                            config,
+                            invocation,
+                            shutdown_grace,
+                            store.root / "schedule" / (config["job"] + ".state"),
+                        )
                 attempt["finished_at"] = time.time()
                 save_owned(store, value, invocation)
                 if step["state"] == "succeeded":
@@ -683,7 +708,7 @@ def abandon(store, identity):
 def main(args):
     counts = {
         "prepare": 8,
-        "run": 4,
+        "run": 5,
         "inspect": 3,
         "list": 3,
         "pins": 2,
@@ -700,7 +725,7 @@ def main(args):
         config = json.loads(base64.b64decode(args[2]))
         print(prepare(store, config, *args[3:7], json.loads(args[7])))
     elif command == "run":
-        return execute(store, *args[2:4])
+        return execute(store, *args[2:4], float(args[4]))
     elif command == "inspect":
         print(json.dumps(view(store.read(args[2]), store.root)))
     elif command == "list":

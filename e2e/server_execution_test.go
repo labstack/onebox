@@ -71,7 +71,7 @@ workloads:
 	// A legacy compose-run container can survive a crash without durable labels.
 	// The first durable activation must reclaim this stopped, owned container.
 	s.run(t, "docker compose -p "+name+" --project-directory "+root+"/current -f "+root+"/current/compose.yaml run --no-deps --name "+name+"-refresh-1 refresh true")
-	if out, err := s.ob(t, dir, "job", "run", "refresh", "--input", "SOURCE=custom"); err == nil {
+	if out, err := s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "refresh", "--input", "SOURCE=custom"); err == nil {
 		t.Fatalf("index should fail before allow marker: %s", out)
 	}
 	list := s.mustOb(t, dir, "execution", "list", "--output", "json")
@@ -114,7 +114,7 @@ workloads:
 	// Interrupted work is retained independently of the host journal. A new
 	// failed execution can be inspected after its runner and notifier exit.
 	s.run(t, "rm -f "+base+"/data/allow")
-	_, _ = s.ob(t, dir, "job", "run", "refresh")
+	_, _ = s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "refresh")
 	pins := s.run(t, "/usr/bin/python3 "+root+"/schedule/execution-v1.py pins "+root)
 	if strings.TrimSpace(pins) == "" {
 		t.Fatal("failed execution lost its durable release reference")
@@ -122,7 +122,9 @@ workloads:
 	// A killed activation must be inspectable and resume only its interrupted
 	// step. Concurrent resume and deployment coordination must refuse live work.
 	s.run(t, "touch "+base+"/data/hold")
-	s.mustOb(t, dir, "job", "run", "refresh")
+	if out, err := s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "refresh", "--detach"); err != nil {
+		t.Fatalf("detached execution failed: %v\n%s", err, out)
+	}
 	deadline := time.Now().Add(15 * time.Second)
 	for s.try(t, "test -f "+base+"/data/started") != nil {
 		if time.Now().After(deadline) {

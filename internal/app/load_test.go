@@ -13,41 +13,6 @@ const min = base + "build: .\ndomain: ledger.example.com\nport: 8080\n"
 
 func wl(body string) string { return base + "workloads: {" + body + "}\n" }
 
-func TestReleaseSnapshotUpgradesLegacyJobPolicyWithoutWeakeningProjectLoading(t *testing.T) {
-	for _, tc := range []struct {
-		when        string
-		phase       string
-		operatorRun string
-	}{
-		{when: "manual", phase: "none", operatorRun: "allowed"},
-		{when: "pre_release", phase: "pre_release", operatorRun: "disabled"},
-		{when: "post_release", phase: "post_release", operatorRun: "disabled"},
-	} {
-		t.Run(tc.when, func(t *testing.T) {
-			document := wl("job: {image: nginx, role: job, when: " + tc.when + ", data_effect: none}")
-			if _, err := LoadBytes([]byte(document), "ob.yml"); err == nil || !strings.Contains(err.Error(), "unknown_field") {
-				t.Fatalf("current project accepted legacy when: %v", err)
-			}
-			snapshot, err := LoadSnapshotBytes([]byte(document), "ob.snapshot.yml")
-			if err != nil {
-				t.Fatalf("load legacy snapshot: %v", err)
-			}
-			job := snapshot.Workloads["job"]
-			if job.DeploymentPhase != tc.phase || job.OperatorRun != tc.operatorRun {
-				t.Fatalf("job policy = %s/%s, want %s/%s", job.DeploymentPhase, job.OperatorRun, tc.phase, tc.operatorRun)
-			}
-		})
-	}
-}
-
-func TestReleaseSnapshotRefusesAmbiguousLegacyJobPolicy(t *testing.T) {
-	document := wl("job: {image: nginx, role: job, when: manual, deployment_phase: none, data_effect: none}")
-	_, err := LoadSnapshotBytes([]byte(document), "ob.snapshot.yml")
-	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("ambiguous legacy policy error = %v", err)
-	}
-}
-
 func TestRoutedProjectRefusesDefaultAsProxyNetwork(t *testing.T) {
 	for _, network := range []string{"default", "ledger_default", "ob_ledger"} {
 		t.Run(network, func(t *testing.T) {

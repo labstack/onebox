@@ -67,18 +67,6 @@ func Load(path string) (*Spec, error) {
 // LoadBytes runs the fixed pipeline: parse, expand, validate, then apply the
 // cross-field rules the schema cannot express.
 func LoadBytes(b []byte, filename string) (*Spec, error) {
-	return loadBytes(b, filename, false)
-}
-
-// LoadSnapshotBytes loads an immutable release snapshot. Snapshots are durable
-// recovery inputs, so this boundary translates fields emitted by an older
-// released runner before applying the current closed contract. Authored project
-// files continue through LoadBytes and remain strict.
-func LoadSnapshotBytes(b []byte, filename string) (*Spec, error) {
-	return loadBytes(b, filename, true)
-}
-
-func loadBytes(b []byte, filename string, releaseSnapshot bool) (*Spec, error) {
 	var raw map[string]any
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", firstLine(err.Error()))
@@ -97,11 +85,6 @@ func loadBytes(b []byte, filename string, releaseSnapshot bool) (*Spec, error) {
 
 	if err := checkAPIVersion(raw); err != nil {
 		return nil, err
-	}
-	if releaseSnapshot {
-		if err := upgradeSnapshotJobPolicy(raw); err != nil {
-			return nil, err
-		}
 	}
 	app, _ := raw["app"].(string)
 	derived, err := expand(raw, app)
@@ -148,40 +131,6 @@ func loadBytes(b []byte, filename string, releaseSnapshot bool) (*Spec, error) {
 		return nil, err
 	}
 	return p, nil
-}
-
-func upgradeSnapshotJobPolicy(raw map[string]any) error {
-	workloads, _ := raw["workloads"].(map[string]any)
-	for name, value := range workloads {
-		workload, _ := value.(map[string]any)
-		when, legacy := workload["when"]
-		if !legacy {
-			continue
-		}
-		path := "workloads." + name
-		if _, present := workload["deployment_phase"]; present {
-			return errf("project_invalid", path, "", "legacy when cannot be combined with deployment_phase")
-		}
-		if _, present := workload["operator_run"]; present {
-			return errf("project_invalid", path, "", "legacy when cannot be combined with operator_run")
-		}
-		whenValue, ok := when.(string)
-		if !ok {
-			return errf("project_invalid", path+".when", "", "legacy when must be a string")
-		}
-		switch whenValue {
-		case "manual":
-			workload["deployment_phase"] = "none"
-			workload["operator_run"] = "allowed"
-		case "pre_release", "post_release":
-			workload["deployment_phase"] = whenValue
-			workload["operator_run"] = "disabled"
-		default:
-			return errf("project_invalid", path+".when", "", "legacy when must be manual, pre_release, or post_release")
-		}
-		delete(workload, "when")
-	}
-	return nil
 }
 
 func checkAPIVersion(raw map[string]any) error {

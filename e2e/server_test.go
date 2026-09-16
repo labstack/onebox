@@ -237,9 +237,9 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 		}
 
 		// The notifier wrote a record for that run; a hand-started unit has no
-		// TRIGGER_UNIT, so it is recorded as a operator activation.
+		// TRIGGER_UNIT, so it is recorded as an operator activation.
 		history := s.mustOb(t, dir, "job", "history", "chore", "--output", "json")
-		for _, want := range []string{`"outcome": "success"`, `"trigger": "manual"`, `"attempts": 1`} {
+		for _, want := range []string{`"outcome": "success"`, `"trigger": "operator"`, `"attempts": 1`} {
 			if !strings.Contains(history, want) {
 				t.Fatalf("run history is missing %q:\n%s", want, history)
 			}
@@ -255,10 +255,10 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 			}
 		}
 
-		// A operator run with an input override reaches the container as its
+		// An operator run with an input override reaches the container as its
 		// environment, is journaled with the operator, and shows up as such.
 		manual := s.mustOb(t, dir, "job", "run", "input-chore", "--input", "GREETING=hello", "--wait", "--output", "json")
-		for _, want := range []string{`"GREETING": "hello"`, `"outcome": "success"`, `"trigger": "manual"`} {
+		for _, want := range []string{`"GREETING": "hello"`, `"outcome": "success"`, `"trigger": "operator"`} {
 			if !strings.Contains(manual, want) {
 				t.Fatalf("operator run result is missing %q:\n%s", want, manual)
 			}
@@ -332,7 +332,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		}
 		// The record is the verdict, so `systemctl reset-failed` no longer
 		// clears the failure from `ob status`; only a later successful run
-		// does. A operator run with the input that makes the job finish in time
+		// does. An operator run with the input that makes the job finish in time
 		// is that run, and it must leave status green for the steps after.
 		s.mustOb(t, dir, "job", "run", "timeout-chore", "--input", "SLEEP=0", "--wait")
 		if cleared := s.mustOb(t, dir, "status"); !strings.Contains(cleared, "schedule timeout-chore active") {

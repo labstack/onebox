@@ -1635,7 +1635,7 @@ func TestScheduleInputsLinesParseTheFileIntoArguments(t *testing.T) {
 			}
 		}
 		if _, err := os.Stat(inputs); err == nil {
-			t.Fatal("the inputs file survived a operator activation")
+			t.Fatal("the inputs file survived an operator activation")
 		}
 		if err := os.WriteFile(inputs, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

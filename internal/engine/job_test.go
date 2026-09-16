@@ -21,7 +21,8 @@ func manualJobEngineTo(t *testing.T, target *transport.Fake, out *bytes.Buffer) 
 	t.Helper()
 	config := testConfig()
 	job := config.Workloads["migrate"]
-	job.When = "manual"
+	job.DeploymentPhase = "none"
+	job.OperatorRun = "allowed"
 	job.DataEffect = "none"
 	config.Workloads["migrate"] = job
 	return New(config, testProject(t), target, Options{
@@ -60,14 +61,14 @@ func TestRunJobRejectsDeclarationDriftBeforeLock(t *testing.T) {
 			want:    "unknown job",
 		},
 		{
-			name: "not manual",
+			name: "operator disabled",
 			mutate: func(engine *Engine) {
 				job := engine.Spec.Workloads["migrate"]
-				job.When = "pre_release"
+				job.OperatorRun = "disabled"
 				engine.Spec.Workloads["migrate"] = job
 			},
 			request: JobRunRequest{OperationID: "op-2", Job: "migrate", ExpectedDataEffect: "none"},
-			want:    "not a manual job",
+			want:    "does not allow operator runs",
 		},
 		{
 			name:    "data effect changed",

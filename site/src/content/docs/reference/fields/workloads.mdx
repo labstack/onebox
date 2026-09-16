@@ -19,7 +19,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `attempts` · `backoff` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `default` · `deploy_lock` · `description` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `env_files` · `exec` · `execution` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `id` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `max_backoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `options` · `outputs` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retention` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `signal` · `source` · `start_period` · `stdin_open` · `steps` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `when` · `within` · `working_dir`
+`args` · `attempts` · `backoff` · `bind` · `build` · `catch_up` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `data_effect` · `default` · `deploy_lock` · `deployment_phase` · `description` · `dockerfile` · `domain` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `env_files` · `exec` · `execution` · `extra_hosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `id` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `max_backoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `operator_run` · `options` · `outputs` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `published_ports` · `pull` · `reference` · `replicas` · `resources` · `retention` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `shutdown_grace` · `signal` · `source` · `start_period` · `stdin_open` · `steps` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `within` · `working_dir`
 
 ## Reference
 
@@ -33,6 +33,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.command` | list | — | Container command as a shell string or argument list. Also accepts a command line or argument list. |
 | `<name>.compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
 | `<name>.data_effect` | `none` · `migration` · `destructive` · `unknown` | — | Job data impact used by rollback and abort gates. |
+| `<name>.deployment_phase` | `none` · `pre_release` · `post_release` | `none` | Deployment phase for this job: none, pre_release, or post_release. |
 | `<name>.domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
 | `<name>.drain` | object | — | Signal and timing used to remove a container from traffic before stopping it. |
 | `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
@@ -43,7 +44,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.env_files` | list | — | Workload-specific ordered environment-file list. Replaces broader defaults when present. |
 | `<name>.env_files[].file` `*` | string | — | Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.env_files[].provider` | `sops` | — | Decryptor used before staging the file. The supported encrypted provider is sops. |
-| `<name>.execution` | object | — | Opt-in durable scheduled execution. Requires a native manual job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume. |
+| `<name>.execution` | object | — | Opt-in durable scheduled execution. Requires a native operator-runnable phase-none job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume. |
 | `<name>.execution.retention` | string | `168h` | Time from creation during which an unsuccessful execution may be resumed, at most 30d. Active executions remain protected. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.execution.steps` | list | — | Optional ordered steps using this job's image and entrypoint. Omit to execute the job command as one step. At most 32 steps. |
 | `<name>.execution.steps[].command` `*` | list | — | Argument vector passed to the job image's entrypoint. No shell evaluation is performed. |
@@ -69,8 +70,8 @@ cannot drift from what `ob validate` accepts.
 | `<name>.image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |
 | `<name>.image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `<name>.init` | boolean | — | Run a minimal init process as PID 1 inside the container. |
-| `<name>.inputs` | map | — | Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them. |
-| `<name>.inputs.<name>.default` `*` | string | — | Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint. |
+| `<name>.inputs` | map | — | Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob job run may override them. |
+| `<name>.inputs.<name>.default` `*` | string | — | Value used by a timer firing and by an operator run that does not override it. Must satisfy the input's own constraint. |
 | `<name>.inputs.<name>.description` | string | — | What the input controls. |
 | `<name>.inputs.<name>.enum` | list | — | Accepted values. |
 | `<name>.inputs.<name>.pattern` | string | — | Regular expression the whole value must match. |
@@ -82,6 +83,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.needs[].condition` | `started` · `healthy` · `completed` | — | Prerequisite condition: started, healthy, or completed. |
 | `<name>.needs[].env` | map | — | Maps application environment-variable names to service connection parts such as host, port, user, password, database, or url. |
 | `<name>.needs[].name` | string | — | Name of a workload or supporting service that must start first. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
+| `<name>.operator_run` | `allowed` · `disabled` | — | Whether an operator may invoke this job outside deployment: allowed or disabled. Defaults to allowed for phase none and disabled otherwise. |
 | `<name>.persistence` | object | — | Declares whether this workload holds data that must outlive releases. |
 | `<name>.persistence.mode` | `durable` · `ephemeral` · `external` | `durable` | Data lifetime: durable, ephemeral, or external. |
 | `<name>.port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
@@ -104,7 +106,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |
 | `<name>.routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme: http, https, h2c, tcp, or udp. |
 | `<name>.routes[].tls` | `terminate` · `passthrough` · `none` | `terminate` | TLS handling: terminate, passthrough, or none. |
-| `<name>.schedule` | object | — | Host-resident recurring schedule and run policy for a job. |
+| `<name>.schedule` | object | — | Host-resident recurring schedule and run policy for a job, independent of its deployment phase and operator-run policy. |
 | `<name>.schedule.catch_up` | boolean | `true` | Run once after the host returns if an elapsed schedule was missed while it was offline. |
 | `<name>.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
 | `<name>.schedule.deploy_lock` | `exclusive` · `pinned` | `exclusive` | Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks. |
@@ -113,6 +115,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.schedule.retry.attempts` | integer | `1` | Total attempts including the first, 1 to 10. |
 | `<name>.schedule.retry.backoff` | string | `30s` | Sleep before the second attempt; it doubles after each failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.retry.max_backoff` | string | `10m` | Upper bound for the doubling sleep. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.schedule.shutdown_grace` | string | `30s` | Time allowed for graceful container shutdown after the run deadline before Onebox forces removal. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timeout` | string | `1h` | Maximum wall time for one scheduled run before systemd terminates it and records failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
 | `<name>.stdin_open` | boolean | — | Keep standard input open for the container. |
@@ -124,7 +127,6 @@ cannot drift from what `ob validate` accepts.
 | `<name>.volumes[].name` | string | — | Stable logical name of a Onebox-managed volume. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters. |
 | `<name>.volumes[].path` | string | — | Absolute container path where the volume or bind mount is attached. Expects an absolute path with no control character or shell metacharacter. |
 | `<name>.volumes[].source` | string | — | Bind mount source. An absolute path is external host state that outlives releases. A dot-prefixed repository path is read-only release content, kept for as long as a container still mounts it. Expects an absolute host path or a dot-prefixed path inside the repository, with no colon, control character or shell metacharacter. |
-| `<name>.when` | `pre_release` · `post_release` · `manual` | `manual` | When a job runs: manual, pre_release, or post_release. |
 | `<name>.working_dir` | string | — | Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter. |
 
 `*` marks a field that is required within its own object.

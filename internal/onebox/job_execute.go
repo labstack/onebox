@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/journal"
 )
@@ -62,8 +63,11 @@ func (s *Service) executeJob(
 		return "", nil, nil, errors.New("configuration changed since job planning — re-plan")
 	}
 	job, ok := lp.resolved.Workloads[plan.Artifact.Job]
-	if !ok || !job.IsJob() || job.When != "manual" || job.DataEffect != plan.Artifact.DataEffect {
-		return "", nil, nil, errors.New("manual job declaration changed since planning — re-plan")
+	if !ok || !job.IsJob() || job.OperatorRun != "allowed" || job.DataEffect != plan.Artifact.DataEffect {
+		return "", nil, nil, errors.New("operator-run job declaration changed since planning — re-plan")
+	}
+	if err := app.ValidateJobInputValues(job, plan.Artifact.Inputs); err != nil {
+		return "", nil, nil, errors.New("job input declaration changed since planning — re-plan")
 	}
 	expectedBackup, err := migrationBackupRequirement(lp.resolved, environmentConfig.Policy, plan.Operation.Steps)
 	if err != nil {
@@ -123,7 +127,7 @@ func (s *Service) executeJob(
 	emit("binding", "succeeded", "")
 	emit("execute", "started", "")
 	if job.Schedule != nil && job.DataEffect != DataEffectMigration {
-		run, err := e.PlannedJobRun(ctx, plan.Operation.ID, plan.Artifact.Job,
+		run, err := e.PlannedJobRun(ctx, plan.Operation.ID, plan.Artifact.Job, plan.Artifact.Inputs,
 			plan.Artifact.CurrentRelease, plan.Artifact.RuntimeDigest, !request.Detach)
 		if err == nil {
 			emit("execute", "succeeded", "")

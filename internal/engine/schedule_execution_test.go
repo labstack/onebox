@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
@@ -31,16 +32,17 @@ func TestRunJournalIncludesExecutionOnlyWhenSet(t *testing.T) {
 
 func TestDurableRunnerPublishesCheckpointBeforeReleasingRetentionRendezvous(t *testing.T) {
 	e := New(testConfig(), testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	runner, err := e.durableScheduleRunner(app.ScheduledJob{Name: "refresh", Timeout: "1h", DeployLock: "pinned", Execution: &app.JobExecution{}}, nil)
+	runner, err := e.durableScheduleRunner(app.ScheduledJob{Name: "refresh", Timeout: "1h", ShutdownGrace: 30 * time.Second, DeployLock: "pinned", Execution: &app.JobExecution{}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lease := strings.Index(runner, "/usr/bin/flock --shared 7")
+	binding := strings.Index(runner, sealedManualJobBindingMarker)
 	prepare := strings.Index(runner, " prepare ")
 	unlock := strings.Index(runner, "/usr/bin/flock --unlock 8")
 	run := strings.LastIndex(runner, " run ")
-	if lease < 0 || prepare <= lease || unlock <= prepare || run <= unlock {
-		t.Fatalf("expected live lease, checkpoint, mutex unlock, then execution:\n%s", runner)
+	if lease < 0 || binding <= lease || prepare <= binding || unlock <= prepare || run <= unlock {
+		t.Fatalf("expected live lease, sealed binding, checkpoint, mutex unlock, then execution:\n%s", runner)
 	}
 }
 
@@ -62,7 +64,7 @@ func TestDurableCleanupCannotRemoveAnotherInvocationsContainer(t *testing.T) {
 			if err := os.WriteFile(stub, []byte(body), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			command := exec.CommandContext(t.Context(), "sh", "-c", strings.ReplaceAll(durableContainerCleanup("job"), "/usr/bin/docker", q(stub)))
+			command := exec.CommandContext(t.Context(), "sh", "-c", strings.ReplaceAll(durableContainerStop("job", time.Second), "/usr/bin/docker", q(stub)))
 			command.Env = append(os.Environ(), "INVOCATION_ID="+tc.invocation, "TEST_LABEL="+tc.label)
 			if out, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("cleanup: %v: %s", err, out)
@@ -72,6 +74,31 @@ func TestDurableCleanupCannotRemoveAnotherInvocationsContainer(t *testing.T) {
 				t.Fatalf("removed=%t, want %t", err == nil, tc.remove)
 			}
 		})
+	}
+}
+
+func TestDurableNotifierGracefullyStopsOnlyItsInvocation(t *testing.T) {
+	e := New(testConfig(), testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	script, err := e.scheduleNotifier(app.ScheduledJob{
+		Name: "refresh", ShutdownGrace: 12 * time.Second, Execution: &app.JobExecution{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`ob.execution.invocation`, `${INVOCATION_ID:-missing}`,
+		`docker kill --signal TERM 'sample-refresh-1'`,
+		`deadline=$(($(date -u '+%s')+12))`,
+		`docker kill --signal KILL 'sample-refresh-1'`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("durable notifier is missing %q:\n%s", want, script)
+		}
+	}
+	state := strings.Index(script, "state='/var/lib/ob/sample/schedule/refresh.state'")
+	cleanup := strings.Index(script, "ob.execution.invocation")
+	if state < 0 || cleanup < 0 || state >= cleanup {
+		t.Fatalf("durable notifier must initialize state before fallback cleanup:\n%s", script)
 	}
 }
 
@@ -151,7 +178,7 @@ func TestScheduleFlockProbeExecutesCapabilityChecks(t *testing.T) {
 
 func TestDurableResumeRefusesLegacyRunnerBeforePublishingRequest(t *testing.T) {
 	cfg := testConfig()
-	cfg.Workloads["refresh"] = app.Workload{Role: app.RoleJob, When: "manual", DataEffect: app.DataEffectNone,
+	cfg.Workloads["refresh"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "none", DataEffect: app.DataEffectNone,
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"}, Execution: &app.JobExecution{}}
 	f := happyFake()
 	base := f.Dynamic

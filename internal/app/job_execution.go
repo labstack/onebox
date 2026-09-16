@@ -12,8 +12,8 @@ func validateJobExecution(w Workload, path string) error {
 		return nil
 	}
 	p := path + ".execution"
-	if !w.IsJob() || w.Schedule == nil || (w.When != "" && w.When != "manual") || w.DataEffect != DataEffectNone || w.Compose != "" {
-		return errf("project_invalid", p, "", "durable execution requires a native scheduled manual job with data_effect none")
+	if !w.IsJob() || w.Schedule == nil || (w.DeploymentPhase != "" && w.DeploymentPhase != "none") || (w.OperatorRun != "" && w.OperatorRun != "allowed") || w.DataEffect != DataEffectNone || w.Compose != "" {
+		return errf("project_invalid", p, "", "durable execution requires a native scheduled operator-runnable phase-none job with data_effect none")
 	}
 	if w.Execution.Retention != "" {
 		d, ok := ParseDuration(w.Execution.Retention)

@@ -188,7 +188,7 @@ func TestVerifyURLSuccessOutputRedactsQuery(t *testing.T) {
 func TestVerifyMigrationRevisionsMatchesBoundProviderEvidence(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads = map[string]app.Workload{
-		"migrate": {Role: app.RoleJob, When: "pre_release", DataEffect: "migration"},
+		"migrate": {Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "migration"},
 	}
 	cfg.Checks = app.Checks{Migrations: []app.MigrationCheck{{
 		Job: "migrate", Provider: "atlas", AppliedRevisions: []string{"r1", "r2"},

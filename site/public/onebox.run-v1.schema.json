@@ -1714,8 +1714,11 @@
                 "data_effect": {
                   "const": "none"
                 },
-                "when": {
-                  "const": "manual"
+                "deployment_phase": {
+                  "const": "none"
+                },
+                "operator_run": {
+                  "const": "allowed"
                 }
               },
               "required": [
@@ -1897,7 +1900,12 @@
                 "anyOf": [
                   {
                     "required": [
-                      "when"
+                      "deployment_phase"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "operator_run"
                     ]
                   },
                   {
@@ -2032,6 +2040,16 @@
             ],
             "type": "string"
           },
+          "deployment_phase": {
+            "default": "none",
+            "description": "Deployment phase for this job: none, pre_release, or post_release.",
+            "enum": [
+              "none",
+              "pre_release",
+              "post_release"
+            ],
+            "type": "string"
+          },
           "domain": {
             "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes.",
             "examples": [
@@ -2141,7 +2159,7 @@
           },
           "execution": {
             "additionalProperties": false,
-            "description": "Opt-in durable scheduled execution. Requires a native manual job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume.",
+            "description": "Opt-in durable scheduled execution. Requires a native operator-runnable phase-none job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume.",
             "patternProperties": {
               "^x-": {}
             },
@@ -2399,7 +2417,7 @@
               },
               "properties": {
                 "default": {
-                  "description": "Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint.",
+                  "description": "Value used by a timer firing and by an operator run that does not override it. Must satisfy the input's own constraint.",
                   "type": "string"
                 },
                 "description": {
@@ -2431,7 +2449,7 @@
               ],
               "type": "object"
             },
-            "description": "Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them.",
+            "description": "Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob job run may override them.",
             "propertyNames": {
               "pattern": "^[A-Z][A-Z0-9_]*$"
             },
@@ -2509,6 +2527,14 @@
               "description": "Also accepts the name of a prerequisite."
             },
             "type": "array"
+          },
+          "operator_run": {
+            "description": "Whether an operator may invoke this job outside deployment: allowed or disabled. Defaults to allowed for phase none and disabled otherwise.",
+            "enum": [
+              "allowed",
+              "disabled"
+            ],
+            "type": "string"
           },
           "persistence": {
             "additionalProperties": false,
@@ -2712,7 +2738,7 @@
           },
           "schedule": {
             "additionalProperties": false,
-            "description": "Host-resident recurring schedule and run policy for a job.",
+            "description": "Host-resident recurring schedule and run policy for a job, independent of its deployment phase and operator-run policy.",
             "patternProperties": {
               "^x-": {}
             },
@@ -2796,6 +2822,15 @@
                   }
                 },
                 "type": "object"
+              },
+              "shutdown_grace": {
+                "default": "30s",
+                "description": "Time allowed for graceful container shutdown after the run deadline before Onebox forces removal. Expects a duration such as 30s, 5m, 1h30m or 14d.",
+                "examples": [
+                  "45s"
+                ],
+                "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
+                "type": "string"
               },
               "timeout": {
                 "default": "1h",
@@ -2924,16 +2959,6 @@
               "type": "object"
             },
             "type": "array"
-          },
-          "when": {
-            "default": "manual",
-            "description": "When a job runs: manual, pre_release, or post_release.",
-            "enum": [
-              "pre_release",
-              "post_release",
-              "manual"
-            ],
-            "type": "string"
           },
           "working_dir": {
             "description": "Absolute working directory for the container process. Expects an absolute path with no control character or shell metacharacter.",

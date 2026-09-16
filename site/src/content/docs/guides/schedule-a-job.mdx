@@ -174,9 +174,9 @@ Read the records back from the workstation:
 
 ```sh
 ob schedule list                      # every job, its timer state and next elapse
-ob schedule history nightly-dump      # records, newest first; -n 50 for more
-ob schedule logs nightly-dump         # the journal of the newest run
-ob schedule logs nightly-dump --run a3f9…
+ob job history nightly-dump      # records, newest first; -n 50 for more
+ob job logs nightly-dump         # the journal of the newest run
+ob job logs nightly-dump --run a3f9…
 ```
 
 `ob status` reads the same records. Each scheduled job's line carries the next
@@ -208,7 +208,7 @@ schedule:
 
 Each selected outcome sends a bounded, fail-open POST to every webhook whose
 own `on` list accepts that class of outcome. The payload carries the run id as
-its `deploy_id`, so `ob schedule logs <job> --run <id>` finds the run; it
+its `deploy_id`, so `ob job logs <job> --run <id>` finds the run; it
 carries nothing else about the run, because notifications cross the host trust
 boundary and diagnostics stay on the host. Onebox writes the webhook handler
 root-only beside the unit, so credentials in webhook paths do not appear in
@@ -279,7 +279,7 @@ lock for its whole run and a crashed deploy leaves one behind.
 
 Resuming starts the timer again; the next run is the next scheduled elapse. It
 does not run the job now, and does not make up firings missed while paused —
-`ob schedule run` is how you ask for an immediate run.
+`ob job run` is how you ask for an immediate run.
 
 Deleting a job from the project clears its pause along with its units, so a
 name reused later does not come back stopped for a reason from a previous
@@ -313,7 +313,7 @@ workloads:
 ```
 
 ```sh
-ob schedule run source-sync --input SOURCE=prices --input SINCE=2026-09-01 --wait
+ob job run source-sync --input SOURCE=prices --input SINCE=2026-09-01
 ```
 
 Names are upper-case identifiers outside Onebox's `ONEBOX_` namespace and may
@@ -323,21 +323,20 @@ value. Whatever the pattern allows, a value may not contain a double quote, a
 backslash, or a control character, and is at most 256 bytes. Those rules are
 what let the runner hand values to the container without escaping anything.
 
-`ob schedule run` validates every value on the workstation, refuses if the
-unit is already running or a manual run is still pending, journals the request
+`ob job run` validates every value on the workstation, refuses if the
+unit is already running or an operator run is still pending, journals the request
 as `schedule_run` with the operator and the inputs, and starts the unit. It
 holds the application lock only while writing and journaling, because the
 runner skips a run that meets that lock. The host record of the run carries the
-operation id, so `ob audit` and `ob schedule history` join on it. Without
-`--wait` the command returns as soon as the unit is started; with it, the
-command blocks until the unit exits and reports the record.
+operation id, so `ob audit` and `ob job history` join on it. The command follows
+the host-supervised unit by default; `--detach` returns once the unit accepts
+the run.
 
-Only a job with `data_effect: none` accepts inputs or manual runs this way. A
-`migration` or `destructive` job is still run by its timer as declared, but an
-operator-initiated run of it keeps the sealed plan, approval and backup-report
-gates of `ob job run` below.
+Only a job with `data_effect: none` accepts inputs. Every operator invocation
+uses a sealed plan; migration jobs additionally retain their approval and
+backup-report gates and remain attached so Onebox can capture result evidence.
 
-The runner tells a manual activation from a timer firing by the `TRIGGER_UNIT`
+The runner tells an operator activation from a timer firing by the `TRIGGER_UNIT`
 variable systemd sets on timer activations, which that project introduced in
 version 252. Ubuntu 24.04 and Debian 12 qualify; Ubuntu 22.04 and Debian 11 do
 not.
@@ -347,7 +346,7 @@ Scheduled jobs still run on those older hosts, unchanged. Two things narrow:
 - A job that declares `inputs` is refused, by `ob preflight` and by `ob deploy`,
   before anything is staged. Without `TRIGGER_UNIT` the next timer firing would
   read the file meant for an operator's run.
-- `ob schedule run` is refused for the same reason. The timer keeps firing.
+- `ob job run` is refused for the same reason. The timer keeps firing.
 
 The records on such a host say `trigger: unknown`, because the runner cannot
 observe what started it and will not guess.
@@ -357,7 +356,7 @@ observe what started it and will not guess.
 Opt into durable execution when a failed job needs to continue with its original
 inputs. Onebox saves orchestration state on the managed host; the application
 keeps responsibility for domain checkpoints and idempotent effects. This requires
-a native Onebox job with `schedule`, `when: manual` (the default), and
+a native Onebox job with `schedule`, `deployment_phase: none` (the default), and
 `data_effect: none`. Adopted Compose jobs and release-phase jobs are refused.
 
 For one command, add `execution: {retention: 168h}` to the job. Onebox treats the
@@ -452,7 +451,7 @@ must fit below `schedule.timeout`.
 ### Inspect and recover
 
 ```sh
-ob schedule run refresh --wait        # start a new execution
+ob job run refresh                   # start a new execution
 ob execution list                    # newest executions; -n 50 for more
 ob execution inspect <id>            # original inputs, steps, attempts, eligibility
 ob execution resume <id> --wait       # skip completed steps; use saved outputs
@@ -460,13 +459,13 @@ ob execution abandon <id>            # end resumability and release retention ho
 ```
 
 Resume cannot change inputs. To use different inputs, start a new execution with
-`ob schedule run --input NAME=VALUE`. Timer firings also create new executions;
+`ob job run --input NAME=VALUE`. Timer firings also create new executions;
 they do not resume failed work automatically. After a reboot, inspect interrupted
 work and request resume explicitly. A pending failed execution does not stop
 future timer firings; use `ob schedule pause <job> --reason "..."` if needed.
 
 Inspection includes each activation's systemd invocation ID. Read its logs with
-`ob schedule logs refresh --run <invocation-id>`. The execution ID stays the same
+`ob job logs refresh --run <invocation-id>`. The execution ID stays the same
 across activations; an invocation ID identifies one activation's journal output.
 Run logs keep the journal's retention independently of saved execution state.
 
@@ -523,23 +522,24 @@ ob approve --plan ob-job-plan.json --out ob-job-approval.json
 ob job run --plan ob-job-plan.json --approval ob-job-approval.json
 ```
 
-When the manual job also declares `schedule`, Onebox submits this run to the
+When the operator job also declares `schedule`, Onebox submits this run to the
 same installed systemd unit used by its timer. The host therefore owns the
 container, timeout, overlap lock, retries, and run record if the SSH session or
 operator terminal disappears. The command follows the unit by default and
 shows elapsed time. Ctrl-C stops following but does not stop the host job; use
 `--detach` to return immediately after the unit accepts it. Inspect either form
-with `ob schedule history <job>` and `ob schedule logs <job>`.
+with `ob job history <job>` and `ob job logs <job>`.
 
 Jobs without `schedule` keep the direct foreground path. Migration jobs also
 stay attached because their result evidence is part of the approved operation.
 
-`ob job plan` accepts a job only when its resolved `when` is `manual`, which is
-the default for a job that declares none. A `pre_release` or `post_release` job
-is refused: it belongs to the deploy graph, and one-shot invocation is reserved
-for the jobs that do not.
+`ob job plan` accepts a job when `operator_run` is `allowed`. This property is
+independent of deployment: `deployment_phase` decides whether the job runs in
+the deploy graph, while `operator_run` decides whether an operator may invoke
+it. By default, phase `none` allows operator runs; release-phase jobs disable
+them unless explicitly enabled.
 
-A declared `when: manual` job remains in the digest-pinned release runtime but
+A declared `deployment_phase: none` job remains in the digest-pinned release runtime but
 never joins the deploy graph. Its job plan binds the current serving release,
 runtime digest, immutable image, data effect, target, and expiry. Automation
 supplies the saved plan and its separately recorded local confirmation;
@@ -561,12 +561,15 @@ The reason is durable metadata, so do not put a secret in it.
 For a job that participates automatically in a deploy, choose a release phase:
 
 ```yaml
-when: pre_release    # or post_release; manual is invoked only through job plan/run
+deployment_phase: pre_release
+operator_run: allowed            # optional: also permit ob job plan/run
 ```
 
-`schedule` and `when` are orthogonal, and both fire. A job declaring `schedule:`
-**and** `when: pre_release` runs on the host timer at its cron time *and* again
-on every deploy. Declaring both is how you ask for both; for the timer alone,
-leave `when` at its `manual` default.
+The three properties are independent. `deployment_phase` controls deploy hooks,
+`schedule` controls timer activation, and `operator_run` controls explicit
+invocation. A job declaring `schedule:` and `deployment_phase: pre_release`
+runs both at its cron time and on every deploy. For a timer-only job, leave
+`deployment_phase` at `none`; set `operator_run: disabled` too if operators
+must not start it explicitly.
 
 See [`workloads`](/reference/fields/workloads) for every field.

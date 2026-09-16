@@ -257,8 +257,8 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 		// job runs whatever `current` points at when it starts.
 		"release_dir=$(readlink -f "+q(names.CurrentLink())+" 2>/dev/null || true)",
 		"release=${release_dir##*/}",
-		scheduleContainerCleanup(container),
-		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
+		scheduleContainerRemove(container),
+		"cleanup() { if [ -f \"$state\" ]; then printf 'phase=stopping\\n' >>\"$state\"; fi; "+scheduleContainerStop(container, job.ShutdownGrace)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
@@ -303,8 +303,8 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		// Container cleanup and state bookkeeping are per-job work and must not
 		// keep an application operation waiting behind them.
 		"/usr/bin/flock --unlock 8",
-		scheduleContainerCleanup(container),
-		"cleanup() { "+scheduleContainerCleanup(container)+"; rm -f \"$tmp\"; }",
+		scheduleContainerRemove(container),
+		"cleanup() { if [ -f \"$state\" ]; then printf 'phase=stopping\\n' >>\"$state\"; fi; "+scheduleContainerStop(container, job.ShutdownGrace)+"; rm -f \"$tmp\"; }",
 		"trap cleanup 0",
 		"trap 'exit 129' 1",
 		"trap 'exit 130' 2",
@@ -337,9 +337,9 @@ func scheduleLockLines(names app.Names, job, deployLock, applicationLock string,
 	}
 	waitSeconds := strconv.FormatFloat(rendezvousWait.Seconds(), 'f', -1, 64)
 	waitMode := "--timeout " + waitSeconds
-	busyReason := "the application scheduling lock is busy"
+	busyReason := "the scheduling rendezvous is busy"
 	if rendezvousWait > 0 {
-		busyReason = "the application scheduling lock remained busy for " + rendezvousWait.String()
+		busyReason = "the scheduling rendezvous remained busy for " + rendezvousWait.String()
 	} else {
 		// util-linux documents --timeout 0 as equivalent to --nonblock, but
 		// spelling the mode explicitly makes the zero-budget contract clear.
@@ -355,8 +355,8 @@ func scheduleLockLines(names app.Names, job, deployLock, applicationLock string,
 	return []string{
 		"state=" + q(names.ScheduledJobRunState(job)),
 		"tmp=\"$state.$$\"",
-		// The operation and inputs of a manual request are kept on the skip
-		// record too, so `ob schedule run --wait` can find its own outcome.
+		// The operation and inputs of an operator request are kept on the skip
+		// record too, so `ob job run` can find its own outcome.
 		// Writing the state requires holding the job lock: it is the run in
 		// flight that owns that file, and overwriting it would replace a real
 		// run's outcome with this one's skip.
@@ -411,7 +411,7 @@ func scheduleRendezvousWait(jobTimeout string) time.Duration {
 //
 // systemd 252 introduced TRIGGER_UNIT, which is how the runner tells a timer
 // firing from an operator's start. The floor applies only to a job that
-// declares inputs, and to `ob schedule run`; see below for why, and why a host
+// declares inputs, and to `ob job run`; see below for why, and why a host
 // that has been running scheduled jobs for years is not refused one.
 func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJob) error {
 	if len(jobs) == 0 {
@@ -473,8 +473,27 @@ func needsTriggerUnit(jobs []app.ScheduledJob) bool {
 	return false
 }
 
-func scheduleContainerCleanup(container string) string {
+func scheduleContainerRemove(container string) string {
 	return "/usr/bin/docker rm -f " + q(container) + " >/dev/null 2>&1 || true"
+}
+
+// scheduleContainerStop gives the container its own TERM grace while the
+// runner still owns its flock descriptors. Only Onebox's explicit KILL path
+// sets forced_kill; an exit code alone cannot prove how the process stopped.
+func scheduleContainerStop(container string, grace time.Duration) string {
+	seconds := int((grace + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	name := q(container)
+	return "forced_kill=false; " +
+		"if [ \"$(/usr/bin/docker inspect -f '{{.State.Running}}' " + name + " 2>/dev/null || true)\" = true ]; then " +
+		"/usr/bin/docker kill --signal TERM " + name + " >/dev/null 2>&1 || true; " +
+		"deadline=$(($(date -u '+%s')+" + strconv.Itoa(seconds) + ")); " +
+		"while [ \"$(/usr/bin/docker inspect -f '{{.State.Running}}' " + name + " 2>/dev/null || true)\" = true ]; do " +
+		"if [ \"$(date -u '+%s')\" -ge \"$deadline\" ]; then /usr/bin/docker kill --signal KILL " + name + " >/dev/null 2>&1 || true; forced_kill=true; break; fi; sleep 1; done; fi; " +
+		"/usr/bin/docker rm -f " + name + " >/dev/null 2>&1 || true; " +
+		"if [ -f \"$state\" ]; then printf 'forced_kill=%s\\n' \"$forced_kill\" >>\"$state\"; fi"
 }
 
 // scheduleStateFunction renders the shell function both runners use to record
@@ -485,8 +504,8 @@ func scheduleStateFunction() []string {
 	return []string{
 		"write_state() {",
 		"  umask 077",
-		"  printf 'release=%s\\nstarted_at=%s\\nstarted_epoch=%s\\ntrigger=%s\\noperation=%s\\nattempt=%s\\ninputs=%s\\n' " +
-			"\"$release\" \"$started_at\" \"$started_epoch\" \"$trigger\" \"$operation\" \"$1\" \"$inputs_json\" >\"$tmp\"",
+		"  printf 'release=%s\\nstarted_at=%s\\nstarted_epoch=%s\\ntrigger=%s\\noperation=%s\\nattempt=%s\\nphase=%s\\ninputs=%s\\n' " +
+			"\"$release\" \"$started_at\" \"$started_epoch\" \"$trigger\" \"$operation\" \"$1\" \"$phase\" \"$inputs_json\" >\"$tmp\"",
 		"  mv -f \"$tmp\" \"$state\"",
 		"}",
 	}
@@ -502,18 +521,19 @@ func scheduleRunPreamble(triggerUnit bool) []string {
 	// trigger it cannot observe.
 	otherwise := "unknown"
 	if triggerUnit {
-		otherwise = "manual"
+		otherwise = "operator"
 	}
 	return append([]string{
 		"started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
 		"started_epoch=$(date -u '+%s')",
+		"phase=starting",
 		"if [ -n \"${TRIGGER_UNIT:-}\" ]; then trigger=timer; else trigger=" + otherwise + "; fi",
 	}, scheduleStateFunction()...)
 }
 
-// scheduleInputsLines consumes the one-shot inputs file on a manual
+// scheduleInputsLines consumes the one-shot inputs file on an operator
 // activation. Values reach the container as -e arguments, never as shell
-// text, and the file is gone before any lock is taken so a skipped manual run
+// text, and the file is gone before any lock is taken so a skipped operator run
 // cannot hand its inputs to the next timer firing. A timer activation never
 // opens the file: TRIGGER_UNIT says which one this is.
 func scheduleInputsLines(inputsPath string) []string {
@@ -539,7 +559,7 @@ func scheduleInputsLines(inputsPath string) []string {
 	}
 }
 
-// schedulePlannedBindingLines makes a sealed manual job plan authoritative at
+// schedulePlannedBindingLines makes a sealed operator job plan authoritative at
 // the point that owns execution: after the host runner has acquired its locks,
 // immediately before it can start the container. Timer firings carry no
 // expected binding and pass through unchanged.
@@ -573,7 +593,7 @@ func systemdVersion(firstLine string) (int, bool) {
 // timeout. A single-attempt job gets no loop, so its runner reads as before.
 func scheduleAttemptLoop(job app.ScheduledJob, compose, container string) []string {
 	if job.RetryAttempts <= 1 {
-		return []string{"write_state 1", compose}
+		return []string{"phase=running", "write_state 1", compose}
 	}
 	return []string{
 		fmt.Sprintf("max_attempts=%d", job.RetryAttempts),
@@ -582,16 +602,19 @@ func scheduleAttemptLoop(job app.ScheduledJob, compose, container string) []stri
 		fmt.Sprintf("max_backoff=%d", app.RetryBackoffSeconds(job.RetryMaxBackoff)),
 		"attempt=1",
 		"while :; do",
+		"  phase=running",
 		"  write_state \"$attempt\"",
 		// The container name is fixed, so a corpse from the previous attempt
 		// would fail every attempt after it with "name already in use" and
 		// turn one transient failure into all of them.
-		"  " + scheduleContainerCleanup(container),
+		"  " + scheduleContainerRemove(container),
 		"  status=0",
 		"  " + compose + " || status=$?",
 		"  [ \"$status\" -eq 0 ] && exit 0",
 		"  if [ \"$attempt\" -ge \"$max_attempts\" ]; then exit \"$status\"; fi",
 		"  echo \"onebox: attempt $attempt of $max_attempts exited $status; retrying in ${backoff}s\" >&2",
+		"  phase=backing-off",
+		"  write_state \"$attempt\"",
 		"  sleep \"$backoff\"",
 		"  backoff=$((backoff * 2))",
 		"  [ \"$backoff\" -gt \"$max_backoff\" ] && backoff=$max_backoff",
@@ -627,6 +650,7 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 		// runner's state and SERVICE_RESULT, then notifies per the job's policy.
 		"ExecStopPost=/bin/sh " + notifyPath,
 		"TimeoutStartSec=" + job.Timeout,
+		"TimeoutStopSec=" + (job.ShutdownGrace + 10*time.Second).String(),
 		"",
 	}, "\n")
 }
@@ -654,7 +678,7 @@ const scheduleRunIdentifier = "ob-run"
 func scheduleRunRecordLines(application, unit, job, state string) []string {
 	return []string{
 		"state=" + q(state),
-		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''; execution=''",
+		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''; execution=''; forced_kill=false",
 		// A run that stood aside left a note under its own invocation. It
 		// never held the job lock, so the state file belongs to whichever run
 		// is still going: read the note and leave that file alone.
@@ -663,6 +687,7 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"  while IFS= read -r line || [ -n \"$line\" ]; do",
 		"    case \"$line\" in",
 		"      skipped=*) skipped=${line#skipped=} ;;",
+		"      forced_kill=*) forced_kill=${line#forced_kill=} ;;",
 		"      operation=*) operation=${line#operation=} ;;",
 		"      inputs=*) inputs=${line#inputs=} ;;",
 		"    esac",
@@ -680,6 +705,7 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"      attempt=*) attempt=${line#attempt=} ;;",
 		"      inputs=*) inputs=${line#inputs=} ;;",
 		"      skipped=*) skipped=${line#skipped=} ;;",
+		"      forced_kill=*) forced_kill=${line#forced_kill=} ;;",
 		"    esac",
 		"  done <\"$state\"",
 		"  rm -f \"$state\"",
@@ -690,6 +716,7 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		// EXIT_STATUS is a signal name when the main process was killed.
 		"case \"$status\" in ''|*[!0-9]*) status=null ;; esac",
 		"case \"$attempt\" in ''|*[!0-9]*) attempt=0 ;; esac",
+		"case \"$forced_kill\" in true) ;; *) forced_kill=false ;; esac",
 		// A skip is the runner's own word, written before any container ran;
 		// a container that exits non-zero, 75 included, is a failure.
 		"if [ \"$result\" = timeout ]; then outcome=timeout",
@@ -703,8 +730,8 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"[ -z \"$started_at\" ] && started_at=$finished_at",
 		"execution_field=''",
 		"if [ -n \"$execution\" ]; then execution_field=$(printf '\"execution\":\"%s\",' \"$execution\"); fi",
-		"record=$(printf '{%s\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"reason\":\"%s\",\"inputs\":{%s}}' " +
-			"\"$execution_field\" \"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$skipped\" \"$inputs\")",
+		"record=$(printf '{%s\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"forced_kill\":%s,\"reason\":\"%s\",\"inputs\":{%s}}' " +
+			"\"$execution_field\" \"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$forced_kill\" \"$skipped\" \"$inputs\")",
 		"printf 'MESSAGE=%s\\nPRIORITY=6\\nSYSLOG_IDENTIFIER=" + scheduleRunIdentifier + "\\nONEBOX_APP=%s\\nONEBOX_UNIT=%s\\nONEBOX_JOB=%s\\n' " +
 			"\"$record\" " + q(application) + " " + q(unit) + " " + q(job) + " | logger --journald || true",
 	}
@@ -712,7 +739,7 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 
 // scheduleNotificationRun marks where the notifier substitutes the run id at
 // send time. It travels as the payload's deploy_id: the correlation key an
-// operator hands to `ob schedule logs --run`. Nothing else about the run goes
+// operator hands to `ob job logs --run`. Nothing else about the run goes
 // into a notification; the notify package redacts diagnostics on purpose, and
 // attempts, duration and exit status belong to the run record on the host.
 const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
@@ -726,9 +753,9 @@ const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
 // contract lives in the notify package and the host has no Onebox to ask at
 // 2am. Only the timestamp and the run id are filled in on the host.
 func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
-	cleanup := scheduleContainerCleanup(e.names().Container(job.Name, 1))
+	cleanup := scheduleContainerRemove(e.names().Container(job.Name, 1))
 	if job.Execution != nil {
-		cleanup = durableContainerCleanup(e.names().Container(job.Name, 1))
+		cleanup = durableContainerStop(e.names().Container(job.Name, 1), job.ShutdownGrace)
 	}
 	environment := e.Opts.Environment
 	if environment == "" {
@@ -738,6 +765,7 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
 		"set -u",
+		"state=" + q(e.names().ScheduledJobRunState(job.Name)),
 		"exec 9>" + q(e.names().ScheduledJobRunLock(job.Name)),
 		"if /usr/bin/flock --exclusive --nonblock 9; then",
 		"  " + cleanup,

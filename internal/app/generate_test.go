@@ -36,7 +36,7 @@ workloads:
     role: job
     image: ghcr.io/acme/ledger:1.4.0
     command: [./ledger, migrate]
-    when: pre_release
+    deployment_phase: pre_release
     data_effect: migration
     needs: [{name: db, condition: healthy}]
   db:

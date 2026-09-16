@@ -346,7 +346,7 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 
 	env := stringMap(w.Env)
 	// A declared input's default is part of the release, so a timer firing, a
-	// manual run without overrides, and a hand-typed `docker compose run` all
+	// operator run without overrides, and a hand-typed `docker compose run` all
 	// see the same value. Validation refuses a name that is also an env key.
 	if len(w.Inputs) > 0 {
 		if env == nil {

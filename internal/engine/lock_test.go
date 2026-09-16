@@ -137,7 +137,7 @@ func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) 
 func TestAcquireLockSerializesWithScheduledJobs(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -151,7 +151,7 @@ func TestAcquireLockSerializesWithScheduledJobs(t *testing.T) {
 	}}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	_, err := e.AcquireLock(context.Background(), "R9", false)
-	if err == nil || !strings.Contains(err.Error(), "scheduled job or application operation") {
+	if err == nil || !strings.Contains(err.Error(), "current job or application operation") {
 		t.Fatalf("error = %v, want schedule-rendezvous contention", err)
 	}
 	seq := strings.Join(f.Commands, "\n")

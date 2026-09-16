@@ -340,7 +340,8 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "role"}, enum(eRole)},
 	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1}},
 	{[]string{"workloads", "*", "strategy"}, enum(eStrategy)},
-	{[]string{"workloads", "*", "when"}, enum(eJobWhen)},
+	{[]string{"workloads", "*", "deployment_phase"}, enum(eJobDeploymentPhase)},
+	{[]string{"workloads", "*", "operator_run"}, enum(eJobOperatorRun)},
 	{[]string{"workloads", "*", "data_effect"}, enum(eDataEffect)},
 	{[]string{"workloads", "*", "compose"}, pattern(gComposeRef)},
 	{[]string{"workloads", "*", "port"}, portBounds()},
@@ -428,6 +429,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "schedule", "cron"}, pattern(gCron)},
 	{[]string{"workloads", "*", "schedule", "timezone"}, pattern(gTZ)},
 	{[]string{"workloads", "*", "schedule", "timeout"}, pattern(gDur)},
+	{[]string{"workloads", "*", "schedule", "shutdown_grace"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "deploy_lock"}, enum(eScheduleDeployLock)},
 
 	{[]string{"services", "*", "driver"}, pattern(gIdent)},
@@ -533,14 +535,18 @@ func applyRoleRules(doc map[string]any) {
 		map[string]any{"anyOf": anyRequired(sources)},
 	}
 
-	jobOnly := []any{"when", "data_effect", "schedule", "inputs", "execution"}
+	jobOnly := []any{"deployment_phase", "operator_run", "data_effect", "schedule", "inputs", "execution"}
 	workload["allOf"] = []any{
 		map[string]any{
 			"if": map[string]any{"required": []any{"execution"}},
 			"then": map[string]any{
-				"required":   []any{"schedule", "data_effect"},
-				"properties": map[string]any{"data_effect": map[string]any{"const": "none"}, "when": map[string]any{"const": "manual"}},
-				"not":        map[string]any{"required": []any{"compose"}},
+				"required": []any{"schedule", "data_effect"},
+				"properties": map[string]any{
+					"data_effect":      map[string]any{"const": "none"},
+					"deployment_phase": map[string]any{"const": "none"},
+					"operator_run":     map[string]any{"const": "allowed"},
+				},
+				"not": map[string]any{"required": []any{"compose"}},
 			},
 		},
 		// Exactly one source. A workload with none cannot run and a workload

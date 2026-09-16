@@ -145,7 +145,7 @@
     "digest": "56cbcd764cb9b8ee0cb78468a1cacc7b54a5afa917ccb1b222194727ddb3434c"
   },
   {
-    "case": "conformance/explicit manual job remains a runtime service",
+    "case": "conformance/explicit operator job remains a runtime service",
     "loads": true,
     "digest": "13d1b0f2e12b3bee654c9611be6461f90c52efdcbc8294597e53f6378bb70c28"
   },

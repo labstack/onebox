@@ -13,7 +13,7 @@ import (
 func TestScheduleRunWritesInputsJournalsThenStartsAfterReleasingTheLock(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog", "prices"}, Default: "catalog"}},
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
@@ -75,7 +75,7 @@ func TestScheduleRunWritesInputsJournalsThenStartsAfterReleasingTheLock(t *testi
 func TestPlannedJobRunStagesItsExactBindingAndDetachesToSystemd(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["refresh"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "destructive",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "destructive",
 		Schedule: &app.JobSchedule{Cron: "0 4 * * 1", Timezone: "UTC", Timeout: "8h"},
 	}
 	f := happyFake()
@@ -103,7 +103,7 @@ func TestPlannedJobRunStagesItsExactBindingAndDetachesToSystemd(t *testing.T) {
 		release   = "20260914-190602-deploy-731e31b2d992"
 		runtime   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	result, err := e.PlannedJobRun(context.Background(), operation, "refresh", release, runtime, false)
+	result, err := e.PlannedJobRun(context.Background(), operation, "refresh", nil, release, runtime, false)
 	if err != nil {
 		t.Fatalf("planned job run: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
@@ -137,12 +137,12 @@ func TestPlannedJobRunStagesItsExactBindingAndDetachesToSystemd(t *testing.T) {
 func TestScheduleRunRefusals(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog"}, Default: "catalog"}},
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
 	cfg.Workloads["prune"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "destructive",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "destructive",
 		Schedule: &app.JobSchedule{Cron: "0 3 * * *", Timezone: "UTC", Timeout: "1h"},
 	}
 	active := false
@@ -185,7 +185,7 @@ func TestScheduleRunRefusals(t *testing.T) {
 func TestScheduleRunWaitReportsTheRecordAndFailsOnAnyOtherOutcome(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
 	for outcome, wantErr := range map[string]bool{"success": false, "skipped": true, "failure": true} {
@@ -224,7 +224,7 @@ func TestScheduleRunWaitReportsTheRecordAndFailsOnAnyOtherOutcome(t *testing.T) 
 func TestScheduleRunDiscardsItsInputsWhenTheStartFails(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog", "prices"}, Default: "catalog"}},
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
@@ -255,7 +255,7 @@ func TestScheduleRunDiscardsItsInputsWhenTheStartFails(t *testing.T) {
 func TestScheduleRunTellsAPendingFileFromAWriteFailure(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
 	for name, tc := range map[string]struct {
@@ -300,7 +300,7 @@ func TestScheduleRunTellsAPendingFileFromAWriteFailure(t *testing.T) {
 func TestScheduleRunRefusesAHostThatCannotTellTheTriggerApart(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
 	f := happyFake()
@@ -334,7 +334,7 @@ func TestScheduleRunRefusesAHostThatCannotTellTheTriggerApart(t *testing.T) {
 func TestScheduleRunJournalsAFailedRequestAsFailed(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
 	f := happyFake()

@@ -25,12 +25,15 @@ import (
 
 // ScheduledJob is a job workload that runs on a schedule.
 type ScheduledJob struct {
-	Name       string
-	Cron       string
-	Timezone   string
-	Timeout    string
-	CatchUp    bool
-	DeployLock string
+	Name            string
+	Cron            string
+	Timezone        string
+	Timeout         string
+	ShutdownGrace   time.Duration
+	CatchUp         bool
+	DeployLock      string
+	DeploymentPhase string
+	OperatorRun     string
 	// Calendar is the host-side expression the cron translates to.
 	Calendar string
 	// Retry and notify policy, resolved over the defaults so the runner and
@@ -39,10 +42,16 @@ type ScheduledJob struct {
 	RetryBackoff    time.Duration
 	RetryMaxBackoff time.Duration
 	Notify          []string
-	// Inputs are the declared parameters a manual run may override.
+	// Inputs are the declared parameters an operator run may override.
 	Inputs     map[string]JobInput
 	Execution  *JobExecution
 	DataEffect DataEffect
+}
+
+// RetryBackoffBudget is the maximum time this job can spend sleeping between
+// attempts during one activation. Execution time still shares Timeout.
+func (j ScheduledJob) RetryBackoffBudget() time.Duration {
+	return scheduleRetryWorstCase(j.RetryAttempts, j.RetryBackoff, j.RetryMaxBackoff)
 }
 
 // ScheduledJobs lists every job with a schedule, in a stable order.
@@ -67,9 +76,11 @@ func (p *Spec) ScheduledJobs() ([]ScheduledJob, error) {
 			deployLock = "exclusive"
 		}
 		attempts, backoff, maxBackoff := w.Schedule.retryPolicy()
+		shutdownGrace, _ := ParseDuration(w.Schedule.ShutdownGrace)
 		out = append(out, ScheduledJob{
 			Name: name, Cron: w.Schedule.Cron, Timezone: tz, Calendar: cal,
-			Timeout: w.Schedule.Timeout, CatchUp: w.Schedule.CatchUp, DeployLock: deployLock,
+			Timeout: w.Schedule.Timeout, ShutdownGrace: shutdownGrace, CatchUp: w.Schedule.CatchUp, DeployLock: deployLock,
+			DeploymentPhase: w.DeploymentPhase, OperatorRun: w.OperatorRun,
 			RetryAttempts: attempts, RetryBackoff: backoff, RetryMaxBackoff: maxBackoff,
 			Notify: w.Schedule.notifyOutcomes(), Inputs: w.Inputs, Execution: w.Execution, DataEffect: w.DataEffect,
 		})

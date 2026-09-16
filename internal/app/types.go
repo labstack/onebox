@@ -168,11 +168,12 @@ type Workload struct {
 	Logging    *Logging       `json:"logging,omitempty" description:"Container logging driver and driver-specific options."`
 
 	// Job only.
-	When       string              `json:"when,omitempty" description:"When a job runs: manual, pre_release, or post_release." default:"manual"`
-	DataEffect DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
-	Schedule   *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job."`
-	Inputs     map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob schedule run may override them."`
-	Execution  *JobExecution       `json:"execution,omitempty" description:"Opt-in durable scheduled execution. Requires a native manual job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume."`
+	DeploymentPhase string              `json:"deployment_phase,omitempty" description:"Deployment phase for this job: none, pre_release, or post_release." default:"none"`
+	OperatorRun     string              `json:"operator_run,omitempty" description:"Whether an operator may invoke this job outside deployment: allowed or disabled. Defaults to allowed for phase none and disabled otherwise."`
+	DataEffect      DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
+	Schedule        *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job, independent of its deployment phase and operator-run policy."`
+	Inputs          map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob job run may override them."`
+	Execution       *JobExecution       `json:"execution,omitempty" description:"Opt-in durable scheduled execution. Requires a native operator-runnable phase-none job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume."`
 }
 
 type JobExecution struct {
@@ -189,13 +190,13 @@ type JobStep struct {
 }
 
 // JobInput is one declared parameter of a scheduled job. The constraint is
-// what makes a manual run safe to accept from a command line: a value is
+// what makes an operator run safe to accept from a command line: a value is
 // either one of the listed words or matches the pattern, and never contains a
 // character the runner would have to escape.
 type JobInput struct {
 	Enum        []string `json:"enum,omitempty" description:"Accepted values." example:"catalog"`
 	Pattern     string   `json:"pattern,omitempty" description:"Regular expression the whole value must match." example:"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"`
-	Default     string   `json:"default" description:"Value used by a timer firing and by a manual run that does not override it. Must satisfy the input's own constraint."`
+	Default     string   `json:"default" description:"Value used by a timer firing and by an operator run that does not override it. Must satisfy the input's own constraint."`
 	Description string   `json:"description,omitempty" description:"What the input controls."`
 }
 
@@ -292,13 +293,14 @@ type Schedule struct {
 }
 
 type JobSchedule struct {
-	Cron       string    `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
-	Timezone   string    `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
-	Timeout    string    `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
-	CatchUp    bool      `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
-	DeployLock string    `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
-	Retry      *JobRetry `json:"retry,omitempty" description:"Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run."`
-	Notify     []string  `json:"notify,omitempty" description:"Run outcomes that send the configured notifications: success, failure, timeout, skipped." default:"failure, timeout"`
+	Cron          string    `json:"cron" description:"Five-field cron schedule translated to a host timer." example:"0 2 * * *"`
+	Timezone      string    `json:"timezone" description:"IANA timezone used to interpret the cron schedule." default:"UTC" example:"Europe/Berlin"`
+	Timeout       string    `json:"timeout" description:"Maximum wall time for one scheduled run before systemd terminates it and records failure." default:"1h" example:"30m"`
+	ShutdownGrace string    `json:"shutdown_grace" description:"Time allowed for graceful container shutdown after the run deadline before Onebox forces removal." default:"30s" example:"45s"`
+	CatchUp       bool      `json:"catch_up" description:"Run once after the host returns if an elapsed schedule was missed while it was offline." default:"true"`
+	DeployLock    string    `json:"deploy_lock" description:"Deployment coordination policy: exclusive blocks application operations for the full run; pinned leases the immutable starting release and permits only deployments without data-changing jobs or untyped hooks." default:"exclusive" example:"pinned"`
+	Retry         *JobRetry `json:"retry,omitempty" description:"Bounded retry inside one timer firing. Attempts run under the same locks and the same timeout; a timeout ends the run."`
+	Notify        []string  `json:"notify,omitempty" description:"Run outcomes that send the configured notifications: success, failure, timeout, skipped." default:"failure, timeout"`
 }
 
 // JobRetry bounds how a scheduled run recovers from a transient failure. The

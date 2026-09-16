@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,8 +30,8 @@ func invalidateExecutionCommand(root string) string {
 	return "if [ -e " + q(durable.Store(root)) + " ] || [ -L " + q(durable.Store(root)) + " ]; then /usr/bin/python3 " + q(durable.Helper(root)) + " invalidate " + q(root) + "; fi"
 }
 
-func durableContainerCleanup(container string) string {
-	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"ob.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerCleanup(container) + "; fi"
+func durableContainerStop(container string, grace time.Duration) string {
+	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"ob.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerStop(container, grace) + "; fi"
 }
 
 type executionDefinition struct {
@@ -127,14 +128,15 @@ func (e *Engine) durableScheduleRunner(job app.ScheduledJob, envFiles []app.EnvF
 		"[ \"${release_dir%/*}\" = "+q(n.ReleasesDir())+" ] || exit 1",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"", "chmod 600 \"$release_dir/.ob-schedule.lease\"", "/usr/bin/flock --shared 7")
 	lines = append(lines, scheduleRunPreamble(true)...)
-	lines = append(lines, "write_state 1",
+	lines = append(lines, schedulePlannedBindingLines()...)
+	lines = append(lines, "phase=running", "write_state 1",
 		"execution=$("+helper+" prepare "+q(n.AppDir())+" "+q(base64.StdEncoding.EncodeToString(encoded))+" \"$release\" \"${INVOCATION_ID:-}\" \"$execution\" \"$operation\" \"{$inputs_json}\")")
 	lines = append(lines, "printf 'execution=%s\\n' \"$execution\" >>\"$state\"")
 	// Publish the durable reference while still inside the retention rendezvous.
 	if job.DeployLock == "pinned" {
 		lines = append(lines, "/usr/bin/flock --unlock 8")
 	}
-	lines = append(lines, helper+" run "+q(n.AppDir())+" \"$execution\" \"${INVOCATION_ID:-}\"", "")
+	lines = append(lines, helper+" run "+q(n.AppDir())+" \"$execution\" \"${INVOCATION_ID:-}\" "+strconv.FormatFloat(job.ShutdownGrace.Seconds(), 'f', -1, 64), "")
 	return strings.Join(lines, "\n"), nil
 }
 

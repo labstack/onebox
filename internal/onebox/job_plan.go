@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/engine"
 	"github.com/labstack/onebox/internal/release"
@@ -23,14 +24,15 @@ const maxExecutableJobPlanBytes = 1 << 20
 var pinnedJobImage = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
 
 type JobArtifact struct {
-	Application    string          `json:"application"`
-	Environment    string          `json:"environment"`
-	Server         string          `json:"server"`
-	CurrentRelease string          `json:"current_release"`
-	RuntimeDigest  string          `json:"runtime_digest"`
-	Job            string          `json:"job"`
-	Image          string          `json:"image"`
-	DataEffect     DataEffectClass `json:"data_effect"`
+	Application    string            `json:"application"`
+	Environment    string            `json:"environment"`
+	Server         string            `json:"server"`
+	CurrentRelease string            `json:"current_release"`
+	RuntimeDigest  string            `json:"runtime_digest"`
+	Job            string            `json:"job"`
+	Image          string            `json:"image"`
+	DataEffect     DataEffectClass   `json:"data_effect"`
+	Inputs         map[string]string `json:"inputs,omitempty"`
 }
 
 // JobPlan is a sealed, current-release-bound one-shot operation. It contains
@@ -218,7 +220,8 @@ func LoadExecutablePlan(path string) (ExecutablePlan, error) {
 }
 
 type PlanJobRequest struct {
-	Job string
+	Job    string
+	Inputs map[string]string
 }
 
 func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan, error) {
@@ -248,8 +251,11 @@ func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan,
 	if !ok || !job.IsJob() {
 		return JobPlan{}, fmt.Errorf("unknown job %q", jobID)
 	}
-	if job.When != "manual" {
-		return JobPlan{}, fmt.Errorf("job %q is %s; one-shot invocation is reserved for when: manual jobs", jobID, job.When)
+	if job.OperatorRun != "allowed" {
+		return JobPlan{}, fmt.Errorf("job %q has operator_run %s", jobID, job.OperatorRun)
+	}
+	if err := app.ValidateJobInputValues(job, request.Inputs); err != nil {
+		return JobPlan{}, err
 	}
 	e, cleanup, target, err := s.engine(ctx, lp, s.environment)
 	if err != nil {
@@ -292,7 +298,7 @@ func (s *Service) PlanJob(ctx context.Context, request PlanJobRequest) (JobPlan,
 	artifact := JobArtifact{
 		Application: lp.resolved.Name, Environment: s.environment, Server: target,
 		CurrentRelease: hostState.CurrentRelease, RuntimeDigest: runtimeDigest,
-		Job: jobID, Image: image, DataEffect: effect,
+		Job: jobID, Image: image, DataEffect: effect, Inputs: request.Inputs,
 	}
 	stateDigest, err := jobArtifactDigest(artifact)
 	if err != nil {

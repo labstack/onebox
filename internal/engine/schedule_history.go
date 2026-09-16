@@ -28,6 +28,7 @@ type ScheduleRunRecord struct {
 	Attempts        int    `json:"attempts"`
 	ExitStatus      *int   `json:"exit_status"`
 	Outcome         string `json:"outcome"`
+	ForcedKill      bool   `json:"forced_kill,omitempty"`
 	// Reason is set on a skipped run: what the runner met instead of running.
 	Reason string            `json:"reason,omitempty"`
 	Inputs map[string]string `json:"inputs,omitempty"`
@@ -35,15 +36,19 @@ type ScheduleRunRecord struct {
 
 // ScheduleListing is one declared job beside its timer as the host reports it.
 type ScheduleListing struct {
-	Name        string `json:"name"`
-	Unit        string `json:"unit"`
-	Cron        string `json:"cron"`
-	Timezone    string `json:"timezone"`
-	DeployLock  string `json:"deploy_lock"`
-	Timeout     string `json:"timeout"`
-	TimerState  string `json:"timer_state"`
-	NextRun     string `json:"next_run,omitempty"`
-	LastTrigger string `json:"last_trigger,omitempty"`
+	Name            string `json:"name"`
+	Unit            string `json:"unit"`
+	Cron            string `json:"cron"`
+	Timezone        string `json:"timezone"`
+	DeployLock      string `json:"deploy_lock"`
+	DeploymentPhase string `json:"deployment_phase"`
+	OperatorRun     string `json:"operator_run"`
+	Timeout         string `json:"timeout"`
+	MaxAttempts     int    `json:"max_attempts"`
+	RetryBudget     string `json:"retry_backoff_budget"`
+	TimerState      string `json:"timer_state"`
+	NextRun         string `json:"next_run,omitempty"`
+	LastTrigger     string `json:"last_trigger,omitempty"`
 	// Paused is set when an operator stopped this job's timer. Without it an
 	// inactive timer in this table reads the same whether somebody stopped the
 	// job on purpose or it broke.
@@ -185,8 +190,10 @@ func (e *Engine) ScheduleList(ctx context.Context) ([]ScheduleListing, error) {
 		values := observed[job.Name]
 		out = append(out, ScheduleListing{
 			Name: job.Name, Unit: e.names().ScheduledJobUnit(job.Name), Cron: job.Cron, Timezone: job.Timezone,
-			DeployLock: job.DeployLock, Timeout: job.Timeout, TimerState: values["ActiveState"],
-			NextRun: values["NextElapseUSecRealtime"], LastTrigger: values["LastTriggerUSec"],
+			DeployLock: job.DeployLock, DeploymentPhase: job.DeploymentPhase, OperatorRun: job.OperatorRun,
+			Timeout: job.Timeout, MaxAttempts: job.RetryAttempts, RetryBudget: job.RetryBackoffBudget().String(),
+			TimerState: values["ActiveState"],
+			NextRun:    values["NextElapseUSecRealtime"], LastTrigger: values["LastTriggerUSec"],
 			Paused: pauseFrom(paused[job.Name]),
 		})
 	}

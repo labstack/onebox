@@ -230,8 +230,8 @@ func (n Names) ScheduledJobRunState(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".state")
 }
 
-// ScheduledJobRunInputs is the one-shot file `ob schedule run` leaves for the
-// next manual activation. The runner consumes and deletes it.
+// ScheduledJobRunInputs is the one-shot file `ob job run` leaves for the
+// next operator activation. The runner consumes and deletes it.
 func (n Names) ScheduledJobRunInputs(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".inputs")
 }

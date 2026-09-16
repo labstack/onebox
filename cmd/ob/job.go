@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -14,31 +17,38 @@ import (
 func addJobCommand(root *cobra.Command, g *globalFlags) {
 	group := &cobra.Command{
 		Use:   "job",
-		Short: "plan and run a sealed one-shot manual job",
-		Long:  "Plan and run one declared `when: manual` job against the current serving release.\n\nThe job remains in the release runtime but never runs during deploy. Saved plans\nbind its release, runtime digest, immutable image and data effect so agents can\nobtain a separate approval before execution.",
+		Short: "plan and run a sealed one-shot operator job",
+		Long:  "Plan and run one declared `operator_run: allowed` job against the current serving release.\n\nDeployment participation is independent: `deployment_phase` may be none, pre_release,\nor post_release. Saved plans bind the release, runtime digest, immutable image,\ndata effect and inputs so agents can obtain separate approval before execution.",
 		Args:  cobra.NoArgs,
 		RunE:  showCommandHelp,
 	}
 
 	var planOut, backupReportOut string
+	var planInputs []string
 	plan := &cobra.Command{
 		Use:   "plan <id>",
 		Short: "seal a current-release-bound one-shot job plan",
 		Long:  "Observe the current serving release and write a short-lived executable job plan.\n\nThe plan binds the exact runtime digest, digest-pinned image, job data effect,\ntarget and expiry. It reads the target and writes only the local plan artifact.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runJobPlan(cmd, g, args[0], planOut, backupReportOut)
+			inputs, err := parseScheduleInputs(planInputs)
+			if err != nil {
+				return writeEarlyOperationFailure(cmd, g, codedError("job_input_invalid", "%v", err))
+			}
+			return runJobPlan(cmd, g, args[0], inputs, planOut, backupReportOut)
 		},
 	}
 	plan.Flags().StringVarP(&planOut, "out", "o", "ob-job-plan.json", "job plan artifact path")
 	plan.Flags().StringVar(&backupReportOut, "backup-report-out", "", "write a plan-bound backup report template when migration backup is required")
+	plan.Flags().StringArrayVar(&planInputs, "input", nil, "input override as NAME=VALUE; repeatable and sealed into the plan")
 
 	var planPath, approvalPath, backupReportPath, overrideReason string
+	var runInputs []string
 	var breakLock, detach bool
 	run := &cobra.Command{
 		Use:   "run [id]",
-		Short: "run one manual job from an inline or saved sealed plan",
-		Long: "Run one manual job through the canonical lock, fence, local-confirmation and journal boundary.\n\n" +
+		Short: "run one operator job from an inline or saved sealed plan",
+		Long: "Run one operator job through the canonical lock, fence, local-confirmation and journal boundary.\n\n" +
 			"A job with schedule configured runs under its installed systemd unit and is\nfollowed by default; Ctrl-C stops following, not the host job. --detach returns\nafter that unit accepts the run. Unscheduled and migration jobs stay attached.\n\n" +
 			"Humans may pass an id and confirm interactively. Automation should supply a\nsaved --plan and its separately created local-confirmation artifact through\n--approval; migration plans may also require the exact plan-bound --backup-report.",
 		Args: cobra.MaximumNArgs(1),
@@ -47,7 +57,11 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 			if len(args) == 1 {
 				jobID = args[0]
 			}
-			return runJob(cmd, g, jobID, planPath, approvalPath, backupReportPath, overrideReason, breakLock, detach)
+			inputs, err := parseScheduleInputs(runInputs)
+			if err != nil {
+				return writeEarlyOperationFailure(cmd, g, codedError("job_input_invalid", "%v", err))
+			}
+			return runJob(cmd, g, jobID, inputs, planPath, approvalPath, backupReportPath, overrideReason, breakLock, detach)
 		},
 	}
 	run.Flags().StringVar(&planPath, "plan", "", "apply a saved job plan artifact")
@@ -56,13 +70,15 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 	run.Flags().StringVar(&overrideReason, "override-migration-backup", "", "audited break-glass reason (requires --approval)")
 	run.Flags().BoolVar(&breakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
 	run.Flags().BoolVar(&detach, "detach", false, "return after the installed host unit accepts the job")
+	run.Flags().StringArrayVar(&runInputs, "input", nil, "input override as NAME=VALUE; repeatable and sealed into the inline plan")
 
+	addJobReadCommands(group, g)
 	group.AddCommand(plan, run)
 	root.AddCommand(group)
 }
 
-func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID, outPath, backupReportOut string) error {
-	plan, err := operationsService(cmd, g).PlanJob(cmd.Context(), onebox.PlanJobRequest{Job: jobID})
+func runJobPlan(cmd *cobra.Command, g *globalFlags, jobID string, inputs map[string]string, outPath, backupReportOut string) error {
+	plan, err := operationsService(cmd, g).PlanJob(cmd.Context(), onebox.PlanJobRequest{Job: jobID, Inputs: inputs})
 	if err != nil {
 		return writeStructuredCommandFailure(cmd, g, "job_plan_failed", "job planning failed; inspect stderr for local diagnostics", err)
 	}
@@ -166,9 +182,12 @@ func renderJobPlan(cmd *cobra.Command, plan *onebox.JobPlan) {
 	}
 }
 
-func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, backupReportPath, overrideReason string, breakLock, detach bool) error {
+func runJob(cmd *cobra.Command, g *globalFlags, jobID string, inputs map[string]string, planPath, approvalPath, backupReportPath, overrideReason string, breakLock, detach bool) error {
 	if planPath != "" && jobID != "" {
 		return writeEarlyOperationFailure(cmd, g, errors.New("supply either a job id or --plan, not both"))
+	}
+	if planPath != "" && len(inputs) > 0 {
+		return writeEarlyOperationFailure(cmd, g, errors.New("--input is sealed into a plan; supply it to ob job plan, not ob job run --plan"))
 	}
 	if planPath == "" && jobID == "" {
 		return writeEarlyOperationFailure(cmd, g, errors.New("job run requires an id or --plan"))
@@ -224,7 +243,7 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 		}, "job run")
 	}
 
-	plan, err := operationsService(cmd, g).PlanJob(cmd.Context(), onebox.PlanJobRequest{Job: jobID})
+	plan, err := operationsService(cmd, g).PlanJob(cmd.Context(), onebox.PlanJobRequest{Job: jobID, Inputs: inputs})
 	if err != nil {
 		return err
 	}
@@ -249,6 +268,96 @@ func runJob(cmd *cobra.Command, g *globalFlags, jobID, planPath, approvalPath, b
 		approval = &grant
 	}
 	return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindJobRun, JobPlan: &plan, Approval: approval, BreakLock: breakLock, Detach: detach}, "job run")
+}
+
+func addJobReadCommands(group *cobra.Command, g *globalFlags) {
+	var historyCount int
+	history := &cobra.Command{
+		Use: "history <job>", Short: "execution records of one job, newest first",
+		Long: "Read retained execution records for one job across timer and operator triggers. Host-supervised records come from journald; sealed attached runs come from the operation journal. The result is retention-bounded evidence, so an absent success means no retained success was observed, not that the job never succeeded.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
+			if err != nil {
+				return writeStructuredReadFailure(cmd, g, err)
+			}
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
+			if err != nil {
+				return writeStructuredReadFailure(cmd, g, err)
+			}
+			defer cleanup()
+			records, err := e.JobHistory(cmd.Context(), args[0], historyCount)
+			if err != nil {
+				return writeStructuredCommandFailure(cmd, g, "job_history_failed", "job history could not be read", err)
+			}
+			if isStructuredOutput(g) {
+				return writeFiniteSuccess(cmd, g, map[string]any{"job": args[0], "runs": records})
+			}
+			if len(records) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "no retained executions for %s\n", args[0])
+				return nil
+			}
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "STARTED\tOUTCOME\tDURATION\tATTEMPTS\tEXIT\tTRIGGER\tRELEASE\tOPERATOR\tRUN")
+			for _, r := range records {
+				exit := "-"
+				if r.ExitStatus != nil {
+					exit = strconv.Itoa(*r.ExitStatus)
+				}
+				fmt.Fprintf(w, "%s\t%s\t%ds\t%d\t%s\t%s\t%s\t%s\t%s\n", r.StartedAt, r.Outcome, r.DurationSeconds, r.Attempts, exit, r.Trigger, orDash(r.Release), orDash(r.Operator), r.ID)
+			}
+			return w.Flush()
+		},
+	}
+	history.Flags().IntVarP(&historyCount, "count", "n", 20, "number of newest executions to show")
+
+	var logsRun string
+	logs := &cobra.Command{
+		Use: "logs <job>", Short: "journal of one host-supervised job execution",
+		Long: "Stream the exact systemd journal of a host-supervised job execution. By default the newest retained run is selected; --run accepts the run id printed by ob job history. Attached sealed executions retain outcome evidence but do not have a separate host log stream.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, p, err := loadAllLenient(cmd.Context(), g)
+			if err != nil {
+				return writeStructuredReadFailure(cmd, g, err)
+			}
+			e, cleanup, err := connect(cmd, g, cfg, p, newUI(cmd, g))
+			if err != nil {
+				return writeStructuredReadFailure(cmd, g, err)
+			}
+			defer cleanup()
+			if g.Output == "json" {
+				var stdout, stderr bytes.Buffer
+				run, err := e.JobLogs(cmd.Context(), args[0], logsRun, &stdout, &stderr)
+				data := map[string]any{"job": args[0], "run": run, "stdout": stdout.String(), "stderr": stderr.String(), "passthrough_unredacted": true}
+				if err != nil {
+					publicErr := publicError(err, "job_logs_failed", "job logs could not be read")
+					publicErr.Details = data
+					if writeErr := writeFiniteOutcome(cmd, g, cliOutcomeError, nil, publicErr); writeErr != nil {
+						return writeErr
+					}
+					return withExitCode(err, 1)
+				}
+				return writeFiniteSuccess(cmd, g, data)
+			}
+			if g.Output == "ndjson" {
+				stream := newCLIRecordStream(cmd.OutOrStdout(), commandName(cmd))
+				run, err := e.JobLogs(cmd.Context(), args[0], logsRun, stream.channelWriter("stdout"), stream.channelWriter("stderr"))
+				data := map[string]any{"job": args[0], "run": run, "passthrough_unredacted": true}
+				if err != nil {
+					if writeErr := stream.terminal(cliOutcomeError, nil, publicError(err, "job_logs_failed", "job logs could not be read")); writeErr != nil {
+						return writeErr
+					}
+					return withExitCode(err, 1)
+				}
+				return stream.terminal(cliOutcomeSuccess, data, nil)
+			}
+			_, err = e.JobLogs(cmd.Context(), args[0], logsRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return err
+		},
+	}
+	logs.Flags().StringVar(&logsRun, "run", "", "run id from ob job history; defaults to newest host-supervised run")
+	group.AddCommand(history, logs)
 }
 
 func loadJobMigrationOverride(

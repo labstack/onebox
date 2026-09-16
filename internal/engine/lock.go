@@ -154,7 +154,7 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			return epoch, nil
 		}
 		if useScheduleLock && res.ExitCode == flockConflictExitCode {
-			return 0, fmt.Errorf("application scheduling rendezvous remained busy — wait for the current scheduled job or application operation to finish")
+			return 0, fmt.Errorf("scheduling rendezvous remained busy — run `ob status` to see active jobs, then wait for the current job or application operation to finish")
 		}
 		if res.ExitCode != applicationLockHeldExitCode {
 			detail := strings.TrimSpace(res.Stderr)

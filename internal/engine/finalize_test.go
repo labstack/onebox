@@ -152,7 +152,7 @@ var engineProjectWithScheduledJob = strings.Replace(engineProject, "services:", 
     role: job
     image: ghcr.io/x/app:v2
     command: report
-    when: manual
+    deployment_phase: none
     data_effect: none
     schedule: {cron: "0 2 * * *", timezone: UTC}
 services:`, 1)

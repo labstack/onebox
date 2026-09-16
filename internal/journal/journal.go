@@ -76,6 +76,8 @@ type Record struct {
 	// do not have.
 	OperationKind string `json:"operation_kind,omitempty"`
 	Service       string `json:"service,omitempty"`
+	ReleaseID     string `json:"release_id,omitempty"`
+	DataEffect    string `json:"data_effect,omitempty"`
 	// Exec invocation evidence is intentionally value-free: command bytes and
 	// passthrough output never cross the durable journal boundary.
 	Target           string `json:"target,omitempty"`

@@ -22,7 +22,7 @@ workloads:
   migrate:
     role: job
     compose: compose.yaml#migrate
-    when: pre_release
+    deployment_phase: pre_release
     data_effect: migration
   postgres:
     role: daemon

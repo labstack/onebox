@@ -434,7 +434,10 @@ func validateWorkload(w Workload, path string) error {
 		}
 	}
 	if w.IsJob() {
-		if err := checkEnum(path+".when", w.When, eJobWhen); err != nil {
+		if err := checkEnum(path+".deployment_phase", w.DeploymentPhase, eJobDeploymentPhase); err != nil {
+			return err
+		}
+		if err := checkEnum(path+".operator_run", w.OperatorRun, eJobOperatorRun); err != nil {
 			return err
 		}
 		if err := checkEnum(path+".data_effect", string(w.DataEffect), eDataEffect); err != nil {
@@ -461,9 +464,9 @@ func validateWorkload(w Workload, path string) error {
 		if err := validateJobInputs(w, path); err != nil {
 			return err
 		}
-	} else if w.When != "" || w.DataEffect != "" || w.Schedule != nil || len(w.Inputs) > 0 {
+	} else if w.DeploymentPhase != "" || w.OperatorRun != "" || w.DataEffect != "" || w.Schedule != nil || len(w.Inputs) > 0 {
 		return errf("project_invalid", path, "",
-			"when, data_effect, schedule and inputs belong to a job; this workload's role is %q", w.Role)
+			"deployment_phase, operator_run, data_effect, schedule and inputs belong to a job; this workload's role is %q", w.Role)
 	}
 	return nil
 }
@@ -584,6 +587,9 @@ func validateJobSchedule(s *JobSchedule, path string) error {
 		return err
 	}
 	if err := gDur.check(path+".timeout", s.Timeout); err != nil {
+		return err
+	}
+	if err := gDur.check(path+".shutdown_grace", s.ShutdownGrace); err != nil {
 		return err
 	}
 	if err := validateJobRetry(s, path); err != nil {

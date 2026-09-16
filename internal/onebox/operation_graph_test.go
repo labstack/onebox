@@ -53,7 +53,7 @@ func TestDeploymentGraphIsDeterministicAndOrdered(t *testing.T) {
 	}
 	for _, step := range first {
 		if step.ID == "job:nightly" {
-			t.Fatal("manual job entered the deploy operation graph")
+			t.Fatal("operator job entered the deploy operation graph")
 		}
 	}
 }
@@ -124,10 +124,10 @@ environments: {production: {server: root@h}}
 workloads:
   web:    {role: application, image: x:1, strategy: rolling, health: {http: /healthz, port: 8080}}
   worker: {role: worker, image: x:1, strategy: recreate}
-  migrate: {role: job, image: x:1, command: "echo JOB_SECRET", when: pre_release, data_effect: migration}
-  assets:  {role: job, image: x:1, when: pre_release, data_effect: none}
-  cleanup: {role: job, image: x:1, when: post_release, data_effect: none}
-  nightly: {role: job, image: x:1, when: manual, data_effect: none, schedule: {cron: "0 2 * * *"}}
+  migrate: {role: job, image: x:1, command: "echo JOB_SECRET", deployment_phase: pre_release, data_effect: migration}
+  assets:  {role: job, image: x:1, deployment_phase: pre_release, data_effect: none}
+  cleanup: {role: job, image: x:1, deployment_phase: post_release, data_effect: none}
+  nightly: {role: job, image: x:1, deployment_phase: none, data_effect: none, schedule: {cron: "0 2 * * *"}}
 deployment:
   order: [worker, web]
 hooks:

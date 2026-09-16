@@ -124,7 +124,7 @@ func TestPublishedSchemaAcceptsEveryRealProject(t *testing.T) {
 func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
 	schema := compiledSchema(t)
 	for _, step := range []string{`{id: sync, command: [echo, ok]}`, `{command: [echo, ok]}`, `{id: sync}`, `{}`} {
-		y := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads:\n  sync:\n    role: job\n    image: busybox\n    when: manual\n    data_effect: none\n    schedule: {cron: '0 * * * *'}\n    execution:\n      steps: [" + step + "]\n"
+		y := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads:\n  sync:\n    role: job\n    image: busybox\n    deployment_phase: none\n    data_effect: none\n    schedule: {cron: '0 * * * *'}\n    execution:\n      steps: [" + step + "]\n"
 		err := schema.Validate(asJSON(t, y))
 		valid := strings.Contains(step, "id:") && strings.Contains(step, "command:")
 		if (err == nil) != valid {

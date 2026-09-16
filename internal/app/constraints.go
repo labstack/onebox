@@ -161,7 +161,8 @@ var (
 	eNeedCondition      = []string{"started", "healthy", "completed"}
 	ePortProtocol       = []string{"tcp", "udp"}
 	eStrategy           = []string{"rolling", "recreate"}
-	eJobWhen            = []string{"pre_release", "post_release", "manual"}
+	eJobDeploymentPhase = []string{"none", "pre_release", "post_release"}
+	eJobOperatorRun     = []string{"allowed", "disabled"}
 	eScheduleDeployLock = []string{"exclusive", "pinned"}
 	// The seams the engine actually invokes. An unlisted name loads fine and
 	// never runs, so the set is closed: a hook that silently does not fire is

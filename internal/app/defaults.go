@@ -91,6 +91,18 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			w.Strategy = w.Mode()
 			mark(path + ".strategy")
 		}
+		if w.IsJob() && w.DeploymentPhase == "" {
+			w.DeploymentPhase = "none"
+			mark(path + ".deployment_phase")
+		}
+		if w.IsJob() && w.OperatorRun == "" {
+			if w.DeploymentPhase == "none" {
+				w.OperatorRun = "allowed"
+			} else {
+				w.OperatorRun = "disabled"
+			}
+			mark(path + ".operator_run")
+		}
 		if w.Image != nil && w.Image.Pull == "" {
 			w.Image.Pull = "missing"
 			mark(path + ".image.pull")
@@ -98,10 +110,6 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 		if w.Drain != nil && w.Drain.Signal == "" {
 			w.Drain.Signal = "TERM"
 			mark(path + ".drain.signal")
-		}
-		if w.IsJob() && w.When == "" {
-			w.When = "manual"
-			mark(path + ".when")
 		}
 		if w.Schedule != nil {
 			if w.Schedule.Timezone == "" {
@@ -119,6 +127,10 @@ func applyDefaults(p *Spec, raw map[string]any, derived map[string]Origin) {
 			if w.Schedule.DeployLock == "" {
 				w.Schedule.DeployLock = "exclusive"
 				mark(path + ".schedule.deploy_lock")
+			}
+			if w.Schedule.ShutdownGrace == "" {
+				w.Schedule.ShutdownGrace = "30s"
+				mark(path + ".schedule.shutdown_grace")
 			}
 			if !stated(raw, path+".schedule.catch_up") {
 				w.Schedule.CatchUp = true

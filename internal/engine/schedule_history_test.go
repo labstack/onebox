@@ -33,7 +33,7 @@ func scheduledFixture(t *testing.T) (*Engine, *transport.Fake) {
 	t.Helper()
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{}
@@ -79,7 +79,8 @@ func TestScheduleListReadsTimerState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(listing) != 1 || listing[0].Unit != "ob-sample-nightly" || listing[0].TimerState != "active" ||
-		listing[0].NextRun != "Sat 2026-09-06 02:00:00 UTC" || listing[0].LastTrigger != "Fri 2026-09-05 02:00:00 UTC" || listing[0].Cron != "0 2 * * *" {
+		listing[0].NextRun != "Sat 2026-09-06 02:00:00 UTC" || listing[0].LastTrigger != "Fri 2026-09-05 02:00:00 UTC" ||
+		listing[0].Cron != "0 2 * * *" || listing[0].MaxAttempts != 1 || listing[0].RetryBudget != "0s" {
 		t.Fatalf("listing = %#v", listing)
 	}
 }

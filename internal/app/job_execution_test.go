@@ -8,7 +8,7 @@ import (
 
 func executionWorkload() Workload {
 	return Workload{
-		Role: "job", When: "manual", DataEffect: DataEffectNone,
+		Role: "job", DeploymentPhase: "none", OperatorRun: "allowed", DataEffect: DataEffectNone,
 		Schedule: &JobSchedule{Timeout: "1h"},
 		Execution: &JobExecution{Steps: []JobStep{
 			{ID: "sync", Command: []string{"sync"}, Outputs: []string{"RELEASE"}},
@@ -26,13 +26,13 @@ func TestValidateJobExecution(t *testing.T) {
 		{"valid", func(w *Workload) {}, ""},
 		{"single command", func(w *Workload) { w.Execution.Steps = nil }, ""},
 		{"disabled", func(w *Workload) { w.Execution = nil; w.Role = "application" }, ""},
-		{"default when", func(w *Workload) { w.When = "" }, ""},
+		{"default when", func(w *Workload) { w.DeploymentPhase = "" }, ""},
 		{"retention boundary", func(w *Workload) { w.Execution.Retention = "30d" }, ""},
-		{"not job", func(w *Workload) { w.Role = "application" }, "native scheduled manual job"},
-		{"not scheduled", func(w *Workload) { w.Schedule = nil }, "native scheduled manual job"},
-		{"release hook", func(w *Workload) { w.When = "pre_release" }, "native scheduled manual job"},
-		{"migration", func(w *Workload) { w.DataEffect = DataEffectMigration }, "native scheduled manual job"},
-		{"compose", func(w *Workload) { w.Compose = "compose.yml#job" }, "native scheduled manual job"},
+		{"not job", func(w *Workload) { w.Role = "application" }, "native scheduled operator-runnable phase-none job"},
+		{"not scheduled", func(w *Workload) { w.Schedule = nil }, "native scheduled operator-runnable phase-none job"},
+		{"release hook", func(w *Workload) { w.DeploymentPhase = "pre_release" }, "native scheduled operator-runnable phase-none job"},
+		{"migration", func(w *Workload) { w.DataEffect = DataEffectMigration }, "native scheduled operator-runnable phase-none job"},
+		{"compose", func(w *Workload) { w.Compose = "compose.yml#job" }, "native scheduled operator-runnable phase-none job"},
 		{"retention invalid", func(w *Workload) { w.Execution.Retention = "forever" }, "retention"},
 		{"retention zero", func(w *Workload) { w.Execution.Retention = "0s" }, "retention"},
 		{"retention negative", func(w *Workload) { w.Execution.Retention = "-1h" }, "retention"},

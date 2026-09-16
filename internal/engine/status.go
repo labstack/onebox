@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
@@ -180,24 +181,35 @@ func (e *Engine) Status(ctx context.Context) error {
 				continue
 			}
 		}
-		if schedule.Diverged {
+		if schedule.Diverged && !schedule.Running {
 			diverged = true
 			e.ui.Println(fmt.Sprintf("schedule %-11s %s", schedule.Name, e.ui.Warn(strings.Join(schedule.Issues, "; ")+" ⚠")))
 			continue
 		}
 		result := "not recorded"
 		if schedule.Running {
-			detail := fmt.Sprintf("running; policy: %s; timeout: %s", schedule.DeployLock, schedule.Timeout)
+			detail := fmt.Sprintf("%s; elapsed: %s; trigger: %s; policy: %s; timeout: %s",
+				orUnknown(schedule.Phase), (time.Duration(schedule.ElapsedSeconds) * time.Second).String(), orUnknown(schedule.Trigger), schedule.DeployLock, schedule.Timeout)
+			detail += fmt.Sprintf("; retry budget: %d attempt(s), %s backoff", schedule.MaxAttempts, schedule.RetryBudget)
 			if schedule.Attempt > 0 {
 				detail += fmt.Sprintf("; attempt: %d", schedule.Attempt)
 			}
-			if schedule.PinnedRelease != "" {
-				detail += fmt.Sprintf("; release: %s; started: %s", schedule.PinnedRelease, schedule.StartedAt)
+			if schedule.Release != "" {
+				detail += fmt.Sprintf("; release: %s", schedule.Release)
+			}
+			if schedule.StartedAt != "" {
+				detail += fmt.Sprintf("; started: %s", schedule.StartedAt)
+			}
+			if schedule.Diverged {
+				diverged = true
+				detail += "; " + strings.Join(schedule.Issues, "; ") + " ⚠"
+				detail = e.ui.Warn(detail)
 			}
 			fmt.Fprintf(e.Opts.Out, "schedule %-11s %s\n", schedule.Name, detail)
 			continue
 		}
-		detail := fmt.Sprintf("active; policy: %s; timeout: %s", schedule.DeployLock, schedule.Timeout)
+		detail := fmt.Sprintf("active; policy: %s; timeout: %s; retry budget: %d attempt(s), %s backoff",
+			schedule.DeployLock, schedule.Timeout, schedule.MaxAttempts, schedule.RetryBudget)
 		if schedule.NextRun != "" {
 			detail += "; next: " + schedule.NextRun
 		}
@@ -208,6 +220,15 @@ func (e *Engine) Status(ctx context.Context) error {
 			result = fmt.Sprintf("%s (%ds, %d attempt(s))", schedule.LastOutcome, schedule.LastDurationSeconds, schedule.LastAttempts)
 		}
 		detail += "; last: " + result
+		if schedule.LastTimerOutcome != "" {
+			detail += fmt.Sprintf("; last timer: %s at %s", schedule.LastTimerOutcome, schedule.LastTimerAt)
+		}
+		if schedule.LastOperatorOutcome != "" {
+			detail += fmt.Sprintf("; last operator: %s at %s", schedule.LastOperatorOutcome, schedule.LastOperatorAt)
+		}
+		if schedule.LastSuccessAt != "" {
+			detail += "; last observed success: " + schedule.LastSuccessAt
+		}
 		if !schedule.JournalPersistent {
 			detail += "; journal: volatile, history since boot only"
 		}
@@ -236,6 +257,13 @@ func (e *Engine) Status(ctx context.Context) error {
 	fmt.Fprintln(e.Opts.Out)
 	e.ui.Successf("all in sync")
 	return nil
+}
+
+func orUnknown(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unknown"
+	}
+	return value
 }
 
 // statusWorkloadRevisions reads the active release's own runtime contract only

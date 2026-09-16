@@ -30,7 +30,7 @@ func invalidateExecutionCommand(root string) string {
 }
 
 func durableContainerCleanup(container string) string {
-	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"ob.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerCleanup(container) + "; fi"
+	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"ob.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerRemove(container) + "; fi"
 }
 
 type executionDefinition struct {
@@ -127,7 +127,7 @@ func (e *Engine) durableScheduleRunner(job app.ScheduledJob, envFiles []app.EnvF
 		"[ \"${release_dir%/*}\" = "+q(n.ReleasesDir())+" ] || exit 1",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"", "chmod 600 \"$release_dir/.ob-schedule.lease\"", "/usr/bin/flock --shared 7")
 	lines = append(lines, scheduleRunPreamble(true)...)
-	lines = append(lines, "write_state 1",
+	lines = append(lines, "phase=running", "write_state 1",
 		"execution=$("+helper+" prepare "+q(n.AppDir())+" "+q(base64.StdEncoding.EncodeToString(encoded))+" \"$release\" \"${INVOCATION_ID:-}\" \"$execution\" \"$operation\" \"{$inputs_json}\")")
 	lines = append(lines, "printf 'execution=%s\\n' \"$execution\" >>\"$state\"")
 	// Publish the durable reference while still inside the retention rendezvous.

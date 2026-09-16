@@ -14,7 +14,7 @@ func pausableFixture(t *testing.T) (*app.Resolved, *transport.Fake) {
 	t.Helper()
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := happyFake()

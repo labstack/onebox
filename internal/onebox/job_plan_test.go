@@ -20,7 +20,7 @@ func writeManualJobProject(t *testing.T, effect string, requireBackup bool) stri
 	}
 	project := strings.Replace(string(encoded),
 		"  database:\n",
-		"  maintenance:\n    role: job\n    image: ghcr.io/example/maintenance:v1\n    when: manual\n    data_effect: "+effect+"\n  database:\n", 1)
+		"  maintenance:\n    role: job\n    image: ghcr.io/example/maintenance:v1\n    deployment_phase: none\n    data_effect: "+effect+"\n  database:\n", 1)
 	if requireBackup {
 		project = strings.Replace(project,
 			"      allow_agent_proposals: true\n",

@@ -23,7 +23,7 @@ import (
 func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := happyFake()
@@ -63,7 +63,7 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "45m", CatchUp: false},
 	}
 	f := happyFake()
@@ -123,7 +123,7 @@ func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 func TestScheduleApplyRefusesBeforeFirstRelease(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := happyFake() // its current release has no Compose runtime
@@ -148,7 +148,7 @@ func TestScheduleApplyRefusesBeforeFirstRelease(t *testing.T) {
 func TestScheduleApplyStopsBeforeUnitWritesWhenJournalStartFails(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := happyFake()
@@ -179,7 +179,8 @@ func TestScheduleApplyStopsBeforeUnitWritesWhenJournalStartFails(t *testing.T) {
 func TestScheduledJobUnitContract(t *testing.T) {
 	job := app.ScheduledJob{
 		Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC",
-		Calendar: "*-*-* 02:00:00", Timeout: "45m", CatchUp: false, DeployLock: "exclusive",
+		Calendar: "*-*-* 02:00:00", Timeout: "45m", ShutdownGrace: 12 * time.Second,
+		CatchUp: false, DeployLock: "exclusive",
 	}
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
 	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
@@ -201,6 +202,11 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		"compose.yaml",
 		`run --rm --no-deps "$@" --name 'sample-nightly-1'`,
 		"docker rm -f 'sample-nightly-1'",
+		"docker kill --signal TERM 'sample-nightly-1'",
+		"docker kill --signal KILL 'sample-nightly-1'",
+		"deadline=$(($(date -u '+%s')+12))",
+		"forced_kill=true",
+		"phase=stopping",
 		"ONEBOX_EXPECTED_RELEASE",
 		"ONEBOX_EXPECTED_RUNTIME",
 		sealedManualJobBindingMarker,
@@ -212,6 +218,15 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		if !strings.Contains(runner, want) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
 		}
+	}
+	if !strings.Contains(service, "TimeoutStopSec=22s") {
+		t.Fatalf("service does not leave systemd enough time for graceful shutdown:\n%s", service)
+	}
+	term := strings.Index(runner, "docker kill --signal TERM")
+	kill := strings.Index(runner, "docker kill --signal KILL")
+	remove := strings.LastIndex(runner, "docker rm -f")
+	if term < 0 || kill < 0 || remove < 0 || !(term < kill && kill < remove) {
+		t.Fatalf("shutdown must order TERM, KILL, then cleanup:\n%s", runner)
 	}
 	locked := strings.Index(runner, "flock --exclusive --timeout 10")
 	bound := strings.Index(runner, "serving release changed after job approval")
@@ -270,7 +285,7 @@ func TestScheduleRendezvousWaitReservesShortJobTimeout(t *testing.T) {
 	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
 	runner := scheduleRunnerScript("sample", app.ScheduledJob{Name: "quick", Timeout: "1s", DeployLock: "pinned"}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	if !strings.Contains(runner, "flock --shared --nonblock --conflict-exit-code 200 8") ||
-		!strings.Contains(runner, "skip 'the application scheduling lock is busy'") {
+		!strings.Contains(runner, "skip 'the scheduling rendezvous is busy'") {
 		t.Fatalf("short-timeout runner can outlive its rendezvous budget:\n%s", runner)
 	}
 }
@@ -665,7 +680,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	cfg := testConfig()
 	cfg.BasePath = root
 	cfg.Workloads[job.Name] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "6h", CatchUp: true, DeployLock: "pinned"},
 	}
 	deploy := New(cfg, testProject(t), transport.NewLocal(), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
@@ -758,7 +773,7 @@ func TestScheduledJobFailureNotifierUsesConfiguredWebhooks(t *testing.T) {
 func TestSyncSchedulesRefusesMissingFlockBeforeInstallingUnits(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -783,7 +798,7 @@ func TestSyncSchedulesRefusesMissingFlockBeforeInstallingUnits(t *testing.T) {
 func TestScheduleStatusReportsRunningPinnedRelease(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["refresh"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "6h", CatchUp: true, DeployLock: "pinned"},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -799,11 +814,18 @@ ActiveState=active
 @@refresh:run
 release=20260828-120000-abc1234
 started_at=2026-08-28T12:01:02Z
+attempt=2
+phase=backing-off
+trigger=operator
+@@refresh:history
+{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"refresh","trigger":"timer","started_at":"2026-08-28T11:00:01Z","finished_at":"2026-08-28T11:00:02Z","duration_s":1,"attempts":1,"exit_status":1,"outcome":"failure","inputs":{}}
 `}, true
 		}
 		return transport.Result{}, false
 	}}
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Now: func() time.Time {
+		return time.Date(2026, 8, 28, 12, 2, 2, 0, time.UTC)
+	}})
 	statuses, err := e.scheduleStatuses(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -813,7 +835,10 @@ started_at=2026-08-28T12:01:02Z
 	}
 	got := statuses[0]
 	if !got.Running || got.DeployLock != "pinned" || got.Timeout != "6h" ||
-		got.PinnedRelease != "20260828-120000-abc1234" || got.StartedAt != "2026-08-28T12:01:02Z" || got.Diverged {
+		got.PinnedRelease != "20260828-120000-abc1234" || got.Release != "20260828-120000-abc1234" ||
+		got.StartedAt != "2026-08-28T12:01:02Z" || got.ElapsedSeconds != 60 || got.Phase != "backing-off" ||
+		got.Trigger != "operator" || got.Attempt != 2 || got.MaxAttempts != 1 || got.RetryBudget != "0s" ||
+		got.LastTimerOutcome != "failure" || got.Diverged {
 		t.Fatalf("running pinned status was not surfaced: %#v", got)
 	}
 }
@@ -1126,7 +1151,7 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 		`outcome=success`,
 		`outcome=failure`,
 		`"run":"%s","job":"%s","trigger":"%s","operation":"%s","release":"%s"`,
-		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","reason":"%s","inputs":{%s}`,
+		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","forced_kill":%s,"reason":"%s","inputs":{%s}`,
 		`"${INVOCATION_ID:-}" 'nightly'`,
 		`SYSLOG_IDENTIFIER=ob-run\nONEBOX_APP=%s\nONEBOX_UNIT=%s\nONEBOX_JOB=%s`,
 		`"$record" 'sample' 'ob-sample-nightly' 'nightly' | logger --journald`,
@@ -1232,6 +1257,7 @@ func runNotifierIn(t *testing.T, base string, job app.ScheduledJob, notification
 
 func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 	state := "release=20260905-140000-ab12cd\nstarted_at=2026-09-05T15:00:01Z\nstarted_epoch=1\ntrigger=timer\noperation=\nattempt=2\ninputs=\n"
+	forced := state + "forced_kill=true\n"
 	for name, tc := range map[string]struct {
 		state   string
 		env     map[string]string
@@ -1242,6 +1268,7 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 		"success":      {state, map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "INVOCATION_ID": "a1b2"}, "success", float64(0), 2},
 		"failure":      {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1"}, "failure", float64(1), 2},
 		"timeout":      {state, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM"}, "timeout", nil, 2},
+		"forced kill":  {forced, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "KILL"}, "timeout", nil, 2},
 		"skipped":      {"skipped=another run of this job is still in progress\noperation=\ninputs=\n", map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "TRIGGER_UNIT": "ob-sample-nightly.timer"}, "skipped", float64(0), 0},
 		"job exits 75": {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "75"}, "failure", float64(75), 2},
 		"no state":     {"", map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "3"}, "failure", float64(3), 0},
@@ -1260,6 +1287,9 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 			if tc.state == state && (record["release"] != "20260905-140000-ab12cd" || record["trigger"] != "timer" || record["duration_s"].(float64) < 1) {
 				t.Fatalf("state fields not carried: %#v", record)
 			}
+			if (name == "forced kill") != record["forced_kill"].(bool) {
+				t.Fatalf("forced-kill evidence wrong: %#v", record)
+			}
 			if name == "skipped" && (record["trigger"] != "timer" || record["reason"] != "another run of this job is still in progress") {
 				t.Fatalf("skip was not recorded with its trigger and reason: %#v", record)
 			}
@@ -1273,7 +1303,7 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 func TestScheduleStatusPrefersTheRunRecordOverSystemdResult(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -1320,7 +1350,7 @@ NextElapseUSecRealtime=Sat 2026-09-06 02:00:00 UTC
 func TestScheduleStatusCountsConsecutiveFailuresFromRecords(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -1509,7 +1539,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("runner is not valid POSIX shell: %v: %s\n%s", err, output, runner)
 	}
-	// The consume block precedes the locks so a skipped manual run cannot
+	// The consume block precedes the locks so a skipped operator run cannot
 	// leave its inputs for the next timer firing.
 	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "exec 9>") {
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
@@ -1523,7 +1553,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 func TestSyncSchedulesRequireSystemd252ForEveryScheduledJob(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["sync"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Inputs:   map[string]app.JobInput{"SOURCE": {Enum: []string{"a"}, Default: "a"}},
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 	}
@@ -1601,11 +1631,11 @@ func TestScheduleInputsLinesParseTheFileIntoArguments(t *testing.T) {
 			`json="SOURCE":"prices and more","SINCE":"2026-09-01=ish"` + "\n",
 		} {
 			if !strings.Contains(got, want) {
-				t.Fatalf("manual activation output is missing %q:\n%s", want, got)
+				t.Fatalf("operator activation output is missing %q:\n%s", want, got)
 			}
 		}
 		if _, err := os.Stat(inputs); err == nil {
-			t.Fatal("the inputs file survived a manual activation")
+			t.Fatal("the inputs file survived a operator activation")
 		}
 		if err := os.WriteFile(inputs, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -1616,7 +1646,7 @@ func TestScheduleInputsLinesParseTheFileIntoArguments(t *testing.T) {
 func TestScheduleStatusRaisesAnIssueForASkipStreak(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	skip := `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:01Z","duration_s":0,"attempts":0,"exit_status":0,"outcome":"skipped","reason":"an application operation holds the deploy lock","inputs":{}}`
@@ -1660,7 +1690,7 @@ func TestScheduleStatusRaisesAnIssueForASkipStreak(t *testing.T) {
 func TestScheduleStatusKeepsAFailureVisibleBehindASkip(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	history := `{"run":"a1b2c3d4e5f60718293a4b5c6d7e8f90","job":"nightly","trigger":"timer","started_at":"2026-09-05T02:00:01Z","finished_at":"2026-09-05T02:00:01Z","duration_s":0,"attempts":0,"exit_status":0,"outcome":"skipped","reason":"an application operation holds the deploy lock","inputs":{}}
@@ -1691,7 +1721,7 @@ func TestScheduleStatusKeepsAFailureVisibleBehindASkip(t *testing.T) {
 func TestScheduleStatusDegradesWhenTheJournalCannotBeRead(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -1734,7 +1764,7 @@ func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
 	// The other two skips hold the job lock, so the state is theirs to write.
 	for _, want := range []string{
 		"flock --exclusive --timeout 10 --conflict-exit-code 200 8",
-		"200) skip 'the application scheduling lock remained busy for 10s'",
+		"200) skip 'the scheduling rendezvous remained busy for 10s'",
 		"skip 'an application operation holds the deploy lock'",
 	} {
 		if !strings.Contains(runner, want) {
@@ -1763,7 +1793,7 @@ func TestScheduledJobRunnerRecordsAnUnknownTriggerOnAnOlderSystemd(t *testing.T)
 	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
 	modern := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
 	older := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, false)
-	if !strings.Contains(modern, "else trigger=manual; fi") {
+	if !strings.Contains(modern, "else trigger=operator; fi") {
 		t.Fatalf("a host that sets TRIGGER_UNIT must name the operator:\n%s", modern)
 	}
 	if !strings.Contains(older, "else trigger=unknown; fi") {
@@ -1784,7 +1814,7 @@ func TestSyncSchedulesRequiresSystemd252OnlyForInputs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cfg := testConfig()
 			cfg.Workloads["sync"] = app.Workload{
-				Role: app.RoleJob, When: "manual", DataEffect: "none", Inputs: tc.inputs,
+				Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none", Inputs: tc.inputs,
 				Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"},
 			}
 			f := happyFake()
@@ -1885,7 +1915,7 @@ func TestScheduleSkipMarkerIsNamedIdenticallyOnBothSides(t *testing.T) {
 func TestScheduleStatusFallsBackToSystemdWhenNoRecordsExist(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -1926,7 +1956,7 @@ ActiveState=active
 func TestScheduleStatusPrefersRecordsOverSystemdResult(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "1h", CatchUp: true},
 	}
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {

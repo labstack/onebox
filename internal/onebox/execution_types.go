@@ -293,7 +293,7 @@ type ExecuteRequest struct {
 	BackupReport            *BackupReport
 	MigrationBackupOverride *MigrationBackupOverride
 	BreakLock               bool
-	// Detach asks a planned manual job to return after its installed host unit
+	// Detach asks a planned operator job to return after its installed host unit
 	// accepts the run. It is valid only for job_run; the job's schedule history
 	// remains the outcome authority.
 	Detach                 bool

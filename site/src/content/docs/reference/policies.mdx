@@ -64,7 +64,7 @@ for a deploy, the job name for a job run. A deploy mints the release it names,
 while a job runs inside the release already serving — which every job planned
 against that release shares — so the job is what identifies it.
 
-A manual job carrying one of those effects asks whether or not approval policy
+A operator job carrying one of those effects asks whether or not approval policy
 is enabled. Policy decides only whether a deploy that is not critical asks at
 all.
 
@@ -103,9 +103,9 @@ redacted.
 
 | Class | JSON | NDJSON | Commands |
 | --- | --- | --- | --- |
-| Finite envelope | yes | no | `ob approve` · `ob audit` · `ob backup status` · `ob canonical` · `ob doctor` · `ob eject` · `ob execution list` · `ob execution inspect` · `ob init` · `ob job plan` · `ob plan` · `ob preflight` · `ob preview` · `ob schedule history` · `ob schedule list` · `ob schema` · `ob secrets list` · `ob status` · `ob validate` · `ob version` |
-| Finite operation stream | yes | yes | `ob abort` · `ob backup create` · `ob backup enable` · `ob backup disable` · `ob backup drill` · `ob backup prune` · `ob backup restore` · `ob backup verify` · `ob bootstrap` · `ob deploy` · `ob destroy` · `ob execution resume` · `ob execution abandon` · `ob job run` · `ob proxy apply` · `ob resume` · `ob rollback` · `ob schedule apply` · `ob schedule pause` · `ob schedule resume` · `ob schedule run` · `ob secrets push` · `ob service apply` |
-| Operator passthrough | finite only | yes | `ob logs` · `ob schedule logs` |
+| Finite envelope | yes | no | `ob approve` · `ob audit` · `ob backup status` · `ob canonical` · `ob doctor` · `ob eject` · `ob execution list` · `ob execution inspect` · `ob init` · `ob job history` · `ob job plan` · `ob plan` · `ob preflight` · `ob preview` · `ob schedule list` · `ob schema` · `ob secrets list` · `ob status` · `ob validate` · `ob version` |
+| Finite operation stream | yes | yes | `ob abort` · `ob backup create` · `ob backup enable` · `ob backup disable` · `ob backup drill` · `ob backup prune` · `ob backup restore` · `ob backup verify` · `ob bootstrap` · `ob deploy` · `ob destroy` · `ob execution resume` · `ob execution abandon` · `ob job run` · `ob proxy apply` · `ob resume` · `ob rollback` · `ob schedule apply` · `ob schedule pause` · `ob schedule resume` · `ob secrets push` · `ob service apply` |
+| Operator passthrough | finite only | yes | `ob job logs` · `ob logs` |
 | Operator passthrough | no | yes | `ob exec` |
 | Trusted editor | yes, after exit | no | `ob secrets edit` |
 

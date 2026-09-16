@@ -41,7 +41,7 @@ workloads:
     role: job
     image: ghcr.io/x/app:v2
     command: migrate
-    when: pre_release
+    deployment_phase: pre_release
     data_effect: unknown
 services:
   postgres:

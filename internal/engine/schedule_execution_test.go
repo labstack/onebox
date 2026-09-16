@@ -151,7 +151,7 @@ func TestScheduleFlockProbeExecutesCapabilityChecks(t *testing.T) {
 
 func TestDurableResumeRefusesLegacyRunnerBeforePublishingRequest(t *testing.T) {
 	cfg := testConfig()
-	cfg.Workloads["refresh"] = app.Workload{Role: app.RoleJob, When: "manual", DataEffect: app.DataEffectNone,
+	cfg.Workloads["refresh"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "none", DataEffect: app.DataEffectNone,
 		Schedule: &app.JobSchedule{Cron: "0 * * * *", Timezone: "UTC", Timeout: "1h"}, Execution: &app.JobExecution{}}
 	f := happyFake()
 	base := f.Dynamic

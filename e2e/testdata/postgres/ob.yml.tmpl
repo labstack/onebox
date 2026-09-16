@@ -43,7 +43,7 @@ workloads:
   # A deliberately wedged timer run proves the host-enforced timeout becomes a
   # recorded timeout that `ob status` exposes. Its annual timer never fires
   # during the suite; the test starts the service directly. The SLEEP input
-  # lets a later manual run succeed, which is the only thing that clears a
+  # lets a later operator run succeed, which is the only thing that clears a
   # recorded failure.
   timeout-chore:
     role: job
@@ -64,7 +64,7 @@ workloads:
     volumes: [{source: /tmp/onebox-e2e-retry, path: /marker}]
     schedule: { cron: "0 0 1 1 *", timeout: 60s, catch_up: false, retry: {attempts: 2, backoff: 1s} }
   # A declared input reaches the container as an environment variable: its
-  # default on a timer-shaped start, an override on a manual run.
+  # default on a timer-shaped start, an override on a operator run.
   input-chore:
     role: job
     image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0

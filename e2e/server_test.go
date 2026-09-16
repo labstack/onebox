@@ -237,7 +237,7 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 		}
 
 		// The notifier wrote a record for that run; a hand-started unit has no
-		// TRIGGER_UNIT, so it is recorded as a manual activation.
+		// TRIGGER_UNIT, so it is recorded as a operator activation.
 		history := s.mustOb(t, dir, "schedule", "history", "chore", "--output", "json")
 		for _, want := range []string{`"outcome": "success"`, `"trigger": "manual"`, `"attempts": 1`} {
 			if !strings.Contains(history, want) {
@@ -255,12 +255,12 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 			}
 		}
 
-		// A manual run with an input override reaches the container as its
+		// A operator run with an input override reaches the container as its
 		// environment, is journaled with the operator, and shows up as such.
 		manual := s.mustOb(t, dir, "schedule", "run", "input-chore", "--input", "GREETING=hello", "--wait", "--output", "json")
 		for _, want := range []string{`"GREETING": "hello"`, `"outcome": "success"`, `"trigger": "manual"`} {
 			if !strings.Contains(manual, want) {
-				t.Fatalf("manual run result is missing %q:\n%s", want, manual)
+				t.Fatalf("operator run result is missing %q:\n%s", want, manual)
 			}
 		}
 		logs := s.mustOb(t, dir, "schedule", "logs", "input-chore")
@@ -269,7 +269,7 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 		}
 		audit := s.mustOb(t, dir, "audit")
 		if !strings.Contains(audit, "schedule run") {
-			t.Fatalf("audit does not list the manual run:\n%s", audit)
+			t.Fatalf("audit does not list the operator run:\n%s", audit)
 		}
 		list := s.mustOb(t, dir, "schedule", "list")
 		if !strings.Contains(list, "input-chore") || !strings.Contains(list, "active") {
@@ -332,11 +332,11 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		}
 		// The record is the verdict, so `systemctl reset-failed` no longer
 		// clears the failure from `ob status`; only a later successful run
-		// does. A manual run with the input that makes the job finish in time
+		// does. A operator run with the input that makes the job finish in time
 		// is that run, and it must leave status green for the steps after.
 		s.mustOb(t, dir, "schedule", "run", "timeout-chore", "--input", "SLEEP=0", "--wait")
 		if cleared := s.mustOb(t, dir, "status"); !strings.Contains(cleared, "schedule timeout-chore active") {
-			t.Fatalf("a successful manual run did not clear the recorded timeout:\n%s", cleared)
+			t.Fatalf("a successful operator run did not clear the recorded timeout:\n%s", cleared)
 		}
 	})
 
@@ -401,7 +401,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		if err != nil {
 			t.Fatalf("job run failed: %v\n%s", err, out)
 		}
-		for _, want := range []string{"host run ", "⟳ job chore", "✓ job chore", "ob schedule history chore"} {
+		for _, want := range []string{"host run ", "⟳ job chore", "✓ job chore", "ob job history chore"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("host-owned job output is missing %q:\n%s", want, out)
 			}
@@ -413,7 +413,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		if err != nil {
 			t.Fatalf("detached job run failed: %v\n%s", err, out)
 		}
-		if !strings.Contains(out, "job chore accepted as ") || !strings.Contains(out, "ob schedule history chore") {
+		if !strings.Contains(out, "job chore accepted as ") || !strings.Contains(out, "ob job history chore") {
 			t.Fatalf("detached job did not report durable acceptance:\n%s", out)
 		}
 	})

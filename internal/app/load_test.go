@@ -90,7 +90,7 @@ func conformanceCases() []conformanceCase {
 		{"job with data_effect", wl("j: {image: nginx, role: job, data_effect: none}"), true},
 		{"job data_effect unknown", wl("j: {image: nginx, role: job, data_effect: unknown}"), true},
 		{"application with data_effect", wl("w: {image: nginx, data_effect: none}"), false},
-		{"application with when", wl("w: {image: nginx, when: manual}"), false},
+		{"application with when", wl("w: {image: nginx, deployment_phase: none}"), false},
 		{"worker with schedule", wl("w: {image: nginx, role: worker, schedule: {cron: \"0 3 * * *\"}}"), false},
 		{"scheduled job", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\"}}"), true},
 		{"scheduled job run policy", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\", timeout: 45m, catch_up: false}}"), true},
@@ -189,7 +189,7 @@ func conformanceCases() []conformanceCase {
 		{"recreate workload with published host port", wl("w: {image: nginx, strategy: recreate, published_ports: [{host: 8555, container: 8555}]}"), true},
 		// Manual jobs remain part of the release runtime even though deployment
 		// execution no longer selects them as an automatic release phase.
-		{"explicit manual job remains a runtime service", wl("j: {image: nginx, role: job, when: manual, data_effect: none}"), true},
+		{"explicit operator job remains a runtime service", wl("j: {image: nginx, role: job, deployment_phase: none, data_effect: none}"), true},
 		{"service scalar", min + "services: {postgres: 18}\n", true},
 		{"service backup policy", validBackupProject, true},
 		{"external service connection", validExternalServiceProject, true},

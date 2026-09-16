@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/onebox/internal/release"
 )
 
-// RunJobWithJournalID executes one current-release manual job under the same
+// RunJobWithJournalID executes one current-release operator job under the same
 // lock, fence, approval evidence, result protocol, and journal authority used
 // by deployment jobs. The expected release/runtime checks run after the lock
 // is held, closing the plan-to-execution race before container creation.
@@ -34,8 +34,8 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	if !ok || !workload.IsJob() {
 		return operationID, nil, fmt.Errorf("unknown job %q", job)
 	}
-	if workload.When != "manual" {
-		return operationID, nil, fmt.Errorf("job %q is not a manual job", job)
+	if workload.OperatorRun != "allowed" {
+		return operationID, nil, fmt.Errorf("job %q does not allow operator runs", job)
 	}
 	if workload.DataEffect != request.ExpectedDataEffect {
 		return operationID, nil, errors.New("job data effect changed since planning — re-plan")
@@ -117,7 +117,7 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	}
 	start := journal.Record{
 		Phase: "job", Event: "start", Status: "ok", OperationKind: "job_run", Service: job,
-		Detail: "release=" + current,
+		Detail: "release=" + current, ReleaseID: current, DataEffect: string(workload.DataEffect),
 	}
 	if err := writer.Append(ctx, start); err != nil {
 		return operationID, nil, fmt.Errorf("journal job start: %w", err)

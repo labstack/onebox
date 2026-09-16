@@ -45,7 +45,7 @@ func TestFindIncompleteIgnoresADeploySupersededByANewerOne(t *testing.T) {
 	}
 }
 
-// A journal that is not a deploy at all — a manual job, a service apply — must
+// A journal that is not a deploy at all — a operator job, a service apply — must
 // not be mistaken for the newest deploy and hide the incomplete one behind it.
 func TestFindIncompleteLooksPastNonDeployJournals(t *testing.T) {
 	out := journalMarkerLine + "R1.jsonl\n" +

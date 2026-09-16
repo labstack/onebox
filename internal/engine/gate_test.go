@@ -153,9 +153,9 @@ func TestJobAutoRunsWithoutHook(t *testing.T) {
 
 func TestDeployRunsOnlyAutomaticJobsInTheirDeclaredPhase(t *testing.T) {
 	cfg := testConfig()
-	cfg.Workloads["cleanup"] = app.Workload{Role: app.RoleJob, When: "post_release", DataEffect: "none"}
+	cfg.Workloads["cleanup"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "post_release", DataEffect: "none"}
 	cfg.Workloads["nightly"] = app.Workload{
-		Role: app.RoleJob, When: "manual", DataEffect: "none",
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
 	}
 	cfg.Hooks["cleanup"] = app.Command{Run: "echo POST_RELEASE_JOB_MARKER"}
 	cfg.Hooks["nightly"] = app.Command{Run: "echo MANUAL_JOB_MARKER"}
@@ -166,7 +166,7 @@ func TestDeployRunsOnlyAutomaticJobsInTheirDeclaredPhase(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "MANUAL_JOB_MARKER") {
-		t.Fatalf("manual job executed during deploy:\n%s", seq)
+		t.Fatalf("operator job executed during deploy:\n%s", seq)
 	}
 	releaseAt := strings.Index(seq, "--force-recreate --timeout 30 worker")
 	postJobAt := strings.Index(seq, "POST_RELEASE_JOB_MARKER")
@@ -337,7 +337,7 @@ func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 	f := gateFake("") // silent migrate
 	cfg := testConfig()
 	cfg.Deployment.MigrationPolicy = "expand-only"
-	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "migration"}
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "migration"}
 	e := New(cfg, testProject(t), f, Options{
 		Out: &bytes.Buffer{}, Sleep: noSleep,
 		ApprovalDigest: "sha256:approved", ApprovalClass: "strong", AllowUnknownMigration: true,
@@ -351,7 +351,7 @@ func TestExpandOnlyPromiseOverridesClosedGate(t *testing.T) {
 func TestDataEffectNoneOpensGateWithoutResultFile(t *testing.T) {
 	f := gateFake("")
 	cfg := testConfig()
-	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "none"}
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "none"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "auto-rolled back") {
@@ -363,7 +363,7 @@ func TestExpandOnlyDoesNotCoverUnknownJob(t *testing.T) {
 	f := gateFake("")
 	cfg := testConfig()
 	cfg.Deployment.MigrationPolicy = "expand-only"
-	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "unknown"}
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "unknown"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "HALT-AND-PAGE") {
@@ -375,7 +375,7 @@ func TestExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 	f := gateFake("")
 	cfg := testConfig()
 	cfg.Deployment.MigrationPolicy = "expand-only"
-	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "migration"}
+	cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "migration"}
 	cfg.Hooks["pre_release"] = app.Command{Run: "true"}
 	e := New(cfg, testProject(t), f, Options{
 		Out: &bytes.Buffer{}, Sleep: noSleep,

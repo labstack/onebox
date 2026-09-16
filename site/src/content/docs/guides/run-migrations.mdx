@@ -19,7 +19,7 @@ workloads:
     image: ghcr.io/acme/shop:1.4.0
     command: ["./bin/migrate"]
     data_effect: migration
-    when: pre_release
+    deployment_phase: pre_release
     needs: [{name: postgres, condition: healthy}]
 ```
 
@@ -33,8 +33,9 @@ gates read:
 | `destructive` | Removes data. |
 | `unknown` | You cannot state it. Treated as the most cautious case. |
 
-`when` decides when it happens: `manual` (default), `pre_release`, or
-`post_release`.
+`deployment_phase` decides whether it runs during deployment: `none` (default),
+`pre_release`, or `post_release`. `operator_run` independently controls explicit
+invocation (`allowed` or `disabled`); release-phase jobs default to `disabled`.
 
 ## Report what actually happened
 

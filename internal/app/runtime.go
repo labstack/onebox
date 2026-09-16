@@ -244,7 +244,7 @@ func (p *Spec) ReleaseOrder() []string {
 
 // JobOrder is the stable dependency order for every declared job. It describes
 // the release runtime, not which jobs a deploy executes; callers that execute a
-// release phase must use JobOrderFor so manual jobs remain deploy-inert.
+// release phase must use JobOrderFor so phase-none jobs remain deploy-inert.
 func (p *Spec) JobOrder() []string {
 	var jobs []string
 	for _, name := range sortedKeys(p.Workloads) {
@@ -262,12 +262,12 @@ func (p *Spec) JobOrder() []string {
 
 // JobOrderFor returns only jobs assigned to one automatic release phase while
 // preserving the dependency order of the complete job graph. In particular,
-// when="manual" is never used by deployment execution.
-func (p *Spec) JobOrderFor(when string) []string {
+// deployment_phase="none" is never used by deployment execution.
+func (p *Spec) JobOrderFor(phase string) []string {
 	ordered := p.JobOrder()
 	out := make([]string, 0, len(ordered))
 	for _, name := range ordered {
-		if p.Workloads[name].When == when {
+		if p.Workloads[name].DeploymentPhase == phase {
 			out = append(out, name)
 		}
 	}

@@ -29,9 +29,9 @@ This page is the reconciliation. Three states:
   state-bound plans, image pinning, rendered diffs.
 - Scheduled jobs as host timers with exact cron translation, bounded retry
   inside one firing, one run record per activation in the host journal
-  (`ob schedule history`, `ob schedule logs`, `ob status`), per-outcome
+  (`ob job history`, `ob job logs`, `ob status`), per-outcome
   notifications, and declared inputs for operator-initiated runs
-  (`ob schedule run`).
+  (`ob job run`).
 - Opt-in durable job executions with named linear steps, declared string outputs,
   per-step retries, and host-local checkpoints. `ob execution list`, `inspect`,
   `resume`, and `abandon` expose recovery state. Resume requires the original

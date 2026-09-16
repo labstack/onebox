@@ -16,16 +16,22 @@ import (
 // been skipped. systemd contributes the timer's state and next elapse and
 // whether a run is in progress.
 type StatusSchedule struct {
-	Name          string   `json:"name"`
-	Unit          string   `json:"unit"`
-	TimerState    string   `json:"timer_state"`
-	Running       bool     `json:"running"`
-	DeployLock    string   `json:"deploy_lock"`
-	Timeout       string   `json:"timeout"`
-	PinnedRelease string   `json:"pinned_release,omitempty"`
-	StartedAt     string   `json:"started_at,omitempty"`
-	Diverged      bool     `json:"diverged"`
-	Issues        []string `json:"issues,omitempty"`
+	Name           string   `json:"name"`
+	Unit           string   `json:"unit"`
+	TimerState     string   `json:"timer_state"`
+	Running        bool     `json:"running"`
+	Phase          string   `json:"phase,omitempty"`
+	Trigger        string   `json:"trigger,omitempty"`
+	Release        string   `json:"release,omitempty"`
+	ElapsedSeconds int      `json:"elapsed_s,omitempty"`
+	DeployLock     string   `json:"deploy_lock"`
+	Timeout        string   `json:"timeout"`
+	MaxAttempts    int      `json:"max_attempts"`
+	RetryBudget    string   `json:"retry_backoff_budget"`
+	PinnedRelease  string   `json:"pinned_release,omitempty"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	Diverged       bool     `json:"diverged"`
+	Issues         []string `json:"issues,omitempty"`
 
 	NextRun             string `json:"next_run,omitempty"`
 	Attempt             int    `json:"attempt,omitempty"`
@@ -33,6 +39,11 @@ type StatusSchedule struct {
 	LastReason          string `json:"last_reason,omitempty"`
 	LastDurationSeconds int    `json:"last_duration_s,omitempty"`
 	LastAttempts        int    `json:"last_attempts,omitempty"`
+	LastTimerOutcome    string `json:"last_timer_outcome,omitempty"`
+	LastTimerAt         string `json:"last_timer_at,omitempty"`
+	LastOperatorOutcome string `json:"last_operator_outcome,omitempty"`
+	LastOperatorAt      string `json:"last_operator_at,omitempty"`
+	LastSuccessAt       string `json:"last_success_at,omitempty"`
 	ConsecutiveFailures int    `json:"consecutive_failures,omitempty"`
 	ConsecutiveSkips    int    `json:"consecutive_skips,omitempty"`
 	// JournalPersistent is false when the host keeps its journal in memory, so
@@ -69,6 +80,8 @@ type scheduleUnitObservation struct {
 	release     string
 	startedAt   string
 	attempt     string
+	phase       string
+	trigger     string
 	next        string
 	history     []ScheduleRunRecord
 	pause       *SchedulePauseState
@@ -132,6 +145,7 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			loadState: values["LoadState"], activeState: values["ActiveState"],
 			result: values["Result"], exitStatus: exit,
 			release: values["release"], startedAt: values["started_at"], attempt: values["attempt"],
+			phase: values["phase"], trigger: values["trigger"],
 			next:    values["NextElapseUSecRealtime"],
 			history: parseScheduleRunRecords(strings.Join(raw, "\n"), name),
 			pause:   pauseFrom(values),
@@ -177,10 +191,21 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		status := StatusSchedule{
 			Name: job.Name, Unit: unit, TimerState: timer.activeState,
 			Running: service.activeState == "activating", DeployLock: job.DeployLock, Timeout: job.Timeout,
+			MaxAttempts: job.RetryAttempts, RetryBudget: job.RetryBackoffBudget().String(),
 			NextRun: timer.next, JournalPersistent: journalPersistent,
 		}
 		if status.Running {
 			status.Attempt, _ = strconv.Atoi(run.attempt)
+			status.Phase, status.Trigger, status.Release, status.StartedAt = run.phase, run.trigger, run.release, run.startedAt
+			if status.Phase == "" {
+				status.Phase = "running"
+			}
+			if started, parseErr := time.Parse(time.RFC3339, run.startedAt); parseErr == nil {
+				status.ElapsedSeconds = int(e.Opts.Now().UTC().Sub(started).Seconds())
+				if status.ElapsedSeconds < 0 {
+					status.ElapsedSeconds = 0
+				}
+			}
 			if job.DeployLock == "pinned" {
 				_, timeErr := time.Parse(time.RFC3339, run.startedAt)
 				if !release.IsID(run.release) || timeErr != nil {
@@ -201,6 +226,17 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 			status.LastReason = last.Reason
 			status.LastDurationSeconds = last.DurationSeconds
 			status.LastAttempts = last.Attempts
+			for _, record := range records {
+				if status.LastTimerOutcome == "" && record.Trigger == "timer" {
+					status.LastTimerOutcome, status.LastTimerAt = record.Outcome, record.FinishedAt
+				}
+				if status.LastOperatorOutcome == "" && (record.Trigger == "operator" || record.Trigger == "manual") {
+					status.LastOperatorOutcome, status.LastOperatorAt = record.Outcome, record.FinishedAt
+				}
+				if status.LastSuccessAt == "" && record.Outcome == "success" {
+					status.LastSuccessAt = record.FinishedAt
+				}
+			}
 			for _, record := range records {
 				if record.Outcome != "skipped" {
 					break
@@ -234,7 +270,7 @@ func (e *Engine) scheduleStatuses(ctx context.Context) ([]StatusSchedule, error)
 		}
 		// The record is the verdict: the newest run that actually happened is
 		// the one that counts, and so is a job that keeps being skipped.
-		if lastRun != nil && (lastRun.Outcome == "failure" || lastRun.Outcome == "timeout") {
+		if !status.Running && lastRun != nil && (lastRun.Outcome == "failure" || lastRun.Outcome == "timeout") {
 			exit := "?"
 			if lastRun.ExitStatus != nil {
 				exit = strconv.Itoa(*lastRun.ExitStatus)

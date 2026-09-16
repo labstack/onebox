@@ -38,15 +38,15 @@ func (e *Engine) ScheduleRun(ctx context.Context, operationID, name string, inpu
 	return e.scheduleRun(ctx, operationID, name, inputs, wait, "", nil)
 }
 
-// PlannedJobRun submits a sealed manual job plan to the job's installed
+// PlannedJobRun submits a sealed operator job plan to the job's installed
 // systemd unit. The runner checks the plan's release and runtime digest after
 // taking the host-side application exclusion, so releasing the admission lock
 // before systemd schedules the unit cannot move the job onto different bytes.
-func (e *Engine) PlannedJobRun(ctx context.Context, operationID, name, expectedRelease, expectedRuntime string, wait bool) (_ ScheduleRunResult, err error) {
+func (e *Engine) PlannedJobRun(ctx context.Context, operationID, name string, inputs map[string]string, expectedRelease, expectedRuntime string, wait bool) (_ ScheduleRunResult, err error) {
 	if expectedRelease == "" || expectedRuntime == "" {
 		return ScheduleRunResult{}, errors.New("planned job run requires an expected release and runtime digest")
 	}
-	return e.scheduleRun(ctx, operationID, name, nil, wait, "", &plannedJobBinding{
+	return e.scheduleRun(ctx, operationID, name, inputs, wait, "", &plannedJobBinding{
 		release: expectedRelease,
 		runtime: expectedRuntime,
 	})
@@ -88,7 +88,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	// an older one the next timer firing would read the file meant for this
 	// run, and the run itself would be recorded as a firing.
 	if !e.hasTriggerUnit(ctx) {
-		return result, errors.New("this host's systemd does not set $TRIGGER_UNIT, so a timer firing cannot be told from this run; ob schedule run needs systemd 252 or newer. The timer itself keeps working")
+		return result, errors.New("this host's systemd does not set $TRIGGER_UNIT, so a timer firing cannot be told from this run; ob job run needs systemd 252 or newer. The timer itself keeps working")
 	}
 	unit := e.names().ScheduledJobUnit(name)
 	result.Unit = unit
@@ -98,7 +98,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 			return result, err
 		}
 		if res.ExitCode != 0 {
-			return result, fmt.Errorf("installed job runner does not support sealed manual-job binding; run `ob schedule apply` before running %s", name)
+			return result, fmt.Errorf("installed job runner does not support sealed operator-job binding; run `ob schedule apply` before running %s", name)
 		}
 	}
 
@@ -110,7 +110,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	}
 	switch state := strings.TrimSpace(active.Stdout); state {
 	case "active", "activating", "deactivating":
-		return result, fmt.Errorf("job %s is running (%s); wait for it, or read ob schedule history %s", name, state, name)
+		return result, fmt.Errorf("job %s is running (%s); wait for it, or read ob job history %s", name, state, name)
 	}
 
 	epoch, err := e.AcquireLock(ctx, operationID, e.Opts.ForceLock)
@@ -136,7 +136,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 		}
 	}
 
-	// noclobber: a second manual run before the first is consumed would
+	// noclobber: a second operator run before the first is consumed would
 	// otherwise rewrite the file under it and misattribute the inputs. The
 	// existence check in front gives that case its own exit status, so a
 	// host that simply refuses the write is reported as that and not as a
@@ -154,7 +154,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	}
 	switch {
 	case res.ExitCode == 73:
-		return result, fmt.Errorf("a manual run of %s is already pending (%s exists); wait for it, or remove the file on the host", name, path)
+		return result, fmt.Errorf("an operator run of %s is already pending (%s exists); wait for it, or remove the file on the host", name, path)
 	case res.ExitCode != 0:
 		return result, fmt.Errorf("cannot write the inputs file %s on the host: %s", path, strings.TrimSpace(res.Stderr))
 	}
@@ -180,7 +180,10 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	if len(inputs) > 0 {
 		detail = "inputs: " + scheduleInputsDetail(inputs)
 	}
-	record := journal.Record{Phase: "schedule-run", Event: "start", Status: "ok", Target: name, TargetKind: "job", Detail: detail}
+	record := journal.Record{
+		Phase: "schedule-run", Event: "start", Status: "ok", OperationKind: "job_run",
+		Service: name, Target: name, TargetKind: "job", Detail: detail,
+	}
 	if planned != nil {
 		// This journal describes host-unit admission, not the job's eventual
 		// outcome. Keep schedule-run's truthful "started" audit semantics while
@@ -203,7 +206,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	defer func() {
 		finish := record
 		finish.Event, finish.Status = "finish", "ok"
-		finish.Detail = "unit started; outcome in ob schedule history " + name
+		finish.Detail = "unit started; outcome in ob job history " + name
 		if err != nil {
 			finish.Status, finish.Detail = "fail", err.Error()
 		}
@@ -221,7 +224,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	finishStep := func(error) {}
 	if wait {
 		if planned != nil {
-			e.ui.Infof("host run %s; Ctrl-C detaches; inspect with `ob schedule history %s`", operationID, name)
+			e.ui.Infof("host run %s; Ctrl-C detaches; inspect with `ob job history %s`", operationID, name)
 		}
 		finishStep = e.ui.Step("job "+name, true)
 		defer func() { finishStep(err) }()
@@ -237,14 +240,14 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 		// The unit is queued, so the runner owns the file now.
 		pending = false
 		result.Started = true
-		e.ui.Successf("job %s accepted as %s; inspect with `ob schedule history %s`", name, operationID, name)
+		e.ui.Successf("job %s accepted as %s; inspect with `ob job history %s`", name, operationID, name)
 		return result, nil
 	}
 	// A blocking start that exits non-zero may mean the job failed, which is
 	// an outcome, or that the unit never activated, which is not. Only the
 	// record settles it, and only a record carrying this operation says the
 	// runner read the inputs file: a start that merged into a timer firing
-	// already in progress leaves that file untouched, for the next manual run
+	// already in progress leaves that file untouched, for the next operator run
 	// that would otherwise be refused as pending.
 	last, err := e.awaitScheduleRecord(ctx, name, operationID)
 	if err != nil {
@@ -267,7 +270,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	// success is a failure of the request, a skip included: the unit exits
 	// cleanly, but the work was not done.
 	if last.Outcome != "success" {
-		return result, fmt.Errorf("job %s run %s ended %s; see ob schedule logs %s --run %s", name, last.Run, last.Outcome, name, last.Run)
+		return result, fmt.Errorf("job %s run %s ended %s; see ob job logs %s --run %s", name, last.Run, last.Outcome, name, last.Run)
 	}
 	return result, nil
 }
@@ -296,7 +299,7 @@ func (e *Engine) awaitScheduleRecord(ctx context.Context, name, operationID stri
 			}
 		}
 	}
-	return nil, fmt.Errorf("no run record for operation %s appeared within %s: the run may still be settling in the host journal, a timer firing may have taken the slot, or the notifier wrote nothing. ob schedule history %s shows what the host has",
+	return nil, fmt.Errorf("no run record for operation %s appeared within %s: the run may still be settling in the host journal, a timer firing may have taken the slot, or the notifier wrote nothing. ob job history %s shows what the host has",
 		operationID, 10*time.Second, name)
 }
 

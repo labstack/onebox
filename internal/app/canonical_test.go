@@ -269,8 +269,10 @@ runtime: {env_files: [{file: secrets.env, provider: sops}]}
 		"workloads.web.published_ports[0].bind":     "127.0.0.1",
 		"workloads.web.published_ports[0].protocol": "tcp",
 		"workloads.web.persistence.mode":            "durable",
-		"workloads.job.when":                        "manual",
+		"workloads.job.deployment_phase":            "none",
+		"workloads.job.operator_run":                "allowed",
 		"workloads.job.schedule.timezone":           "UTC",
+		"workloads.job.schedule.shutdown_grace":     "30s",
 		"notifications.ops.format":                  "text",
 	} {
 		if origins[path] != string(OriginDefault) {

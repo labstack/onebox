@@ -47,7 +47,7 @@ workloads:
     role: job
     image: nginx:1.27
     data_effect: migration
-    when: pre_release
+    deployment_phase: pre_release
 services:
   postgres: 16
 proxy:

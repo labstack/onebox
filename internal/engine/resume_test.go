@@ -229,7 +229,7 @@ func TestResumeRestoresOnlyExplicitUnknownMigrationAuthority(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := interruptedBeforeMigrationFake(tt.allowed)
 			cfg := testConfig()
-			cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, When: "pre_release", DataEffect: "migration"}
+			cfg.Workloads["migrate"] = app.Workload{Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "migration"}
 			var out bytes.Buffer
 			e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
 			err := e.Resume(context.Background())
@@ -283,7 +283,7 @@ func TestAbortUsesInterruptedEffectPolicyAfterConfigEdit(t *testing.T) {
 	cfg.Workloads = map[string]app.Workload{
 		// The current config now claims this is a covered migration. Abort must
 		// still honor the interrupted journal, which recorded it as uncovered.
-		"migrate": {Role: app.RoleJob, When: "pre_release", DataEffect: "migration"},
+		"migrate": {Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "migration"},
 	}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.Abort(context.Background(), false)
@@ -297,7 +297,7 @@ func TestAbortExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 	cfg := testConfig()
 	cfg.Deployment.MigrationPolicy = "expand-only"
 	cfg.Workloads = map[string]app.Workload{
-		"migrate": {Role: app.RoleJob, When: "pre_release", DataEffect: "migration"},
+		"migrate": {Role: app.RoleJob, DeploymentPhase: "pre_release", DataEffect: "migration"},
 	}
 	cfg.Hooks["pre_release"] = app.Command{Run: "true"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})

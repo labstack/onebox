@@ -64,7 +64,7 @@ func addOpsCommands(root *cobra.Command, g *globalFlags) {
 	proxyCmd.AddCommand(proxyApplyCmd)
 	root.AddCommand(proxyCmd)
 
-	// schedule apply | list | history | logs — see schedule.go.
+	// schedule apply | list — see schedule.go; job run | history | logs — see job.go.
 	addScheduleCommands(root, g)
 
 	// secrets list | edit | push

@@ -238,7 +238,7 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 
 		// The notifier wrote a record for that run; a hand-started unit has no
 		// TRIGGER_UNIT, so it is recorded as a operator activation.
-		history := s.mustOb(t, dir, "schedule", "history", "chore", "--output", "json")
+		history := s.mustOb(t, dir, "job", "history", "chore", "--output", "json")
 		for _, want := range []string{`"outcome": "success"`, `"trigger": "manual"`, `"attempts": 1`} {
 			if !strings.Contains(history, want) {
 				t.Fatalf("run history is missing %q:\n%s", want, history)
@@ -248,7 +248,7 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 		// One failure, one sleep, one success: the record counts both attempts.
 		s.run(t, "rm -rf /tmp/onebox-e2e-retry && mkdir -p /tmp/onebox-e2e-retry")
 		s.run(t, "systemctl start ob-observer-retry--chore.service")
-		retry := s.mustOb(t, dir, "schedule", "history", "retry-chore", "--output", "json")
+		retry := s.mustOb(t, dir, "job", "history", "retry-chore", "--output", "json")
 		for _, want := range []string{`"outcome": "success"`, `"attempts": 2`} {
 			if !strings.Contains(retry, want) {
 				t.Fatalf("retry history is missing %q:\n%s", want, retry)
@@ -257,13 +257,13 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 
 		// A operator run with an input override reaches the container as its
 		// environment, is journaled with the operator, and shows up as such.
-		manual := s.mustOb(t, dir, "schedule", "run", "input-chore", "--input", "GREETING=hello", "--wait", "--output", "json")
+		manual := s.mustOb(t, dir, "job", "run", "input-chore", "--input", "GREETING=hello", "--wait", "--output", "json")
 		for _, want := range []string{`"GREETING": "hello"`, `"outcome": "success"`, `"trigger": "manual"`} {
 			if !strings.Contains(manual, want) {
 				t.Fatalf("operator run result is missing %q:\n%s", want, manual)
 			}
 		}
-		logs := s.mustOb(t, dir, "schedule", "logs", "input-chore")
+		logs := s.mustOb(t, dir, "job", "logs", "input-chore")
 		if !strings.Contains(logs, "greeting=hello") {
 			t.Fatalf("run logs do not show the override:\n%s", logs)
 		}
@@ -312,7 +312,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 			t.Fatalf("timed-out scheduled run result = %q, want timeout", result)
 		}
 		// The runner was killed mid-run; ExecStopPost still wrote the record.
-		if timedOut := s.mustOb(t, dir, "schedule", "history", "timeout-chore", "--output", "json"); !strings.Contains(timedOut, `"outcome": "timeout"`) {
+		if timedOut := s.mustOb(t, dir, "job", "history", "timeout-chore", "--output", "json"); !strings.Contains(timedOut, `"outcome": "timeout"`) {
 			t.Fatalf("timeout was not recorded:\n%s", timedOut)
 		}
 		out, err := s.ob(t, dir, "status")
@@ -334,7 +334,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		// clears the failure from `ob status`; only a later successful run
 		// does. A operator run with the input that makes the job finish in time
 		// is that run, and it must leave status green for the steps after.
-		s.mustOb(t, dir, "schedule", "run", "timeout-chore", "--input", "SLEEP=0", "--wait")
+		s.mustOb(t, dir, "job", "run", "timeout-chore", "--input", "SLEEP=0", "--wait")
 		if cleared := s.mustOb(t, dir, "status"); !strings.Contains(cleared, "schedule timeout-chore active") {
 			t.Fatalf("a successful operator run did not clear the recorded timeout:\n%s", cleared)
 		}

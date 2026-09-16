@@ -257,7 +257,10 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 
 		// An operator run with an input override reaches the container as its
 		// environment, is journaled with the operator, and shows up as such.
-		manual := s.mustOb(t, dir, "job", "run", "input-chore", "--input", "GREETING=hello", "--wait", "--output", "json")
+		if out, err := s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "input-chore", "--input", "GREETING=hello"); err != nil {
+			t.Fatalf("operator job run failed: %v\n%s", err, out)
+		}
+		manual := s.mustOb(t, dir, "job", "history", "input-chore", "--output", "json")
 		for _, want := range []string{`"GREETING": "hello"`, `"outcome": "success"`, `"trigger": "operator"`} {
 			if !strings.Contains(manual, want) {
 				t.Fatalf("operator run result is missing %q:\n%s", want, manual)
@@ -334,7 +337,9 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		// clears the failure from `ob status`; only a later successful run
 		// does. An operator run with the input that makes the job finish in time
 		// is that run, and it must leave status green for the steps after.
-		s.mustOb(t, dir, "job", "run", "timeout-chore", "--input", "SLEEP=0", "--wait")
+		if out, err := s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "timeout-chore", "--input", "SLEEP=0"); err != nil {
+			t.Fatalf("operator recovery run failed: %v\n%s", err, out)
+		}
 		if cleared := s.mustOb(t, dir, "status"); !strings.Contains(cleared, "schedule timeout-chore active") {
 			t.Fatalf("a successful operator run did not clear the recorded timeout:\n%s", cleared)
 		}

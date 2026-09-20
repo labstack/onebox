@@ -18,7 +18,7 @@
 
   <div class="ob-deriv-live" hidden data-ob-live>
     <div class="ob-deriv-toggles" role="group" aria-label="Fields to declare">
-      <button class="ob-tg" type="button" data-k="domain" aria-pressed="true">domain</button>
+      <button class="ob-tg" type="button" data-k="hostname" aria-pressed="true">hostname</button>
       <button class="ob-tg" type="button" data-k="replicas" aria-pressed="false">2 replicas</button>
       <button class="ob-tg" type="button" data-k="postgres" aria-pressed="false">postgres</button>
       <button class="ob-tg" type="button" data-k="worker" aria-pressed="false">worker</button>
@@ -209,7 +209,7 @@
 
   if (root && live && staticList && ymlOut && listOut && countOut) {
     const on: Record<string, boolean> = {
-      domain: true,
+      hostname: true,
       replicas: false,
       postgres: false,
       worker: false,
@@ -219,27 +219,27 @@
 
     const render = () => {
       const lines: string[] = [
-        `<span class="k">api_version</span>: onebox.run/v1`,
+        `<span class="k">api_version</span>: onebox.run/v2`,
         `<span class="k">app</span>: shop`,
         `<span class="k">environments</span>:`,
         `  <span class="k">production</span>:`,
         `    <span class="k">server</span>: root@203.0.113.10`,
-        `<span class="k">image</span>: ghcr.io/acme/shop:1.4.0`,
+        `<span class="k">workloads</span>:`,
+        `  <span class="k">web</span>:`,
+        `    <span class="k">image</span>: ghcr.io/acme/shop:1.4.0`,
       ];
-      if (on.domain) {
-        lines.push(`<span class="k">domain</span>: shop.example.com`);
-        lines.push(`<span class="k">port</span>: 3000`);
+      if (on.replicas) {
+        lines.push(`    <span class="k">replicas</span>: 2`);
       }
-      if (on.replicas || on.worker) {
-        lines.push(`<span class="k">workloads</span>:`);
-        if (on.replicas) {
-          lines.push(`  <span class="k">web</span>:`);
-          lines.push(`    <span class="k">replicas</span>: 2`);
-        }
-        if (on.worker) {
-          lines.push(`  <span class="k">worker</span>:`);
-          lines.push(`    <span class="k">command</span>: bundle exec sidekiq`);
-        }
+      if (on.hostname) {
+        lines.push(`    <span class="k">routes</span>:`);
+        lines.push(`      - {<span class="k">hostname</span>: shop.example.com, <span class="k">port</span>: 3000}`);
+      }
+      if (on.worker) {
+        lines.push(`  <span class="k">worker</span>:`);
+        lines.push(`    <span class="k">role</span>: worker`);
+        lines.push(`    <span class="k">image</span>: ghcr.io/acme/shop:1.4.0`);
+        lines.push(`    <span class="k">command</span>: bundle exec sidekiq`);
       }
       if (on.postgres) {
         lines.push(`<span class="k">services</span>: {postgres: 17}`);
@@ -258,7 +258,7 @@
         derived.push(["shop-worker-1", "no route — nothing was declared for it"]);
       }
       derived.push(["shop_default", "the application's own Compose network"]);
-      if (on.domain) {
+      if (on.hostname) {
         derived.push(["onebox-proxy", "Traefik, its static configuration, a router and TLS"]);
       }
       if (on.postgres) {

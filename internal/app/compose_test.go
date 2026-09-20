@@ -132,7 +132,7 @@ func TestPathEscapeRefused(t *testing.T) {
 
 // TestComposeRefRendersEndToEnd puts the merge through generation.
 func TestComposeRefRendersEndToEnd(t *testing.T) {
-	y := `api_version: onebox.run/v1
+	y := `api_version: onebox.run/v2
 app: ledger
 environments:
   production: {server: root@1.2.3.4}
@@ -140,8 +140,8 @@ workloads:
   web:
     role: application
     image: nginx
-    domain: ledger.example.com
-    port: 8080
+    routes:
+      - {hostname: ledger.example.com, port: 8080}
   db:
     role: daemon
     compose: compose.yaml#postgres
@@ -227,7 +227,7 @@ func TestADeclaredHealthCheckReachesAReferencedService(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}

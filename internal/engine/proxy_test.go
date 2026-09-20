@@ -55,8 +55,7 @@ func TestEnsureProxyRefusesMissingResolverBeforeHostMutation(t *testing.T) {
 	}
 	cfg := testConfig()
 	web := cfg.Workloads["web"]
-	web.Domain = "app.example.com"
-	web.Port = 7500
+	web.Routes = []app.Route{{Hostname: "app.example.com", Port: 7500, Path: "/", Entrypoint: "websecure", Protocol: "http", Scheme: "http", TLS: "terminate"}}
 	cfg.Workloads["web"] = web
 	cfg.Proxy = app.Proxy{Kind: "traefik-docker", Managed: true, Config: "traefik"}
 	f := &transport.Fake{}

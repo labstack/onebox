@@ -15,7 +15,7 @@ func TestWorkloadContractsScopePlainEnvironmentChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -83,7 +83,7 @@ func TestWorkloadContractsTrackRelativeBindMountContent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -121,7 +121,7 @@ deployment: {order: [api, worker]}
 }
 
 func TestBindMountContractIsIndependentOfWhereTheReleaseIsStaged(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -157,7 +157,7 @@ deployment: {order: [api]}
 
 func TestWorkloadContractsIgnoreVolumesOnAnAdoptedComposeService(t *testing.T) {
 	staging := t.TempDir()
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -177,7 +177,7 @@ deployment: {order: [api]}
 }
 
 func TestBindMountContractNoticesAnAddedEmptyDirectory(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -216,7 +216,7 @@ deployment: {order: [api]}
 
 func bindMountRevision(t *testing.T, mode os.FileMode) string {
 	t.Helper()
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:

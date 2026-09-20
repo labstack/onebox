@@ -1,4 +1,4 @@
-// Package app loads the onebox.run/v1 declarative authoring contract: one
+// Package app loads the onebox.run/v2 declarative authoring contract: one
 // application, its workloads, the services it needs, and how a release rolls
 // out.
 //
@@ -28,8 +28,12 @@ type Spec struct {
 	// file is the exact project path supplied to Load/LoadBytes. Mutating
 	// operations such as eject must never reconstruct it as Dir/ob.yml.
 	file string
+	// legacyV1Snapshot is set only while replaying an immutable release created
+	// by a v1 binary. It preserves the validation rules that release originally
+	// passed without reopening v1 as an authoring contract.
+	legacyV1Snapshot bool
 
-	APIVersion string `json:"api_version" description:"Project contract version. Must be onebox.run/v1." example:"onebox.run/v1"`
+	APIVersion string `json:"api_version" description:"Project contract version. Must be onebox.run/v2." example:"onebox.run/v2"`
 	// Name is the application's name. Spelled Name rather than App because
 	// inside a package called app, `spec.App` is a stutter and every caller
 	// then writes `.App.App`. The authored key is still `app:`.
@@ -142,8 +146,7 @@ type Workload struct {
 	Replicas int    `json:"replicas" description:"Desired number of long-running workload containers." default:"1" example:"2"`
 	Strategy string `json:"strategy,omitempty" description:"Replacement strategy for a changed or uncertain workload. An unchanged healthy workload is retained automatically. Defaults to rolling only for an application workload with health; all other workloads default to recreate."`
 
-	Domain string  `json:"domain,omitempty" description:"Domain shorthand for one HTTPS route; requires port and cannot be combined with routes." example:"shop.example.com"`
-	Port   int     `json:"port,omitempty" description:"Container port used with domain shorthand and as the default HTTP health port." example:"3000"`
+	Port   int     `json:"port,omitempty" description:"Default container port used by HTTP health checks." example:"3000"`
 	Routes []Route `json:"routes,omitempty" description:"Ingress routes exposed by this workload."`
 
 	Health         *Health         `json:"health,omitempty" description:"Readiness check used to gate rolling replacement."`
@@ -213,15 +216,14 @@ type Image struct {
 }
 
 type Route struct {
-	Domain         string          `json:"domain,omitempty" description:"Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix." example:"shop.example.com"`
-	WildcardSuffix string          `json:"wildcard_suffix,omitempty" description:"DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain." example:"preview.example.com"`
-	Path           string          `json:"path" description:"URL path prefix matched by an HTTP route." default:"/"`
-	Port           int             `json:"port" description:"Container port receiving routed traffic." example:"3000"`
-	Entrypoint     string          `json:"entrypoint" description:"Named proxy listener used for the route." default:"websecure"`
-	Protocol       string          `json:"protocol" description:"Routing protocol: http, tcp, or udp." default:"http"`
-	Scheme         string          `json:"scheme" description:"Backend connection scheme: http, https, h2c, tcp, or udp." default:"http"`
-	TLS            string          `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
-	Middlewares    []MiddlewareRef `json:"middlewares,omitempty" description:"Ordered provider-qualified middleware references applied to this route."`
+	Hostname    string          `json:"hostname" description:"Hostname matched by the proxy. Accepts an exact hostname or a wildcard in the complete left-most label, such as *.example.com; a wildcard matches exactly one label and not the suffix itself. The bare * value is reserved for plaintext or TLS-passthrough TCP catch-all routes." example:"shop.example.com"`
+	Path        string          `json:"path" description:"URL path prefix matched by an HTTP route." default:"/"`
+	Port        int             `json:"port" description:"Container port receiving routed traffic." example:"3000"`
+	Entrypoint  string          `json:"entrypoint" description:"Named proxy listener used for the route." default:"websecure"`
+	Protocol    string          `json:"protocol" description:"Routing protocol: http or tcp." default:"http"`
+	Scheme      string          `json:"scheme" description:"Backend connection scheme for HTTP routes: http, https, or h2c." default:"http"`
+	TLS         string          `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
+	Middlewares []MiddlewareRef `json:"middlewares,omitempty" description:"Ordered provider-qualified middleware references applied to this route."`
 }
 
 // MiddlewareRef names dynamic proxy configuration without opening the

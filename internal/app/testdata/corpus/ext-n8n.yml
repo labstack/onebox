@@ -1,6 +1,6 @@
 # Deployed and verified: n8n ran its migrations against the managed Postgres
 # and served /healthz, reading the connection under its own variable names.
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: n8n
 environments:
   production:
@@ -8,8 +8,8 @@ environments:
 workloads:
   n8n:
     role: application
-    domain: n8n.example.com
-    port: 5678
+    routes:
+      - {hostname: n8n.example.com, port: 5678}
     image: docker.n8n.io/n8nio/n8n:1.70.0
     health: {http: /healthz, port: 5678, interval: 3s, start_period: 10s, within: 180s}
     volumes: [{name: storage, path: /home/node/.n8n}]

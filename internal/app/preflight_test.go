@@ -59,7 +59,7 @@ func TestPreflightRefusesForeignHostOwner(t *testing.T) {
 	}
 }
 
-const preflightProject = `api_version: onebox.run/v1
+const preflightProject = `api_version: onebox.run/v2
 app: ledger
 environments:
   production: {server: root@1.2.3.4}
@@ -67,8 +67,8 @@ workloads:
   web:
     role: application
     image: nginx
-    domain: ledger.example.com
-    port: 8080
+    routes:
+      - {hostname: ledger.example.com, port: 8080}
     volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
 `
 
@@ -356,15 +356,15 @@ func TestInterpolationEnvUsesComposeSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}
 runtime:
   env_files: [.env]
 image: nginx
-domain: shop.example.com
-port: 3000
+routes:
+  - {hostname: shop.example.com, port: 3000}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestPreflightResolvesAcrossDeclaredFilesInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}
@@ -423,8 +423,8 @@ runtime:
     - file: .env.production
       require: [API_TOKEN]
 image: nginx
-domain: shop.example.com
-port: 3000
+routes:
+  - {hostname: shop.example.com, port: 3000}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestHostOwnerRecordParsesTheSameForPreflightAndEngine(t *testing.T) {
 // every mutation after it refuses a record it cannot parse.
 func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 	for _, name := range []string{"Staging", "prod_east", "staging replica", "-lead", "trail-"} {
-		src := "api_version: onebox.run/v1\napp: sample\nenvironments:\n  \"" + name +
+		src := "api_version: onebox.run/v2\napp: sample\nenvironments:\n  \"" + name +
 			"\": {server: root@h}\nworkloads:\n  web: {role: application, image: x:1}\n"
 		if _, err := LoadBytes([]byte(src), "ob.yml"); err == nil {
 			t.Fatalf("environment name %q was accepted by the loader but cannot round-trip the owner record", name)
@@ -582,7 +582,7 @@ func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 	}
 	// And the ones that are legal stay legal.
 	for _, name := range []string{"production", "staging", "prod-east"} {
-		src := "api_version: onebox.run/v1\napp: sample\nenvironments:\n  " + name +
+		src := "api_version: onebox.run/v2\napp: sample\nenvironments:\n  " + name +
 			": {server: root@h}\nworkloads:\n  web: {role: application, image: x:1}\n"
 		if _, err := LoadBytes([]byte(src), "ob.yml"); err != nil {
 			t.Fatalf("environment name %q should be accepted: %v", name, err)

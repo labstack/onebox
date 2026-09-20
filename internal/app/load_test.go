@@ -8,10 +8,88 @@ import (
 	"testing"
 )
 
-const base = "api_version: onebox.run/v1\napp: ledger\nenvironments: {production: {server: root@1.2.3.4}}\n"
-const min = base + "build: .\ndomain: ledger.example.com\nport: 8080\n"
+const base = "api_version: onebox.run/v2\napp: ledger\nenvironments: {production: {server: root@1.2.3.4}}\n"
+const min = base + "build: .\nroutes: [{hostname: ledger.example.com, port: 8080}]\n"
 
 func wl(body string) string { return base + "workloads: {" + body + "}\n" }
+
+func TestAPIVersionV2IsRequired(t *testing.T) {
+	_, err := LoadBytes([]byte(strings.Replace(min, APIVersion, "onebox.run/v1", 1)), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "schema_identity_unsupported") {
+		t.Fatalf("v1 project must be rejected with a version error: %v", err)
+	}
+}
+
+func TestReleaseSnapshotLoaderMigratesV1RoutesOnlyAtReplayBoundary(t *testing.T) {
+	legacy := `api_version: onebox.run/v1
+app: ledger
+environments: {production: {server: root@1.2.3.4}}
+image: nginx
+domain: Example.COM.
+port: 8080
+`
+	p, err := LoadReleaseSnapshotBytes([]byte(legacy), "/var/lib/ob/ledger/releases/old/ob.snapshot.yml")
+	if err != nil {
+		t.Fatalf("load v1 release snapshot: %v", err)
+	}
+	routes := p.Workloads["ledger"].NormalisedRoutes()
+	if p.APIVersion != APIVersion || len(routes) != 1 || routes[0].Hostname != "Example.COM." || routes[0].Port != 8080 {
+		t.Fatalf("migrated snapshot = version %q, routes %+v", p.APIVersion, routes)
+	}
+	resolved, err := p.Resolve("production")
+	if err != nil {
+		t.Fatalf("resolve migrated v1 snapshot: %v", err)
+	}
+	if got := resolved.Workloads["ledger"].Routes[0].Hostname; got != "Example.COM." {
+		t.Fatalf("resolved legacy hostname = %q", got)
+	}
+
+	wildcard := `api_version: onebox.run/v1
+app: ledger
+environments:
+  production:
+    server: root@1.2.3.4
+    overrides:
+      workloads:
+        web:
+          routes: [{wildcard_suffix: branch.example.com, path: /, port: 8081, entrypoint: websecure, protocol: http, scheme: http, tls: none}]
+workloads:
+  web:
+    image: nginx
+    routes: [{wildcard_suffix: preview.example.com, port: 8080, tls: none}]
+`
+	p, err = LoadReleaseSnapshotBytes([]byte(wildcard), "ob.snapshot.yml")
+	if err != nil {
+		t.Fatalf("load v1 wildcard snapshot: %v", err)
+	}
+	if got := p.Workloads["web"].Routes[0].Hostname; got != "*.preview.example.com" {
+		t.Fatalf("migrated wildcard hostname = %q", got)
+	}
+	resolved, err = p.Resolve("production")
+	if err != nil {
+		t.Fatalf("resolve v1 wildcard override: %v", err)
+	}
+	if got := resolved.Workloads["web"].Routes[0].Hostname; got != "*.branch.example.com" {
+		t.Fatalf("migrated wildcard override hostname = %q", got)
+	}
+	maxV1Suffix := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." +
+		strings.Repeat("c", 63) + "." + strings.Repeat("d", 61)
+	maxWildcard := strings.Replace(wildcard, "preview.example.com", maxV1Suffix, 1)
+	if _, err := LoadReleaseSnapshotBytes([]byte(maxWildcard), "ob.snapshot.yml"); err != nil {
+		t.Fatalf("v1 snapshot wildcard at the v1 suffix limit: %v", err)
+	}
+
+	for name, body := range map[string]string{
+		"unknown version":  strings.Replace(legacy, "onebox.run/v1", "onebox.run/v0", 1),
+		"incomplete route": strings.Replace(legacy, "port: 8080\n", "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadReleaseSnapshotBytes([]byte(body), "ob.snapshot.yml"); err == nil {
+				t.Fatal("invalid legacy snapshot was accepted")
+			}
+		})
+	}
+}
 
 func TestRoutedProjectRefusesDefaultAsProxyNetwork(t *testing.T) {
 	for _, network := range []string{"default", "ledger_default", "ob_ledger"} {
@@ -53,7 +131,7 @@ func TestManagedGeneratedProxyRequiresDeclaredRouteEntrypoint(t *testing.T) {
 	project := base + `workloads:
   grpc:
     image: app:1
-    routes: [{domain: grpc.example.com, port: 4317, entrypoint: otlp-grpc, scheme: h2c}]
+    routes: [{hostname: grpc.example.com, port: 4317, entrypoint: otlp-grpc, scheme: h2c}]
 `
 	if _, err := LoadBytes([]byte(project), "ob.yml"); err == nil || !strings.Contains(err.Error(), "proxy.entrypoints") {
 		t.Fatalf("an unknown generated entrypoint must be refused: %v", err)
@@ -67,7 +145,7 @@ func TestWildcardRouteContract(t *testing.T) {
 	valid := base + `workloads:
   web:
     image: nginx
-    routes: [{wildcard_suffix: preview.example.com, port: 8080}]
+    routes: [{hostname: "*.preview.example.com", port: 8080}]
 proxy:
   config: traefik
   dns_challenge: {provider: cloudflare, resolvers: ["1.1.1.1:53"]}
@@ -81,17 +159,16 @@ proxy:
 		body string
 		want string
 	}{
-		{"missing dns challenge", wl("web: {image: nginx, routes: [{wildcard_suffix: example.com, port: 80}] }"), "dns_challenge"},
-		{"both host forms", wl("web: {image: nginx, routes: [{domain: api.example.com, wildcard_suffix: example.com, port: 80}] }"), "exactly one"},
-		{"neither host form", wl("web: {image: nginx, routes: [{port: 80}] }"), "exactly one"},
-		{"bare wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: '*', port: 80, tls: none}] }"), "DNS hostname"},
-		{"embedded wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: '*.example.com', port: 80, tls: none}] }"), "DNS hostname"},
-		{"uppercase suffix", wl("web: {image: nginx, routes: [{wildcard_suffix: Example.com, port: 80, tls: none}] }"), "lower-case"},
-		{"tcp wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: example.com, port: 80, protocol: tcp, tls: passthrough}] }"), "only for HTTP"},
-		{"exact matcher injection", wl("web: {image: nginx, routes: [{domain: 'x`) || Host(`*', port: 80}] }"), "route host"},
-		{"wildcard in exact route", wl("web: {image: nginx, routes: [{domain: '*.example.com', port: 80}] }"), "wildcard_suffix"},
-		{"wildcard in exact shorthand", wl("web: {image: nginx, domain: '*.example.com', port: 80}"), "wildcard_suffix"},
-		{"catch-all exact route", wl("web: {image: nginx, routes: [{domain: '*', port: 80}] }"), "wildcard_suffix"},
+		{"missing dns challenge", wl("web: {image: nginx, routes: [{hostname: '*.example.com', port: 80}] }"), "dns_challenge"},
+		{"missing hostname", wl("web: {image: nginx, routes: [{port: 80}] }"), "hostname"},
+		{"bare wildcard", wl("web: {image: nginx, routes: [{hostname: '*', port: 80, tls: none}] }"), "route hostname"},
+		{"embedded wildcard", wl("web: {image: nginx, routes: [{hostname: 'api.*.example.com', port: 80, tls: none}] }"), "route hostname"},
+		{"partial wildcard", wl("web: {image: nginx, routes: [{hostname: 'api*.example.com', port: 80, tls: none}] }"), "route hostname"},
+		{"uppercase hostname", wl("web: {image: nginx, routes: [{hostname: Example.com, port: 80, tls: none}] }"), "lower-case"},
+		{"trailing dot", wl("web: {image: nginx, routes: [{hostname: example.com., port: 80, tls: none}] }"), "route hostname"},
+		{"tcp wildcard", wl("web: {image: nginx, routes: [{hostname: '*.example.com', port: 80, protocol: tcp, tls: passthrough}] }"), "only for HTTP"},
+		{"matcher injection", wl("web: {image: nginx, routes: [{hostname: 'x`) || Host(`*', port: 80}] }"), "route hostname"},
+		{"catch-all HTTP route", wl("web: {image: nginx, routes: [{hostname: '*', port: 80}] }"), "route hostname"},
 		{"dns challenge needs config", min + "proxy: {dns_challenge: {provider: cloudflare}}\n", "proxy.config"},
 		{"invalid resolver", min + "proxy: {config: traefik, dns_challenge: {provider: cloudflare, resolvers: [1.1.1.1]}}\n", "host:port"},
 		{"unmanaged dns challenge", min + "proxy: {managed: false, config: traefik, dns_challenge: {provider: cloudflare}}\n", "managed proxy"},
@@ -103,15 +180,16 @@ proxy:
 			}
 		})
 	}
-	for _, domain := range []string{"API.Example.COM", "api.example.com."} {
-		if _, err := LoadBytes([]byte(wl("web: {image: nginx, routes: [{domain: '"+domain+"', port: 80, tls: none}] }")), "ob.yml"); err != nil {
-			t.Errorf("existing exact route spelling %q must remain valid: %v", domain, err)
+	for _, hostname := range []string{"api.example.com", "*.example.com"} {
+		project := wl("web: {image: nginx, routes: [{hostname: '" + hostname + "', port: 80, tls: none}] }")
+		if _, err := LoadBytes([]byte(project), "ob.yml"); err != nil {
+			t.Errorf("standard hostname spelling %q must be valid: %v", hostname, err)
 		}
 	}
-	if _, err := LoadBytes([]byte(wl("gateway: {image: nginx, routes: [{domain: '*', protocol: tcp, tls: none, port: 9000}] }")), "ob.yml"); err != nil {
+	if _, err := LoadBytes([]byte(wl("gateway: {image: nginx, routes: [{hostname: '*', protocol: tcp, tls: none, port: 9000}] }")), "ob.yml"); err != nil {
 		t.Errorf("existing plaintext TCP catch-all must remain valid: %v", err)
 	}
-	if _, err := LoadBytes([]byte(wl("gateway: {image: nginx, routes: [{domain: '*', protocol: tcp, tls: passthrough, port: 9000}] }")), "ob.yml"); err != nil {
+	if _, err := LoadBytes([]byte(wl("gateway: {image: nginx, routes: [{hostname: '*', protocol: tcp, tls: passthrough, port: 9000}] }")), "ob.yml"); err != nil {
 		t.Errorf("existing TLS-passthrough TCP catch-all must remain valid: %v", err)
 	}
 }
@@ -126,12 +204,11 @@ func TestWildcardRouteOverlap(t *testing.T) {
 		right    string
 		collides bool
 	}{
-		{"immediate child", "{domain: shop.example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
-		{"same wildcard", "{wildcard_suffix: example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
-		{"case-insensitive exact child", "{domain: Shop.Example.COM., port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
-		{"apex does not overlap", "{domain: example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", false},
-		{"nested host does not overlap", "{domain: a.b.example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", false},
-		{"different path", "{domain: shop.example.com, path: /api, port: 80, tls: none}", "{wildcard_suffix: example.com, path: /, port: 81, tls: none}", false},
+		{"immediate child", "{hostname: shop.example.com, port: 80, tls: none}", "{hostname: '*.example.com', port: 81, tls: none}", true},
+		{"same wildcard", "{hostname: '*.example.com', port: 80, tls: none}", "{hostname: '*.example.com', port: 81, tls: none}", true},
+		{"apex does not overlap", "{hostname: example.com, port: 80, tls: none}", "{hostname: '*.example.com', port: 81, tls: none}", false},
+		{"nested host does not overlap", "{hostname: a.b.example.com, port: 80, tls: none}", "{hostname: '*.example.com', port: 81, tls: none}", false},
+		{"different path", "{hostname: shop.example.com, path: /api, port: 80, tls: none}", "{hostname: '*.example.com', path: /, port: 81, tls: none}", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := LoadBytes([]byte(project(tc.left, tc.right)), "ob.yml")
@@ -146,8 +223,8 @@ func TestWildcardRouteOverlap(t *testing.T) {
 }
 
 func TestPlaintextTCPCatchAllOverlapsEveryHost(t *testing.T) {
-	catchAll := Route{Domain: "*", Protocol: "tcp", TLS: "none", Path: "/", Entrypoint: "database"}
-	exact := Route{Domain: "db.example.com", Protocol: "tcp", TLS: "none", Path: "/", Entrypoint: "database"}
+	catchAll := Route{Hostname: "*", Protocol: "tcp", TLS: "none", Path: "/", Entrypoint: "database"}
+	exact := Route{Hostname: "db.example.com", Protocol: "tcp", TLS: "none", Path: "/", Entrypoint: "database"}
 	if !routesOverlap(catchAll, exact) || !routesOverlap(exact, catchAll) {
 		t.Fatal("plaintext TCP catch-all must collide with every exact host on the same route address")
 	}
@@ -168,13 +245,13 @@ func conformanceCases() []conformanceCase {
 		{"explicit workloads block", wl("web: {image: nginx}"), true},
 		{"image reference with registry port", wl("web: {image: \"registry.example.com:5000/acme/app:1.2\"}"), true},
 		{"image reference with uppercase repository", wl("web: {image: \"ghcr.io/Acme/app:1.2\"}"), false},
-		{"one-char identifier", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
-		{"app starting ob-", "api_version: onebox.run/v1\napp: ob-app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
-		{"host proxy name", "api_version: onebox.run/v1\napp: onebox-proxy\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
-		{"underscore identifier", "api_version: onebox.run/v1\napp: my_app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"one-char identifier", "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
+		{"app starting ob-", "api_version: onebox.run/v2\napp: ob-app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"host proxy name", "api_version: onebox.run/v2\napp: onebox-proxy\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"underscore identifier", "api_version: onebox.run/v2\napp: my_app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 		{"unknown top-level field", min + "bogus: 1\n", false},
 		{"x- extension accepted", min + "x-note: anything\n", true},
-		{"port out of range", base + "image: nginx\ndomain: d\nport: 70000\n", false},
+		{"port out of range", base + "image: nginx\nhostname: d\nport: 70000\n", false},
 		{"zero replicas", wl("w: {image: nginx, replicas: 0}"), false},
 		{"job requires data_effect", wl("j: {image: nginx, role: job}"), false},
 		{"job with data_effect", wl("j: {image: nginx, role: job, data_effect: none}"), true},
@@ -186,27 +263,28 @@ func conformanceCases() []conformanceCase {
 		{"scheduled job run policy", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\", timeout: 45m, catch_up: false}}"), true},
 		{"scheduled job invalid timeout", wl("j: {image: nginx, role: job, data_effect: none, schedule: {cron: \"0 4 * * *\", timeout: forever}}"), false},
 		{"daemon role", wl("db: {image: postgres:16, role: daemon}"), true},
-		{"routes list", wl("w: {image: nginx, routes: [{domain: x, port: 4317, protocol: tcp, scheme: h2c}]}"), true},
-		{"provider-qualified route middlewares", wl("w: {image: nginx, routes: [{domain: x, port: 8080, middlewares: [auth@file, rate-limit@file]}]}") + "proxy: {config: traefik}\n", true},
-		{"unqualified route middleware", wl("w: {image: nginx, routes: [{domain: x, port: 8080, middlewares: [auth]}]}"), false},
-		{"repeated route middleware remains ordered", wl("w: {image: nginx, routes: [{domain: x, port: 8080, middlewares: [auth@file, auth@file]}]}") + "proxy: {config: traefik}\n", true},
-		{"managed route middleware without proxy config", wl("w: {image: nginx, routes: [{domain: x, port: 8080, middlewares: [auth@file]}]}"), false},
-		{"operator proxy owns route middleware", wl("w: {image: nginx, routes: [{domain: x, port: 8080, middlewares: [auth@file]}]}") + "proxy: {managed: false}\n", true},
-		{"bad protocol", wl("w: {image: nginx, routes: [{domain: x, port: 1, protocol: udp}]}"), false},
+		{"routes list", wl("w: {image: nginx, routes: [{hostname: x, port: 4317, protocol: tcp, scheme: h2c}]}"), true},
+		{"provider-qualified route middlewares", wl("w: {image: nginx, routes: [{hostname: x, port: 8080, middlewares: [auth@file, rate-limit@file]}]}") + "proxy: {config: traefik}\n", true},
+		{"unqualified route middleware", wl("w: {image: nginx, routes: [{hostname: x, port: 8080, middlewares: [auth]}]}"), false},
+		{"repeated route middleware remains ordered", wl("w: {image: nginx, routes: [{hostname: x, port: 8080, middlewares: [auth@file, auth@file]}]}") + "proxy: {config: traefik}\n", true},
+		{"managed route middleware without proxy config", wl("w: {image: nginx, routes: [{hostname: x, port: 8080, middlewares: [auth@file]}]}"), false},
+		{"operator proxy owns route middleware", wl("w: {image: nginx, routes: [{hostname: x, port: 8080, middlewares: [auth@file]}]}") + "proxy: {managed: false}\n", true},
+		{"bad protocol", wl("w: {image: nginx, routes: [{hostname: x, port: 1, protocol: udp}]}"), false},
+		{"http route with TLS passthrough", wl("w: {image: nginx, routes: [{hostname: x, port: 443, tls: passthrough}]}"), false},
 		{"absolute compose ref", wl("w: {compose: \"/etc/compose.yml#web\"}"), false},
 		{"relative compose ref", wl("w: {compose: \"compose.yaml#web\"}"), true},
 		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
 		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
 		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
-		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_max_age: 14d}}}}\n", true},
-		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_onebox_version: 0.0.1-m0}}}\n", false},
-		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
+		{"duration in days", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_max_age: 14d}}}}\n", true},
+		{"non-calver minimum version", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_onebox_version: 0.0.1-m0}}}\n", false},
+		{"incomplete plan schema", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
 		// A hook key is a lifecycle seam OR a declared job name. Both halves need
 		// a case: an unlisted seam loads and never fires, and refusing a job name
 		// would break the per-job command override the engine reads.
 		{"hook naming an unlisted seam", min + "hooks: {pre_deploy: {run: scripts/backup.sh}}\n", false},
-		{"hook naming a declared job", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
+		{"hook naming a declared job", "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
 		{"hook naming neither", min + "hooks: {typo_hook: {run: scripts/x.sh}}\n", false},
 		// A settings key is interpolated into a generated shell command without
 		// quoting, so the grammar is the only thing between a project file and
@@ -240,7 +318,7 @@ func conformanceCases() []conformanceCase {
 		{"unknown enum: strategy", wl("w: {image: nginx, health: /h, strategy: sideways}"), false},
 		{"unknown enum: role", wl("w: {image: nginx, role: sidecar}"), false},
 		{"unknown enum: data_effect", wl("j: {image: nginx, role: job, data_effect: maybe}"), false},
-		{"unknown enum: route protocol", wl("w: {image: nginx, routes: [{domain: x, port: 1, protocol: quic}]}"), false},
+		{"unknown enum: route protocol", wl("w: {image: nginx, routes: [{hostname: x, port: 1, protocol: quic}]}"), false},
 		{"unknown enum: persistence mode", wl("w: {image: nginx, persistence: {mode: sometimes}}"), false},
 		// Several problems at once. What matters is that the refusal is
 		// deterministic: an author fixing one thing at a time must not see the
@@ -250,7 +328,7 @@ func conformanceCases() []conformanceCase {
 		{"encrypted env file entry", min + "runtime: {env_files: [{file: secrets.env, provider: sops}]}\n", true},
 		{"unknown env file provider", min + "runtime: {env_files: [{file: s.env, provider: vault}]}\n", false},
 		{"env file entry without a file", min + "runtime: {env_files: [{provider: sops}]}\n", false},
-		{"environment-scoped env files", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
+		{"environment-scoped env files", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
 		{"http check without a path", min + "checks: {http: [{workload: ledger}]}\n", false},
 		{"url check carrying an exec field", min + "checks: {url: [{url: \"https://x/\", run: \"echo\"}]}\n", false},
 		{"url check with contains and advisory", min + "checks: {url: [{url: \"https://x/\", contains: \"<div\", advisory: true}]}\n", true},
@@ -292,15 +370,13 @@ func conformanceCases() []conformanceCase {
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
-		{"no environments", "api_version: onebox.run/v1\napp: a\nenvironments: {}\nimage: nginx\n", false},
+		{"no environments", "api_version: onebox.run/v2\napp: a\nenvironments: {}\nimage: nginx\n", false},
 		{"no workload source at all", base, false},
 		{"shorthand and workloads together", min + "workloads: {w: {image: nginx}}\n", false},
 		{"two sources on a workload", wl("w: {image: nginx, build: .}"), false},
-		{"domain without port", wl("w: {image: nginx, domain: x.com}"), false},
-		{"domain and routes together", wl("w: {image: nginx, domain: x.com, port: 1, routes: [{domain: y, port: 2}]}"), false},
 		{"workload and service share a name", wl("db: {image: nginx}") + "services: {db: 18}\n", false},
 		{"unknown prerequisite", wl("w: {image: nginx, needs: [ghost]}"), false},
-		{"components is not a field", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
+		{"components is not a field", "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
 		{"missing api_version", "app: a\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 	}
 }
@@ -449,7 +525,7 @@ func TestRollingWorkloadCannotPublishFixedHostPort(t *testing.T) {
 // truncating scheme is not injective and volume names are permanent.
 func TestOverLongNameRefused(t *testing.T) {
 	long := strings.Repeat("a", 40)
-	y := "api_version: onebox.run/v1\napp: " + long + "\nenvironments: {p: {server: h}}\n" +
+	y := "api_version: onebox.run/v2\napp: " + long + "\nenvironments: {p: {server: h}}\n" +
 		"workloads: {" + strings.Repeat("w", 30) + ": {image: nginx}}\n"
 	_, err := LoadBytes([]byte(y), "ob.yml")
 	if err == nil {
@@ -505,7 +581,7 @@ func keysOf[V any](m map[string]V) []string {
 // "dependency failed to start: container has no healthcheck configured". A
 // default must not describe something the container engine cannot do.
 func TestNeedConditionResolvesAgainstTheDependency(t *testing.T) {
-	y := `api_version: onebox.run/v1
+	y := `api_version: onebox.run/v2
 app: app
 environments: {production: {server: h}}
 workloads:
@@ -533,7 +609,7 @@ workloads:
 // softened, but an explicit request must be honoured or refused — never
 // quietly turned into something weaker.
 func TestExplicitHealthyOnAHealthlessDependencyIsRefused(t *testing.T) {
-	y := `api_version: onebox.run/v1
+	y := `api_version: onebox.run/v2
 app: app
 environments: {production: {server: h}}
 workloads:
@@ -550,12 +626,12 @@ workloads:
 // Two workloads on one address is an outage nobody can explain: the proxy
 // accepts both and routes to one, chosen by a rule the author never wrote.
 func TestRouteCollisionIsRefusedNamingBoth(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
-  web:    {role: application, image: x:1, domain: shop.example.com, port: 80}
-  legacy: {role: application, image: y:1, domain: shop.example.com, port: 90}
+  web:    {role: application, image: x:1, routes: [{hostname: shop.example.com, port: 80}]}
+  legacy: {role: application, image: y:1, routes: [{hostname: shop.example.com, port: 90}]}
 `), "ob.yml")
 	if err == nil {
 		t.Fatal("two workloads claiming one address must be refused")
@@ -569,7 +645,7 @@ workloads:
 // The same host on two listeners is how a project serves HTTP and gRPC side by
 // side. Refusing that would reject correct projects.
 func TestSameHostOnDistinctEntrypointsIsAllowed(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -577,12 +653,12 @@ workloads:
     role: application
     image: x:1
     routes:
-      - {domain: shop.example.com, path: /, port: 80, entrypoint: websecure}
+      - {hostname: shop.example.com, path: /, port: 80, entrypoint: websecure}
   grpc:
     role: application
     image: y:1
     routes:
-      - {domain: shop.example.com, path: /, port: 90, entrypoint: grpc, scheme: h2c}
+      - {hostname: shop.example.com, path: /, port: 90, entrypoint: grpc, scheme: h2c}
 proxy: {entrypoints: {grpc: {port: 8443}}}
 `), "ob.yml")
 	if err != nil {
@@ -592,12 +668,12 @@ proxy: {entrypoints: {grpc: {port: 8443}}}
 
 // Different paths on one host are distinct addresses too.
 func TestSameHostDifferentPathsIsAllowed(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
-  web: {role: application, image: x:1, routes: [{domain: shop.example.com, path: /, port: 80}]}
-  api: {role: application, image: y:1, routes: [{domain: shop.example.com, path: /api, port: 90}]}
+  web: {role: application, image: x:1, routes: [{hostname: shop.example.com, path: /, port: 80}]}
+  api: {role: application, image: y:1, routes: [{hostname: shop.example.com, path: /api, port: 90}]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatalf("distinct paths are distinct addresses: %v", err)
@@ -608,11 +684,11 @@ workloads:
 // `managed: false` silently threw the routes away, and a project that declared
 // a domain deployed something nothing could reach.
 func TestRoutesSurviveAnUnmanagedProxy(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
-  web: {role: application, image: x:1, domain: shop.example.com, port: 80}
+  web: {role: application, image: x:1, routes: [{hostname: shop.example.com, port: 80}]}
 proxy: {managed: false}
 `), "ob.yml")
 	if err != nil {
@@ -633,11 +709,11 @@ proxy: {managed: false}
 
 // With nothing to route, a declared route is a promise nobody keeps.
 func TestRouteWithoutAProxyIsRefused(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
-  web: {role: application, image: x:1, domain: shop.example.com, port: 80}
+  web: {role: application, image: x:1, routes: [{hostname: shop.example.com, port: 80}]}
 proxy: {kind: none}
 `), "ob.yml")
 	if err == nil {
@@ -658,7 +734,7 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 		"role: daemon, image: nginx",
 		"role: job, image: nginx, data_effect: none",
 	} {
-		_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"+
+		_, err := LoadBytes([]byte("api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\n"+
 			"workloads: {w: {"+role+", replicaz: 3}}\n"), "ob.yml")
 		if err == nil {
 			t.Errorf("%s: an unknown field must be refused", role)
@@ -690,7 +766,7 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 // deploy — but it is reviewed, and a value that reads as a timezone while
 // appending a root command to a scheduling unit defeats the review.
 func TestHostileValuesAreRefusedAtTheGrammar(t *testing.T) {
-	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"
+	base := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\n"
 	for _, tt := range []struct{ name, yaml string }{
 		{"timezone injecting a unit directive",
 			base + `workloads: {w: {role: application, image: x:1}, j: {role: job, image: x:1, data_effect: none,` +
@@ -714,7 +790,7 @@ func TestHostileValuesAreRefusedAtTheGrammar(t *testing.T) {
 
 // The same fields must still accept what real projects write.
 func TestOrdinaryValuesStillLoad(t *testing.T) {
-	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"
+	base := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\n"
 	for _, tt := range []struct{ name, yaml string }{
 		{"IANA timezone",
 			base + `workloads: {w: {role: application, image: x:1}, j: {role: job, image: x:1, data_effect: none,` +
@@ -739,7 +815,7 @@ func TestOrdinaryValuesStillLoad(t *testing.T) {
 // directory — corruption, with nothing in the runtime saying so until the damage
 // is done.
 func TestDurableStateCannotBeReplicated(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -761,7 +837,7 @@ workloads:
 // Replicas over a shared volume that is not state — an uploads directory, a
 // cache — stay legal. Refusing those would reject correct projects.
 func TestReplicasOverNonDurableStorageAreAllowed(t *testing.T) {
-	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	if _, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -778,7 +854,7 @@ workloads:
 // A managed service has no replica count at all: one instance is the only shape
 // the contract can run.
 func TestAManagedServiceHasNoReplicaCount(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads: {web: {role: application, image: x:1}}
@@ -803,15 +879,15 @@ func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
 		{"verification", base + "verification: [{url: \"https://x/\", contains: ok}]\n"},
 		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
 		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
-		{"policy migration_backup_max_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
+		{"policy migration_backup_max_age", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
 		// The abbreviation pass: maximum_/minimum_ became max_/min_, so the
 		// spelled-out forms are now the ones that must not load.
 		{"probe maximum_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, maximum_age: 5m}}}\n"},
 		{"drill maximum_age", base + "services: {postgres: {version: 18, backup: {target: t, drill: {maximum_age: 7d}}}}\n"},
 		{"backup maximum_data_loss", base + "services: {postgres: {version: 18, backup: {target: t, maximum_data_loss: 15m}}}\n"},
-		{"policy minimum_onebox_version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: v2026.8.0}}}\n"},
-		{"policy minimum_plan_schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: x}}}\n"},
-		{"policy migrations backup_maximum_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 24h}}}}\n"},
+		{"policy minimum_onebox_version", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: v2026.8.0}}}\n"},
+		{"policy minimum_plan_schema", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: x}}}\n"},
+		{"policy migrations backup_maximum_age", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 24h}}}}\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := LoadBytes([]byte(c.yaml), "ob.yml")

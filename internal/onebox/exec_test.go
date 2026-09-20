@@ -14,7 +14,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const execProjectYAML = `api_version: onebox.run/v1
+const execProjectYAML = `api_version: onebox.run/v2
 app: shop
 environments:
   production:
@@ -23,7 +23,7 @@ workloads:
   api:
     image: nginx
     port: 3000
-    domain: shop.example.com
+    hostname: shop.example.com
 `
 
 func execService(t *testing.T, connect Connector) *Service {

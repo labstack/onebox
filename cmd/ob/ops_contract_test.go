@@ -24,7 +24,7 @@ func writeOpsContractProject(t *testing.T, dir string, encrypted bool) string {
 		}
 	}
 	path := filepath.Join(dir, "project.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
+	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: deploy@example.invalid}
@@ -169,7 +169,7 @@ func TestDestroyConfirmationMismatchIsCancelledBeforeTargetContact(t *testing.T)
 func TestServiceLogsAndExecNDJSONTagChannelsAndTargetKind(t *testing.T) {
 	dir := t.TempDir()
 	config := filepath.Join(dir, "project.yml")
-	if err := os.WriteFile(config, []byte(`api_version: onebox.run/v1
+	if err := os.WriteFile(config, []byte(`api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: deploy@example.invalid}

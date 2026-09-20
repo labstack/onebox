@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const canonicalProject = `api_version: onebox.run/v1
+const canonicalProject = `api_version: onebox.run/v2
 app: ledger
 environments:
   production: {server: root@1.2.3.4}
@@ -13,8 +13,8 @@ environments:
     server: root@5.6.7.8
     overrides: {workloads: {ledger: {replicas: 3}}}
 build: .
-domain: ledger.example.com
-port: 8080
+routes:
+  - {hostname: ledger.example.com, port: 8080}
 `
 
 func originsFor(t *testing.T, env string) map[string]Origin {
@@ -40,14 +40,14 @@ func originsFor(t *testing.T, env string) map[string]Origin {
 func TestOriginsDistinguishWhatWasWritten(t *testing.T) {
 	o := originsFor(t, "production")
 	for path, want := range map[string]Origin{
-		"app":                            OriginAuthored,
-		"workloads.ledger.build.context": OriginAuthored,
-		"workloads.ledger.domain":        OriginShorthand,
-		"workloads.ledger.port":          OriginShorthand,
-		"workloads.ledger.replicas":      OriginDefault,
-		"workloads.ledger.strategy":      OriginDefault,
-		"base_path":                      OriginDefault,
-		"proxy.network":                  OriginDefault,
+		"app":                                 OriginAuthored,
+		"workloads.ledger.build.context":      OriginAuthored,
+		"workloads.ledger.routes[0].hostname": OriginAuthored,
+		"workloads.ledger.routes[0].port":     OriginAuthored,
+		"workloads.ledger.replicas":           OriginDefault,
+		"workloads.ledger.strategy":           OriginDefault,
+		"base_path":                           OriginDefault,
+		"proxy.network":                       OriginDefault,
 	} {
 		if o[path] != want {
 			t.Errorf("%s = %q, want %q", path, o[path], want)
@@ -88,8 +88,8 @@ func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
 	if !strings.Contains(out, "replicas: 3 # environment-override") {
 		t.Errorf("the override should be marked\n%s", out)
 	}
-	if !strings.Contains(out, "# default") || !strings.Contains(out, "# shorthand") {
-		t.Errorf("defaults and shorthand should be marked\n%s", out)
+	if !strings.Contains(out, "# default") {
+		t.Errorf("defaults should be marked\n%s", out)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "app: ledger") && strings.Contains(line, "#") {
@@ -216,14 +216,14 @@ func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testin
 // silently absent, and the canonical form — the thing people read to find out
 // what Onebox understood — did not show it either.
 func TestEveryDefaultAppearsAsDerived(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
   web:
     role: application
     image: nginx
-    routes: [{domain: shop.example.com, port: 80}]
+    routes: [{hostname: shop.example.com, port: 80}]
     volumes: [{name: data, path: /data}]
     published_ports: [{host: 9000, container: 9000}]
     persistence: {}

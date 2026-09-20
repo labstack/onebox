@@ -39,7 +39,7 @@ func canonicalOf(t *testing.T, body string) string {
 	return string(out)
 }
 
-const shapeHead = "api_version: onebox.run/v1\napp: shop\n"
+const shapeHead = "api_version: onebox.run/v2\napp: shop\n"
 
 // 3.4 — a scalar shorthand and its object form are the same project.
 //
@@ -54,8 +54,8 @@ func TestEveryShorthandEqualsItsObjectForm(t *testing.T) {
 			"environments: {production: {server: root@h}}\nimage: {reference: nginx}\n",
 		},
 		"health": {
-			"environments: {production: {server: root@h}}\nimage: nginx\ndomain: x\nport: 8080\nhealth: /healthz\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\ndomain: x\nport: 8080\nhealth: {http: /healthz}\n",
+			"environments: {production: {server: root@h}}\nimage: nginx\nport: 8080\nhealth: /healthz\n",
+			"environments: {production: {server: root@h}}\nimage: nginx\nport: 8080\nhealth: {http: /healthz}\n",
 		},
 		"server": {
 			"environments: {production: {server: root@203.0.113.10}}\nimage: nginx\n",
@@ -103,7 +103,7 @@ func TestCanonicalOutputIsStableAcrossRuns(t *testing.T) {
   staging: {server: root@h2}
 workloads:
   zebra: {role: worker, image: nginx}
-  alpha: {role: application, image: nginx, health: /healthz, domain: a.example.com, port: 1}
+  alpha: {role: application, image: nginx, health: /healthz, routes: [{hostname: a.example.com, port: 1}]}
   middle: {role: worker, image: nginx}
 services:
   redis: "7.4"
@@ -128,7 +128,7 @@ notifications:
 func TestInspectionChangesNothingOnDisk(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := shapeHead + "environments: {production: {server: root@h}}\nimage: nginx\ndomain: shop.example.com\nport: 3000\n"
+	body := shapeHead + "environments: {production: {server: root@h}}\nimage: nginx\nroutes: [{hostname: shop.example.com, port: 3000}]\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

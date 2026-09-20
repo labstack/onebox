@@ -1,4 +1,4 @@
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: paperless
 environments:
   production: {server: root@TARGET}
@@ -6,8 +6,8 @@ workloads:
   webserver:
     role: application
     image: ghcr.io/paperless-ngx/paperless-ngx:2.14.7
-    domain: paperless.example.com
-    port: 8000
+    routes:
+      - {hostname: paperless.example.com, port: 8000}
     needs: [db, broker, gotenberg, tika]
     env:
       PAPERLESS_REDIS: redis://broker:6379

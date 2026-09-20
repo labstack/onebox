@@ -1,7 +1,7 @@
 # Immich. Its database is Postgres with the pgvector extension, which is not
 # the image the managed driver runs — so it is a daemon the user owns, which is
 # exactly the boundary the contract draws. Also the heaviest images in the set.
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: immich
 environments:
   production: {server: root@TARGET}
@@ -9,8 +9,8 @@ workloads:
   server:
     role: application
     image: ghcr.io/immich-app/immich-server:v1.125.7
-    domain: photos.example.com
-    port: 2283
+    routes:
+      - {hostname: photos.example.com, port: 2283}
     needs: [{name: database, condition: healthy}, {name: redis, condition: healthy}]
     volumes: [{name: upload, path: /usr/src/app/upload}]
     env:

@@ -1,4 +1,4 @@
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: n8n
 environments:
   production: {server: root@TARGET}
@@ -6,8 +6,8 @@ workloads:
   n8n:
     role: application
     image: docker.n8n.io/n8nio/n8n:1.73.1
-    domain: n8n.example.com
-    port: 5678
+    routes:
+      - {hostname: n8n.example.com, port: 5678}
     needs: [postgres, redis]
     env:
       DB_TYPE: postgresdb

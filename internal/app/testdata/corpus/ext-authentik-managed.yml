@@ -12,7 +12,7 @@
 # The secret key is encrypted and the rest of the configuration is not, so the
 # frozen digest also covers a list mixing a plaintext entry with an encrypted
 # one — including the name the runtime references for the decrypted file.
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: authentik
 environments:
   production: {server: root@example.com}
@@ -26,8 +26,8 @@ workloads:
     strategy: recreate
     image: ghcr.io/goauthentik/server:2026.5.6
     command: [server]
-    domain: auth.example.com
-    port: 9000
+    routes:
+      - {hostname: auth.example.com, port: 9000}
     needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
     published_ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
     volumes:

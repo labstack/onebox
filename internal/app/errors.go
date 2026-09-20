@@ -31,8 +31,6 @@ var errorCodes = map[string]string{
 	"stateful_replicas":                   "a workload keeping durable state asks for more than one replica",
 	"strategy_ungated":                    "a rolling release is asked for by a workload with no health check to gate it",
 	"shorthand_and_workloads":             "top-level shorthand cannot be combined with a workloads block",
-	"routing_exclusive":                   "the domain shorthand and the routes list say the same thing twice",
-	"routing_incomplete":                  "domain and port are declared together or not at all",
 	"route_collision":                     "two workloads claim the same address",
 	"route_without_proxy":                 "a route is declared with nothing to route it",
 	"identifier_collision":                "a name is used by both a workload and a service",

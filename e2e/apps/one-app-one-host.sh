@@ -85,7 +85,7 @@ name, routed = None, None
 for line in doc.splitlines():
     if line.startswith("  ") and line.endswith(":") and not line.startswith("    "):
         name = line.strip().rstrip(":")
-    if name and ("domain:" in line or "routes:" in line) and routed is None:
+    if name and "routes:" in line and routed is None:
         routed = name
 print(routed or "")
 ')

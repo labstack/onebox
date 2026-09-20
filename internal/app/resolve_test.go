@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const overrideFixture = `api_version: onebox.run/v1
+const overrideFixture = `api_version: onebox.run/v2
 app: ledger
 environments:
   production:
@@ -116,7 +116,7 @@ func TestResolveDoesNotLeakBetweenEnvironments(t *testing.T) {
 }
 
 func TestRouteMiddlewareOverrideRequiresManagedProxyConfig(t *testing.T) {
-	body := `api_version: onebox.run/v1
+	body := `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@prod}
@@ -125,11 +125,11 @@ environments:
     overrides:
       workloads:
         web:
-          routes: [{domain: shop.example.com, path: /, port: 3000, entrypoint: websecure, protocol: http, scheme: http, tls: terminate, middlewares: [auth@file]}]
+          routes: [{hostname: shop.example.com, path: /, port: 3000, entrypoint: websecure, protocol: http, scheme: http, tls: terminate, middlewares: [auth@file]}]
 workloads:
   web:
     image: nginx
-    routes: [{domain: shop.example.com, port: 3000}]
+    routes: [{hostname: shop.example.com, port: 3000}]
 `
 	p, err := LoadBytes([]byte(body), "ob.yml")
 	if err != nil {
@@ -245,7 +245,7 @@ func TestRenderResolvesAutomatically(t *testing.T) {
 // permitted set would accept an override naming something no service has, and
 // accepting it silently is how an operator comes to believe a setting applied.
 func TestOverridingAWithdrawnFieldIsRefused(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@h}
@@ -281,7 +281,7 @@ services: {postgres: 17}
 // time — blamed on a `replicas` override nobody wrote. The inference is a
 // derived read now, and the document is never edited.
 func TestAProjectThatLoadsAlsoResolves(t *testing.T) {
-	yaml := `api_version: onebox.run/v1
+	yaml := `api_version: onebox.run/v2
 app: a
 environments:
   production:

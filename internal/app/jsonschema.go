@@ -22,7 +22,7 @@ import (
 
 // SchemaID is both the schema identity and its stable, publicly retrievable
 // location. The main-branch path stays fixed across Onebox releases.
-const SchemaID = "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json"
+const SchemaID = "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v2.schema.json"
 
 // JSONSchema is the published contract, ready to write.
 func JSONSchema() ([]byte, error) {
@@ -35,7 +35,7 @@ func JSONSchema() ([]byte, error) {
 	}
 	doc["$schema"] = "https://json-schema.org/draft/2020-12/schema"
 	doc["$id"] = SchemaID
-	doc["title"] = "Onebox project (onebox.run/v1)"
+	doc["title"] = "Onebox project (onebox.run/v2)"
 	doc["description"] = "One application, its workloads, the services it needs, and how a release rolls out."
 
 	// The constraints the loader enforces, so the schema refuses what the
@@ -344,7 +344,6 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "operator_run"}, enum(eJobOperatorRun)},
 	{[]string{"workloads", "*", "data_effect"}, enum(eDataEffect)},
 	{[]string{"workloads", "*", "compose"}, pattern(gComposeRef)},
-	{[]string{"workloads", "*", "domain"}, pattern(gRouteHost)},
 	{[]string{"workloads", "*", "port"}, portBounds()},
 	{[]string{"workloads", "*", "working_dir"}, pattern(gAbsPath)},
 	{[]string{"workloads", "*", "env_files", "items", "file"}, pattern(gRepoPath)},
@@ -388,32 +387,49 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "resources", "cpus"}, pattern(gCpus)},
 	{[]string{"workloads", "*", "persistence", "mode"}, enum(ePersistence)},
 	{[]string{"workloads", "*", "routes", "items"}, map[string]any{
-		"oneOf": []any{
-			map[string]any{"required": []any{"domain"}, "not": map[string]any{"required": []any{"wildcard_suffix"}}},
-			map[string]any{"required": []any{"wildcard_suffix"}, "not": map[string]any{"required": []any{"domain"}}},
-		},
-		"allOf": []any{map[string]any{
-			"if": map[string]any{
-				"required":   []any{"domain"},
-				"properties": map[string]any{"domain": map[string]any{"const": "*"}},
-			},
-			"then": map[string]any{
-				"required": []any{"protocol", "tls"},
-				"properties": map[string]any{
-					"protocol": map[string]any{"const": "tcp"},
-					"tls":      map[string]any{"enum": []any{"none", "passthrough"}},
+		"required": []any{"hostname"},
+		"allOf": []any{
+			map[string]any{
+				"if": map[string]any{
+					"required":   []any{"hostname"},
+					"properties": map[string]any{"hostname": map[string]any{"const": "*"}},
+				},
+				"then": map[string]any{
+					"required": []any{"protocol", "tls"},
+					"properties": map[string]any{
+						"protocol": map[string]any{"const": "tcp"},
+						"tls":      map[string]any{"enum": []any{"none", "passthrough"}},
+					},
 				},
 			},
-		}},
+			map[string]any{
+				"if": map[string]any{
+					"required":   []any{"hostname"},
+					"properties": map[string]any{"hostname": map[string]any{"pattern": `^\*\.`}},
+				},
+				"then": map[string]any{
+					"properties": map[string]any{"protocol": map[string]any{"const": "http"}},
+				},
+			},
+			map[string]any{
+				"if": map[string]any{
+					"required":   []any{"tls"},
+					"properties": map[string]any{"tls": map[string]any{"const": "passthrough"}},
+				},
+				"then": map[string]any{
+					"required":   []any{"protocol"},
+					"properties": map[string]any{"protocol": map[string]any{"const": "tcp"}},
+				},
+			},
+		},
 	}},
-	{[]string{"workloads", "*", "routes", "items", "domain"}, map[string]any{"anyOf": []any{
-		pattern(gRouteHost),
+	{[]string{"workloads", "*", "routes", "items", "hostname"}, map[string]any{"anyOf": []any{
+		map[string]any{
+			"pattern":   gRouteHostname.pattern.String(),
+			"maxLength": 253,
+		},
 		map[string]any{"const": "*"},
 	}}},
-	{[]string{"workloads", "*", "routes", "items", "wildcard_suffix"}, map[string]any{
-		"pattern":   gWildcardSuffix.pattern.String(),
-		"maxLength": 253,
-	}},
 	{[]string{"workloads", "*", "routes", "items", "path"}, pattern(gURLPath)},
 	{[]string{"workloads", "*", "routes", "items", "port"}, portBounds()},
 	{[]string{"workloads", "*", "routes", "items", "protocol"}, enum(eRouteProtocol)},
@@ -553,7 +569,7 @@ func applyRoleRules(doc map[string]any) {
 	sources := []any{"build", "image", "compose"}
 	doc["not"] = map[string]any{"allOf": []any{
 		map[string]any{"required": []any{"workloads"}},
-		map[string]any{"anyOf": anyRequired(append(append([]any{}, sources...), "domain", "port", "health", "routes"))},
+		map[string]any{"anyOf": anyRequired(append(append([]any{}, sources...), "port", "health", "routes"))},
 	}}
 
 	// A project must describe something to run: a non-empty workloads block,
@@ -583,20 +599,6 @@ func applyRoleRules(doc map[string]any) {
 		// Exactly one source. A workload with none cannot run and a workload
 		// with two does not say which image it is.
 		map[string]any{"oneOf": anyRequired(sources)},
-		// The domain shorthand and the routes list say the same thing twice,
-		// and domain without a port does not say where to send the traffic.
-		map[string]any{"not": map[string]any{"allOf": []any{
-			map[string]any{"anyOf": anyRequired([]any{"domain", "port"})},
-			map[string]any{"required": []any{"routes"}},
-		}}},
-		map[string]any{
-			"if":   map[string]any{"required": []any{"domain"}},
-			"then": map[string]any{"required": []any{"port"}},
-		},
-		map[string]any{
-			"if":   map[string]any{"required": []any{"port"}},
-			"then": map[string]any{"required": []any{"domain"}},
-		},
 		// A published host socket is singular, so it cannot be held by both
 		// sides of a rolling handover. Include the authored default case:
 		// application + health + no strategy is rolling after normalization.

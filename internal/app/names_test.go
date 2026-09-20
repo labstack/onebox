@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const namesFixture = `api_version: onebox.run/v1
+const namesFixture = `api_version: onebox.run/v2
 app: ledger
 environments:
   production: {server: root@1.2.3.4}
@@ -17,8 +17,8 @@ workloads:
     image: nginx
     replicas: 3
     routes:
-      - {domain: ledger.example.com, port: 8080}
-      - {domain: api.ledger.example.com, port: 8080}
+      - {hostname: ledger.example.com, port: 8080}
+      - {hostname: api.ledger.example.com, port: 8080}
     volumes: [{name: uploads, path: /var/lib/ledger/uploads}, {source: ./seed, path: /seed, mode: ro}]
   worker:
     role: worker
@@ -225,9 +225,9 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 	}
 }
 
-// TestScalarRoutingNormalises: the domain/port shorthand becomes one route with
-// documented defaults, so generation never sees two shapes.
-func TestScalarRoutingNormalises(t *testing.T) {
+// TestNormalisedRoutesReturnsDeclaredRoutes keeps generation behind one route
+// accessor even though the public contract now has only the explicit list form.
+func TestNormalisedRoutesReturnsDeclaredRoutes(t *testing.T) {
 	p, err := LoadBytes([]byte(min), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestScalarRoutingNormalises(t *testing.T) {
 		t.Fatalf("got %d routes, want 1", len(routes))
 	}
 	r := routes[0]
-	if r.Domain != "ledger.example.com" || r.Port != 8080 || r.Path != "/" ||
+	if r.Hostname != "ledger.example.com" || r.Port != 8080 || r.Path != "/" ||
 		r.Protocol != "http" || r.Scheme != "http" || r.TLS != "terminate" {
 		t.Fatalf("normalised route = %+v", r)
 	}

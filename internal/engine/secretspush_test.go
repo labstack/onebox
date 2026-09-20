@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const secretGraphProject = `api_version: onebox.run/v1
+const secretGraphProject = `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: deploy@example.invalid}
@@ -22,7 +22,7 @@ workloads:
   web:
     image: nginx
     port: 3000
-    domain: shop.example.com
+    hostname: shop.example.com
     env_files:
       - {file: first.enc.env, provider: sops}
       - {file: second.enc.env, provider: sops}

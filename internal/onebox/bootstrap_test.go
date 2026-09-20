@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const bootstrapBuildProject = `api_version: onebox.run/v1
+const bootstrapBuildProject = `api_version: onebox.run/v2
 app: demo
 environments: {production: {server: deploy@example.invalid}}
 runtime:

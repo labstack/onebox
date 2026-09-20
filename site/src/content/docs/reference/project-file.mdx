@@ -1,7 +1,7 @@
 ---
 title: Project file
 description: The shape of ob.yml — required keys, shorthand forms, and where each block lives.
-summary: Overview of the onebox.run/v1 project file — the block map, every scalar shorthand, and the two environment-value precedence rules.
+summary: Overview of the onebox.run/v2 project file — the block map, every scalar shorthand, and the two environment-value precedence rules.
 sidebar:
   order: 1
 read_when:
@@ -10,7 +10,7 @@ read_when:
   - "Working out which block a field belongs to"
 ---
 
-`onebox.run/v1` is the contract for one application on one host. It goes in
+`onebox.run/v2` is the contract for one application on one host. It goes in
 `ob.yml` at the root of your repository. `ob.yaml` is accepted automatically
 when `ob.yml` is absent, and `-c` accepts either spelling or any explicit path.
 
@@ -20,12 +20,46 @@ from a `workloads` block or the top-level shorthand.
 Start with the schema reference so your editor can help while you type:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
-api_version: onebox.run/v1
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v2.schema.json
+api_version: onebox.run/v2
 ```
 
 `ob schema --out onebox.schema.json` writes a local copy, and `ob init` puts the
 published reference on the first line of a scaffolded project.
+
+## Migrating from v1
+
+Version 2 makes every ingress rule explicit and uses the conventional
+`hostname` name for both exact hosts and wildcard hosts. Change
+`api_version: onebox.run/v1` to `api_version: onebox.run/v2`, then migrate route
+fields as follows:
+
+```yaml
+# v1 scalar route shorthand
+domain: shop.example.com
+port: 3000
+
+# v2
+routes:
+  - hostname: shop.example.com
+    port: 3000
+```
+
+```yaml
+# v1 wildcard route
+routes:
+  - wildcard_suffix: preview.example.com
+    port: 3000
+
+# v2: a complete leftmost wildcard label, matching one label only
+routes:
+  - hostname: "*.preview.example.com"
+    port: 3000
+```
+
+The v2 loader rejects v1 project files instead of silently changing their
+meaning. The workload-level `port` field remains available as the default
+container port for HTTP health checks; it no longer creates an ingress route.
 
 ## The block map
 
@@ -55,8 +89,8 @@ generated runtime.
 
 ## Shorthand
 
-A scalar form, once accepted, is accepted **permanently**. These are contract,
-not convenience that might be withdrawn.
+A scalar form accepted by a contract version remains accepted for that version.
+These are contract, not convenience that changes within a version.
 
 | Written as | Means |
 | --- | --- |
@@ -73,8 +107,9 @@ not convenience that might be withdrawn.
 ### Top-level workload shorthand
 
 A single-workload project may write the workload's own fields at the top level
-instead of a `workloads` block: `build`, `image`, `compose`, `domain`, `port`,
-`health`, `routes`.
+instead of a `workloads` block: `build`, `image`, `compose`, `port`, `health`,
+`routes`. Ingress is always declared through `routes`; v2 removes the v1 scalar
+`domain`/`port` route shorthand.
 
 Mixing the two is `shorthand_and_workloads` — it would be ambiguous which
 workload the top-level fields describe. Shorthand also needs `app` to attach the
@@ -179,8 +214,9 @@ guidance rather than silently starting a proxy with missing or stale routes.
 
 ### Wildcard host routes
 
-Use `wildcard_suffix` when one HTTP workload should receive every immediate
-subdomain below a suffix:
+Use a wildcard `hostname` when one HTTP workload should receive every immediate
+subdomain below a suffix. The complete left-most label is `*`, matching the
+convention used by TLS certificates and common ingress APIs:
 
 ```yaml
 proxy:
@@ -193,19 +229,20 @@ workloads:
   preview:
     image: ghcr.io/acme/preview:1.0.0
     routes:
-      - {wildcard_suffix: preview.example.com, port: 3000}
+      - {hostname: "*.preview.example.com", port: 3000}
 ```
 
 This matches `branch.preview.example.com`, but not the suffix itself or
-`a.branch.preview.example.com`. Declare the apex as a separate exact `domain`
-route when it should be served too. A route declares exactly one of `domain`
-or `wildcard_suffix`; Onebox does not accept authored regular expressions or a
-bare catch-all. It renders the suffix as the anchored Traefik rule
+`a.branch.preview.example.com`. Declare the apex as a separate exact `hostname`
+route when it should be served too. Onebox accepts only exact hostnames or a
+complete left-most wildcard label; it does not accept authored regular
+expressions, partial wildcards, or a bare HTTP catch-all. It renders the
+wildcard hostname as the anchored Traefik rule
 ``HostRegexp(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.preview\.example\.com$`)``.
 Exact and wildcard claims
 that overlap on the same entrypoint,
 protocol, and path are refused instead of relying on implicit proxy priority.
-The existing `domain: "*"` form remains available only for a plaintext or TLS
+The existing `hostname: "*"` form remains available only for a plaintext or TLS
 passthrough TCP route (`protocol: tcp` with `tls: none` or `tls: passthrough`),
 where Traefik requires ``HostSNI(`*`)``;
 it overlaps every TCP host claim on the same entrypoint and path.
@@ -240,11 +277,11 @@ workloads:
   telemetry:
     image: ghcr.io/acme/telemetry-gateway:1.0.0
     routes:
-      - domain: telemetry.example.com
+      - hostname: telemetry.example.com
         entrypoint: otlp-grpc
         port: 4317
         scheme: h2c
-      - domain: telemetry.example.com
+      - hostname: telemetry.example.com
         entrypoint: otlp-http
         port: 4318
 ```
@@ -275,7 +312,7 @@ workloads:
   web:
     image: ghcr.io/acme/shop:1.4.0
     routes:
-      - domain: shop.example.com
+      - hostname: shop.example.com
         path: /admin
         port: 8080
         middlewares:
@@ -304,7 +341,7 @@ generates the runtime from it. Individual services can still be adopted with
 
 ## Evolution
 
-`api_version: onebox.run/v1` is stable. Within it:
+`api_version: onebox.run/v2` is stable. Within it:
 
 - A field is **added**, never repurposed.
 - A scalar form once accepted is accepted **permanently**.

@@ -16,15 +16,15 @@ func writeJumpProject(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
 	body := `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: demo
 environments:
   production:
     server: deploy@example.invalid
     jump: bastion@jump.invalid:2222
 image: ghcr.io/example/app:v1
-domain: demo.example.com
-port: 8080
+routes:
+  - {hostname: demo.example.com, port: 8080}
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -83,15 +83,15 @@ func TestChangingOnlyTheJumpChangesTheBinding(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "ob.yml")
 		body := `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: demo
 environments:
   production:
     server: deploy@example.invalid
     jump: ` + jump + `
 image: ghcr.io/example/app:v1
-domain: demo.example.com
-port: 8080
+routes:
+  - {hostname: demo.example.com, port: 8080}
 `
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

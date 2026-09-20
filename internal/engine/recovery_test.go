@@ -49,6 +49,37 @@ func recoveryWriter(engine *Engine) *journal.Writer {
 	return &journal.Writer{T: engine.T, Names: engine.Names(), DeployID: engineTestDeployReleaseID, Epoch: 2}
 }
 
+func TestLifecycleReplayLoadsV1ReleaseSnapshot(t *testing.T) {
+	target := happyFake()
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "/releases/legacy/ob.snapshot.yml") {
+			return transport.Result{Stdout: `api_version: onebox.run/v1
+app: sample
+environments:
+  production:
+    server: deploy@h
+    overrides:
+      workloads:
+        sample:
+          routes: [{domain: override.example.com, path: /, port: 8081, entrypoint: websecure, protocol: http, scheme: http, tls: none}]
+image: nginx
+routes: [{domain: Example.COM., port: 8080}]
+`}, true
+		}
+		return base(command)
+	}
+	engine := New(testConfig(), testProject(t), target, Options{Environment: "production"})
+	replay, err := engine.engineFromReleaseSnapshotFor(context.Background(), "legacy", "retired-workload cleanup")
+	if err != nil {
+		t.Fatalf("load v1 lifecycle snapshot: %v", err)
+	}
+	routes := replay.Spec.Workloads["sample"].Routes
+	if len(routes) != 1 || routes[0].Hostname != "override.example.com" || routes[0].Port != 8081 {
+		t.Fatalf("replayed routes = %+v", routes)
+	}
+}
+
 func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.T) {
 	target := happyFake()
 	verifyCalls := 0

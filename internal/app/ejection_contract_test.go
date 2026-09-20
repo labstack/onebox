@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const ejectContractProject = `api_version: onebox.run/v1
+const ejectContractProject = `api_version: onebox.run/v2
 app: shop
 environments:
   production:
@@ -22,8 +22,8 @@ workloads:
     env:
       API_TOKEN: super-secret-value
     routes:
-      - {domain: shop.example.com, path: /, port: 3000}
-      - {domain: shop.example.com, path: /api, port: 3001}
+      - {hostname: shop.example.com, path: /, port: 3000}
+      - {hostname: shop.example.com, path: /api, port: 3001}
   worker:
     role: worker
     image: nginx:1.27

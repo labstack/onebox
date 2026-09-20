@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const generationProject = `api_version: onebox.run/v1
+const generationProject = `api_version: onebox.run/v2
 app: shop
 base_path: /srv/onebox
 environments:
@@ -22,7 +22,7 @@ workloads:
   web:
     image: nginx
     port: 3000
-    domain: shop.example.com
+    hostname: shop.example.com
     env_files: [{file: web.enc.env, provider: sops}]
   worker:
     role: worker

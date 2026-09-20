@@ -545,8 +545,8 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		router := n.Router(name, i)
 		kind := "http"
 		rule := fmt.Sprintf("Host(`%s`)", r.HostPattern())
-		if r.WildcardSuffix != "" {
-			suffix := strings.ReplaceAll(r.WildcardSuffix, ".", `\.`)
+		if r.IsWildcard() {
+			suffix := strings.ReplaceAll(r.HostSuffix(), ".", `\.`)
 			rule = fmt.Sprintf("HostRegexp(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.%s$`)", suffix)
 		}
 		if r.Protocol == "tcp" {
@@ -579,7 +579,7 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 			// this same private identity.
 			if p.Proxy.Managed && r.TLS == "terminate" {
 				resolver := ManagedCertificateResolver
-				if r.WildcardSuffix != "" {
+				if r.IsWildcard() {
 					resolver = ManagedWildcardCertificateResolver
 					out[pre+"tls.domains[0].main"] = r.HostPattern()
 				}

@@ -48,7 +48,7 @@ becomes a question rather than a fact.
 - **Refusals that mean something.** `strategy_ungated`, `route_collision`,
   `stateful_replicas` are all statements about the generated runtime, which is
   the only thing that will actually run.
-- **Typed routing.** Two workloads claiming the same entrypoint, protocol, domain
+- **Typed routing.** Two workloads claiming the same entrypoint, protocol, hostname
   and path is `route_collision`, rather than a proxy that accepts both and routes
   to one with nothing saying which.
 

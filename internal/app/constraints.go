@@ -114,14 +114,13 @@ var (
 	gDNSResolver = grammar{"DNS resolver", regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$`),
 		"a lower-case DNS name, IPv4 address, or bracketed IPv6 address followed by a port"}
 
-	// Exact route hosts predate strict hostname validation. Keep accepting their
-	// established spellings (including upper-case and a trailing dot), while
-	// excluding the characters that can escape Traefik's backtick literal.
-	gRouteHost = grammar{"route host", regexp.MustCompile("^[^\\x00-\\x1f\\x7f`*]+$"),
-		"an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing"}
-
-	gWildcardSuffix = grammar{"wildcard DNS suffix", regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`),
-		"a lower-case ASCII or Punycode DNS hostname whose labels contain 1 to 63 characters"}
+	gRouteHostname = grammar{"route hostname", regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`),
+		"a lower-case ASCII or IDNA A-label hostname, optionally prefixed by the complete wildcard label *."}
+	// v1 exact route hosts were deliberately permissive. Immutable v1 release
+	// snapshots must retain that grammar so a v2 runner can still roll them back
+	// or finish their lifecycle; new authored projects never use it.
+	gLegacyRouteHost = grammar{"route host", regexp.MustCompile("^[^\\x00-\\x1f\\x7f`*]+$"),
+		"an exact host with no wildcard, control character or backtick"}
 
 	gCalVer = grammar{"version", buildinfo.ReleaseVersionPattern,
 		"a CalVer release such as v2026.8.0"}

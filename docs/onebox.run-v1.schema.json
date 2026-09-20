@@ -578,10 +578,11 @@
       "type": "object"
     },
     "domain": {
-      "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes.",
+      "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects a host with no control character or backtick.",
       "examples": [
         "shop.example.com"
       ],
+      "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
       "type": "string"
     },
     "environments": {
@@ -1203,6 +1204,9 @@
               "type": "array"
             }
           },
+          "required": [
+            "provider"
+          ],
           "type": "object"
         },
         "entrypoints": {
@@ -1321,10 +1325,11 @@
         },
         "properties": {
           "domain": {
-            "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
+            "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. Expects a host with no control character or backtick.",
             "examples": [
               "shop.example.com"
             ],
+            "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
             "type": "string"
           },
           "entrypoint": {
@@ -1390,6 +1395,8 @@
             "examples": [
               "preview.example.com"
             ],
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
             "type": "string"
           }
         },
@@ -2112,10 +2119,11 @@
             "type": "string"
           },
           "domain": {
-            "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes.",
+            "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects a host with no control character or backtick.",
             "examples": [
               "shop.example.com"
             ],
+            "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
             "type": "string"
           },
           "drain": {
@@ -2750,10 +2758,11 @@
               },
               "properties": {
                 "domain": {
-                  "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
+                  "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. Expects a host with no control character or backtick.",
                   "examples": [
                     "shop.example.com"
                   ],
+                  "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
                   "type": "string"
                 },
                 "entrypoint": {
@@ -2819,6 +2828,8 @@
                   "examples": [
                     "preview.example.com"
                   ],
+                  "maxLength": 253,
+                  "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
                   "type": "string"
                 }
               },

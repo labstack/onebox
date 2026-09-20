@@ -654,13 +654,17 @@ func routesOverlap(a, b Route) bool {
 		return a.WildcardSuffix == b.WildcardSuffix
 	}
 	if a.WildcardSuffix == "" && b.WildcardSuffix == "" {
-		return a.Domain == b.Domain
+		return canonicalRouteHost(a.Domain) == canonicalRouteHost(b.Domain)
 	}
 	if a.WildcardSuffix == "" {
 		a, b = b, a
 	}
-	prefix, ok := strings.CutSuffix(b.Domain, "."+a.WildcardSuffix)
+	prefix, ok := strings.CutSuffix(canonicalRouteHost(b.Domain), "."+a.WildcardSuffix)
 	return ok && prefix != "" && !strings.Contains(prefix, ".")
+}
+
+func canonicalRouteHost(host string) string {
+	return strings.ToLower(strings.TrimSuffix(host, "."))
 }
 
 // checkDerivedNames refuses an over-long generated name rather than truncating.

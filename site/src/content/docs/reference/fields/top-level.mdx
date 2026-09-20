@@ -33,7 +33,7 @@ cannot drift from what `ob validate` accepts.
 | `build.dockerfile` | string | — | Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `build.target` | string | — | Named Dockerfile stage to build. |
 | `compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
-| `domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
+| `domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects a host with no control character or backtick. |
 | `health` | object | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
 | `health.exec` | — | — | Health command as a shell string or direct argument list. |
 | `health.http` | string | — | HTTP path probed inside the container. Expects a path beginning with /. |
@@ -48,7 +48,7 @@ cannot drift from what `ob validate` accepts.
 | `image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
 | `routes` | list | — | Ingress routes exposed by this workload. |
-| `routes[].domain` | string | — | Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. |
+| `routes[].domain` | string | — | Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. Expects a host with no control character or backtick. |
 | `routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
 | `routes[].middlewares` | list | — | Ordered provider-qualified middleware references applied to this route. |
 | `routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |

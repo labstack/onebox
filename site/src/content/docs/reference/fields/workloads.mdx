@@ -34,7 +34,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
 | `<name>.data_effect` | `none` · `migration` · `destructive` · `unknown` | — | Job data impact used by rollback and abort gates. |
 | `<name>.deployment_phase` | `none` · `pre_release` · `post_release` | `none` | Deployment phase for this job: none, pre_release, or post_release. |
-| `<name>.domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. |
+| `<name>.domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects a host with no control character or backtick. |
 | `<name>.drain` | object | — | Signal and timing used to remove a container from traffic before stopping it. |
 | `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.drain.signal` | string | `TERM` | Signal sent to begin graceful shutdown. Expects a signal name such as TERM or QUIT. |
@@ -98,7 +98,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.resources.memory` | string | — | Container memory limit. Expects a size such as 512MB or 1.5GB. |
 | `<name>.role` | `application` · `worker` · `daemon` · `job` | — | Lifecycle role: application, worker, daemon, or job. |
 | `<name>.routes` | list | — | Ingress routes exposed by this workload. |
-| `<name>.routes[].domain` | string | — | Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. |
+| `<name>.routes[].domain` | string | — | Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. Expects a host with no control character or backtick. |
 | `<name>.routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
 | `<name>.routes[].middlewares` | list | — | Ordered provider-qualified middleware references applied to this route. |
 | `<name>.routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |

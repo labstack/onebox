@@ -88,7 +88,7 @@ proxy:
 		{"embedded wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: '*.example.com', port: 80, tls: none}] }"), "DNS hostname"},
 		{"uppercase suffix", wl("web: {image: nginx, routes: [{wildcard_suffix: Example.com, port: 80, tls: none}] }"), "lower-case"},
 		{"tcp wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: example.com, port: 80, protocol: tcp, tls: passthrough}] }"), "only for HTTP"},
-		{"exact matcher injection", wl("web: {image: nginx, routes: [{domain: 'x`) || Host(`*', port: 80}] }"), "DNS hostname"},
+		{"exact matcher injection", wl("web: {image: nginx, routes: [{domain: 'x`) || Host(`*', port: 80}] }"), "route host"},
 		{"dns challenge needs config", min + "proxy: {dns_challenge: {provider: cloudflare}}\n", "proxy.config"},
 		{"invalid resolver", min + "proxy: {config: traefik, dns_challenge: {provider: cloudflare, resolvers: [1.1.1.1]}}\n", "host:port"},
 		{"unmanaged dns challenge", min + "proxy: {managed: false, config: traefik, dns_challenge: {provider: cloudflare}}\n", "managed proxy"},
@@ -99,6 +99,11 @@ proxy:
 				t.Fatalf("error = %v, want text %q", err, tc.want)
 			}
 		})
+	}
+	for _, domain := range []string{"API.Example.COM", "api.example.com."} {
+		if _, err := LoadBytes([]byte(wl("web: {image: nginx, routes: [{domain: '"+domain+"', port: 80, tls: none}] }")), "ob.yml"); err != nil {
+			t.Errorf("existing exact route spelling %q must remain valid: %v", domain, err)
+		}
 	}
 }
 
@@ -114,6 +119,7 @@ func TestWildcardRouteOverlap(t *testing.T) {
 	}{
 		{"immediate child", "{domain: shop.example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
 		{"same wildcard", "{wildcard_suffix: example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
+		{"case-insensitive exact child", "{domain: Shop.Example.COM., port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
 		{"apex does not overlap", "{domain: example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", false},
 		{"nested host does not overlap", "{domain: a.b.example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", false},
 		{"different path", "{domain: shop.example.com, path: /api, port: 80, tls: none}", "{wildcard_suffix: example.com, path: /, port: 81, tls: none}", false},

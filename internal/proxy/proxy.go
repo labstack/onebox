@@ -651,8 +651,8 @@ func validateSocketlessEnv(body []byte) error {
 		return fmt.Errorf("parse dotenv: %w", err)
 	}
 	for key := range values {
-		if key == "TRAEFIK_CONFIGFILE" || strings.HasPrefix(key, "TRAEFIK_PROVIDERS_") {
-			return fmt.Errorf("remove %s; managed proxy provider settings must remain in the validated traefik.yml or traefik.yaml", key)
+		if strings.HasPrefix(key, "TRAEFIK_") {
+			return fmt.Errorf("remove %s; managed proxy static settings must remain in the validated traefik.yml or traefik.yaml", key)
 		}
 	}
 	return nil

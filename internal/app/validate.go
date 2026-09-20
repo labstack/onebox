@@ -291,7 +291,7 @@ func validateWorkload(w Workload, path string) error {
 		}
 	}
 	if w.Domain != "" && w.Port != 0 {
-		if err := validateRouteHostname(path+".domain", w.Domain); err != nil {
+		if err := gRouteHost.check(path+".domain", w.Domain); err != nil {
 			return err
 		}
 		if err := checkPort(path+".port", w.Port); err != nil {
@@ -304,12 +304,12 @@ func validateWorkload(w Workload, path string) error {
 			return errf("project_invalid", rp, "", "a route must declare exactly one of domain or wildcard_suffix")
 		}
 		if r.Domain != "" {
-			if err := validateRouteHostname(rp+".domain", r.Domain); err != nil {
+			if err := gRouteHost.check(rp+".domain", r.Domain); err != nil {
 				return err
 			}
 		}
 		if r.WildcardSuffix != "" {
-			if err := validateRouteHostname(rp+".wildcard_suffix", r.WildcardSuffix); err != nil {
+			if err := validateWildcardSuffix(rp+".wildcard_suffix", r.WildcardSuffix); err != nil {
 				return err
 			}
 			if r.Protocol != "http" {
@@ -510,22 +510,11 @@ func validateWorkload(w Workload, path string) error {
 	return nil
 }
 
-func validateRouteHostname(path, value string) error {
+func validateWildcardSuffix(path, value string) error {
 	if len(value) > 253 {
 		return errf("project_invalid", path, "", "%q is not a DNS hostname: it exceeds 253 characters", value)
 	}
-	for _, label := range strings.Split(value, ".") {
-		if label == "" || len(label) > 63 {
-			return errf("project_invalid", path, "", "%q is not a DNS hostname: every label must contain 1 to 63 characters", value)
-		}
-		for i, c := range label {
-			if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i > 0 && i < len(label)-1) {
-				continue
-			}
-			return errf("project_invalid", path, "", "%q is not a lower-case ASCII or Punycode DNS hostname", value)
-		}
-	}
-	return nil
+	return gWildcardSuffix.check(path, value)
 }
 
 func validateHealth(h *Health, path string) error {

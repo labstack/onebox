@@ -511,13 +511,16 @@ func TestStageRejectsProviderOverridesInEnv(t *testing.T) {
 		"TRAEFIK_PROVIDERS_DOCKER=true\n",
 		"TRAEFIK_PROVIDERS_FILE_WATCH=false\n",
 		"TRAEFIK_CONFIGFILE=/etc/traefik/alternate.yml\n",
+		"TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:8080\n",
+		"TRAEFIK_API_INSECURE=true\n",
+		"TRAEFIK_CERTIFICATESRESOLVERS_LE_ACME_EMAIL=ops@example.com\n",
 	} {
 		cfgDir := writeCfg(t, map[string]string{
 			"traefik.yml": testSocketlessStatic,
 			".env":        "CF_DNS_API_TOKEN=allowed\n" + declaration,
 		})
-		if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "managed proxy provider settings") {
-			t.Fatalf("provider override %q must be refused: %v", declaration, err)
+		if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "managed proxy static settings") {
+			t.Fatalf("static override %q must be refused: %v", declaration, err)
 		}
 	}
 }

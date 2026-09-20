@@ -168,7 +168,7 @@ must configure `providers.file.directory: /etc/traefik/dynamic`. Watching must
 remain enabled, and `providers.file.filename` cannot be combined with that
 directory. A proxy `.env` is accepted with project-owned static configuration
 or with `proxy.dns_challenge`; it may carry ordinary DNS-provider credentials,
-but not `TRAEFIK_PROVIDERS_*` or `TRAEFIK_CONFIGFILE` static overrides.
+but not `TRAEFIK_*` static overrides.
 
 In both modes, the filenames `onebox.yml`, `onebox.yaml`, and
 `onebox-managed.yml`, the `dynamic/` mountpoint, the `onebox-compress`

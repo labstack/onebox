@@ -392,34 +392,21 @@ func (p *Spec) All(env string) []string {
 	return out
 }
 
-// routesOf normalises the scalar domain/port shorthand into the route list, so
-// callers never have to check which form was authored.
-func routesOf(w Workload) []Route {
-	if len(w.Routes) > 0 {
-		return w.Routes
-	}
-	if w.Domain == "" {
-		return nil
-	}
-	return []Route{{
-		Domain: w.Domain, Port: w.Port, Path: "/",
-		Entrypoint: "websecure", Protocol: "http", Scheme: "http", TLS: "terminate",
-	}}
-}
+// NormalisedRoutes returns the workload's routes. It remains the single
+// accessor used by rendering and validation so route normalization can evolve
+// without spreading representation knowledge through the codebase.
+func (w Workload) NormalisedRoutes() []Route { return w.Routes }
 
-// NormalisedRoutes returns the workload's routes with the scalar shorthand
-// expanded, so callers never handle two shapes.
-func (w Workload) NormalisedRoutes() []Route { return routesOf(w) }
+// HostPattern returns the validated hostname matcher represented by the route.
+// Authored regular expressions never reach Traefik.
+func (r Route) HostPattern() string { return r.Hostname }
 
-// HostPattern returns the host matcher value represented by the route. A
-// wildcard suffix is deliberately expanded here rather than accepted as an
-// authored matcher expression, so no regular expression reaches Traefik.
-func (r Route) HostPattern() string {
-	if r.WildcardSuffix != "" {
-		return "*." + r.WildcardSuffix
-	}
-	return r.Domain
-}
+// IsWildcard reports whether the hostname begins with the complete wildcard
+// label accepted by the project contract.
+func (r Route) IsWildcard() bool { return strings.HasPrefix(r.Hostname, "*.") }
+
+// HostSuffix returns the exact suffix below a wildcard label.
+func (r Route) HostSuffix() string { return strings.TrimPrefix(r.Hostname, "*.") }
 
 // HasTerminatingTLS reports whether the resolved project needs the managed
 // proxy's certificate resolver. Passthrough routes carry TLS without asking
@@ -447,7 +434,7 @@ func (p *Spec) HasExactTerminatingTLS() bool {
 	}
 	for _, w := range p.Workloads {
 		for _, route := range w.NormalisedRoutes() {
-			if route.WildcardSuffix == "" && route.TLS == "terminate" {
+			if !route.IsWildcard() && route.TLS == "terminate" {
 				return true
 			}
 		}
@@ -463,7 +450,7 @@ func (p *Spec) HasWildcardTerminatingTLS() bool {
 	}
 	for _, workload := range p.Workloads {
 		for _, route := range workload.NormalisedRoutes() {
-			if route.WildcardSuffix != "" && route.TLS == "terminate" {
+			if route.IsWildcard() && route.TLS == "terminate" {
 				return true
 			}
 		}

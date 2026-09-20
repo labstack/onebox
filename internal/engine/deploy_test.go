@@ -23,7 +23,7 @@ import (
 const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
 const enginePreviousFrontendProject = `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments:
   production:

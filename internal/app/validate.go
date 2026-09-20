@@ -59,7 +59,7 @@ func validateSpec(p *Spec) error {
 		if err := gIdent.check("workloads."+name, name); err != nil {
 			return err
 		}
-		if err := validateWorkload(p.Workloads[name], "workloads."+name); err != nil {
+		if err := validateWorkload(p.Workloads[name], "workloads."+name, p.legacyV1Snapshot); err != nil {
 			return err
 		}
 	}
@@ -248,7 +248,7 @@ func validateEnvironment(e Environment, path string) error {
 	return gCalVer.checkOptional(path+".policy.min_onebox_version", e.Policy.MinOneboxVersion)
 }
 
-func validateWorkload(w Workload, path string) error {
+func validateWorkload(w Workload, path string, legacyV1Snapshot bool) error {
 	if err := validateJobExecution(w, path); err != nil {
 		return err
 	}
@@ -290,34 +290,26 @@ func validateWorkload(w Workload, path string) error {
 			return err
 		}
 	}
-	if w.Domain != "" && w.Port != 0 {
-		if err := gRouteHost.check(path+".domain", w.Domain); err != nil {
-			return err
-		}
+	if w.Port != 0 {
 		if err := checkPort(path+".port", w.Port); err != nil {
 			return err
 		}
 	}
 	for i, r := range w.Routes {
 		rp := indexed(path+".routes", i)
-		if (r.Domain == "") == (r.WildcardSuffix == "") {
-			return errf("project_invalid", rp, "", "a route must declare exactly one of domain or wildcard_suffix")
+		if r.Hostname == "" {
+			return errf("project_invalid", rp+".hostname", "", "a route must declare hostname")
 		}
-		if r.Domain != "" {
-			if r.Domain == "*" && r.Protocol == "tcp" && (r.TLS == "none" || r.TLS == "passthrough") {
-				// HostSNI(`*`) is Traefik's TCP catch-all for plaintext and
-				// TLS passthrough. It predates wildcard HTTP routes and remains
-				// the one intentional exception to exact-host syntax.
-			} else if err := gRouteHost.check(rp+".domain", r.Domain); err != nil {
-				return err
-			}
+		if r.Hostname == "*" && r.Protocol == "tcp" && (r.TLS == "none" || r.TLS == "passthrough") {
+			// HostSNI(`*`) is Traefik's TCP catch-all for plaintext and
+			// TLS passthrough. It predates wildcard HTTP routes and remains
+			// the one intentional exception to exact-host syntax.
+		} else if err := validateRouteHostname(rp+".hostname", r.Hostname, legacyV1Snapshot); err != nil {
+			return err
 		}
-		if r.WildcardSuffix != "" {
-			if err := validateWildcardSuffix(rp+".wildcard_suffix", r.WildcardSuffix); err != nil {
-				return err
-			}
+		if r.IsWildcard() {
 			if r.Protocol != "http" {
-				return errf("project_invalid", rp+".wildcard_suffix", "", "wildcard_suffix is supported only for HTTP routes")
+				return errf("project_invalid", rp+".hostname", "", "wildcard hostnames are supported only for HTTP routes")
 			}
 		}
 		if err := gURLPath.check(rp+".path", r.Path); err != nil {
@@ -514,11 +506,22 @@ func validateWorkload(w Workload, path string) error {
 	return nil
 }
 
-func validateWildcardSuffix(path, value string) error {
+func validateRouteHostname(path, value string, legacyV1Snapshot bool) error {
+	if legacyV1Snapshot {
+		if !strings.HasPrefix(value, "*.") {
+			return gLegacyRouteHost.check(path, value)
+		}
+		// v1 measured wildcard_suffix without the authored "*." marker. Keep
+		// that exact bound when replaying a release that already passed v1.
+		if len(strings.TrimPrefix(value, "*.")) > 253 {
+			return errf("project_invalid", path, "", "%q is not a DNS hostname: its suffix exceeds 253 characters", value)
+		}
+		return gRouteHostname.check(path, value)
+	}
 	if len(value) > 253 {
 		return errf("project_invalid", path, "", "%q is not a DNS hostname: it exceeds 253 characters", value)
 	}
-	return gWildcardSuffix.check(path, value)
+	return gRouteHostname.check(path, value)
 }
 
 func validateHealth(h *Health, path string) error {

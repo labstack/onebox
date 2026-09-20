@@ -1,4 +1,4 @@
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: pursue
 environments:
   production:
@@ -10,8 +10,8 @@ workloads:
     image: ghcr.io/labstack/pursue-server:2026.8.1
     replicas: 1
     strategy: rolling
-    domain: pursue.run
-    port: 8080
+    routes:
+      - {hostname: pursue.run, port: 8080}
     health: {http: /healthz, port: 8080, interval: 2s, within: 2m, retries: 3}
     drain: {signal: TERM, wait: 2s, grace: 30s}
   migrate:

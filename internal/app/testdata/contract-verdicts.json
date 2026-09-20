@@ -115,16 +115,6 @@
     "code": "stateful_replicas"
   },
   {
-    "case": "conformance/domain and routes together",
-    "loads": false,
-    "code": "routing_exclusive"
-  },
-  {
-    "case": "conformance/domain without port",
-    "loads": false,
-    "code": "routing_incomplete"
-  },
-  {
     "case": "conformance/duration in days",
     "loads": true,
     "digest": "087192685a9b863e38bc6b96e8436075b279b2d7222ad66b7ff1a9d782a127d2"
@@ -191,6 +181,11 @@
   },
   {
     "case": "conformance/http check without a path",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/http route with TLS passthrough",
     "loads": false,
     "code": "project_invalid"
   },
@@ -312,7 +307,7 @@
   {
     "case": "conformance/port out of range",
     "loads": false,
-    "code": "project_invalid"
+    "code": "unknown_field"
   },
   {
     "case": "conformance/provider-qualified route middlewares",

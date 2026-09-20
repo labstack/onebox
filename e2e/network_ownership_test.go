@@ -24,7 +24,7 @@ func TestApplicationNetworkOwnershipAndExternalLifecycle(t *testing.T) {
 	application := fmt.Sprintf("obnet%d", os.Getpid())
 	network := application + "_default"
 
-	projectBody := fmt.Sprintf(`api_version: onebox.run/v1
+	projectBody := fmt.Sprintf(`api_version: onebox.run/v2
 app: %s
 environments:
   production: {server: root@localhost}

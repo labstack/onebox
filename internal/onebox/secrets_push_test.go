@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const pushProjectYAML = `api_version: onebox.run/v1
+const pushProjectYAML = `api_version: onebox.run/v2
 app: shop
 environments:
   production:
@@ -21,7 +21,7 @@ workloads:
   web:
     image: nginx
     port: 3000
-    domain: shop.example.com
+    hostname: shop.example.com
     env_files: [{file: api.enc.env, provider: sops}]
   jobs:
     role: worker
@@ -172,11 +172,11 @@ func TestSecretsPushRotatesEveryEntry(t *testing.T) {
 // A project with nothing encrypted is told so, rather than reporting a push.
 func TestSecretsPushWithNothingEncryptedIsRefused(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v1
+	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: deploy@example.invalid}}
 workloads:
-  web: {image: nginx, port: 3000, domain: shop.example.com}
+  web: {image: nginx, routes: [{hostname: shop.example.com, port: 3000}]}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}

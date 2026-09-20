@@ -16,7 +16,7 @@ import (
 )
 
 // APIVersion is the only authoring contract this package accepts.
-const APIVersion = "onebox.run/v1"
+const APIVersion = "onebox.run/v2"
 
 // maxDerivedName is an Onebox limit chosen for headroom, not a container-runtime
 // maximum. An over-long name is refused rather than truncated: truncation with a
@@ -67,6 +67,18 @@ func Load(path string) (*Spec, error) {
 // LoadBytes runs the fixed pipeline: parse, expand, validate, then apply the
 // cross-field rules the schema cannot express.
 func LoadBytes(b []byte, filename string) (*Spec, error) {
+	return loadBytes(b, filename, false)
+}
+
+// LoadReleaseSnapshotBytes loads an immutable project snapshot written by an
+// earlier Onebox release. It accepts v1 only on this internal replay boundary,
+// migrating its route representation in memory; normal project loading remains
+// strictly v2 so an authored file can never opt into retired semantics.
+func LoadReleaseSnapshotBytes(b []byte, filename string) (*Spec, error) {
+	return loadBytes(b, filename, true)
+}
+
+func loadBytes(b []byte, filename string, allowV1Snapshot bool) (*Spec, error) {
 	var raw map[string]any
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", firstLine(err.Error()))
@@ -83,6 +95,13 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 		lines = lineIndex(&doc)
 	}
 
+	legacyV1Snapshot := false
+	if allowV1Snapshot && raw["api_version"] == "onebox.run/v1" {
+		if err := migrateV1ReleaseSnapshot(raw); err != nil {
+			return nil, err
+		}
+		legacyV1Snapshot = true
+	}
 	if err := checkAPIVersion(raw); err != nil {
 		return nil, err
 	}
@@ -122,6 +141,7 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	// because the enumeration then promises a failure that never fires.
 	p.Dir = filepath.Dir(filename)
 	p.file = filename
+	p.legacyV1Snapshot = legacyV1Snapshot
 	if err := validateSpec(p); err != nil {
 		return nil, err
 	}
@@ -147,7 +167,101 @@ func checkAPIVersion(raw map[string]any) error {
 }
 
 // shorthandKeys are the top-level fields that describe a single workload.
-var shorthandKeys = []string{"build", "image", "compose", "port", "health", "domain", "routes"}
+var shorthandKeys = []string{"build", "image", "compose", "port", "health", "routes"}
+
+func migrateV1ReleaseSnapshot(raw map[string]any) error {
+	raw["api_version"] = APIVersion
+	if err := migrateV1Workload(raw, "workload shorthand"); err != nil {
+		return err
+	}
+	workloads, ok := raw["workloads"].(map[string]any)
+	if ok {
+		for name, value := range workloads {
+			workload, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := migrateV1Workload(workload, "workloads."+name); err != nil {
+				return err
+			}
+		}
+	}
+	environments, ok := raw["environments"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for environmentName, value := range environments {
+		environment, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		overrides, ok := environment["overrides"].(map[string]any)
+		if !ok {
+			continue
+		}
+		workloadOverrides, ok := overrides["workloads"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for workloadName, patch := range workloadOverrides {
+			workload, ok := patch.(map[string]any)
+			if !ok {
+				continue
+			}
+			path := "environments." + environmentName + ".overrides.workloads." + workloadName
+			if err := migrateV1Workload(workload, path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func migrateV1Workload(workload map[string]any, path string) error {
+	domain, hasDomain := workload["domain"]
+	port, hasPort := workload["port"]
+	_, hasRoutes := workload["routes"]
+	if hasRoutes && (hasDomain || hasPort) {
+		return errf("project_invalid", path, "", "v1 snapshot declares both domain/port and routes")
+	}
+	if hasDomain != hasPort {
+		return errf("project_invalid", path, "", "v1 snapshot must declare domain and port together")
+	}
+	if hasDomain {
+		workload["routes"] = []any{map[string]any{"hostname": domain, "port": port}}
+		delete(workload, "domain")
+		return nil
+	}
+	routes, ok := workload["routes"].([]any)
+	if !ok {
+		return nil
+	}
+	for i, value := range routes {
+		route, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		domain, hasDomain := route["domain"]
+		suffix, hasSuffix := route["wildcard_suffix"]
+		_, hasHostname := route["hostname"]
+		if hasHostname || hasDomain == hasSuffix {
+			return errf("project_invalid", indexed(path+".routes", i), "",
+				"v1 snapshot route must declare exactly one of domain or wildcard_suffix")
+		}
+		if hasDomain {
+			route["hostname"] = domain
+			delete(route, "domain")
+		} else {
+			text, ok := suffix.(string)
+			if !ok {
+				return errf("project_invalid", indexed(path+".routes", i)+".wildcard_suffix", "", "v1 wildcard suffix must be a string")
+			}
+			route["hostname"] = "*." + text
+			delete(route, "wildcard_suffix")
+		}
+	}
+	return nil
+}
 
 // expand rewrites shorthand into the normalised form the schema validates. It
 // runs before validation because the schema requires discriminators — a role
@@ -450,16 +564,6 @@ func crossFieldRules(p *Spec) error {
 				name, w.Replicas)
 		}
 
-		hasScalar := w.Domain != "" || w.Port != 0
-		if hasScalar && len(w.Routes) > 0 {
-			return errf("routing_exclusive", path, "",
-				"workload %q declares both the domain/port shorthand and routes; use one", name)
-		}
-		if (w.Domain == "") != (w.Port == 0) {
-			return errf("routing_incomplete", path, "",
-				"workload %q must declare domain and port together", name)
-		}
-
 		for i, n := range w.Needs {
 			dep, isWorkload := p.Workloads[n.Name]
 			_, isExternal := p.ExternalServices[n.Name]
@@ -650,19 +754,19 @@ func routesOverlap(a, b Route) bool {
 	if a.Entrypoint != b.Entrypoint || a.Protocol != b.Protocol || a.Path != b.Path {
 		return false
 	}
-	if a.WildcardSuffix != "" && b.WildcardSuffix != "" {
-		return a.WildcardSuffix == b.WildcardSuffix
+	if a.IsWildcard() && b.IsWildcard() {
+		return a.HostSuffix() == b.HostSuffix()
 	}
-	if a.WildcardSuffix == "" && b.WildcardSuffix == "" {
-		if a.Domain == "*" || b.Domain == "*" {
+	if !a.IsWildcard() && !b.IsWildcard() {
+		if a.Hostname == "*" || b.Hostname == "*" {
 			return true
 		}
-		return canonicalRouteHost(a.Domain) == canonicalRouteHost(b.Domain)
+		return canonicalRouteHost(a.Hostname) == canonicalRouteHost(b.Hostname)
 	}
-	if a.WildcardSuffix == "" {
+	if !a.IsWildcard() {
 		a, b = b, a
 	}
-	prefix, ok := strings.CutSuffix(canonicalRouteHost(b.Domain), "."+a.WildcardSuffix)
+	prefix, ok := strings.CutSuffix(canonicalRouteHost(b.Hostname), "."+a.HostSuffix())
 	return ok && prefix != "" && !strings.Contains(prefix, ".")
 }
 

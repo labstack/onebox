@@ -1,4 +1,4 @@
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: monk
 environments:
   production:
@@ -10,8 +10,8 @@ workloads:
     image: ghcr.io/labstack/monk-server:2026.8.1
     replicas: 3
     strategy: rolling
-    domain: monk.trade
-    port: 7500
+    routes:
+      - {hostname: monk.trade, port: 7500}
     health:
       exec: "curl --fail --silent --show-error http://127.0.0.1:7500/healthz"
       interval: 10s

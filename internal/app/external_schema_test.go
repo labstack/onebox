@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const validExternalServiceProject = `api_version: onebox.run/v1
+const validExternalServiceProject = `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: deploy@app.example.net}}
 workloads:
@@ -37,7 +37,7 @@ func TestExternalServiceFixtures(t *testing.T) {
 		},
 		{
 			name: "external_service_ambiguous_owner",
-			yaml: `api_version: onebox.run/v1
+			yaml: `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: deploy@app.example.net}}
 workloads: {web: {image: nginx:1}}
@@ -54,7 +54,7 @@ external_services:
 		},
 		{
 			name: "external_service_lifecycle_field_refused",
-			yaml: `api_version: onebox.run/v1
+			yaml: `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: deploy@app.example.net}}
 workloads: {web: {image: nginx:1}}

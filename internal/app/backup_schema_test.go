@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const validBackupProject = `api_version: onebox.run/v1
+const validBackupProject = `api_version: onebox.run/v2
 app: shop
 environments:
   production:
@@ -66,7 +66,7 @@ func TestBackupIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 // The refusal belongs at the point the policy is written, so this is now the
 // same rejection every other unqualified driver gets.
 func TestMinIOBackupIntentIsRefusedUntilItsContractRuns(t *testing.T) {
-	project := `api_version: onebox.run/v1
+	project := `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: deploy@app.example.net}}
 workloads: {web: {image: nginx:1}}
@@ -100,7 +100,7 @@ func TestReplicationIntentIsRejected(t *testing.T) {
 }
 
 func TestRunnableUnqualifiedDriverRejectsBackupWithoutFallback(t *testing.T) {
-	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
+	if _, err := LoadBytes([]byte(`api_version: onebox.run/v2
 app: shop
 environments: {production: {server: deploy@app.example.net}}
 workloads: {web: {image: nginx:1}}

@@ -75,15 +75,15 @@ Starting from an existing Compose project, `ob init` writes the first draft.
 This is a complete single-workload project:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
-api_version: onebox.run/v1
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v2.schema.json
+api_version: onebox.run/v2
 app: shop
 environments:
   production:
     server: root@203.0.113.10
 image: ghcr.io/acme/shop:1.4.0
-domain: shop.example.com
-port: 3000
+routes:
+  - {hostname: shop.example.com, port: 3000}
 ```
 
 It derives the application container, Traefik routing and TLS, release layout

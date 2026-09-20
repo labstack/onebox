@@ -16,7 +16,7 @@ func protectedRuntimeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `api_version: onebox.run/v1
+	body := `api_version: onebox.run/v2
 app: example
 environments: {production: {server: root@host}}
 workloads: {web: {image: nginx:1}}

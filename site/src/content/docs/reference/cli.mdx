@@ -953,7 +953,7 @@ Global Flags:
 ## ob preview
 
 ```
-Load an onebox.run/v1 project, resolve the environment's overrides, and print
+Load an onebox.run/v2 project, resolve the environment's overrides, and print
 the Compose runtime Onebox would generate, with its content digest.
 
 Nothing is contacted and nothing is written. Environment values are redacted:
@@ -1190,12 +1190,12 @@ Global Flags:
 ## ob schema
 
 ```
-Write the JSON Schema for the `onebox.run/v1` project file.
+Write the JSON Schema for the `onebox.run/v2` project file.
 
 Reference it from the first line of a project so an editor can offer
 completion, hover documentation and inline errors:
 
-  # yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
+  # yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v2.schema.json
 
 Or keep a copy in the repository with --out, which is what an editor
 needs when the machine is offline.

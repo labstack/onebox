@@ -314,15 +314,15 @@ func TestStructuredDeployRequiresApprovalArtifactWithoutPrompting(t *testing.T) 
 // failure appears at the consumer rather than here.
 func TestStructuredOutputCarriesNoDiagnostics(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}
 runtime:
   env_files: [.env.production]
 image: nginx
-domain: shop.example.com
-port: 3000
+routes:
+  - {hostname: shop.example.com, port: 3000}
 `)
 	writeFile(t, dir, ".env.production", "API_TOKEN=super-secret-value\nPUBLIC_MODE=on\n")
 
@@ -347,7 +347,7 @@ port: 3000
 // publish outlives the terminal it would have scrolled off.
 func TestStructuredOutputCarriesNoPlaintextSecret(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}
@@ -355,8 +355,8 @@ workloads:
   web:
     role: application
     image: nginx
-    domain: shop.example.com
-    port: 3000
+    routes:
+      - {hostname: shop.example.com, port: 3000}
     env:
       API_TOKEN: super-secret-value
 `)
@@ -424,7 +424,7 @@ func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
 func TestEjectStructuredOutputIsVersioned(t *testing.T) {
 	for _, mode := range []string{"json"} {
 		dir := t.TempDir()
-		writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+		writeFile(t, dir, "ob.yml", `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}
@@ -455,7 +455,7 @@ image: nginx
 
 func TestStructuredReadFailuresEmitTypedSafeRecords(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}

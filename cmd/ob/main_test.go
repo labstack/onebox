@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-const mainTestProject = `api_version: onebox.run/v1
+const mainTestProject = `api_version: onebox.run/v2
 app: demo
 environments: {production: {server: deploy@example.invalid}}
 image: nginx:1.27
 proxy: {kind: none}
 `
 
-const mainTestBuildProject = `api_version: onebox.run/v1
+const mainTestBuildProject = `api_version: onebox.run/v2
 app: demo
 environments: {production: {server: deploy@example.invalid}}
 workloads:

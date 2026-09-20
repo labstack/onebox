@@ -63,7 +63,7 @@ func writeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	obYAML := `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: demo
 environments: { production: { server: deploy@example.invalid } }
 workloads:
@@ -102,7 +102,7 @@ func TestValidateOK(t *testing.T) {
 func TestPreflightBlocksDeploy(t *testing.T) {
 	dir := writeProject(t)
 	obYAML := `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: demo
 environments: { production: { server: deploy@example.invalid } }
 workloads:

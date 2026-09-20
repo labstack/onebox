@@ -40,7 +40,7 @@ managed-service connection supplies. The credential is generated on the server
 and exists nowhere else; ordering could not protect it, so validation does.
 
 **`route_collision`** — two workloads claiming the same entrypoint, protocol,
-domain and path. The proxy would accept both and route to one, and nothing would
+hostname and path. The proxy would accept both and route to one, and nothing would
 say which.
 
 **`stateful_replicas`** — a workload keeping durable state asking for more than

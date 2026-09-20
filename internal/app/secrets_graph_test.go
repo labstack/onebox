@@ -20,7 +20,7 @@ func secretGraphProject(t *testing.T, body string) *Resolved {
 
 func TestSecretDeclarationGraphCapturesOrderScopeAndAffectedWorkloads(t *testing.T) {
 	resolved := secretGraphProject(t, `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime:
@@ -43,7 +43,7 @@ workloads:
 
 func TestSecretDeclarationIDsAreStableAndValueFree(t *testing.T) {
 	resolved := secretGraphProject(t, `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime: {env_files: [{file: secrets.enc.env, provider: sops}]}
@@ -58,7 +58,7 @@ workloads: {web: {role: application, image: nginx}}
 
 func TestSecretDeclarationGraphChangesForEveryRuntimeRelevantDrift(t *testing.T) {
 	base := `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime:
@@ -81,14 +81,14 @@ workloads:
 		body string
 	}{
 		{name: "reordered", body: `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime: {env_files: [{file: second.enc.env, provider: sops}, {file: first.enc.env, provider: sops}]}
 workloads: {web: {role: application, image: nginx}, worker: {role: worker, image: nginx}}
 `},
 		{name: "scope changed", body: `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime: {env_files: [{file: first.enc.env, provider: sops}, {file: second.enc.env, provider: sops}]}
@@ -97,14 +97,14 @@ workloads:
   worker: {role: worker, image: nginx}
 `},
 		{name: "provider removed", body: `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime: {env_files: [first.enc.env, {file: second.enc.env, provider: sops}]}
 workloads: {web: {role: application, image: nginx}, worker: {role: worker, image: nginx}}
 `},
 		{name: "affected workload removed", body: `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 runtime: {env_files: [{file: first.enc.env, provider: sops}, {file: second.enc.env, provider: sops}]}
@@ -122,7 +122,7 @@ workloads: {web: {role: application, image: nginx}}
 
 func TestSecretDeclarationGraphIncludesSortedExternalProjection(t *testing.T) {
 	resolved := secretGraphProject(t, `
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example}}
 workloads:

@@ -278,7 +278,7 @@ func TestUnclaimedTopLevelKeysDocumentTheirSubtree(t *testing.T) {
 		t.Fatalf("cannot render: %v", err)
 	}
 	page := pages["fields/top-level.mdx"]
-	for _, path := range []string{"routes[].domain", "health.http", "image.reference", "build.context"} {
+	for _, path := range []string{"routes[].hostname", "health.http", "image.reference", "build.context"} {
 		if !strings.Contains(page, "`"+path+"`") {
 			t.Errorf("top-level.mdx does not document %q", path)
 		}
@@ -318,12 +318,12 @@ func TestPublishedSchemaMatchesTheCheckedInCopy(t *testing.T) {
 	}
 	// Skipping on a read failure would turn "someone moved the file" into a
 	// passing test, which is the drift this exists to catch.
-	onDisk, err := os.ReadFile(filepath.Join("..", "..", "docs", "onebox.run-v1.schema.json"))
+	onDisk, err := os.ReadFile(filepath.Join("..", "..", "docs", "onebox.run-v2.schema.json"))
 	if err != nil {
 		t.Fatalf("the checked-in schema must be readable: %v", err)
 	}
 	if strings.TrimSpace(string(generated)) != strings.TrimSpace(string(onDisk)) {
-		t.Error("the published schema differs from docs/onebox.run-v1.schema.json")
+		t.Error("the published schema differs from docs/onebox.run-v2.schema.json")
 	}
 }
 

@@ -31,7 +31,7 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "preview",
 		Short: "render the runtime the declarative contract generates (no target, no changes)",
-		Long: "Load an onebox.run/v1 project, resolve the environment's overrides, and print\n" +
+		Long: "Load an onebox.run/v2 project, resolve the environment's overrides, and print\n" +
 			"the Compose runtime Onebox would generate, with its content digest.\n\n" +
 			"Nothing is contacted and nothing is written. Environment values are redacted:\n" +
 			"a preview must never put a secret on a terminal.",

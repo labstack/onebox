@@ -60,7 +60,7 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 // 6.3 — a multi-route workload and a non-HTTP route survive the whole path:
 // the canonical form describes them, and the generated labels route them.
 func TestMultiRouteAndNonHTTPRouteEndToEnd(t *testing.T) {
-	body := `api_version: onebox.run/v1
+	body := `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: root@203.0.113.10}
@@ -70,10 +70,10 @@ workloads:
     image: nginx
     health: /healthz
     routes:
-      - {domain: shop.example.com, path: /, port: 3000, middlewares: [compress@file, secure-headers@file]}
-      - {domain: shop.example.com, path: /api, port: 3001}
-      - {domain: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
-      - {domain: db.example.com, port: 5432, protocol: tcp, tls: passthrough, entrypoint: pg, middlewares: [office-only@file]}
+      - {hostname: shop.example.com, path: /, port: 3000, middlewares: [compress@file, secure-headers@file]}
+      - {hostname: shop.example.com, path: /api, port: 3001}
+      - {hostname: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
+      - {hostname: db.example.com, port: 5432, protocol: tcp, tls: passthrough, entrypoint: pg, middlewares: [office-only@file]}
 proxy: {config: traefik}
 `
 	r, err := loadText(t, body).Resolve("production")
@@ -124,14 +124,14 @@ proxy: {config: traefik}
 }
 
 func TestRouteMiddlewareOrderPreservesRepetition(t *testing.T) {
-	body := `api_version: onebox.run/v1
+	body := `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 workloads:
   web:
     image: nginx
     routes:
-      - {domain: shop.example.com, port: 3000, middlewares: [prefix@file, auth@file, prefix@file]}
+      - {hostname: shop.example.com, port: 3000, middlewares: [prefix@file, auth@file, prefix@file]}
 proxy: {managed: false}
 `
 	r, err := loadText(t, body).Resolve("production")

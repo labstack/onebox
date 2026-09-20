@@ -1,4 +1,4 @@
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: gitea
 environments:
   production: {server: root@TARGET}
@@ -6,8 +6,8 @@ workloads:
   server:
     role: application
     image: docker.gitea.com/gitea:1.22.6
-    domain: git.example.com
-    port: 3000
+    routes:
+      - {hostname: git.example.com, port: 3000}
     needs: [db]
     published_ports: [{host: 2222, container: 22}]
     env:

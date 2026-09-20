@@ -1,4 +1,4 @@
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: goal
 environments:
   production:
@@ -10,8 +10,8 @@ workloads:
     image: ghcr.io/labstack/goal-server:2026.8.1
     replicas: 3
     strategy: rolling
-    domain: goal.fit
-    port: 7510
+    routes:
+      - {hostname: goal.fit, port: 7510}
     health: {http: /healthz, port: 7510, interval: 5s, start_period: 15s, within: 2m, retries: 5}
     drain: {signal: TERM, grace: 30s}
     env: {ENVIRONMENT: production, OTEL_SERVICE_NAME: goal-server}

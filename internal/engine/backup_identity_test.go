@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const protectedPostgresProject = `api_version: onebox.run/v1
+const protectedPostgresProject = `api_version: onebox.run/v2
 app: shop
 environments:
   production: {server: deploy@example.net}

@@ -10,7 +10,7 @@
 # Kept as a rendering and validation case, and as the thing to re-run if the
 # driver ever configures a replica set. An application that needs one today
 # wants a daemon workload it owns.
-api_version: onebox.run/v1
+api_version: onebox.run/v2
 app: rocketchat
 environments:
   production: {server: root@TARGET}
@@ -18,8 +18,8 @@ workloads:
   rocketchat:
     role: application
     image: registry.rocket.chat/rocketchat/rocket.chat:7.3.0
-    domain: chat.example.com
-    port: 3000
+    routes:
+      - {hostname: chat.example.com, port: 3000}
     needs:
       - name: mongodb
         env: {MONGO_URL: url}

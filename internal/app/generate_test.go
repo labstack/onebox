@@ -11,7 +11,7 @@ import (
 
 // A decent-size project of the shape people actually build: a web application,
 // a background worker, a migration job, and a database they still author.
-const appFixture = `api_version: onebox.run/v1
+const appFixture = `api_version: onebox.run/v2
 app: ledger
 environments:
   production: {server: root@1.2.3.4}
@@ -20,8 +20,8 @@ workloads:
     role: application
     image: ghcr.io/acme/ledger:1.4.0
     replicas: 2
-    domain: ledger.example.com
-    port: 8080
+    routes:
+      - {hostname: ledger.example.com, port: 8080}
     health: {http: /healthz, port: 8080, interval: 10s, retries: 3}
     drain: {grace: 30s}
     needs: [db]
@@ -86,7 +86,7 @@ func TestRenderIsDeterministic(t *testing.T) {
 }
 
 func TestWorkloadRevisionIsReleaseIndependentAndRuntimeSensitive(t *testing.T) {
-	project := `api_version: onebox.run/v1
+	project := `api_version: onebox.run/v2
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -277,8 +277,7 @@ func TestBuildWithoutResolvedImageFailsClosed(t *testing.T) {
 // drops its route first, because declaring one under `kind: none` is refused
 // at load — a route nobody would serve is not a runtime question.
 func TestNoProxyAddsNothing(t *testing.T) {
-	y := strings.Replace(appFixture, "    domain: ledger.example.com\n", "", 1)
-	y = strings.Replace(y, "    port: 8080\n", "", 1)
+	y := strings.Replace(appFixture, "    routes:\n      - {hostname: ledger.example.com, port: 8080}\n", "", 1)
 	out := string(render(t, y+"proxy: {kind: none}\n"))
 	if strings.Contains(out, "traefik") {
 		t.Error("no proxy must not add routing labels")
@@ -363,13 +362,13 @@ func TestHasTerminatingTLSDistinguishesPassthrough(t *testing.T) {
 }
 
 func TestWildcardRouteRendersSafeHostRegexpAndDNSResolver(t *testing.T) {
-	project := `api_version: onebox.run/v1
+	project := `api_version: onebox.run/v2
 app: preview
 environments: {production: {server: root@example.com}}
 workloads:
   web:
     image: nginx
-    routes: [{wildcard_suffix: preview.example.com, port: 8080}]
+    routes: [{hostname: "*.preview.example.com", port: 8080}]
 proxy:
   config: traefik
   dns_challenge: {provider: cloudflare}
@@ -441,7 +440,7 @@ func TestEveryDraftRenders(t *testing.T) {
 // showed standing between two thirds of services and the declaration. Each
 // carries no Onebox semantics: it is declared, and it appears.
 func TestPassthroughFields(t *testing.T) {
-	y := `api_version: onebox.run/v1
+	y := `api_version: onebox.run/v2
 app: ledger
 environments:
   production: {server: root@1.2.3.4}
@@ -483,7 +482,7 @@ workloads:
 // generates into are reserved, so a user label can never silently win.
 func TestUserLabelsCannotClaimOneboxNamespaces(t *testing.T) {
 	for _, bad := range []string{"ob.app", "traefik.enable"} {
-		y := `api_version: onebox.run/v1
+		y := `api_version: onebox.run/v2
 app: ledger
 environments: {production: {server: h}}
 workloads: {web: {role: application, image: nginx, labels: {"` + bad + `": x}}}
@@ -520,7 +519,7 @@ func TestVolumeNamesArePinned(t *testing.T) {
 // workload that can never be released, so the exec form must reach the runtime
 // as CMD rather than CMD-SHELL.
 func TestExecListHealthRunsWithoutAShell(t *testing.T) {
-	out := render(t, `api_version: onebox.run/v1
+	out := render(t, `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -541,7 +540,7 @@ workloads:
 // The string form still runs through a shell, which is what makes `pg_isready
 // -U x && test -f /ready` work.
 func TestExecStringHealthKeepsItsShell(t *testing.T) {
-	out := render(t, `api_version: onebox.run/v1
+	out := render(t, `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -562,7 +561,7 @@ func TestShellHealthChecksCarryTheDrainGuard(t *testing.T) {
 		`health: {tcp: true, port: 5432}`,
 		`health: {exec: "test -f /ready"}`,
 	} {
-		out := string(render(t, `api_version: onebox.run/v1
+		out := string(render(t, `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -581,7 +580,7 @@ workloads:
 // command and stays unquoted; a path is not, and must be one argument.
 func TestHTTPHealthPathIsQuotedInsideItsShellCheck(t *testing.T) {
 	const injected = "/healthz;id>/tmp/ob-owned"
-	out := string(render(t, `api_version: onebox.run/v1
+	out := string(render(t, `api_version: onebox.run/v2
 app: shop
 environments: {production: {server: root@h}}
 workloads:

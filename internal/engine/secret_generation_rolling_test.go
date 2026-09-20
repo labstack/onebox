@@ -14,7 +14,7 @@ import (
 
 // web declares a health check, so it defaults to rolling; worker stays a
 // recreate workload, which is what keeps the two paths visible in one push.
-const rollingGenerationProject = `api_version: onebox.run/v1
+const rollingGenerationProject = `api_version: onebox.run/v2
 app: shop
 base_path: /srv/onebox
 environments:
@@ -23,7 +23,7 @@ workloads:
   web:
     image: nginx
     port: 3000
-    domain: shop.example.com
+    hostname: shop.example.com
     health: {exec: ["/health"]}
     env_files: [{file: web.enc.env, provider: sops}]
   worker:

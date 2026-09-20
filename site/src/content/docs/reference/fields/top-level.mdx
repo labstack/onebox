@@ -18,13 +18,13 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `middlewares` · `path` · `port` · `protocol` · `pull` · `reference` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `wildcard_suffix` · `within`
+`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `entrypoint` · `exec` · `health` · `hostname` · `http` · `image` · `interval` · `middlewares` · `path` · `port` · `protocol` · `pull` · `reference` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `api_version` `*` | string | — | Project contract version. Must be onebox.run/v1. |
+| `api_version` `*` | string | — | Project contract version. Must be onebox.run/v2. |
 | `app` | string | — | Stable application name used in generated container, volume, network, and host paths. The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin "ob-" or be a name the host layout reserves. |
 | `base_path` | string | `/var/lib/ob` | Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter. |
 | `build` | object | — | Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path. |
@@ -33,7 +33,6 @@ cannot drift from what `ob validate` accepts.
 | `build.dockerfile` | string | — | Repository-relative Dockerfile path. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `build.target` | string | — | Named Dockerfile stage to build. |
 | `compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
-| `domain` | string | — | Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing. |
 | `health` | object | — | Readiness check used to gate rolling replacement. Also accepts an HTTP health path. |
 | `health.exec` | — | — | Health command as a shell string or direct argument list. |
 | `health.http` | string | — | HTTP path probed inside the container. Expects a path beginning with /. |
@@ -46,16 +45,15 @@ cannot drift from what `ob validate` accepts.
 | `image` | object | — | Container image source, written as a reference string or an object. Also accepts an image reference. |
 | `image.pull` | `always` · `missing` · `never` | `missing` | When to fetch the image from the registry: missing fetches only what the host does not already hold, always fetches every release, never fetches at all and fails on a missing image. |
 | `image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
-| `port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
+| `port` | integer | — | Default container port used by HTTP health checks. |
 | `routes` | list | — | Ingress routes exposed by this workload. |
-| `routes[].domain` | string | — | Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. |
 | `routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
+| `routes[].hostname` `*` | string | — | Hostname matched by the proxy. Accepts an exact hostname or a wildcard in the complete left-most label, such as *.example.com; a wildcard matches exactly one label and not the suffix itself. The bare * value is reserved for plaintext or TLS-passthrough TCP catch-all routes. |
 | `routes[].middlewares` | list | — | Ordered provider-qualified middleware references applied to this route. |
 | `routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |
 | `routes[].port` | integer | — | Container port receiving routed traffic. |
-| `routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |
-| `routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme: http, https, h2c, tcp, or udp. |
+| `routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http or tcp. |
+| `routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme for HTTP routes: http, https, or h2c. |
 | `routes[].tls` | `terminate` · `passthrough` · `none` | `terminate` | TLS handling: terminate, passthrough, or none. |
-| `routes[].wildcard_suffix` | string | — | DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain. |
 
 `*` marks a field that is required within its own object.

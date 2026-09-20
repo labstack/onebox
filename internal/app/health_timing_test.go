@@ -111,9 +111,9 @@ func TestReadyBudgetCoversAtLeastOneFlipCycle(t *testing.T) {
 // it negative, which expires instantly — the failure the budget exists to
 // prevent, reached by a route validation could have closed.
 func TestAbsurdRetriesIsRejected(t *testing.T) {
-	_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+	_, err := LoadBytes([]byte("api_version: onebox.run/v2\napp: ledger\n"+
 		"environments: {production: {server: root@10.0.0.1}}\n"+
-		"image: nginx\ndomain: d.example.com\nport: 8080\n"+
+		"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"+
 		"health: {http: /healthz, retries: 100000000000}\n"), "ob.yml")
 	if err == nil {
 		t.Fatal("a retries count that overflows the drain budget was accepted")
@@ -134,9 +134,9 @@ func TestAbsurdHealthDurationsAreRejected(t *testing.T) {
 		"within":       "{http: /healthz, within: 100000d}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+			_, err := LoadBytes([]byte("api_version: onebox.run/v2\napp: ledger\n"+
 				"environments: {production: {server: root@10.0.0.1}}\n"+
-				"image: nginx\ndomain: d.example.com\nport: 8080\n"+
+				"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"+
 				"health: "+health+"\n"), "ob.yml")
 			if err == nil {
 				t.Fatalf("health %s was accepted", health)
@@ -206,9 +206,9 @@ func TestParseDurationRejectsOverflowingDayCounts(t *testing.T) {
 // A day count that wraps int64 must be rejected by validation too, not merely
 // by the parser: the two together are what make the bound mean something.
 func TestOverflowingDayCountIsRejectedAtLoad(t *testing.T) {
-	_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+	_, err := LoadBytes([]byte("api_version: onebox.run/v2\napp: ledger\n"+
 		"environments: {production: {server: root@10.0.0.1}}\n"+
-		"image: nginx\ndomain: d.example.com\nport: 8080\n"+
+		"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"+
 		"health: {http: /healthz, interval: 1000000d}\n"), "ob.yml")
 	if err == nil {
 		t.Fatal("an interval that overflows int64 nanoseconds was accepted")
@@ -224,9 +224,9 @@ func TestAbsurdDrainDurationsAreRejected(t *testing.T) {
 		"grace": "{grace: 100000d}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+			_, err := LoadBytes([]byte("api_version: onebox.run/v2\napp: ledger\n"+
 				"environments: {production: {server: root@10.0.0.1}}\n"+
-				"workloads: {web: {image: nginx, domain: d.example.com, port: 8080, drain: "+drain+"}}\n"), "ob.yml")
+				"workloads: {web: {image: nginx, routes: [{hostname: d.example.com, port: 8080}], drain: "+drain+"}}\n"), "ob.yml")
 			if err == nil {
 				t.Fatalf("drain %s was accepted", drain)
 			}

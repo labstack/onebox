@@ -114,7 +114,7 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 // host owner record.
 func TestEnvironmentSelectsTheBasePath(t *testing.T) {
 	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: sample
 base_path: /var/lib/ob
 environments:

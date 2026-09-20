@@ -24,7 +24,7 @@ cannot drift from what `ob validate` accepts.
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `api_version` `*` | string | — | Project contract version. Must be onebox.run/v2. |
+| `api_version` `*` | string | — | Project contract version. Must be onebox.run/v1. |
 | `app` | string | — | Stable application name used in generated container, volume, network, and host paths. The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin "ob-" or be a name the host layout reserves. |
 | `base_path` | string | `/var/lib/ob` | Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter. |
 | `build` | object | — | Build metadata for development. Production requires a resolved image supplied with --image. Also accepts a build context path. |

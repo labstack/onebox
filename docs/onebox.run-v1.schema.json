@@ -60,11 +60,6 @@
           },
           {
             "required": [
-              "domain"
-            ]
-          },
-          {
-            "required": [
               "port"
             ]
           },
@@ -576,14 +571,6 @@
         }
       },
       "type": "object"
-    },
-    "domain": {
-      "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
-      "examples": [
-        "shop.example.com"
-      ],
-      "pattern": "^[^\\x00-\\x1f\\x7f`*]+$",
-      "type": "string"
     },
     "environments": {
       "additionalProperties": {
@@ -1154,7 +1141,7 @@
       "type": "object"
     },
     "port": {
-      "description": "Container port used with domain shorthand and as the default HTTP health port.",
+      "description": "Default container port used by HTTP health checks.",
       "examples": [
         3000
       ],
@@ -1302,12 +1289,12 @@
           {
             "if": {
               "properties": {
-                "domain": {
+                "hostname": {
                   "const": "*"
                 }
               },
               "required": [
-                "domain"
+                "hostname"
               ]
             },
             "then": {
@@ -1327,53 +1314,72 @@
                 "tls"
               ]
             }
-          }
-        ],
-        "oneOf": [
-          {
-            "not": {
-              "required": [
-                "wildcard_suffix"
-              ]
-            },
-            "required": [
-              "domain"
-            ]
           },
           {
-            "not": {
+            "if": {
+              "properties": {
+                "hostname": {
+                  "pattern": "^\\*\\."
+                }
+              },
               "required": [
-                "domain"
+                "hostname"
               ]
             },
-            "required": [
-              "wildcard_suffix"
-            ]
+            "then": {
+              "properties": {
+                "protocol": {
+                  "const": "http"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tls": {
+                  "const": "passthrough"
+                }
+              },
+              "required": [
+                "tls"
+              ]
+            },
+            "then": {
+              "properties": {
+                "protocol": {
+                  "const": "tcp"
+                }
+              },
+              "required": [
+                "protocol"
+              ]
+            }
           }
         ],
         "patternProperties": {
           "^x-": {}
         },
         "properties": {
-          "domain": {
+          "entrypoint": {
+            "default": "websecure",
+            "description": "Named proxy listener used for the route.",
+            "type": "string"
+          },
+          "hostname": {
             "anyOf": [
               {
-                "description": "Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
-                "pattern": "^[^\\x00-\\x1f\\x7f`*]+$"
+                "maxLength": 253,
+                "pattern": "^(\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
               },
               {
                 "const": "*"
               }
             ],
-            "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
+            "description": "Hostname matched by the proxy. Accepts an exact hostname or a wildcard in the complete left-most label, such as *.example.com; a wildcard matches exactly one label and not the suffix itself. The bare * value is reserved for plaintext or TLS-passthrough TCP catch-all routes.",
             "examples": [
               "shop.example.com"
             ],
-            "type": "string"
-          },
-          "entrypoint": {
-            "default": "websecure",
-            "description": "Named proxy listener used for the route.",
             "type": "string"
           },
           "middlewares": {
@@ -1402,7 +1408,7 @@
           },
           "protocol": {
             "default": "http",
-            "description": "Routing protocol: http, tcp, or udp.",
+            "description": "Routing protocol: http or tcp.",
             "enum": [
               "http",
               "tcp"
@@ -1411,7 +1417,7 @@
           },
           "scheme": {
             "default": "http",
-            "description": "Backend connection scheme: http, https, h2c, tcp, or udp.",
+            "description": "Backend connection scheme for HTTP routes: http, https, or h2c.",
             "enum": [
               "http",
               "https",
@@ -1428,17 +1434,11 @@
               "none"
             ],
             "type": "string"
-          },
-          "wildcard_suffix": {
-            "description": "DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain.",
-            "examples": [
-              "preview.example.com"
-            ],
-            "maxLength": 253,
-            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
-            "type": "string"
           }
         },
+        "required": [
+          "hostname"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -1857,55 +1857,6 @@
             "not": {
               "allOf": [
                 {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "domain"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "port"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "required": [
-                    "routes"
-                  ]
-                }
-              ]
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "domain"
-              ]
-            },
-            "then": {
-              "required": [
-                "port"
-              ]
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "port"
-              ]
-            },
-            "then": {
-              "required": [
-                "domain"
-              ]
-            }
-          },
-          {
-            "not": {
-              "allOf": [
-                {
                   "required": [
                     "published_ports"
                   ]
@@ -2155,14 +2106,6 @@
               "pre_release",
               "post_release"
             ],
-            "type": "string"
-          },
-          "domain": {
-            "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
-            "examples": [
-              "shop.example.com"
-            ],
-            "pattern": "^[^\\x00-\\x1f\\x7f`*]+$",
             "type": "string"
           },
           "drain": {
@@ -2665,7 +2608,7 @@
             "type": "object"
           },
           "port": {
-            "description": "Container port used with domain shorthand and as the default HTTP health port.",
+            "description": "Default container port used by HTTP health checks.",
             "examples": [
               3000
             ],
@@ -2774,12 +2717,12 @@
                 {
                   "if": {
                     "properties": {
-                      "domain": {
+                      "hostname": {
                         "const": "*"
                       }
                     },
                     "required": [
-                      "domain"
+                      "hostname"
                     ]
                   },
                   "then": {
@@ -2799,53 +2742,72 @@
                       "tls"
                     ]
                   }
-                }
-              ],
-              "oneOf": [
-                {
-                  "not": {
-                    "required": [
-                      "wildcard_suffix"
-                    ]
-                  },
-                  "required": [
-                    "domain"
-                  ]
                 },
                 {
-                  "not": {
+                  "if": {
+                    "properties": {
+                      "hostname": {
+                        "pattern": "^\\*\\."
+                      }
+                    },
                     "required": [
-                      "domain"
+                      "hostname"
                     ]
                   },
-                  "required": [
-                    "wildcard_suffix"
-                  ]
+                  "then": {
+                    "properties": {
+                      "protocol": {
+                        "const": "http"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "tls": {
+                        "const": "passthrough"
+                      }
+                    },
+                    "required": [
+                      "tls"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "protocol": {
+                        "const": "tcp"
+                      }
+                    },
+                    "required": [
+                      "protocol"
+                    ]
+                  }
                 }
               ],
               "patternProperties": {
                 "^x-": {}
               },
               "properties": {
-                "domain": {
+                "entrypoint": {
+                  "default": "websecure",
+                  "description": "Named proxy listener used for the route.",
+                  "type": "string"
+                },
+                "hostname": {
                   "anyOf": [
                     {
-                      "description": "Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
-                      "pattern": "^[^\\x00-\\x1f\\x7f`*]+$"
+                      "maxLength": 253,
+                      "pattern": "^(\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
                     },
                     {
                       "const": "*"
                     }
                   ],
-                  "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
+                  "description": "Hostname matched by the proxy. Accepts an exact hostname or a wildcard in the complete left-most label, such as *.example.com; a wildcard matches exactly one label and not the suffix itself. The bare * value is reserved for plaintext or TLS-passthrough TCP catch-all routes.",
                   "examples": [
                     "shop.example.com"
                   ],
-                  "type": "string"
-                },
-                "entrypoint": {
-                  "default": "websecure",
-                  "description": "Named proxy listener used for the route.",
                   "type": "string"
                 },
                 "middlewares": {
@@ -2874,7 +2836,7 @@
                 },
                 "protocol": {
                   "default": "http",
-                  "description": "Routing protocol: http, tcp, or udp.",
+                  "description": "Routing protocol: http or tcp.",
                   "enum": [
                     "http",
                     "tcp"
@@ -2883,7 +2845,7 @@
                 },
                 "scheme": {
                   "default": "http",
-                  "description": "Backend connection scheme: http, https, h2c, tcp, or udp.",
+                  "description": "Backend connection scheme for HTTP routes: http, https, or h2c.",
                   "enum": [
                     "http",
                     "https",
@@ -2900,17 +2862,11 @@
                     "none"
                   ],
                   "type": "string"
-                },
-                "wildcard_suffix": {
-                  "description": "DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain.",
-                  "examples": [
-                    "preview.example.com"
-                  ],
-                  "maxLength": 253,
-                  "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
-                  "type": "string"
                 }
               },
+              "required": [
+                "hostname"
+              ],
               "type": "object"
             },
             "type": "array"

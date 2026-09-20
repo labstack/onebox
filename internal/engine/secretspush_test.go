@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const secretGraphProject = `api_version: onebox.run/v2
+const secretGraphProject = `api_version: onebox.run/v1
 app: shop
 environments:
   production: {server: deploy@example.invalid}

@@ -24,7 +24,7 @@ func TestVectorscaleIncludesItsVectorDependency(t *testing.T) {
 }
 
 func TestPostgresExtensionsSelectTheOneboxImage(t *testing.T) {
-	rendered := renderServices(t, `api_version: onebox.run/v2
+	rendered := renderServices(t, `api_version: onebox.run/v1
 app: goal
 environments: {production: {server: root@host}}
 workloads:
@@ -66,7 +66,7 @@ func TestProtectedPostgresMustAdoptTheOneboxImageBeforeExtensions(t *testing.T) 
 }
 
 func TestPostgresExtensionsDerivePreloadAndCronSettings(t *testing.T) {
-	rendered := renderServices(t, `api_version: onebox.run/v2
+	rendered := renderServices(t, `api_version: onebox.run/v1
 app: goal
 environments: {production: {server: root@host}}
 workloads:
@@ -99,7 +99,7 @@ services:
 }
 
 func TestServiceExtensionsArePostgresOnly(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@host}}
 workloads:
@@ -116,7 +116,7 @@ services:
 }
 
 func TestPostgresExtensionsRequireThePublishedImageVersion(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@host}}
 workloads:
@@ -132,7 +132,7 @@ services:
 }
 
 func TestServiceExtensionNamesAreSafeSQLIdentifiers(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@host}}
 workloads:
@@ -154,7 +154,7 @@ func TestPgCronSettingsCannotDisableTheManagedContract(t *testing.T) {
 		"cron.database_name: elsewhere",
 		"cron.use_background_workers: off",
 	} {
-		_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+		_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@host}}
 workloads:

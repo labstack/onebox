@@ -149,7 +149,7 @@ jobs:
         run: |
           ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} version
           ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} --help
-          ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} schema --out "${{ runner.temp }}/onebox.run-v2.schema.json"
+          ./ob-smoke${{ runner.os == 'Windows' && '.exe' || '' }} schema --out "${{ runner.temp }}/onebox.run-v1.schema.json"
 
   e2e:
     name: End-to-end (Docker)

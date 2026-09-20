@@ -1,7 +1,7 @@
 ---
 title: Project file
 description: The shape of ob.yml — required keys, shorthand forms, and where each block lives.
-summary: Overview of the onebox.run/v2 project file — the block map, every scalar shorthand, and the two environment-value precedence rules.
+summary: Overview of the onebox.run/v1 project file — the block map, every scalar shorthand, and the two environment-value precedence rules.
 sidebar:
   order: 1
 read_when:
@@ -10,7 +10,7 @@ read_when:
   - "Working out which block a field belongs to"
 ---
 
-`onebox.run/v2` is the contract for one application on one host. It goes in
+`onebox.run/v1` is the contract for one application on one host. It goes in
 `ob.yml` at the root of your repository. `ob.yaml` is accepted automatically
 when `ob.yml` is absent, and `-c` accepts either spelling or any explicit path.
 
@@ -20,44 +20,43 @@ from a `workloads` block or the top-level shorthand.
 Start with the schema reference so your editor can help while you type:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v2.schema.json
-api_version: onebox.run/v2
+# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
+api_version: onebox.run/v1
 ```
 
 `ob schema --out onebox.schema.json` writes a local copy, and `ob init` puts the
 published reference on the first line of a scaffolded project.
 
-## Migrating from v1
+## Migrating route declarations
 
-Version 2 makes every ingress rule explicit and uses the conventional
-`hostname` name for both exact hosts and wildcard hosts. Change
-`api_version: onebox.run/v1` to `api_version: onebox.run/v2`, then migrate route
-fields as follows:
+Every ingress rule is explicit and uses `hostname` for both exact hosts and
+wildcard hosts. The contract identity remains `onebox.run/v1`; update retired
+route fields as follows:
 
 ```yaml
-# v1 scalar route shorthand
+# retired scalar route shorthand
 domain: shop.example.com
 port: 3000
 
-# v2
+# current route
 routes:
   - hostname: shop.example.com
     port: 3000
 ```
 
 ```yaml
-# v1 wildcard route
+# retired wildcard route
 routes:
   - wildcard_suffix: preview.example.com
     port: 3000
 
-# v2: a complete leftmost wildcard label, matching one label only
+# current: a complete leftmost wildcard label, matching one label only
 routes:
   - hostname: "*.preview.example.com"
     port: 3000
 ```
 
-The v2 loader rejects v1 project files instead of silently changing their
+The loader rejects retired route fields instead of silently changing their
 meaning. The workload-level `port` field remains available as the default
 container port for HTTP health checks; it no longer creates an ingress route.
 
@@ -108,8 +107,8 @@ These are contract, not convenience that changes within a version.
 
 A single-workload project may write the workload's own fields at the top level
 instead of a `workloads` block: `build`, `image`, `compose`, `port`, `health`,
-`routes`. Ingress is always declared through `routes`; v2 removes the v1 scalar
-`domain`/`port` route shorthand.
+`routes`. Ingress is always declared through `routes`; the scalar `domain`/`port`
+route shorthand is not accepted.
 
 Mixing the two is `shorthand_and_workloads` — it would be ambiguous which
 workload the top-level fields describe. Shorthand also needs `app` to attach the
@@ -341,7 +340,7 @@ generates the runtime from it. Individual services can still be adopted with
 
 ## Evolution
 
-`api_version: onebox.run/v2` is stable. Within it:
+`api_version: onebox.run/v1` is stable. Within it:
 
 - A field is **added**, never repurposed.
 - A scalar form once accepted is accepted **permanently**.

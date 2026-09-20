@@ -12,7 +12,7 @@
 # that decide what the container reads — the referenced service's own
 # `env_file`, the project's declared entries, and the referenced service's own
 # `environment` — plus a managed service supplying a connection file.
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: immich
 environments:
   production: {server: root@example.com}

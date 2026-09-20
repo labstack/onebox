@@ -6,8 +6,7 @@ the repository rather than to a reader.
 
 | Path | What it is |
 |---|---|
-| [`onebox.run-v2.schema.json`](onebox.run-v2.schema.json) | The current JSON Schema for the project file. Generated from the Go model by `ob schema` and tested byte-for-byte against it. `app.SchemaID` points at this path on `main`, and `ob init` writes that URL onto the first line of every scaffolded project. |
-| [`onebox.run-v1.schema.json`](onebox.run-v1.schema.json) | The frozen v1 schema, retained so the stable schema URL in existing v1 projects continues to resolve. |
+| [`onebox.run-v1.schema.json`](onebox.run-v1.schema.json) | The current JSON Schema for the project file. Generated from the Go model by `ob schema` and tested byte-for-byte against it. `app.SchemaID` points at this path on `main`, and `ob init` writes that URL onto the first line of every scaffolded project. |
 | [`product.md`](product.md) | Product direction. Not an implementation contract, and not a capability list. |
 
 ## Where the user documentation went

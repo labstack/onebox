@@ -23,7 +23,7 @@ import (
 const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
 const enginePreviousFrontendProject = `
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: sample
 environments:
   production:
@@ -223,6 +223,34 @@ func happyFake() *transport.Fake {
 	f.Commands = nil
 	f.Inputs = nil
 	return f
+}
+
+func TestDeployRefusesUnsupportedPredecessorSnapshotBeforeRuntimeMutation(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case strings.Contains(command, "/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+			return transport.Result{Stdout: strings.Replace(enginePreviousFrontendProject, app.APIVersion, "onebox.run/v2", 1)}, true
+		}
+		return base(command)
+	}
+
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(context.Background(), engineTestDeployReleaseID, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "snapshot unusable") || !strings.Contains(err.Error(), "schema_identity_unsupported") {
+		t.Fatalf("unsupported predecessor error = %v", err)
+	}
+	if len(f.Uploads) != 0 {
+		t.Fatalf("unsupported predecessor uploaded release files: %v", f.Uploads)
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, "docker restart onebox-proxy") || strings.Contains(command, "ln -sfn") {
+			t.Fatalf("unsupported predecessor reached runtime mutation: %s", command)
+		}
+	}
 }
 
 func TestDeployRetainsPlannedWorkloadWithoutRuntimeMutation(t *testing.T) {

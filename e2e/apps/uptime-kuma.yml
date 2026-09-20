@@ -1,4 +1,4 @@
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: uptime-kuma
 environments:
   production: {server: root@TARGET}

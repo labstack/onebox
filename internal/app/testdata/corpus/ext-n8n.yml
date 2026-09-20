@@ -1,6 +1,6 @@
 # Deployed and verified: n8n ran its migrations against the managed Postgres
 # and served /healthz, reading the connection under its own variable names.
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: n8n
 environments:
   production:

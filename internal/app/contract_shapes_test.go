@@ -39,7 +39,7 @@ func canonicalOf(t *testing.T, body string) string {
 	return string(out)
 }
 
-const shapeHead = "api_version: onebox.run/v2\napp: shop\n"
+const shapeHead = "api_version: onebox.run/v1\napp: shop\n"
 
 // 3.4 — a scalar shorthand and its object form are the same project.
 //

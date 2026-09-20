@@ -22,7 +22,7 @@ import (
 
 // SchemaID is both the schema identity and its stable, publicly retrievable
 // location. The main-branch path stays fixed across Onebox releases.
-const SchemaID = "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v2.schema.json"
+const SchemaID = "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json"
 
 // JSONSchema is the published contract, ready to write.
 func JSONSchema() ([]byte, error) {
@@ -35,7 +35,7 @@ func JSONSchema() ([]byte, error) {
 	}
 	doc["$schema"] = "https://json-schema.org/draft/2020-12/schema"
 	doc["$id"] = SchemaID
-	doc["title"] = "Onebox project (onebox.run/v2)"
+	doc["title"] = "Onebox project (onebox.run/v1)"
 	doc["description"] = "One application, its workloads, the services it needs, and how a release rolls out."
 
 	// The constraints the loader enforces, so the schema refuses what the

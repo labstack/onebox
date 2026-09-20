@@ -27,7 +27,7 @@ func TestServerDurableExecutions(t *testing.T) {
 		defer cancel()
 		_, _ = s.output(ctx, "systemctl disable --now "+unit+".timer >/dev/null 2>&1; systemctl stop "+unit+".service >/dev/null 2>&1; docker rm -f "+name+"-refresh-1 >/dev/null 2>&1; rm -f /etc/systemd/system/"+unit+".*; systemctl daemon-reload; rm -rf "+base)
 	})
-	project := fmt.Sprintf(`api_version: onebox.run/v2
+	project := fmt.Sprintf(`api_version: onebox.run/v1
 app: %s
 base_path: %s
 environments: {production: {server: %s}}

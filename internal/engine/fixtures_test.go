@@ -21,7 +21,7 @@ const (
 // that assembles the struct directly can assert on a shape the loader would
 // never produce.
 const engineProject = `
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: sample
 environments:
   production:

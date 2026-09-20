@@ -55,7 +55,7 @@ func listFor(t *testing.T, r *Resolved, workload string) []string {
 	return out
 }
 
-const envModelBody = `api_version: onebox.run/v2
+const envModelBody = `api_version: onebox.run/v1
 app: shop
 environments:
   production: {server: root@203.0.113.10}
@@ -138,7 +138,7 @@ func TestTwoEntriesNeverShareAStagedFile(t *testing.T) {
 
 // The withdrawn block is refused with direction, not as an unknown field.
 func TestTheWithdrawnSecretsBlockIsRefusedWithDirection(t *testing.T) {
-	_, err := Load(envModelProject(t, `api_version: onebox.run/v2
+	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 image: nginx
@@ -163,7 +163,7 @@ secrets: {production: s.yaml}
 
 // An authored value may not claim a name a connection supplies.
 func TestAuthoredValuesCannotClaimAConnectionVariable(t *testing.T) {
-	_, err := Load(envModelProject(t, `api_version: onebox.run/v2
+	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -189,7 +189,7 @@ services:
 // A compose-sourced application receives what an image-sourced one receives,
 // and ejecting then generating does not duplicate the projection.
 func TestComposeSourcedWorkloadsAreNotASpecialCase(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v2
+	path := envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 runtime:
@@ -243,7 +243,7 @@ workloads:
 // rolling release waited out its entire budget and then reported the container
 // unhealthy, naming the container and saying nothing about the port.
 func TestAnHTTPProbeInheritsTheRoutedPort(t *testing.T) {
-	r := resolvedFor(t, envModelProject(t, `api_version: onebox.run/v2
+	r := resolvedFor(t, envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 image: nginx
@@ -270,7 +270,7 @@ health: /healthz
 // a contract treating "how it is stored" as "who may see it" would let the
 // commoner form leak.
 func TestNoEntryValueReachesAnArtifact(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v2
+	path := envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 runtime:
@@ -310,7 +310,7 @@ routes:
 // rolling release waits out in full before reporting the container unhealthy
 // without naming a port.
 func TestAProbeWithNoPortIsRefused(t *testing.T) {
-	_, err := Load(envModelProject(t, `api_version: onebox.run/v2
+	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -349,7 +349,7 @@ func composeServiceEnvFiles(t *testing.T, runtime []byte, service string) []stri
 // adds. Both halves were unguarded — deleting the projection outright left the
 // suite green.
 func TestTheProjectionAppendsAndPreservesOrder(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v2
+	path := envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 runtime:
@@ -387,7 +387,7 @@ workloads:
 // cannot be shadowed by one. Emitting them in the other order passed every
 // test.
 func TestConnectionFilesComeAfterDeclaredEntries(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v2
+	path := envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 runtime:
@@ -420,7 +420,7 @@ services:
 // half was tested; this half is a scenario stated twice in the contract and had
 // no test — making the check unconditionally return nil passed everything.
 func TestAReferencedServiceCannotClaimAConnectionVariable(t *testing.T) {
-	_, err := resolvedForErr(t, envModelProject(t, `api_version: onebox.run/v2
+	_, err := resolvedForErr(t, envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 workloads:
@@ -469,7 +469,7 @@ func resolvedForErr(t *testing.T, path string) ([]byte, error) {
 // asked for interpolation. Stopping a correct project from loading is a worse
 // failure than the one it would prevent.
 func TestAnEncryptedEntryDoesNotBlockAProjectThatNeedsNoInterpolation(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v2
+	path := envModelProject(t, `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@203.0.113.10}}
 runtime:
@@ -547,7 +547,7 @@ func TestAnOverrideDeclaringNoneIsPreserved(t *testing.T) {
 // after the release is staged and the old one is coming down. The name is in
 // the document; there is no reason to find out there.
 func TestAnEntryNamingAMissingFileIsRefused(t *testing.T) {
-	body := `api_version: onebox.run/v2
+	body := `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 runtime:

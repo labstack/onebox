@@ -117,6 +117,14 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err := e.requireServingApplicationManifest(ctx, prev); err != nil {
 		return err
 	}
+	// A predecessor is replayed after activation to retire workloads removed by
+	// this release. Validate it before any proxy or workload mutation so a strict
+	// schema refusal cannot leave the new release serving with cleanup impossible.
+	if prev != "" {
+		if _, err := e.engineFromReleaseSnapshotFor(ctx, prev, "deploy"); err != nil {
+			return err
+		}
+	}
 	// After preflight, so an unreachable daemon is reported by the check that
 	// exists for it rather than by a raw `docker ps` failure — and still before
 	// any workload is rolled or any gate job runs.

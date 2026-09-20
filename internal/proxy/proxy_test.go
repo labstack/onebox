@@ -160,7 +160,7 @@ func TestManagedWildcardTLSRejectsIncompleteDNSConfiguration(t *testing.T) {
 }
 
 func TestManagedTLSRouterReferencesDefaultStaticResolver(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments:
   production: {server: root@example.com}

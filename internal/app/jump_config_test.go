@@ -6,7 +6,7 @@ import (
 )
 
 func projectWithJump(jump string) string {
-	return "api_version: onebox.run/v2\napp: ledger\n" +
+	return "api_version: onebox.run/v1\napp: ledger\n" +
 		"environments: {production: {server: root@10.20.0.10, jump: " + jump + "}}\n" +
 		"image: nginx\nroutes: [{hostname: ledger.example.com, port: 8080}]\n"
 }

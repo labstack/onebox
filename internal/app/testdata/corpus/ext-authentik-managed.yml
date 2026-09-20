@@ -12,7 +12,7 @@
 # The secret key is encrypted and the rest of the configuration is not, so the
 # frozen digest also covers a list mixing a plaintext entry with an encrypted
 # one — including the name the runtime references for the decrypted file.
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: authentik
 environments:
   production: {server: root@example.com}

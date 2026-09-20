@@ -1,6 +1,6 @@
 # Conformance corpus
 
-Real projects, authored against `onebox.run/v2`, used to freeze the contract:
+Real projects, authored against `onebox.run/v1`, used to freeze the contract:
 each one's accept/reject verdict, error code and generated-runtime digest is
 recorded in `../contract-verdicts.json` and asserted on every run.
 

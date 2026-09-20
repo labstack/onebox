@@ -1,4 +1,4 @@
-// Package app loads the onebox.run/v2 declarative authoring contract: one
+// Package app loads the onebox.run/v1 declarative authoring contract: one
 // application, its workloads, the services it needs, and how a release rolls
 // out.
 //
@@ -27,13 +27,8 @@ type Spec struct {
 	Dir string `json:"-"`
 	// file is the exact project path supplied to Load/LoadBytes. Mutating
 	// operations such as eject must never reconstruct it as Dir/ob.yml.
-	file string
-	// legacyV1Snapshot is set only while replaying an immutable release created
-	// by a v1 binary. It preserves the validation rules that release originally
-	// passed without reopening v1 as an authoring contract.
-	legacyV1Snapshot bool
-
-	APIVersion string `json:"api_version" description:"Project contract version. Must be onebox.run/v2." example:"onebox.run/v2"`
+	file       string
+	APIVersion string `json:"api_version" description:"Project contract version. Must be onebox.run/v1." example:"onebox.run/v1"`
 	// Name is the application's name. Spelled Name rather than App because
 	// inside a package called app, `spec.App` is a stutter and every caller
 	// then writes `.App.App`. The authored key is still `app:`.

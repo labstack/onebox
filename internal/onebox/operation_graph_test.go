@@ -82,7 +82,7 @@ func TestDeploymentGraphNeverContainsHookBodies(t *testing.T) {
 func TestDeploymentGraphOmitsAbsentHooksAndJobs(t *testing.T) {
 	t.Parallel()
 	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@h}}
 workloads:
@@ -118,7 +118,7 @@ func TestDeploymentClassificationDoesNotOverstateFirstDeployRollback(t *testing.
 
 func operationGraphConfig() *app.Resolved {
 	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: sample
 environments: {production: {server: root@h}}
 workloads:

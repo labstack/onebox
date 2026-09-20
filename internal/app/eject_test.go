@@ -8,7 +8,7 @@ import (
 )
 
 const ejectProject = `# Ledger's production contract.
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: ledger
 
 environments:
@@ -190,7 +190,7 @@ func TestEjectCarriesTheAuthorsNote(t *testing.T) {
 // shaped by the file. Leaving a health check or a volume in the project would
 // let someone edit it, see no effect, and get no error.
 func TestEjectRemovesWhatTheComposeFileNowOwns(t *testing.T) {
-	dir, _ := ejectInto(t, `api_version: onebox.run/v2
+	dir, _ := ejectInto(t, `api_version: onebox.run/v1
 app: ledger
 environments: {production: {server: root@1.2.3.4}}
 workloads:
@@ -224,7 +224,7 @@ workloads:
 func TestEjectDefaultAvoidsAReferencedFile(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  db: {image: postgres}\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v2
+	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v1
 app: ledger
 environments: {production: {server: root@1.2.3.4}}
 workloads:
@@ -260,7 +260,7 @@ workloads:
 func TestEjectAfterAnInterruptionCompletes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `api_version: onebox.run/v2
+	body := `api_version: onebox.run/v1
 app: shop
 environments:
   production: {server: root@203.0.113.10}

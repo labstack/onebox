@@ -59,7 +59,7 @@ func validateSpec(p *Spec) error {
 		if err := gIdent.check("workloads."+name, name); err != nil {
 			return err
 		}
-		if err := validateWorkload(p.Workloads[name], "workloads."+name, p.legacyV1Snapshot); err != nil {
+		if err := validateWorkload(p.Workloads[name], "workloads."+name); err != nil {
 			return err
 		}
 	}
@@ -248,7 +248,7 @@ func validateEnvironment(e Environment, path string) error {
 	return gCalVer.checkOptional(path+".policy.min_onebox_version", e.Policy.MinOneboxVersion)
 }
 
-func validateWorkload(w Workload, path string, legacyV1Snapshot bool) error {
+func validateWorkload(w Workload, path string) error {
 	if err := validateJobExecution(w, path); err != nil {
 		return err
 	}
@@ -304,7 +304,7 @@ func validateWorkload(w Workload, path string, legacyV1Snapshot bool) error {
 			// HostSNI(`*`) is Traefik's TCP catch-all for plaintext and
 			// TLS passthrough. It predates wildcard HTTP routes and remains
 			// the one intentional exception to exact-host syntax.
-		} else if err := validateRouteHostname(rp+".hostname", r.Hostname, legacyV1Snapshot); err != nil {
+		} else if err := validateRouteHostname(rp+".hostname", r.Hostname); err != nil {
 			return err
 		}
 		if r.IsWildcard() {
@@ -506,18 +506,7 @@ func validateWorkload(w Workload, path string, legacyV1Snapshot bool) error {
 	return nil
 }
 
-func validateRouteHostname(path, value string, legacyV1Snapshot bool) error {
-	if legacyV1Snapshot {
-		if !strings.HasPrefix(value, "*.") {
-			return gLegacyRouteHost.check(path, value)
-		}
-		// v1 measured wildcard_suffix without the authored "*." marker. Keep
-		// that exact bound when replaying a release that already passed v1.
-		if len(strings.TrimPrefix(value, "*.")) > 253 {
-			return errf("project_invalid", path, "", "%q is not a DNS hostname: its suffix exceeds 253 characters", value)
-		}
-		return gRouteHostname.check(path, value)
-	}
+func validateRouteHostname(path, value string) error {
 	if len(value) > 253 {
 		return errf("project_invalid", path, "", "%q is not a DNS hostname: it exceeds 253 characters", value)
 	}

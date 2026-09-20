@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const namesFixture = `api_version: onebox.run/v2
+const namesFixture = `api_version: onebox.run/v1
 app: ledger
 environments:
   production: {server: root@1.2.3.4}

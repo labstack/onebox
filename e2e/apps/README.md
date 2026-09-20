@@ -1,6 +1,6 @@
 # Deployable application fixtures
 
-Self-contained `onebox.run/v2` projects for real open-source applications,
+Self-contained `onebox.run/v1` projects for real open-source applications,
 chosen for the shape people normally build rather than for being exotic. Each
 declares everything it needs, so it renders and runs without a Compose
 reference.

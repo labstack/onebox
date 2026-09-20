@@ -66,7 +66,7 @@ func TestMalformedCronIsRefused(t *testing.T) {
 // A job's schedule reaches the host with its timezone; a backup at 2am means
 // 2am where the operator lives, not wherever the box was imaged.
 func TestScheduledJobsCarryTimezone(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -91,7 +91,7 @@ workloads:
 }
 
 func TestPinnedScheduleEligibilityFailsClosed(t *testing.T) {
-	valid := `api_version: onebox.run/v2
+	valid := `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -120,7 +120,7 @@ workloads:
 }
 
 func TestScheduledJobRunPolicyIsExplicitAndValidated(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -141,7 +141,7 @@ workloads:
 		t.Fatalf("authored run policy was not preserved: %#v", jobs)
 	}
 
-	bad := `api_version: onebox.run/v2
+	bad := `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -153,7 +153,7 @@ workloads:
 }
 
 func TestScheduledJobRetryAndNotifyResolveWithDefaults(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -206,7 +206,7 @@ func TestScheduledJobRetryIsBoundedByTheTimeout(t *testing.T) {
 		"unknown notify":          {`{cron: "0 * * * *", notify: [warning]}`, "project_invalid"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+			_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -227,7 +227,7 @@ workloads:
 }
 
 func TestJobInputsValidateNamesConstraintsAndDefaults(t *testing.T) {
-	base := `api_version: onebox.run/v2
+	base := `api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -268,7 +268,7 @@ workloads:
 			}
 		})
 	}
-	if _, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -310,7 +310,7 @@ func TestValidateJobInputValuesChecksOverrides(t *testing.T) {
 }
 
 func TestScheduledJobInputDefaultsRenderIntoTheComposeEnvironment(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:

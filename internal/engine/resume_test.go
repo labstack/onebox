@@ -390,7 +390,7 @@ func TestAbortUsesInterruptedExpandOnlyPolicyAfterConfigEdit(t *testing.T) {
 }
 
 const interruptedWebSnapshot = `
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: sample
 environments: { production: { server: deploy@h } }
 workloads:

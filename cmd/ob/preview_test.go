@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const previewProject = `api_version: onebox.run/v2
+const previewProject = `api_version: onebox.run/v1
 app: demo
 environments:
   production: {server: root@1.2.3.4}
@@ -79,7 +79,7 @@ func TestPreviewAppliesEnvironmentOverrides(t *testing.T) {
 // wrong, where, and what to run.
 func TestPreviewFailureIsActionable(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v2
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
 app: demo
 environments: {production: {server: h}}
 workloads: {web: {role: application, build: ., routes: [{hostname: d.example.com, port: 80}]}}
@@ -133,7 +133,7 @@ func dirEntries(t *testing.T, dir string) int {
 func TestEjectPicksAFreeName(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "compose.yaml", "services:\n  db: {image: postgres}\n")
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v2
+	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
 app: ledger
 environments: {production: {server: root@1.2.3.4}}
 workloads:

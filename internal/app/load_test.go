@@ -8,86 +8,15 @@ import (
 	"testing"
 )
 
-const base = "api_version: onebox.run/v2\napp: ledger\nenvironments: {production: {server: root@1.2.3.4}}\n"
+const base = "api_version: onebox.run/v1\napp: ledger\nenvironments: {production: {server: root@1.2.3.4}}\n"
 const min = base + "build: .\nroutes: [{hostname: ledger.example.com, port: 8080}]\n"
 
 func wl(body string) string { return base + "workloads: {" + body + "}\n" }
 
-func TestAPIVersionV2IsRequired(t *testing.T) {
-	_, err := LoadBytes([]byte(strings.Replace(min, APIVersion, "onebox.run/v1", 1)), "ob.yml")
+func TestAPIVersionV1IsRequired(t *testing.T) {
+	_, err := LoadBytes([]byte(strings.Replace(min, APIVersion, "onebox.run/v2", 1)), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "schema_identity_unsupported") {
-		t.Fatalf("v1 project must be rejected with a version error: %v", err)
-	}
-}
-
-func TestReleaseSnapshotLoaderMigratesV1RoutesOnlyAtReplayBoundary(t *testing.T) {
-	legacy := `api_version: onebox.run/v1
-app: ledger
-environments: {production: {server: root@1.2.3.4}}
-image: nginx
-domain: Example.COM.
-port: 8080
-`
-	p, err := LoadReleaseSnapshotBytes([]byte(legacy), "/var/lib/ob/ledger/releases/old/ob.snapshot.yml")
-	if err != nil {
-		t.Fatalf("load v1 release snapshot: %v", err)
-	}
-	routes := p.Workloads["ledger"].NormalisedRoutes()
-	if p.APIVersion != APIVersion || len(routes) != 1 || routes[0].Hostname != "Example.COM." || routes[0].Port != 8080 {
-		t.Fatalf("migrated snapshot = version %q, routes %+v", p.APIVersion, routes)
-	}
-	resolved, err := p.Resolve("production")
-	if err != nil {
-		t.Fatalf("resolve migrated v1 snapshot: %v", err)
-	}
-	if got := resolved.Workloads["ledger"].Routes[0].Hostname; got != "Example.COM." {
-		t.Fatalf("resolved legacy hostname = %q", got)
-	}
-
-	wildcard := `api_version: onebox.run/v1
-app: ledger
-environments:
-  production:
-    server: root@1.2.3.4
-    overrides:
-      workloads:
-        web:
-          routes: [{wildcard_suffix: branch.example.com, path: /, port: 8081, entrypoint: websecure, protocol: http, scheme: http, tls: none}]
-workloads:
-  web:
-    image: nginx
-    routes: [{wildcard_suffix: preview.example.com, port: 8080, tls: none}]
-`
-	p, err = LoadReleaseSnapshotBytes([]byte(wildcard), "ob.snapshot.yml")
-	if err != nil {
-		t.Fatalf("load v1 wildcard snapshot: %v", err)
-	}
-	if got := p.Workloads["web"].Routes[0].Hostname; got != "*.preview.example.com" {
-		t.Fatalf("migrated wildcard hostname = %q", got)
-	}
-	resolved, err = p.Resolve("production")
-	if err != nil {
-		t.Fatalf("resolve v1 wildcard override: %v", err)
-	}
-	if got := resolved.Workloads["web"].Routes[0].Hostname; got != "*.branch.example.com" {
-		t.Fatalf("migrated wildcard override hostname = %q", got)
-	}
-	maxV1Suffix := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." +
-		strings.Repeat("c", 63) + "." + strings.Repeat("d", 61)
-	maxWildcard := strings.Replace(wildcard, "preview.example.com", maxV1Suffix, 1)
-	if _, err := LoadReleaseSnapshotBytes([]byte(maxWildcard), "ob.snapshot.yml"); err != nil {
-		t.Fatalf("v1 snapshot wildcard at the v1 suffix limit: %v", err)
-	}
-
-	for name, body := range map[string]string{
-		"unknown version":  strings.Replace(legacy, "onebox.run/v1", "onebox.run/v0", 1),
-		"incomplete route": strings.Replace(legacy, "port: 8080\n", "", 1),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := LoadReleaseSnapshotBytes([]byte(body), "ob.snapshot.yml"); err == nil {
-				t.Fatal("invalid legacy snapshot was accepted")
-			}
-		})
+		t.Fatalf("v2 project must be rejected with a version error: %v", err)
 	}
 }
 
@@ -245,10 +174,10 @@ func conformanceCases() []conformanceCase {
 		{"explicit workloads block", wl("web: {image: nginx}"), true},
 		{"image reference with registry port", wl("web: {image: \"registry.example.com:5000/acme/app:1.2\"}"), true},
 		{"image reference with uppercase repository", wl("web: {image: \"ghcr.io/Acme/app:1.2\"}"), false},
-		{"one-char identifier", "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
-		{"app starting ob-", "api_version: onebox.run/v2\napp: ob-app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
-		{"host proxy name", "api_version: onebox.run/v2\napp: onebox-proxy\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
-		{"underscore identifier", "api_version: onebox.run/v2\napp: my_app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"one-char identifier", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nimage: nginx\n", true},
+		{"app starting ob-", "api_version: onebox.run/v1\napp: ob-app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"host proxy name", "api_version: onebox.run/v1\napp: onebox-proxy\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
+		{"underscore identifier", "api_version: onebox.run/v1\napp: my_app\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 		{"unknown top-level field", min + "bogus: 1\n", false},
 		{"x- extension accepted", min + "x-note: anything\n", true},
 		{"port out of range", base + "image: nginx\nhostname: d\nport: 70000\n", false},
@@ -276,15 +205,15 @@ func conformanceCases() []conformanceCase {
 		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
 		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
 		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
-		{"duration in days", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_max_age: 14d}}}}\n", true},
-		{"non-calver minimum version", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_onebox_version: 0.0.1-m0}}}\n", false},
-		{"incomplete plan schema", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
+		{"duration in days", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_max_age: 14d}}}}\n", true},
+		{"non-calver minimum version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_onebox_version: 0.0.1-m0}}}\n", false},
+		{"incomplete plan schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {min_plan_schema: \"onebox.run/executable-deploy-plan/v1alpha\"}}}\n", false},
 		{"hook with local", min + "hooks: {pre_release: {run: scripts/build.sh, local: true}}\n", true},
 		// A hook key is a lifecycle seam OR a declared job name. Both halves need
 		// a case: an unlisted seam loads and never fires, and refusing a job name
 		// would break the per-job command override the engine reads.
 		{"hook naming an unlisted seam", min + "hooks: {pre_deploy: {run: scripts/backup.sh}}\n", false},
-		{"hook naming a declared job", "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
+		{"hook naming a declared job", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\nhooks: {migrate: {run: ./bin/migrate}}\nworkloads:\n  w: {role: application, image: nginx}\n  migrate: {role: job, image: nginx, data_effect: migration}\n", true},
 		{"hook naming neither", min + "hooks: {typo_hook: {run: scripts/x.sh}}\n", false},
 		// A settings key is interpolated into a generated shell command without
 		// quoting, so the grammar is the only thing between a project file and
@@ -328,7 +257,7 @@ func conformanceCases() []conformanceCase {
 		{"encrypted env file entry", min + "runtime: {env_files: [{file: secrets.env, provider: sops}]}\n", true},
 		{"unknown env file provider", min + "runtime: {env_files: [{file: s.env, provider: vault}]}\n", false},
 		{"env file entry without a file", min + "runtime: {env_files: [{provider: sops}]}\n", false},
-		{"environment-scoped env files", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
+		{"environment-scoped env files", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, env_files: [.env.p]}}\n", true},
 		{"http check without a path", min + "checks: {http: [{workload: ledger}]}\n", false},
 		{"url check carrying an exec field", min + "checks: {url: [{url: \"https://x/\", run: \"echo\"}]}\n", false},
 		{"url check with contains and advisory", min + "checks: {url: [{url: \"https://x/\", contains: \"<div\", advisory: true}]}\n", true},
@@ -370,13 +299,13 @@ func conformanceCases() []conformanceCase {
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "    driver: postgres\n", "    driver: postgres\n    version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
-		{"no environments", "api_version: onebox.run/v2\napp: a\nenvironments: {}\nimage: nginx\n", false},
+		{"no environments", "api_version: onebox.run/v1\napp: a\nenvironments: {}\nimage: nginx\n", false},
 		{"no workload source at all", base, false},
 		{"shorthand and workloads together", min + "workloads: {w: {image: nginx}}\n", false},
 		{"two sources on a workload", wl("w: {image: nginx, build: .}"), false},
 		{"workload and service share a name", wl("db: {image: nginx}") + "services: {db: 18}\n", false},
 		{"unknown prerequisite", wl("w: {image: nginx, needs: [ghost]}"), false},
-		{"components is not a field", "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
+		{"components is not a field", "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\ncomponents: {web: {type: application}}\n", false},
 		{"missing api_version", "app: a\nenvironments: {p: {server: h}}\nimage: nginx\n", false},
 	}
 }
@@ -525,7 +454,7 @@ func TestRollingWorkloadCannotPublishFixedHostPort(t *testing.T) {
 // truncating scheme is not injective and volume names are permanent.
 func TestOverLongNameRefused(t *testing.T) {
 	long := strings.Repeat("a", 40)
-	y := "api_version: onebox.run/v2\napp: " + long + "\nenvironments: {p: {server: h}}\n" +
+	y := "api_version: onebox.run/v1\napp: " + long + "\nenvironments: {p: {server: h}}\n" +
 		"workloads: {" + strings.Repeat("w", 30) + ": {image: nginx}}\n"
 	_, err := LoadBytes([]byte(y), "ob.yml")
 	if err == nil {
@@ -581,7 +510,7 @@ func keysOf[V any](m map[string]V) []string {
 // "dependency failed to start: container has no healthcheck configured". A
 // default must not describe something the container engine cannot do.
 func TestNeedConditionResolvesAgainstTheDependency(t *testing.T) {
-	y := `api_version: onebox.run/v2
+	y := `api_version: onebox.run/v1
 app: app
 environments: {production: {server: h}}
 workloads:
@@ -609,7 +538,7 @@ workloads:
 // softened, but an explicit request must be honoured or refused — never
 // quietly turned into something weaker.
 func TestExplicitHealthyOnAHealthlessDependencyIsRefused(t *testing.T) {
-	y := `api_version: onebox.run/v2
+	y := `api_version: onebox.run/v1
 app: app
 environments: {production: {server: h}}
 workloads:
@@ -626,7 +555,7 @@ workloads:
 // Two workloads on one address is an outage nobody can explain: the proxy
 // accepts both and routes to one, chosen by a rule the author never wrote.
 func TestRouteCollisionIsRefusedNamingBoth(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -645,7 +574,7 @@ workloads:
 // The same host on two listeners is how a project serves HTTP and gRPC side by
 // side. Refusing that would reject correct projects.
 func TestSameHostOnDistinctEntrypointsIsAllowed(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -668,7 +597,7 @@ proxy: {entrypoints: {grpc: {port: 8443}}}
 
 // Different paths on one host are distinct addresses too.
 func TestSameHostDifferentPathsIsAllowed(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -684,7 +613,7 @@ workloads:
 // `managed: false` silently threw the routes away, and a project that declared
 // a domain deployed something nothing could reach.
 func TestRoutesSurviveAnUnmanagedProxy(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -709,7 +638,7 @@ proxy: {managed: false}
 
 // With nothing to route, a declared route is a promise nobody keeps.
 func TestRouteWithoutAProxyIsRefused(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -734,7 +663,7 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 		"role: daemon, image: nginx",
 		"role: job, image: nginx, data_effect: none",
 	} {
-		_, err := LoadBytes([]byte("api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\n"+
+		_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"+
 			"workloads: {w: {"+role+", replicaz: 3}}\n"), "ob.yml")
 		if err == nil {
 			t.Errorf("%s: an unknown field must be refused", role)
@@ -766,7 +695,7 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 // deploy — but it is reviewed, and a value that reads as a timezone while
 // appending a root command to a scheduling unit defeats the review.
 func TestHostileValuesAreRefusedAtTheGrammar(t *testing.T) {
-	base := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\n"
+	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"
 	for _, tt := range []struct{ name, yaml string }{
 		{"timezone injecting a unit directive",
 			base + `workloads: {w: {role: application, image: x:1}, j: {role: job, image: x:1, data_effect: none,` +
@@ -790,7 +719,7 @@ func TestHostileValuesAreRefusedAtTheGrammar(t *testing.T) {
 
 // The same fields must still accept what real projects write.
 func TestOrdinaryValuesStillLoad(t *testing.T) {
-	base := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: h}}\n"
+	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: h}}\n"
 	for _, tt := range []struct{ name, yaml string }{
 		{"IANA timezone",
 			base + `workloads: {w: {role: application, image: x:1}, j: {role: job, image: x:1, data_effect: none,` +
@@ -815,7 +744,7 @@ func TestOrdinaryValuesStillLoad(t *testing.T) {
 // directory — corruption, with nothing in the runtime saying so until the damage
 // is done.
 func TestDurableStateCannotBeReplicated(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -837,7 +766,7 @@ workloads:
 // Replicas over a shared volume that is not state — an uploads directory, a
 // cache — stay legal. Refusing those would reject correct projects.
 func TestReplicasOverNonDurableStorageAreAllowed(t *testing.T) {
-	if _, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads:
@@ -854,7 +783,7 @@ workloads:
 // A managed service has no replica count at all: one instance is the only shape
 // the contract can run.
 func TestAManagedServiceHasNoReplicaCount(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: shop
 environments: {production: {server: root@h}}
 workloads: {web: {role: application, image: x:1}}
@@ -879,15 +808,15 @@ func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
 		{"verification", base + "verification: [{url: \"https://x/\", contains: ok}]\n"},
 		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
 		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
-		{"policy migration_backup_max_age", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
+		{"policy migration_backup_max_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migration_backup_max_age: 24h}}}\n"},
 		// The abbreviation pass: maximum_/minimum_ became max_/min_, so the
 		// spelled-out forms are now the ones that must not load.
 		{"probe maximum_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, maximum_age: 5m}}}\n"},
 		{"drill maximum_age", base + "services: {postgres: {version: 18, backup: {target: t, drill: {maximum_age: 7d}}}}\n"},
 		{"backup maximum_data_loss", base + "services: {postgres: {version: 18, backup: {target: t, maximum_data_loss: 15m}}}\n"},
-		{"policy minimum_onebox_version", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: v2026.8.0}}}\n"},
-		{"policy minimum_plan_schema", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: x}}}\n"},
-		{"policy migrations backup_maximum_age", "api_version: onebox.run/v2\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 24h}}}}\n"},
+		{"policy minimum_onebox_version", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_onebox_version: v2026.8.0}}}\n"},
+		{"policy minimum_plan_schema", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {minimum_plan_schema: x}}}\n"},
+		{"policy migrations backup_maximum_age", "api_version: onebox.run/v1\napp: a\nimage: nginx\nenvironments: {p: {server: h, policy: {migrations: {backup_maximum_age: 24h}}}}\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := LoadBytes([]byte(c.yaml), "ob.yml")

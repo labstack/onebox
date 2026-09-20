@@ -124,7 +124,7 @@ func TestPublishedSchemaAcceptsEveryRealProject(t *testing.T) {
 func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
 	schema := compiledSchema(t)
 	for _, step := range []string{`{id: sync, command: [echo, ok]}`, `{command: [echo, ok]}`, `{id: sync}`, `{}`} {
-		y := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads:\n  sync:\n    role: job\n    image: busybox\n    deployment_phase: none\n    data_effect: none\n    schedule: {cron: '0 * * * *'}\n    execution:\n      steps: [" + step + "]\n"
+		y := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads:\n  sync:\n    role: job\n    image: busybox\n    deployment_phase: none\n    data_effect: none\n    schedule: {cron: '0 * * * *'}\n    execution:\n      steps: [" + step + "]\n"
 		err := schema.Validate(asJSON(t, y))
 		valid := strings.Contains(step, "id:") && strings.Contains(step, "command:")
 		if (err == nil) != valid {
@@ -136,11 +136,11 @@ func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
 func TestPublishedSchemaAcceptsAuthoredShorthand(t *testing.T) {
 	schema := compiledSchema(t)
 	for _, y := range []string{
-		"api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nimage: nginx\n",
-		"api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nservices: {postgres: 17}\n",
-		"api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, volumes: [{name: data, path: /data}], needs: [db], command: run}}\n",
-		"api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nhooks: {post_deploy: \"echo done\"}\n",
-		"api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nx-note: anything\n",
+		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nimage: nginx\n",
+		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nservices: {postgres: 17}\n",
+		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, volumes: [{name: data, path: /data}], needs: [db], command: run}}\n",
+		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nhooks: {post_deploy: \"echo done\"}\n",
+		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nx-note: anything\n",
 	} {
 		if err := schema.Validate(asJSON(t, y)); err != nil {
 			t.Errorf("authored shorthand rejected:\n%s\n%v", y, err)
@@ -152,7 +152,7 @@ func TestPublishedSchemaAcceptsAuthoredShorthand(t *testing.T) {
 // completion and error support the schema exists to provide.
 func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 	schema := compiledSchema(t)
-	y := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, replicaz: 3}}\n"
+	y := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, replicaz: 3}}\n"
 	if err := schema.Validate(asJSON(t, y)); err == nil {
 		t.Error("the published schema accepted a field the contract does not define")
 	} else if !strings.Contains(err.Error(), "replicaz") {
@@ -162,7 +162,7 @@ func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 
 func TestPublishedSchemaConstrainsProxyEntrypoints(t *testing.T) {
 	schema := compiledSchema(t)
-	base := "api_version: onebox.run/v2\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nproxy:\n  entrypoints:\n"
+	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nproxy:\n  entrypoints:\n"
 
 	for _, tc := range []struct {
 		name       string
@@ -267,13 +267,13 @@ func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := append(append([]byte(nil), body...), '\n')
-	path := filepath.Join("..", "..", "docs", "onebox.run-v2.schema.json")
+	path := filepath.Join("..", "..", "docs", "onebox.run-v1.schema.json")
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read published schema: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out docs/onebox.run-v2.schema.json`", path)
+		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out docs/onebox.run-v1.schema.json`", path)
 	}
 }
 

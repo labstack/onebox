@@ -304,7 +304,6 @@ func (p *Spec) deepCopy() (*Spec, error) {
 	}
 	out.Dir = p.Dir
 	out.file = p.file
-	out.legacyV1Snapshot = p.legacyV1Snapshot
 	// Without these a resolved project has no memory of what was authored, and
 	// would report every value as a default.
 	out.rawExpanded = p.rawExpanded

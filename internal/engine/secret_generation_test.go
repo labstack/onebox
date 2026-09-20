@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const generationProject = `api_version: onebox.run/v2
+const generationProject = `api_version: onebox.run/v1
 app: shop
 base_path: /srv/onebox
 environments:

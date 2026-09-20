@@ -1,7 +1,7 @@
 # Penpot. Two routes on one workload's host — the frontend serves the app and
 # proxies /api to the backend — which is the multi-route shape that only ever
 # existed in a synthetic fixture until now.
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: penpot
 environments:
   production: {server: root@TARGET}

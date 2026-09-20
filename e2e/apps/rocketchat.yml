@@ -10,7 +10,7 @@
 # Kept as a rendering and validation case, and as the thing to re-run if the
 # driver ever configures a replica set. An application that needs one today
 # wants a daemon workload it owns.
-api_version: onebox.run/v2
+api_version: onebox.run/v1
 app: rocketchat
 environments:
   production: {server: root@TARGET}

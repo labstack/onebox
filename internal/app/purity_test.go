@@ -16,7 +16,7 @@ import (
 // one commit disagree, entropy makes a digest meaningless, and an environment
 // variable makes the result depend on whose shell ran it.
 
-const purityProject = `api_version: onebox.run/v2
+const purityProject = `api_version: onebox.run/v1
 app: shop
 environments:
   production:
@@ -198,12 +198,12 @@ func TestGenerationCannotReachATarget(t *testing.T) {
 // connect to production.
 func TestEveryGenerationFailureIsReachableOffline(t *testing.T) {
 	for name, body := range map[string]string{
-		"unknown field":      "api_version: onebox.run/v2\napp: shop\nenvironments: {p: {server: h}}\nimage: nginx\nreplicaz: 3\n",
-		"no source":          "api_version: onebox.run/v2\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {web: {role: application}}\n",
-		"two sources":        "api_version: onebox.run/v2\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {web: {role: application, image: nginx, build: .}}\n",
-		"job without effect": "api_version: onebox.run/v2\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {j: {role: job, image: nginx}}\n",
-		"unknown driver":     "api_version: onebox.run/v2\napp: shop\nenvironments: {p: {server: h}}\nimage: nginx\nservices: {weird: {driver: nosuchthing, version: \"1\"}}\n",
-		"route collision":    "api_version: onebox.run/v2\napp: shop\nenvironments: {p: {server: h}}\nworkloads:\n  a: {role: application, image: nginx, routes: [{hostname: x.example.com, port: 1}]}\n  b: {role: application, image: nginx, routes: [{hostname: x.example.com, port: 2}]}\n",
+		"unknown field":      "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nimage: nginx\nreplicaz: 3\n",
+		"no source":          "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {web: {role: application}}\n",
+		"two sources":        "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {web: {role: application, image: nginx, build: .}}\n",
+		"job without effect": "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {j: {role: job, image: nginx}}\n",
+		"unknown driver":     "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nimage: nginx\nservices: {weird: {driver: nosuchthing, version: \"1\"}}\n",
+		"route collision":    "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads:\n  a: {role: application, image: nginx, routes: [{hostname: x.example.com, port: 1}]}\n  b: {role: application, image: nginx, routes: [{hostname: x.example.com, port: 2}]}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()

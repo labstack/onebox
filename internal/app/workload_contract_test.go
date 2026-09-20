@@ -54,7 +54,7 @@ func TestSecretInputRevisionsAreScopedByWorkload(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:
@@ -94,7 +94,7 @@ func TestSecretInputRevisionsUseTheProvidedSnapshot(t *testing.T) {
 	if err := os.WriteFile(path, []byte("cipher-before"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v2
+	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
 environments: {production: {server: deploy@example.test}}
 workloads:

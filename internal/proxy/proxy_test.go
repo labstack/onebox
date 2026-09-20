@@ -102,6 +102,63 @@ func TestDefaultProxyRenderingIsSocketless(t *testing.T) {
 	}
 }
 
+func TestManagedDNSChallengeRenderingAndStaging(t *testing.T) {
+	dns := &app.ProxyDNSChallenge{Provider: "cloudflare", Resolvers: []string{"1.1.1.1:53", "[2606:4700:4700::1111]:53"}}
+	static := string(renderStaticConfigWithDNS(nil, dns))
+	for _, want := range []string{
+		"dnsChallenge:\n        provider: cloudflare",
+		`- "1.1.1.1:53"`,
+		`- "[2606:4700:4700::1111]:53"`,
+	} {
+		if !strings.Contains(static, want) {
+			t.Fatalf("managed DNS configuration missing %q:\n%s", want, static)
+		}
+	}
+	if !strings.Contains(static, "httpChallenge") || !strings.Contains(static, "  "+app.ManagedWildcardCertificateResolver+":") {
+		t.Fatalf("DNS-01 configuration must preserve exact-route HTTP-01 and add a wildcard resolver:\n%s", static)
+	}
+
+	cfgDir := writeCfg(t, map[string]string{".env": "CF_DNS_API_TOKEN=placeholder\n"})
+	staging := t.TempDir()
+	if _, err := StageForAppManaged(cfgDir, staging, "", "", "sample", "", nil, true, true, dns); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(staging, "config", "traefik.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "dnsChallenge:") {
+		t.Fatalf("staged static configuration lost DNS-01:\n%s", body)
+	}
+	compose, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), "env_file: [config/.env]") {
+		t.Fatalf("DNS provider credentials are not mounted:\n%s", compose)
+	}
+}
+
+func TestManagedWildcardTLSRejectsIncompleteDNSConfiguration(t *testing.T) {
+	dns := &app.ProxyDNSChallenge{Provider: "cloudflare"}
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"}), t.TempDir(), "", "", "sample", "", nil, true, true, dns); err == nil || !strings.Contains(err.Error(), ".env") {
+		t.Fatalf("missing provider credentials must fail: %v", err)
+	}
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"}), t.TempDir(), "", "", "sample", "", nil, true, true, nil); err == nil || !strings.Contains(err.Error(), "proxy.dns_challenge") {
+		t.Fatalf("managed HTTP-01 must not claim wildcard support: %v", err)
+	}
+
+	httpOnly := writeCfg(t, map[string]string{"traefik.yml": testSocketlessStaticWithResolver})
+	if _, err := StageForAppManaged(httpOnly, t.TempDir(), "", "", "sample", "", nil, false, true, nil); err == nil || !strings.Contains(err.Error(), app.ManagedWildcardCertificateResolver) {
+		t.Fatalf("custom HTTP-01 resolver must not claim wildcard support: %v", err)
+	}
+
+	dnsStatic := testSocketlessStatic + "certificatesResolvers:\n  " + app.ManagedWildcardCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: cloudflare\n"
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"traefik.yml": dnsStatic}), t.TempDir(), "", "", "sample", "", nil, false, true, nil); err != nil {
+		t.Fatalf("custom DNS-01 resolver should remain supported: %v", err)
+	}
+}
+
 func TestManagedTLSRouterReferencesDefaultStaticResolver(t *testing.T) {
 	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
 app: sample
@@ -454,13 +511,16 @@ func TestStageRejectsProviderOverridesInEnv(t *testing.T) {
 		"TRAEFIK_PROVIDERS_DOCKER=true\n",
 		"TRAEFIK_PROVIDERS_FILE_WATCH=false\n",
 		"TRAEFIK_CONFIGFILE=/etc/traefik/alternate.yml\n",
+		"TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:8080\n",
+		"TRAEFIK_API_INSECURE=true\n",
+		"TRAEFIK_CERTIFICATESRESOLVERS_LE_ACME_EMAIL=ops@example.com\n",
 	} {
 		cfgDir := writeCfg(t, map[string]string{
 			"traefik.yml": testSocketlessStatic,
 			".env":        "CF_DNS_API_TOKEN=allowed\n" + declaration,
 		})
-		if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "managed proxy provider settings") {
-			t.Fatalf("provider override %q must be refused: %v", declaration, err)
+		if _, err := Stage(cfgDir, t.TempDir(), "", "", nil, false); err == nil || !strings.Contains(err.Error(), "managed proxy static settings") {
+			t.Fatalf("static override %q must be refused: %v", declaration, err)
 		}
 	}
 }

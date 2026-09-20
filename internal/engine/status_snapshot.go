@@ -11,7 +11,6 @@ import (
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/journal"
-	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
 )
 
@@ -496,7 +495,7 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 	// input, the ungated form would answer "nothing is near expiry" about a
 	// store it never opened.
 	if complete(statusProxyCertificatesRead) && raw.acmeIssue == "" {
-		certs, err := proxy.CertExpiries([]byte(raw.acme))
+		certs, err := proxyCertExpiries(raw.acme)
 		if err != nil {
 			status.Complete = false
 			status.Issues = append(status.Issues, "certificate store is unreadable")

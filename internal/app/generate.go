@@ -544,10 +544,14 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		svcName := n.ProxyServiceFor(name, i)
 		router := n.Router(name, i)
 		kind := "http"
-		rule := fmt.Sprintf("Host(`%s`)", r.Domain)
+		rule := fmt.Sprintf("Host(`%s`)", r.HostPattern())
+		if r.WildcardSuffix != "" {
+			suffix := strings.ReplaceAll(r.WildcardSuffix, ".", `\.`)
+			rule = fmt.Sprintf("HostRegexp(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.%s$`)", suffix)
+		}
 		if r.Protocol == "tcp" {
 			kind = "tcp"
-			rule = fmt.Sprintf("HostSNI(`%s`)", r.Domain)
+			rule = fmt.Sprintf("HostSNI(`%s`)", r.HostPattern())
 		} else if r.Path != "" && r.Path != "/" {
 			rule += fmt.Sprintf(" && PathPrefix(`%s`)", r.Path)
 		}
@@ -574,7 +578,12 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 			// authored project data. The generated static configuration defines
 			// this same private identity.
 			if p.Proxy.Managed && r.TLS == "terminate" {
-				out[pre+"tls.certresolver"] = ManagedCertificateResolver
+				resolver := ManagedCertificateResolver
+				if r.WildcardSuffix != "" {
+					resolver = ManagedWildcardCertificateResolver
+					out[pre+"tls.domains[0].main"] = r.HostPattern()
+				}
+				out[pre+"tls.certresolver"] = resolver
 			}
 		}
 		// Named explicitly: with more than one service defined on a container,

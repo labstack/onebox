@@ -362,6 +362,34 @@ func TestHasTerminatingTLSDistinguishesPassthrough(t *testing.T) {
 	}
 }
 
+func TestWildcardRouteRendersSafeHostRegexpAndDNSResolver(t *testing.T) {
+	project := `api_version: onebox.run/v1
+app: preview
+environments: {production: {server: root@example.com}}
+workloads:
+  web:
+    image: nginx
+    routes: [{wildcard_suffix: preview.example.com, port: 8080}]
+proxy:
+  config: traefik
+  dns_challenge: {provider: cloudflare}
+`
+	out := string(render(t, project))
+	if !strings.Contains(out, `HostRegexp(`+"`"+`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.preview\.example\.com$$`+"`"+`)`) {
+		t.Fatalf("wildcard route missing single-label HostRegexp matcher:\n%s", out)
+	}
+	if strings.Contains(out, "Host(`*.preview.example.com`)") {
+		t.Fatalf("wildcard route must not rely on Host wildcard semantics:\n%s", out)
+	}
+	if !strings.Contains(out, "tls.certresolver: "+ManagedWildcardCertificateResolver) ||
+		!strings.Contains(out, "tls.domains[0].main: '*.preview.example.com'") {
+		t.Fatalf("wildcard route lost managed TLS:\n%s", out)
+	}
+	if strings.Count(out, "tls.certresolver: "+ManagedCertificateResolver) != 0 {
+		t.Fatalf("wildcard route must not change exact-route HTTP-01 issuance:\n%s", out)
+	}
+}
+
 // TestEveryDraftRenders runs generation over the real conversion drafts.
 func TestEveryDraftRenders(t *testing.T) {
 	dir := filepath.Join("testdata", "corpus")

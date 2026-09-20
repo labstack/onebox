@@ -108,6 +108,21 @@ var (
 	gRegistryUser = grammar{"registry username", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@+-]*$`),
 		"a username of letters, digits and . _ @ + -"}
 
+	gDNSProvider = grammar{"DNS challenge provider", regexp.MustCompile(`^[a-z][a-z0-9_-]*$`),
+		"a lower-case Traefik DNS provider name such as cloudflare or route53"}
+
+	gDNSResolver = grammar{"DNS resolver", regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$`),
+		"a lower-case DNS name, IPv4 address, or bracketed IPv6 address followed by a port"}
+
+	// Exact route hosts predate strict hostname validation. Keep accepting their
+	// established spellings (including upper-case and a trailing dot), while
+	// excluding the characters that can escape Traefik's backtick literal.
+	gRouteHost = grammar{"route host", regexp.MustCompile("^[^\\x00-\\x1f\\x7f`*]+$"),
+		"an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing"}
+
+	gWildcardSuffix = grammar{"wildcard DNS suffix", regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`),
+		"a lower-case ASCII or Punycode DNS hostname whose labels contain 1 to 63 characters"}
+
 	gCalVer = grammar{"version", buildinfo.ReleaseVersionPattern,
 		"a CalVer release such as v2026.8.0"}
 

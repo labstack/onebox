@@ -344,6 +344,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "operator_run"}, enum(eJobOperatorRun)},
 	{[]string{"workloads", "*", "data_effect"}, enum(eDataEffect)},
 	{[]string{"workloads", "*", "compose"}, pattern(gComposeRef)},
+	{[]string{"workloads", "*", "domain"}, pattern(gRouteHost)},
 	{[]string{"workloads", "*", "port"}, portBounds()},
 	{[]string{"workloads", "*", "working_dir"}, pattern(gAbsPath)},
 	{[]string{"workloads", "*", "env_files", "items", "file"}, pattern(gRepoPath)},
@@ -386,6 +387,33 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "resources", "memory"}, pattern(gSize)},
 	{[]string{"workloads", "*", "resources", "cpus"}, pattern(gCpus)},
 	{[]string{"workloads", "*", "persistence", "mode"}, enum(ePersistence)},
+	{[]string{"workloads", "*", "routes", "items"}, map[string]any{
+		"oneOf": []any{
+			map[string]any{"required": []any{"domain"}, "not": map[string]any{"required": []any{"wildcard_suffix"}}},
+			map[string]any{"required": []any{"wildcard_suffix"}, "not": map[string]any{"required": []any{"domain"}}},
+		},
+		"allOf": []any{map[string]any{
+			"if": map[string]any{
+				"required":   []any{"domain"},
+				"properties": map[string]any{"domain": map[string]any{"const": "*"}},
+			},
+			"then": map[string]any{
+				"required": []any{"protocol", "tls"},
+				"properties": map[string]any{
+					"protocol": map[string]any{"const": "tcp"},
+					"tls":      map[string]any{"enum": []any{"none", "passthrough"}},
+				},
+			},
+		}},
+	}},
+	{[]string{"workloads", "*", "routes", "items", "domain"}, map[string]any{"anyOf": []any{
+		pattern(gRouteHost),
+		map[string]any{"const": "*"},
+	}}},
+	{[]string{"workloads", "*", "routes", "items", "wildcard_suffix"}, map[string]any{
+		"pattern":   gWildcardSuffix.pattern.String(),
+		"maxLength": 253,
+	}},
 	{[]string{"workloads", "*", "routes", "items", "path"}, pattern(gURLPath)},
 	{[]string{"workloads", "*", "routes", "items", "port"}, portBounds()},
 	{[]string{"workloads", "*", "routes", "items", "protocol"}, enum(eRouteProtocol)},
@@ -477,6 +505,9 @@ var schemaConstraints = []struct {
 	{[]string{"proxy", "kind"}, enum(eProxyKind)},
 	{[]string{"proxy", "image"}, pattern(gImageRef)},
 	{[]string{"proxy", "config"}, pattern(gRepoPath)},
+	{[]string{"proxy", "dns_challenge", "provider"}, pattern(gDNSProvider)},
+	{[]string{"proxy", "dns_challenge", "resolvers", "items"}, pattern(gDNSResolver)},
+	{[]string{"proxy", "dns_challenge"}, map[string]any{"required": []any{"provider"}}},
 	{[]string{"proxy", "entrypoints"}, propertyNames(gIdent)},
 	{[]string{"proxy", "entrypoints", "*", "port"}, portBounds()},
 	{[]string{"deployment", "migration_policy"}, enum(eMigrationPolicy)},

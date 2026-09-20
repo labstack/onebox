@@ -7,7 +7,8 @@
 // Dynamic YAML or TOML extends the configuration Onebox writes. Supplying
 // traefik.yml or traefik.yaml instead takes ownership of the static
 // configuration while Onebox retains the socketless discovery boundary. A
-// proxy .env is meaningful only with that custom static configuration.
+// proxy .env is meaningful with custom static configuration or a managed
+// DNS-01 challenge, where it supplies the provider's credentials.
 package proxy
 
 import (
@@ -308,12 +309,25 @@ func newProxyConfigHash() hash.Hash {
 }
 
 func renderStaticConfig(entrypoints map[string]app.ProxyEntrypoint) []byte {
+	return renderStaticConfigWithDNS(entrypoints, nil)
+}
+
+func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) []byte {
 	var out strings.Builder
 	out.WriteString(defaultStaticConfigHeader)
 	for _, name := range sortedEntrypointNames(entrypoints) {
 		fmt.Fprintf(&out, "  %s:\n    address: \":%d\"\n", name, entrypoints[name].Port)
 	}
 	out.WriteString(defaultStaticConfigFooter)
+	if dns != nil {
+		fmt.Fprintf(&out, "  %s:\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedWildcardCertificateResolver, dns.Provider)
+		if len(dns.Resolvers) > 0 {
+			out.WriteString("        resolvers:\n")
+			for _, resolver := range dns.Resolvers {
+				fmt.Fprintf(&out, "          - %q\n", resolver)
+			}
+		}
+	}
 	return []byte(out.String())
 }
 
@@ -322,11 +336,21 @@ func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[strin
 }
 
 func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (string, error) {
+	return StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network, entrypoints, requireCertificateResolver, false, nil)
+}
+
+// StageForAppManaged stages a proxy with the managed ACME policy required by
+// the application's routes. Wildcard termination requires DNS-01 either from
+// dns or from a custom static configuration.
+func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireExactCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge) (string, error) {
 	if application == "" {
 		application = "onebox"
 	}
 	if localCfgDir == "" {
-		return stageDefault(stagingDir, image, discoveryImage, application, network, entrypoints)
+		if requireWildcardTLS && dns == nil {
+			return "", errors.New("managed terminating wildcard routes require an ACME DNS challenge")
+		}
+		return stageDefaultManaged(stagingDir, image, discoveryImage, application, network, entrypoints, dns)
 	}
 	entries, err := os.ReadDir(localCfgDir)
 	if err != nil {
@@ -367,18 +391,27 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 			localCfgDir)
 	}
 	customStatic := len(staticConfigs) == 1
-	if !customStatic && !hasDynamic {
+	if dns != nil && customStatic {
+		return "", errors.New("proxy.dns_challenge cannot be combined with project-owned traefik.yml or traefik.yaml; remove the static file so Onebox can render DNS-01")
+	}
+	if requireWildcardTLS && !customStatic && dns == nil {
+		return "", errors.New("managed terminating wildcard routes require proxy.dns_challenge, or a project-owned traefik.yml or traefik.yaml defining ACME DNS-01")
+	}
+	if !customStatic && !hasDynamic && !(dns != nil && hasEnv) {
 		return "", fmt.Errorf("proxy.config: %s contains no dynamic .yml, .yaml, or .toml files; "+
 			"remove proxy.config to use only Onebox's managed configuration, or add a dynamic extension",
 			localCfgDir)
 	}
-	if !customStatic && hasEnv {
+	if !customStatic && hasEnv && dns == nil {
 		return "", fmt.Errorf("proxy.config .env requires traefik.yml or traefik.yaml; " +
 			"Onebox's managed static configuration does not consume custom proxy environment variables")
 	}
+	if dns != nil && !hasEnv {
+		return "", errors.New("proxy.dns_challenge requires proxy.config/.env containing the DNS provider credentials")
+	}
 
 	staticName := "traefik.yml"
-	staticBody := renderStaticConfig(entrypoints)
+	staticBody := renderStaticConfigWithDNS(entrypoints, dns)
 	if customStatic {
 		staticName = staticConfigs[0]
 		var err error
@@ -386,7 +419,7 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 		if err != nil {
 			return "", err
 		}
-		if err := validateSocketlessStaticConfig(staticBody, requireCertificateResolver); err != nil {
+		if err := validateSocketlessStaticConfig(staticBody, requireExactCertificateResolver, requireWildcardTLS); err != nil {
 			return "", fmt.Errorf("proxy.config %s: %w", staticName, err)
 		}
 	} else {
@@ -460,9 +493,9 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// stageDefault writes the configuration Onebox owns, so a project that declares
-// a domain and nothing else can bootstrap.
-func stageDefault(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint) (string, error) {
+// stageDefaultManaged writes the configuration Onebox owns, so a project that
+// declares a domain and nothing else can bootstrap.
+func stageDefaultManaged(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) (string, error) {
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
 		return "", err
@@ -474,7 +507,7 @@ func stageDefault(stagingDir, image, discoveryImage, application, network string
 	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
 		return "", err
 	}
-	body := renderStaticConfig(entrypoints)
+	body := renderStaticConfigWithDNS(entrypoints, dns)
 	if err := os.WriteFile(filepath.Join(cfgOut, "traefik.yml"), body, 0o600); err != nil {
 		return "", err
 	}
@@ -523,7 +556,7 @@ func (e *CertificateResolverMissingError) Error() string {
 	return fmt.Sprintf("terminating TLS routes require certificatesResolvers.%s in the custom static configuration; define it or remove traefik.yml/traefik.yaml to use Onebox's managed ACME configuration", e.Name)
 }
 
-func validateSocketlessStaticConfig(body []byte, requireCertificateResolver bool) error {
+func validateSocketlessStaticConfig(body []byte, requireExactCertificateResolver, requireWildcardTLS bool) error {
 	var document map[string]any
 	if err := yaml.Unmarshal(body, &document); err != nil {
 		return fmt.Errorf("parse static configuration: %w", err)
@@ -548,11 +581,32 @@ func validateSocketlessStaticConfig(body []byte, requireCertificateResolver bool
 			return errors.New("set providers.file.watch to true or omit it; Onebox discovery requires live configuration updates")
 		}
 	}
-	if requireCertificateResolver {
+	if requireExactCertificateResolver || requireWildcardTLS {
 		resolvers, ok := document["certificatesResolvers"].(map[string]any)
-		resolver, defined := resolvers[app.ManagedCertificateResolver].(map[string]any)
-		if !ok || !defined || len(resolver) == 0 {
-			return &CertificateResolverMissingError{Name: app.ManagedCertificateResolver}
+		if !ok {
+			name := app.ManagedCertificateResolver
+			if !requireExactCertificateResolver {
+				name = app.ManagedWildcardCertificateResolver
+			}
+			return &CertificateResolverMissingError{Name: name}
+		}
+		if requireExactCertificateResolver {
+			resolver, defined := resolvers[app.ManagedCertificateResolver].(map[string]any)
+			if !defined || len(resolver) == 0 {
+				return &CertificateResolverMissingError{Name: app.ManagedCertificateResolver}
+			}
+		}
+		if requireWildcardTLS {
+			resolver, defined := resolvers[app.ManagedWildcardCertificateResolver].(map[string]any)
+			if !defined || len(resolver) == 0 {
+				return &CertificateResolverMissingError{Name: app.ManagedWildcardCertificateResolver}
+			}
+			acme, _ := resolver["acme"].(map[string]any)
+			dns, _ := acme["dnsChallenge"].(map[string]any)
+			provider, _ := dns["provider"].(string)
+			if provider == "" {
+				return fmt.Errorf("terminating wildcard routes require certificatesResolvers.%s.acme.dnsChallenge.provider in the custom static configuration", app.ManagedWildcardCertificateResolver)
+			}
 		}
 	}
 	return nil
@@ -609,8 +663,8 @@ func validateSocketlessEnv(body []byte) error {
 		return fmt.Errorf("parse dotenv: %w", err)
 	}
 	for key := range values {
-		if key == "TRAEFIK_CONFIGFILE" || strings.HasPrefix(key, "TRAEFIK_PROVIDERS_") {
-			return fmt.Errorf("remove %s; managed proxy provider settings must remain in the validated traefik.yml or traefik.yaml", key)
+		if strings.HasPrefix(key, "TRAEFIK_") {
+			return fmt.Errorf("remove %s; managed proxy static settings must remain in the validated traefik.yml or traefik.yaml", key)
 		}
 	}
 	return nil

@@ -213,14 +213,15 @@ type Image struct {
 }
 
 type Route struct {
-	Domain      string          `json:"domain" description:"DNS name matched by the proxy." example:"shop.example.com"`
-	Path        string          `json:"path" description:"URL path prefix matched by an HTTP route." default:"/"`
-	Port        int             `json:"port" description:"Container port receiving routed traffic." example:"3000"`
-	Entrypoint  string          `json:"entrypoint" description:"Named proxy listener used for the route." default:"websecure"`
-	Protocol    string          `json:"protocol" description:"Routing protocol: http, tcp, or udp." default:"http"`
-	Scheme      string          `json:"scheme" description:"Backend connection scheme: http, https, h2c, tcp, or udp." default:"http"`
-	TLS         string          `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
-	Middlewares []MiddlewareRef `json:"middlewares,omitempty" description:"Ordered provider-qualified middleware references applied to this route."`
+	Domain         string          `json:"domain,omitempty" description:"Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix." example:"shop.example.com"`
+	WildcardSuffix string          `json:"wildcard_suffix,omitempty" description:"DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain." example:"preview.example.com"`
+	Path           string          `json:"path" description:"URL path prefix matched by an HTTP route." default:"/"`
+	Port           int             `json:"port" description:"Container port receiving routed traffic." example:"3000"`
+	Entrypoint     string          `json:"entrypoint" description:"Named proxy listener used for the route." default:"websecure"`
+	Protocol       string          `json:"protocol" description:"Routing protocol: http, tcp, or udp." default:"http"`
+	Scheme         string          `json:"scheme" description:"Backend connection scheme: http, https, h2c, tcp, or udp." default:"http"`
+	TLS            string          `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
+	Middlewares    []MiddlewareRef `json:"middlewares,omitempty" description:"Ordered provider-qualified middleware references applied to this route."`
 }
 
 // MiddlewareRef names dynamic proxy configuration without opening the
@@ -543,17 +544,27 @@ type Registry struct {
 // project-file value: Onebox owns both ends of this reference.
 const ManagedCertificateResolver = "letsencrypt"
 
+// ManagedWildcardCertificateResolver keeps wildcard DNS-01 credentials from
+// changing issuance for exact routes, which continue to use HTTP-01 above.
+const ManagedWildcardCertificateResolver = "onebox-wildcard"
+
 type Proxy struct {
-	Managed     bool                       `json:"managed" description:"Let Onebox converge the host-scoped proxy when routes are declared."`
-	Kind        string                     `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
-	Image       string                     `json:"image,omitempty" description:"Container image used for the managed proxy."`
-	Config      string                     `json:"config,omitempty" description:"Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, and must define certificatesResolvers.letsencrypt when a route terminates TLS. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware."`
-	Network     string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
-	Entrypoints map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a proxy.config containing custom traefik.yml or traefik.yaml must define matching Traefik entrypoints."`
+	Managed      bool                       `json:"managed" description:"Let Onebox converge the host-scoped proxy when routes are declared."`
+	Kind         string                     `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
+	Image        string                     `json:"image,omitempty" description:"Container image used for the managed proxy."`
+	Config       string                     `json:"config,omitempty" description:"Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. A managed DNS challenge may use a directory containing only .env for provider credentials. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, must define certificatesResolvers.letsencrypt for exact terminating routes, and must define the DNS-01 certificatesResolvers.onebox-wildcard for wildcard terminating routes. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware."`
+	Network      string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
+	Entrypoints  map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a proxy.config containing custom traefik.yml or traefik.yaml must define matching Traefik entrypoints."`
+	DNSChallenge *ProxyDNSChallenge         `json:"dns_challenge,omitempty" description:"Managed ACME DNS-01 challenge used to issue wildcard certificates. Provider credentials belong in proxy.config/.env; Onebox continues to own the static proxy configuration."`
 }
 
 type ProxyEntrypoint struct {
 	Port int `json:"port" description:"Host and proxy-container TCP port used by this listener." example:"4317"`
+}
+
+type ProxyDNSChallenge struct {
+	Provider  string   `json:"provider" description:"Traefik DNS challenge provider name. Its credential variables must be supplied through proxy.config/.env." example:"cloudflare"`
+	Resolvers []string `json:"resolvers,omitempty" description:"DNS resolvers used to verify challenge propagation, written as host:port." example:"1.1.1.1:53"`
 }
 
 // EnvFile is one contributor of environment values.

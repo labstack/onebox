@@ -654,6 +654,9 @@ func routesOverlap(a, b Route) bool {
 		return a.WildcardSuffix == b.WildcardSuffix
 	}
 	if a.WildcardSuffix == "" && b.WildcardSuffix == "" {
+		if a.Domain == "*" || b.Domain == "*" {
+			return true
+		}
 		return canonicalRouteHost(a.Domain) == canonicalRouteHost(b.Domain)
 	}
 	if a.WildcardSuffix == "" {

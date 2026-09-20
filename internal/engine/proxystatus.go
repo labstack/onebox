@@ -21,13 +21,13 @@ const renewalFloorDays = 21
 // app-side reads.
 type proxyRaw struct {
 	ids       []string
-	health    string // proxy container health, parsed from docker ps .Status
-	discovery bool   // isolated Docker discovery controller is running
-	applied   string // config hash the host applied
-	owner     string // sole application identity from the host owner record
-	ownerEnv  string // environment identity when the record is not legacy
-	acme      string // raw acme.json; parsed at render, and keys never leave
-	localHash string // hash of the locally staged config (computed offline)
+	health    string   // proxy container health, parsed from docker ps .Status
+	discovery bool     // isolated Docker discovery controller is running
+	applied   string   // config hash the host applied
+	owner     string   // sole application identity from the host owner record
+	ownerEnv  string   // environment identity when the record is not legacy
+	acme      []string // raw ACME stores; parsed at render, and keys never leave
+	localHash string   // hash of the locally staged config (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather
 	// than raised: gather returns on the first error and Status renders
 	// nothing after it, so raising costs the operator every other fact about
@@ -155,19 +155,21 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return nil
 		},
 		func() error {
-			path := hp.Acme + "/acme.json"
-			res, err := e.T.Run(ctx, readableFileProbe(path))
-			if err != nil {
-				return err
+			for _, name := range []string{"acme.json", "acme-wildcard.json"} {
+				path := hp.Acme + "/" + name
+				res, err := e.T.Run(ctx, readableFileProbe(path))
+				if err != nil {
+					return err
+				}
+				if issue, refused := statusFileIssue("the certificate store", path, res); refused {
+					px.acmeIssue = issue
+					return nil
+				}
+				if res.ExitCode != 0 {
+					return statusReadResult("proxy certificate store", res, nil)
+				}
+				px.acme = append(px.acme, res.Stdout)
 			}
-			if issue, refused := statusFileIssue("the certificate store", path, res); refused {
-				px.acmeIssue = issue
-				return nil
-			}
-			if res.ExitCode != 0 {
-				return statusReadResult("proxy certificate store", res, nil)
-			}
-			px.acme = res.Stdout
 			return nil
 		},
 		func() error {
@@ -184,7 +186,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			defer os.RemoveAll(staging)
 			px.localHash, err = proxy.StageForAppManaged(localCfg, staging, e.Spec.Proxy.Image,
 				proxy.DiscoveryImage(e.Opts.Runner.Version), e.Spec.Name,
-				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasTerminatingTLS(),
+				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasExactTerminatingTLS(),
 				e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge)
 			return err
 		},
@@ -320,7 +322,7 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%s)\n", px.acmeIssue)
 		return true, nil
 	}
-	certs, err := proxy.CertExpiries([]byte(px.acme))
+	certs, err := proxyCertExpiries(px.acme)
 	if err != nil {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%v)\n", err)
 		return true, nil
@@ -335,4 +337,16 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		e.ui.Println(fmt.Sprintf("  cert %-20s expires %s %s%s", c.Domain, c.NotAfter.UTC().Format("2006-01-02"), e.ui.Dim(fmt.Sprintf("(%dd)", days)), mark))
 	}
 	return diverged, nil
+}
+
+func proxyCertExpiries(stores []string) ([]proxy.CertExpiry, error) {
+	var out []proxy.CertExpiry
+	for _, store := range stores {
+		certs, err := proxy.CertExpiries([]byte(store))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, certs...)
+	}
+	return out, nil
 }

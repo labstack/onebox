@@ -318,10 +318,9 @@ func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *
 	for _, name := range sortedEntrypointNames(entrypoints) {
 		fmt.Fprintf(&out, "  %s:\n    address: \":%d\"\n", name, entrypoints[name].Port)
 	}
-	if dns == nil {
-		out.WriteString(defaultStaticConfigFooter)
-	} else {
-		fmt.Fprintf(&out, "certificatesResolvers:\n  %s:\n    acme:\n      storage: /letsencrypt/acme.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedCertificateResolver, dns.Provider)
+	out.WriteString(defaultStaticConfigFooter)
+	if dns != nil {
+		fmt.Fprintf(&out, "  %s:\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedWildcardCertificateResolver, dns.Provider)
 		if len(dns.Resolvers) > 0 {
 			out.WriteString("        resolvers:\n")
 			for _, resolver := range dns.Resolvers {
@@ -343,7 +342,7 @@ func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, ne
 // StageForAppManaged stages a proxy with the managed ACME policy required by
 // the application's routes. Wildcard termination requires DNS-01 either from
 // dns or from a custom static configuration.
-func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge) (string, error) {
+func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireExactCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge) (string, error) {
 	if application == "" {
 		application = "onebox"
 	}
@@ -420,7 +419,7 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 		if err != nil {
 			return "", err
 		}
-		if err := validateSocketlessStaticConfig(staticBody, requireCertificateResolver, requireWildcardTLS); err != nil {
+		if err := validateSocketlessStaticConfig(staticBody, requireExactCertificateResolver, requireWildcardTLS); err != nil {
 			return "", fmt.Errorf("proxy.config %s: %w", staticName, err)
 		}
 	} else {
@@ -557,7 +556,7 @@ func (e *CertificateResolverMissingError) Error() string {
 	return fmt.Sprintf("terminating TLS routes require certificatesResolvers.%s in the custom static configuration; define it or remove traefik.yml/traefik.yaml to use Onebox's managed ACME configuration", e.Name)
 }
 
-func validateSocketlessStaticConfig(body []byte, requireCertificateResolver, requireWildcardTLS bool) error {
+func validateSocketlessStaticConfig(body []byte, requireExactCertificateResolver, requireWildcardTLS bool) error {
 	var document map[string]any
 	if err := yaml.Unmarshal(body, &document); err != nil {
 		return fmt.Errorf("parse static configuration: %w", err)
@@ -582,18 +581,31 @@ func validateSocketlessStaticConfig(body []byte, requireCertificateResolver, req
 			return errors.New("set providers.file.watch to true or omit it; Onebox discovery requires live configuration updates")
 		}
 	}
-	if requireCertificateResolver {
+	if requireExactCertificateResolver || requireWildcardTLS {
 		resolvers, ok := document["certificatesResolvers"].(map[string]any)
-		resolver, defined := resolvers[app.ManagedCertificateResolver].(map[string]any)
-		if !ok || !defined || len(resolver) == 0 {
-			return &CertificateResolverMissingError{Name: app.ManagedCertificateResolver}
+		if !ok {
+			name := app.ManagedCertificateResolver
+			if !requireExactCertificateResolver {
+				name = app.ManagedWildcardCertificateResolver
+			}
+			return &CertificateResolverMissingError{Name: name}
+		}
+		if requireExactCertificateResolver {
+			resolver, defined := resolvers[app.ManagedCertificateResolver].(map[string]any)
+			if !defined || len(resolver) == 0 {
+				return &CertificateResolverMissingError{Name: app.ManagedCertificateResolver}
+			}
 		}
 		if requireWildcardTLS {
+			resolver, defined := resolvers[app.ManagedWildcardCertificateResolver].(map[string]any)
+			if !defined || len(resolver) == 0 {
+				return &CertificateResolverMissingError{Name: app.ManagedWildcardCertificateResolver}
+			}
 			acme, _ := resolver["acme"].(map[string]any)
 			dns, _ := acme["dnsChallenge"].(map[string]any)
 			provider, _ := dns["provider"].(string)
 			if provider == "" {
-				return fmt.Errorf("terminating wildcard routes require certificatesResolvers.%s.acme.dnsChallenge.provider in the custom static configuration", app.ManagedCertificateResolver)
+				return fmt.Errorf("terminating wildcard routes require certificatesResolvers.%s.acme.dnsChallenge.provider in the custom static configuration", app.ManagedWildcardCertificateResolver)
 			}
 		}
 	}

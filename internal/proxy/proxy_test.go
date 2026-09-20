@@ -114,8 +114,8 @@ func TestManagedDNSChallengeRenderingAndStaging(t *testing.T) {
 			t.Fatalf("managed DNS configuration missing %q:\n%s", want, static)
 		}
 	}
-	if strings.Contains(static, "httpChallenge") {
-		t.Fatalf("DNS-01 configuration must replace HTTP-01:\n%s", static)
+	if !strings.Contains(static, "httpChallenge") || !strings.Contains(static, "  "+app.ManagedWildcardCertificateResolver+":") {
+		t.Fatalf("DNS-01 configuration must preserve exact-route HTTP-01 and add a wildcard resolver:\n%s", static)
 	}
 
 	cfgDir := writeCfg(t, map[string]string{".env": "CF_DNS_API_TOKEN=placeholder\n"})
@@ -149,12 +149,12 @@ func TestManagedWildcardTLSRejectsIncompleteDNSConfiguration(t *testing.T) {
 	}
 
 	httpOnly := writeCfg(t, map[string]string{"traefik.yml": testSocketlessStaticWithResolver})
-	if _, err := StageForAppManaged(httpOnly, t.TempDir(), "", "", "sample", "", nil, true, true, nil); err == nil || !strings.Contains(err.Error(), "dnsChallenge.provider") {
+	if _, err := StageForAppManaged(httpOnly, t.TempDir(), "", "", "sample", "", nil, false, true, nil); err == nil || !strings.Contains(err.Error(), app.ManagedWildcardCertificateResolver) {
 		t.Fatalf("custom HTTP-01 resolver must not claim wildcard support: %v", err)
 	}
 
-	dnsStatic := testSocketlessStatic + "certificatesResolvers:\n  " + app.ManagedCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme.json\n      dnsChallenge:\n        provider: cloudflare\n"
-	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"traefik.yml": dnsStatic}), t.TempDir(), "", "", "sample", "", nil, true, true, nil); err != nil {
+	dnsStatic := testSocketlessStatic + "certificatesResolvers:\n  " + app.ManagedWildcardCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: cloudflare\n"
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"traefik.yml": dnsStatic}), t.TempDir(), "", "", "sample", "", nil, false, true, nil); err != nil {
 		t.Fatalf("custom DNS-01 resolver should remain supported: %v", err)
 	}
 }

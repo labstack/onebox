@@ -89,6 +89,9 @@ proxy:
 		{"uppercase suffix", wl("web: {image: nginx, routes: [{wildcard_suffix: Example.com, port: 80, tls: none}] }"), "lower-case"},
 		{"tcp wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: example.com, port: 80, protocol: tcp, tls: passthrough}] }"), "only for HTTP"},
 		{"exact matcher injection", wl("web: {image: nginx, routes: [{domain: 'x`) || Host(`*', port: 80}] }"), "route host"},
+		{"wildcard in exact route", wl("web: {image: nginx, routes: [{domain: '*.example.com', port: 80}] }"), "wildcard_suffix"},
+		{"wildcard in exact shorthand", wl("web: {image: nginx, domain: '*.example.com', port: 80}"), "wildcard_suffix"},
+		{"catch-all exact route", wl("web: {image: nginx, routes: [{domain: '*', port: 80}] }"), "wildcard_suffix"},
 		{"dns challenge needs config", min + "proxy: {dns_challenge: {provider: cloudflare}}\n", "proxy.config"},
 		{"invalid resolver", min + "proxy: {config: traefik, dns_challenge: {provider: cloudflare, resolvers: [1.1.1.1]}}\n", "host:port"},
 		{"unmanaged dns challenge", min + "proxy: {managed: false, config: traefik, dns_challenge: {provider: cloudflare}}\n", "managed proxy"},
@@ -104,6 +107,12 @@ proxy:
 		if _, err := LoadBytes([]byte(wl("web: {image: nginx, routes: [{domain: '"+domain+"', port: 80, tls: none}] }")), "ob.yml"); err != nil {
 			t.Errorf("existing exact route spelling %q must remain valid: %v", domain, err)
 		}
+	}
+	if _, err := LoadBytes([]byte(wl("gateway: {image: nginx, routes: [{domain: '*', protocol: tcp, tls: none, port: 9000}] }")), "ob.yml"); err != nil {
+		t.Errorf("existing plaintext TCP catch-all must remain valid: %v", err)
+	}
+	if _, err := LoadBytes([]byte(wl("gateway: {image: nginx, routes: [{domain: '*', protocol: tcp, tls: passthrough, port: 9000}] }")), "ob.yml"); err != nil {
+		t.Errorf("existing TLS-passthrough TCP catch-all must remain valid: %v", err)
 	}
 }
 
@@ -133,6 +142,14 @@ func TestWildcardRouteOverlap(t *testing.T) {
 				t.Fatalf("unexpected collision: %v", err)
 			}
 		})
+	}
+}
+
+func TestPlaintextTCPCatchAllOverlapsEveryHost(t *testing.T) {
+	catchAll := Route{Domain: "*", Protocol: "tcp", TLS: "none", Path: "/", Entrypoint: "database"}
+	exact := Route{Domain: "db.example.com", Protocol: "tcp", TLS: "none", Path: "/", Entrypoint: "database"}
+	if !routesOverlap(catchAll, exact) || !routesOverlap(exact, catchAll) {
+		t.Fatal("plaintext TCP catch-all must collide with every exact host on the same route address")
 	}
 }
 

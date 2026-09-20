@@ -116,6 +116,29 @@ func TestStatusManagedProxyInSync(t *testing.T) {
 	}
 }
 
+func TestStatusAggregatesExactAndWildcardCertificateStores(t *testing.T) {
+	applied := ""
+	exact := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	wildcard := acmeFixture(t, "*.preview.example.com", time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC))
+	e, f, out, _ := statusProxyEngine(t, &applied, exact, "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "acme-wildcard.json") {
+			return transport.Result{Stdout: wildcard}, true
+		}
+		return base(cmd)
+	}
+
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("status: %v\n%s", err, out.String())
+	}
+	for _, domain := range []string{"app.example.com", "*.preview.example.com"} {
+		if !strings.Contains(out.String(), domain) {
+			t.Errorf("certificate from managed store %q missing:\n%s", domain, out.String())
+		}
+	}
+}
+
 func TestStatusManagedProxyEnvironmentQualifiedOwner(t *testing.T) {
 	applied := ""
 	acme := acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))

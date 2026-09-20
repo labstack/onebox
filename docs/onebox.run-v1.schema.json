@@ -578,11 +578,11 @@
       "type": "object"
     },
     "domain": {
-      "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects a host with no control character or backtick.",
+      "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
       "examples": [
         "shop.example.com"
       ],
-      "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
+      "pattern": "^[^\\x00-\\x1f\\x7f`*]+$",
       "type": "string"
     },
     "environments": {
@@ -1170,7 +1170,7 @@
       },
       "properties": {
         "config": {
-          "description": "Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. A managed DNS challenge may use a directory containing only .env for provider credentials. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, and must define certificatesResolvers.letsencrypt when a route terminates TLS. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware. Expects a path inside the repository, with no control character or shell metacharacter.",
+          "description": "Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. A managed DNS challenge may use a directory containing only .env for provider credentials. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, must define certificatesResolvers.letsencrypt for exact terminating routes, and must define the DNS-01 certificatesResolvers.onebox-wildcard for wildcard terminating routes. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware. Expects a path inside the repository, with no control character or shell metacharacter.",
           "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
           "type": "string"
         },
@@ -1298,6 +1298,37 @@
       "description": "Ingress routes exposed by this workload.",
       "items": {
         "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "domain": {
+                  "const": "*"
+                }
+              },
+              "required": [
+                "domain"
+              ]
+            },
+            "then": {
+              "properties": {
+                "protocol": {
+                  "const": "tcp"
+                },
+                "tls": {
+                  "enum": [
+                    "none",
+                    "passthrough"
+                  ]
+                }
+              },
+              "required": [
+                "protocol",
+                "tls"
+              ]
+            }
+          }
+        ],
         "oneOf": [
           {
             "not": {
@@ -1325,11 +1356,19 @@
         },
         "properties": {
           "domain": {
-            "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. Expects a host with no control character or backtick.",
+            "anyOf": [
+              {
+                "description": "Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
+                "pattern": "^[^\\x00-\\x1f\\x7f`*]+$"
+              },
+              {
+                "const": "*"
+              }
+            ],
+            "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
             "examples": [
               "shop.example.com"
             ],
-            "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
             "type": "string"
           },
           "entrypoint": {
@@ -2119,11 +2158,11 @@
             "type": "string"
           },
           "domain": {
-            "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects a host with no control character or backtick.",
+            "description": "Domain shorthand for one HTTPS route; requires port and cannot be combined with routes. Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
             "examples": [
               "shop.example.com"
             ],
-            "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
+            "pattern": "^[^\\x00-\\x1f\\x7f`*]+$",
             "type": "string"
           },
           "drain": {
@@ -2731,6 +2770,37 @@
             "description": "Ingress routes exposed by this workload.",
             "items": {
               "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "domain": {
+                        "const": "*"
+                      }
+                    },
+                    "required": [
+                      "domain"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "protocol": {
+                        "const": "tcp"
+                      },
+                      "tls": {
+                        "enum": [
+                          "none",
+                          "passthrough"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "protocol",
+                      "tls"
+                    ]
+                  }
+                }
+              ],
               "oneOf": [
                 {
                   "not": {
@@ -2758,11 +2828,19 @@
               },
               "properties": {
                 "domain": {
-                  "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. Expects a host with no control character or backtick.",
+                  "anyOf": [
+                    {
+                      "description": "Expects an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing.",
+                      "pattern": "^[^\\x00-\\x1f\\x7f`*]+$"
+                    },
+                    {
+                      "const": "*"
+                    }
+                  ],
+                  "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
                   "examples": [
                     "shop.example.com"
                   ],
-                  "pattern": "^[^\\x00-\\x1f\\x7f`]+$",
                   "type": "string"
                 },
                 "entrypoint": {

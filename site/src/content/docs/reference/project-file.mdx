@@ -200,19 +200,29 @@ This matches `branch.preview.example.com`, but not the suffix itself or
 `a.branch.preview.example.com`. Declare the apex as a separate exact `domain`
 route when it should be served too. A route declares exactly one of `domain`
 or `wildcard_suffix`; Onebox does not accept authored regular expressions or a
-bare catch-all. Exact and wildcard claims that overlap on the same entrypoint,
+bare catch-all. It renders the suffix as the anchored Traefik rule
+``HostRegexp(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.preview\.example\.com$`)``.
+Exact and wildcard claims
+that overlap on the same entrypoint,
 protocol, and path are refused instead of relying on implicit proxy priority.
+The existing `domain: "*"` form remains available only for a plaintext or TLS
+passthrough TCP route (`protocol: tcp` with `tls: none` or `tls: passthrough`),
+where Traefik requires ``HostSNI(`*`)``;
+it overlaps every TCP host claim on the same entrypoint and path.
 
 Terminating TLS for a wildcard requires ACME DNS-01. `proxy.dns_challenge`
 keeps the static Traefik configuration managed by Onebox while selecting the
 DNS provider. Put the provider's required environment variables in
 `proxy.config/.env`; the directory may contain only that file. Onebox stages it
 with mode `0600` and mounts it only into Traefik. Do not commit provider tokens.
+Exact routes continue to use the separate `letsencrypt` HTTP-01 resolver, so
+adding a wildcard does not change issuance or renewal for existing domains.
 The provider names and credential variables are defined by
 [Traefik's DNS challenge provider documentation](https://doc.traefik.io/traefik/reference/install-configuration/tls/certificate-resolvers/acme/#providers).
 If `proxy.config` contains a project-owned
 `traefik.yml` or `traefik.yaml` instead, configure DNS-01 under
-`certificatesResolvers.letsencrypt` there and omit `proxy.dns_challenge`.
+`certificatesResolvers.onebox-wildcard` there and omit
+`proxy.dns_challenge`.
 
 ### Additional proxy entrypoints
 

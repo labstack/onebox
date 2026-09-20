@@ -362,7 +362,7 @@ func TestHasTerminatingTLSDistinguishesPassthrough(t *testing.T) {
 	}
 }
 
-func TestWildcardRouteRendersNativeHostMatcher(t *testing.T) {
+func TestWildcardRouteRendersSafeHostRegexpAndDNSResolver(t *testing.T) {
 	project := `api_version: onebox.run/v1
 app: preview
 environments: {production: {server: root@example.com}}
@@ -375,14 +375,18 @@ proxy:
   dns_challenge: {provider: cloudflare}
 `
 	out := string(render(t, project))
-	if !strings.Contains(out, "Host(`*.preview.example.com`)") {
-		t.Fatalf("wildcard route missing native Host matcher:\n%s", out)
+	if !strings.Contains(out, `HostRegexp(`+"`"+`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.preview\.example\.com$$`+"`"+`)`) {
+		t.Fatalf("wildcard route missing single-label HostRegexp matcher:\n%s", out)
 	}
-	if strings.Contains(out, "HostRegexp") {
-		t.Fatalf("wildcard route must not expose a regular expression:\n%s", out)
+	if strings.Contains(out, "Host(`*.preview.example.com`)") {
+		t.Fatalf("wildcard route must not rely on Host wildcard semantics:\n%s", out)
 	}
-	if !strings.Contains(out, "tls.certresolver: "+ManagedCertificateResolver) {
+	if !strings.Contains(out, "tls.certresolver: "+ManagedWildcardCertificateResolver) ||
+		!strings.Contains(out, "tls.domains[0].main: '*.preview.example.com'") {
 		t.Fatalf("wildcard route lost managed TLS:\n%s", out)
+	}
+	if strings.Count(out, "tls.certresolver: "+ManagedCertificateResolver) != 0 {
+		t.Fatalf("wildcard route must not change exact-route HTTP-01 issuance:\n%s", out)
 	}
 }
 

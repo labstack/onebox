@@ -304,7 +304,11 @@ func validateWorkload(w Workload, path string) error {
 			return errf("project_invalid", rp, "", "a route must declare exactly one of domain or wildcard_suffix")
 		}
 		if r.Domain != "" {
-			if err := gRouteHost.check(rp+".domain", r.Domain); err != nil {
+			if r.Domain == "*" && r.Protocol == "tcp" && (r.TLS == "none" || r.TLS == "passthrough") {
+				// HostSNI(`*`) is Traefik's TCP catch-all for plaintext and
+				// TLS passthrough. It predates wildcard HTTP routes and remains
+				// the one intentional exception to exact-host syntax.
+			} else if err := gRouteHost.check(rp+".domain", r.Domain); err != nil {
 				return err
 			}
 		}

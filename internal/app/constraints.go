@@ -117,8 +117,8 @@ var (
 	// Exact route hosts predate strict hostname validation. Keep accepting their
 	// established spellings (including upper-case and a trailing dot), while
 	// excluding the characters that can escape Traefik's backtick literal.
-	gRouteHost = grammar{"route host", regexp.MustCompile("^[^\\x00-\\x1f\\x7f`]+$"),
-		"a host with no control character or backtick"}
+	gRouteHost = grammar{"route host", regexp.MustCompile("^[^\\x00-\\x1f\\x7f`*]+$"),
+		"an exact host with no wildcard, control character or backtick; use wildcard_suffix for wildcard routing"}
 
 	gWildcardSuffix = grammar{"wildcard DNS suffix", regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`),
 		"a lower-case ASCII or Punycode DNS hostname whose labels contain 1 to 63 characters"}

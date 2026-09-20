@@ -438,6 +438,23 @@ func (p *Spec) HasTerminatingTLS() bool {
 	return false
 }
 
+// HasExactTerminatingTLS reports whether an exact-host router needs the
+// managed HTTP-01 resolver. Wildcard routers use a separate DNS-01 resolver so
+// adding one cannot change renewal policy for existing exact routes.
+func (p *Spec) HasExactTerminatingTLS() bool {
+	if p == nil {
+		return false
+	}
+	for _, w := range p.Workloads {
+		for _, route := range w.NormalisedRoutes() {
+			if route.WildcardSuffix == "" && route.TLS == "terminate" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // HasWildcardTerminatingTLS reports whether the managed certificate resolver
 // must be able to issue a wildcard certificate.
 func (p *Spec) HasWildcardTerminatingTLS() bool {

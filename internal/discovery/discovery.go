@@ -48,7 +48,13 @@ type HTTPRouter struct {
 }
 
 type HTTPTLS struct {
-	CertResolver string `json:"certResolver,omitempty" yaml:"certResolver,omitempty"`
+	CertResolver string      `json:"certResolver,omitempty" yaml:"certResolver,omitempty"`
+	Domains      []TLSDomain `json:"domains,omitempty" yaml:"domains,omitempty"`
+}
+
+type TLSDomain struct {
+	Main string   `json:"main" yaml:"main"`
+	SANs []string `json:"sans,omitempty" yaml:"sans,omitempty"`
 }
 
 type TCPRouter struct {
@@ -197,6 +203,12 @@ func collectHTTP(container Container, ip string, routers map[string]httpCandidat
 		}
 		if truthy(container.Labels[prefix+"tls"]) {
 			router.TLS = &HTTPTLS{CertResolver: container.Labels[prefix+"tls.certresolver"]}
+			if main := container.Labels[prefix+"tls.domains[0].main"]; main != "" {
+				router.TLS.Domains = []TLSDomain{{
+					Main: main,
+					SANs: splitList(container.Labels[prefix+"tls.domains[0].sans"]),
+				}}
+			}
 		}
 		candidate := httpCandidate{created: container.Created, id: container.ID, router: router}
 		if current, exists := routers[name]; !exists || newer(candidate.created, candidate.id, current.created, current.id) {

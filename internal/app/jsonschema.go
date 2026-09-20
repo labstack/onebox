@@ -387,11 +387,29 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "resources", "memory"}, pattern(gSize)},
 	{[]string{"workloads", "*", "resources", "cpus"}, pattern(gCpus)},
 	{[]string{"workloads", "*", "persistence", "mode"}, enum(ePersistence)},
-	{[]string{"workloads", "*", "routes", "items"}, map[string]any{"oneOf": []any{
-		map[string]any{"required": []any{"domain"}, "not": map[string]any{"required": []any{"wildcard_suffix"}}},
-		map[string]any{"required": []any{"wildcard_suffix"}, "not": map[string]any{"required": []any{"domain"}}},
+	{[]string{"workloads", "*", "routes", "items"}, map[string]any{
+		"oneOf": []any{
+			map[string]any{"required": []any{"domain"}, "not": map[string]any{"required": []any{"wildcard_suffix"}}},
+			map[string]any{"required": []any{"wildcard_suffix"}, "not": map[string]any{"required": []any{"domain"}}},
+		},
+		"allOf": []any{map[string]any{
+			"if": map[string]any{
+				"required":   []any{"domain"},
+				"properties": map[string]any{"domain": map[string]any{"const": "*"}},
+			},
+			"then": map[string]any{
+				"required": []any{"protocol", "tls"},
+				"properties": map[string]any{
+					"protocol": map[string]any{"const": "tcp"},
+					"tls":      map[string]any{"enum": []any{"none", "passthrough"}},
+				},
+			},
+		}},
+	}},
+	{[]string{"workloads", "*", "routes", "items", "domain"}, map[string]any{"anyOf": []any{
+		pattern(gRouteHost),
+		map[string]any{"const": "*"},
 	}}},
-	{[]string{"workloads", "*", "routes", "items", "domain"}, pattern(gRouteHost)},
 	{[]string{"workloads", "*", "routes", "items", "wildcard_suffix"}, map[string]any{
 		"pattern":   gWildcardSuffix.pattern.String(),
 		"maxLength": 253,

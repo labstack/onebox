@@ -56,12 +56,13 @@ func TestBuildPreservesHealthAwareHTTPRouting(t *testing.T) {
 	}
 }
 
-func TestBuildPreservesNativeWildcardRule(t *testing.T) {
+func TestBuildPreservesWildcardRuleAndCertificateDomain(t *testing.T) {
 	labels := map[string]string{
-		"traefik.http.routers.preview_web_r0.rule":                   "Host(`*.preview.example.com`)",
+		"traefik.http.routers.preview_web_r0.rule":                   "HostRegexp(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.preview\\.example\\.com$`)",
 		"traefik.http.routers.preview_web_r0.entrypoints":            "websecure",
 		"traefik.http.routers.preview_web_r0.tls":                    "true",
-		"traefik.http.routers.preview_web_r0.tls.certresolver":       "letsencrypt",
+		"traefik.http.routers.preview_web_r0.tls.certresolver":       "onebox-wildcard",
+		"traefik.http.routers.preview_web_r0.tls.domains[0].main":    "*.preview.example.com",
 		"traefik.http.routers.preview_web_r0.service":                "preview_web",
 		"traefik.http.services.preview_web.loadbalancer.server.port": "8080",
 	}
@@ -70,8 +71,11 @@ func TestBuildPreservesNativeWildcardRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := document.HTTP.Routers["preview_web_r0"]
-	if router.Rule != "Host(`*.preview.example.com`)" || router.TLS == nil || router.TLS.CertResolver != "letsencrypt" {
+	if router.Rule != "HostRegexp(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.preview\\.example\\.com$`)" || router.TLS == nil || router.TLS.CertResolver != "onebox-wildcard" {
 		t.Fatalf("wildcard router = %+v", router)
+	}
+	if len(router.TLS.Domains) != 1 || router.TLS.Domains[0].Main != "*.preview.example.com" {
+		t.Fatalf("wildcard certificate domain = %+v", router.TLS.Domains)
 	}
 }
 

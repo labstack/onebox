@@ -56,6 +56,25 @@ func TestBuildPreservesHealthAwareHTTPRouting(t *testing.T) {
 	}
 }
 
+func TestBuildPreservesNativeWildcardRule(t *testing.T) {
+	labels := map[string]string{
+		"traefik.http.routers.preview_web_r0.rule":                   "Host(`*.preview.example.com`)",
+		"traefik.http.routers.preview_web_r0.entrypoints":            "websecure",
+		"traefik.http.routers.preview_web_r0.tls":                    "true",
+		"traefik.http.routers.preview_web_r0.tls.certresolver":       "letsencrypt",
+		"traefik.http.routers.preview_web_r0.service":                "preview_web",
+		"traefik.http.services.preview_web.loadbalancer.server.port": "8080",
+	}
+	document, err := Build([]Container{routedContainer("healthy", time.Now(), "healthy", "172.20.0.2", labels)}, "ob-ingress")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := document.HTTP.Routers["preview_web_r0"]
+	if router.Rule != "Host(`*.preview.example.com`)" || router.TLS == nil || router.TLS.CertResolver != "letsencrypt" {
+		t.Fatalf("wildcard router = %+v", router)
+	}
+}
+
 func TestBuildUsesNewestHealthyRouterDuringRollAndRollback(t *testing.T) {
 	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	labels := func(domain string) map[string]string {

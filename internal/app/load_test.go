@@ -63,6 +63,73 @@ func TestManagedGeneratedProxyRequiresDeclaredRouteEntrypoint(t *testing.T) {
 	}
 }
 
+func TestWildcardRouteContract(t *testing.T) {
+	valid := base + `workloads:
+  web:
+    image: nginx
+    routes: [{wildcard_suffix: preview.example.com, port: 8080}]
+proxy:
+  config: traefik
+  dns_challenge: {provider: cloudflare, resolvers: ["1.1.1.1:53"]}
+`
+	if _, err := LoadBytes([]byte(valid), "ob.yml"); err != nil {
+		t.Fatalf("valid wildcard route: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"missing dns challenge", wl("web: {image: nginx, routes: [{wildcard_suffix: example.com, port: 80}] }"), "dns_challenge"},
+		{"both host forms", wl("web: {image: nginx, routes: [{domain: api.example.com, wildcard_suffix: example.com, port: 80}] }"), "exactly one"},
+		{"neither host form", wl("web: {image: nginx, routes: [{port: 80}] }"), "exactly one"},
+		{"bare wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: '*', port: 80, tls: none}] }"), "DNS hostname"},
+		{"embedded wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: '*.example.com', port: 80, tls: none}] }"), "DNS hostname"},
+		{"uppercase suffix", wl("web: {image: nginx, routes: [{wildcard_suffix: Example.com, port: 80, tls: none}] }"), "lower-case"},
+		{"tcp wildcard", wl("web: {image: nginx, routes: [{wildcard_suffix: example.com, port: 80, protocol: tcp, tls: passthrough}] }"), "only for HTTP"},
+		{"exact matcher injection", wl("web: {image: nginx, routes: [{domain: 'x`) || Host(`*', port: 80}] }"), "DNS hostname"},
+		{"dns challenge needs config", min + "proxy: {dns_challenge: {provider: cloudflare}}\n", "proxy.config"},
+		{"invalid resolver", min + "proxy: {config: traefik, dns_challenge: {provider: cloudflare, resolvers: [1.1.1.1]}}\n", "host:port"},
+		{"unmanaged dns challenge", min + "proxy: {managed: false, config: traefik, dns_challenge: {provider: cloudflare}}\n", "managed proxy"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadBytes([]byte(tc.body), "ob.yml")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want text %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestWildcardRouteOverlap(t *testing.T) {
+	project := func(left, right string) string {
+		return base + "workloads:\n  exact: {image: nginx, routes: [" + left + "]}\n  wildcard: {image: nginx, routes: [" + right + "]}\n"
+	}
+	for _, tc := range []struct {
+		name     string
+		left     string
+		right    string
+		collides bool
+	}{
+		{"immediate child", "{domain: shop.example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
+		{"same wildcard", "{wildcard_suffix: example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", true},
+		{"apex does not overlap", "{domain: example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", false},
+		{"nested host does not overlap", "{domain: a.b.example.com, port: 80, tls: none}", "{wildcard_suffix: example.com, port: 81, tls: none}", false},
+		{"different path", "{domain: shop.example.com, path: /api, port: 80, tls: none}", "{wildcard_suffix: example.com, path: /, port: 81, tls: none}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadBytes([]byte(project(tc.left, tc.right)), "ob.yml")
+			if tc.collides && (err == nil || !strings.Contains(err.Error(), "route_collision")) {
+				t.Fatalf("expected collision, got %v", err)
+			}
+			if !tc.collides && err != nil {
+				t.Fatalf("unexpected collision: %v", err)
+			}
+		})
+	}
+}
+
 type conformanceCase struct {
 	name string
 	yaml string

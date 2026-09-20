@@ -18,7 +18,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `middlewares` · `path` · `port` · `protocol` · `pull` · `reference` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `within`
+`api_version` · `app` · `args` · `base_path` · `build` · `compose` · `context` · `dockerfile` · `domain` · `entrypoint` · `exec` · `health` · `http` · `image` · `interval` · `middlewares` · `path` · `port` · `protocol` · `pull` · `reference` · `retries` · `routes` · `scheme` · `start_period` · `target` · `tcp` · `tls` · `wildcard_suffix` · `within`
 
 ## Reference
 
@@ -48,7 +48,7 @@ cannot drift from what `ob validate` accepts.
 | `image.reference` | string | — | Complete container image reference, optionally tagged or digest-pinned. Expects a registry reference such as nginx:1.27 or ghcr.io/acme/app@sha256:…. |
 | `port` | integer | — | Container port used with domain shorthand and as the default HTTP health port. |
 | `routes` | list | — | Ingress routes exposed by this workload. |
-| `routes[].domain` | string | — | DNS name matched by the proxy. |
+| `routes[].domain` | string | — | Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix. |
 | `routes[].entrypoint` | string | `websecure` | Named proxy listener used for the route. |
 | `routes[].middlewares` | list | — | Ordered provider-qualified middleware references applied to this route. |
 | `routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |
@@ -56,5 +56,6 @@ cannot drift from what `ob validate` accepts.
 | `routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http, tcp, or udp. |
 | `routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme: http, https, h2c, tcp, or udp. |
 | `routes[].tls` | `terminate` · `passthrough` · `none` | `terminate` | TLS handling: terminate, passthrough, or none. |
+| `routes[].wildcard_suffix` | string | — | DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain. |
 
 `*` marks a field that is required within its own object.

@@ -108,6 +108,12 @@ var (
 	gRegistryUser = grammar{"registry username", regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@+-]*$`),
 		"a username of letters, digits and . _ @ + -"}
 
+	gDNSProvider = grammar{"DNS challenge provider", regexp.MustCompile(`^[a-z][a-z0-9_-]*$`),
+		"a lower-case Traefik DNS provider name such as cloudflare or route53"}
+
+	gDNSResolver = grammar{"DNS resolver", regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$`),
+		"a lower-case DNS name, IPv4 address, or bracketed IPv6 address followed by a port"}
+
 	gCalVer = grammar{"version", buildinfo.ReleaseVersionPattern,
 		"a CalVer release such as v2026.8.0"}
 

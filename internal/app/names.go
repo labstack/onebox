@@ -411,6 +411,16 @@ func routesOf(w Workload) []Route {
 // expanded, so callers never handle two shapes.
 func (w Workload) NormalisedRoutes() []Route { return routesOf(w) }
 
+// HostPattern returns the host matcher value represented by the route. A
+// wildcard suffix is deliberately expanded here rather than accepted as an
+// authored matcher expression, so no regular expression reaches Traefik.
+func (r Route) HostPattern() string {
+	if r.WildcardSuffix != "" {
+		return "*." + r.WildcardSuffix
+	}
+	return r.Domain
+}
+
 // HasTerminatingTLS reports whether the resolved project needs the managed
 // proxy's certificate resolver. Passthrough routes carry TLS without asking
 // the proxy to obtain or present a certificate.
@@ -421,6 +431,22 @@ func (p *Spec) HasTerminatingTLS() bool {
 	for _, workload := range p.Workloads {
 		for _, route := range workload.NormalisedRoutes() {
 			if route.TLS == "terminate" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasWildcardTerminatingTLS reports whether the managed certificate resolver
+// must be able to issue a wildcard certificate.
+func (p *Spec) HasWildcardTerminatingTLS() bool {
+	if p == nil {
+		return false
+	}
+	for _, workload := range p.Workloads {
+		for _, route := range workload.NormalisedRoutes() {
+			if route.WildcardSuffix != "" && route.TLS == "terminate" {
 				return true
 			}
 		}

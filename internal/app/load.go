@@ -520,6 +520,13 @@ func crossFieldRules(p *Spec) error {
 	if err := checkRouteCollisions(p); err != nil {
 		return err
 	}
+	if p.Proxy.DNSChallenge != nil && (!p.Proxy.Managed || p.Proxy.Kind == "none") {
+		return errf("project_invalid", "proxy.dns_challenge", "", "dns_challenge requires a Onebox-managed proxy")
+	}
+	if p.Proxy.Managed && p.HasWildcardTerminatingTLS() && p.Proxy.DNSChallenge == nil && p.Proxy.Config == "" {
+		return errf("project_invalid", "proxy.dns_challenge", "",
+			"managed terminating wildcard routes require an ACME DNS challenge; declare proxy.dns_challenge and provide its credentials through proxy.config/.env")
+	}
 	if p.Proxy.Kind != "none" && p.Proxy.Managed && p.Proxy.Config == "" {
 		knownEntrypoints := map[string]struct{}{"web": {}, "websecure": {}}
 		for name := range p.Proxy.Entrypoints {
@@ -614,25 +621,46 @@ func crossFieldRules(p *Spec) error {
 // both workloads at load time costs one error message and saves an outage
 // nobody can explain.
 //
-// The address is entrypoint, protocol, domain and path together, because two
+// The address is entrypoint, protocol, host claim and path together, because two
 // routes differing in any of them are genuinely distinct — the same host on
 // two listeners is how a project serves HTTP and gRPC side by side.
 func checkRouteCollisions(p *Spec) error {
-	type claim struct{ workload string }
-	seen := map[string]claim{}
+	type claim struct {
+		workload string
+		route    Route
+	}
+	var seen []claim
 	for _, name := range sortedKeys(p.Workloads) {
 		for _, r := range p.Workloads[name].NormalisedRoutes() {
-			key := r.Entrypoint + " " + r.Protocol + " " + r.Domain + r.Path
-			if prev, taken := seen[key]; taken {
-				return errf("route_collision", "workloads."+name+".routes", "",
-					"workloads %q and %q both claim %s on the %q entrypoint; "+
-						"the proxy would route to one of them and nothing would say which",
-					prev.workload, name, r.Domain+r.Path, r.Entrypoint)
+			for _, prev := range seen {
+				if routesOverlap(prev.route, r) {
+					return errf("route_collision", "workloads."+name+".routes", "",
+						"workloads %q and %q claim overlapping hosts %s and %s on the %q entrypoint; "+
+							"split them by path or remove one claim so routing does not depend on proxy priority",
+						prev.workload, name, prev.route.HostPattern()+prev.route.Path, r.HostPattern()+r.Path, r.Entrypoint)
+				}
 			}
-			seen[key] = claim{workload: name}
+			seen = append(seen, claim{workload: name, route: r})
 		}
 	}
 	return nil
+}
+
+func routesOverlap(a, b Route) bool {
+	if a.Entrypoint != b.Entrypoint || a.Protocol != b.Protocol || a.Path != b.Path {
+		return false
+	}
+	if a.WildcardSuffix != "" && b.WildcardSuffix != "" {
+		return a.WildcardSuffix == b.WildcardSuffix
+	}
+	if a.WildcardSuffix == "" && b.WildcardSuffix == "" {
+		return a.Domain == b.Domain
+	}
+	if a.WildcardSuffix == "" {
+		a, b = b, a
+	}
+	prefix, ok := strings.CutSuffix(b.Domain, "."+a.WildcardSuffix)
+	return ok && prefix != "" && !strings.Contains(prefix, ".")
 }
 
 // checkDerivedNames refuses an over-long generated name rather than truncating.

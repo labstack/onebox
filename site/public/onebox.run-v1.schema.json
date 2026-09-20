@@ -1169,9 +1169,41 @@
       },
       "properties": {
         "config": {
-          "description": "Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, and must define certificatesResolvers.letsencrypt when a route terminates TLS. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware. Expects a path inside the repository, with no control character or shell metacharacter.",
+          "description": "Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. A managed DNS challenge may use a directory containing only .env for provider credentials. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, and must define certificatesResolvers.letsencrypt when a route terminates TLS. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware. Expects a path inside the repository, with no control character or shell metacharacter.",
           "pattern": "^[^/\\x00-\\x1f'\"$`\\\\][^\\x00-\\x1f'\"$`\\\\]*$",
           "type": "string"
+        },
+        "dns_challenge": {
+          "additionalProperties": false,
+          "description": "Managed ACME DNS-01 challenge used to issue wildcard certificates. Provider credentials belong in proxy.config/.env; Onebox continues to own the static proxy configuration.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "provider": {
+              "description": "Traefik DNS challenge provider name. Its credential variables must be supplied through proxy.config/.env. Expects a lower-case Traefik DNS provider name such as cloudflare or route53.",
+              "examples": [
+                "cloudflare"
+              ],
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "type": "string"
+            },
+            "resolvers": {
+              "description": "DNS resolvers used to verify challenge propagation, written as host:port.",
+              "examples": [
+                [
+                  "1.1.1.1:53"
+                ]
+              ],
+              "items": {
+                "description": "Expects a lower-case DNS name, IPv4 address, or bracketed IPv6 address followed by a port.",
+                "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?|\\[[0-9A-Fa-f:.]+\\]):[0-9]{1,5}$",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
         },
         "entrypoints": {
           "additionalProperties": {
@@ -1262,12 +1294,34 @@
       "description": "Ingress routes exposed by this workload.",
       "items": {
         "additionalProperties": false,
+        "oneOf": [
+          {
+            "not": {
+              "required": [
+                "wildcard_suffix"
+              ]
+            },
+            "required": [
+              "domain"
+            ]
+          },
+          {
+            "not": {
+              "required": [
+                "domain"
+              ]
+            },
+            "required": [
+              "wildcard_suffix"
+            ]
+          }
+        ],
         "patternProperties": {
           "^x-": {}
         },
         "properties": {
           "domain": {
-            "description": "DNS name matched by the proxy.",
+            "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
             "examples": [
               "shop.example.com"
             ],
@@ -1328,6 +1382,13 @@
               "terminate",
               "passthrough",
               "none"
+            ],
+            "type": "string"
+          },
+          "wildcard_suffix": {
+            "description": "DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain.",
+            "examples": [
+              "preview.example.com"
             ],
             "type": "string"
           }
@@ -2662,12 +2723,34 @@
             "description": "Ingress routes exposed by this workload.",
             "items": {
               "additionalProperties": false,
+              "oneOf": [
+                {
+                  "not": {
+                    "required": [
+                      "wildcard_suffix"
+                    ]
+                  },
+                  "required": [
+                    "domain"
+                  ]
+                },
+                {
+                  "not": {
+                    "required": [
+                      "domain"
+                    ]
+                  },
+                  "required": [
+                    "wildcard_suffix"
+                  ]
+                }
+              ],
               "patternProperties": {
                 "^x-": {}
               },
               "properties": {
                 "domain": {
-                  "description": "DNS name matched by the proxy.",
+                  "description": "Exact DNS name matched by the proxy. Mutually exclusive with wildcard_suffix.",
                   "examples": [
                     "shop.example.com"
                   ],
@@ -2728,6 +2811,13 @@
                     "terminate",
                     "passthrough",
                     "none"
+                  ],
+                  "type": "string"
+                },
+                "wildcard_suffix": {
+                  "description": "DNS suffix whose immediate subdomains are matched. For example, example.com matches shop.example.com but not example.com or a.b.example.com. Mutually exclusive with domain.",
+                  "examples": [
+                    "preview.example.com"
                   ],
                   "type": "string"
                 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,6 +83,19 @@ func validateTopLevel(p *Spec) error {
 	}
 	if err := gRepoPath.checkOptional("proxy.config", p.Proxy.Config); err != nil {
 		return err
+	}
+	if p.Proxy.DNSChallenge != nil {
+		if err := gDNSProvider.check("proxy.dns_challenge.provider", p.Proxy.DNSChallenge.Provider); err != nil {
+			return err
+		}
+		if p.Proxy.Config == "" {
+			return errf("project_invalid", "proxy.dns_challenge", "", "managed DNS challenge credentials require proxy.config pointing to a directory containing .env")
+		}
+		for i, resolver := range p.Proxy.DNSChallenge.Resolvers {
+			if !validDNSResolver(resolver) {
+				return errf("project_invalid", indexed("proxy.dns_challenge.resolvers", i), "", "%q is not a DNS resolver address written as host:port", resolver)
+			}
+		}
 	}
 	seenEntrypointPorts := map[int]string{80: "web", 443: "websecure"}
 	for _, name := range sortedKeys(p.Proxy.Entrypoints) {
@@ -182,6 +196,15 @@ func validateTopLevel(p *Spec) error {
 	return nil
 }
 
+func validDNSResolver(value string) bool {
+	if !gDNSResolver.pattern.MatchString(value) {
+		return false
+	}
+	colon := strings.LastIndexByte(value, ':')
+	port, err := strconv.Atoi(value[colon+1:])
+	return err == nil && port >= 1 && port <= 65535
+}
+
 // validateEnvFiles holds every entry to the same rules wherever it is declared,
 // so a scope cannot quietly accept something another scope refuses.
 func validateEnvFiles(entries []EnvFile, path string) error {
@@ -268,14 +291,30 @@ func validateWorkload(w Workload, path string) error {
 		}
 	}
 	if w.Domain != "" && w.Port != 0 {
+		if err := validateRouteHostname(path+".domain", w.Domain); err != nil {
+			return err
+		}
 		if err := checkPort(path+".port", w.Port); err != nil {
 			return err
 		}
 	}
 	for i, r := range w.Routes {
 		rp := indexed(path+".routes", i)
-		if r.Domain == "" {
-			return errf("project_invalid", rp+".domain", "", "a route must name a domain")
+		if (r.Domain == "") == (r.WildcardSuffix == "") {
+			return errf("project_invalid", rp, "", "a route must declare exactly one of domain or wildcard_suffix")
+		}
+		if r.Domain != "" {
+			if err := validateRouteHostname(rp+".domain", r.Domain); err != nil {
+				return err
+			}
+		}
+		if r.WildcardSuffix != "" {
+			if err := validateRouteHostname(rp+".wildcard_suffix", r.WildcardSuffix); err != nil {
+				return err
+			}
+			if r.Protocol != "http" {
+				return errf("project_invalid", rp+".wildcard_suffix", "", "wildcard_suffix is supported only for HTTP routes")
+			}
 		}
 		if err := gURLPath.check(rp+".path", r.Path); err != nil {
 			return err
@@ -467,6 +506,24 @@ func validateWorkload(w Workload, path string) error {
 	} else if w.DeploymentPhase != "" || w.OperatorRun != "" || w.DataEffect != "" || w.Schedule != nil || len(w.Inputs) > 0 {
 		return errf("project_invalid", path, "",
 			"deployment_phase, operator_run, data_effect, schedule and inputs belong to a job; this workload's role is %q", w.Role)
+	}
+	return nil
+}
+
+func validateRouteHostname(path, value string) error {
+	if len(value) > 253 {
+		return errf("project_invalid", path, "", "%q is not a DNS hostname: it exceeds 253 characters", value)
+	}
+	for _, label := range strings.Split(value, ".") {
+		if label == "" || len(label) > 63 {
+			return errf("project_invalid", path, "", "%q is not a DNS hostname: every label must contain 1 to 63 characters", value)
+		}
+		for i, c := range label {
+			if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i > 0 && i < len(label)-1) {
+				continue
+			}
+			return errf("project_invalid", path, "", "%q is not a lower-case ASCII or Punycode DNS hostname", value)
+		}
 	}
 	return nil
 }

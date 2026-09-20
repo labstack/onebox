@@ -362,6 +362,30 @@ func TestHasTerminatingTLSDistinguishesPassthrough(t *testing.T) {
 	}
 }
 
+func TestWildcardRouteRendersNativeHostMatcher(t *testing.T) {
+	project := `api_version: onebox.run/v1
+app: preview
+environments: {production: {server: root@example.com}}
+workloads:
+  web:
+    image: nginx
+    routes: [{wildcard_suffix: preview.example.com, port: 8080}]
+proxy:
+  config: traefik
+  dns_challenge: {provider: cloudflare}
+`
+	out := string(render(t, project))
+	if !strings.Contains(out, "Host(`*.preview.example.com`)") {
+		t.Fatalf("wildcard route missing native Host matcher:\n%s", out)
+	}
+	if strings.Contains(out, "HostRegexp") {
+		t.Fatalf("wildcard route must not expose a regular expression:\n%s", out)
+	}
+	if !strings.Contains(out, "tls.certresolver: "+ManagedCertificateResolver) {
+		t.Fatalf("wildcard route lost managed TLS:\n%s", out)
+	}
+}
+
 // TestEveryDraftRenders runs generation over the real conversion drafts.
 func TestEveryDraftRenders(t *testing.T) {
 	dir := filepath.Join("testdata", "corpus")

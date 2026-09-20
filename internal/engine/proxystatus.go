@@ -182,9 +182,10 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				return err
 			}
 			defer os.RemoveAll(staging)
-			px.localHash, err = proxy.StageForApp(localCfg, staging, e.Spec.Proxy.Image,
+			px.localHash, err = proxy.StageForAppManaged(localCfg, staging, e.Spec.Proxy.Image,
 				proxy.DiscoveryImage(e.Opts.Runner.Version), e.Spec.Name,
-				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasTerminatingTLS())
+				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasTerminatingTLS(),
+				e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge)
 			return err
 		},
 	}

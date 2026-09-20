@@ -544,10 +544,10 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		svcName := n.ProxyServiceFor(name, i)
 		router := n.Router(name, i)
 		kind := "http"
-		rule := fmt.Sprintf("Host(`%s`)", r.Domain)
+		rule := fmt.Sprintf("Host(`%s`)", r.HostPattern())
 		if r.Protocol == "tcp" {
 			kind = "tcp"
-			rule = fmt.Sprintf("HostSNI(`%s`)", r.Domain)
+			rule = fmt.Sprintf("HostSNI(`%s`)", r.HostPattern())
 		} else if r.Path != "" && r.Path != "/" {
 			rule += fmt.Sprintf(" && PathPrefix(`%s`)", r.Path)
 		}

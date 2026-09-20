@@ -44,7 +44,8 @@ workloads:
   # recorded timeout that `ob status` exposes. Its annual timer never fires
   # during the suite; the test starts the service directly. The SLEEP input
   # lets a later operator run succeed, which is the only thing that clears a
-  # recorded failure.
+  # recorded failure. The timeout leaves enough room for container startup and
+  # cleanup while remaining well below the deliberately wedged 30-second run.
   timeout-chore:
     role: job
     image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
@@ -52,7 +53,7 @@ workloads:
     data_effect: none
     inputs:
       SLEEP: {enum: ["0", "30"], default: "30"}
-    schedule: { cron: "0 0 1 1 *", timeout: 1s, catch_up: false }
+    schedule: { cron: "0 0 1 1 *", timeout: 5s, catch_up: false }
   # Fails once, then succeeds: proves the in-firing retry and that the run
   # record counts attempts. The marker lives on the host so the second
   # attempt, a fresh container, can see the first one ran.

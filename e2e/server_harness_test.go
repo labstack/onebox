@@ -13,6 +13,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -32,6 +33,8 @@ import (
 	"testing"
 	"text/template"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 type server struct {
@@ -171,6 +174,23 @@ func repoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return root
+}
+
+func TestPostgresServerFixtureRendersValidApplication(t *testing.T) {
+	tmpl, err := template.ParseFiles(filepath.Join("testdata", "postgres", "ob.yml.tmpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rendered bytes.Buffer
+	data := struct{ Server, Endpoint, Version string }{
+		Server: "root@127.0.0.1:2222", Endpoint: "https://backup.example.net:9000", Version: "v1",
+	}
+	if err := tmpl.Execute(&rendered, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.LoadBytes(rendered.Bytes(), filepath.Join(t.TempDir(), "ob.yml")); err != nil {
+		t.Fatalf("rendered server fixture is not a valid Application: %v\n%s", err, rendered.String())
+	}
 }
 
 // project renders the fixture against this server and returns its directory.

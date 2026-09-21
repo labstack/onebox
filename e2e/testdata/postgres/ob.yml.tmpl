@@ -5,7 +5,7 @@ metadata:
 spec:
   environments:
     production:
-      server: {? {.Server: ''} : ''}
+      server: "{{ .Server }}"
   # A workload is required, and this one exists only to satisfy that: the suite
   # is about the database beside it. Kept to a sleeping busybox so the deploy
   # costs a pull of a few megabytes rather than a real application image.
@@ -80,7 +80,7 @@ spec:
       persistence: {mode: Durable}
       backup:
         target: offsite
-        recoveryKind: pitr
+        recoveryKind: Pitr
         maxDataLoss: 15m
         schedule: {cron: "0 2 * * *", timezone: UTC}
   backupTargets:
@@ -90,14 +90,14 @@ spec:
       # guest. That is the whole point: nothing about this endpoint is publicly
       # trusted, so it can only verify if ob carries the host's trust store into
       # the container the way it carries the binary.
-      endpoint: {? {.Endpoint: ''} : ''}
+      endpoint: "{{ .Endpoint }}"
       bucket: observer-backups
       failureDomain: {identity: e2e/guest}
       credentials:
         file: secrets/backup.env
         accessKeyEntry: BACKUP_ACCESS_KEY_ID
         secretKeyEntry: BACKUP_SECRET_ACCESS_KEY
-      encryption: {pitr: client-side}
+      encryption: {pitr: ClientSide}
   notifications:
     # The server test starts a one-shot receiver before inducing a scheduled-job
     # timeout. Because the timer fires on the host, localhost is the guest itself.

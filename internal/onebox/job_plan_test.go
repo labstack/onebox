@@ -19,12 +19,12 @@ func writeManualJobProject(t *testing.T, effect string, requireBackup bool) stri
 		t.Fatal(err)
 	}
 	project := strings.Replace(string(encoded),
-		"  database:\n",
-		"  maintenance:\n    role: job\n    image: ghcr.io/example/maintenance:v1\n    deployment_phase: none\n    data_effect: "+effect+"\n  database:\n", 1)
+		"    database:\n",
+		"    maintenance:\n      role: Job\n      image: ghcr.io/example/maintenance:v1\n      deploymentPhase: None\n      dataEffect: "+strings.ToUpper(effect[:1])+effect[1:]+"\n    database:\n", 1)
 	if requireBackup {
 		project = strings.Replace(project,
-			"      allow_agent_proposals: true\n",
-			"      allow_agent_proposals: true\n      migrations: {require_backup: true, backup_max_age: 24h}\n", 1)
+			"        allowAgentProposals: true\n",
+			"        allowAgentProposals: true\n        migrations: {requireBackup: true, backupMaxAge: 24h}\n", 1)
 	}
 	if err := os.WriteFile(path, []byte(project), 0o600); err != nil {
 		t.Fatal(err)
@@ -320,8 +320,8 @@ func TestExecuteScheduledDestructiveJobDetachesToHostUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := strings.Replace(string(encoded),
-		"    data_effect: destructive\n",
-		"    data_effect: destructive\n    schedule: {cron: '0 4 * * 1', timezone: UTC, timeout: 8h}\n", 1)
+		"      dataEffect: Destructive\n",
+		"      dataEffect: Destructive\n      schedule: {cron: '0 4 * * 1', timezone: UTC, timeout: 8h}\n", 1)
 	if err := os.WriteFile(path, []byte(project), 0o600); err != nil {
 		t.Fatal(err)
 	}

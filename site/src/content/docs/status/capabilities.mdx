@@ -23,7 +23,7 @@ This page is the reconciliation. Three states:
 
 ## Shipped
 
-- A stable, explicit `onebox.run/v1` project schema. Future contract evolution is
+- An explicit `onebox.run/v1alpha1` Application schema. Future contract evolution is
   additive.
 - Compose generation and validation, SSH transport with known-host checking,
   state-bound plans, image pinning, rendered diffs.
@@ -96,9 +96,9 @@ Nothing behind them executes.
 
 | Block | Reality today |
 | --- | --- |
-| [`backup_targets`](/reference/fields/backup_targets) | Declaring a target creates no repository and no schedule. |
+| [`backupTargets`](/reference/fields/backup-targets) | Declaring a target creates no repository and no schedule. |
 
-| [`external_services`](/reference/fields/external_services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
+| [`externalServices`](/reference/fields/external-services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
 
 Every [lifecycle failure code](/reference/errors#lifecycle-failure-codes) is
 raised by a path in the shipped binary, checked against the source in both

@@ -24,7 +24,7 @@ services:
       drill:
         schedule: {cron: "0 4 * * *", timezone: UTC}
 
-backup_targets:
+backupTargets:
   offsite:
     kind: s3-compatible
     endpoint: https://objects.example.net
@@ -278,4 +278,4 @@ one it cannot honour. A workload's own volume is never copied anywhere — `ob
 doctor` names every workload holding durable data.
 
 Full field list: [`services`](/reference/fields/services) and
-[`backup_targets`](/reference/fields/backup_targets).
+[`backupTargets`](/reference/fields/backup-targets).

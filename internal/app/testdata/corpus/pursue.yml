@@ -1,44 +1,47 @@
-api_version: onebox.run/v1
-app: pursue
-environments:
-  production:
-    server: root@203.0.113.10
-    policy: {require_approval: true, allow_agent_proposals: true}
-workloads:
-  server:
-    role: application
-    image: ghcr.io/labstack/pursue-server:2026.8.1
-    replicas: 1
-    strategy: rolling
-    routes:
-      - {hostname: pursue.run, port: 8080}
-    health: {http: /healthz, port: 8080, interval: 2s, within: 2m, retries: 3}
-    drain: {signal: TERM, wait: 2s, grace: 30s}
-  migrate:
-    role: job
-    compose: compose.yaml#migrate
-    deployment_phase: pre_release
-    data_effect: migration
-  postgres:
-    role: daemon
-    compose: compose.yaml#postgres
-    persistence: {mode: durable}
-deployment: {order: [server], retain_releases: 5, migration_policy: manual}
-runtime:
-  env_files: [.env.production]
-  env_checks:
-    - file: .env.production
-      require: [DATABASE_URL, POSTGRES_PASSWORD, PUBLIC_BASE_URL, HTTP_ADDR, PURSUE_SECRET_KEY]
-checks:
-  http:
-    - {workload: server, path: /healthz, port: 8080}
-  url:
-    - {url: "https://pursue.run/healthz"}
-proxy:
-  managed: true
-  kind: traefik-docker
-  image: "traefik:v3.7@sha256:1cb3845d7a05e1473c9086351426597e911db49db382b6e4769f9b0744962ac8"
-  config: traefik
-  network: ob-ingress
-registries:
-  ghcr: {server: ghcr.io, username: vishr, password_env: GHCR_TOKEN}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: pursue
+spec:
+  environments:
+    production:
+      server: root@203.0.113.10
+      policy: {requireApproval: true, allowAgentProposals: true}
+  workloads:
+    server:
+      role: Application
+      image: ghcr.io/labstack/pursue-server:2026.8.1
+      replicas: 1
+      strategy: Rolling
+      routes:
+        - {hostname: pursue.run, port: 8080}
+      health: {http: /healthz, port: 8080, interval: 2s, within: 2m, retries: 3}
+      drain: {signal: TERM, wait: 2s, grace: 30s}
+    migrate:
+      role: Job
+      compose: compose.yaml#migrate
+      deploymentPhase: PreRelease
+      dataEffect: Migration
+    postgres:
+      role: Daemon
+      compose: compose.yaml#postgres
+      persistence: {mode: Durable}
+  deployment: {order: [server], retainReleases: 5, migrationPolicy: Manual}
+  runtime:
+    envFiles: [.env.production]
+    envChecks:
+      - file: .env.production
+        require: [DATABASE_URL, POSTGRES_PASSWORD, PUBLIC_BASE_URL, HTTP_ADDR, PURSUE_SECRET_KEY]
+  checks:
+    http:
+      - {workload: server, path: /healthz, port: 8080}
+    url:
+      - {url: "https://pursue.run/healthz"}
+  proxy:
+    managed: true
+    kind: TraefikDocker
+    image: "traefik:v3.7@sha256:1cb3845d7a05e1473c9086351426597e911db49db382b6e4769f9b0744962ac8"
+    config: traefik
+    network: ob-ingress
+  registries:
+    ghcr: {server: ghcr.io, username: vishr, passwordEnv: GHCR_TOKEN}

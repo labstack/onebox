@@ -5,24 +5,27 @@ import (
 	"testing"
 )
 
-const validExternalServiceProject = `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: deploy@app.example.net}}
-workloads:
-  web:
-    image: nginx:1
-    needs:
-      - name: database
-        condition: healthy
-        env: {DATABASE_URL: url}
-external_services:
-  database:
-    driver: postgres
-    connection:
-      source: {file: secrets/database.env, provider: sops}
-      entries: {url: DATABASE_URL}
-    backup_owner: platform-team/rds
-    probe: {}
+const validExternalServiceProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: deploy@app.example.net}}
+  workloads:
+    web:
+      image: nginx:1
+      needs:
+        - name: database
+          condition: Healthy
+          env: {DATABASE_URL: url}
+  externalServices:
+    database:
+      driver: postgres
+      connection:
+        source: {file: secrets/database.env, provider: Sops}
+        entries: {url: DATABASE_URL}
+      backupOwner: platform-team/rds
+      probe: {}
 `
 
 func TestExternalServiceFixtures(t *testing.T) {
@@ -37,43 +40,47 @@ func TestExternalServiceFixtures(t *testing.T) {
 		},
 		{
 			name: "external_service_ambiguous_owner",
-			yaml: `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: deploy@app.example.net}}
-workloads: {web: {image: nginx:1}}
-services: {database: {driver: postgres, version: 17}}
-external_services:
-  database:
-    driver: postgres
-    connection:
-      source: {file: secrets/database.env, provider: sops}
-      entries: {url: DATABASE_URL}
-    backup_owner: platform-team/rds
-`,
-			code: "identifier_collision",
+			yaml: `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: deploy@app.example.net}}
+  workloads: {web: {image: 'nginx:1'}}
+  services: {database: {driver: postgres, version: 17}}
+  externalServices:
+    database:
+      driver: postgres
+      connection:
+        source: {file: secrets/database.env, provider: Sops}
+        entries: {url: DATABASE_URL}
+      backupOwner: platform-team/rds
+`, code: "identifier_collision",
 		},
 		{
 			name: "external_service_lifecycle_field_refused",
-			yaml: `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: deploy@app.example.net}}
-workloads: {web: {image: nginx:1}}
-external_services:
-  database:
-    driver: postgres
-    version: 17
-    connection:
-      source: {file: secrets/database.env, provider: sops}
-      entries: {url: DATABASE_URL}
-    backup_owner: platform-team/rds
-`,
-			code: "unknown_field",
+			yaml: `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: deploy@app.example.net}}
+  workloads: {web: {image: 'nginx:1'}}
+  externalServices:
+    database:
+      driver: postgres
+      version: 17
+      connection:
+        source: {file: secrets/database.env, provider: Sops}
+        entries: {url: DATABASE_URL}
+      backupOwner: platform-team/rds
+`, code: "unknown_field",
 		},
 	}
 
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
-			project, err := LoadBytes([]byte(fixture.yaml), fixture.name+".yml")
+			project, err := loadFixtureBytes([]byte(fixture.yaml), fixture.name+".yml")
 			if fixture.code != "" {
 				assertAppErrorCode(t, err, fixture.code)
 				return
@@ -97,6 +104,6 @@ external_services:
 
 func TestExternalNeedMustMapADeclaredTrustedEntry(t *testing.T) {
 	project := strings.Replace(validExternalServiceProject, "env: {DATABASE_URL: url}", "env: {DATABASE_HOST: host}", 1)
-	_, err := LoadBytes([]byte(project), "ob.yml")
+	_, err := loadFixtureBytes([]byte(project), "ob.yml")
 	assertAppErrorCode(t, err, "project_invalid")
 }

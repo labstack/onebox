@@ -1,48 +1,37 @@
-# authentik with its databases managed by onebox rather than declared as
-# workloads — the shape an operator lands on when converting the upstream
-# `docker-compose.yml` + `.env` pair, which is how authentik documents its own
-# deployment.
-#
-# It is here because no other corpus project combines `services:` with
-# `env_files`, and that combination is the one the environment model is about:
-# a workload receives its declared entries and the connection files of the
-# services it uses, in that order, and neither may claim the other's variables.
-# Without a case holding both, a change to the projection moves no verdict.
-#
-# The secret key is encrypted and the rest of the configuration is not, so the
-# frozen digest also covers a list mixing a plaintext entry with an encrypted
-# one — including the name the runtime references for the decrypted file.
-api_version: onebox.run/v1
-app: authentik
-environments:
-  production: {server: root@example.com}
-runtime:
-  env_files:
-    - .env
-    - {file: secrets/authentik.env, provider: sops}
-workloads:
-  server:
-    role: application
-    strategy: recreate
-    image: ghcr.io/goauthentik/server:2026.5.6
-    command: [server]
-    routes:
-      - {hostname: auth.example.com, port: 9000}
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    published_ports: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
-    volumes:
-      - {source: /srv/authentik/media, path: /media}
-      - {source: ./custom-templates, path: /templates, mode: ro}
-    health: {exec: "ak healthcheck", interval: 30s, start_period: 60s, retries: 10}
-  worker:
-    role: worker
-    image: ghcr.io/goauthentik/server:2026.5.6
-    command: [worker]
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    volumes:
-      - {source: /var/run/docker.sock, path: /var/run/docker.sock}
-      - {source: /srv/authentik/media, path: /media}
-      - {source: /srv/authentik/certs, path: /certs}
-services:
-  postgres: "16"
-  redis: "7.4"
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: authentik
+spec:
+  environments:
+    production: {server: root@example.com}
+  runtime:
+    envFiles:
+      - .env
+      - {file: secrets/authentik.env, provider: Sops}
+  workloads:
+    server:
+      role: Application
+      strategy: Recreate
+      image: ghcr.io/goauthentik/server:2026.5.6
+      command: [server]
+      routes:
+        - {hostname: auth.example.com, port: 9000}
+      needs: [{name: postgres, condition: Healthy}, {name: redis, condition: Healthy}]
+      publishedPorts: [{host: 9000, container: 9000}, {host: 9443, container: 9443}]
+      volumes:
+        - {source: /srv/authentik/media, path: /media}
+        - {source: ./custom-templates, path: /templates, mode: Ro}
+      health: {exec: "ak healthcheck", interval: 30s, startPeriod: 60s, retries: 10}
+    worker:
+      role: Worker
+      image: ghcr.io/goauthentik/server:2026.5.6
+      command: [worker]
+      needs: [{name: postgres, condition: Healthy}, {name: redis, condition: Healthy}]
+      volumes:
+        - {source: /var/run/docker.sock, path: /var/run/docker.sock}
+        - {source: /srv/authentik/media, path: /media}
+        - {source: /srv/authentik/certs, path: /certs}
+  services:
+    postgres: "16"
+    redis: "7.4"

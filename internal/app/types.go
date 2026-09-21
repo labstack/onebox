@@ -1,4 +1,4 @@
-// Package app loads the onebox.run/v1 declarative authoring contract: one
+// Package app loads the onebox.run/v1alpha1 declarative authoring contract: one
 // application, its workloads, the services it needs, and how a release rolls
 // out.
 //
@@ -28,11 +28,12 @@ type Spec struct {
 	// file is the exact project path supplied to Load/LoadBytes. Mutating
 	// operations such as eject must never reconstruct it as Dir/ob.yml.
 	file       string
-	APIVersion string `json:"api_version" description:"Project contract version. Must be onebox.run/v1." example:"onebox.run/v1"`
+	APIVersion string `json:"api_version"`
 	// Name is the application's name. Spelled Name rather than App because
 	// inside a package called app, `spec.App` is a stutter and every caller
 	// then writes `.App.App`. The authored key is still `app:`.
 	Name             string                     `json:"app" description:"Stable application name used in generated container, volume, network, and host paths." example:"shop"`
+	Annotations      map[string]string          `json:"-"`
 	BasePath         string                     `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/ob" example:"/srv/ob"`
 	Environments     map[string]Environment     `json:"environments" description:"Named environments, each naming the server it deploys to and the policy applied to it."`
 	Workloads        map[string]Workload        `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
@@ -71,7 +72,7 @@ type Environment struct {
 	// type, not another Server: a Jump has no jump of its own, which is how
 	// "exactly one hop" is enforced by the model instead of by validation.
 	Jump     *Jump  `json:"jump,omitempty" description:"Optional SSH jump host tunnelling the connection to this server, written as user@host or as an object with host, user, and port. Onebox verifies and authenticates both hops and never forwards the SSH agent." example:"deploy@bastion.example.com"`
-	BasePath string `json:"base_path,omitempty" description:"Environment-specific replacement for the project base_path." example:"/srv/ob"`
+	BasePath string `json:"base_path,omitempty" description:"Environment-specific replacement for the Application basePath." example:"/srv/ob"`
 	// EnvFiles is this environment's default list. It sits on the environment
 	// rather than in an environment-scoped `runtime` block for the same reason
 	// base_path does: an environment restating a project-level default is an
@@ -117,7 +118,7 @@ type MigrationPolicy struct {
 }
 
 type Overrides struct {
-	Workloads map[string]map[string]any `json:"workloads,omitempty" description:"Allowed workload tuning keyed by workload name: replicas, resources, env, env_files, strategy, and routes."`
+	Workloads map[string]map[string]any `json:"workloads,omitempty" description:"Allowed workload tuning keyed by workload name: replicas, resources, env, envFiles, strategy, and routes."`
 	Services  map[string]map[string]any `json:"services,omitempty" description:"Allowed service tuning keyed by service name: resources and settings."`
 }
 
@@ -171,7 +172,7 @@ type Workload struct {
 	DataEffect      DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
 	Schedule        *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job, independent of its deployment phase and operator-run policy."`
 	Inputs          map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob job run may override them."`
-	Execution       *JobExecution       `json:"execution,omitempty" description:"Opt-in durable scheduled execution. Requires a native operator-runnable phase-none job with data_effect none. Stores non-secret checkpoints on the host and permits explicit same-release resume."`
+	Execution       *JobExecution       `json:"execution,omitempty" description:"Opt-in durable scheduled execution. Requires a native operator-runnable phase-none job with dataEffect None. Stores non-secret checkpoints on the host and permits explicit same-release resume."`
 }
 
 type JobExecution struct {

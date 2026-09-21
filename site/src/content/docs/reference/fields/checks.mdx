@@ -17,7 +17,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`advisory` · `applied_revisions` · `contains` · `equals` · `exec` · `http` · `job` · `json_assertions` · `migrations` · `path` · `port` · `provider` · `required_headers` · `run` · `status_codes` · `url` · `workload`
+`advisory` · `appliedRevisions` · `contains` · `equals` · `exec` · `http` · `job` · `jsonAssertions` · `migrations` · `path` · `port` · `provider` · `requiredHeaders` · `run` · `statusCodes` · `url` · `workload`
 
 ## Reference
 
@@ -34,15 +34,15 @@ cannot drift from what `ob validate` accepts.
 | `http[].workload` | string | — | Workload the path is probed inside. |
 | `migrations` | list | — | Migration revisions checked against captured job evidence. |
 | `migrations[].advisory` | boolean | `false` | Report a failure without blocking release activation. |
-| `migrations[].applied_revisions` | list | — | Revisions the job must report as applied. |
+| `migrations[].appliedRevisions` | list | — | Revisions the job must report as applied. |
 | `migrations[].job` | string | — | Job workload whose captured evidence is checked. |
 | `migrations[].provider` | string | — | Migration tool that produced the revisions. |
 | `url` | list | — | External URLs probed from the operator side. |
 | `url[].advisory` | boolean | `false` | Report a failure without blocking release activation. |
 | `url[].contains` | string | — | Text the response body must contain. |
-| `url[].json_assertions` | list | — | Scalar JSON response values that must match exactly. |
-| `url[].json_assertions[].equals` | — | — | Exact scalar value required at path. |
-| `url[].json_assertions[].path` | string | — | Dot-separated path to a scalar value in the JSON response. |
-| `url[].required_headers` | map | — | Exact response headers required for success. |
-| `url[].status_codes` | list | — | Allowed response status codes. A successful 2xx response is expected when omitted. |
+| `url[].jsonAssertions` | list | — | Scalar JSON response values that must match exactly. |
+| `url[].jsonAssertions[].equals` | — | — | Exact scalar value required at path. |
+| `url[].jsonAssertions[].path` | string | — | Dot-separated path to a scalar value in the JSON response. |
+| `url[].requiredHeaders` | map | — | Exact response headers required for success. |
+| `url[].statusCodes` | list | — | Allowed response status codes. A successful 2xx response is expected when omitted. |
 | `url[].url` | string | — | External HTTP or HTTPS URL verified from the operator side. Expects an http or https URL. |

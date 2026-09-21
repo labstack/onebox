@@ -5,36 +5,39 @@ import (
 	"testing"
 )
 
-const overrideFixture = `api_version: onebox.run/v1
-app: ledger
-environments:
-  production:
-    server: root@prod
-  staging:
-    server: root@stage
-    overrides:
-      workloads:
-        web:
-          replicas: 1
-          resources: {memory: 256MB}
-          env: {LOG_LEVEL: debug, TRACING: null}
-      services:
-        postgres:
-          resources: {memory: 512MB}
-workloads:
-  web:
-    role: application
-    image: nginx
-    replicas: 4
-    resources: {memory: 2GB, cpus: "2"}
-    env: {LOG_LEVEL: info, TRACING: on, REGION: eu}
-services:
-  postgres: {version: 18, resources: {memory: 4GB, cpus: "4"}}
+const overrideFixture = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production:
+      server: root@prod
+    staging:
+      server: root@stage
+      overrides:
+        workloads:
+          web:
+            replicas: 1
+            resources: {memory: 256MB}
+            env: {LOG_LEVEL: debug, TRACING: null}
+        services:
+          postgres:
+            resources: {memory: 512MB}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      replicas: 4
+      resources: {memory: 2GB, cpus: "2"}
+      env: {LOG_LEVEL: info, TRACING: on, REGION: eu}
+  services:
+    postgres: {version: 18, resources: {memory: 4GB, cpus: "4"}}
 `
 
 func resolve(t *testing.T, yaml, env string) *Resolved {
 	t.Helper()
-	p, err := LoadBytes([]byte(yaml), "ob.yml")
+	p, err := loadFixtureBytes([]byte(yaml), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +99,7 @@ func TestServiceOverride(t *testing.T) {
 // TestResolveDoesNotLeakBetweenEnvironments: resolving staging must not change
 // what production sees.
 func TestResolveDoesNotLeakBetweenEnvironments(t *testing.T) {
-	p, err := LoadBytes([]byte(overrideFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(overrideFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,22 +119,25 @@ func TestResolveDoesNotLeakBetweenEnvironments(t *testing.T) {
 }
 
 func TestRouteMiddlewareOverrideRequiresManagedProxyConfig(t *testing.T) {
-	body := `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@prod}
-  staging:
-    server: root@stage
-    overrides:
-      workloads:
-        web:
-          routes: [{hostname: shop.example.com, path: /, port: 3000, entrypoint: websecure, protocol: http, scheme: http, tls: terminate, middlewares: [auth@file]}]
-workloads:
-  web:
-    image: nginx
-    routes: [{hostname: shop.example.com, port: 3000}]
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@prod}
+    staging:
+      server: root@stage
+      overrides:
+        workloads:
+          web:
+            routes: [{hostname: shop.example.com, path: /, port: 3000, entrypoint: websecure, protocol: http, scheme: http, tls: Terminate, middlewares: [auth@file]}]
+  workloads:
+    web:
+      image: nginx
+      routes: [{hostname: shop.example.com, port: 3000}]
 `
-	p, err := LoadBytes([]byte(body), "ob.yml")
+	p, err := loadFixtureBytes([]byte(body), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +176,7 @@ func TestOriginsRecordOverrides(t *testing.T) {
 // convinced staging was scaled down when it was not.
 func TestUnknownOverrideTargetRefused(t *testing.T) {
 	y := strings.Replace(overrideFixture, "        web:\n", "        wbe:\n", 1)
-	p, err := LoadBytes([]byte(y), "ob.yml")
+	p, err := loadFixtureBytes([]byte(y), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +207,7 @@ func TestOverrideOutsideClosedSetRefused(t *testing.T) {
 
 // TestRenderUsesResolvedValues ties resolution to generation.
 func TestRenderUsesResolvedValues(t *testing.T) {
-	p, err := LoadBytes([]byte(overrideFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(overrideFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +227,7 @@ func TestRenderUsesResolvedValues(t *testing.T) {
 // TestRenderResolvesAutomatically closes the footgun: rendering a project
 // without resolving it first would silently ignore every override.
 func TestRenderResolvesAutomatically(t *testing.T) {
-	p, err := LoadBytes([]byte(overrideFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(overrideFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,17 +251,20 @@ func TestRenderResolvesAutomatically(t *testing.T) {
 // permitted set would accept an override naming something no service has, and
 // accepting it silently is how an operator comes to believe a setting applied.
 func TestOverridingAWithdrawnFieldIsRefused(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@h}
-  staging:
-    server: root@h2
-    overrides:
-      services:
-        postgres: {backup: {schedule: {cron: "0 2 * * *"}}}
-workloads: {web: {role: application, image: x:1}}
-services: {postgres: 17}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@h}
+    staging:
+      server: root@h2
+      overrides:
+        services:
+          postgres: {backup: {schedule: {cron: "0 2 * * *"}}}
+  workloads: {web: {role: Application, image: 'x:1'}}
+  services: {postgres: 17}
 `), "ob.yml")
 	if err != nil {
 		// Refused at load is equally correct: the override block is closed too.
@@ -281,16 +290,19 @@ services: {postgres: 17}
 // time — blamed on a `replicas` override nobody wrote. The inference is a
 // derived read now, and the document is never edited.
 func TestAProjectThatLoadsAlsoResolves(t *testing.T) {
-	yaml := `api_version: onebox.run/v1
-app: a
-environments:
-  production:
-    server: root@1.2.3.4
-    overrides: {workloads: {w: {resources: {memory: 512MB}}}}
-workloads:
-  w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}
+	yaml := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments:
+    production:
+      server: root@1.2.3.4
+      overrides: {workloads: {w: {resources: {memory: 512MB}}}}
+  workloads:
+    w: {image: nginx, volumes: [{name: data, path: /data}], replicas: 3}
 `
-	p, err := LoadBytes([]byte(yaml), "ob.yml")
+	p, err := loadFixtureBytes([]byte(yaml), "ob.yml")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

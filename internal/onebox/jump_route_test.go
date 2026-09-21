@@ -15,16 +15,20 @@ func writeJumpProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `
-api_version: onebox.run/v1
-app: demo
-environments:
-  production:
-    server: deploy@example.invalid
-    jump: bastion@jump.invalid:2222
-image: ghcr.io/example/app:v1
-routes:
-  - {hostname: demo.example.com, port: 8080}
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments:
+    production:
+      server: deploy@example.invalid
+      jump: bastion@jump.invalid:2222
+  workloads:
+    demo:
+      image: ghcr.io/example/app:v1
+      routes:
+        - {hostname: demo.example.com, port: 8080}
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -82,16 +86,20 @@ func TestChangingOnlyTheJumpChangesTheBinding(t *testing.T) {
 		t.Helper()
 		dir := t.TempDir()
 		path := filepath.Join(dir, "ob.yml")
-		body := `
-api_version: onebox.run/v1
-app: demo
-environments:
-  production:
-    server: deploy@example.invalid
-    jump: ` + jump + `
-image: ghcr.io/example/app:v1
-routes:
-  - {hostname: demo.example.com, port: 8080}
+		body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments:
+    production:
+      server: deploy@example.invalid
+      jump: ` + jump + `
+  workloads:
+    demo:
+      image: ghcr.io/example/app:v1
+      routes:
+        - {hostname: demo.example.com, port: 8080}
 `
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

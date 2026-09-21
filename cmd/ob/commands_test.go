@@ -62,14 +62,16 @@ func TestConfirmInteractiveDeployRequiresConfirmationWithoutPolicyApproval(t *te
 func writeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	obYAML := `
-api_version: onebox.run/v1
-app: demo
-environments: { production: { server: deploy@example.invalid } }
-workloads:
-  web:      { role: application, image: ghcr.io/x/app:v1, health: { http: /healthz, port: 8080 } }
-  postgres: { role: daemon, image: postgres:17, persistence: { mode: durable } }
-deployment: { order: [web] }
+	obYAML := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  workloads:
+    web: {role: Application, image: 'ghcr.io/x/app:v1', health: {http: /healthz, port: 8080}}
+    postgres: {role: Daemon, image: 'postgres:17', persistence: {mode: Durable}}
+  deployment: {order: [web]}
 `
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -101,17 +103,19 @@ func TestValidateOK(t *testing.T) {
 
 func TestPreflightBlocksDeploy(t *testing.T) {
 	dir := writeProject(t)
-	obYAML := `
-api_version: onebox.run/v1
-app: demo
-environments: { production: { server: deploy@example.invalid } }
-workloads:
-  web:      { role: application, image: ghcr.io/x/app:v1, health: { http: /healthz, port: 8080 } }
-  postgres: { role: daemon, image: postgres:17, persistence: { mode: durable } }
-deployment: { order: [web] }
-runtime:
-  env_checks:
-    - { file: secrets.env, require: [MISSING_KEY] }
+	obYAML := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  workloads:
+    web: {role: Application, image: 'ghcr.io/x/app:v1', health: {http: /healthz, port: 8080}}
+    postgres: {role: Daemon, image: 'postgres:17', persistence: {mode: Durable}}
+  deployment: {order: [web]}
+  runtime:
+    envChecks:
+      - {file: secrets.env, require: [MISSING_KEY]}
 `
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(obYAML), 0o644); err != nil {
 		t.Fatal(err)

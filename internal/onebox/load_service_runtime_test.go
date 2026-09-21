@@ -16,11 +16,14 @@ func protectedRuntimeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `api_version: onebox.run/v1
-app: example
-environments: {production: {server: root@host}}
-workloads: {web: {image: nginx:1}}
-services: {database: {driver: postgres, version: 17}}
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: example
+spec:
+  environments: {production: {server: root@host}}
+  workloads: {web: {image: 'nginx:1'}}
+  services: {database: {driver: postgres, version: 17}}
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

@@ -124,7 +124,6 @@ func stripOverlay(runtime []byte, generated map[string]bool, projected map[strin
 	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
 		root = root.Content[0]
 	}
-
 	var names []string
 	services := mapValue(root, "services")
 	if services == nil {
@@ -217,6 +216,11 @@ func repointProject(path, dest string, names []string) error {
 	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
 		root = root.Content[0]
 	}
+	documentRoot := root
+	root = mapValue(root, "spec")
+	if root == nil {
+		return errf("eject_failed", path, "", "project declares no spec")
+	}
 
 	// A Compose-referenced workload is shaped by the file, not the declaration.
 	// Leaving these behind would be worse than removing them: someone editing a
@@ -224,9 +228,9 @@ func repointProject(path, dest string, names []string) error {
 	// error. What stays is what still has meaning — the role, the routing the
 	// overlay derives, and the intent fields.
 	inert := []string{
-		"image", "build", "command", "env", "env_files", "volumes", "published_ports",
+		"image", "build", "command", "env", "envFiles", "volumes", "publishedPorts",
 		"health", "drain", "resources", "entrypoint", "user", "hostname",
-		"working_dir", "init", "tty", "stdin_open", "extra_hosts", "labels",
+		"workingDir", "init", "tty", "stdinOpen", "extraHosts", "labels",
 		"logging", "persistence",
 	}
 
@@ -249,21 +253,12 @@ func repointProject(path, dest string, names []string) error {
 			setMapKey(svc, "compose", dest+"#"+name,
 				firstNonEmpty(bh, ih), firstNonEmpty(bl, il))
 		}
-	} else {
-		// Top-level shorthand: replace the source in place.
-		bh, bl := dropMapKey(root, "build")
-		ih, il := dropMapKey(root, "image")
-		for _, k := range inert {
-			dropMapKey(root, k)
-		}
-		setMapKey(root, "compose", dest+"#"+names[0],
-			firstNonEmpty(bh, ih), firstNonEmpty(bl, il))
 	}
 
 	var sb strings.Builder
 	enc := yaml.NewEncoder(&sb)
 	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
+	if err := enc.Encode(documentRoot); err != nil {
 		return errf("eject_failed", path, "", "%v", err)
 	}
 	if err := enc.Close(); err != nil {

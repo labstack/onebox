@@ -38,7 +38,7 @@ func recordVerdicts(t *testing.T) []verdict {
 
 	for _, c := range conformanceCases() {
 		v := verdict{Case: "conformance/" + c.name}
-		spec, err := LoadBytes([]byte(c.yaml), "ob.yml")
+		spec, err := loadFixtureBytes([]byte(c.yaml), "ob.yml")
 		if err == nil {
 			v.Loads = true
 			v.Digest = renderDigest(t, spec)
@@ -56,7 +56,7 @@ func recordVerdicts(t *testing.T) []verdict {
 		if err != nil {
 			t.Fatal(err)
 		}
-		spec, err := LoadBytes([]byte(strings.ReplaceAll(string(body), "root@TARGET", "root@1.2.3.4")), path)
+		spec, err := loadFixtureBytes([]byte(strings.ReplaceAll(string(body), "root@TARGET", "root@1.2.3.4")), path)
 		if err == nil {
 			v.Loads = true
 			v.Digest = renderDigest(t, spec)

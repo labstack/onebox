@@ -74,7 +74,10 @@ func TestEveryTopLevelSchemaKeyAppearsOnSomePage(t *testing.T) {
 		t.Fatalf("cannot render field pages: %v", err)
 	}
 
-	props, _ := schema["properties"].(map[string]any)
+	props, _, err := schemaProperties(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(props) == 0 {
 		t.Fatal("the schema has no top-level properties")
 	}
@@ -84,7 +87,13 @@ func TestEveryTopLevelSchemaKeyAppearsOnSomePage(t *testing.T) {
 	// when it owns a page or has a table row — not when its name occurs in a
 	// sentence.
 	for key := range props {
-		if _, hasPage := pages["fields/"+key+".mdx"]; hasPage {
+		slug := key
+		for _, block := range blocks {
+			if block.Key == key && block.Slug != "" {
+				slug = block.Slug
+			}
+		}
+		if _, hasPage := pages["fields/"+slug+".mdx"]; hasPage {
 			continue
 		}
 		documented := false
@@ -278,7 +287,7 @@ func TestUnclaimedTopLevelKeysDocumentTheirSubtree(t *testing.T) {
 		t.Fatalf("cannot render: %v", err)
 	}
 	page := pages["fields/top-level.mdx"]
-	for _, path := range []string{"routes[].hostname", "health.http", "image.reference", "build.context"} {
+	for _, path := range []string{"apiVersion", "kind", "metadata.name", "metadata.annotations"} {
 		if !strings.Contains(page, "`"+path+"`") {
 			t.Errorf("top-level.mdx does not document %q", path)
 		}
@@ -292,7 +301,10 @@ func TestEveryRegisteredBlockMatchesASchemaKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot load the schema: %v", err)
 	}
-	props, _ := schema["properties"].(map[string]any)
+	props, _, err := schemaProperties(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, b := range blocks {
 		if _, ok := props[b.Key]; !ok {
 			t.Errorf("block %q has no matching top-level schema key", b.Key)
@@ -318,12 +330,12 @@ func TestPublishedSchemaMatchesTheCheckedInCopy(t *testing.T) {
 	}
 	// Skipping on a read failure would turn "someone moved the file" into a
 	// passing test, which is the drift this exists to catch.
-	onDisk, err := os.ReadFile(filepath.Join("..", "..", "docs", "onebox.run-v1.schema.json"))
+	onDisk, err := os.ReadFile(filepath.Join("..", "..", "api", "application", "v1alpha1", "application.schema.json"))
 	if err != nil {
 		t.Fatalf("the checked-in schema must be readable: %v", err)
 	}
 	if strings.TrimSpace(string(generated)) != strings.TrimSpace(string(onDisk)) {
-		t.Error("the published schema differs from docs/onebox.run-v1.schema.json")
+		t.Error("the published schema differs from api/application/v1alpha1/application.schema.json")
 	}
 }
 

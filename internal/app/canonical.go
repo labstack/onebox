@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -120,11 +121,11 @@ func (r *Resolved) Canonical() ([]byte, error) {
 	restoreDeclaredEmpty(generic, r.Spec)
 	restoreDeclaredEmptyScopes(generic, r.Spec)
 	if r.canonicalFacts != nil {
-		facts, err := canonicalFactsGeneric(*r.canonicalFacts)
-		if err != nil {
+		// Facts remain validated for callers that collect them, but observed
+		// state is not serialized into the authored Application resource.
+		if _, err := canonicalFactsGeneric(*r.canonicalFacts); err != nil {
 			return nil, err
 		}
-		generic["effective"] = facts
 	}
 	origins := r.Spec.originOf()
 	// An override is more specific than anything derived from the file, but it
@@ -134,6 +135,27 @@ func (r *Resolved) Canonical() ([]byte, error) {
 	for path, o := range r.Origins {
 		origins[path] = o
 	}
+	authoredSpec := internalToAuthored(reflect.TypeOf(Spec{}), generic, "spec")
+	generic = map[string]any{
+		"apiVersion": APIVersion,
+		"kind":       ApplicationKind,
+		"metadata": map[string]any{
+			"name": r.Spec.Name,
+		},
+		"spec": authoredSpec,
+	}
+	if len(r.Spec.Annotations) > 0 {
+		generic["metadata"].(map[string]any)["annotations"] = r.Spec.Annotations
+	}
+	authoredOrigins := map[string]Origin{
+		"apiVersion":    OriginAuthored,
+		"kind":          OriginAuthored,
+		"metadata.name": OriginAuthored,
+	}
+	for path, origin := range origins {
+		authoredOrigins[authoredOriginPath(path)] = origin
+	}
+	origins = authoredOrigins
 
 	node, err := annotated("", generic, origins)
 	if err != nil {
@@ -206,6 +228,11 @@ func (r *Resolved) OriginTable() [][2]string {
 	for path, o := range r.Origins {
 		origins[path] = o
 	}
+	public := make(map[string]Origin, len(origins))
+	for path, origin := range origins {
+		public[authoredOriginPath(path)] = origin
+	}
+	origins = public
 	paths := make([]string, 0, len(origins))
 	for p := range origins {
 		paths = append(paths, p)

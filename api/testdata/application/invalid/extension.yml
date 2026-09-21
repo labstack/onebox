@@ -1,0 +1,9 @@
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  environments:
+    production: {server: deploy@example.com}
+  workloads:
+    web: {image: nginx:1.27}
+  x-rollout-mode: unsafe

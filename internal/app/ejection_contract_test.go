@@ -7,29 +7,32 @@ import (
 	"testing"
 )
 
-const ejectContractProject = `api_version: onebox.run/v1
-app: shop
-environments:
-  production:
-    server: root@203.0.113.10
-runtime:
-  env_files: [.env.production]
-workloads:
-  web:
-    role: application
-    image: nginx:1.27
-    health: /healthz
-    env:
-      API_TOKEN: super-secret-value
-    routes:
-      - {hostname: shop.example.com, path: /, port: 3000}
-      - {hostname: shop.example.com, path: /api, port: 3001}
-  worker:
-    role: worker
-    image: nginx:1.27
-    needs: [postgres]
-services:
-  postgres: 16
+const ejectContractProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production:
+      server: root@203.0.113.10
+  runtime:
+    envFiles: [.env.production]
+  workloads:
+    web:
+      role: Application
+      image: nginx:1.27
+      health: /healthz
+      env:
+        API_TOKEN: super-secret-value
+      routes:
+        - {hostname: shop.example.com, path: /, port: 3000}
+        - {hostname: shop.example.com, path: /api, port: 3001}
+    worker:
+      role: Worker
+      image: nginx:1.27
+      needs: [postgres]
+  services:
+    postgres: 16
 `
 
 func ejectContractFixture(t *testing.T) (string, *Resolved) {

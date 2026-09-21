@@ -68,7 +68,13 @@ func TestRouteJumpDefaultsToPort22(t *testing.T) {
 // port has to survive into the route, or the connection is attempted against
 // a hostname with a colon in it.
 func TestScalarServerPortReachesTheRoute(t *testing.T) {
-	resolved, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+	resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  workloads: {}
+`+
 		"environments: {production: {server: root@10.20.0.10:2222}}\n"+
 		"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"), "ob.yml")
 	if err != nil {
@@ -94,7 +100,13 @@ func TestScalarServerPortReachesTheRoute(t *testing.T) {
 func TestBracketedIPv6ScalarNormalisesLikeTheObjectForm(t *testing.T) {
 	load := func(server string) Environment {
 		t.Helper()
-		resolved, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+		resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  workloads: {}
+`+
 			"environments: {production: {server: "+server+"}}\n"+
 			"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"), "ob.yml")
 		if err != nil {
@@ -121,7 +133,13 @@ func TestBracketedIPv6ScalarNormalisesLikeTheObjectForm(t *testing.T) {
 // now, so the brackets have to come off while the project is read or
 // JoinHostPort builds [[2001:db8::1]]:22.
 func TestBracketedIPv6ServerHostNormalises(t *testing.T) {
-	resolved, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+	resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  workloads: {}
+`+
 		"environments: {production: {server: {host: \"[2001:db8::1]\", user: root}}}\n"+
 		"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"), "ob.yml")
 	if err != nil {
@@ -146,7 +164,13 @@ func TestInvalidServerAddressIsRejectedAtLoad(t *testing.T) {
 	}
 	for name, server := range invalid {
 		t.Run(name, func(t *testing.T) {
-			_, err := LoadBytes([]byte("api_version: onebox.run/v1\napp: ledger\n"+
+			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  workloads: {}
+`+
 				"environments: {production: {server: "+server+"}}\n"+
 				"image: nginx\nroutes: [{hostname: d.example.com, port: 8080}]\n"), "ob.yml")
 			if err == nil {

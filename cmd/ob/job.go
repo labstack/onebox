@@ -18,7 +18,7 @@ func addJobCommand(root *cobra.Command, g *globalFlags) {
 	group := &cobra.Command{
 		Use:   "job",
 		Short: "plan and run a sealed one-shot operator job",
-		Long:  "Plan and run one declared `operator_run: allowed` job against the current serving release.\n\nDeployment participation is independent: `deployment_phase` may be none, pre_release,\nor post_release. Saved plans bind the release, runtime digest, immutable image,\ndata effect and inputs so agents can obtain separate approval before execution.",
+		Long:  "Plan and run one declared `operatorRun: Allowed` job against the current serving release.\n\nDeployment participation is independent: `deploymentPhase` may be None, PreRelease,\nor PostRelease. Saved plans bind the release, runtime digest, immutable image,\ndata effect and inputs so agents can obtain separate approval before execution.",
 		Args:  cobra.NoArgs,
 		RunE:  showCommandHelp,
 	}

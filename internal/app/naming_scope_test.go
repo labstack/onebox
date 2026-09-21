@@ -60,21 +60,24 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 // 6.3 — a multi-route workload and a non-HTTP route survive the whole path:
 // the canonical form describes them, and the generated labels route them.
 func TestMultiRouteAndNonHTTPRouteEndToEnd(t *testing.T) {
-	body := `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-workloads:
-  web:
-    role: application
-    image: nginx
-    health: /healthz
-    routes:
-      - {hostname: shop.example.com, path: /, port: 3000, middlewares: [compress@file, secure-headers@file]}
-      - {hostname: shop.example.com, path: /api, port: 3001}
-      - {hostname: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
-      - {hostname: db.example.com, port: 5432, protocol: tcp, tls: passthrough, entrypoint: pg, middlewares: [office-only@file]}
-proxy: {config: traefik}
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      health: /healthz
+      routes:
+        - {hostname: shop.example.com, path: /, port: 3000, middlewares: [compress@file, secure-headers@file]}
+        - {hostname: shop.example.com, path: /api, port: 3001}
+        - {hostname: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
+        - {hostname: db.example.com, port: 5432, protocol: tcp, tls: Passthrough, entrypoint: pg, middlewares: [office-only@file]}
+  proxy: {config: traefik}
 `
 	r, err := loadText(t, body).Resolve("production")
 	if err != nil {
@@ -85,7 +88,7 @@ proxy: {config: traefik}
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"3000", "3001", "9000", "5432", "h2c", "passthrough", "grpc", "pg", "compress@file", "secure-headers@file", "office-only@file"} {
+	for _, want := range []string{"3000", "3001", "9000", "5432", "h2c", "Passthrough", "grpc", "pg", "compress@file", "secure-headers@file", "office-only@file"} {
 		if !strings.Contains(string(canonical), want) {
 			t.Errorf("the canonical form lost %q", want)
 		}
@@ -124,15 +127,18 @@ proxy: {config: traefik}
 }
 
 func TestRouteMiddlewareOrderPreservesRepetition(t *testing.T) {
-	body := `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-workloads:
-  web:
-    image: nginx
-    routes:
-      - {hostname: shop.example.com, port: 3000, middlewares: [prefix@file, auth@file, prefix@file]}
-proxy: {managed: false}
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web:
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000, middlewares: [prefix@file, auth@file, prefix@file]}
+  proxy: {managed: false}
 `
 	r, err := loadText(t, body).Resolve("production")
 	if err != nil {

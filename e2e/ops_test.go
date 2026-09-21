@@ -50,7 +50,11 @@ func releaseSnapshot(t *testing.T, dir, cfgFile, base string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return append(body, []byte("\nbase_path: "+base+"\n")...)
+	updated := strings.Replace(string(body), "spec:\n", fmt.Sprintf("spec:\n  basePath: %q\n", base), 1)
+	if updated == string(body) {
+		t.Fatal("Application fixture has no spec block")
+	}
+	return []byte(updated)
 }
 
 func buildDeploy(t *testing.T, dir, cfgFile, version, base string) (*engine.Engine, string, string) {

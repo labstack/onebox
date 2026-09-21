@@ -14,16 +14,19 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const execProjectYAML = `api_version: onebox.run/v1
-app: shop
-environments:
-  production:
-    server: deploy@example.invalid
-workloads:
-  api:
-    image: nginx
-    port: 3000
-    hostname: shop.example.com
+const execProjectYAML = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production:
+      server: deploy@example.invalid
+  workloads:
+    api:
+      image: nginx
+      port: 3000
+      hostname: shop.example.com
 `
 
 func execService(t *testing.T, connect Connector) *Service {
@@ -83,8 +86,8 @@ func TestExecEnforcesEnvironmentAndRunnerPolicyBeforeConnecting(t *testing.T) {
 		{name: "unknown environment", prepare: func(service *Service) { service.environment = "staging" }, want: "unknown_environment"},
 		{name: "runner policy", prepare: func(service *Service) {
 			service.configPath = writeExecProject(t, strings.Replace(execProjectYAML,
-				"    server: deploy@example.invalid\n",
-				"    server: deploy@example.invalid\n    policy: {min_onebox_version: v2026.8.3}\n", 1))
+				"      server: deploy@example.invalid\n",
+				"      server: deploy@example.invalid\n      policy: {minOneboxVersion: v2026.8.3}\n", 1))
 		}, want: "not a released Onebox CalVer"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

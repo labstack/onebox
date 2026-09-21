@@ -24,19 +24,22 @@ func TestVectorscaleIncludesItsVectorDependency(t *testing.T) {
 }
 
 func TestPostgresExtensionsSelectTheOneboxImage(t *testing.T) {
-	rendered := renderServices(t, `api_version: onebox.run/v1
-app: goal
-environments: {production: {server: root@host}}
-workloads:
-  web: {role: application, image: goal:1}
-services:
-  database:
-    driver: postgres
-    version: 18
-    features:
-      extensions:
-        pg_trgm: {}
-        vector: {}
+	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: goal
+spec:
+  environments: {production: {server: root@host}}
+  workloads:
+    web: {role: Application, image: 'goal:1'}
+  services:
+    database:
+      driver: postgres
+      version: 18
+      features:
+        extensions:
+          pg_trgm: {}
+          vector: {}
 `)
 	doc := string(rendered["database"])
 	if !strings.Contains(doc, "image: ghcr.io/labstack/onebox-postgres:18\n") {
@@ -66,22 +69,25 @@ func TestProtectedPostgresMustAdoptTheOneboxImageBeforeExtensions(t *testing.T) 
 }
 
 func TestPostgresExtensionsDerivePreloadAndCronSettings(t *testing.T) {
-	rendered := renderServices(t, `api_version: onebox.run/v1
-app: goal
-environments: {production: {server: root@host}}
-workloads:
-  web: {role: application, image: goal:1}
-services:
-  database:
-    driver: postgres
-    version: 18
-    settings:
-      shared_preload_libraries: auto_explain
-    features:
-      extensions:
-        pg_cron: {}
-        pgaudit: {}
-        pg_stat_statements: {}
+	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: goal
+spec:
+  environments: {production: {server: root@host}}
+  workloads:
+    web: {role: Application, image: 'goal:1'}
+  services:
+    database:
+      driver: postgres
+      version: 18
+      settings:
+        shared_preload_libraries: auto_explain
+      features:
+        extensions:
+          pg_cron: {}
+          pgaudit: {}
+          pg_stat_statements: {}
 `)
 	doc := string(rendered["database"])
 	for _, setting := range []string{
@@ -99,16 +105,19 @@ services:
 }
 
 func TestServiceExtensionsArePostgresOnly(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@host}}
-workloads:
-  web: {role: application, image: sample:1}
-services:
-  cache:
-    driver: redis
-    version: 8
-    features: {extensions: {vector: {}}}
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@host}}
+  workloads:
+    web: {role: Application, image: 'sample:1'}
+  services:
+    cache:
+      driver: redis
+      version: 8
+      features: {extensions: {vector: {}}}
 `), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "supported only by the postgres driver") {
 		t.Fatalf("non-postgres features error = %v", err)
@@ -116,15 +125,18 @@ services:
 }
 
 func TestPostgresExtensionsRequireThePublishedImageVersion(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@host}}
-workloads:
-  web: {role: application, image: sample:1}
-services:
-  postgres:
-    version: 17
-    features: {extensions: {vector: {}}}
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@host}}
+  workloads:
+    web: {role: Application, image: 'sample:1'}
+  services:
+    postgres:
+      version: 17
+      features: {extensions: {vector: {}}}
 `), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "require version 18") {
 		t.Fatalf("unsupported PostgreSQL version error = %v", err)
@@ -132,17 +144,20 @@ services:
 }
 
 func TestServiceExtensionNamesAreSafeSQLIdentifiers(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@host}}
-workloads:
-  web: {role: application, image: sample:1}
-services:
-  postgres:
-    version: 18
-    features:
-      extensions:
-        vector;drop_table: {}
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@host}}
+  workloads:
+    web: {role: Application, image: 'sample:1'}
+  services:
+    postgres:
+      version: 18
+      features:
+        extensions:
+          vector;drop_table: {}
 `), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "PostgreSQL extension") {
 		t.Fatalf("unsafe extension name error = %v", err)
@@ -154,16 +169,18 @@ func TestPgCronSettingsCannotDisableTheManagedContract(t *testing.T) {
 		"cron.database_name: elsewhere",
 		"cron.use_background_workers: off",
 	} {
-		_, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@host}}
-workloads:
-  web: {role: application, image: sample:1}
-services:
-  postgres:
-    version: 18
-    settings: {`+settings+`}
-    features: {extensions: {pg_cron: {}}}
+		_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: sample}
+spec:
+  environments: {production: {server: root@host}}
+  workloads:
+    web: {role: Application, image: sample:1}
+  services:
+    postgres:
+      version: 18
+      settings: {`+settings+`}
+      features: {extensions: {pg_cron: {}}}
 `), "ob.yml")
 		if err == nil || !strings.Contains(err.Error(), "pg_cron") {
 			t.Fatalf("settings %q error = %v", settings, err)

@@ -1,7 +1,7 @@
 ---
 title: Run migrations safely
 description: Migration jobs, data effects, result evidence, and the backup-report gate.
-summary: How to declare a migration job, what data_effect controls, how job result evidence is captured and verified, and how the migration-backup policy gate works.
+summary: How to declare a migration job, what dataEffect controls, how job result evidence is captured and verified, and how the migration-backup policy gate works.
 sidebar:
   order: 3
 read_when:
@@ -15,15 +15,15 @@ read_when:
 ```yaml
 workloads:
   migrate:
-    role: job
+    role: Job
     image: ghcr.io/acme/shop:1.4.0
     command: ["./bin/migrate"]
-    data_effect: migration
-    deployment_phase: pre_release
+    dataEffect: Migration
+    deploymentPhase: PreRelease
     needs: [{name: postgres, condition: healthy}]
 ```
 
-`data_effect` is **required** on a job, and it is what the rollback and abort
+`dataEffect` is **required** on a job, and it is what the rollback and abort
 gates read:
 
 | Value | Meaning |
@@ -33,8 +33,8 @@ gates read:
 | `destructive` | Removes data. |
 | `unknown` | You cannot state it. Treated as the most cautious case. |
 
-`deployment_phase` decides whether it runs during deployment: `none` (default),
-`pre_release`, or `post_release`. `operator_run` independently controls explicit
+`deploymentPhase` decides whether it runs during deployment: `none` (default),
+`pre_release`, or `post_release`. `operatorRun` independently controls explicit
 invocation (`allowed` or `disabled`); release-phase jobs default to `disabled`.
 
 ## Report what actually happened
@@ -158,14 +158,14 @@ not approval policy is enabled.
 
 ```yaml
 deployment:
-  migration_policy: manual   # manual · auto · expand-only
+  migrationPolicy: Manual   # manual · auto · expand-only
 ```
 
 `expand-only` is your promise, not a check Onebox performs. It declares that
 every migration in this project is additive — that a release running the old
 code against the new schema still works. Onebox never inspects your SQL; it
 takes the declaration and, on the strength of it, keeps the rollback gate
-**open** after a `data_effect: migration` job runs, so a failed verify can roll
+**open** after a `dataEffect: Migration` job runs, so a failed verify can roll
 back automatically instead of halting.
 
 That makes it the right setting for a genuinely expand-only workflow and the

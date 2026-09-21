@@ -59,22 +59,25 @@ func TestPreflightRefusesForeignHostOwner(t *testing.T) {
 	}
 }
 
-const preflightProject = `api_version: onebox.run/v1
-app: ledger
-environments:
-  production: {server: root@1.2.3.4}
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes:
-      - {hostname: ledger.example.com, port: 8080}
-    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
+const preflightProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
+      volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
 `
 
 func preflight(t *testing.T, run Runner, yaml string) *Report {
 	t.Helper()
-	p, err := LoadBytes([]byte(yaml), "ob.yml")
+	p, err := loadFixtureBytes([]byte(yaml), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +328,7 @@ func TestRuntimeFailureShortCircuits(t *testing.T) {
 
 // TestUnreachableTargetIsAnError, not a failed check: nothing was learned.
 func TestUnreachableTargetIsAnError(t *testing.T) {
-	p, err := LoadBytes([]byte(preflightProject), "ob.yml")
+	p, err := loadFixtureBytes([]byte(preflightProject), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,15 +359,20 @@ func TestInterpolationEnvUsesComposeSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-runtime:
-  env_files: [.env]
-image: nginx
-routes:
-  - {hostname: shop.example.com, port: 3000}
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  runtime:
+    envFiles: [.env]
+  workloads:
+    shop:
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -413,18 +421,23 @@ func TestPreflightResolvesAcrossDeclaredFilesInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-runtime:
-  env_files: [.env.base, .env.production]
-  env_checks:
-    - file: .env.production
-      require: [API_TOKEN]
-image: nginx
-routes:
-  - {hostname: shop.example.com, port: 3000}
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  runtime:
+    envFiles: [.env.base, .env.production]
+    envChecks:
+      - file: .env.production
+        require: [API_TOKEN]
+  workloads:
+    shop:
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -574,17 +587,18 @@ func TestHostOwnerRecordParsesTheSameForPreflightAndEngine(t *testing.T) {
 // every mutation after it refuses a record it cannot parse.
 func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 	for _, name := range []string{"Staging", "prod_east", "staging replica", "-lead", "trail-"} {
-		src := "api_version: onebox.run/v1\napp: sample\nenvironments:\n  \"" + name +
-			"\": {server: root@h}\nworkloads:\n  web: {role: application, image: x:1}\n"
-		if _, err := LoadBytes([]byte(src), "ob.yml"); err == nil {
+		src := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: sample}\nspec:\n  environments:\n    \"" + name +
+			"\": {server: root@h}\n  workloads:\n    web: {role: Application, image: 'x:1'}\n"
+		if _, err := loadFixtureBytes([]byte(src), "ob.yml"); err == nil {
 			t.Fatalf("environment name %q was accepted by the loader but cannot round-trip the owner record", name)
 		}
 	}
 	// And the ones that are legal stay legal.
 	for _, name := range []string{"production", "staging", "prod-east"} {
-		src := "api_version: onebox.run/v1\napp: sample\nenvironments:\n  " + name +
-			": {server: root@h}\nworkloads:\n  web: {role: application, image: x:1}\n"
-		if _, err := LoadBytes([]byte(src), "ob.yml"); err != nil {
+		src := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: sample\n" +
+			"spec:\n  environments:\n    " + name + ": {server: root@h}\n" +
+			"  workloads:\n    web: {role: Application, image: 'x:1'}\n"
+		if _, err := loadFixtureBytes([]byte(src), "ob.yml"); err != nil {
 			t.Fatalf("environment name %q should be accepted: %v", name, err)
 		}
 		if _, ok := ParseHostOwnerRecord("sample " + name); !ok {

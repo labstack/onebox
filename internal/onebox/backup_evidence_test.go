@@ -362,11 +362,11 @@ func TestPlanDerivesMigrationBackupRequirementAndExecuteRejectsMissingReportBefo
 		t.Fatal(err)
 	}
 	configText := strings.Replace(string(configBytes),
-		"      allow_agent_proposals: true\n",
-		"      allow_agent_proposals: true\n      migrations: {require_backup: true, backup_max_age: 24h, require_restore_test: true, backup_key_material: [application_encryption_key]}\n", 1)
+		"        allowAgentProposals: true\n",
+		"        allowAgentProposals: true\n        migrations: {requireBackup: true, backupMaxAge: 24h, requireRestoreTest: true, backupKeyMaterial: [application_encryption_key]}\n", 1)
 	configText = strings.Replace(configText,
-		"  database:\n",
-		"  migrate:\n    role: job\n    image: ghcr.io/example/app:migrate\n    deployment_phase: pre_release\n    data_effect: migration\n  database:\n", 1)
+		"    database:\n",
+		"    migrate:\n      role: Job\n      image: ghcr.io/example/app:migrate\n      deploymentPhase: PreRelease\n      dataEffect: Migration\n    database:\n", 1)
 	if err := os.WriteFile(configPath, []byte(configText), 0o600); err != nil {
 		t.Fatal(err)
 	}

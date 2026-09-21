@@ -1,52 +1,55 @@
-api_version: onebox.run/v1
-app: recast
-environments:
-  production:
-    server: root@recast.example.com
-    policy:
-      require_approval: true
-      allow_agent_proposals: true
-      min_onebox_version: v2026.8.0
-      min_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
-      migrations: {require_backup: false}
-workloads:
-  server:
-    role: application
-    image: ghcr.io/labstack/recast-server:2026.8.1
-    replicas: 1
-    strategy: rolling
-    routes:
-      - {hostname: recast.report, port: 8080}
-    health: {http: /healthz, port: 8080, interval: 2s, within: 2m, retries: 3}
-    drain: {signal: TERM, wait: 2s, grace: 30s}
-  migrate:
-    role: job
-    compose: compose.yaml#migrate
-    deployment_phase: pre_release
-    data_effect: migration
-  postgres:
-    role: daemon
-    compose: compose.yaml#postgres
-    persistence: {mode: durable}
-  clamav:
-    role: daemon
-    compose: compose.yaml#clamav
-deployment: {order: [server], retain_releases: 5, migration_policy: manual}
-runtime:
-  env_files: [.env.production]
-  env_checks:
-    - file: .env.production
-      require: [RECAST_ENV, RECAST_BASE_URL, DATABASE_URL, RECAST_AUTH_PEPPER, POSTGRES_PASSWORD]
-checks:
-  http:
-    - {workload: server, path: /healthz, port: 8080}
-  url:
-    - {url: "https://recast.report/healthz"}
-proxy:
-  managed: true
-  kind: traefik-docker
-  image: "traefik:v3.7@sha256:1cb3845d7a05e1473c9086351426597e911db49db382b6e4769f9b0744962ac8"
-  config: traefik
-  network: ob-ingress
-registries:
-  ghcr: {server: ghcr.io, username: vishr, password_env: GHCR_TOKEN}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: recast
+spec:
+  environments:
+    production:
+      server: root@recast.example.com
+      policy:
+        requireApproval: true
+        allowAgentProposals: true
+        minOneboxVersion: v2026.8.0
+        minPlanSchema: onebox.run/executable-deploy-plan/v1alpha2
+        migrations: {requireBackup: false}
+  workloads:
+    server:
+      role: Application
+      image: ghcr.io/labstack/recast-server:2026.8.1
+      replicas: 1
+      strategy: Rolling
+      routes:
+        - {hostname: recast.report, port: 8080}
+      health: {http: /healthz, port: 8080, interval: 2s, within: 2m, retries: 3}
+      drain: {signal: TERM, wait: 2s, grace: 30s}
+    migrate:
+      role: Job
+      compose: compose.yaml#migrate
+      deploymentPhase: PreRelease
+      dataEffect: Migration
+    postgres:
+      role: Daemon
+      compose: compose.yaml#postgres
+      persistence: {mode: Durable}
+    clamav:
+      role: Daemon
+      compose: compose.yaml#clamav
+  deployment: {order: [server], retainReleases: 5, migrationPolicy: Manual}
+  runtime:
+    envFiles: [.env.production]
+    envChecks:
+      - file: .env.production
+        require: [RECAST_ENV, RECAST_BASE_URL, DATABASE_URL, RECAST_AUTH_PEPPER, POSTGRES_PASSWORD]
+  checks:
+    http:
+      - {workload: server, path: /healthz, port: 8080}
+    url:
+      - {url: "https://recast.report/healthz"}
+  proxy:
+    managed: true
+    kind: TraefikDocker
+    image: "traefik:v3.7@sha256:1cb3845d7a05e1473c9086351426597e911db49db382b6e4769f9b0744962ac8"
+    config: traefik
+    network: ob-ingress
+  registries:
+    ghcr: {server: ghcr.io, username: vishr, passwordEnv: GHCR_TOKEN}

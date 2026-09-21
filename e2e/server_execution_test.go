@@ -27,42 +27,44 @@ func TestServerDurableExecutions(t *testing.T) {
 		defer cancel()
 		_, _ = s.output(ctx, "systemctl disable --now "+unit+".timer >/dev/null 2>&1; systemctl stop "+unit+".service >/dev/null 2>&1; docker rm -f "+name+"-refresh-1 >/dev/null 2>&1; rm -f /etc/systemd/system/"+unit+".*; systemctl daemon-reload; rm -rf "+base)
 	})
-	project := fmt.Sprintf(`api_version: onebox.run/v1
-app: %s
-base_path: %s
-environments: {production: {server: %s}}
-proxy: {managed: false}
-workloads:
-  refresh:
-    role: job
-    image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
-    command: ["true"]
-    data_effect: none
-    inputs:
-      SOURCE: {enum: [catalog, custom], default: catalog}
-    volumes:
-      - {source: %s/data, path: /data}
-    schedule: {cron: "0 0 1 1 *", timeout: 30s, catch_up: false}
-    execution:
-      retention: 168h
-      steps:
-        - id: sync
-          command:
-            - sh
-            - -c
-            - |
-              echo "$SOURCE" >> /data/sync.log
-              printf '{"RELEASE":"release-123"}' > "$ONEBOX_OUTPUT_FILE"
-          outputs: [RELEASE]
-        - id: index
-          inputs: {RELEASE_ID: sync.RELEASE}
-          command:
-            - sh
-            - -c
-            - |
-              echo "$ONEBOX_STEP_ID $ONEBOX_ATTEMPT_ID $RELEASE_ID" >> /data/index.log
-              while test -f /data/hold; do touch /data/started; sleep 1; done
-              test -f /data/allow
+	project := fmt.Sprintf(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: %s}
+spec:
+  basePath: %s
+  environments: {production: {server: %s}}
+  proxy: {managed: false}
+  workloads:
+    refresh:
+      role: Job
+      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      command: ["true"]
+      dataEffect: None
+      inputs:
+        SOURCE: {enum: [catalog, custom], default: catalog}
+      volumes:
+        - {source: %s/data, path: /data}
+      schedule: {cron: "0 0 1 1 *", timeout: 30s, catchUp: false}
+      execution:
+        retention: 168h
+        steps:
+          - id: sync
+            command:
+              - sh
+              - -c
+              - |
+                echo "$SOURCE" >> /data/sync.log
+                printf '{"RELEASE":"release-123"}' > "$ONEBOX_OUTPUT_FILE"
+            outputs: [RELEASE]
+          - id: index
+            inputs: {RELEASE_ID: sync.RELEASE}
+            command:
+              - sh
+              - -c
+              - |
+                echo "$ONEBOX_STEP_ID $ONEBOX_ATTEMPT_ID $RELEASE_ID" >> /data/index.log
+                while test -f /data/hold; do touch /data/started; sleep 1; done
+                test -f /data/allow
 `, name, base, s.target, base)
 	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(project), 0o600); err != nil {
 		t.Fatal(err)

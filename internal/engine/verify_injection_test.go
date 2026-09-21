@@ -64,19 +64,21 @@ func TestVerifyHTTPProbeStillCarriesThePortAndPath(t *testing.T) {
 func verificationProject(t *testing.T, path string) *app.Resolved {
 	t.Helper()
 	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v1
-app: sample
-environments:
-  production:
-    server: deploy@h
-workloads:
-  web:
-    role: application
-    image: ghcr.io/x/app:v2
-    health: {http: /healthz, port: 7500, interval: 5s, start_period: 5s, within: 120s}
-checks:
-  http:
-    - {workload: web, path: `+path+`}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: sample}
+spec:
+  environments:
+    production:
+      server: deploy@h
+  workloads:
+    web:
+      role: Application
+      image: ghcr.io/x/app:v2
+      health: {http: /healthz, port: 7500, interval: 5s, startPeriod: 5s, within: 120s}
+  checks:
+    http:
+      - {workload: web, path: `+path+`}
 `), "ob.yml")
 	if err != nil {
 		t.Fatalf("the project grammar rejected %q, so this path cannot reach the engine: %v", path, err)

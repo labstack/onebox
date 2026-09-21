@@ -17,12 +17,12 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`migration_policy` · `order` · `retain_releases`
+`migrationPolicy` · `order` · `retainReleases`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `migration_policy` | `manual` · `auto` · `expand-only` | `manual` | Policy for migration jobs during release and recovery. |
+| `migrationPolicy` | `Manual` · `Auto` · `ExpandOnly` | `Manual` | Policy for migration jobs during release and recovery. |
 | `order` | list | — | Explicit workload release order. Dependency order is derived when omitted. |
-| `retain_releases` | integer | `5` | Number of completed release directories retained for inspection and rollback. |
+| `retainReleases` | integer | `5` | Number of completed release directories retained for inspection and rollback. |

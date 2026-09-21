@@ -1,23 +1,26 @@
-api_version: onebox.run/v1
-app: obe2e
-environments:
-  production: { server: local } # e2e uses the local transport; the value is unused
-workloads:
-  web:
-    role: application
-    # The workload references the Compose file so the e2e fixture keeps its
-    # Traefik labels and its busybox command exactly as written.
-    compose: "docker-compose.yaml#web"
-    strategy: rolling
-    health: { http: /, port: 8080, interval: 1s, start_period: 1s, within: 60s }
-deployment:
-  order: [web]
-proxy:
-  # Traefik is started by the test itself, from the same Compose file, so
-  # Onebox must not try to manage one.
-  managed: false
-checks:
-  # exec (not http): on macOS the container bridge network is unreachable
-  # from the host, so probe from inside the container.
-  exec:
-    - {workload: web, run: "wget -qO- http://localhost:8080/"}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: obe2e
+spec:
+  environments:
+    production: {server: local} # e2e uses the local transport; the value is unused
+  workloads:
+    web:
+      role: Application
+      # The workload references the Compose file so the e2e fixture keeps its
+      # Traefik labels and its busybox command exactly as written.
+      compose: "docker-compose.yaml#web"
+      strategy: Rolling
+      health: {http: /, port: 8080, interval: 1s, startPeriod: 1s, within: 60s}
+  deployment:
+    order: [web]
+  proxy:
+    # Traefik is started by the test itself, from the same Compose file, so
+    # Onebox must not try to manage one.
+    managed: false
+  checks:
+    # exec (not http): on macOS the container bridge network is unreachable
+    # from the host, so probe from inside the container.
+    exec:
+      - {workload: web, run: "wget -qO- http://localhost:8080/"}

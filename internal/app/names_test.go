@@ -6,29 +6,32 @@ import (
 	"testing"
 )
 
-const namesFixture = `api_version: onebox.run/v1
-app: ledger
-environments:
-  production: {server: root@1.2.3.4}
-  staging: {server: root@5.6.7.8, base_path: /mnt/data/ob}
-workloads:
-  web:
-    role: application
-    image: nginx
-    replicas: 3
-    routes:
-      - {hostname: ledger.example.com, port: 8080}
-      - {hostname: api.ledger.example.com, port: 8080}
-    volumes: [{name: uploads, path: /var/lib/ledger/uploads}, {source: ./seed, path: /seed, mode: ro}]
-  worker:
-    role: worker
-    image: nginx
-  migrate:
-    role: job
-    image: nginx
-    data_effect: migration
-services:
-  postgres: {version: 18, volumes: [data, wal]}
+const namesFixture = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+    staging: {server: root@5.6.7.8, basePath: /mnt/data/ob}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      replicas: 3
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
+        - {hostname: api.ledger.example.com, port: 8080}
+      volumes: [{name: uploads, path: /var/lib/ledger/uploads}, {source: ./seed, path: /seed, mode: Ro}]
+    worker:
+      role: Worker
+      image: nginx
+    migrate:
+      role: Job
+      image: nginx
+      dataEffect: Migration
+  services:
+    postgres: {version: 18, volumes: [data, wal]}
 `
 
 // TestDerivedNamesGolden pins every derived name. A change here renames a
@@ -36,7 +39,7 @@ services:
 // database behind a healthy-looking deploy. If this test fails, the question is
 // whether a data migration exists, not whether to update the expectation.
 func TestDerivedNamesGolden(t *testing.T) {
-	p, err := LoadBytes([]byte(namesFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(namesFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +166,7 @@ func TestHyphenJoinWouldCollide(t *testing.T) {
 // TestBasePathPerEnvironment: environments commonly place state on different
 // mounted volumes, so the base path resolves per environment.
 func TestBasePathPerEnvironment(t *testing.T) {
-	p, err := LoadBytes([]byte(namesFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(namesFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +231,7 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 // TestNormalisedRoutesReturnsDeclaredRoutes keeps generation behind one route
 // accessor even though the public contract now has only the explicit list form.
 func TestNormalisedRoutesReturnsDeclaredRoutes(t *testing.T) {
-	p, err := LoadBytes([]byte(min), "ob.yml")
+	p, err := loadFixtureBytes([]byte(min), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +261,7 @@ func TestRouterDoesNotLookLikeAReplica(t *testing.T) {
 // TestAllNamesAreUnique: All is the preflight collision set, so a duplicate in
 // it would make one resource silently stand in for another.
 func TestAllNamesAreUnique(t *testing.T) {
-	p, err := LoadBytes([]byte(namesFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(namesFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +276,7 @@ func TestAllNamesAreUnique(t *testing.T) {
 
 // TestNoDerivedNameCollidesWithHostScoped guards the reserved hyphenated names.
 func TestNoDerivedNameCollidesWithHostScoped(t *testing.T) {
-	p, err := LoadBytes([]byte(namesFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(namesFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}

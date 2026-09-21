@@ -24,7 +24,7 @@ import (
 // decision rather than an accident.
 func compiledSchema(t *testing.T) *jsonschema.Schema {
 	t.Helper()
-	body, err := JSONSchema()
+	body, err := GenerateJSONSchema()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func compiledSchema(t *testing.T) *jsonschema.Schema {
 func asJSON(t *testing.T, in string) any {
 	t.Helper()
 	var v any
-	if err := yaml.Unmarshal([]byte(in), &v); err != nil {
+	if err := yaml.Unmarshal(normalizeApplicationFixture([]byte(in)), &v); err != nil {
 		t.Fatalf("fixture is not YAML: %v", err)
 	}
 	b, err := json.Marshal(v)
@@ -124,7 +124,7 @@ func TestPublishedSchemaAcceptsEveryRealProject(t *testing.T) {
 func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
 	schema := compiledSchema(t)
 	for _, step := range []string{`{id: sync, command: [echo, ok]}`, `{command: [echo, ok]}`, `{id: sync}`, `{}`} {
-		y := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads:\n  sync:\n    role: job\n    image: busybox\n    deployment_phase: none\n    data_effect: none\n    schedule: {cron: '0 * * * *'}\n    execution:\n      steps: [" + step + "]\n"
+		y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: a}\nspec:\n  environments: {p: {server: root@h}}\n  workloads:\n    sync:\n      role: Job\n      image: busybox\n      deploymentPhase: None\n      dataEffect: None\n      schedule: {cron: '0 * * * *'}\n      execution:\n        steps: [" + step + "]\n"
 		err := schema.Validate(asJSON(t, y))
 		valid := strings.Contains(step, "id:") && strings.Contains(step, "command:")
 		if (err == nil) != valid {
@@ -133,15 +133,50 @@ func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
 	}
 }
 
-func TestPublishedSchemaAcceptsAuthoredShorthand(t *testing.T) {
+func TestPublishedSchemaAcceptsAuthoredScalarForms(t *testing.T) {
 	schema := compiledSchema(t)
 	for _, y := range []string{
-		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nimage: nginx\n",
-		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nservices: {postgres: 17}\n",
-		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, volumes: [{name: data, path: /data}], needs: [db], command: run}}\n",
-		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nhooks: {post_deploy: \"echo done\"}\n",
-		"api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nx-note: anything\n",
-	} {
+		`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments: {p: {server: root@h}}
+  workloads:
+    a:
+      image: nginx
+`, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments: {p: {server: root@h}}
+  workloads: {w: {image: nginx}}
+  services: {postgres: 17}
+`, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments: {p: {server: root@h}}
+  workloads: {w: {image: nginx, volumes: [{name: data, path: /data}], needs: [db], command: run}}
+`, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments: {p: {server: root@h}}
+  workloads: {w: {image: nginx}}
+  hooks: {PostDeploy: "echo done"}
+`, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+  annotations: {note: anything}
+spec:
+  environments: {p: {server: root@h}}
+  workloads: {w: {image: nginx}}
+`} {
 		if err := schema.Validate(asJSON(t, y)); err != nil {
 			t.Errorf("authored shorthand rejected:\n%s\n%v", y, err)
 		}
@@ -152,7 +187,14 @@ func TestPublishedSchemaAcceptsAuthoredShorthand(t *testing.T) {
 // completion and error support the schema exists to provide.
 func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 	schema := compiledSchema(t)
-	y := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx, replicaz: 3}}\n"
+	y := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments: {p: {server: root@h}}
+  workloads: {w: {image: nginx, replicaz: 3}}
+`
 	if err := schema.Validate(asJSON(t, y)); err == nil {
 		t.Error("the published schema accepted a field the contract does not define")
 	} else if !strings.Contains(err.Error(), "replicaz") {
@@ -162,17 +204,25 @@ func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 
 func TestPublishedSchemaConstrainsProxyEntrypoints(t *testing.T) {
 	schema := compiledSchema(t)
-	base := "api_version: onebox.run/v1\napp: a\nenvironments: {p: {server: root@h}}\nworkloads: {w: {image: nginx}}\nproxy:\n  entrypoints:\n"
-
+	base := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: a
+spec:
+  environments: {p: {server: root@h}}
+  workloads: {w: {image: nginx}}
+  proxy:
+    entrypoints:
+`
 	for _, tc := range []struct {
 		name       string
 		entrypoint string
 		valid      bool
 	}{
-		{name: "valid", entrypoint: "    otlp-grpc: {port: 4317}\n", valid: true},
-		{name: "invalid name", entrypoint: "    OTLP: {port: 4317}\n"},
-		{name: "port below range", entrypoint: "    otlp: {port: 0}\n"},
-		{name: "port above range", entrypoint: "    otlp: {port: 70000}\n"},
+		{name: "valid", entrypoint: "      otlp-grpc: {port: 4317}\n", valid: true},
+		{name: "invalid name", entrypoint: "      OTLP: {port: 4317}\n"},
+		{name: "port below range", entrypoint: "      otlp: {port: 0}\n"},
+		{name: "port above range", entrypoint: "      otlp: {port: 70000}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := schema.Validate(asJSON(t, base+tc.entrypoint))
@@ -243,11 +293,11 @@ func TestPublishedSchemaDocumentsImportantDefaultsAndExamples(t *testing.T) {
 		key      string
 		expected any
 	}{
-		{[]string{"base_path"}, "default", "/var/lib/ob"},
-		{[]string{"deployment", "retain_releases"}, "default", float64(5)},
-		{[]string{"environments", "*", "policy", "require_approval"}, "default", true},
-		{[]string{"workloads", "*", "replicas"}, "default", float64(1)},
-		{[]string{"app"}, "examples", []any{"shop"}},
+		{[]string{"spec", "basePath"}, "default", "/var/lib/ob"},
+		{[]string{"spec", "deployment", "retainReleases"}, "default", float64(5)},
+		{[]string{"spec", "environments", "*", "policy", "requireApproval"}, "default", true},
+		{[]string{"spec", "workloads", "*", "replicas"}, "default", float64(1)},
+		{[]string{"metadata", "name"}, "examples", []any{"shop"}},
 	}
 	for _, check := range checks {
 		at := indexPath(doc, check.path)
@@ -262,26 +312,26 @@ func TestPublishedSchemaDocumentsImportantDefaultsAndExamples(t *testing.T) {
 }
 
 func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
-	body, err := JSONSchema()
+	body, err := GenerateJSONSchema()
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := append(append([]byte(nil), body...), '\n')
-	path := filepath.Join("..", "..", "docs", "onebox.run-v1.schema.json")
+	path := filepath.Join("..", "..", "api", "application", "v1alpha1", "application.schema.json")
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read published schema: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out docs/onebox.run-v1.schema.json`", path)
+		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out api/application/v1alpha1/application.schema.json`", path)
 	}
 }
 
 // The schema is only useful to an author if the guide tells them the URL to
 // point their editor at. A published identity nobody is told about helps no one.
 func TestPublishedSchemaURLIsUsedByTheHumanGuide(t *testing.T) {
-	if !strings.HasPrefix(SchemaID, "https://raw.githubusercontent.com/labstack/onebox/main/") {
-		t.Fatalf("schema identity must be a retrievable main-branch URL, got %q", SchemaID)
+	if SchemaID != "https://onebox.run/schemas/application/v1alpha1/application.schema.json" {
+		t.Fatalf("schema identity = %q", SchemaID)
 	}
 	guides := []string{
 		"site/src/content/docs/start/reading-it-back.mdx",

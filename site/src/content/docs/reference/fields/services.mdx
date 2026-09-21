@@ -18,21 +18,21 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_downtime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `extensions` · `features` · `keep` · `max_age` · `max_data_loss` · `memory` · `mode` · `persistence` · `recovery_kind` · `resources` · `retention` · `schedule` · `settings` · `target` · `timezone` · `version` · `volumes` · `window`
+`allowDowntime` · `backup` · `cpus` · `cron` · `drill` · `driver` · `extensions` · `features` · `keep` · `maxAge` · `maxDataLoss` · `memory` · `mode` · `persistence` · `recoveryKind` · `resources` · `retention` · `schedule` · `settings` · `target` · `timezone` · `version` · `volumes` · `window`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `<name>.backup` | object | — | Recovery intent for this service. Onebox selects the qualified native implementation; declaring intent alone does not establish backup. |
-| `<name>.backup.allow_downtime` | boolean | `false` | Whether recurring backup operations may use the driver-declared stopped-service window. |
+| `<name>.backup.allowDowntime` | boolean | `false` | Whether recurring backup operations may use the driver-declared stopped-service window. |
 | `<name>.backup.drill` | object | — | Exact isolated restore-test schedule, proof age, and optional staging filesystem. |
-| `<name>.backup.drill.max_age` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.drill.maxAge` | string | `7d` | Maximum age of the latest passing restore proof. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.backup.drill.schedule` | object | — | Exact recurring isolated restore-test schedule. |
 | `<name>.backup.drill.schedule.cron` | string | — | Five-field cron schedule translated to a host timer. Expects five cron fields. |
 | `<name>.backup.drill.schedule.timezone` | string | `UTC` | IANA timezone used to interpret the cron schedule. Expects an IANA zone name such as UTC or Europe/Berlin. |
-| `<name>.backup.max_data_loss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.backup.recovery_kind` | `snapshot` · `pitr` · `cold` | — | Required recovery envelope: snapshot, pitr, or cold. |
+| `<name>.backup.maxDataLoss` | string | — | Maximum tolerable interval between the latest recoverable point and failure. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.backup.recoveryKind` | `Snapshot` · `Pitr` · `Cold` | — | Required recovery envelope: snapshot, pitr, or cold. |
 | `<name>.backup.retention` | object | — | Portable minimum recovery history that the selected native driver must be able to preserve. |
 | `<name>.backup.retention.keep` | integer | `7` | Minimum number of independently recoverable base generations to retain. |
 | `<name>.backup.retention.window` | string | `7d` | Minimum continuous recovery history the native retention mapping must preserve. Expects a duration such as 30s, 5m, 1h30m or 14d. |
@@ -44,7 +44,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.features` | object | — | Capabilities Onebox must establish before application workloads run. |
 | `<name>.features.extensions` | map | — | PostgreSQL extensions Onebox installs in the managed application database before application migrations run. |
 | `<name>.persistence` | object | — | Data-lifetime declaration for this supporting service. |
-| `<name>.persistence.mode` | `durable` · `ephemeral` · `external` | `durable` | Data lifetime: durable, ephemeral, or external. |
+| `<name>.persistence.mode` | `Durable` · `Ephemeral` · `External` | `Durable` | Data lifetime: durable, ephemeral, or external. |
 | `<name>.resources` | object | — | Memory and CPU limits for this supporting service. |
 | `<name>.resources.cpus` | string | — | Container CPU limit expressed as a positive decimal count. Expects a number of CPUs such as 0.5 or 2. |
 | `<name>.resources.memory` | string | — | Container memory limit. Expects a size such as 512MB or 1.5GB. |

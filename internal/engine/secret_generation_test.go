@@ -13,23 +13,25 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const generationProject = `api_version: onebox.run/v1
-app: shop
-base_path: /srv/onebox
-environments:
-  production: {server: deploy@example.invalid}
-workloads:
-  web:
-    image: nginx
-    port: 3000
-    hostname: shop.example.com
-    env_files: [{file: web.enc.env, provider: sops}]
-  worker:
-    role: worker
-    image: nginx
-    env_files: [{file: worker.enc.env, provider: sops}]
+const generationProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  basePath: /srv/onebox
+  environments:
+    production: {server: deploy@example.invalid}
+  workloads:
+    web:
+      image: nginx
+      port: 3000
+      hostname: shop.example.com
+      envFiles: [{file: web.enc.env, provider: Sops}]
+    worker:
+      role: Worker
+      image: nginx
+      envFiles: [{file: worker.enc.env, provider: Sops}]
 `
-
 const (
 	oldSecretGeneration = "sg-111111111111111111111111"
 	newSecretGeneration = "sg-222222222222222222222222"

@@ -12,21 +12,24 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const pushProjectYAML = `api_version: onebox.run/v1
-app: shop
-environments:
-  production:
-    server: deploy@example.invalid
-workloads:
-  web:
-    image: nginx
-    port: 3000
-    hostname: shop.example.com
-    env_files: [{file: api.enc.env, provider: sops}]
-  jobs:
-    role: worker
-    image: nginx
-    env_files: [{file: worker.enc.env, provider: sops}]
+const pushProjectYAML = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production:
+      server: deploy@example.invalid
+  workloads:
+    web:
+      image: nginx
+      port: 3000
+      hostname: shop.example.com
+      envFiles: [{file: api.enc.env, provider: Sops}]
+    jobs:
+      role: Worker
+      image: nginx
+      envFiles: [{file: worker.enc.env, provider: Sops}]
 `
 
 // pushFake answers the reads `secrets push` makes: a current release, and a
@@ -172,11 +175,14 @@ func TestSecretsPushRotatesEveryEntry(t *testing.T) {
 // A project with nothing encrypted is told so, rather than reporting a push.
 func TestSecretsPushWithNothingEncryptedIsRefused(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: deploy@example.invalid}}
-workloads:
-  web: {image: nginx, routes: [{hostname: shop.example.com, port: 3000}]}
+	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  workloads:
+    web: {image: nginx, routes: [{hostname: shop.example.com, port: 3000}]}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}

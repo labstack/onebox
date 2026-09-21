@@ -28,7 +28,7 @@ command.
 
 | Code | Means |
 | --- | --- |
-| `app_required` | the shorthand form needs an application name to attach the workload to |
+| `app_required` | metadata.name is required |
 | `backup_credentials_invalid` | decrypted backup credentials are missing or malformed |
 | `backup_driver_unsupported` | a runnable service driver has no qualified executable backup contract |
 | `backup_encryption_unverified` | the selected target cannot prove the encryption mode required by the recovery kind |
@@ -83,15 +83,14 @@ command.
 | `route_collision` | two workloads claim the same address |
 | `route_without_proxy` | a route is declared with nothing to route it |
 | `schedule_untranslatable` | a cron expression whose meaning the host's scheduler cannot preserve |
-| `schema_identity_missing` | the project declares no api_version |
-| `schema_identity_unsupported` | the project declares an api_version this binary does not speak |
-| `secrets_withdrawn` | the withdrawn secrets block; environment files carry encrypted entries now |
+| `schema_identity_missing` | the Application declares no apiVersion |
+| `schema_identity_unsupported` | the Application declares an apiVersion this binary does not speak |
+| `schema_kind_unsupported` | the authored resource is not an Application |
 | `server_unreachable` | the server could not be reached |
 | `service_image_digest_unavailable` | the immutable service image is unavailable from registry and exact cache |
 | `service_image_patch_disable_pending` | protected image refresh is refused while disablement is pending |
 | `service_patch_unsupported` | no exact qualified protected current-to-candidate image transition exists |
 | `service_settings_unsupported` | a setting was declared for a driver with no way to apply it |
-| `shorthand_and_workloads` | top-level shorthand cannot be combined with a workloads block |
 | `stateful_replicas` | a workload keeping durable state asks for more than one replica |
 | `strategy_ungated` | a rolling release is asked for by a workload with no health check to gate it |
 | `unknown_environment` | an environment the project does not declare |

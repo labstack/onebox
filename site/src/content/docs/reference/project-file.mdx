@@ -1,7 +1,7 @@
 ---
 title: Project file
 description: The shape of ob.yml — required keys, shorthand forms, and where each block lives.
-summary: Overview of the onebox.run/v1 project file — the block map, every scalar shorthand, and the two environment-value precedence rules.
+summary: Overview of the onebox.run/v1alpha1 Application resource, its envelope, spec blocks, and environment-value precedence rules.
 sidebar:
   order: 1
 read_when:
@@ -10,50 +10,41 @@ read_when:
   - "Working out which block a field belongs to"
 ---
 
-`onebox.run/v1` is the contract for one application on one host. It goes in
+`onebox.run/v1alpha1` is the contract for one application on one host. It goes in
 `ob.yml` at the root of your repository. `ob.yaml` is accepted automatically
 when `ob.yml` is absent, and `-c` accepts either spelling or any explicit path.
 
-Only `api_version` and `environments` are required — plus at least one workload,
-from a `workloads` block or the top-level shorthand.
+The resource requires `apiVersion`, `kind`, `metadata.name`, and `spec`.
+Inside `spec`, both `environments` and `workloads` are required. There are no
+top-level workload shorthands or legacy aliases.
 
 Start with the schema reference so your editor can help while you type:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
-api_version: onebox.run/v1
+# yaml-language-server: $schema=https://onebox.run/schemas/application/v1alpha1/application.schema.json
+apiVersion: onebox.run/v1alpha1
 ```
+
+Use the published schema at
+`https://onebox.run/schemas/application/v1alpha1/application.schema.json` for
+editor completion and validation.
 
 `ob schema --out onebox.schema.json` writes a local copy, and `ob init` puts the
 published reference on the first line of a scaffolded project.
 
-## Migrating route declarations
+## Route declarations
 
 Every ingress rule is explicit and uses `hostname` for both exact hosts and
-wildcard hosts. The contract identity remains `onebox.run/v1`; update retired
-route fields as follows:
+wildcard hosts. Routes live under a workload in `spec.workloads`:
 
 ```yaml
-# retired scalar route shorthand
-domain: shop.example.com
-port: 3000
-
-# current route
-routes:
-  - hostname: shop.example.com
-    port: 3000
-```
-
-```yaml
-# retired wildcard route
-routes:
-  - wildcard_suffix: preview.example.com
-    port: 3000
-
-# current: a complete leftmost wildcard label, matching one label only
-routes:
-  - hostname: "*.preview.example.com"
-    port: 3000
+spec:
+  workloads:
+    web:
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000}
+        - {hostname: "*.preview.example.com", port: 3000}
 ```
 
 The loader rejects retired route fields instead of silently changing their
@@ -73,11 +64,11 @@ container port for HTTP health checks; it no longer creates an ingress route.
 | `runtime` | Environment files and local environment-file checks. | [runtime](/reference/fields/runtime) |
 | `hooks` | Commands at lifecycle seams. | [hooks](/reference/fields/hooks) |
 | `checks` | What must be true for a release to activate, grouped by kind. | [checks](/reference/fields/checks) |
-| `external_services` | Dependencies operated outside Onebox, and how a workload reaches them. | [external_services](/reference/fields/external_services) |
-| `backup_targets` | Off-host repositories a protected service writes its backups to. | [backup_targets](/reference/fields/backup_targets) |
+| `externalServices` | Dependencies operated outside Onebox, and how a workload reaches them. | [externalServices](/reference/fields/external-services) |
+| `backupTargets` | Off-host repositories a protected service writes its backups to. | [backupTargets](/reference/fields/backup-targets) |
 | `registries` `notifications` | Named maps. | [registries](/reference/fields/registries) · [notifications](/reference/fields/notifications) |
 
-`external_services` and `backup_targets` are published in the JSON Schema and
+`externalServices` and `backupTargets` are published in the JSON Schema and
 accepted by `ob validate`, but the lifecycle behind them is not shipped:
 declaring a backup target creates no repository and no schedule, and an external
 service's health probe never runs. See
@@ -99,20 +90,9 @@ These are contract, not convenience that changes within a version.
 | `jump: deploy@bastion.example.com:2222` | `jump: {user: deploy, host: bastion.example.com, port: 2222}` |
 | `needs: [postgres]` | `needs: [{name: postgres}]` |
 | `services: {postgres: 17}` | `services: {postgres: {version: 17}}` |
-| `env_files: [.env]` | `env_files: [{file: .env}]` |
-| `hooks: {post_deploy: "echo hi"}` | `hooks: {post_deploy: {run: "echo hi"}}` |
+| `envFiles: [.env]` | `envFiles: [{file: .env}]` |
+| `hooks: {PostDeploy: "echo hi"}` | `hooks: {PostDeploy: {run: "echo hi"}}` |
 | `build: .` | `build: {context: .}` |
-
-### Top-level workload shorthand
-
-A single-workload project may write the workload's own fields at the top level
-instead of a `workloads` block: `build`, `image`, `compose`, `port`, `health`,
-`routes`. Ingress is always declared through `routes`; the scalar `domain`/`port`
-route shorthand is not accepted.
-
-Mixing the two is `shorthand_and_workloads` — it would be ambiguous which
-workload the top-level fields describe. Shorthand also needs `app` to attach the
-workload to (`app_required`).
 
 ## Environment values: two rules
 
@@ -121,7 +101,7 @@ declaration present — override, then workload, then environment, then project.
 Lists replace rather than extend.
 
 **What wins inside the container.** Lowest first: a `compose:` workload's own
-`env_file`; the resolved `env_files` entries in order; managed-service connection
+`env_file`; the resolved `envFiles` entries in order; managed-service connection
 files; the service's `environment`.
 
 Full explanation, including why level four outranks the rest:
@@ -138,7 +118,7 @@ once a persistent resource exists its name cannot change without migration. A
 foreign resource already holding a derived name is refused, not adopted.
 
 **Layout** — `/var/lib/ob/<app>/releases/<id>`, plus `current`, `journal`, and
-`services`. Configurable per environment with `base_path`.
+`services`. Configurable per environment with `basePath`.
 
 ### Bind-mount lifetimes
 
@@ -157,7 +137,7 @@ workloads:
 
 A relative source begins with `./` (or is `.`) and resolves inside the release
 directory. It must be read-only because that directory belongs to the
-release: the next deploy ships a new one, and `deployment.retain_releases`
+release: the next deploy ships a new one, and `deployment.retainReleases`
 cleanup removes an expired release once no container still mounts it, so
 anything written there is lost. Use it for versioned configuration, never
 changing data.
@@ -340,10 +320,14 @@ generates the runtime from it. Individual services can still be adopted with
 
 ## Evolution
 
-`api_version: onebox.run/v1` is stable. Within it:
+`apiVersion: onebox.run/v1alpha1` is the pre-baseline contract. Before the
+baseline is locked, normalization may be breaking and will invalidate config
+digests and any plans or staged artifacts bound to the old bytes. Regenerate
+those artifacts after changing the declaration. Within the locked baseline:
 
 - A field is **added**, never repurposed.
-- A scalar form once accepted is accepted **permanently**.
+- Only the documented resource shape is accepted; aliases and fallbacks are not
+  part of the contract.
 - A default may be added; an existing default's value **does not change**.
 - A constraint is **not tightened** against a project that already loads unless
   accepting it can silently lose data or produce an ambiguous runtime. A safety

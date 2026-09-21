@@ -1,5 +1,5 @@
 ---
-title: "external_services"
+title: "externalServices"
 description: "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable."
 summary: "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable."
 status: schema-only
@@ -23,20 +23,20 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`backup_owner` · `connection` · `driver` · `entries` · `file` · `kind` · `max_age` · `probe` · `provider` · `source` · `timeout`
+`backupOwner` · `connection` · `driver` · `entries` · `file` · `kind` · `maxAge` · `probe` · `provider` · `source` · `timeout`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `<name>.backup_owner` | string | — | Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens. |
+| `<name>.backupOwner` | string | — | Operator or provider responsible for backup, restore, upgrades, credentials, and durability. Expects a stable operator or provider identity of letters, digits, dots, @, colons, slashes, underscores and hyphens. |
 | `<name>.connection` | object | — | Trusted connection source and driver-shaped entry mapping. |
 | `<name>.connection.entries` | map | — | Maps driver connection parts such as host, port, user, password, database, or url to variable names in the trusted source. |
 | `<name>.connection.source` | object | — | Trusted encrypted file containing the connection values. |
 | `<name>.connection.source.file` | string | — | Repository-relative encrypted environment file staged through the trusted secret flow. Expects a path inside the repository, with no control character or shell metacharacter. |
-| `<name>.connection.source.provider` | `sops` | `sops` | Trusted secret provider. Only sops is currently executable. |
+| `<name>.connection.source.provider` | `Sops` | `Sops` | Trusted secret provider. Only sops is currently executable. |
 | `<name>.driver` | `clickhouse` · `mariadb` · `meilisearch` · `minio` · `mongodb` · `mysql` · `nats` · `postgres` · `rabbitmq` · `redis` · `valkey` | — | Built-in connection shape used to validate and project this dependency. |
 | `<name>.probe` | object | — | Optional bounded read-only health observation; it never creates or repairs provider resources. |
-| `<name>.probe.kind` | `driver-health` | `driver-health` | Read-only observation kind: driver-health. |
-| `<name>.probe.max_age` | string | `5m` | Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.probe.kind` | `DriverHealth` | `DriverHealth` | Read-only observation kind: driver-health. |
+| `<name>.probe.maxAge` | string | `5m` | Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.probe.timeout` | string | `5s` | Maximum duration of one read-only probe. Expects a duration such as 30s, 5m, 1h30m or 14d. |

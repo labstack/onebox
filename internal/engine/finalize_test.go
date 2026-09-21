@@ -45,8 +45,8 @@ func seedServingApplicationManifest(f *transport.Fake, releaseID, predecessor st
 // snapshot staged with the release, never the working tree, so the hook under
 // test has to live here.
 const engineProjectWithPostDeployHook = engineProject + `
-hooks:
-  post_deploy: {run: notify-release}
+  hooks:
+    PostDeploy: {run: notify-release}
 `
 
 // activatedFake is a deploy that got past activation and then failed in the
@@ -148,14 +148,14 @@ func storedManifest(t *testing.T, f *transport.Fake, releaseID string) release.M
 
 // A project whose job carries a schedule, so the middle post-activation step
 // has work to do and can be made to fail.
-var engineProjectWithScheduledJob = strings.Replace(engineProject, "services:", `  report:
-    role: job
-    image: ghcr.io/x/app:v2
-    command: report
-    deployment_phase: none
-    data_effect: none
-    schedule: {cron: "0 2 * * *", timezone: UTC}
-services:`, 1)
+var engineProjectWithScheduledJob = strings.Replace(engineProject, "  services:", `    report:
+      role: Job
+      image: ghcr.io/x/app:v2
+      command: report
+      deploymentPhase: None
+      dataEffect: None
+      schedule: {cron: "0 2 * * *", timezone: UTC}
+  services:`, 1)
 
 func scheduledJobConfig() *app.Resolved {
 	spec, err := app.LoadBytes([]byte(engineProjectWithScheduledJob), "ob.yml")

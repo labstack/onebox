@@ -24,12 +24,14 @@ func TestApplicationNetworkOwnershipAndExternalLifecycle(t *testing.T) {
 	application := fmt.Sprintf("obnet%d", os.Getpid())
 	network := application + "_default"
 
-	projectBody := fmt.Sprintf(`api_version: onebox.run/v1
-app: %s
-environments:
-  production: {server: root@localhost}
-workloads:
-  web: {image: alpine:3}
+	projectBody := fmt.Sprintf(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: %s}
+spec:
+  environments:
+    production: {server: root@localhost}
+  workloads:
+    web: {image: alpine:3}
 `, application)
 	project, err := app.LoadBytes([]byte(projectBody), filepath.Join(t.TempDir(), "ob.yml"))
 	if err != nil {

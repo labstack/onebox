@@ -10,17 +10,20 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const bootstrapBuildProject = `api_version: onebox.run/v1
-app: demo
-environments: {production: {server: deploy@example.invalid}}
-runtime:
-  env_files: [app.env]
-workloads:
-  api:
-    role: application
-    build: {context: ., dockerfile: Dockerfile}
-    env: {INLINE_SECRET: inline-application-secret}
-proxy: {kind: none}
+const bootstrapBuildProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  runtime:
+    envFiles: [app.env]
+  workloads:
+    api:
+      role: Application
+      build: {context: ., dockerfile: Dockerfile}
+      env: {INLINE_SECRET: inline-application-secret}
+  proxy: {kind: None}
 `
 
 func writeBootstrapBuildProject(t *testing.T) string {

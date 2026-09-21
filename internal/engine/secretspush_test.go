@@ -11,24 +11,27 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const secretGraphProject = `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: deploy@example.invalid}
-runtime:
-  env_files:
-    - {file: shared.enc.env, provider: sops}
-workloads:
-  web:
-    image: nginx
-    port: 3000
-    hostname: shop.example.com
-    env_files:
-      - {file: first.enc.env, provider: sops}
-      - {file: second.enc.env, provider: sops}
-  worker:
-    role: worker
-    image: nginx
+const secretGraphProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: deploy@example.invalid}
+  runtime:
+    envFiles:
+      - {file: shared.enc.env, provider: Sops}
+  workloads:
+    web:
+      image: nginx
+      port: 3000
+      hostname: shop.example.com
+      envFiles:
+        - {file: first.enc.env, provider: Sops}
+        - {file: second.enc.env, provider: Sops}
+    worker:
+      role: Worker
+      image: nginx
 `
 
 func resolvedSecretGraph(t *testing.T, project string) *app.Resolved {
@@ -47,18 +50,18 @@ func resolvedSecretGraph(t *testing.T, project string) *app.Resolved {
 func TestSecretsPushRefusesExactDeclarationGraphDriftBeforeMutation(t *testing.T) {
 	variants := map[string]string{
 		"added": strings.Replace(secretGraphProject,
-			"      - {file: second.enc.env, provider: sops}\n",
-			"      - {file: second.enc.env, provider: sops}\n      - {file: third.enc.env, provider: sops}\n", 1),
+			"        - {file: second.enc.env, provider: Sops}\n",
+			"        - {file: second.enc.env, provider: Sops}\n        - {file: third.enc.env, provider: Sops}\n", 1),
 		"removed": strings.Replace(secretGraphProject,
-			"      - {file: second.enc.env, provider: sops}\n", "", 1),
+			"        - {file: second.enc.env, provider: Sops}\n", "", 1),
 		"reordered": strings.Replace(secretGraphProject,
-			"      - {file: first.enc.env, provider: sops}\n      - {file: second.enc.env, provider: sops}\n",
-			"      - {file: second.enc.env, provider: sops}\n      - {file: first.enc.env, provider: sops}\n", 1),
+			"        - {file: first.enc.env, provider: Sops}\n        - {file: second.enc.env, provider: Sops}\n",
+			"        - {file: second.enc.env, provider: Sops}\n        - {file: first.enc.env, provider: Sops}\n", 1),
 		"provider removed": strings.Replace(secretGraphProject,
-			"{file: first.enc.env, provider: sops}", "{file: first.enc.env}", 1),
+			"{file: first.enc.env, provider: Sops}", "{file: first.enc.env}", 1),
 		"scope changed": strings.Replace(secretGraphProject,
-			"    env_files:\n      - {file: first.enc.env, provider: sops}\n      - {file: second.enc.env, provider: sops}\n  worker:\n    role: worker\n    image: nginx\n",
-			"  worker:\n    role: worker\n    image: nginx\n    env_files:\n      - {file: first.enc.env, provider: sops}\n      - {file: second.enc.env, provider: sops}\n", 1),
+			"      envFiles:\n        - {file: first.enc.env, provider: Sops}\n        - {file: second.enc.env, provider: Sops}\n    worker:\n      role: Worker\n      image: nginx\n",
+			"    worker:\n      role: Worker\n      image: nginx\n      envFiles:\n        - {file: first.enc.env, provider: Sops}\n        - {file: second.enc.env, provider: Sops}\n", 1),
 	}
 
 	for name, deployedProject := range variants {
@@ -125,7 +128,7 @@ func TestValidateSecretPayloadsRefusesIncompleteOrUnsafeGraphs(t *testing.T) {
 }
 
 func TestCurrentSecretEngineKeepsDeployedOperationalSettings(t *testing.T) {
-	deployed := strings.Replace(secretGraphProject, "  web:\n    image: nginx\n", "  web:\n    image: nginx\n    replicas: 3\n", 1)
+	deployed := strings.Replace(secretGraphProject, "    web:\n      image: nginx\n", "    web:\n      image: nginx\n      replicas: 3\n", 1)
 	target := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "/ob.snapshot.yml") {
 			return transport.Result{Stdout: deployed}, true

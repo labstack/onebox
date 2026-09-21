@@ -1,21 +1,24 @@
-api_version: onebox.run/v1
-app: obworker
-environments: { production: { server: local } }
-workloads:
-  worker:
-    role: worker
-    compose: "docker-compose.yaml#worker"
-    strategy: recreate
-    health: { exec: "test -f /marker", interval: 1s, start_period: 1s, within: 30s }
-  web:
-    role: application
-    compose: "docker-compose.yaml#web"
-    strategy: recreate
-    health: { exec: "wget -qO- http://localhost:8080/", interval: 1s, start_period: 1s, within: 30s }
-deployment:
-  order: [worker, web]
-proxy:
-  managed: false
-checks:
-  exec:
-    - {workload: web, run: "wget -qO- http://localhost:8080/"}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: obworker
+spec:
+  environments: {production: {server: local}}
+  workloads:
+    worker:
+      role: Worker
+      compose: "docker-compose.yaml#worker"
+      strategy: Recreate
+      health: {exec: "test -f /marker", interval: 1s, startPeriod: 1s, within: 30s}
+    web:
+      role: Application
+      compose: "docker-compose.yaml#web"
+      strategy: Recreate
+      health: {exec: "wget -qO- http://localhost:8080/", interval: 1s, startPeriod: 1s, within: 30s}
+  deployment:
+    order: [worker, web]
+  proxy:
+    managed: false
+  checks:
+    exec:
+      - {workload: web, run: "wget -qO- http://localhost:8080/"}

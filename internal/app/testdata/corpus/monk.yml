@@ -1,58 +1,61 @@
-api_version: onebox.run/v1
-app: monk
-environments:
-  production:
-    server: root@monk.example.com
-    policy: {require_approval: true, allow_agent_proposals: true}
-workloads:
-  server:
-    role: application
-    image: ghcr.io/labstack/monk-server:2026.8.1
-    replicas: 3
-    strategy: rolling
-    routes:
-      - {hostname: monk.trade, port: 7500}
-    health:
-      exec: "curl --fail --silent --show-error http://127.0.0.1:7500/healthz"
-      interval: 10s
-      start_period: 25s
-      within: 3m
-      retries: 5
-    drain: {signal: TERM, grace: 30s}
-  feed:
-    role: worker
-    image: ghcr.io/labstack/monk-feed:2026.8.1
-    strategy: recreate
-    drain: {signal: TERM, wait: 30s, grace: 30s}
-  database:
-    role: daemon
-    compose: docker-compose.yaml#postgres
-    persistence: {mode: durable}
-  cache:
-    role: daemon
-    compose: docker-compose.yaml#redis
-    persistence: {mode: durable}
-  maintenance:
-    role: daemon
-    compose: docker-compose.yaml#ofelia
-deployment: {order: [feed, server], retain_releases: 5}
-runtime:
-  env_files: [server/.env, server/.env.production]
-  env_checks:
-    - {file: traefik/.env, require: [CF_DNS_API_TOKEN]}
-    - file: web/.env.production
-      require: [VITE_STRIPE_PUBLISHABLE_KEY, VITE_GA_MEASUREMENT_ID]
-      present: [VITE_VAPID_PUBLIC_KEY]
-proxy: {managed: true, config: traefik}
-notifications:
-  ntfy: {webhook: "https://ntfy.sh/monk-deploy-f413efb2e8f7", on: [failure], format: text}
-hooks:
-  bootstrap: {run: 'scripts/bootstrap.sh "$ONEBOX_SERVER"', local: true}
-  pre_release: {run: "cd web && bun install --frozen-lockfile && bun run build && rsync -az dist/ $ONEBOX_SERVER:/data/monk/web/", local: true}
-  post_deploy: {run: "rsync -az web/dist/index.html $ONEBOX_SERVER:/data/monk/web/index.html", local: true}
-checks:
-  http:
-    - {workload: server, path: /healthz, port: 7500}
-  url:
-    - {url: "https://monk.trade/healthz", advisory: true}
-    - {url: "https://monk.trade/", contains: 'id="root"', advisory: true}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: monk
+spec:
+  environments:
+    production:
+      server: root@monk.example.com
+      policy: {requireApproval: true, allowAgentProposals: true}
+  workloads:
+    server:
+      role: Application
+      image: ghcr.io/labstack/monk-server:2026.8.1
+      replicas: 3
+      strategy: Rolling
+      routes:
+        - {hostname: monk.trade, port: 7500}
+      health:
+        exec: "curl --fail --silent --show-error http://127.0.0.1:7500/healthz"
+        interval: 10s
+        startPeriod: 25s
+        within: 3m
+        retries: 5
+      drain: {signal: TERM, grace: 30s}
+    feed:
+      role: Worker
+      image: ghcr.io/labstack/monk-feed:2026.8.1
+      strategy: Recreate
+      drain: {signal: TERM, wait: 30s, grace: 30s}
+    database:
+      role: Daemon
+      compose: docker-compose.yaml#postgres
+      persistence: {mode: Durable}
+    cache:
+      role: Daemon
+      compose: docker-compose.yaml#redis
+      persistence: {mode: Durable}
+    maintenance:
+      role: Daemon
+      compose: docker-compose.yaml#ofelia
+  deployment: {order: [feed, server], retainReleases: 5}
+  runtime:
+    envFiles: [server/.env, server/.env.production]
+    envChecks:
+      - {file: traefik/.env, require: [CF_DNS_API_TOKEN]}
+      - file: web/.env.production
+        require: [VITE_STRIPE_PUBLISHABLE_KEY, VITE_GA_MEASUREMENT_ID]
+        present: [VITE_VAPID_PUBLIC_KEY]
+  proxy: {managed: true, config: traefik}
+  notifications:
+    ntfy: {webhook: "https://ntfy.sh/monk-deploy-f413efb2e8f7", on: [Failure], format: Text}
+  hooks:
+    Bootstrap: {run: 'scripts/bootstrap.sh "$ONEBOX_SERVER"', local: true}
+    PreRelease: {run: "cd web && bun install --frozen-lockfile && bun run build && rsync -az dist/ $ONEBOX_SERVER:/data/monk/web/", local: true}
+    PostDeploy: {run: "rsync -az web/dist/index.html $ONEBOX_SERVER:/data/monk/web/index.html", local: true}
+  checks:
+    http:
+      - {workload: server, path: /healthz, port: 7500}
+    url:
+      - {url: "https://monk.trade/healthz", advisory: true}
+      - {url: "https://monk.trade/", contains: 'id="root"', advisory: true}

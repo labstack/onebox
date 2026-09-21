@@ -66,13 +66,16 @@ func TestMalformedCronIsRefused(t *testing.T) {
 // A job's schedule reaches the host with its timezone; a backup at 2am means
 // 2am where the operator lives, not wherever the box was imaged.
 func TestScheduledJobsCarryTimezone(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web:   {role: application, image: x:1}
-  prune: {role: job, image: x:1, data_effect: none, schedule: {cron: "0 3 * * *", timezone: "Europe/Berlin"}}
-  once:  {role: job, image: x:1, data_effect: none}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1'}
+    prune: {role: Job, image: 'x:1', dataEffect: None, schedule: {cron: "0 3 * * *", timezone: "Europe/Berlin"}}
+    once: {role: Job, image: 'x:1', dataEffect: None}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -91,13 +94,16 @@ workloads:
 }
 
 func TestPinnedScheduleEligibilityFailsClosed(t *testing.T) {
-	valid := `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  refresh: {role: job, image: x:1, data_effect: none, schedule: {cron: "0 3 * * *", deploy_lock: pinned}}
+	valid := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    refresh: {role: Job, image: 'x:1', dataEffect: None, schedule: {cron: "0 3 * * *", deployLock: Pinned}}
 `
-	spec, err := LoadBytes([]byte(valid), "ob.yml")
+	spec, err := loadFixtureBytes([]byte(valid), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,12 +113,12 @@ workloads:
 	}
 
 	for name, project := range map[string]string{
-		"migration":       strings.Replace(valid, "data_effect: none", "data_effect: migration", 1),
-		"adopted compose": strings.Replace(valid, "image: x:1", "compose: docker-compose.yml#refresh", 1),
-		"unknown policy":  strings.Replace(valid, "deploy_lock: pinned", "deploy_lock: shared", 1),
+		"migration":       strings.Replace(valid, "dataEffect: None", "dataEffect: Migration", 1),
+		"adopted compose": strings.Replace(valid, "image: 'x:1'", "compose: docker-compose.yml#refresh", 1),
+		"unknown policy":  strings.Replace(valid, "deployLock: Pinned", "deployLock: Shared", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := LoadBytes([]byte(project), "ob.yml"); err == nil {
+			if _, err := loadFixtureBytes([]byte(project), "ob.yml"); err == nil {
 				t.Fatal("ineligible pinned schedule was accepted")
 			}
 		})
@@ -120,15 +126,18 @@ workloads:
 }
 
 func TestScheduledJobRunPolicyIsExplicitAndValidated(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  prune:
-    role: job
-    image: x:1
-    data_effect: none
-    schedule: {cron: "0 3 * * *", timeout: 20m, catch_up: false}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    prune:
+      role: Job
+      image: x:1
+      dataEffect: None
+      schedule: {cron: "0 3 * * *", timeout: 20m, catchUp: false}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -141,36 +150,42 @@ workloads:
 		t.Fatalf("authored run policy was not preserved: %#v", jobs)
 	}
 
-	bad := `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  prune: {role: job, image: x:1, data_effect: none, schedule: {cron: "0 3 * * *", timeout: forever}}
+	bad := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    prune: {role: Job, image: 'x:1', dataEffect: None, schedule: {cron: "0 3 * * *", timeout: forever}}
 `
-	if _, err := LoadBytes([]byte(bad), "ob.yml"); err == nil {
+	if _, err := loadFixtureBytes([]byte(bad), "ob.yml"); err == nil {
 		t.Fatal("an invalid scheduled-job timeout was accepted")
 	}
 }
 
 func TestScheduledJobRetryAndNotifyResolveWithDefaults(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  plain:
-    role: job
-    image: x:1
-    data_effect: none
-    schedule: {cron: "0 3 * * *"}
-  retrying:
-    role: job
-    image: x:1
-    data_effect: none
-    schedule:
-      cron: "0 * * * *"
-      timeout: 45m
-      retry: {attempts: 3, backoff: 30s, max_backoff: 10m}
-      notify: [failure, timeout, skipped]
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    plain:
+      role: Job
+      image: x:1
+      dataEffect: None
+      schedule: {cron: "0 3 * * *"}
+    retrying:
+      role: Job
+      image: x:1
+      dataEffect: None
+      schedule:
+        cron: "0 * * * *"
+        timeout: 45m
+        retry: {attempts: 3, backoff: 30s, maxBackoff: 10m}
+        notify: [Failure, Timeout, Skipped]
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -206,11 +221,13 @@ func TestScheduledJobRetryIsBoundedByTheTimeout(t *testing.T) {
 		"unknown notify":          {`{cron: "0 * * * *", notify: [warning]}`, "project_invalid"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  j: {role: job, image: x:1, data_effect: none, schedule: `+tc.schedule+`}
+			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    j: {role: Job, image: x:1, dataEffect: None, schedule: `+tc.schedule+`}
 `), "ob.yml")
 			var e *Error
 			if !errors.As(err, &e) || e.Code != tc.code {
@@ -227,39 +244,41 @@ workloads:
 }
 
 func TestJobInputsValidateNamesConstraintsAndDefaults(t *testing.T) {
-	base := `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  sync:
-    role: job
-    image: x:1
-    data_effect: %s
-    env: {MODE: fast}
-    %s
-    inputs:
+	base := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    sync:
+      role: Job
+      image: x:1
+      dataEffect: %s
+      env: {MODE: fast}
       %s
+      inputs:
+        %s
 `
 	load := func(effect, schedule, inputs string) error {
-		_, err := LoadBytes([]byte(fmt.Sprintf(base, effect, schedule, inputs)), "ob.yml")
+		_, err := loadFixtureBytes([]byte(fmt.Sprintf(base, effect, schedule, inputs)), "ob.yml")
 		return err
 	}
 	good := "SOURCE: {enum: [catalog, prices], default: catalog, description: Which upstream.}"
-	if err := load("none", `schedule: {cron: "0 * * * *"}`, good); err != nil {
+	if err := load("None", `schedule: {cron: "0 * * * *"}`, good); err != nil {
 		t.Fatalf("valid inputs refused: %v", err)
 	}
 	for name, tc := range map[string]struct{ effect, schedule, inputs string }{
-		"no schedule":         {"none", "", good},
-		"destructive job":     {"destructive", `schedule: {cron: "0 * * * *"}`, good},
-		"lowercase name":      {"none", `schedule: {cron: "0 * * * *"}`, "source: {enum: [a], default: a}"},
-		"reserved prefix":     {"none", `schedule: {cron: "0 * * * *"}`, "ONEBOX_X: {enum: [a], default: a}"},
-		"collides with env":   {"none", `schedule: {cron: "0 * * * *"}`, "MODE: {enum: [a], default: a}"},
-		"enum and pattern":    {"none", `schedule: {cron: "0 * * * *"}`, "S: {enum: [a], pattern: '^a$', default: a}"},
-		"neither":             {"none", `schedule: {cron: "0 * * * *"}`, "S: {default: a}"},
-		"default off enum":    {"none", `schedule: {cron: "0 * * * *"}`, "S: {enum: [a], default: b}"},
-		"default off pattern": {"none", `schedule: {cron: "0 * * * *"}`, "S: {pattern: '^[0-9]+$', default: x}"},
-		"quote in default":    {"none", `schedule: {cron: "0 * * * *"}`, `S: {pattern: '.*', default: 'a"b'}`},
-		"bad regex":           {"none", `schedule: {cron: "0 * * * *"}`, "S: {pattern: '(', default: a}"},
+		"no schedule":         {"None", "", good},
+		"destructive job":     {"Destructive", `schedule: {cron: "0 * * * *"}`, good},
+		"lowercase name":      {"None", `schedule: {cron: "0 * * * *"}`, "source: {enum: [a], default: a}"},
+		"reserved prefix":     {"None", `schedule: {cron: "0 * * * *"}`, "ONEBOX_X: {enum: [a], default: a}"},
+		"collides with env":   {"None", `schedule: {cron: "0 * * * *"}`, "MODE: {enum: [a], default: a}"},
+		"enum and pattern":    {"None", `schedule: {cron: "0 * * * *"}`, "S: {enum: [a], pattern: '^a$', default: a}"},
+		"neither":             {"None", `schedule: {cron: "0 * * * *"}`, "S: {default: a}"},
+		"default off enum":    {"None", `schedule: {cron: "0 * * * *"}`, "S: {enum: [a], default: b}"},
+		"default off pattern": {"None", `schedule: {cron: "0 * * * *"}`, "S: {pattern: '^[0-9]+$', default: x}"},
+		"quote in default":    {"None", `schedule: {cron: "0 * * * *"}`, `S: {pattern: '.*', default: 'a"b'}`},
+		"bad regex":           {"None", `schedule: {cron: "0 * * * *"}`, "S: {pattern: '(', default: a}"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var e *Error
@@ -268,11 +287,14 @@ workloads:
 			}
 		})
 	}
-	if _, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1, inputs: {S: {enum: [a], default: a}}}
+	if _, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1', inputs: {S: {enum: [a], default: a}}}
 `), "ob.yml"); err == nil {
 		t.Fatal("inputs on a non-job workload were accepted")
 	}
@@ -310,18 +332,21 @@ func TestValidateJobInputValuesChecksOverrides(t *testing.T) {
 }
 
 func TestScheduledJobInputDefaultsRenderIntoTheComposeEnvironment(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  sync:
-    role: job
-    image: x:1
-    data_effect: none
-    env: {MODE: fast}
-    schedule: {cron: "0 * * * *"}
-    inputs:
-      SOURCE: {enum: [catalog, prices], default: catalog}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    sync:
+      role: Job
+      image: x:1
+      dataEffect: None
+      env: {MODE: fast}
+      schedule: {cron: "0 * * * *"}
+      inputs:
+        SOURCE: {enum: [catalog, prices], default: catalog}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)

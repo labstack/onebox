@@ -38,29 +38,32 @@ func twoEncryptedEntries(t *testing.T) string {
 	write("api.enc.env", "TOKEN=api-token\n")
 	write("worker.enc.env", "TOKEN=worker-token\n")
 	write("shared.env", "REGION=eu\n")
-	write("ob.yml", `api_version: onebox.run/v1
-app: shop
-environments:
-  production:
-    server: root@h
-runtime:
-  env_files:
-    - shared.env
-workloads:
-  web:
-    image: nginx
-    port: 3000
-    hostname: shop.example.com
-    volumes:
-      - {source: ., path: /app, mode: ro}
-    env_files:
+	write("ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production:
+      server: root@h
+  runtime:
+    envFiles:
       - shared.env
-      - {file: api.enc.env, provider: sops}
-  jobs:
-    role: worker
-    image: nginx
-    env_files:
-      - {file: worker.enc.env, provider: sops}
+  workloads:
+    web:
+      image: nginx
+      port: 3000
+      hostname: shop.example.com
+      volumes:
+        - {source: ., path: /app, mode: Ro}
+      envFiles:
+        - shared.env
+        - {file: api.enc.env, provider: Sops}
+    jobs:
+      role: Worker
+      image: nginx
+      envFiles:
+        - {file: worker.enc.env, provider: Sops}
 `)
 	return filepath.Join(dir, "ob.yml")
 }
@@ -252,24 +255,27 @@ func TestExternalServiceConnectionIsProjectedLeastPrivilegeIntoRelease(t *testin
 	if err := os.WriteFile(filepath.Join(dir, "secrets", "database.env"), []byte(secret), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	project := `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web:
-    image: nginx
-    needs:
-      - name: database
-        condition: healthy
-        env: {APP_DATABASE_URL: url}
-external_services:
-  database:
-    driver: postgres
-    connection:
-      source: {file: secrets/database.env, provider: sops}
-      entries: {url: DATABASE_URL}
-    backup_owner: platform-team/rds
-    probe: {}
+	project := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web:
+      image: nginx
+      needs:
+        - name: database
+          condition: Healthy
+          env: {APP_DATABASE_URL: url}
+  externalServices:
+    database:
+      driver: postgres
+      connection:
+        source: {file: secrets/database.env, provider: Sops}
+        entries: {url: DATABASE_URL}
+      backupOwner: platform-team/rds
+      probe: {}
 `
 	configPath := filepath.Join(dir, "ob.yml")
 	if err := os.WriteFile(configPath, []byte(project), 0o600); err != nil {

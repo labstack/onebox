@@ -255,7 +255,7 @@ func TestRecoverySnapshotRejectsAnotherApplication(t *testing.T) {
 	target := happyFake()
 	target.Dynamic = func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "/ob.snapshot.yml") {
-			return transport.Result{Stdout: strings.Replace(engineProject, "app: sample", "app: other", 1)}, true
+			return transport.Result{Stdout: strings.Replace(engineProject, "name: sample", "name: other", 1)}, true
 		}
 		return transport.Result{}, false
 	}
@@ -267,7 +267,7 @@ func TestRecoverySnapshotRejectsAnotherApplication(t *testing.T) {
 }
 
 func TestRecoveryEngineUsesSnapshotChoreography(t *testing.T) {
-	snapshot := strings.Replace(engineProject, "  worker:\n", "  legacy:\n    role: worker\n    image: ghcr.io/x/legacy:v1\n    command: legacy-work\n    strategy: recreate\n  worker:\n", 1)
+	snapshot := strings.Replace(engineProject, "    worker:\n", "    legacy:\n      role: Worker\n      image: ghcr.io/x/legacy:v1\n      command: legacy-work\n      strategy: Recreate\n    worker:\n", 1)
 	snapshot = strings.Replace(snapshot, "order: [web, worker]", "order: [legacy, worker, web]", 1)
 	target := happyFake()
 	base := target.Dynamic

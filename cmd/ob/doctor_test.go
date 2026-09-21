@@ -31,7 +31,7 @@ func doctorTestDependencies(t *testing.T) doctorDependencies {
 	oldBinary := filepath.Join(oldDir, "ob")
 	currentBinary := filepath.Join(currentDir, "ob")
 	cfg := &app.Spec{
-		APIVersion: "onebox.run/v1",
+		APIVersion: app.APIVersion,
 		Name:       "demo",
 		Environments: map[string]app.Environment{
 			"production": {
@@ -195,7 +195,7 @@ func TestDoctorReportsIncompatibleProjectPolicy(t *testing.T) {
 	deps := doctorTestDependencies(t)
 	deps.loadConfig = func(string) (*app.Spec, error) {
 		return &app.Spec{
-			APIVersion: "onebox.run/v1",
+			APIVersion: app.APIVersion,
 			Environments: map[string]app.Environment{
 				"production": {Policy: app.Policy{MinOneboxVersion: "v2027.1.0"}},
 			},

@@ -49,14 +49,16 @@ func seedRollbackState(t *testing.T, target *transport.Fake) {
 
 // The previous release's snapshot has a DIFFERENT choreography (worker only,
 // recreate) — rollback must replay THAT, not the current ob.yml.
-const oldSnapshot = `
-api_version: onebox.run/v1
-app: sample
-environments: { production: { server: deploy@h } }
-workloads:
-  worker: { role: worker, image: ghcr.io/x/app:v1, command: work, strategy: recreate }
-deployment:
-  order: [worker]
+const oldSnapshot = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@h}}
+  workloads:
+    worker: {role: Worker, image: 'ghcr.io/x/app:v1', command: work, strategy: Recreate}
+  deployment:
+    order: [worker]
 `
 
 func TestRollbackReplaysSnapshotChoreography(t *testing.T) {

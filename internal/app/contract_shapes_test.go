@@ -39,7 +39,16 @@ func canonicalOf(t *testing.T, body string) string {
 	return string(out)
 }
 
-const shapeHead = "api_version: onebox.run/v1\napp: shop\n"
+const shapeHead = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+`
+
+func underSpec(body string) string {
+	return "  " + strings.ReplaceAll(strings.TrimSuffix(body, "\n"), "\n", "\n  ") + "\n"
+}
 
 // 3.4 — a scalar shorthand and its object form are the same project.
 //
@@ -50,40 +59,40 @@ const shapeHead = "api_version: onebox.run/v1\napp: shop\n"
 func TestEveryShorthandEqualsItsObjectForm(t *testing.T) {
 	for name, pair := range map[string][2]string{
 		"image": {
-			"environments: {production: {server: root@h}}\nimage: nginx\n",
-			"environments: {production: {server: root@h}}\nimage: {reference: nginx}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: {reference: nginx}}}\n",
 		},
 		"health": {
-			"environments: {production: {server: root@h}}\nimage: nginx\nport: 8080\nhealth: /healthz\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\nport: 8080\nhealth: {http: /healthz}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx, port: 8080, health: /healthz}}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx, port: 8080, health: {http: /healthz}}}\n",
 		},
 		"server": {
-			"environments: {production: {server: root@203.0.113.10}}\nimage: nginx\n",
-			"environments: {production: {server: {user: root, host: 203.0.113.10}}}\nimage: nginx\n",
+			"environments: {production: {server: root@203.0.113.10}}\nworkloads: {shop: {image: nginx}}\n",
+			"environments: {production: {server: {user: root, host: 203.0.113.10}}}\nworkloads: {shop: {image: nginx}}\n",
 		},
 		// `needs` is not a top-level shorthand — the scalar form is the list
 		// element, so this pair exercises it where it actually appears.
 		"needs element": {
-			"environments: {production: {server: root@h}}\nworkloads: {web: {role: application, image: nginx, needs: [postgres]}}\nservices: {postgres: 16}\n",
-			"environments: {production: {server: root@h}}\nworkloads: {web: {role: application, image: nginx, needs: [{name: postgres}]}}\nservices: {postgres: 16}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {web: {role: Application, image: nginx, needs: [postgres]}}\nservices: {postgres: 16}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {web: {role: Application, image: nginx, needs: [{name: postgres}]}}\nservices: {postgres: 16}\n",
 		},
 		"service version": {
-			"environments: {production: {server: root@h}}\nimage: nginx\nservices: {postgres: 16}\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\nservices: {postgres: {version: 16}}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\nservices: {postgres: 16}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\nservices: {postgres: {version: 16}}\n",
 		},
 		"hook": {
-			"environments: {production: {server: root@h}}\nimage: nginx\nhooks: {post_deploy: \"echo hi\"}\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\nhooks: {post_deploy: {run: \"echo hi\"}}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\nhooks: {PostDeploy: \"echo hi\"}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\nhooks: {PostDeploy: {run: \"echo hi\"}}\n",
 		},
 		// An env_files entry is a path or an object naming the same path.
 		"env file entry": {
-			"environments: {production: {server: root@h}}\nimage: nginx\nruntime: {env_files: [.env]}\n",
-			"environments: {production: {server: root@h}}\nimage: nginx\nruntime: {env_files: [{file: .env}]}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\nruntime: {envFiles: [.env]}\n",
+			"environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx}}\nruntime: {envFiles: [{file: .env}]}\n",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			scalar := canonicalOf(t, shapeHead+pair[0])
-			object := canonicalOf(t, shapeHead+pair[1])
+			scalar := canonicalOf(t, shapeHead+underSpec(pair[0]))
+			object := canonicalOf(t, shapeHead+underSpec(pair[1]))
 			if scalar != object {
 				t.Errorf("the two forms normalise differently:\n--- scalar\n%s\n--- object\n%s", scalar, object)
 			}
@@ -98,20 +107,20 @@ func TestEveryShorthandEqualsItsObjectForm(t *testing.T) {
 // thing that is supposed to show an operator what will be deployed is worse
 // than no canonical form at all.
 func TestCanonicalOutputIsStableAcrossRuns(t *testing.T) {
-	body := shapeHead + `environments:
+	body := shapeHead + underSpec(`environments:
   production: {server: root@h}
   staging: {server: root@h2}
 workloads:
-  zebra: {role: worker, image: nginx}
-  alpha: {role: application, image: nginx, health: /healthz, routes: [{hostname: a.example.com, port: 1}]}
-  middle: {role: worker, image: nginx}
+  zebra: {role: Worker, image: nginx}
+  alpha: {role: Application, image: nginx, health: /healthz, routes: [{hostname: a.example.com, port: 1}]}
+  middle: {role: Worker, image: nginx}
 services:
   redis: "7.4"
   postgres: 16
 notifications:
   slack: {webhook: "https://hooks.example.com/x"}
   email: {webhook: "https://mail.example.com/y"}
-`
+`)
 	first := canonicalOf(t, body)
 	for i := range 30 {
 		if again := canonicalOf(t, body); again != first {
@@ -128,7 +137,7 @@ notifications:
 func TestInspectionChangesNothingOnDisk(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := shapeHead + "environments: {production: {server: root@h}}\nimage: nginx\nroutes: [{hostname: shop.example.com, port: 3000}]\n"
+	body := shapeHead + underSpec("environments: {production: {server: root@h}}\nworkloads: {shop: {image: nginx, routes: [{hostname: shop.example.com, port: 3000}]}}\n")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

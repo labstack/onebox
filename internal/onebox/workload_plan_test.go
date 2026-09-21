@@ -15,30 +15,33 @@ import (
 
 func workloadPlanFixture(t *testing.T) (*app.Resolved, string, []OperationStep, engine.HostState) {
 	t.Helper()
-	spec, err := app.LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example.test}}
-workloads:
-  api:
-    role: application
-    image: ghcr.io/example/api:v1
-    replicas: 2
-    strategy: rolling
-    health: {http: /healthz, port: 8080}
-  worker: {role: worker, image: ghcr.io/example/worker:v1, strategy: recreate}
-  env-worker: {role: worker, image: ghcr.io/example/env:v1, strategy: recreate, env_files: [worker.env]}
-  secret-worker: {role: worker, image: ghcr.io/example/secret:v1, strategy: recreate, env_files: [{file: worker.enc.env, provider: sops}]}
-  bind-worker:
-    role: worker
-    image: ghcr.io/example/bind:v1
-    strategy: recreate
-    volumes: [{source: ./payload, path: /payload, mode: ro}]
-  host-bind-worker:
-    role: worker
-    image: ghcr.io/example/host-bind:v1
-    strategy: recreate
-    volumes: [{source: /data/sample, path: /data, mode: rw}]
-deployment: {order: [api, worker, env-worker, secret-worker, bind-worker, host-bind-worker]}
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example.test}}
+  workloads:
+    api:
+      role: Application
+      image: ghcr.io/example/api:v1
+      replicas: 2
+      strategy: Rolling
+      health: {http: /healthz, port: 8080}
+    worker: {role: Worker, image: 'ghcr.io/example/worker:v1', strategy: Recreate}
+    env-worker: {role: Worker, image: 'ghcr.io/example/env:v1', strategy: Recreate, envFiles: [worker.env]}
+    secret-worker: {role: Worker, image: 'ghcr.io/example/secret:v1', strategy: Recreate, envFiles: [{file: worker.enc.env, provider: Sops}]}
+    bind-worker:
+      role: Worker
+      image: ghcr.io/example/bind:v1
+      strategy: Recreate
+      volumes: [{source: ./payload, path: /payload, mode: Ro}]
+    host-bind-worker:
+      role: Worker
+      image: ghcr.io/example/host-bind:v1
+      strategy: Recreate
+      volumes: [{source: /data/sample, path: /data, mode: Rw}]
+  deployment: {order: [api, worker, env-worker, secret-worker, bind-worker, host-bind-worker]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -163,17 +166,19 @@ func TestPlanDeployRetainsUnchangedWorkerWhenAnotherWorkloadChanges(t *testing.T
 	digestB := strings.Repeat("2", 64)
 	workerDigest := strings.Repeat("3", 64)
 	project := func(apiDigest string) string {
-		return `api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example.test}}
-workloads:
-  api:
-    role: application
-    image: ghcr.io/example/api@sha256:` + apiDigest + `
-    strategy: rolling
-    health: {http: /healthz, port: 8080}
-  worker: {role: worker, image: ghcr.io/example/worker@sha256:` + workerDigest + `, strategy: recreate}
-deployment: {order: [api, worker]}
+		return `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: sample}
+spec:
+  environments: {production: {server: deploy@example.test}}
+  workloads:
+    api:
+      role: Application
+      image: ghcr.io/example/api@sha256:` + apiDigest + `
+      strategy: Rolling
+      health: {http: /healthz, port: 8080}
+    worker: {role: Worker, image: ghcr.io/example/worker@sha256:` + workerDigest + `, strategy: Recreate}
+  deployment: {order: [api, worker]}
 `
 	}
 	dir := t.TempDir()

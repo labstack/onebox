@@ -5,21 +5,26 @@ import (
 	"testing"
 )
 
-const canonicalProject = `api_version: onebox.run/v1
-app: ledger
-environments:
-  production: {server: root@1.2.3.4}
-  staging:
-    server: root@5.6.7.8
-    overrides: {workloads: {ledger: {replicas: 3}}}
-build: .
-routes:
-  - {hostname: ledger.example.com, port: 8080}
+const canonicalProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+    staging:
+      server: root@5.6.7.8
+      overrides: {workloads: {ledger: {replicas: 3}}}
+  workloads:
+    ledger:
+      build: .
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
 `
 
 func originsFor(t *testing.T, env string) map[string]Origin {
 	t.Helper()
-	p, err := LoadBytes([]byte(canonicalProject), "ob.yml")
+	p, err := loadFixtureBytes([]byte(canonicalProject), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,14 +45,14 @@ func originsFor(t *testing.T, env string) map[string]Origin {
 func TestOriginsDistinguishWhatWasWritten(t *testing.T) {
 	o := originsFor(t, "production")
 	for path, want := range map[string]Origin{
-		"app":                                 OriginAuthored,
-		"workloads.ledger.build.context":      OriginAuthored,
-		"workloads.ledger.routes[0].hostname": OriginAuthored,
-		"workloads.ledger.routes[0].port":     OriginAuthored,
-		"workloads.ledger.replicas":           OriginDefault,
-		"workloads.ledger.strategy":           OriginDefault,
-		"base_path":                           OriginDefault,
-		"proxy.network":                       OriginDefault,
+		"metadata.name":                            OriginAuthored,
+		"spec.workloads.ledger.build.context":      OriginAuthored,
+		"spec.workloads.ledger.routes[0].hostname": OriginAuthored,
+		"spec.workloads.ledger.routes[0].port":     OriginAuthored,
+		"spec.workloads.ledger.replicas":           OriginDefault,
+		"spec.workloads.ledger.strategy":           OriginDefault,
+		"spec.basePath":                            OriginDefault,
+		"spec.proxy.network":                       OriginDefault,
 	} {
 		if o[path] != want {
 			t.Errorf("%s = %q, want %q", path, o[path], want)
@@ -59,17 +64,17 @@ func TestOriginsDistinguishWhatWasWritten(t *testing.T) {
 // so the schema can discriminate. Reporting it as explicit would tell someone
 // they made a decision they never made.
 func TestInjectedRoleIsNotClaimedAsTheAuthorsChoice(t *testing.T) {
-	if got := originsFor(t, "production")["workloads.ledger.role"]; got != OriginDefault {
+	if got := originsFor(t, "production")["spec.workloads.ledger.role"]; got != OriginDefault {
 		t.Errorf("injected role reported as %q, want default", got)
 	}
 }
 
 // TestOverrideOriginSurvivesResolution.
 func TestOverrideOriginSurvivesResolution(t *testing.T) {
-	if got := originsFor(t, "staging")["workloads.ledger.replicas"]; got != OriginEnvironmentOverride {
+	if got := originsFor(t, "staging")["spec.workloads.ledger.replicas"]; got != OriginEnvironmentOverride {
 		t.Errorf("staging replicas = %q, want override", got)
 	}
-	if got := originsFor(t, "production")["workloads.ledger.replicas"]; got != OriginDefault {
+	if got := originsFor(t, "production")["spec.workloads.ledger.replicas"]; got != OriginDefault {
 		t.Errorf("production replicas = %q, want default", got)
 	}
 }
@@ -77,7 +82,7 @@ func TestOverrideOriginSurvivesResolution(t *testing.T) {
 // TestCanonicalAnnotatesOnlyWhatWasNotWritten: annotating an explicit value
 // would be noise on every line the author actually typed.
 func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
-	p, _ := LoadBytes([]byte(canonicalProject), "ob.yml")
+	p, _ := loadFixtureBytes([]byte(canonicalProject), "ob.yml")
 	r, _ := p.Resolve("staging")
 	body, err := r.Canonical()
 	if err != nil {
@@ -98,15 +103,15 @@ func TestCanonicalAnnotatesOnlyWhatWasNotWritten(t *testing.T) {
 	}
 }
 
-func TestCanonicalBackupFactsCoverEveryPublicOrigin(t *testing.T) {
-	project := strings.Replace(validBackupProject, "    server: deploy@app.example.net\n", `    server: deploy@app.example.net
-    overrides:
-      services:
-        postgres:
-          backup:
-            retention: {keep: 10}
+func TestCanonicalKeepsObservedFactsOutsideTheAuthoredResource(t *testing.T) {
+	project := strings.Replace(validBackupProject, "      server: deploy@app.example.net\n", `      server: deploy@app.example.net
+      overrides:
+        services:
+          postgres:
+            backup:
+              retention: {keep: 10}
 `, 1)
-	spec, err := LoadBytes([]byte(project), "ob.yml")
+	spec, err := loadFixtureBytes([]byte(project), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,9 +124,9 @@ func TestCanonicalBackupFactsCoverEveryPublicOrigin(t *testing.T) {
 		origins[row[0]] = Origin(row[1])
 	}
 	for path, want := range map[string]Origin{
-		"services.postgres.backup.recovery_kind":  OriginAuthored,
-		"services.postgres.backup.schedule.cron":  OriginDefault,
-		"services.postgres.backup.retention.keep": OriginEnvironmentOverride,
+		"spec.services.postgres.backup.recoveryKind":   OriginAuthored,
+		"spec.services.postgres.backup.schedule.cron":  OriginDefault,
+		"spec.services.postgres.backup.retention.keep": OriginEnvironmentOverride,
 	} {
 		if got := origins[path]; got != want {
 			t.Errorf("%s origin = %q, want %q", path, got, want)
@@ -155,30 +160,20 @@ func TestCanonicalBackupFactsCoverEveryPublicOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(body)
-	for _, golden := range []string{
-		"recovery_kind: pitr",
-		"keep: 10 # environment-override",
-		"logging_max_size:",
-		"value: 20MB",
-		"origin: default",
-		"value: Managed",
-		"origin: derived",
-		"service_image_digest:",
-		"origin: observed",
-		"observed_rpo:",
-		"observed_recovery_window:",
-		"expected_interruption:",
-		"drill_capacity_state:",
-		"code: archive-mode",
-	} {
+	for _, golden := range []string{"recoveryKind: Pitr", "keep: 10 # environment-override"} {
 		if !strings.Contains(out, golden) {
 			t.Errorf("canonical output lacks %q\n%s", golden, out)
+		}
+	}
+	for _, observed := range []string{"effective:", "serviceImageDigest", "observedRPO"} {
+		if strings.Contains(out, observed) {
+			t.Errorf("authored resource contains observed field %q\n%s", observed, out)
 		}
 	}
 }
 
 func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testing.T) {
-	spec, err := LoadBytes([]byte(validBackupProject), "ob.yml")
+	spec, err := loadFixtureBytes([]byte(validBackupProject), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,27 +211,30 @@ func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testin
 // silently absent, and the canonical form — the thing people read to find out
 // what Onebox understood — did not show it either.
 func TestEveryDefaultAppearsAsDerived(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes: [{hostname: shop.example.com, port: 80}]
-    volumes: [{name: data, path: /data}]
-    published_ports: [{host: 9000, container: 9000}]
-    persistence: {}
-    drain: {}
-  job:
-    role: job
-    image: nginx
-    data_effect: none
-    schedule: {cron: "0 2 * * *"}
-services:
-  postgres: 17
-notifications: {ops: {webhook: "https://example.invalid/hook"}}
-runtime: {env_files: [{file: secrets.env, provider: sops}]}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes: [{hostname: shop.example.com, port: 80}]
+      volumes: [{name: data, path: /data}]
+      publishedPorts: [{host: 9000, container: 9000}]
+      persistence: {}
+      drain: {}
+    job:
+      role: Job
+      image: nginx
+      dataEffect: None
+      schedule: {cron: "0 2 * * *"}
+  services:
+    postgres: 17
+  notifications: {ops: {webhook: "https://example.invalid/hook"}}
+  runtime: {envFiles: [{file: secrets.env, provider: Sops}]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -253,27 +251,27 @@ runtime: {env_files: [{file: secrets.env, provider: sops}]}
 	// Each of these is a value nobody wrote and every one of them decides
 	// something about the runtime.
 	for path, want := range map[string]string{
-		"base_path":                                 DefaultBasePath,
-		"deployment.retain_releases":                "5",
-		"deployment.migration_policy":               "manual",
-		"proxy.kind":                                "traefik-docker",
-		"proxy.network":                             IngressNetwork,
-		"workloads.web.replicas":                    "1",
-		"workloads.web.strategy":                    "rolling",
-		"workloads.web.image.pull":                  "missing",
-		"workloads.web.drain.signal":                "TERM",
-		"workloads.web.routes[0].path":              "/",
-		"workloads.web.routes[0].entrypoint":        "websecure",
-		"workloads.web.routes[0].tls":               "terminate",
-		"workloads.web.volumes[0].mode":             "rw",
-		"workloads.web.published_ports[0].bind":     "127.0.0.1",
-		"workloads.web.published_ports[0].protocol": "tcp",
-		"workloads.web.persistence.mode":            "durable",
-		"workloads.job.deployment_phase":            "none",
-		"workloads.job.operator_run":                "allowed",
-		"workloads.job.schedule.timezone":           "UTC",
-		"workloads.job.schedule.shutdown_grace":     "30s",
-		"notifications.ops.format":                  "text",
+		"spec.basePath":                                 DefaultBasePath,
+		"spec.deployment.retainReleases":                "5",
+		"spec.deployment.migrationPolicy":               "manual",
+		"spec.proxy.kind":                               "traefik-docker",
+		"spec.proxy.network":                            IngressNetwork,
+		"spec.workloads.web.replicas":                   "1",
+		"spec.workloads.web.strategy":                   "rolling",
+		"spec.workloads.web.image.pull":                 "missing",
+		"spec.workloads.web.drain.signal":               "TERM",
+		"spec.workloads.web.routes[0].path":             "/",
+		"spec.workloads.web.routes[0].entrypoint":       "websecure",
+		"spec.workloads.web.routes[0].tls":              "terminate",
+		"spec.workloads.web.volumes[0].mode":            "rw",
+		"spec.workloads.web.publishedPorts[0].bind":     "127.0.0.1",
+		"spec.workloads.web.publishedPorts[0].protocol": "tcp",
+		"spec.workloads.web.persistence.mode":           "durable",
+		"spec.workloads.job.deploymentPhase":            "none",
+		"spec.workloads.job.operatorRun":                "allowed",
+		"spec.workloads.job.schedule.timezone":          "UTC",
+		"spec.workloads.job.schedule.shutdownGrace":     "30s",
+		"spec.notifications.ops.format":                 "text",
 	} {
 		if origins[path] != string(OriginDefault) {
 			t.Errorf("%s is %q, want %q — a default nobody can see is a default nobody can check (value should be %q)",
@@ -282,8 +280,8 @@ runtime: {env_files: [{file: secrets.env, provider: sops}]}
 	}
 
 	// And a value the author did write is never reported as derived.
-	for _, path := range []string{"app", "workloads.web.role", "workloads.job.data_effect"} {
-		if origins[path] == string(OriginDefault) && path != "workloads.web.role" {
+	for _, path := range []string{"metadata.name", "spec.workloads.web.role", "spec.workloads.job.dataEffect"} {
+		if origins[path] == string(OriginDefault) && path != "spec.workloads.web.role" {
 			t.Errorf("%s was written by the author and must not be reported as derived", path)
 		}
 	}

@@ -28,7 +28,7 @@ func addBackupCommands(root *cobra.Command, g *globalFlags) {
 		Short: "protect a data service and inspect what can be recovered",
 		Long: "Backup and recovery for the data services this project declares.\n\n" +
 			"Backup is physical: a base backup plus continuous WAL archiving to the\n" +
-			"off-host repository the project's backup_targets name, which is what makes\n" +
+			"off-host repository the project's backupTargets name, which is what makes\n" +
 			"recovery to a point in time possible rather than recovery to last night.\n\n" +
 			"Declaring a policy does not establish it. `ob backup enable` restarts the\n" +
 			"service with archiving on, stages the verified backup tooling, and takes\n" +

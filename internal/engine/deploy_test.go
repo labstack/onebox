@@ -22,19 +22,21 @@ import (
 // exercise the unguardable path in every test.
 const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
-const enginePreviousFrontendProject = `
-api_version: onebox.run/v1
-app: sample
-environments:
-  production:
-    server: deploy@h
-workloads:
-  frontend:
-    role: application
-    image: ghcr.io/x/app:v1
-    health: {http: /healthz, port: 8080, interval: 5s, start_period: 5s, within: 120s}
-deployment:
-  order: [frontend]
+const enginePreviousFrontendProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments:
+    production:
+      server: deploy@h
+  workloads:
+    frontend:
+      role: Application
+      image: ghcr.io/x/app:v1
+      health: {http: /healthz, port: 8080, interval: 5s, startPeriod: 5s, within: 120s}
+  deployment:
+    order: [frontend]
 `
 
 func seedStagedApplicationManifest(f *transport.Fake, releaseID string) {

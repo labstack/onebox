@@ -8,6 +8,7 @@ the repository rather than to a reader.
 |---|---|
 | [`onebox.run-v1.schema.json`](onebox.run-v1.schema.json) | The current JSON Schema for the project file. Generated from the Go model by `ob schema` and tested byte-for-byte against it. `app.SchemaID` points at this path on `main`, and `ob init` writes that URL onto the first line of every scaffolded project. |
 | [`product.md`](product.md) | Product direction. Not an implementation contract, and not a capability list. |
+| [`decisions/2026-09-20-application-v1alpha1.md`](decisions/2026-09-20-application-v1alpha1.md) | Accepted decision and complete cutover inventory for the breaking `onebox.run/v1alpha1` Application baseline. It governs the staged implementation but does not claim the current binary has cut over. |
 
 ## Where the user documentation went
 

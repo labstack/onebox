@@ -8,21 +8,28 @@ import (
 	"testing"
 )
 
-const mainTestProject = `api_version: onebox.run/v1
-app: demo
-environments: {production: {server: deploy@example.invalid}}
-image: nginx:1.27
-proxy: {kind: none}
+const mainTestProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  proxy: {kind: None}
+  workloads:
+    demo:
+      image: nginx:1.27
 `
-
-const mainTestBuildProject = `api_version: onebox.run/v1
-app: demo
-environments: {production: {server: deploy@example.invalid}}
-workloads:
-  api:
-    role: application
-    build: {context: ., dockerfile: Dockerfile}
-proxy: {kind: none}
+const mainTestBuildProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  workloads:
+    api:
+      role: Application
+      build: {context: ., dockerfile: Dockerfile}
+  proxy: {kind: None}
 `
 
 func TestRootHelpListsVerbs(t *testing.T) {

@@ -125,7 +125,11 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	if err != nil {
 		return nil, authoredError(err)
 	}
-	if annotations, ok := metadata["annotations"].(map[string]any); ok {
+	if value, present := metadata["annotations"]; present {
+		annotations, ok := value.(map[string]any)
+		if !ok {
+			return nil, errf("project_invalid", "metadata.annotations", "", "metadata.annotations must be a mapping of strings")
+		}
 		p.Annotations = map[string]string{}
 		for key, value := range annotations {
 			text, ok := value.(string)

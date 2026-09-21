@@ -294,11 +294,25 @@ func publicPath(path string) string {
 	}
 	parts := strings.Split(path, ".")
 	for i, part := range parts {
+		base := part
+		suffix := ""
 		if bracket := strings.IndexByte(part, '['); bracket >= 0 {
-			parts[i] = lowerCamel(part[:bracket]) + part[bracket:]
-		} else {
-			parts[i] = lowerCamel(part)
+			base, suffix = part[:bracket], part[bracket:]
 		}
+		public := lowerCamel(base)
+		if i > 0 && lowerCamel(strings.SplitN(parts[i-1], "[", 2)[0]) == "hooks" {
+			// Hook map keys are either fixed lifecycle seams or authored job names.
+			// Preserve job names byte-for-byte and publish only the fixed seams in
+			// their UpperCamelCase contract spelling.
+			public = base
+			for _, seam := range eHookSeam {
+				if base == seam {
+					public = upperCamel(seam)
+					break
+				}
+			}
+		}
+		parts[i] = public + suffix
 	}
 	return "spec." + strings.Join(parts, ".")
 }

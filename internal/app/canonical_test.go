@@ -60,6 +60,20 @@ func TestOriginsDistinguishWhatWasWritten(t *testing.T) {
 	}
 }
 
+func TestPublicPathsPreserveHookSeamNames(t *testing.T) {
+	for internal, want := range map[string]string{
+		"hooks.bootstrap.local":    "spec.hooks.Bootstrap.local",
+		"hooks.pre_release.local":  "spec.hooks.PreRelease.local",
+		"hooks.post_release.local": "spec.hooks.PostRelease.local",
+		"hooks.post_deploy.local":  "spec.hooks.PostDeploy.local",
+		"hooks.data_migrate.local": "spec.hooks.data_migrate.local",
+	} {
+		if got := authoredOriginPath(internal); got != want {
+			t.Errorf("authoredOriginPath(%q) = %q, want %q", internal, got, want)
+		}
+	}
+}
+
 // TestInjectedRoleIsNotClaimedAsTheAuthorsChoice. Normalisation inserts `role`
 // so the schema can discriminate. Reporting it as explicit would tell someone
 // they made a decision they never made.

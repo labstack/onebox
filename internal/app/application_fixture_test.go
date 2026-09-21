@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -212,6 +213,35 @@ func TestApplicationContractRejectsLegacyForms(t *testing.T) {
 		if _, err := LoadBytes([]byte(source), "legacy.yml"); err == nil {
 			t.Errorf("legacy form was accepted:\n%s", source)
 		}
+	}
+}
+
+func TestApplicationContractRejectsMalformedAnnotations(t *testing.T) {
+	for name, annotations := range map[string]string{
+		"scalar":     "nope",
+		"list":       "[nope]",
+		"null":       "null",
+		"non-string": "{note: 1}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+  annotations: ` + annotations + `
+spec:
+  environments: {}
+  workloads: {}
+`
+			_, err := LoadBytes([]byte(source), "annotations.yml")
+			if err == nil {
+				t.Fatal("malformed annotations were accepted")
+			}
+			var contractErr *Error
+			if !errors.As(err, &contractErr) || contractErr.Code != "project_invalid" || !strings.HasPrefix(contractErr.Path, "metadata.annotations") {
+				t.Fatalf("error = %#v, want project_invalid at metadata.annotations", err)
+			}
+		})
 	}
 }
 

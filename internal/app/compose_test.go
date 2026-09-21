@@ -132,21 +132,24 @@ func TestPathEscapeRefused(t *testing.T) {
 
 // TestComposeRefRendersEndToEnd puts the merge through generation.
 func TestComposeRefRendersEndToEnd(t *testing.T) {
-	y := `api_version: onebox.run/v1
-app: ledger
-environments:
-  production: {server: root@1.2.3.4}
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes:
-      - {hostname: ledger.example.com, port: 8080}
-  db:
-    role: daemon
-    compose: compose.yaml#postgres
+	y := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
+    db:
+      role: Daemon
+      compose: compose.yaml#postgres
 `
-	p, err := LoadBytes([]byte(y), "testdata/ob.yml")
+	p, err := loadFixtureBytes([]byte(y), "testdata/ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,15 +230,18 @@ func TestADeclaredHealthCheckReachesAReferencedService(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-workloads:
-  web:
-    role: application
-    compose: "docker-compose.yaml#web"
-    health: {http: /healthz, port: 8080}
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  workloads:
+    web:
+      role: Application
+      compose: "docker-compose.yaml#web"
+      health: {http: /healthz, port: 8080}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}

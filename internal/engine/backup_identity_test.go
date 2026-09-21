@@ -10,28 +10,31 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const protectedPostgresProject = `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: deploy@example.net}
-workloads:
-  web: {image: nginx:1}
-backup_targets:
-  offsite:
-    kind: s3-compatible
-    endpoint: https://objects.example.net
-    bucket: backups
-    failure_domain: {identity: remote, host: objects.example.net}
-    credentials:
-      file: backup.env
-      provider: sops
-      access_key_entry: ACCESS_KEY
-      secret_key_entry: SECRET_KEY
-    encryption: {pitr: client-side}
-services:
-  postgres:
-    version: 17
-    backup: {target: offsite, recovery_kind: pitr, max_data_loss: 15m}
+const protectedPostgresProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: deploy@example.net}
+  workloads:
+    web: {image: 'nginx:1'}
+  backupTargets:
+    offsite:
+      kind: S3Compatible
+      endpoint: https://objects.example.net
+      bucket: backups
+      failureDomain: {identity: remote, host: objects.example.net}
+      credentials:
+        file: backup.env
+        provider: Sops
+        accessKeyEntry: ACCESS_KEY
+        secretKeyEntry: SECRET_KEY
+      encryption: {pitr: ClientSide}
+  services:
+    postgres:
+      version: 17
+      backup: {target: offsite, recoveryKind: Pitr, maxDataLoss: 15m}
 `
 
 func protectedPostgresResolved(t *testing.T, identifier string) *app.Resolved {

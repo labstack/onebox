@@ -48,18 +48,18 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 	}
 	y := string(b)
 	for _, want := range []string{
-		"api_version: onebox.run/v1",
+		"apiVersion: onebox.run/v1alpha1",
 		"server: deploy@CHANGE-ME",
 		"workloads:",
-		"role: application",
-		"role: worker",
-		"role: daemon",
-		"role: job",
-		"data_effect: migration",
-		"persistence: { mode: durable }",
-		"persistence: { mode: ephemeral }",
-		"strategy: rolling",
-		"strategy: recreate",
+		"role: Application",
+		"role: Worker",
+		"role: Daemon",
+		"role: Job",
+		"dataEffect: Migration",
+		"persistence: { mode: Durable }",
+		"persistence: { mode: Ephemeral }",
+		"strategy: Rolling",
+		"strategy: Recreate",
 		"health: { http: /healthz, port: 7500 }",
 		"order: [server, worker]",
 	} {

@@ -154,7 +154,7 @@ func TestDestroyUsesTheCurrentReleaseEnvironment(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
-			return transport.Result{Stdout: engineProject + "\nruntime:\n  env_files: [legacy.env]\n"}, true
+			return transport.Result{Stdout: engineProject + "\n  runtime:\n    envFiles: [legacy.env]\n"}, true
 		}
 		return base(command)
 	}

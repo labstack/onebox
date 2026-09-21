@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 )
 
 // APIVersion is the only authoring contract this package accepts.
-const APIVersion = "onebox.run/v1"
+const APIVersion = "onebox.run/v1alpha1"
 
 // maxDerivedName is an Onebox limit chosen for headroom, not a container-runtime
 // maximum. An over-long name is refused rather than truncated: truncation with a
@@ -67,11 +68,11 @@ func Load(path string) (*Spec, error) {
 // LoadBytes runs the fixed pipeline: parse, expand, validate, then apply the
 // cross-field rules the schema cannot express.
 func LoadBytes(b []byte, filename string) (*Spec, error) {
-	var raw map[string]any
-	if err := yaml.Unmarshal(b, &raw); err != nil {
+	var authored map[string]any
+	if err := yaml.Unmarshal(b, &authored); err != nil {
 		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", firstLine(err.Error()))
 	}
-	if raw == nil {
+	if authored == nil {
 		return nil, errf("project_unparsable", filename, "", "project is not a mapping")
 	}
 
@@ -83,37 +84,60 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 		lines = lineIndex(&doc)
 	}
 
-	if err := checkAPIVersion(raw); err != nil {
+	if err := checkAPIVersion(authored); err != nil {
 		return nil, err
 	}
-	app, _ := raw["app"].(string)
-	derived, err := expand(raw, app)
+	if err := checkAuthoredShape(authored, lines); err != nil {
+		return nil, err
+	}
+	if kind, _ := authored["kind"].(string); kind != ApplicationKind {
+		return nil, errf("schema_kind_unsupported", "kind", "", "kind must be %q", ApplicationKind)
+	}
+	metadata, ok := authored["metadata"].(map[string]any)
+	if !ok {
+		return nil, errf("project_invalid", "metadata", "", "metadata must be a mapping")
+	}
+	name, ok := metadata["name"].(string)
+	if !ok || name == "" {
+		return nil, errf("app_required", "metadata.name", "", "metadata.name is required")
+	}
+	specBody, ok := authored["spec"].(map[string]any)
+	if !ok {
+		return nil, errf("project_invalid", "spec", "", "spec must be a mapping")
+	}
+	for _, required := range []string{"environments", "workloads"} {
+		if _, ok := specBody[required]; !ok {
+			return nil, errf("project_invalid", "spec."+required, "", "%s is required", required)
+		}
+	}
+	converted, err := authoredToInternal(reflect.TypeOf(Spec{}), specBody, "spec", "spec")
 	if err != nil {
 		return nil, err
 	}
-	// Before checkShape, deliberately: the contract requires this to fail with
-	// direction rather than as an unknown field, and closedness would otherwise
-	// answer first with a generic refusal.
-	//
-	// The block is withdrawn rather than repurposed. Its keys are arbitrary
-	// names today, so reading them as environment names would silently change
-	// what an existing project means — the failure this contract exists to
-	// remove — and leaving it accepted would keep two mechanisms for one idea.
-	if _, ok := raw["secrets"]; ok {
-		return nil, errf("secrets_withdrawn", "secrets",
-			"ob validate",
-			"the `secrets` block is withdrawn: declare the file as an env_files "+
-				"entry carrying a provider — runtime.env_files: [{file: <path>, "+
-				"provider: sops}] — at the project, environment or workload scope "+
-				"that should receive it")
+	raw := converted.(map[string]any)
+	raw["api_version"] = APIVersion
+	raw["app"] = name
+	derived, err := expand(raw)
+	if err != nil {
+		return nil, authoredError(err)
 	}
-	if err := checkShape(raw, lines); err != nil {
-		return nil, err
-	}
-
 	p, err := decodeSpec(raw)
 	if err != nil {
-		return nil, err
+		return nil, authoredError(err)
+	}
+	if value, present := metadata["annotations"]; present {
+		annotations, ok := value.(map[string]any)
+		if !ok {
+			return nil, errf("project_invalid", "metadata.annotations", "", "metadata.annotations must be a mapping of strings")
+		}
+		p.Annotations = map[string]string{}
+		for key, value := range annotations {
+			text, ok := value.(string)
+			if !ok {
+				return nil, errf("project_invalid", "metadata.annotations."+key, "", "annotation values must be strings")
+			}
+			p.Annotations[key] = text
+		}
 	}
 	applyDefaults(p, raw, derived)
 	// Before validation, not after: validation stats the files a project
@@ -123,66 +147,45 @@ func LoadBytes(b []byte, filename string) (*Spec, error) {
 	p.Dir = filepath.Dir(filename)
 	p.file = filename
 	if err := validateSpec(p); err != nil {
-		return nil, err
+		return nil, authoredError(err)
 	}
 	defaultProxyManagement(p, raw, derived)
 	p.captureRaw(raw, derived)
 	if err := crossFieldRules(p); err != nil {
-		return nil, err
+		return nil, authoredError(err)
 	}
 	return p, nil
 }
 
 func checkAPIVersion(raw map[string]any) error {
-	got, ok := raw["api_version"].(string)
+	got, ok := raw["apiVersion"].(string)
 	switch {
 	case !ok || got == "":
-		return errf("schema_identity_missing", "api_version", "ob init",
-			"api_version is required; this binary accepts %q", APIVersion)
+		return errf("schema_identity_missing", "apiVersion", "ob init",
+			"apiVersion is required; this binary accepts %q", APIVersion)
 	case got != APIVersion:
-		return errf("schema_identity_unsupported", "api_version", "",
-			"unsupported api_version %q; this binary accepts %q", got, APIVersion)
+		return errf("schema_identity_unsupported", "apiVersion", "",
+			"unsupported apiVersion %q; this binary accepts %q; see %s", got, APIVersion, SchemaID)
 	}
 	return nil
 }
 
-// shorthandKeys are the top-level fields that describe a single workload.
-var shorthandKeys = []string{"build", "image", "compose", "port", "health", "routes"}
-
-// expand rewrites shorthand into the normalised form the schema validates. It
-// runs before validation because the schema requires discriminators — a role
-// left absent would keep every branch of the workload disjunction alive.
-func expand(raw map[string]any, app string) (map[string]Origin, error) {
-	var present []string
-	for _, k := range shorthandKeys {
-		if _, ok := raw[k]; ok {
-			present = append(present, k)
-		}
+func authoredError(err error) error {
+	var projectErr *Error
+	if !errors.As(err, &projectErr) || projectErr.Path == "" {
+		return err
 	}
-	wl, hasBlock := raw["workloads"]
+	copy := *projectErr
+	copy.Path = publicPath(projectErr.Path)
+	return &copy
+}
 
+// expand normalizes supported scalar forms inside the single authored
+// workloads block and injects discriminators required by validation.
+func expand(raw map[string]any) (map[string]Origin, error) {
 	// Paths whose value the author did not write where it now appears.
 	derived := map[string]Origin{}
-
-	if len(present) > 0 && hasBlock {
-		return nil, errf("shorthand_and_workloads", "workloads", "",
-			"top-level %s cannot be combined with a workloads block; move them into it",
-			strings.Join(present, ", "))
-	}
-	if len(present) > 0 {
-		if app == "" {
-			return nil, errf("app_required", "app", "", "app is required")
-		}
-		single := map[string]any{}
-		for _, k := range present {
-			single[k] = raw[k]
-			delete(raw, k)
-			derived["workloads."+app+"."+k] = OriginShorthand
-		}
-		raw["workloads"] = map[string]any{app: single}
-		wl = raw["workloads"]
-	}
-
+	wl := raw["workloads"]
 	workloads, _ := wl.(map[string]any)
 	for name, w := range workloads {
 		m, ok := w.(map[string]any)
@@ -388,7 +391,7 @@ func crossFieldRules(p *Spec) error {
 	}
 	if len(p.Workloads) == 0 {
 		return errf("no_workload", "workloads", "",
-			"at least one workload is required; declare one or use the top-level shorthand")
+			"at least one workload is required under spec.workloads")
 	}
 
 	for _, name := range sortedKeys(p.Workloads) {

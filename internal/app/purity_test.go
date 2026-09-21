@@ -16,44 +16,47 @@ import (
 // one commit disagree, entropy makes a digest meaningless, and an environment
 // variable makes the result depend on whose shell ran it.
 
-const purityProject = `api_version: onebox.run/v1
-app: shop
-environments:
-  production:
-    server: root@203.0.113.10
-  staging:
-    server: root@203.0.113.20
-    overrides:
-      workloads:
-        web: {replicas: 1}
-runtime:
-  env_files: [.env.production]
-workloads:
-  web:
-    role: application
-    image: nginx:1.27
-    health: /healthz
-    replicas: 2
-    routes:
-      - {hostname: shop.example.com, path: /, port: 3000}
-      - {hostname: shop.example.com, path: /api, port: 3001}
-      - {hostname: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
-      - {hostname: db.example.com, port: 5432, protocol: tcp, tls: passthrough, entrypoint: pg}
-  worker:
-    role: worker
-    image: nginx:1.27
-    needs: [postgres]
-  migrate:
-    role: job
-    image: nginx:1.27
-    data_effect: migration
-    deployment_phase: pre_release
-services:
-  postgres: 16
-proxy:
-  entrypoints:
-    grpc: {port: 9000}
-    pg: {port: 5432}
+const purityProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production:
+      server: root@203.0.113.10
+    staging:
+      server: root@203.0.113.20
+      overrides:
+        workloads:
+          web: {replicas: 1}
+  runtime:
+    envFiles: [.env.production]
+  workloads:
+    web:
+      role: Application
+      image: nginx:1.27
+      health: /healthz
+      replicas: 2
+      routes:
+        - {hostname: shop.example.com, path: /, port: 3000}
+        - {hostname: shop.example.com, path: /api, port: 3001}
+        - {hostname: grpc.example.com, port: 9000, entrypoint: grpc, scheme: h2c}
+        - {hostname: db.example.com, port: 5432, protocol: tcp, tls: Passthrough, entrypoint: pg}
+    worker:
+      role: Worker
+      image: nginx:1.27
+      needs: [postgres]
+    migrate:
+      role: Job
+      image: nginx:1.27
+      dataEffect: Migration
+      deploymentPhase: PreRelease
+  services:
+    postgres: 16
+  proxy:
+    entrypoints:
+      grpc: {port: 9000}
+      pg: {port: 5432}
 `
 
 func purityFixture(t *testing.T) *Spec {
@@ -198,13 +201,57 @@ func TestGenerationCannotReachATarget(t *testing.T) {
 // connect to production.
 func TestEveryGenerationFailureIsReachableOffline(t *testing.T) {
 	for name, body := range map[string]string{
-		"unknown field":      "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nimage: nginx\nreplicaz: 3\n",
-		"no source":          "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {web: {role: application}}\n",
-		"two sources":        "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {web: {role: application, image: nginx, build: .}}\n",
-		"job without effect": "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads: {j: {role: job, image: nginx}}\n",
-		"unknown driver":     "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nimage: nginx\nservices: {weird: {driver: nosuchthing, version: \"1\"}}\n",
-		"route collision":    "api_version: onebox.run/v1\napp: shop\nenvironments: {p: {server: h}}\nworkloads:\n  a: {role: application, image: nginx, routes: [{hostname: x.example.com, port: 1}]}\n  b: {role: application, image: nginx, routes: [{hostname: x.example.com, port: 2}]}\n",
-	} {
+		"unknown field": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {p: {server: h}}
+  replicaz: 3
+  workloads:
+    shop:
+      image: nginx
+`, "no source": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {p: {server: h}}
+  workloads: {web: {role: Application}}
+`, "two sources": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {p: {server: h}}
+  workloads: {web: {role: Application, image: nginx, build: .}}
+`, "job without effect": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {p: {server: h}}
+  workloads: {j: {role: Job, image: nginx}}
+`, "unknown driver": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {p: {server: h}}
+  services: {weird: {driver: nosuchthing, version: "1"}}
+  workloads:
+    shop:
+      image: nginx
+`, "route collision": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {p: {server: h}}
+  workloads:
+    a: {role: Application, image: nginx, routes: [{hostname: x.example.com, port: 1}]}
+    b: {role: Application, image: nginx, routes: [{hostname: x.example.com, port: 2}]}
+`} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			path := dir + "/ob.yml"

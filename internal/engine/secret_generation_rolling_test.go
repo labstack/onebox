@@ -14,28 +14,31 @@ import (
 
 // web declares a health check, so it defaults to rolling; worker stays a
 // recreate workload, which is what keeps the two paths visible in one push.
-const rollingGenerationProject = `api_version: onebox.run/v1
-app: shop
-base_path: /srv/onebox
-environments:
-  production: {server: deploy@example.invalid}
-workloads:
-  web:
-    image: nginx
-    port: 3000
-    hostname: shop.example.com
-    health: {exec: ["/health"]}
-    env_files: [{file: web.enc.env, provider: sops}]
-  worker:
-    role: worker
-    image: nginx
-    env_files: [{file: worker.enc.env, provider: sops}]
+const rollingGenerationProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  basePath: /srv/onebox
+  environments:
+    production: {server: deploy@example.invalid}
+  workloads:
+    web:
+      image: nginx
+      port: 3000
+      hostname: shop.example.com
+      health: {exec: ["/health"]}
+      envFiles: [{file: web.enc.env, provider: Sops}]
+    worker:
+      role: Worker
+      image: nginx
+      envFiles: [{file: worker.enc.env, provider: Sops}]
 `
 
 // A two-replica rolling web, so a rotation can be caught part-way through:
 // one replica already on the new generation, one still on the old.
 var rollingGenerationProjectPair = strings.Replace(rollingGenerationProject,
-	"    health: {exec: [\"/health\"]}", "    replicas: 2\n    health: {exec: [\"/health\"]}", 1)
+	"      health: {exec: [\"/health\"]}", "      replicas: 2\n      health: {exec: [\"/health\"]}", 1)
 
 type rollingGenerationState struct {
 	project       string

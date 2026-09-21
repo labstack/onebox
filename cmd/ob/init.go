@@ -98,10 +98,10 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	// errors from the moment the file exists rather than after someone finds
 	// out it could.
 	fmt.Fprintf(&b, "# yaml-language-server: $schema=%s\n", app.SchemaID)
-	b.WriteString("api_version: onebox.run/v1\n")
-	fmt.Fprintf(&b, "app: %s\n", application)
-	b.WriteString("environments:\n  production:\n    server: deploy@CHANGE-ME\n")
-	b.WriteString("workloads:\n")
+	b.WriteString("apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n")
+	fmt.Fprintf(&b, "  name: %s\n", application)
+	b.WriteString("spec:\n  environments:\n    production:\n      server: deploy@CHANGE-ME\n")
+	b.WriteString("  workloads:\n")
 	for _, name := range componentNames {
 		typ := types[name]
 		role := map[string]string{
@@ -113,25 +113,25 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 			// declaration says what it is; nothing is guessed from the image.
 			role = "daemon"
 		}
-		fmt.Fprintf(&b, "  %s:\n    role: %s\n", name, role)
+		fmt.Fprintf(&b, "    %s:\n      role: %s\n", name, upperCamelValue(role))
 		// The workload keeps referencing the Compose service it came from, so
 		// adoption changes nothing about how it runs on the first deploy. Move
 		// fields into the declaration when you want Onebox to own them.
-		fmt.Fprintf(&b, "    compose: %q\n", composePath+"#"+name)
+		fmt.Fprintf(&b, "      compose: %q\n", composePath+"#"+name)
 		switch role {
 		case "application", "worker":
 			strategy := "recreate"
 			if rolling[name] {
 				strategy = "rolling"
 			}
-			fmt.Fprintf(&b, "    strategy: %s\n", strategy)
+			fmt.Fprintf(&b, "      strategy: %s\n", upperCamelValue(strategy))
 			if strategy == "rolling" {
 				path, port, ok := inferHTTPReadiness(p.Services[name])
 				switch {
 				case ok:
-					fmt.Fprintf(&b, "    health: { http: %s, port: %d }\n", path, port)
+					fmt.Fprintf(&b, "      health: { http: %s, port: %d }\n", path, port)
 				case p.Services[name].HealthCheck == nil:
-					b.WriteString("    health: { http: /healthz, port: CHANGE-ME }\n")
+					b.WriteString("      health: { http: /healthz, port: CHANGE-ME }\n")
 				}
 			}
 		case "job":
@@ -139,7 +139,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 			if isMigration(name, p.Services[name]) {
 				effect = "migration"
 			}
-			fmt.Fprintf(&b, "    data_effect: %s\n", effect)
+			fmt.Fprintf(&b, "      dataEffect: %s\n", upperCamelValue(effect))
 		case "daemon":
 			// Durability is scaffolded from what the image is, not from
 			// whether a volume happens to be declared. A Postgres written
@@ -152,12 +152,12 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 			case len(p.Services[name].Volumes) > 0:
 				mode = "durable"
 			}
-			fmt.Fprintf(&b, "    persistence: { mode: %s }\n", mode)
+			fmt.Fprintf(&b, "      persistence: { mode: %s }\n", upperCamelValue(mode))
 		}
 	}
 	if len(workloads) > 0 {
-		b.WriteString("deployment:\n")
-		fmt.Fprintf(&b, "  order: [%s]\n", strings.Join(workloads, ", "))
+		b.WriteString("  deployment:\n")
+		fmt.Fprintf(&b, "    order: [%s]\n", strings.Join(workloads, ", "))
 	}
 	if err := os.WriteFile(g.ConfigPath, []byte(b.String()), 0o644); err != nil {
 		return writeStructuredCommandFailure(cmd, g, "config_write_failed", "the project file could not be written", err)
@@ -206,6 +206,14 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	}
 	fmt.Fprintln(out, "\nnext: fill in CHANGE-ME values, then `ob validate`")
 	return nil
+}
+
+func upperCamelValue(value string) string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == '-' || r == '_' })
+	for i, part := range parts {
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, "")
 }
 
 func classify(name string, svc ctypes.ServiceConfig) string {

@@ -11,46 +11,49 @@ import (
 
 // A decent-size project of the shape people actually build: a web application,
 // a background worker, a migration job, and a database they still author.
-const appFixture = `api_version: onebox.run/v1
-app: ledger
-environments:
-  production: {server: root@1.2.3.4}
-workloads:
-  web:
-    role: application
-    image: ghcr.io/acme/ledger:1.4.0
-    replicas: 2
-    routes:
-      - {hostname: ledger.example.com, port: 8080}
-    health: {http: /healthz, port: 8080, interval: 10s, retries: 3}
-    drain: {grace: 30s}
-    needs: [db]
-    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
-    resources: {memory: 1GB}
-  worker:
-    role: worker
-    image: ghcr.io/acme/ledger:1.4.0
-    command: [./ledger, worker]
-    needs: [db]
-  migrate:
-    role: job
-    image: ghcr.io/acme/ledger:1.4.0
-    command: [./ledger, migrate]
-    deployment_phase: pre_release
-    data_effect: migration
-    needs: [{name: db, condition: healthy}]
-  db:
-    role: daemon
-    image: postgres:16-alpine
-    health: {exec: "pg_isready -U ledger", interval: 5s}
-    volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}]
-runtime:
-  env_files: [.env.production]
+const appFixture = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+  workloads:
+    web:
+      role: Application
+      image: ghcr.io/acme/ledger:1.4.0
+      replicas: 2
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
+      health: {http: /healthz, port: 8080, interval: 10s, retries: 3}
+      drain: {grace: 30s}
+      needs: [db]
+      volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
+      resources: {memory: 1GB}
+    worker:
+      role: Worker
+      image: ghcr.io/acme/ledger:1.4.0
+      command: [./ledger, worker]
+      needs: [db]
+    migrate:
+      role: Job
+      image: ghcr.io/acme/ledger:1.4.0
+      command: [./ledger, migrate]
+      deploymentPhase: PreRelease
+      dataEffect: Migration
+      needs: [{name: db, condition: Healthy}]
+    db:
+      role: Daemon
+      image: postgres:16-alpine
+      health: {exec: "pg_isready -U ledger", interval: 5s}
+      volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}]
+  runtime:
+    envFiles: [.env.production]
 `
 
 func digestOf(t *testing.T, yaml string) string {
 	t.Helper()
-	p, err := LoadBytes([]byte(yaml), "ob.yml")
+	p, err := loadFixtureBytes([]byte(yaml), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +66,7 @@ func digestOf(t *testing.T, yaml string) string {
 
 func render(t *testing.T, yaml string) []byte {
 	t.Helper()
-	p, err := LoadBytes([]byte(yaml), "ob.yml")
+	p, err := loadFixtureBytes([]byte(yaml), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,17 +89,20 @@ func TestRenderIsDeterministic(t *testing.T) {
 }
 
 func TestWorkloadRevisionIsReleaseIndependentAndRuntimeSensitive(t *testing.T) {
-	project := `api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example.test}}
-workloads:
-  api: {role: application, image: ghcr.io/example/api:v1, strategy: rolling, health: {http: /healthz, port: 8080}}
-  worker: {role: worker, image: ghcr.io/example/worker:v1, strategy: recreate, command: [run, worker]}
-deployment: {order: [api, worker]}
+	project := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example.test}}
+  workloads:
+    api: {role: Application, image: 'ghcr.io/example/api:v1', strategy: Rolling, health: {http: /healthz, port: 8080}}
+    worker: {role: Worker, image: 'ghcr.io/example/worker:v1', strategy: Recreate, command: [run, worker]}
+  deployment: {order: [api, worker]}
 `
 	revisions := func(source, release string) map[string]string {
 		t.Helper()
-		spec, err := LoadBytes([]byte(source), "ob.yml")
+		spec, err := loadFixtureBytes([]byte(source), "ob.yml")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,9 +147,9 @@ func TestDigestChangesWithRuntimeAffectingInput(t *testing.T) {
 
 func TestDigestIgnoresNonRuntimeInput(t *testing.T) {
 	before := digestOf(t, appFixture)
-	after := digestOf(t, appFixture+"x-note: irrelevant\n")
+	after := digestOf(t, strings.Replace(appFixture, "  name: ledger\n", "  name: ledger\n  annotations:\n    note: irrelevant\n", 1))
 	if before != after {
-		t.Fatalf("an extension key must not change the runtime")
+		t.Fatalf("an annotation must not change the runtime")
 	}
 }
 
@@ -197,8 +203,8 @@ func TestRenderedRuntime(t *testing.T) {
 
 func TestBindMountLifetimesRenderWithoutChangingTheirScope(t *testing.T) {
 	y := strings.Replace(appFixture,
-		"    volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}]\n",
-		"    volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}, {source: ./postgres.conf, path: /etc/postgres.conf, mode: ro}]\n", 1)
+		"      volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}]\n",
+		"      volumes: [{source: /data/postgres, path: /var/lib/postgresql/data}, {source: ./postgres.conf, path: /etc/postgres.conf, mode: Ro}]\n", 1)
 	out := string(render(t, y))
 	for _, want := range []string{
 		"/data/postgres:/var/lib/postgresql/data",
@@ -213,7 +219,7 @@ func TestBindMountLifetimesRenderWithoutChangingTheirScope(t *testing.T) {
 // TestEnvFilesAreNotProjectedIntoDaemons is the rule seven real projects forced:
 // a database must not receive the application's secrets.
 func TestEnvFilesAreNotProjectedIntoDaemons(t *testing.T) {
-	p, err := LoadBytes([]byte(appFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(appFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +238,8 @@ func TestEnvFilesAreNotProjectedIntoDaemons(t *testing.T) {
 // only its own, so one service's secrets stay out of another's container.
 func TestWorkloadEnvFilesOverrideProjectList(t *testing.T) {
 	y := strings.Replace(appFixture,
-		"    role: worker\n", "    role: worker\n    env_files: [worker/.env]\n", 1)
-	p, err := LoadBytes([]byte(y), "ob.yml")
+		"      role: Worker\n", "      role: Worker\n      envFiles: [worker/.env]\n", 1)
+	p, err := loadFixtureBytes([]byte(y), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,9 +252,9 @@ func TestWorkloadEnvFilesOverrideProjectList(t *testing.T) {
 // TestBuildWithoutResolvedImageFailsClosed: the release pipeline resolves this
 // later; until then generation must refuse rather than emit a broken runtime.
 func TestBuildWithoutResolvedImageFailsClosed(t *testing.T) {
-	y := strings.Replace(appFixture, "    image: ghcr.io/acme/ledger:1.4.0\n    replicas: 2\n",
-		"    build: .\n    replicas: 2\n", 1)
-	p, err := LoadBytes([]byte(y), "ob.yml")
+	y := strings.Replace(appFixture, "      image: ghcr.io/acme/ledger:1.4.0\n      replicas: 2\n",
+		"      build: .\n      replicas: 2\n", 1)
+	p, err := loadFixtureBytes([]byte(y), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +283,7 @@ func TestBuildWithoutResolvedImageFailsClosed(t *testing.T) {
 // drops its route first, because declaring one under `kind: none` is refused
 // at load — a route nobody would serve is not a runtime question.
 func TestNoProxyAddsNothing(t *testing.T) {
-	y := strings.Replace(appFixture, "    routes:\n      - {hostname: ledger.example.com, port: 8080}\n", "", 1)
+	y := strings.Replace(appFixture, "      routes:\n        - {hostname: ledger.example.com, port: 8080}\n", "", 1)
 	out := string(render(t, y+"proxy: {kind: none}\n"))
 	if strings.Contains(out, "traefik") {
 		t.Error("no proxy must not add routing labels")
@@ -289,8 +295,8 @@ func TestNoProxyAddsNothing(t *testing.T) {
 
 // TestUDPPortRendered covers the protocol a real project needed.
 func TestUDPPortRendered(t *testing.T) {
-	y := strings.Replace(appFixture, "    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n",
-		"    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n    strategy: recreate\n    published_ports: [{host: 8555, container: 8555, protocol: udp}]\n", 1)
+	y := strings.Replace(appFixture, "      volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n",
+		"      volumes: [{name: uploads, path: /var/lib/ledger/uploads}]\n      strategy: Recreate\n      publishedPorts: [{host: 8555, container: 8555, protocol: udp}]\n", 1)
 	out := string(render(t, y))
 	if !strings.Contains(out, "127.0.0.1:8555:8555/udp") {
 		t.Errorf("expected a loopback-bound UDP publish\n%s", out)
@@ -300,7 +306,7 @@ func TestUDPPortRendered(t *testing.T) {
 // TestJobsDoNotRestartOrAutoStart: a job runs to completion at a release phase.
 // Restarting it forever would be wrong, and `compose up` must not start it.
 func TestJobsDoNotRestartOrAutoStart(t *testing.T) {
-	p, err := LoadBytes([]byte(appFixture), "ob.yml")
+	p, err := loadFixtureBytes([]byte(appFixture), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,8 +348,8 @@ func TestOperatorOwnedProxyDoesNotUseManagedResolver(t *testing.T) {
 }
 
 func TestCertificateResolverIsNotAProjectField(t *testing.T) {
-	_, err := LoadBytes([]byte(appFixture+"proxy: {cert_resolver: le}\n"), "ob.yml")
-	if err == nil || !strings.Contains(err.Error(), "cert_resolver") {
+	_, err := loadFixtureBytes([]byte(appFixture+"proxy: {certResolver: le}\n"), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "certResolver") {
 		t.Fatalf("implementation-specific resolver name must be refused: %v", err)
 	}
 }
@@ -362,16 +368,19 @@ func TestHasTerminatingTLSDistinguishesPassthrough(t *testing.T) {
 }
 
 func TestWildcardRouteRendersSafeHostRegexpAndDNSResolver(t *testing.T) {
-	project := `api_version: onebox.run/v1
-app: preview
-environments: {production: {server: root@example.com}}
-workloads:
-  web:
-    image: nginx
-    routes: [{hostname: "*.preview.example.com", port: 8080}]
-proxy:
-  config: traefik
-  dns_challenge: {provider: cloudflare}
+	project := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: preview
+spec:
+  environments: {production: {server: root@example.com}}
+  workloads:
+    web:
+      image: nginx
+      routes: [{hostname: "*.preview.example.com", port: 8080}]
+  proxy:
+    config: traefik
+    dnsChallenge: {provider: cloudflare}
 `
 	out := string(render(t, project))
 	if !strings.Contains(out, `HostRegexp(`+"`"+`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.preview\.example\.com$$`+"`"+`)`) {
@@ -402,7 +411,7 @@ func TestEveryDraftRenders(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			p, err := LoadBytes(b, f)
+			p, err := loadFixtureBytes(b, f)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -440,23 +449,26 @@ func TestEveryDraftRenders(t *testing.T) {
 // showed standing between two thirds of services and the declaration. Each
 // carries no Onebox semantics: it is declared, and it appears.
 func TestPassthroughFields(t *testing.T) {
-	y := `api_version: onebox.run/v1
-app: ledger
-environments:
-  production: {server: root@1.2.3.4}
-workloads:
-  web:
-    role: application
-    image: nginx
-    entrypoint: [/bin/sh, -c, "exec app"]
-    user: "1000:1000"
-    hostname: web-1
-    working_dir: /srv
-    init: true
-    tty: false
-    stdin_open: true
-    extra_hosts: ["db:10.0.0.5"]
-    labels: {com.example.team: platform, ofelia.enabled: "true"}
+	y := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      entrypoint: [/bin/sh, -c, "exec app"]
+      user: "1000:1000"
+      hostname: web-1
+      workingDir: /srv
+      init: true
+      tty: false
+      stdinOpen: true
+      extraHosts: ["db:10.0.0.5"]
+      labels: {com.example.team: platform, ofelia.enabled: "true"}
 `
 	out := string(render(t, y))
 	for _, want := range []string{
@@ -482,12 +494,14 @@ workloads:
 // generates into are reserved, so a user label can never silently win.
 func TestUserLabelsCannotClaimOneboxNamespaces(t *testing.T) {
 	for _, bad := range []string{"ob.app", "traefik.enable"} {
-		y := `api_version: onebox.run/v1
-app: ledger
-environments: {production: {server: h}}
-workloads: {web: {role: application, image: nginx, labels: {"` + bad + `": x}}}
+		y := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: ledger}
+spec:
+  environments: {production: {server: h}}
+  workloads: {web: {role: Application, image: nginx, labels: {"` + bad + `": x}}}
 `
-		if _, err := LoadBytes([]byte(y), "ob.yml"); err == nil {
+		if _, err := loadFixtureBytes([]byte(y), "ob.yml"); err == nil {
 			t.Errorf("label %q should be refused", bad)
 		}
 	}
@@ -519,14 +533,17 @@ func TestVolumeNamesArePinned(t *testing.T) {
 // workload that can never be released, so the exec form must reach the runtime
 // as CMD rather than CMD-SHELL.
 func TestExecListHealthRunsWithoutAShell(t *testing.T) {
-	out := render(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web:
-    role: application
-    image: scratch-built:1
-    health: {exec: ["/app", "health"], interval: 2s}
+	out := render(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web:
+      role: Application
+      image: scratch-built:1
+      health: {exec: ["/app", "health"], interval: 2s}
 `)
 	body := string(out)
 	if !strings.Contains(body, "- CMD\n") {
@@ -540,11 +557,14 @@ workloads:
 // The string form still runs through a shell, which is what makes `pg_isready
 // -U x && test -f /ready` work.
 func TestExecStringHealthKeepsItsShell(t *testing.T) {
-	out := render(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1, health: {exec: "test -f /ready && echo ok"}}
+	out := render(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1', health: {exec: "test -f /ready && echo ok"}}
 `)
 	if !strings.Contains(string(out), "CMD-SHELL") {
 		t.Fatalf("a shell-form check must keep its shell:\n%s", out)
@@ -561,11 +581,13 @@ func TestShellHealthChecksCarryTheDrainGuard(t *testing.T) {
 		`health: {tcp: true, port: 5432}`,
 		`health: {exec: "test -f /ready"}`,
 	} {
-		out := string(render(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1, `+form+`}
+		out := string(render(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: x:1, `+form+`}
 `))
 		if !strings.Contains(out, DrainFile) {
 			t.Errorf("%s is not drain-guarded:\n%s", form, out)
@@ -580,11 +602,13 @@ workloads:
 // command and stays unquoted; a path is not, and must be one argument.
 func TestHTTPHealthPathIsQuotedInsideItsShellCheck(t *testing.T) {
 	const injected = "/healthz;id>/tmp/ob-owned"
-	out := string(render(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1, health: {http: `+injected+`, port: 8080}}
+	out := string(render(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: x:1, health: {http: `+injected+`, port: 8080}}
 `))
 	// Twice, because the check tries curl and falls back to wget. Counting is
 	// what catches a half-fix that quotes one arm and leaves the other open.

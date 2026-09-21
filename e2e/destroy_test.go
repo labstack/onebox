@@ -27,13 +27,15 @@ func TestDestroyUsesReleaseRecordedInterpolationEnvironment(t *testing.T) {
 	releaseID := "20260821-120000-legacy"
 	volume := application + "_legacy_data"
 
-	currentBody := fmt.Sprintf(`api_version: onebox.run/v1
-app: %s
-base_path: %q
-environments:
-  production: {server: root@localhost}
-workloads:
-  web: {image: alpine:3}
+	currentBody := fmt.Sprintf(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: %s}
+spec:
+  basePath: %q
+  environments:
+    production: {server: root@localhost}
+  workloads:
+    web: {image: alpine:3}
 `, application, base)
 	current, err := app.LoadBytes([]byte(currentBody), filepath.Join(base, "current.yml"))
 	if err != nil {
@@ -62,7 +64,7 @@ volumes:
   %s:
     name: %s
 `, volume, volume, volume)
-	snapshotBody := currentBody + "runtime:\n  env_files: [legacy.env]\n"
+	snapshotBody := currentBody + "  runtime:\n    envFiles: [legacy.env]\n"
 	for path, body := range map[string]string{
 		composePath: composeBody,
 		envPath:     "LEGACY_SECRET=recorded-value\n",

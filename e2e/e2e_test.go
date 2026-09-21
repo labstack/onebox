@@ -25,7 +25,7 @@ import (
 
 // Keep the checked-in examples on the stable authoring contract even when the
 // Docker-gated deployment tests are skipped.
-func TestV1ConfigFixturesLoad(t *testing.T) {
+func TestApplicationFixturesLoad(t *testing.T) {
 	for _, path := range []string{
 		"testdata/app/ob.yml",
 		"testdata/worker/ob.yml",
@@ -75,7 +75,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		// base_path is the field, not an environment variable: the engine now
+		// basePath is the field, not an environment variable: the engine now
 		// has one path authority and it is the project's own.
 		spec.BasePath = base
 		resolved, err := spec.Resolve("production")

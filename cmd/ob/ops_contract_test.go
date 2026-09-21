@@ -18,18 +18,23 @@ func writeOpsContractProject(t *testing.T, dir string, encrypted bool) string {
 	t.Helper()
 	runtime := ""
 	if encrypted {
-		runtime = "runtime:\n  env_files: [{file: secrets.env, provider: sops}]\n"
+		runtime = "  runtime:\n    envFiles: [{file: secrets.env, provider: Sops}]\n"
 		if err := os.WriteFile(filepath.Join(dir, "secrets.env"), []byte("encrypted-placeholder\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	path := filepath.Join(dir, "project.yml")
-	if err := os.WriteFile(path, []byte(`api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: deploy@example.invalid}
-`+runtime+`image: nginx
-`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: deploy@example.invalid}
+  workloads:
+    web: {image: nginx}
+`+
+		runtime), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -94,7 +99,7 @@ func TestSecretsEditRequiresIDWhenSeveralEntriesExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = bytes.Replace(data, []byte("runtime:\n  env_files: [{file: secrets.env, provider: sops}]"), []byte("runtime:\n  env_files: [{file: secrets.env, provider: sops}, {file: other.env, provider: sops}]"), 1)
+	data = bytes.Replace(data, []byte("runtime:\n    envFiles: [{file: secrets.env, provider: Sops}]"), []byte("runtime:\n    envFiles: [{file: secrets.env, provider: Sops}, {file: other.env, provider: Sops}]"), 1)
 	if err := os.WriteFile(config, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -169,12 +174,17 @@ func TestDestroyConfirmationMismatchIsCancelledBeforeTargetContact(t *testing.T)
 func TestServiceLogsAndExecNDJSONTagChannelsAndTargetKind(t *testing.T) {
 	dir := t.TempDir()
 	config := filepath.Join(dir, "project.yml")
-	if err := os.WriteFile(config, []byte(`api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: deploy@example.invalid}
-image: nginx
-services: {postgres: 17}
+	if err := os.WriteFile(config, []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: deploy@example.invalid}
+  services: {postgres: 17}
+  workloads:
+    shop:
+      image: nginx
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}

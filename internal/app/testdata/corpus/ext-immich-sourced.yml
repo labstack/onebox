@@ -1,35 +1,24 @@
-# Immich, sourced from a Compose file that is checked in beside this one.
-#
-# Every other compose-sourced project in the corpus names a file that is not
-# here, so all of them freeze the same verdict — `render:compose_file_unreadable`
-# — and the generation path behind a Compose reference is frozen by none of
-# them. That path is where one of the defects this contract was written to fix
-# lived: a compose-sourced workload received no environment values at all,
-# whatever its role, while the same workload declared inline received the
-# project's.
-#
-# So this case exists to hold that path still. It combines the three things
-# that decide what the container reads — the referenced service's own
-# `env_file`, the project's declared entries, and the referenced service's own
-# `environment` — plus a managed service supplying a connection file.
-api_version: onebox.run/v1
-app: immich
-environments:
-  production: {server: root@example.com}
-runtime:
-  env_files:
-    - .env
-    - {file: secrets/immich.env, provider: sops}
-workloads:
-  immich-server:
-    role: application
-    compose: ext-immich-sourced.compose.yaml#immich-server
-    routes:
-      - {hostname: photos.example.com, port: 2283}
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-  immich-machine-learning:
-    role: worker
-    compose: ext-immich-sourced.compose.yaml#immich-machine-learning
-services:
-  postgres: "16"
-  redis: "7.4"
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: immich
+spec:
+  environments:
+    production: {server: root@example.com}
+  runtime:
+    envFiles:
+      - .env
+      - {file: secrets/immich.env, provider: Sops}
+  workloads:
+    immich-server:
+      role: Application
+      compose: ext-immich-sourced.compose.yaml#immich-server
+      routes:
+        - {hostname: photos.example.com, port: 2283}
+      needs: [{name: postgres, condition: Healthy}, {name: redis, condition: Healthy}]
+    immich-machine-learning:
+      role: Worker
+      compose: ext-immich-sourced.compose.yaml#immich-machine-learning
+  services:
+    postgres: "16"
+    redis: "7.4"

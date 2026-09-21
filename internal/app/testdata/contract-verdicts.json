@@ -412,7 +412,7 @@
   {
     "case": "conformance/shorthand and workloads together",
     "loads": false,
-    "code": "shorthand_and_workloads"
+    "code": "unknown_field"
   },
   {
     "case": "conformance/status code 600",
@@ -422,7 +422,7 @@
   {
     "case": "conformance/the withdrawn secrets block",
     "loads": false,
-    "code": "secrets_withdrawn"
+    "code": "unknown_field"
   },
   {
     "case": "conformance/two sources on a workload",
@@ -520,9 +520,9 @@
     "code": "identifier_collision"
   },
   {
-    "case": "conformance/x- extension accepted",
-    "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "case": "conformance/x- extension rejected",
+    "loads": false,
+    "code": "unknown_field"
   },
   {
     "case": "conformance/zero replicas",

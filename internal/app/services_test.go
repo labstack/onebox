@@ -10,12 +10,16 @@ import (
 
 func serviceSpec(t *testing.T, body string) *Spec {
 	t.Helper()
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1, needs: [store]}
-`+body), "ob.yml")
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1', needs: [store]}
+`+
+		body), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +92,14 @@ func TestNeedingAServiceJoinsItAndReadsItsURL(t *testing.T) {
 // Guessing an image from an identifier would produce a container that starts
 // and stores nothing durable.
 func TestUnknownDriverIsRefusedWithAlternatives(t *testing.T) {
-	_, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads: {web: {role: application, image: x:1}}
-services: {store: {driver: cockroach, version: 24}}
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads: {web: {role: Application, image: 'x:1'}}
+  services: {store: {driver: cockroach, version: 24}}
 `), "ob.yml")
 	if err == nil {
 		t.Fatal("an unknown driver must be refused")
@@ -184,20 +191,23 @@ func TestGeneratedDollarsSurviveComposeInterpolation(t *testing.T) {
 // service is only usable by one that happens to read the names Onebox chose,
 // which almost none do.
 func TestAWorkloadCanNameTheConnectionItself(t *testing.T) {
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: n8n
-environments: {production: {server: root@h}}
-workloads:
-  n8n:
-    role: application
-    image: n8n:1
-    needs:
-      - name: store
-        env:
-          DB_POSTGRESDB_HOST: host
-          DB_POSTGRESDB_USER: user
-          DB_POSTGRESDB_PASSWORD: password
-services: {store: {driver: postgres, version: 16}}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: n8n
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    n8n:
+      role: Application
+      image: n8n:1
+      needs:
+        - name: store
+          env:
+            DB_POSTGRESDB_HOST: host
+            DB_POSTGRESDB_USER: user
+            DB_POSTGRESDB_PASSWORD: password
+  services: {store: {driver: postgres, version: 16}}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -343,14 +353,17 @@ func TestCredentialWritesAreAtomic(t *testing.T) {
 // behaviour callers depend on is unavailable, and a health-gated rollout
 // converges onto a dependency that cannot store anything.
 func TestRedisFamilyHealthChecksProveAWrite(t *testing.T) {
-	rendered := renderServices(t, `api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1}
-services:
-  redis: {version: 8-alpine}
-  valkey: {version: 8-alpine}
+	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1'}
+  services:
+    redis: {version: 8-alpine}
+    valkey: {version: 8-alpine}
 `)
 	for _, driver := range []string{"redis", "valkey"} {
 		doc := string(rendered[driver])
@@ -381,7 +394,7 @@ services:
 
 func renderServices(t *testing.T, src string) map[string][]byte {
 	t.Helper()
-	spec, err := LoadBytes([]byte(src), "ob.yml")
+	spec, err := loadFixtureBytes([]byte(src), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +419,13 @@ func TestEphemeralServicesOwnNoDurableVolume(t *testing.T) {
 			"clickhouse": "25.3", "redis": "8-alpine", "valkey": "8-alpine",
 			"rabbitmq": "4", "meilisearch": "1.10", "nats": "2.10",
 		}[svc]
-		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+		rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  workloads: {}
+`+
 			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
 			"services:\n  "+svc+":\n    version: \""+version+"\"\n    persistence: {mode: ephemeral}\n")
 		if strings.Contains(string(rendered[svc]), "_"+svc+"_data") {
@@ -422,7 +441,13 @@ func TestDurableRedisKeepsItsVolumeAndAppendOnlyLog(t *testing.T) {
 		"  redis: {version: 8-alpine}\n",
 		"  redis: {version: 8-alpine, persistence: {mode: durable}}\n",
 	} {
-		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+		rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  workloads: {}
+`+
 			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\nservices:\n"+decl)
 		doc := string(rendered["redis"])
 		if !strings.Contains(doc, "_redis_data") {
@@ -438,7 +463,13 @@ func TestDurableRedisKeepsItsVolumeAndAppendOnlyLog(t *testing.T) {
 // intends to read back.
 func TestEphemeralRedisFamilyDisablesBothPersistenceMechanisms(t *testing.T) {
 	for _, svc := range []string{"redis", "valkey"} {
-		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+		rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  workloads: {}
+`+
 			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
 			"services:\n  "+svc+": {version: 8-alpine, persistence: {mode: ephemeral}}\n")
 		doc := string(rendered[svc])
@@ -455,16 +486,19 @@ func TestEphemeralRedisFamilyDisablesBothPersistenceMechanisms(t *testing.T) {
 // beside it. Appending produced `--appendonly yes --appendonly no`, which is
 // what made an author compensate for the driver in the first place.
 func TestAuthoredSettingOverridesTheModeDefaultExactlyOnce(t *testing.T) {
-	rendered := renderServices(t, `api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1}
-services:
-  redis:
-    version: 8-alpine
-    persistence: {mode: ephemeral}
-    settings: {appendonly: "yes"}
+	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1'}
+  services:
+    redis:
+      version: 8-alpine
+      persistence: {mode: Ephemeral}
+      settings: {appendonly: "yes"}
 `)
 	doc := string(rendered["redis"])
 	if n := strings.Count(doc, "--appendonly"); n != 1 {
@@ -485,7 +519,13 @@ services:
 // downgrade on the one mode that says the data matters.
 func TestOnlyEphemeralDisablesServerPersistence(t *testing.T) {
 	for _, mode := range []string{"durable", "external"} {
-		rendered := renderServices(t, "api_version: onebox.run/v1\napp: sample\n"+
+		rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  workloads: {}
+`+
 			"environments: {production: {server: root@h}}\nworkloads:\n  web: {role: application, image: x:1}\n"+
 			"services:\n  redis: {version: 8-alpine, persistence: {mode: "+mode+"}}\n")
 		doc := string(rendered["redis"])
@@ -508,15 +548,18 @@ func TestOnlyEphemeralDisablesServerPersistence(t *testing.T) {
 // protected-identity record, while nothing ever created or mounted it — the
 // declaration would be silently ignored rather than refused.
 func TestEphemeralServiceCannotDeclareVolumes(t *testing.T) {
-	src := `api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1}
-services:
-  redis: {version: 8-alpine, persistence: {mode: ephemeral}, volumes: [cache]}
+	src := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1'}
+  services:
+    redis: {version: 8-alpine, persistence: {mode: Ephemeral}, volumes: [cache]}
 `
-	_, err := LoadBytes([]byte(src), "ob.yml")
+	_, err := loadFixtureBytes([]byte(src), "ob.yml")
 	if err == nil {
 		t.Fatal("an ephemeral service declaring volumes was accepted")
 	}
@@ -530,9 +573,9 @@ services:
 // never created, and the sealed identity names it anyway.
 func TestEphemeralServiceCannotDeclareBackup(t *testing.T) {
 	src := strings.Replace(validBackupProject,
-		"  postgres:\n    version: 17\n    backup:",
-		"  postgres:\n    version: 17\n    persistence: {mode: ephemeral}\n    backup:", 1)
-	_, err := LoadBytes([]byte(src), "ob.yml")
+		"    postgres:\n      version: 17\n      backup:",
+		"    postgres:\n      version: 17\n      persistence: {mode: Ephemeral}\n      backup:", 1)
+	_, err := loadFixtureBytes([]byte(src), "ob.yml")
 	if err == nil {
 		t.Fatal("an ephemeral service declaring backup was accepted")
 	}

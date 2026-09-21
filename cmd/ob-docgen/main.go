@@ -9,7 +9,7 @@
 //
 // So this program is the only writer of `site/src/content/docs/reference/`
 // — the field pages, `drivers.mdx`, `errors.mdx` and `cli.mdx` — and of the
-// schema published at `site/public/onebox.run-v1.schema.json`. Those pages carry
+// schema published below `site/public/schemas/application/v1alpha1/`. Those pages carry
 // a generated marker,
 // which `--check` reads in both directions: it fails when a page differs from
 // what this binary would produce, and when a marked page survives that no
@@ -67,7 +67,7 @@ func main() {
 		os.Exit(1)
 	}
 	schema = append(schema, '\n')
-	publicFiles := map[string]string{"onebox.run-v1.schema.json": string(schema)}
+	publicFiles := map[string]string{"schemas/application/v1alpha1/application.schema.json": string(schema)}
 
 	if check {
 		if err := verify(out, files); err != nil {
@@ -220,6 +220,29 @@ func loadSchema() (map[string]any, error) {
 	return schema, nil
 }
 
+// schemaProperties presents the fields inside spec as the project-file blocks
+// while retaining the three resource-envelope fields on the top-level page.
+func schemaProperties(schema map[string]any) (map[string]any, map[string]bool, error) {
+	envelope, _ := schema["properties"].(map[string]any)
+	spec, _ := envelope["spec"].(map[string]any)
+	specProps, _ := spec["properties"].(map[string]any)
+	if envelope == nil || specProps == nil {
+		return nil, nil, fmt.Errorf("the JSON Schema has no Application spec properties")
+	}
+	props := map[string]any{}
+	for _, name := range []string{"apiVersion", "kind", "metadata"} {
+		props[name] = envelope[name]
+	}
+	for name, node := range specProps {
+		props[name] = node
+	}
+	required := stringSet(spec["required"])
+	for _, name := range []string{"apiVersion", "kind", "metadata"} {
+		required[name] = true
+	}
+	return props, required, nil
+}
+
 // field is one row of a reference table: a dotted path, its type, its default
 // and its description, flattened out of the schema's nesting.
 type field struct {
@@ -234,6 +257,7 @@ type field struct {
 // block is one generated page: a top-level key and every field beneath it.
 type block struct {
 	Key      string
+	Slug     string
 	Title    string
 	Summary  string
 	Status   status
@@ -311,20 +335,19 @@ var blocks = []block{
 	{Key: "notifications", Title: "notifications", Order: 100, Status: statusShipped,
 		Summary:  "Named webhooks that receive selected operation and scheduled-job outcomes.",
 		ReadWhen: []string{"Sending deploy outcomes to Slack, Discord or an incident tool"}},
-	{Key: "backup_targets", Title: "backup_targets", Order: 200, Status: statusShipped,
+	{Key: "backupTargets", Slug: "backup-targets", Title: "backupTargets", Order: 200, Status: statusShipped,
 		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",
 		ReadWhen: []string{"Declaring where a database's backups go", "Understanding why Onebox refuses a backup target that shares the protected host"}},
-	{Key: "external_services", Title: "external_services", Order: 210, Status: statusSchemaOnly,
+	{Key: "externalServices", Slug: "external-services", Title: "externalServices", Order: 210, Status: statusSchemaOnly,
 		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable.",
 		ReadWhen: []string{"Modelling an RDS, Neon, Supabase or Upstash dependency"}},
 }
 
 func renderFieldPages(schema map[string]any) (map[string]string, error) {
-	props, _ := schema["properties"].(map[string]any)
-	if props == nil {
-		return nil, fmt.Errorf("the JSON Schema has no top-level properties")
+	props, required, err := schemaProperties(schema)
+	if err != nil {
+		return nil, err
 	}
-	required := stringSet(schema["required"])
 
 	// `blocks` is a template, not an accumulator. Aliasing it and appending
 	// through the pointers made every field permanent process state, so a second
@@ -343,7 +366,7 @@ func renderFieldPages(schema map[string]any) (map[string]string, error) {
 	// named.
 	top := &block{
 		Key: "top-level", Title: "Top level", Order: 1, Status: statusShipped,
-		Summary: "Required keys, project-wide scalars, and the single-workload shorthand.",
+		Summary: "The Application envelope and project-wide fields inside spec.",
 		ReadWhen: []string{
 			"Starting a new project file",
 			"Working out which keys are required",
@@ -403,7 +426,11 @@ func renderFieldPages(schema map[string]any) (map[string]string, error) {
 
 	for _, b := range all {
 		sort.SliceStable(b.Fields, func(i, j int) bool { return b.Fields[i].Path < b.Fields[j].Path })
-		name := "fields/" + b.Key + ".mdx"
+		slug := b.Slug
+		if slug == "" {
+			slug = b.Key
+		}
+		name := "fields/" + slug + ".mdx"
 		pages[name] = renderBlockPage(b)
 	}
 	return pages, nil

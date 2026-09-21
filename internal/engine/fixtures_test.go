@@ -20,38 +20,40 @@ const (
 // normalised config. Loading it through the real loader is the point: a test
 // that assembles the struct directly can assert on a shape the loader would
 // never produce.
-const engineProject = `
-api_version: onebox.run/v1
-app: sample
-environments:
-  production:
-    server: deploy@h
-workloads:
-  web:
-    role: application
-    image: ghcr.io/x/app:v2
-    health: {http: /healthz, port: 7500, interval: 5s, start_period: 5s, within: 120s}
-  worker:
-    role: worker
-    image: ghcr.io/x/app:v2
-    command: work
-    strategy: recreate
-    drain: {signal: TERM, wait: 1s}
-  migrate:
-    role: job
-    image: ghcr.io/x/app:v2
-    command: migrate
-    deployment_phase: pre_release
-    data_effect: unknown
-services:
-  postgres:
-    driver: postgres
-    version: 17
-deployment:
-  order: [web, worker]
-checks:
-  http:
-    - {workload: web, path: /healthz}
+const engineProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments:
+    production:
+      server: deploy@h
+  workloads:
+    web:
+      role: Application
+      image: ghcr.io/x/app:v2
+      health: {http: /healthz, port: 7500, interval: 5s, startPeriod: 5s, within: 120s}
+    worker:
+      role: Worker
+      image: ghcr.io/x/app:v2
+      command: work
+      strategy: Recreate
+      drain: {signal: TERM, wait: 1s}
+    migrate:
+      role: Job
+      image: ghcr.io/x/app:v2
+      command: migrate
+      deploymentPhase: PreRelease
+      dataEffect: Unknown
+  services:
+    postgres:
+      driver: postgres
+      version: 17
+  deployment:
+    order: [web, worker]
+  checks:
+    http:
+      - {workload: web, path: /healthz}
 `
 
 func testConfig() *app.Resolved {

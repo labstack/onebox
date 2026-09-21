@@ -81,13 +81,15 @@ func TestDeploymentGraphNeverContainsHookBodies(t *testing.T) {
 
 func TestDeploymentGraphOmitsAbsentHooksAndJobs(t *testing.T) {
 	t.Parallel()
-	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@h}}
-workloads:
-  web: {role: application, image: x:1, strategy: rolling, health: {http: /healthz, port: 8080}}
-deployment: {order: [web]}
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1', strategy: Rolling, health: {http: /healthz, port: 8080}}
+  deployment: {order: [web]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -117,23 +119,25 @@ func TestDeploymentClassificationDoesNotOverstateFirstDeployRollback(t *testing.
 }
 
 func operationGraphConfig() *app.Resolved {
-	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: root@h}}
-workloads:
-  web:    {role: application, image: x:1, strategy: rolling, health: {http: /healthz, port: 8080}}
-  worker: {role: worker, image: x:1, strategy: recreate}
-  migrate: {role: job, image: x:1, command: "echo JOB_SECRET", deployment_phase: pre_release, data_effect: migration}
-  assets:  {role: job, image: x:1, deployment_phase: pre_release, data_effect: none}
-  cleanup: {role: job, image: x:1, deployment_phase: post_release, data_effect: none}
-  nightly: {role: job, image: x:1, deployment_phase: none, data_effect: none, schedule: {cron: "0 2 * * *"}}
-deployment:
-  order: [worker, web]
-hooks:
-  pre_release:  {run: "echo PRE_RELEASE_SECRET"}
-  post_release: {run: "echo POST_RELEASE_SECRET"}
-  post_deploy:  {run: "echo POST_DEPLOY_SECRET"}
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web: {role: Application, image: 'x:1', strategy: Rolling, health: {http: /healthz, port: 8080}}
+    worker: {role: Worker, image: 'x:1', strategy: Recreate}
+    migrate: {role: Job, image: 'x:1', command: "echo JOB_SECRET", deploymentPhase: PreRelease, dataEffect: Migration}
+    assets: {role: Job, image: 'x:1', deploymentPhase: PreRelease, dataEffect: None}
+    cleanup: {role: Job, image: 'x:1', deploymentPhase: PostRelease, dataEffect: None}
+    nightly: {role: Job, image: 'x:1', deploymentPhase: None, dataEffect: None, schedule: {cron: "0 2 * * *"}}
+  deployment:
+    order: [worker, web]
+  hooks:
+    PreRelease: {run: "echo PRE_RELEASE_SECRET"}
+    PostRelease: {run: "echo POST_RELEASE_SECRET"}
+    PostDeploy: {run: "echo POST_DEPLOY_SECRET"}
 `), "ob.yml")
 	if err != nil {
 		panic("operation graph fixture does not load: " + err.Error())

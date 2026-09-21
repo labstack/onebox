@@ -48,7 +48,7 @@ one replica.
 
 **`override_not_permitted`** — an environment override touching anything outside
 the permitted set. An environment may override exactly `replicas`, `resources`,
-`env`, `env_files`, `strategy` and `routes`; everything else, `image` and
+`env`, `envFiles`, `strategy` and `routes`; everything else, `image` and
 `command` and `volumes` among them, is refused. It is an allow-list rather than
 a deny-list because the question is not "which fields are dangerous" but "which
 fields can differ while this is still the same application" — a staging
@@ -61,7 +61,7 @@ mechanism to read it. Silently ignoring it would leave you believing it applied.
 **A rolling workload publishing a host port** — two replicas cannot both hold
 `8080` on the host, so the roll would either fail halfway or quietly become a
 recreate. Either give the workload `strategy: recreate`, or drop
-`published_ports` and route to it through the proxy. This one arrives as a plain
+`publishedPorts` and route to it through the proxy. This one arrives as a plain
 `project_invalid` today rather than a dedicated code.
 
 **`host_owner_mismatch`** — a second application trying to mutate a host that

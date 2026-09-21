@@ -314,15 +314,20 @@ func TestStructuredDeployRequiresApprovalArtifactWithoutPrompting(t *testing.T) 
 // failure appears at the consumer rather than here.
 func TestStructuredOutputCarriesNoDiagnostics(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-runtime:
-  env_files: [.env.production]
-image: nginx
-routes:
-  - {hostname: shop.example.com, port: 3000}
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  runtime:
+    envFiles: [.env.production]
+  workloads:
+    shop:
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000}
 `)
 	writeFile(t, dir, ".env.production", "API_TOKEN=super-secret-value\nPUBLIC_MODE=on\n")
 
@@ -347,18 +352,21 @@ routes:
 // publish outlives the terminal it would have scrolled off.
 func TestStructuredOutputCarriesNoPlaintextSecret(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes:
-      - {hostname: shop.example.com, port: 3000}
-    env:
-      API_TOKEN: super-secret-value
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000}
+      env:
+        API_TOKEN: super-secret-value
 `)
 	for _, verb := range []string{"canonical", "preview"} {
 		out, err := run(t, dir, verb, "--output", "json")
@@ -424,11 +432,16 @@ func TestCommandGroupsValidateOutputBeforeRenderingHelp(t *testing.T) {
 func TestEjectStructuredOutputIsVersioned(t *testing.T) {
 	for _, mode := range []string{"json"} {
 		dir := t.TempDir()
-		writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-image: nginx
+		writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  workloads:
+    shop:
+      image: nginx
 `)
 		out, err := run(t, dir, "eject", "--output", mode)
 		if err != nil {
@@ -455,12 +468,15 @@ image: nginx
 
 func TestStructuredReadFailuresEmitTypedSafeRecords(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-workloads:
-  web: {role: application, image: nginx, replicaz: 3}
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  workloads:
+    web: {role: Application, image: nginx, replicaz: 3}
 `)
 	for _, verb := range []string{"validate", "canonical", "preview", "eject"} {
 		out, err := run(t, dir, verb, "--output", "json")
@@ -479,7 +495,7 @@ workloads:
 		if record.SchemaVersion != cliSchemaVersion || record.Command != "ob "+verb || record.Outcome != cliOutcomeError || record.Error == nil {
 			t.Fatalf("%s: incomplete failure record: %+v", verb, record)
 		}
-		if record.Error.Code != "unknown_field" || record.Error.Path != "workloads.web.replicaz" {
+		if record.Error.Code != "unknown_field" || record.Error.Path != "spec.workloads.web.replicaz" {
 			t.Errorf("%s: failure = %+v", verb, record.Error)
 		}
 		if strings.Contains(out, "did you mean") {

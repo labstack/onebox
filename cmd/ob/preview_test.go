@@ -7,19 +7,22 @@ import (
 	"testing"
 )
 
-const previewProject = `api_version: onebox.run/v1
-app: demo
-environments:
-  production: {server: root@1.2.3.4}
-  staging: {server: root@5.6.7.8, overrides: {workloads: {web: {replicas: 1}}}}
-workloads:
-  web:
-    role: application
-    image: nginx:1.27
-    replicas: 3
-    routes:
-      - {hostname: demo.example.com, port: 8080}
-    env: {API_TOKEN: super-secret-value, LOG_LEVEL: info}
+const previewProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments:
+    production: {server: root@1.2.3.4}
+    staging: {server: root@5.6.7.8, overrides: {workloads: {web: {replicas: 1}}}}
+  workloads:
+    web:
+      role: Application
+      image: nginx:1.27
+      replicas: 3
+      routes:
+        - {hostname: demo.example.com, port: 8080}
+      env: {API_TOKEN: super-secret-value, LOG_LEVEL: info}
 `
 
 func TestPreviewRendersAndRedacts(t *testing.T) {
@@ -79,10 +82,13 @@ func TestPreviewAppliesEnvironmentOverrides(t *testing.T) {
 // wrong, where, and what to run.
 func TestPreviewFailureIsActionable(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
-app: demo
-environments: {production: {server: h}}
-workloads: {web: {role: application, build: ., routes: [{hostname: d.example.com, port: 80}]}}
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments: {production: {server: h}}
+  workloads: {web: {role: Application, build: ., routes: [{hostname: d.example.com, port: 80}]}}
 `)
 	out, err := run(t, dir, "preview")
 	if err == nil {
@@ -133,12 +139,15 @@ func dirEntries(t *testing.T, dir string) int {
 func TestEjectPicksAFreeName(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "compose.yaml", "services:\n  db: {image: postgres}\n")
-	writeFile(t, dir, "ob.yml", `api_version: onebox.run/v1
-app: ledger
-environments: {production: {server: root@1.2.3.4}}
-workloads:
-  web: {role: application, image: nginx, routes: [{hostname: d.example.com, port: 80}]}
-  db:  {role: daemon, compose: "compose.yaml#db"}
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments: {production: {server: root@1.2.3.4}}
+  workloads:
+    web: {role: Application, image: nginx, routes: [{hostname: d.example.com, port: 80}]}
+    db: {role: Daemon, compose: "compose.yaml#db"}
 `)
 	out, err := run(t, dir, "eject")
 	if err != nil {

@@ -17,17 +17,17 @@ read_when:
 ```yaml
 workloads:
   nightly-dump:
-    role: job
+    role: Job
     image: postgres:17
     command: ["sh", "-c", "pg_dump \"$POSTGRES_URL\" | gzip > /backups/$(date -u +%F).sql.gz"]
-    data_effect: none
+    dataEffect: None
     needs: [postgres]
     volumes: [{name: backups, path: /backups}]
     schedule:
       cron: "0 2 * * *"
       timezone: Europe/Berlin
       timeout: 45m
-      catch_up: true
+      catchUp: true
 ```
 
 ## It becomes a host timer
@@ -44,7 +44,7 @@ Each run is a systemd oneshot with a wall-time limit. `timeout` defaults to
 `1h`; when it expires, systemd terminates the run and records `timeout` as its
 result. Set a longer duration for jobs that legitimately need it.
 
-`catch_up` defaults to `true`: if the host was off at the scheduled time, the
+`catchUp` defaults to `true`: if the host was off at the scheduled time, the
 timer runs once after it returns. Set it to `false` for time-sensitive work that
 should be skipped rather than run late.
 
@@ -70,8 +70,8 @@ attempt runs inside the same timer firing, under the same locks and the same
 
 Validation refuses a retry whose worst-case backoff is not smaller than the
 timeout, because the last attempt could never start and the record would say
-it did. With `deploy_lock: exclusive` the deploy lock is held through the
-sleeps, so a deploy waits for the run to finish; with `deploy_lock: pinned` the
+it did. With `deployLock: Exclusive` the deploy lock is held through the
+sleeps, so a deploy waits for the run to finish; with `deployLock: Pinned` the
 release lease is held instead and every attempt runs the same release.
 
 ## Deployment coordination is exclusive by default
@@ -97,11 +97,11 @@ For a long-running job that does not change shared data, opt into a pinned
 release instead:
 
 ```yaml
-data_effect: none
+dataEffect: None
 schedule:
   cron: "0 2 * * *"
   timeout: 6h
-  deploy_lock: pinned
+  deployLock: Pinned
 ```
 
 The runner briefly meets deployment under the same scheduling mutex, resolves
@@ -115,8 +115,8 @@ cleanup preserves the leased Compose document, environment files, and
 release-bound mounts until the job exits. `ob status` reports the policy, the
 pinned release, start time, and timeout while it runs.
 
-This is deliberately fail-closed. `deploy_lock: pinned` is accepted only for a
-Onebox-rendered job declaring `data_effect: none`. Migration, destructive,
+This is deliberately fail-closed. `deployLock: Pinned` is accepted only for a
+Onebox-rendered job declaring `dataEffect: None`. Migration, destructive,
 unknown-effect, and adopted-Compose jobs remain exclusive because pinning their
 files cannot prove that a concurrent deployment is safe for the data or
 external files they use. Destroy and every other non-deploy application
@@ -235,7 +235,7 @@ cron minutes into its default one-minute wake-up window.
 
 ## Jobs still declare a data effect
 
-`data_effect` is required on every job, scheduled or not. A nightly report is
+`dataEffect` is required on every job, scheduled or not. A nightly report is
 `none`; a nightly prune is `destructive`. The rollback and abort gates read it,
 and a job that lies about it defeats them.
 
@@ -294,10 +294,10 @@ the job now and override them.
 ```yaml
 workloads:
   source-sync:
-    role: job
+    role: Job
     image: ghcr.io/acme/ingest:1.8.2
     command: ["./ingest", "sync"]
-    data_effect: none
+    dataEffect: None
     inputs:
       SOURCE:
         enum: [catalog, prices, reviews]
@@ -309,7 +309,7 @@ workloads:
         description: Only records changed since this date. Empty means the stored cursor.
     schedule:
       cron: "0 * * * *"
-      deploy_lock: pinned
+      deployLock: Pinned
 ```
 
 ```sh
@@ -332,7 +332,7 @@ operation id, so `ob audit` and `ob job history` join on it. The command follows
 the host-supervised unit by default; `--detach` returns once the unit accepts
 the run.
 
-Only a job with `data_effect: none` accepts inputs. Every operator invocation
+Only a job with `dataEffect: None` accepts inputs. Every operator invocation
 uses a sealed plan; migration jobs additionally retain their approval and
 backup-report gates and remain attached so Onebox can capture result evidence.
 
@@ -356,8 +356,8 @@ observe what started it and will not guess.
 Opt into durable execution when a failed job needs to continue with its original
 inputs. Onebox saves orchestration state on the managed host; the application
 keeps responsibility for domain checkpoints and idempotent effects. This requires
-a native Onebox job with `schedule`, `deployment_phase: none` (the default), and
-`data_effect: none`. Adopted Compose jobs and release-phase jobs are refused.
+a native Onebox job with `schedule`, `deploymentPhase: None` (the default), and
+`dataEffect: None`. Adopted Compose jobs and release-phase jobs are refused.
 
 For one command, add `execution: {retention: 168h}` to the job. Onebox treats the
 job's existing command as one step with ID `main`. An ingestion job that already
@@ -368,9 +368,9 @@ For several ordered commands, declare steps:
 ```yaml
 workloads:
   refresh:
-    role: job
+    role: Job
     image: ghcr.io/acme/catalog:1.8.2
-    data_effect: none
+    dataEffect: None
     schedule:
       cron: "0 * * * *"
       timeout: 45m
@@ -533,13 +533,13 @@ with `ob job history <job>` and `ob job logs <job>`.
 Jobs without `schedule` keep the direct foreground path. Migration jobs also
 stay attached because their result evidence is part of the approved operation.
 
-`ob job plan` accepts a job when `operator_run` is `allowed`. This property is
-independent of deployment: `deployment_phase` decides whether the job runs in
-the deploy graph, while `operator_run` decides whether an operator may invoke
+`ob job plan` accepts a job when `operatorRun` is `allowed`. This property is
+independent of deployment: `deploymentPhase` decides whether the job runs in
+the deploy graph, while `operatorRun` decides whether an operator may invoke
 it. By default, phase `none` allows operator runs; release-phase jobs disable
 them unless explicitly enabled.
 
-A declared `deployment_phase: none` job remains in the digest-pinned release runtime but
+A declared `deploymentPhase: None` job remains in the digest-pinned release runtime but
 never joins the deploy graph. Its job plan binds the current serving release,
 runtime digest, immutable image, data effect, target, and expiry. Automation
 supplies the saved plan and its separately recorded local confirmation;
@@ -561,15 +561,15 @@ The reason is durable metadata, so do not put a secret in it.
 For a job that participates automatically in a deploy, choose a release phase:
 
 ```yaml
-deployment_phase: pre_release
-operator_run: allowed            # optional: also permit ob job plan/run
+deploymentPhase: PreRelease
+operatorRun: allowed            # optional: also permit ob job plan/run
 ```
 
-The three properties are independent. `deployment_phase` controls deploy hooks,
-`schedule` controls timer activation, and `operator_run` controls explicit
-invocation. A job declaring `schedule:` and `deployment_phase: pre_release`
+The three properties are independent. `deploymentPhase` controls deploy hooks,
+`schedule` controls timer activation, and `operatorRun` controls explicit
+invocation. A job declaring `schedule:` and `deploymentPhase: PreRelease`
 runs both at its cron time and on every deploy. For a timer-only job, leave
-`deployment_phase` at `none`; set `operator_run: disabled` too if operators
+`deploymentPhase` at `none`; set `operatorRun: Disabled` too if operators
 must not start it explicitly.
 
 See [`workloads`](/reference/fields/workloads) for every field.

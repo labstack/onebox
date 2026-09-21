@@ -1,0 +1,5 @@
+api_version: onebox.run/v1
+app: shop
+environments:
+  production: {server: deploy@example.com}
+image: nginx:1.27

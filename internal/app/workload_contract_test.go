@@ -54,13 +54,16 @@ func TestSecretInputRevisionsAreScopedByWorkload(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example.test}}
-workloads:
-  api: {role: application, image: example/api, env_files: [{file: api.enc.env, provider: sops}]}
-  worker: {role: worker, image: example/worker, env_files: [{file: worker.enc.env, provider: sops}]}
-deployment: {order: [api, worker]}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example.test}}
+  workloads:
+    api: {role: Application, image: example/api, envFiles: [{file: api.enc.env, provider: Sops}]}
+    worker: {role: Worker, image: example/worker, envFiles: [{file: worker.enc.env, provider: Sops}]}
+  deployment: {order: [api, worker]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -94,12 +97,15 @@ func TestSecretInputRevisionsUseTheProvidedSnapshot(t *testing.T) {
 	if err := os.WriteFile(path, []byte("cipher-before"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	spec, err := LoadBytes([]byte(`api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example.test}}
-workloads:
-  api: {role: application, image: example/api, env_files: [{file: api.enc.env, provider: sops}]}
-deployment: {order: [api]}
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example.test}}
+  workloads:
+    api: {role: Application, image: example/api, envFiles: [{file: api.enc.env, provider: Sops}]}
+  deployment: {order: [api]}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)

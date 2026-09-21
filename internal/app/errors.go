@@ -15,22 +15,22 @@ var errorCodes = map[string]string{
 	// The document could not be read at all.
 	"project_unreadable":          "the project file could not be read",
 	"project_unparsable":          "the project file is not valid YAML, or is not a mapping",
-	"schema_identity_missing":     "the project declares no api_version",
-	"schema_identity_unsupported": "the project declares an api_version this binary does not speak",
+	"schema_identity_missing":     "the Application declares no apiVersion",
+	"schema_identity_unsupported": "the Application declares an apiVersion this binary does not speak",
+	"schema_kind_unsupported":     "the authored resource is not an Application",
 
 	// The document is not what the contract defines.
 	"unknown_field":   "a field the contract does not define",
 	"project_invalid": "a value that does not satisfy the contract",
 
 	// Rules across more than one field.
-	"app_required":                        "the shorthand form needs an application name to attach the workload to",
+	"app_required":                        "metadata.name is required",
 	"no_environment":                      "a project must declare at least one environment",
 	"no_workload":                         "a project must declare at least one workload",
 	"workload_malformed":                  "a workload is not a mapping",
 	"workload_source":                     "a workload declares other than exactly one of build, image or compose",
 	"stateful_replicas":                   "a workload keeping durable state asks for more than one replica",
 	"strategy_ungated":                    "a rolling release is asked for by a workload with no health check to gate it",
-	"shorthand_and_workloads":             "top-level shorthand cannot be combined with a workloads block",
 	"route_collision":                     "two workloads claim the same address",
 	"route_without_proxy":                 "a route is declared with nothing to route it",
 	"identifier_collision":                "a name is used by both a workload and a service",
@@ -86,7 +86,6 @@ var errorCodes = map[string]string{
 	"env_file_missing":            "an environment file the project declares is not on disk",
 	"health_port_unknown":         "an http health check has no port to probe and none can be derived",
 	"connection_variable_claimed": "an authored value claims a name a managed-service connection supplies",
-	"secrets_withdrawn":           "the withdrawn secrets block; environment files carry encrypted entries now",
 	"image_unresolved":            "a build-sourced workload has no resolved image for this release",
 	"render_failed":               "the runtime could not be rendered",
 	"server_unreachable":          "the server could not be reached",

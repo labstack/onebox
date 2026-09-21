@@ -1,10 +1,13 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"strconv"
 	"strings"
+
+	applicationv1alpha1 "github.com/labstack/onebox/api/application/v1alpha1"
 )
 
 // The published schema describes the document an author writes, not the one the
@@ -22,51 +25,144 @@ import (
 
 // SchemaID is both the schema identity and its stable, publicly retrievable
 // location. The main-branch path stays fixed across Onebox releases.
-const SchemaID = "https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json"
+const SchemaID = "https://onebox.run/schemas/application/v1alpha1/application.schema.json"
 
 // JSONSchema is the published contract, ready to write.
 func JSONSchema() ([]byte, error) {
-	defs := map[string]any{}
-	root := schemaFor(reflect.TypeOf(Spec{}), defs)
+	embedded := bytes.TrimSpace(applicationv1alpha1.Schema)
+	return append([]byte(nil), embedded...), nil
+}
 
-	doc := map[string]any{}
-	for k, v := range root {
-		doc[k] = v
-	}
-	doc["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-	doc["$id"] = SchemaID
-	doc["title"] = "Onebox project (onebox.run/v1)"
-	doc["description"] = "One application, its workloads, the services it needs, and how a release rolls out."
+// GenerateJSONSchema derives the public schema from the loader's declarations.
+// It is used only to regenerate and verify the embedded published artifact.
+func GenerateJSONSchema() ([]byte, error) {
+	defs := map[string]any{}
+	spec := schemaFor(reflect.TypeOf(Spec{}), defs)
 
 	// The constraints the loader enforces, so the schema refuses what the
 	// loader refuses. Without these it would describe only the shape, and an
 	// editor would stay silent on a value that fails at deploy time.
 	for _, c := range schemaConstraints {
-		if at := indexPath(doc, c.path); at != nil {
+		if at := indexPath(spec, c.path); at != nil {
 			mergeSchema(at, c.apply)
 		}
 	}
-	applyRoleRules(doc)
+	applyRoleRules(spec)
 
 	// Every form the loader accepts, so an editor does not underline a correct
 	// project. A schema that flags valid work teaches the author to ignore it.
 	for _, form := range authoredForms {
-		replaceAt(doc, form.path, form.alternative, form.note)
+		replaceAt(spec, form.path, form.alternative, form.note)
 	}
+	if props, ok := spec["properties"].(map[string]any); ok {
+		delete(props, "api_version")
+		delete(props, "app")
+	}
+	spec["required"] = []any{"environments", "workloads"}
+	spec = authoredSchema(spec, "")
+	nameSchema := appNameConstraint()
+	mergeSchema(nameSchema, map[string]any{
+		"description": "Stable application name used in generated runtime identities.",
+		"examples":    []any{"shop"},
+	})
 
-	// A single-workload project may write the workload's own fields at the top
-	// level. They are optional there and refused alongside a workloads block,
-	// which the loader enforces and a schema cannot express.
-	if props, ok := doc["properties"].(map[string]any); ok {
-		if workloads, ok := indexPathOK(doc, []string{"workloads", "*"}); ok {
-			if wp, ok := workloads["properties"].(map[string]any); ok {
-				for k, v := range topLevelShorthand(wp) {
-					props[k] = v
+	doc := map[string]any{
+		"$schema":     "https://json-schema.org/draft/2020-12/schema",
+		"$id":         SchemaID,
+		"title":       "Onebox Application (onebox.run/v1alpha1)",
+		"description": "One application, its workloads, the services it needs, and how a release rolls out.",
+		"type":        "object",
+		"properties": map[string]any{
+			"apiVersion": map[string]any{"type": "string", "const": APIVersion, "description": "Authored Application API identity."},
+			"kind":       map[string]any{"type": "string", "const": ApplicationKind, "description": "Authored resource kind."},
+			"metadata": map[string]any{
+				"type":        "object",
+				"description": "Application identity and opaque user metadata.",
+				"properties": map[string]any{
+					"name":        nameSchema,
+					"annotations": map[string]any{"type": "object", "description": "Opaque user metadata that never affects plans or runtime behavior.", "additionalProperties": map[string]any{"type": "string"}},
+				},
+				"required":             []any{"name"},
+				"additionalProperties": false,
+			},
+			"spec": mergeDescription(spec, "Desired Onebox application configuration."),
+		},
+		"required":             []any{"apiVersion", "kind", "metadata", "spec"},
+		"additionalProperties": false,
+	}
+	return json.MarshalIndent(doc, "", "  ")
+}
+
+func mergeDescription(schema map[string]any, description string) map[string]any {
+	schema["description"] = description
+	return schema
+}
+
+func authoredSchema(node map[string]any, field string) map[string]any {
+	out := map[string]any{}
+	for key, value := range node {
+		switch key {
+		case "patternProperties":
+			continue
+		case "properties":
+			props, _ := value.(map[string]any)
+			converted := map[string]any{}
+			for name, child := range props {
+				if schema, ok := child.(map[string]any); ok {
+					converted[lowerCamel(name)] = authoredSchema(schema, name)
+				} else {
+					converted[lowerCamel(name)] = child
 				}
+			}
+			out[key] = converted
+		case "required":
+			items, _ := value.([]any)
+			converted := make([]any, len(items))
+			for i, item := range items {
+				if name, ok := item.(string); ok {
+					converted[i] = lowerCamel(name)
+				} else {
+					converted[i] = item
+				}
+			}
+			out[key] = converted
+		case "enum":
+			items, _ := value.([]any)
+			converted := make([]any, len(items))
+			for i, item := range items {
+				if text, ok := item.(string); ok {
+					converted[i] = publicEnum(field, text)
+				} else {
+					converted[i] = item
+				}
+			}
+			out[key] = converted
+		case "const", "default":
+			if text, ok := value.(string); ok {
+				out[key] = publicEnum(field, text)
+			} else {
+				out[key] = value
+			}
+		default:
+			switch child := value.(type) {
+			case map[string]any:
+				out[key] = authoredSchema(child, field)
+			case []any:
+				items := make([]any, len(child))
+				for i, item := range child {
+					if schema, ok := item.(map[string]any); ok {
+						items[i] = authoredSchema(schema, field)
+					} else {
+						items[i] = item
+					}
+				}
+				out[key] = items
+			default:
+				out[key] = value
 			}
 		}
 	}
-	return json.MarshalIndent(doc, "", "  ")
+	return out
 }
 
 // schemaFor renders one type, registering named object types in $defs so the
@@ -102,11 +198,8 @@ func schemaFor(t reflect.Type, defs map[string]any) map[string]any {
 			props[name] = property
 		}
 		out := map[string]any{
-			"type":       "object",
-			"properties": props,
-			// Extension keys are accepted wherever a mapping is; everything
-			// else is refused, which is the whole point of a closed contract.
-			"patternProperties":    map[string]any{"^x-": map[string]any{}},
+			"type":                 "object",
+			"properties":           props,
 			"additionalProperties": false,
 		}
 		return out
@@ -227,23 +320,6 @@ func commandForms() map[string]any {
 		map[string]any{"type": "string"},
 		map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	}}
-}
-
-// shorthandKeysAtTopLevel are the workload fields a single-workload project may
-// write at the top level instead of a workloads block.
-func topLevelShorthand(workloadProps map[string]any) map[string]any {
-	out := map[string]any{}
-	for _, k := range shorthandKeys {
-		if v, ok := workloadProps[k]; ok {
-			out[k] = v
-		}
-	}
-	return out
-}
-
-func indexPathOK(doc map[string]any, path []string) (map[string]any, bool) {
-	v := indexPath(doc, path)
-	return v, v != nil
 }
 
 func indexPath(doc map[string]any, path []string) map[string]any {
@@ -553,7 +629,7 @@ var schemaConstraints = []struct {
 // declare at all. Both are within a JSON Schema's reach and are exactly the
 // mistakes an editor should catch while the file is still open.
 func applyRoleRules(doc map[string]any) {
-	doc["required"] = []any{"api_version", "environments"}
+	doc["required"] = []any{"environments", "workloads"}
 
 	workload := indexPath(doc, []string{"workloads", "*"})
 	if workload == nil {
@@ -563,25 +639,11 @@ func applyRoleRules(doc map[string]any) {
 	if envs := indexPath(doc, []string{"environments"}); envs != nil {
 		envs["minProperties"] = 1
 	}
-
-	// Shorthand replaces the workloads block; it does not extend it. Writing
-	// both leaves it ambiguous which workload the top-level fields describe.
-	sources := []any{"build", "image", "compose"}
-	doc["not"] = map[string]any{"allOf": []any{
-		map[string]any{"required": []any{"workloads"}},
-		map[string]any{"anyOf": anyRequired(append(append([]any{}, sources...), "port", "health", "routes"))},
-	}}
-
-	// A project must describe something to run: a non-empty workloads block,
-	// or the shorthand that becomes one.
-	doc["anyOf"] = []any{
-		map[string]any{
-			"required":   []any{"workloads"},
-			"properties": map[string]any{"workloads": map[string]any{"minProperties": 1}},
-		},
-		map[string]any{"anyOf": anyRequired(sources)},
+	if workloads := indexPath(doc, []string{"workloads"}); workloads != nil {
+		workloads["minProperties"] = 1
 	}
 
+	sources := []any{"build", "image", "compose"}
 	jobOnly := []any{"deployment_phase", "operator_run", "data_effect", "schedule", "inputs", "execution"}
 	workload["allOf"] = []any{
 		map[string]any{

@@ -23,7 +23,7 @@ func addSchemaCommand(root *cobra.Command, g *globalFlags) {
 	cmd := &cobra.Command{
 		Use:   "schema",
 		Short: "print the JSON Schema for the project file, for editors",
-		Long: "Write the JSON Schema for the `onebox.run/v1` project file.\n\n" +
+		Long: "Write the JSON Schema for the `onebox.run/v1alpha1` Application resource.\n\n" +
 			"Reference it from the first line of a project so an editor can offer\n" +
 			"completion, hover documentation and inline errors:\n\n" +
 			"  # yaml-language-server: $schema=" + app.SchemaID + "\n\n" +
@@ -31,7 +31,7 @@ func addSchemaCommand(root *cobra.Command, g *globalFlags) {
 			"needs when the machine is offline.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			body, err := app.JSONSchema()
+			body, err := app.GenerateJSONSchema()
 			if err != nil {
 				return writeStructuredReadFailure(cmd, g, err)
 			}

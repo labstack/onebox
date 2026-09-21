@@ -1,0 +1,11 @@
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  environments:
+    production: {server: deploy@example.com}
+  workloads:
+    web:
+      role: application
+      image: nginx:1.27
+      data_effect: none

@@ -27,39 +27,41 @@ services:
     image: ghcr.io/example/postgres:` + testSecret + `
 `,
 		"ob.yml": `
-api_version: onebox.run/v1
-app: demo
-environments:
-  production:
-    server: deploy@example.invalid
-    policy:
-      require_approval: true
-      allow_agent_proposals: true
-workloads:
-  web:
-    role: application
-    image: ghcr.io/example/app:v1
-    strategy: rolling
-    health: { http: /healthz, port: 8080 }
-    env: { SECRET_TOKEN: "` + testSecret + `" }
-  database:
-    role: daemon
-    compose: "docker-compose.yaml#database"
-    persistence: { mode: durable }
-    volumes: [{ name: data, path: /var/lib/postgresql/data }]
-deployment:
-  order: [web]
-  retain_releases: 5
-  migration_policy: manual
-runtime:
-  env_files: [app.env]
-hooks:
-  post_deploy: "echo ` + testSecret + `"
-checks:
-  url:
-    - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
-  http:
-    - { workload: web, path: "/private/` + testSecret + `" }
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: demo}
+spec:
+  environments:
+    production:
+      server: deploy@example.invalid
+      policy:
+        requireApproval: true
+        allowAgentProposals: true
+  workloads:
+    web:
+      role: Application
+      image: ghcr.io/example/app:v1
+      strategy: Rolling
+      health: { http: /healthz, port: 8080 }
+      env: { SECRET_TOKEN: "` + testSecret + `" }
+    database:
+      role: Daemon
+      compose: "docker-compose.yaml#database"
+      persistence: { mode: Durable }
+      volumes: [{ name: data, path: /var/lib/postgresql/data }]
+  deployment:
+    order: [web]
+    retainReleases: 5
+    migrationPolicy: Manual
+  runtime:
+    envFiles: [app.env]
+  hooks:
+    PostDeploy: "echo ` + testSecret + `"
+  checks:
+    url:
+      - { url: "https://example.invalid/private/` + testSecret + `?token=` + testSecret + `", advisory: true }
+    http:
+      - { workload: web, path: "/private/` + testSecret + `" }
 `,
 	}
 	for name, body := range files {
@@ -164,13 +166,15 @@ func writeComposeBuildProject(t *testing.T) string {
 	pinnedWeb := "ghcr.io/example/app@sha256:" + strings.Repeat("1", 64)
 	files := map[string]string{
 		"compose.yaml": "services:\n  database:\n    build: .\n    command: [postgres, -c, shared_buffers=256MB]\n",
-		"ob.yml": `api_version: onebox.run/v1
-app: demo
-environments: {production: {server: deploy@example.invalid}}
-workloads:
-  web: {role: application, image: ` + pinnedWeb + `, strategy: recreate}
-  database: {role: daemon, compose: compose.yaml#database}
-deployment: {order: [web, database]}
+		"ob.yml": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata: {name: demo}
+spec:
+  environments: {production: {server: deploy@example.invalid}}
+  workloads:
+    web: {role: Application, image: ` + pinnedWeb + `, strategy: Recreate}
+    database: {role: Daemon, compose: compose.yaml#database}
+  deployment: {order: [web, database]}
 `,
 	}
 	for name, body := range files {
@@ -230,22 +234,25 @@ func TestPlanDeployUsesDeployedSecretGraphDuringTransition(t *testing.T) {
 	project := func(workerSecret bool) string {
 		workerEnv := ""
 		if workerSecret {
-			workerEnv = "\n    env_files: [{file: worker.enc.env, provider: sops}]"
+			workerEnv = "\n      envFiles: [{file: worker.enc.env, provider: Sops}]"
 		}
-		return `api_version: onebox.run/v1
-app: demo
-environments:
-  production: {server: deploy@example.invalid}
-workloads:
-  web:
-    role: application
-    image: ` + imageWeb + `
-    strategy: recreate
-    env_files: [{file: web.enc.env, provider: sops}]
-  worker:
-    role: daemon
-    image: ` + imageWorker + workerEnv + `
-deployment: {order: [web, worker]}
+		return `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: demo
+spec:
+  environments:
+    production: {server: deploy@example.invalid}
+  workloads:
+    web:
+      role: Application
+      image: ` + imageWeb + `
+      strategy: Recreate
+      envFiles: [{file: web.enc.env, provider: Sops}]
+    worker:
+      role: Daemon
+      image: ` + imageWorker + workerEnv + `
+  deployment: {order: [web, worker]}
 `
 	}
 	write("web.enc.env", "WEB_TOKEN=web\n")

@@ -1,40 +1,43 @@
-api_version: onebox.run/v1
-app: goal
-environments:
-  production:
-    server: root@goal.example.com
-    policy: {require_approval: true, allow_agent_proposals: true}
-workloads:
-  server:
-    role: application
-    image: ghcr.io/labstack/goal-server:2026.8.1
-    replicas: 3
-    strategy: rolling
-    routes:
-      - {hostname: goal.fit, port: 7510}
-    health: {http: /healthz, port: 7510, interval: 5s, start_period: 15s, within: 2m, retries: 5}
-    drain: {signal: TERM, grace: 30s}
-    env: {ENVIRONMENT: production, OTEL_SERVICE_NAME: goal-server}
-  database:
-    role: daemon
-    compose: docker-compose.yaml#postgres
-    persistence: {mode: durable}
-  cache:
-    role: daemon
-    compose: docker-compose.yaml#redis
-    persistence: {mode: durable}
-deployment: {order: [server], retain_releases: 5}
-runtime:
-  env_files: [server/.env.production, server/.env.production.secrets]
-  env_checks:
-    - file: server/.env.production.secrets
-      require: [JWT_SECRET, POSTGRES_PASSWORD]
-      present: [RESEND_API_KEY, TWILIO_ACCOUNT_SID, S3_BUCKET, AWS_ACCESS_KEY_ID]
-proxy: {managed: true, config: traefik}
-hooks:
-  bootstrap: {run: 'scripts/bootstrap.sh "$ONEBOX_SERVER"', local: true}
-checks:
-  http:
-    - {workload: server, path: /readyz, port: 7510}
-  url:
-    - {url: "https://goal.fit/healthz"}
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: goal
+spec:
+  environments:
+    production:
+      server: root@goal.example.com
+      policy: {requireApproval: true, allowAgentProposals: true}
+  workloads:
+    server:
+      role: Application
+      image: ghcr.io/labstack/goal-server:2026.8.1
+      replicas: 3
+      strategy: Rolling
+      routes:
+        - {hostname: goal.fit, port: 7510}
+      health: {http: /healthz, port: 7510, interval: 5s, startPeriod: 15s, within: 2m, retries: 5}
+      drain: {signal: TERM, grace: 30s}
+      env: {ENVIRONMENT: production, OTEL_SERVICE_NAME: goal-server}
+    database:
+      role: Daemon
+      compose: docker-compose.yaml#postgres
+      persistence: {mode: Durable}
+    cache:
+      role: Daemon
+      compose: docker-compose.yaml#redis
+      persistence: {mode: Durable}
+  deployment: {order: [server], retainReleases: 5}
+  runtime:
+    envFiles: [server/.env.production, server/.env.production.secrets]
+    envChecks:
+      - file: server/.env.production.secrets
+        require: [JWT_SECRET, POSTGRES_PASSWORD]
+        present: [RESEND_API_KEY, TWILIO_ACCOUNT_SID, S3_BUCKET, AWS_ACCESS_KEY_ID]
+  proxy: {managed: true, config: traefik}
+  hooks:
+    Bootstrap: {run: 'scripts/bootstrap.sh "$ONEBOX_SERVER"', local: true}
+  checks:
+    http:
+      - {workload: server, path: /readyz, port: 7510}
+    url:
+      - {url: "https://goal.fit/healthz"}

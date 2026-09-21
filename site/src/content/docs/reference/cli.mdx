@@ -168,7 +168,7 @@ Global Flags:
 Backup and recovery for the data services this project declares.
 
 Backup is physical: a base backup plus continuous WAL archiving to the
-off-host repository the project's backup_targets name, which is what makes
+off-host repository the project's backupTargets name, which is what makes
 recovery to a point in time possible rather than recovery to last night.
 
 Declaring a policy does not establish it. `ob backup enable` restarts the
@@ -749,10 +749,10 @@ Global Flags:
 ## ob job
 
 ```
-Plan and run one declared `operator_run: allowed` job against the current serving release.
+Plan and run one declared `operatorRun: Allowed` job against the current serving release.
 
-Deployment participation is independent: `deployment_phase` may be none, pre_release,
-or post_release. Saved plans bind the release, runtime digest, immutable image,
+Deployment participation is independent: `deploymentPhase` may be None, PreRelease,
+or PostRelease. Saved plans bind the release, runtime digest, immutable image,
 data effect and inputs so agents can obtain separate approval before execution.
 
 Usage:
@@ -953,7 +953,7 @@ Global Flags:
 ## ob preview
 
 ```
-Load an onebox.run/v1 project, resolve the environment's overrides, and print
+Load a onebox.run/v1alpha1 Application, resolve the environment's overrides, and print
 the Compose runtime Onebox would generate, with its content digest.
 
 Nothing is contacted and nothing is written. Environment values are redacted:
@@ -1190,12 +1190,12 @@ Global Flags:
 ## ob schema
 
 ```
-Write the JSON Schema for the `onebox.run/v1` project file.
+Write the JSON Schema for the `onebox.run/v1alpha1` Application resource.
 
 Reference it from the first line of a project so an editor can offer
 completion, hover documentation and inline errors:
 
-  # yaml-language-server: $schema=https://raw.githubusercontent.com/labstack/onebox/main/docs/onebox.run-v1.schema.json
+  # yaml-language-server: $schema=https://onebox.run/schemas/application/v1alpha1/application.schema.json
 
 Or keep a copy in the repository with --out, which is what an editor
 needs when the machine is offline.

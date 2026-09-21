@@ -1,0 +1,15 @@
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+  annotations:
+    example.com/owner: platform
+spec:
+  environments:
+    production:
+      server: deploy@example.com
+  workloads:
+    web:
+      role: Application
+      image: nginx:1.27
+      strategy: Recreate

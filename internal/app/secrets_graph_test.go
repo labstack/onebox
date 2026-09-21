@@ -7,7 +7,7 @@ import (
 
 func secretGraphProject(t *testing.T, body string) *Resolved {
 	t.Helper()
-	spec, err := LoadBytes([]byte(body), "ob.yml")
+	spec, err := loadFixtureBytes([]byte(body), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,17 +19,19 @@ func secretGraphProject(t *testing.T, body string) *Resolved {
 }
 
 func TestSecretDeclarationGraphCapturesOrderScopeAndAffectedWorkloads(t *testing.T) {
-	resolved := secretGraphProject(t, `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime:
-  env_files:
-    - {file: shared.enc.env, provider: sops}
-    - {file: later.enc.env, provider: sops}
-workloads:
-  web: {role: application, image: nginx}
-  worker: {role: worker, image: nginx}
+	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime:
+    envFiles:
+      - {file: shared.enc.env, provider: Sops}
+      - {file: later.enc.env, provider: Sops}
+  workloads:
+    web: {role: Application, image: nginx}
+    worker: {role: Worker, image: nginx}
 `)
 	graph := resolved.SecretDeclarationGraph()
 	want := []SecretDeclaration{
@@ -42,12 +44,14 @@ workloads:
 }
 
 func TestSecretDeclarationIDsAreStableAndValueFree(t *testing.T) {
-	resolved := secretGraphProject(t, `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime: {env_files: [{file: secrets.enc.env, provider: sops}]}
-workloads: {web: {role: application, image: nginx}}
+	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime: {envFiles: [{file: secrets.enc.env, provider: Sops}]}
+  workloads: {web: {role: Application, image: nginx}}
 `)
 	first := resolved.SecretDeclarationGraph()
 	second := resolved.SecretDeclarationGraph()
@@ -57,17 +61,19 @@ workloads: {web: {role: application, image: nginx}}
 }
 
 func TestSecretDeclarationGraphChangesForEveryRuntimeRelevantDrift(t *testing.T) {
-	base := `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime:
-  env_files:
-    - {file: first.enc.env, provider: sops}
-    - {file: second.enc.env, provider: sops}
-workloads:
-  web: {role: application, image: nginx}
-  worker: {role: worker, image: nginx}
+	base := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime:
+    envFiles:
+      - {file: first.enc.env, provider: Sops}
+      - {file: second.enc.env, provider: Sops}
+  workloads:
+    web: {role: Application, image: nginx}
+    worker: {role: Worker, image: nginx}
 `
 	want := []SecretDeclaration{
 		{ID: "secret_a87617a41c5a", SourceFile: "first.enc.env", Provider: "sops", OutputPath: ".ob-decrypted-sops-first.enc.env", Scope: "runtime-default", Order: 0, AffectedWorkloads: []string{"web", "worker"}},
@@ -80,35 +86,43 @@ workloads:
 		name string
 		body string
 	}{
-		{name: "reordered", body: `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime: {env_files: [{file: second.enc.env, provider: sops}, {file: first.enc.env, provider: sops}]}
-workloads: {web: {role: application, image: nginx}, worker: {role: worker, image: nginx}}
+		{name: "reordered", body: `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime: {envFiles: [{file: second.enc.env, provider: Sops}, {file: first.enc.env, provider: Sops}]}
+  workloads: {web: {role: Application, image: nginx}, worker: {role: Worker, image: nginx}}
 `},
-		{name: "scope changed", body: `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime: {env_files: [{file: first.enc.env, provider: sops}, {file: second.enc.env, provider: sops}]}
-workloads:
-  web: {role: application, image: nginx, env_files: [{file: first.enc.env, provider: sops}, {file: second.enc.env, provider: sops}]}
-  worker: {role: worker, image: nginx}
+		{name: "scope changed", body: `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime: {envFiles: [{file: first.enc.env, provider: Sops}, {file: second.enc.env, provider: Sops}]}
+  workloads:
+    web: {role: Application, image: nginx, envFiles: [{file: first.enc.env, provider: Sops}, {file: second.enc.env, provider: Sops}]}
+    worker: {role: Worker, image: nginx}
 `},
-		{name: "provider removed", body: `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime: {env_files: [first.enc.env, {file: second.enc.env, provider: sops}]}
-workloads: {web: {role: application, image: nginx}, worker: {role: worker, image: nginx}}
+		{name: "provider removed", body: `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime: {envFiles: [first.enc.env, {file: second.enc.env, provider: Sops}]}
+  workloads: {web: {role: Application, image: nginx}, worker: {role: Worker, image: nginx}}
 `},
-		{name: "affected workload removed", body: `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-runtime: {env_files: [{file: first.enc.env, provider: sops}, {file: second.enc.env, provider: sops}]}
-workloads: {web: {role: application, image: nginx}}
+		{name: "affected workload removed", body: `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  runtime: {envFiles: [{file: first.enc.env, provider: Sops}, {file: second.enc.env, provider: Sops}]}
+  workloads: {web: {role: Application, image: nginx}}
 `},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -121,25 +135,27 @@ workloads: {web: {role: application, image: nginx}}
 }
 
 func TestSecretDeclarationGraphIncludesSortedExternalProjection(t *testing.T) {
-	resolved := secretGraphProject(t, `
-api_version: onebox.run/v1
-app: sample
-environments: {production: {server: deploy@example}}
-workloads:
-  web:
-    image: nginx
-    needs:
-      - name: database
-        condition: healthy
-        env: {Z_DATABASE_URL: url, A_DATABASE_URL: url}
-external_services:
-  database:
-    driver: postgres
-    connection:
-      source: {file: secrets/database.env, provider: sops}
-      entries: {url: DATABASE_URL}
-    backup_owner: platform-team/rds
-    probe: {}
+	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@example}}
+  workloads:
+    web:
+      image: nginx
+      needs:
+        - name: database
+          condition: Healthy
+          env: {Z_DATABASE_URL: url, A_DATABASE_URL: url}
+  externalServices:
+    database:
+      driver: postgres
+      connection:
+        source: {file: secrets/database.env, provider: Sops}
+        entries: {url: DATABASE_URL}
+      backupOwner: platform-team/rds
+      probe: {}
 `)
 	want := []SecretDeclaration{{
 		ID: "secret_84b31ed35a16", SourceFile: "secrets/database.env", Provider: "sops",

@@ -28,7 +28,7 @@ Some containers cannot be described by the project schema. Adopt them verbatim:
 ```yaml
 workloads:
   legacy:
-    role: daemon
+    role: Daemon
     compose: docker-compose.yml#legacy
 ```
 
@@ -63,7 +63,7 @@ release behaviour.
 
 The one difference is precedence *inside* the container: the referenced Compose
 service's own `env_file` sits at the bottom of the stack, below the resolved
-`env_files` entries. See [Handle secrets](/guides/handle-secrets).
+`envFiles` entries. See [Handle secrets](/guides/handle-secrets).
 
 ## Migrating away from adoption
 

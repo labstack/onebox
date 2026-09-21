@@ -206,7 +206,7 @@ func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		case strings.Contains(cmd, "ob.snapshot.yml"):
-			return transport.Result{Stdout: strings.Replace(engineProject, "data_effect: unknown", "data_effect: migration", 1)}, true
+			return transport.Result{Stdout: strings.Replace(engineProject, "dataEffect: Unknown", "dataEffect: Migration", 1)}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
@@ -389,17 +389,19 @@ func TestAbortUsesInterruptedExpandOnlyPolicyAfterConfigEdit(t *testing.T) {
 	testAbortReplaysPreviousRelease(t, "changed=unknown", true)
 }
 
-const interruptedWebSnapshot = `
-api_version: onebox.run/v1
-app: sample
-environments: { production: { server: deploy@h } }
-workloads:
-  web:
-    role: application
-    image: ghcr.io/x/app:v2
-    health: {http: /healthz, port: 7500}
-deployment:
-  order: [web]
+const interruptedWebSnapshot = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  environments: {production: {server: deploy@h}}
+  workloads:
+    web:
+      role: Application
+      image: ghcr.io/x/app:v2
+      health: {http: /healthz, port: 7500}
+  deployment:
+    order: [web]
 `
 
 func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {

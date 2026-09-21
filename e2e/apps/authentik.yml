@@ -1,37 +1,36 @@
-# authentik. Bind mounts, a published port, and a worker that shares the
-# application's image — none of which any deployed fixture had, and the bind
-# mount in particular is the one a converted Compose file almost always brings
-# with it.
-api_version: onebox.run/v1
-app: authentik
-environments:
-  production: {server: root@TARGET}
-workloads:
-  server:
-    role: application
-    strategy: recreate
-    image: ghcr.io/goauthentik/server:2025.2.4
-    command: [server]
-    routes:
-      - {hostname: auth.example.com, port: 9000}
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    published_ports: [{host: 9000, container: 9000}]
-    volumes:
-      - {source: /srv/authentik/media, path: /media}
-      - {source: /srv/authentik/templates, path: /templates, mode: ro}
-    env: &authentik_env
-      AUTHENTIK_SECRET_KEY: replace-me-with-a-real-secret
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-    health: {exec: "ak healthcheck", interval: 10s, start_period: 60s, retries: 10}
-  worker:
-    role: worker
-    image: ghcr.io/goauthentik/server:2025.2.4
-    command: [worker]
-    needs: [{name: postgres, condition: healthy}, {name: redis, condition: healthy}]
-    volumes:
-      - {source: /srv/authentik/media, path: /media}
-      - {source: /srv/authentik/certs, path: /certs}
-    env: *authentik_env
-services:
-  postgres: "16"
-  redis: "7.4"
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: authentik
+spec:
+  environments:
+    production: {server: root@TARGET}
+  workloads:
+    server:
+      role: Application
+      strategy: Recreate
+      image: ghcr.io/goauthentik/server:2025.2.4
+      command: [server]
+      routes:
+        - {hostname: auth.example.com, port: 9000}
+      needs: [{name: postgres, condition: Healthy}, {name: redis, condition: Healthy}]
+      publishedPorts: [{host: 9000, container: 9000}]
+      volumes:
+        - {source: /srv/authentik/media, path: /media}
+        - {source: /srv/authentik/templates, path: /templates, mode: Ro}
+      env: &authentik_env
+        AUTHENTIK_SECRET_KEY: replace-me-with-a-real-secret
+        AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      health: {exec: "ak healthcheck", interval: 10s, startPeriod: 60s, retries: 10}
+    worker:
+      role: Worker
+      image: ghcr.io/goauthentik/server:2025.2.4
+      command: [worker]
+      needs: [{name: postgres, condition: Healthy}, {name: redis, condition: Healthy}]
+      volumes:
+        - {source: /srv/authentik/media, path: /media}
+        - {source: /srv/authentik/certs, path: /certs}
+      env: *authentik_env
+  services:
+    postgres: "16"
+    redis: "7.4"

@@ -73,11 +73,11 @@ func TestNoCorpusFailureEscapesTheEnumeration(t *testing.T) {
 		}
 	}
 	for _, c := range conformanceCases() {
-		_, err := LoadBytes([]byte(c.yaml), "ob.yml")
+		_, err := loadFixtureBytes([]byte(c.yaml), "ob.yml")
 		check("conformance/"+c.name, err)
 	}
 	for _, path := range corpusProjects(t) {
-		_, err := LoadBytes([]byte(readFixture(t, path)), path)
+		_, err := loadFixtureBytes([]byte(readFixture(t, path)), path)
 		check("corpus/"+filepath.Base(path), err)
 	}
 }

@@ -6,13 +6,19 @@ import (
 )
 
 func projectWithJump(jump string) string {
-	return "api_version: onebox.run/v1\napp: ledger\n" +
+	return `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  workloads: {}
+` +
 		"environments: {production: {server: root@10.20.0.10, jump: " + jump + "}}\n" +
 		"image: nginx\nroutes: [{hostname: ledger.example.com, port: 8080}]\n"
 }
 
 func TestScalarJumpExpandsToUserHostAndPort(t *testing.T) {
-	resolved, err := LoadBytes([]byte(projectWithJump("deploy@bastion.example.com:2222")), "ob.yml")
+	resolved, err := loadFixtureBytes([]byte(projectWithJump("deploy@bastion.example.com:2222")), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +32,7 @@ func TestScalarJumpExpandsToUserHostAndPort(t *testing.T) {
 }
 
 func TestScalarJumpWithoutUserOrPortKeepsThoseImplicit(t *testing.T) {
-	resolved, err := LoadBytes([]byte(projectWithJump("bastion.example.com")), "ob.yml")
+	resolved, err := loadFixtureBytes([]byte(projectWithJump("bastion.example.com")), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +43,7 @@ func TestScalarJumpWithoutUserOrPortKeepsThoseImplicit(t *testing.T) {
 }
 
 func TestObjectJumpDecodes(t *testing.T) {
-	resolved, err := LoadBytes([]byte(projectWithJump("{host: bastion.example.com, user: deploy, port: 2222}")), "ob.yml")
+	resolved, err := loadFixtureBytes([]byte(projectWithJump("{host: bastion.example.com, user: deploy, port: 2222}")), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +54,7 @@ func TestObjectJumpDecodes(t *testing.T) {
 }
 
 func TestAbsentJumpLeavesTheEnvironmentDirect(t *testing.T) {
-	resolved, err := LoadBytes([]byte(min), "ob.yml")
+	resolved, err := loadFixtureBytes([]byte(min), "ob.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +82,7 @@ func TestInvalidJumpIsRejectedAtLoad(t *testing.T) {
 	}
 	for name, jump := range invalid {
 		t.Run(name, func(t *testing.T) {
-			_, err := LoadBytes([]byte(projectWithJump(jump)), "ob.yml")
+			_, err := loadFixtureBytes([]byte(projectWithJump(jump)), "ob.yml")
 			if err == nil {
 				t.Fatalf("jump %q was accepted", jump)
 			}
@@ -102,7 +108,7 @@ func TestIPv6JumpIsAcceptedInBothForms(t *testing.T) {
 	}
 	for name, form := range forms {
 		t.Run(name, func(t *testing.T) {
-			resolved, err := LoadBytes([]byte(projectWithJump(form)), "ob.yml")
+			resolved, err := loadFixtureBytes([]byte(projectWithJump(form)), "ob.yml")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -116,7 +122,7 @@ func TestIPv6JumpIsAcceptedInBothForms(t *testing.T) {
 func TestIPv6JumpRoutesWithBracketsOnlyWhenAPortIsWritten(t *testing.T) {
 	route := func(form string) string {
 		t.Helper()
-		resolved, err := LoadBytes([]byte(projectWithJump(form)), "ob.yml")
+		resolved, err := loadFixtureBytes([]byte(projectWithJump(form)), "ob.yml")
 		if err != nil {
 			t.Fatal(err)
 		}

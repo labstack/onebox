@@ -18,36 +18,27 @@ import (
 // with it. Adding a field to the model is the only way to make it acceptable,
 // and removing one is the only way to make it rejected.
 //
-// The walk runs over the document after shorthand expansion, so it sees the
-// same normalised shape the model describes.
+// The authored walk sees the public lowerCamelCase vocabulary directly.
 
-// checkShape refuses any field the model does not define, naming the field, the
-// line it was written on, and the defined name it is closest to.
-func checkShape(raw map[string]any, lines map[string]int) error {
-	return walkShape(reflect.TypeOf(Spec{}), raw, "", lines)
+func checkAuthoredShape(raw map[string]any, lines map[string]int) error {
+	return walkAuthoredShape(reflect.TypeOf(Application{}), raw, "", lines)
 }
 
-func walkShape(t reflect.Type, value any, path string, lines map[string]int) error {
+func walkAuthoredShape(t reflect.Type, value any, path string, lines map[string]int) error {
 	t = deref(t)
-
 	switch t.Kind() {
 	case reflect.Struct:
 		body, ok := value.(map[string]any)
 		if !ok {
-			return nil // a scalar where a mapping is expected is the decoder's to report
+			return nil
 		}
-		allowed := fieldsOf(t)
+		allowed := authoredFieldsOf(t)
 		for _, key := range sortedKeys(body) {
-			// Extension keys are accepted wherever a mapping is, and carry no
-			// meaning; the contract promises they never affect the runtime.
-			if strings.HasPrefix(key, "x-") {
-				continue
-			}
 			field, known := allowed[key]
 			if !known {
 				return unknownField(path, key, allowed, lines)
 			}
-			if err := walkShape(field.Type, body[key], join2(path, key), lines); err != nil {
+			if err := walkAuthoredShape(field.Type, body[key], join2(path, key), lines); err != nil {
 				return err
 			}
 		}
@@ -57,7 +48,7 @@ func walkShape(t reflect.Type, value any, path string, lines map[string]int) err
 			return nil
 		}
 		for _, key := range sortedKeys(body) {
-			if err := walkShape(t.Elem(), body[key], join2(path, key), lines); err != nil {
+			if err := walkAuthoredShape(t.Elem(), body[key], join2(path, key), lines); err != nil {
 				return err
 			}
 		}
@@ -67,7 +58,7 @@ func walkShape(t reflect.Type, value any, path string, lines map[string]int) err
 			return nil
 		}
 		for i, item := range items {
-			if err := walkShape(t.Elem(), item, fmt.Sprintf("%s[%d]", path, i), lines); err != nil {
+			if err := walkAuthoredShape(t.Elem(), item, fmt.Sprintf("%s[%d]", path, i), lines); err != nil {
 				return err
 			}
 		}

@@ -128,7 +128,7 @@ A workload that declares `needs` receives `<SERVICE>_URL` and its parts:
 ```yaml
 workloads:
   web:
-    role: application
+    role: Application
     image: ghcr.io/acme/shop:1.4.0
     needs:
       - {name: postgres, condition: healthy}
@@ -142,7 +142,7 @@ services:
 ```yaml
 workloads:
   n8n:
-    role: application
+    role: Application
     image: docker.n8n.io/n8nio/n8n:1.70.0
     needs:
       - name: postgres

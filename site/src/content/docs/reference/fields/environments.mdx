@@ -23,33 +23,33 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`allow_agent_proposals` · `backup_key_material` · `backup_max_age` · `base_path` · `env_files` · `file` · `host` · `jump` · `migrations` · `min_onebox_version` · `min_plan_schema` · `overrides` · `policy` · `port` · `provider` · `require_approval` · `require_backup` · `require_restore_test` · `server` · `services` · `user` · `workloads`
+`allowAgentProposals` · `backupKeyMaterial` · `backupMaxAge` · `basePath` · `envFiles` · `file` · `host` · `jump` · `migrations` · `minOneboxVersion` · `minPlanSchema` · `overrides` · `policy` · `port` · `provider` · `requireApproval` · `requireBackup` · `requireRestoreTest` · `server` · `services` · `user` · `workloads`
 
 ## Reference
 
 | Field | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `<name>.base_path` | string | — | Environment-specific replacement for the project base_path. Expects an absolute path with no control character or shell metacharacter. |
-| `<name>.env_files` | list | — | Default ordered environment-file list for application, worker, and job workloads in this environment. |
-| `<name>.env_files[].file` `*` | string | — | Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter. |
-| `<name>.env_files[].provider` | `sops` | — | Decryptor used before staging the file. The supported encrypted provider is sops. |
+| `<name>.basePath` | string | — | Environment-specific replacement for the Application basePath. Expects an absolute path with no control character or shell metacharacter. |
+| `<name>.envFiles` | list | — | Default ordered environment-file list for application, worker, and job workloads in this environment. |
+| `<name>.envFiles[].file` `*` | string | — | Repository-relative environment file path. Expects a path inside the repository, with no control character or shell metacharacter. |
+| `<name>.envFiles[].provider` | `Sops` | — | Decryptor used before staging the file. The supported encrypted provider is sops. |
 | `<name>.jump` | object | — | Optional SSH jump host tunnelling the connection to this server, written as user@host or as an object with host, user, and port. Onebox verifies and authenticates both hops and never forwards the SSH agent. Also accepts user@host or user@host:port. |
 | `<name>.jump.host` | string | — | Jump host name or IP address. |
 | `<name>.jump.port` | integer | — | SSH port on the jump host. The SSH default is used when omitted. |
 | `<name>.jump.user` | string | — | SSH user on the jump host. $USER is used when omitted; ob does not read ~/.ssh/config. |
 | `<name>.overrides` | object | — | Environment-specific operational tuning. Overrides cannot change workload identity or data semantics. |
 | `<name>.overrides.services` | map | — | Allowed service tuning keyed by service name: resources and settings. |
-| `<name>.overrides.workloads` | map | — | Allowed workload tuning keyed by workload name: replicas, resources, env, env_files, strategy, and routes. |
+| `<name>.overrides.workloads` | map | — | Allowed workload tuning keyed by workload name: replicas, resources, env, envFiles, strategy, and routes. |
 | `<name>.policy` | object | — | Approval, runner compatibility, and migration-backup requirements for this environment. |
-| `<name>.policy.allow_agent_proposals` | boolean | `true` | Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated. |
+| `<name>.policy.allowAgentProposals` | boolean | `true` | Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated. |
 | `<name>.policy.migrations` | object | — | What this environment requires of a release carrying migration risk. |
-| `<name>.policy.migrations.backup_key_material` | list | — | Key-material identities the backup report must name. |
-| `<name>.policy.migrations.backup_max_age` | string | `24h` | Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d. |
-| `<name>.policy.migrations.require_backup` | boolean | `false` | Require a plan-bound backup report before a release with migration risk. |
-| `<name>.policy.migrations.require_restore_test` | boolean | `false` | Require the backup report to state that a restore test succeeded. |
-| `<name>.policy.min_onebox_version` | string | — | Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.8.0. |
-| `<name>.policy.min_plan_schema` | string | — | Oldest executable plan schema accepted by this environment. Expects a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2. |
-| `<name>.policy.require_approval` | boolean | `true` | Require a plan-bound local confirmation before mutating this environment. |
+| `<name>.policy.migrations.backupKeyMaterial` | list | — | Key-material identities the backup report must name. |
+| `<name>.policy.migrations.backupMaxAge` | string | `24h` | Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d. |
+| `<name>.policy.migrations.requireBackup` | boolean | `false` | Require a plan-bound backup report before a release with migration risk. |
+| `<name>.policy.migrations.requireRestoreTest` | boolean | `false` | Require the backup report to state that a restore test succeeded. |
+| `<name>.policy.minOneboxVersion` | string | — | Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.8.0. |
+| `<name>.policy.minPlanSchema` | string | — | Oldest executable plan schema accepted by this environment. Expects a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2. |
+| `<name>.policy.requireApproval` | boolean | `true` | Require a plan-bound local confirmation before mutating this environment. |
 | `<name>.server` | object | — | SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host. |
 | `<name>.server.host` | string | — | SSH hostname or IP address. |
 | `<name>.server.port` | integer | — | SSH port. The SSH default is used when omitted. |

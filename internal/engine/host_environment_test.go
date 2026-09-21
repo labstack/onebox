@@ -113,15 +113,17 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 // base_path override — and would have compared an empty environment against the
 // host owner record.
 func TestEnvironmentSelectsTheBasePath(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`
-api_version: onebox.run/v1
-app: sample
-base_path: /var/lib/ob
-environments:
-  production: {server: root@h}
-  staging: {server: root@h2, base_path: /srv/staging}
-workloads:
-  web: {role: application, image: x:1}
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: sample
+spec:
+  basePath: /var/lib/ob
+  environments:
+    production: {server: root@h}
+    staging: {server: root@h2, basePath: /srv/staging}
+  workloads:
+    web: {role: Application, image: 'x:1'}
 `), "ob.yml")
 	if err != nil {
 		t.Fatal(err)

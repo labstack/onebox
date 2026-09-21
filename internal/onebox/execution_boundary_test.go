@@ -851,7 +851,7 @@ func TestExecuteRejectsRelocatedBasePathBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	moved := strings.Replace(string(source), "app: demo\n", "app: demo\nbase_path: /srv/onebox\n", 1)
+	moved := strings.Replace(string(source), "spec:\n", "spec:\n  basePath: /srv/onebox\n", 1)
 	if err := os.WriteFile(svc.configPath, []byte(moved), 0o600); err != nil {
 		t.Fatal(err)
 	}

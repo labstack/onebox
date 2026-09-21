@@ -55,29 +55,32 @@ func listFor(t *testing.T, r *Resolved, workload string) []string {
 	return out
 }
 
-const envModelBody = `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-  staging:
-    server: root@203.0.113.20
-    env_files: [.env.staging]
-    overrides:
-      workloads:
-        db: {env_files: [.env.staging]}
-        mixed: {env_files: [.env.staging]}
-        silent: {env_files: []}
-        quiet: {replicas: 2}
-runtime:
-  env_files: [.env]
-workloads:
-  web:    {role: application, image: nginx, routes: [{hostname: s.example.com, port: 3000}]}
-  cron:   {role: job, image: nginx, command: ["true"], data_effect: none}
-  quiet:  {role: worker, image: nginx, env_files: []}
-  own:    {role: worker, image: nginx, env_files: [.env.own]}
-  mixed:  {role: worker, image: nginx, env_files: [.env.own]}
-  silent: {role: worker, image: nginx, env_files: [.env.own]}
-  db:     {role: daemon, image: postgres:16}
+const envModelBody = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+    staging:
+      server: root@203.0.113.20
+      envFiles: [.env.staging]
+      overrides:
+        workloads:
+          db: {envFiles: [.env.staging]}
+          mixed: {envFiles: [.env.staging]}
+          silent: {envFiles: []}
+          quiet: {replicas: 2}
+  runtime:
+    envFiles: [.env]
+  workloads:
+    web: {role: Application, image: nginx, routes: [{hostname: s.example.com, port: 3000}]}
+    cron: {role: Job, image: nginx, command: ["true"], dataEffect: None}
+    quiet: {role: Worker, image: nginx, envFiles: []}
+    own: {role: Worker, image: nginx, envFiles: [.env.own]}
+    mixed: {role: Worker, image: nginx, envFiles: [.env.own]}
+    silent: {role: Worker, image: nginx, envFiles: [.env.own]}
+    db: {role: Daemon, image: 'postgres:16'}
 `
 
 var envModelFiles = map[string]string{".env": "A=1\n", ".env.staging": "B=2\n", ".env.own": "C=3\n"}
@@ -136,46 +139,46 @@ func TestTwoEntriesNeverShareAStagedFile(t *testing.T) {
 	}
 }
 
-// The withdrawn block is refused with direction, not as an unknown field.
-func TestTheWithdrawnSecretsBlockIsRefusedWithDirection(t *testing.T) {
-	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-image: nginx
-secrets: {production: s.yaml}
+// The withdrawn block has no alias in the reset contract.
+func TestTheWithdrawnSecretsBlockIsUnknown(t *testing.T) {
+	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  secrets: {production: s.yaml}
+  workloads:
+    shop:
+      image: nginx
 `, nil))
 	if err == nil {
 		t.Fatal("the withdrawn block must be refused")
 	}
 	var e *Error
-	if !asError(err, &e) || e.Code != "secrets_withdrawn" {
-		t.Fatalf("want secrets_withdrawn, got %v", err)
-	}
-	// The replacement shape belongs in the message. Next is published as a safe
-	// command an agent may run, so a YAML fragment there would be executed.
-	if !strings.Contains(e.Message, "provider: sops") {
-		t.Errorf("the refusal must name the replacement form: %q", e.Message)
-	}
-	if !strings.HasPrefix(e.Next, "ob ") {
-		t.Errorf("Next must be a runnable command, got %q", e.Next)
+	if !asError(err, &e) || e.Code != "unknown_field" {
+		t.Fatalf("want unknown_field, got %v", err)
 	}
 }
 
 // An authored value may not claim a name a connection supplies.
 func TestAuthoredValuesCannotClaimAConnectionVariable(t *testing.T) {
-	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes:
-      - {hostname: s.example.com, port: 3000}
-    needs: [postgres]
-    env: {POSTGRES_PASSWORD: mine}
-services:
-  postgres: 17
+	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes:
+        - {hostname: s.example.com, port: 3000}
+      needs: [postgres]
+      env: {POSTGRES_PASSWORD: mine}
+  services:
+    postgres: 17
 `, nil))
 	if err == nil {
 		t.Fatal("an inline env claiming a connection variable must be refused")
@@ -189,20 +192,23 @@ services:
 // A compose-sourced application receives what an image-sourced one receives,
 // and ejecting then generating does not duplicate the projection.
 func TestComposeSourcedWorkloadsAreNotASpecialCase(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-runtime:
-  env_files: [.env]
-workloads:
-  legacy:
-    role: application
-    compose: legacy.yml#legacy
-    routes:
-      - {hostname: s.example.com, port: 80}
-  web:
-    role: worker
-    image: nginx
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  runtime:
+    envFiles: [.env]
+  workloads:
+    legacy:
+      role: Application
+      compose: legacy.yml#legacy
+      routes:
+        - {hostname: s.example.com, port: 80}
+    web:
+      role: Worker
+      image: nginx
 `, map[string]string{
 		".env":       "A=1\n",
 		"legacy.yml": "services:\n  legacy:\n    image: nginx\n    env_file: [own.env]\n",
@@ -243,13 +249,18 @@ workloads:
 // rolling release waited out its entire budget and then reported the container
 // unhealthy, naming the container and saying nothing about the port.
 func TestAnHTTPProbeInheritsTheRoutedPort(t *testing.T) {
-	r := resolvedFor(t, envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-image: nginx
-routes:
-  - {hostname: s.example.com, port: 3000}
-health: /healthz
+	r := resolvedFor(t, envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    shop:
+      image: nginx
+      health: /healthz
+      routes:
+        - {hostname: s.example.com, port: 3000}
 `, nil), "production")
 	if got := r.Spec.Workloads["shop"].Health.Port; got != 3000 {
 		t.Fatalf("probe port = %d, want the routed port 3000", got)
@@ -270,14 +281,19 @@ health: /healthz
 // a contract treating "how it is stored" as "who may see it" would let the
 // commoner form leak.
 func TestNoEntryValueReachesAnArtifact(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-runtime:
-  env_files: [.env]
-image: nginx
-routes:
-  - {hostname: s.example.com, port: 3000}
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  runtime:
+    envFiles: [.env]
+  workloads:
+    shop:
+      image: nginx
+      routes:
+        - {hostname: s.example.com, port: 3000}
 `, map[string]string{".env": "API_TOKEN=super-secret-value\n"})
 
 	r := resolvedFor(t, path, "production")
@@ -310,14 +326,17 @@ routes:
 // rolling release waits out in full before reporting the container unhealthy
 // without naming a port.
 func TestAProbeWithNoPortIsRefused(t *testing.T) {
-	_, err := Load(envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-workloads:
-  worker:
-    role: worker
-    image: nginx
-    health: /healthz
+	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  workloads:
+    worker:
+      role: Worker
+      image: nginx
+      health: /healthz
 `, nil))
 	if err == nil {
 		t.Fatal("a probe with no port to probe must be refused")
@@ -349,17 +368,20 @@ func composeServiceEnvFiles(t *testing.T, runtime []byte, service string) []stri
 // adds. Both halves were unguarded — deleting the projection outright left the
 // suite green.
 func TestTheProjectionAppendsAndPreservesOrder(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-runtime:
-  env_files: [.env.one, .env.two]
-workloads:
-  legacy:
-    role: application
-    compose: legacy.yml#legacy
-    routes:
-      - {hostname: s.example.com, port: 80}
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  runtime:
+    envFiles: [.env.one, .env.two]
+  workloads:
+    legacy:
+      role: Application
+      compose: legacy.yml#legacy
+      routes:
+        - {hostname: s.example.com, port: 80}
 `, map[string]string{
 		".env.one":   "A=1\n",
 		".env.two":   "B=2\n",
@@ -387,20 +409,23 @@ workloads:
 // cannot be shadowed by one. Emitting them in the other order passed every
 // test.
 func TestConnectionFilesComeAfterDeclaredEntries(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-runtime:
-  env_files: [.env]
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes:
-      - {hostname: s.example.com, port: 3000}
-    needs: [postgres]
-services:
-  postgres: 17
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  runtime:
+    envFiles: [.env]
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes:
+        - {hostname: s.example.com, port: 3000}
+      needs: [postgres]
+  services:
+    postgres: 17
 `, map[string]string{".env": "A=1\n"})
 	r := resolvedFor(t, path, "production")
 	rendered, err := r.Render("production", "R1", nil)
@@ -420,18 +445,21 @@ services:
 // half was tested; this half is a scenario stated twice in the contract and had
 // no test — making the check unconditionally return nil passed everything.
 func TestAReferencedServiceCannotClaimAConnectionVariable(t *testing.T) {
-	_, err := resolvedForErr(t, envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-workloads:
-  legacy:
-    role: application
-    compose: legacy.yml#legacy
-    routes:
-      - {hostname: s.example.com, port: 80}
-    needs: [postgres]
-services:
-  postgres: 17
+	_, err := resolvedForErr(t, envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    legacy:
+      role: Application
+      compose: legacy.yml#legacy
+      routes:
+        - {hostname: s.example.com, port: 80}
+      needs: [postgres]
+  services:
+    postgres: 17
 `, map[string]string{
 		"legacy.yml": "services:\n  legacy:\n    image: nginx\n    environment:\n      POSTGRES_PASSWORD: mine\n",
 	}))
@@ -469,15 +497,20 @@ func resolvedForErr(t *testing.T, path string) ([]byte, error) {
 // asked for interpolation. Stopping a correct project from loading is a worse
 // failure than the one it would prevent.
 func TestAnEncryptedEntryDoesNotBlockAProjectThatNeedsNoInterpolation(t *testing.T) {
-	path := envModelProject(t, `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@203.0.113.10}}
-runtime:
-  env_files: [{file: s.enc, provider: sops}]
-image: nginx
-routes:
-  - {hostname: s.example.com, port: 3000}
-health: {http: /healthz, port: 3000}
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  runtime:
+    envFiles: [{file: s.enc, provider: Sops}]
+  workloads:
+    shop:
+      image: nginx
+      health: {http: /healthz, port: 3000}
+      routes:
+        - {hostname: s.example.com, port: 3000}
 `, map[string]string{"s.enc": "A=1\n"})
 	// Through the function the callers use. `Load` does not reach it, so a test
 	// that only loads would pass while the behaviour this names is broken.
@@ -547,13 +580,16 @@ func TestAnOverrideDeclaringNoneIsPreserved(t *testing.T) {
 // after the release is staged and the old one is coming down. The name is in
 // the document; there is no reason to find out there.
 func TestAnEntryNamingAMissingFileIsRefused(t *testing.T) {
-	body := `api_version: onebox.run/v1
-app: shop
-environments: {production: {server: root@h}}
-runtime:
-  env_files: [.env.absent]
-workloads:
-  web: {image: nginx, routes: [{hostname: s.example.com, port: 3000}]}
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@h}}
+  runtime:
+    envFiles: [.env.absent]
+  workloads:
+    web: {image: nginx, routes: [{hostname: s.example.com, port: 3000}]}
 `
 	_, err := Load(envModelProject(t, body, nil))
 	if err == nil {

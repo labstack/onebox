@@ -7,20 +7,21 @@ import (
 	"testing"
 )
 
-const ejectProject = `# Ledger's production contract.
-api_version: onebox.run/v1
-app: ledger
-
-environments:
-  # The only host that matters.
-  production: {server: root@1.2.3.4}
-
-workloads:
-  web:
-    role: application
-    image: nginx:1.27   # pinned deliberately
-    routes:
-      - {hostname: ledger.example.com, port: 8080}
+const ejectProject = `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  # Ledger's production contract.
+  name: ledger
+spec:
+  environments:
+    # The only host that matters.
+    production: {server: root@1.2.3.4}
+  workloads:
+    web:
+      role: Application
+      image: nginx:1.27 # pinned deliberately
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
 `
 
 func ejectInto(t *testing.T, body string) (dir string, res *EjectResult) {
@@ -190,18 +191,21 @@ func TestEjectCarriesTheAuthorsNote(t *testing.T) {
 // shaped by the file. Leaving a health check or a volume in the project would
 // let someone edit it, see no effect, and get no error.
 func TestEjectRemovesWhatTheComposeFileNowOwns(t *testing.T) {
-	dir, _ := ejectInto(t, `api_version: onebox.run/v1
-app: ledger
-environments: {production: {server: root@1.2.3.4}}
-workloads:
-  web:
-    role: application
-    image: nginx
-    routes:
-      - {hostname: ledger.example.com, port: 8080}
-    health: {http: /healthz, port: 8080}
-    volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
-    env: {LOG_LEVEL: info}
+	dir, _ := ejectInto(t, `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments: {production: {server: root@1.2.3.4}}
+  workloads:
+    web:
+      role: Application
+      image: nginx
+      routes:
+        - {hostname: ledger.example.com, port: 8080}
+      health: {http: /healthz, port: 8080}
+      volumes: [{name: uploads, path: /var/lib/ledger/uploads}]
+      env: {LOG_LEVEL: info}
 `)
 	body, _ := os.ReadFile(filepath.Join(dir, "ob.yml"))
 	out := string(body)
@@ -211,7 +215,7 @@ workloads:
 		}
 	}
 	// What the overlay still derives must stay.
-	for _, kept := range []string{"role: application", "hostname:", "port:", "compose:"} {
+	for _, kept := range []string{"role: Application", "hostname:", "port:", "compose:"} {
 		if !strings.Contains(out, kept) {
 			t.Errorf("%q should have been kept\n%s", kept, out)
 		}
@@ -224,12 +228,15 @@ workloads:
 func TestEjectDefaultAvoidsAReferencedFile(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  db: {image: postgres}\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`api_version: onebox.run/v1
-app: ledger
-environments: {production: {server: root@1.2.3.4}}
-workloads:
-  web: {role: application, image: nginx, routes: [{hostname: d.example.com, port: 80}]}
-  db:  {role: daemon, compose: "compose.yaml#db"}
+	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: ledger
+spec:
+  environments: {production: {server: root@1.2.3.4}}
+  workloads:
+    web: {role: Application, image: nginx, routes: [{hostname: d.example.com, port: 80}]}
+    db: {role: Daemon, compose: "compose.yaml#db"}
 `), 0o600)
 
 	p, err := Load(filepath.Join(dir, "ob.yml"))
@@ -260,12 +267,15 @@ workloads:
 func TestEjectAfterAnInterruptionCompletes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `api_version: onebox.run/v1
-app: shop
-environments:
-  production: {server: root@203.0.113.10}
-workloads:
-  web: {role: application, image: nginx, routes: [{hostname: shop.example.com, port: 3000}]}
+	body := `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production: {server: root@203.0.113.10}
+  workloads:
+    web: {role: Application, image: nginx, routes: [{hostname: shop.example.com, port: 3000}]}
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

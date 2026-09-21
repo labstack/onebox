@@ -58,7 +58,7 @@ export const GET: APIRoute = async ({ site }) => {
     "",
     `- [Markdown page export](${origin}/start/first-deploy.md): Append \`.md\` to any docs page URL for clean Markdown.`,
     `- [Full documentation text](${origin}/llms-full.txt): Every page concatenated, for one-shot ingestion.`,
-    `- [Project file JSON Schema](${origin}/onebox.run-v1.schema.json): The machine contract the loader enforces.`,
+    `- [Project file JSON Schema](${origin}/schemas/application/v1alpha1/application.schema.json): The machine contract the loader enforces.`,
     `- [Sitemap](${origin}/sitemap-index.xml): Crawler URL index.`,
     "",
     "## Operating Onebox from an agent",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,5 +344,37 @@ func TestEnsureProxyReleasesHostLock(t *testing.T) {
 	_ = e.EnsureProxy(context.Background(), "R6", false)
 	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/onebox/_host/lock'") {
 		t.Fatalf("host lock must be released on error:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
+// The host journal ages out by name, in one command, whatever its files hold:
+// a torn record must not stop pruning for the life of the host.
+func TestHostJournalPrunesOldestFilesInOneCommand(t *testing.T) {
+	var listed []string
+	for i := 0; i < 25; i++ {
+		listed = append(listed, fmt.Sprintf("20260901-1200%02d-nogit-proxy.jsonl", i))
+	}
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.HasPrefix(cmd, "ls -1 ") {
+			return transport.Result{Stdout: strings.Join(listed, "\n") + "\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	cfg := testConfig()
+	cfg.Deployment.RetainReleases = 10
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	e.hostLockVal = "test-host-lock"
+	e.pruneHostJournal(context.Background())
+	var removals []string
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "rm -f") {
+			removals = append(removals, cmd)
+		}
+	}
+	if len(removals) != 1 {
+		t.Fatalf("pruning took %d removal commands, want 1: %v", len(removals), removals)
+	}
+	if !strings.Contains(removals[0], "20260901-120004-nogit-proxy.jsonl") || strings.Contains(removals[0], "20260901-120005-nogit-proxy.jsonl") {
+		t.Fatalf("pruned the wrong files: %s", removals[0])
 	}
 }

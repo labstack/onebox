@@ -75,20 +75,20 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 		want   hostOwner
 		ok     bool
 	}{
-		{"sample production", hostOwner{App: "sample", Environment: "production"}, true},
+		{"sample production", hostOwner{Application: "sample", Environment: "production"}, true},
 		{"sample", hostOwner{}, false},
-		{"  sample   production  ", hostOwner{App: "sample", Environment: "production"}, true},
+		{"  sample   production  ", hostOwner{Application: "sample", Environment: "production"}, true},
 		{"", hostOwner{}, false},
 		{"sample production extra", hostOwner{}, false},
 		{"Sample production", hostOwner{}, false},
 		{"sample Production", hostOwner{}, false},
 	} {
-		got, ok := parseHostOwner(tc.record)
+		got, ok := app.ParseHostOwnerRecord(tc.record)
 		if ok != tc.ok || got != tc.want {
-			t.Fatalf("parseHostOwner(%q) = %+v,%v want %+v,%v", tc.record, got, ok, tc.want, tc.ok)
+			t.Fatalf("ParseHostOwnerRecord(%q) = %+v,%v want %+v,%v", tc.record, got, ok, tc.want, tc.ok)
 		}
-		if ok && got.record() != strings.Join(strings.Fields(tc.record), " ") {
-			t.Fatalf("record() = %q, does not round-trip %q", got.record(), tc.record)
+		if ok && got.String() != strings.Join(strings.Fields(tc.record), " ") {
+			t.Fatalf("String() = %q, does not round-trip %q", got.String(), tc.record)
 		}
 	}
 }

@@ -233,24 +233,32 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 
 // pruneHostJournal keeps the host journal to the application journal's window.
 // Every proxy check writes to it — an unchanged proxy included — so it runs on
-// every one, after the finish record. It is housekeeping: a failure is reported
-// and never turns an applied proxy into a failed one.
+// every one, after the finish record. The host journal holds only proxy
+// applies, which nothing recovers from, so it keeps the newest files by name
+// and needs no record to be readable: a torn file ages out like any other. It
+// is housekeeping, in one round trip: a failure is reported and never turns
+// an applied proxy into a failed one.
 func (e *Engine) pruneHostJournal(ctx context.Context) {
 	dir := e.names().HostJournalDir()
-	victims, err := journal.PruneCandidates(ctx, e.T, dir, e.Spec.Deployment.RetainReleases*2)
+	ids, err := journal.List(ctx, e.T, dir)
 	if err != nil {
 		e.logf("proxy: host journal not pruned: %v", err)
 		return
 	}
-	for _, id := range victims {
-		res, err := e.hostMutate(ctx, "rm -f "+q(dir+"/"+id+".jsonl"))
-		if err == nil && res.ExitCode != 0 {
-			err = errors.New(strings.TrimSpace(res.Stderr))
-		}
-		if err != nil {
-			e.logf("proxy: host journal entry %s not pruned: %v", id, err)
-			return
-		}
+	keep := e.Spec.Deployment.RetainReleases * 2
+	if keep < 1 || len(ids) <= keep {
+		return
+	}
+	paths := make([]string, 0, len(ids)-keep)
+	for _, id := range ids[:len(ids)-keep] {
+		paths = append(paths, q(dir+"/"+id+".jsonl"))
+	}
+	res, err := e.hostMutate(ctx, "rm -f "+strings.Join(paths, " "))
+	if err == nil && res.ExitCode != 0 {
+		err = errors.New(strings.TrimSpace(res.Stderr))
+	}
+	if err != nil {
+		e.logf("proxy: host journal not pruned: %v", err)
 	}
 }
 

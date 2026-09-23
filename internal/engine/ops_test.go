@@ -585,3 +585,44 @@ func TestDestroyRefusesAnUnmarkedStateDirectory(t *testing.T) {
 		t.Fatal("host ownership was released after the state directory was refused")
 	}
 }
+
+// A destroy that keeps anything keeps the marker, so the destroy that finishes
+// the job can still prove the directory is this application's.
+func TestPlainDestroyKeepsTheStateDirectoryMarker(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, false); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	var sweep string
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "-mindepth 1 -maxdepth 1") {
+			sweep = cmd
+		}
+	}
+	if !strings.Contains(sweep, "! -name '"+app.AppMarkerFile+"'") {
+		t.Fatalf("plain destroy removed the marker:\n%s", sweep)
+	}
+}
+
+// Every lock acquisition claims the state directory, so no command writes its
+// lock, fence or journal into a directory Onebox has not marked.
+func TestAcquireLockClaimsTheStateDirectory(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, app.AppMarkerFile) && strings.Contains(cmd, "ls -A") {
+			return transport.Result{ExitCode: appDirUnmarked}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if _, err := e.AcquireLock(context.Background(), "R9", false); err == nil || !strings.Contains(err.Error(), "was not created by Onebox") {
+		t.Fatalf("lock acquisition in an unmarked directory = %v", err)
+	}
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "/lock") && !strings.Contains(cmd, app.AppMarkerFile) {
+			t.Fatalf("wrote the lock after the directory was refused: %s", cmd)
+		}
+	}
+}

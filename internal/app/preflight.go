@@ -257,7 +257,7 @@ func writablePathCheck(ctx context.Context, run Runner, label, base, setting str
 		return Check{
 			Name:   label,
 			Detail: fmt.Sprintf("%s is a symlink whose target does not exist", where),
-			Remedy: fmt.Sprintf("repair or remove %s; ob will not create a base path through a broken link", where),
+			Remedy: fmt.Sprintf("repair or remove %s; ob will not create a directory through a broken link", where),
 		}
 	case ProbeStatePathNotDirectory:
 		return Check{

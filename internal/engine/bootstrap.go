@@ -34,24 +34,19 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 		}
 		passwords[name] = password
 	}
-	if err := e.claimHostOwner(ctx); err != nil {
+	// Refuse a foreign host before touching anything, then claim the state
+	// directory before the host: refusing a directory Onebox did not create
+	// must not leave the host claimed.
+	if err := e.refuseForeignHostOwner(ctx); err != nil {
 		return err
 	}
-
 	e.logf("bootstrap: base dirs")
 	p := release.PathsFor(e.names())
-	res, err := e.T.Run(ctx, claimAppDirCommand(e.names(), e.Spec.Name))
-	if err != nil {
-		return fmt.Errorf("mkdir %s: %w", p.Releases, err)
+	if err := e.claimAppDir(ctx); err != nil {
+		return err
 	}
-	switch res.ExitCode {
-	case 0:
-	case appDirForeign:
-		return fmt.Errorf("%s holds another application's state (%s says %q); choose another basePath", e.names().AppDir(), app.AppMarkerFile, strings.TrimSpace(res.Stdout))
-	case appDirUnmarked:
-		return fmt.Errorf("%s already exists and was not created by Onebox; move it aside or choose another basePath — Onebox will not adopt a directory it may later delete", e.names().AppDir())
-	default:
-		return fmt.Errorf("mkdir %s: %s", p.Releases, strings.TrimSpace(res.Stderr))
+	if err := e.claimHostOwner(ctx); err != nil {
+		return err
 	}
 
 	// one regime for every mutation: bootstrap locks, fences,
@@ -174,14 +169,38 @@ const (
 	appDirUnmarked = 4
 )
 
-// claimAppDirCommand creates the application's state directory, or accepts
-// one that carries this application's marker. An existing, non-empty directory
-// without the marker is refused: AppDir is a generic name under a basePath the
-// operator chose, and destroy removes it whole.
+// claimAppDir creates the application's state directory, or accepts one that
+// carries this application's marker. It is the only place the directory is
+// created — bootstrap and every lock acquisition go through it — so nothing
+// ever writes into a directory Onebox has not marked as this application's.
+func (e *Engine) claimAppDir(ctx context.Context) error {
+	n := e.names()
+	res, err := e.T.Run(ctx, claimAppDirCommand(n, e.Spec.Name))
+	if err != nil {
+		return fmt.Errorf("claim %s: %w", n.AppDir(), err)
+	}
+	switch res.ExitCode {
+	case 0:
+		return nil
+	case appDirForeign:
+		return fmt.Errorf("%s holds another application's state (%s says %q); choose another basePath", n.AppDir(), app.AppMarkerFile, strings.TrimSpace(res.Stdout))
+	case appDirUnmarked:
+		return fmt.Errorf("%s already exists and was not created by Onebox, or cannot be read; move it aside or choose another basePath — Onebox will not adopt a directory it may later delete", n.AppDir())
+	default:
+		return fmt.Errorf("claim %s: %s", n.AppDir(), strings.TrimSpace(res.Stderr))
+	}
+}
+
+// claimAppDirCommand creates the directory and its marker, or accepts this
+// application's marker. An existing directory without the marker is refused
+// unless it is provably empty: unreadable counts as not empty.
 func claimAppDirCommand(n app.Names, application string) string {
 	dir, marker := q(n.AppDir()), q(n.AppMarker())
 	return "if [ -e " + marker + " ]; then owner=$(cat " + marker + ") || exit 1; " +
 		"[ \"$owner\" = " + q(application) + " ] || { printf '%s' \"$owner\"; exit " + fmt.Sprint(appDirForeign) + "; }; " +
-		"elif [ -d " + dir + " ] && [ -n \"$(ls -A " + dir + ")\" ]; then exit " + fmt.Sprint(appDirUnmarked) + "; fi; " +
+		"elif [ -e " + dir + " ] || [ -L " + dir + " ]; then " +
+		"[ -d " + dir + " ] && [ -r " + dir + " ] && [ -x " + dir + " ] || exit " + fmt.Sprint(appDirUnmarked) + "; " +
+		"entries=$(ls -A " + dir + ") || exit " + fmt.Sprint(appDirUnmarked) + "; " +
+		"[ -z \"$entries\" ] || exit " + fmt.Sprint(appDirUnmarked) + "; fi; " +
 		"mkdir -p " + q(n.ReleasesDir()) + " && printf '%s\\n' " + q(application) + " > " + marker
 }

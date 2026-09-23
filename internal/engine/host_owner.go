@@ -48,27 +48,9 @@ func (e *HostEnvironmentMismatchError) Error() string {
 
 func (e *HostEnvironmentMismatchError) Code() string { return "host_environment_mismatch" }
 
-// hostOwner is the parsed owner record: an application, and the environment
-// that claimed the host.
-type hostOwner struct {
-	App         string
-	Environment string
-}
-
-func parseHostOwner(record string) (hostOwner, bool) {
-	// One parser, shared with preflight. Two readings of the same file drift,
-	// and the drift showed: preflight read the first two fields and ignored the
-	// rest, so a three-field record passed there and failed here.
-	parsed, ok := app.ParseHostOwnerRecord(record)
-	if !ok {
-		return hostOwner{}, false
-	}
-	return hostOwner{App: parsed.Application, Environment: parsed.Environment}, true
-}
-
-func (o hostOwner) record() string {
-	return o.App + " " + o.Environment
-}
+// hostOwner is app.HostOwnerRecord: one type, one parser and one writer for a
+// record the engine writes and preflight reads.
+type hostOwner = app.HostOwnerRecord
 
 func (e *Engine) readHostOwner(ctx context.Context) (hostOwner, error) {
 	path := proxy.HostPaths(e.names()).Owner
@@ -100,7 +82,7 @@ func (e *Engine) readHostOwner(ctx context.Context) (hostOwner, error) {
 		return hostOwner{}, fmt.Errorf("read host owner record %s failed (exit %d): %s", path, result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	record := strings.TrimSpace(result.Stdout)
-	owner, ok := parseHostOwner(record)
+	owner, ok := app.ParseHostOwnerRecord(record)
 	if !ok {
 		// An empty record is the reachable case: a claim interrupted between
 		// the noclobber open and the write leaves a zero-byte file, and from
@@ -123,11 +105,11 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if owner.App == "" {
+	if owner.Application == "" {
 		return fmt.Errorf("host has no Onebox application owner; run `ob bootstrap` for %q first", e.Spec.Name)
 	}
-	if owner.App != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
+	if owner.Application != e.Spec.Name {
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
 	}
 	if owner.Environment != e.Opts.Environment {
 		return &HostEnvironmentMismatchError{
@@ -135,6 +117,23 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 			Requesting:  e.Opts.Environment,
 			Owner:       owner.Environment,
 		}
+	}
+	return nil
+}
+
+// refuseForeignHostOwner reads the owner record and refuses a host claimed by
+// another application or environment. It changes nothing; claimHostOwner
+// repeats the check under the host lock before it writes.
+func (e *Engine) refuseForeignHostOwner(ctx context.Context) error {
+	owner, err := e.readHostOwner(ctx)
+	if err != nil {
+		return err
+	}
+	if owner.Application != "" && owner.Application != e.Spec.Name {
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
+	}
+	if owner.Application == e.Spec.Name && owner.Environment != e.Opts.Environment {
+		return &HostEnvironmentMismatchError{Application: e.Spec.Name, Requesting: e.Opts.Environment, Owner: owner.Environment}
 	}
 	return nil
 }
@@ -153,10 +152,10 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if owner.App != "" && owner.App != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
+	if owner.Application != "" && owner.Application != e.Spec.Name {
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
 	}
-	if owner.App == e.Spec.Name {
+	if owner.Application == e.Spec.Name {
 		if owner.Environment != e.Opts.Environment {
 			return &HostEnvironmentMismatchError{
 				Application: e.Spec.Name,
@@ -176,10 +175,10 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if owner.App != "" && owner.App != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
+	if owner.Application != "" && owner.Application != e.Spec.Name {
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
 	}
-	if owner.App == e.Spec.Name {
+	if owner.Application == e.Spec.Name {
 		if owner.Environment != e.Opts.Environment {
 			return &HostEnvironmentMismatchError{
 				Application: e.Spec.Name,
@@ -189,11 +188,11 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 		}
 		return nil
 	}
-	claim := hostOwner{App: e.Spec.Name, Environment: e.Opts.Environment}
+	claim := hostOwner{Application: e.Spec.Name, Environment: e.Opts.Environment}
 	path := proxy.HostPaths(e.names()).Owner
 	// `set -C` refuses to clobber, which is what makes a first claim a race
 	// nobody wins twice.
-	write := "umask 077 && set -C && printf '%s\\n' " + q(claim.record()) + " > " + q(path)
+	write := "umask 077 && set -C && printf '%s\\n' " + q(claim.String()) + " > " + q(path)
 	result, err := e.hostMutate(ctx, write)
 	if err != nil {
 		return err

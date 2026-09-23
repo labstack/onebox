@@ -68,10 +68,8 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 // the one operation that may supply an explicit compatible lease policy.
 func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, leasePolicy pinnedScheduleLeasePolicy) (int, error) {
 	e.lockVal = ""
-	if res, err := e.T.Run(ctx, "mkdir -p "+q(e.base())); err != nil {
+	if err := e.claimAppDir(ctx); err != nil {
 		return 0, err
-	} else if res.ExitCode != 0 {
-		return 0, fmt.Errorf("mkdir %s: %s", e.base(), res.Stderr)
 	}
 
 	for range 4 {

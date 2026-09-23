@@ -140,8 +140,13 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
 	base := release.PathsFor(e.names()).Base
-	// The marker is the proof this directory is ours to delete.
+	// The marker is the proof this directory is ours to delete. A destroy that
+	// keeps anything keeps the marker too, so the destroy that finishes the
+	// job can still prove it.
 	sweep := "rm -rf " + q(base)
+	if !removeVolumes {
+		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name %s -exec rm -rf {} +", q(base), q(app.AppMarkerFile))
+	}
 	keepingCredentials := !removeVolumes && len(e.Spec.Services) > 0
 	if keepingCredentials {
 		// A service credential is generated once, on the target, and exists

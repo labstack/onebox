@@ -676,6 +676,7 @@ func checkDerivedNames(p *Spec) error {
 			"derived %s name %q is %d characters, over the %d-character limit; shorten the identifiers",
 			kind, name, len(name), maxDerivedName)
 	}
+	n := p.NamesFor("")
 	for _, w := range sortedKeys(p.Workloads) {
 		if err := check("container", p.Name+"_"+w); err != nil {
 			return err
@@ -684,17 +685,17 @@ func checkDerivedNames(p *Spec) error {
 			if v.IsBind() {
 				continue
 			}
-			if err := check("volume", "ob_"+p.Name+"_"+w+"_"+v.Name); err != nil {
+			if err := check("volume", n.WorkloadVolume(w, v.Name)); err != nil {
 				return err
 			}
 		}
 	}
 	for _, s := range sortedKeys(p.Services) {
-		if err := check("service project", "ob_"+p.Name+"_"+s); err != nil {
+		if err := check("service project", n.ServiceProject(s)); err != nil {
 			return err
 		}
 		for _, v := range p.Services[s].Volumes {
-			if err := check("volume", "ob_"+p.Name+"_"+s+"_"+v); err != nil {
+			if err := check("volume", n.ServiceVolume(s, v)); err != nil {
 				return err
 			}
 		}

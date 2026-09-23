@@ -102,6 +102,7 @@ export default defineConfig({
             { label: "Environment variables", slug: "guides/environment-variables" },
             { label: "Adopt an existing Compose file", slug: "guides/adopt-compose" },
             { label: "Eject", slug: "guides/eject" },
+            { label: "Upgrade to onebox names", slug: "guides/upgrade-to-onebox-names" },
           ],
         },
         {

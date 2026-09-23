@@ -85,13 +85,23 @@ produce `help--desk-web--api-1`.
 
 The temporary container joining a rollout is `<app>-<component>-new`. It takes
 the stable numbered slot only after the previous occupant has drained and been
-removed. The host-scoped managed proxy is `onebox-proxy`.
+removed.
 
-Container names are the human-facing runtime grammar. Persistent volumes,
-Compose projects, networks, and proxy-provider objects use their own derived
-names because they have different collision and data-lifetime constraints. They
-carry the application even for a managed service — its data volume is
-`ob_shop_postgres_data` — because they hold that application's data.
+**Every other resource Onebox derives is `onebox_<app>_…`.** Volumes, service
+Compose projects, the service network and restore-drill resources:
+`onebox_shop_postgres_data`, `onebox_shop_postgres`, `onebox_shop`. They carry
+the application, even for a managed service, because they hold that
+application's data. They join with underscores because an application or
+component name cannot contain one, so each name maps back to exactly one
+application, component and volume — a hyphen, which names may contain, could
+not promise that. The one exception is the application's own Compose network,
+`shop_default`, which is the name Compose gives it.
+
+| Namespace | Separator | Holds |
+| --- | --- | --- |
+| `<app>-` | hyphen | your workload containers |
+| `onebox-` | hyphen | containers and the ingress network Onebox runs on the host |
+| `onebox_<app>_` | underscore | the application's volumes, service projects and networks |
 
 ## Commands
 

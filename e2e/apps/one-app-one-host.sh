@@ -103,7 +103,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 running=$(ssh -o BatchMode=yes "root@$IP" "docker ps -q --filter label=ob.app=$APP | wc -l" 2>/dev/null | tr -d ' ')
-vols=$(ssh -o BatchMode=yes "root@$IP" "docker volume ls --format '{{.Name}}' | grep -c '^ob_' || true" 2>/dev/null | tr -d ' ')
+vols=$(ssh -o BatchMode=yes "root@$IP" "docker volume ls --format '{{.Name}}' | grep -c '^onebox_' || true" 2>/dev/null | tr -d ' ')
 cur=$(ssh -o BatchMode=yes "root@$IP" "readlink /var/lib/ob/$APP/current" 2>/dev/null)
 
 healthy=$(echo "$out" | grep '^healthy' | sed 's/^healthy *//')

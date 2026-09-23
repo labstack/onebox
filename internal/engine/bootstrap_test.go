@@ -46,7 +46,7 @@ func TestBootstrapSequence(t *testing.T) {
 		"apt-get install -y something-host-specific",         // bootstrap hook
 		"docker version --format '{{.Server.Version}}'",      // prerequisites after authored provisioning
 		"docker login 'ghcr.io' -u 'vishr' --password-stdin", // registry (stdin, quoted)
-		"docker compose -p 'ob_sample_postgres'",             // services
+		"docker compose -p 'onebox_sample_postgres'",             // services
 	}
 	last := -1
 	for _, want := range ordered {
@@ -299,7 +299,7 @@ func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 	ordered := []string{
 		"docker login 'ghcr.io'",
 		"docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d",
-		"docker compose -p 'ob_sample_postgres'",
+		"docker compose -p 'onebox_sample_postgres'",
 	}
 	last := -1
 	for _, want := range ordered {

@@ -47,7 +47,7 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 		"service container": n.ServiceContainer("postgres"),
 		"restore container": n.BackupRestoreContainer("postgres"),
 	} {
-		if !strings.HasPrefix(got, ManagedContainerPrefix+"-") {
+		if !strings.HasPrefix(got, Namespace+"-") {
 			t.Errorf("%s = %q, which is not in the onebox-* namespace", label, got)
 		}
 	}

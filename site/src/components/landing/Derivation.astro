@@ -263,8 +263,8 @@
       }
       if (on.postgres) {
         derived.push(["onebox-postgres", "image, health check, and a credential generated on the server"]);
-        derived.push(["ob_shop_postgres_data", "the durable volume — renaming it would need a migration"]);
-        derived.push(["ob_shop", "the external service network"]);
+        derived.push(["onebox_shop_postgres_data", "the durable volume — renaming it would need a migration"]);
+        derived.push(["onebox_shop", "the external service network"]);
       }
       derived.push(["/var/lib/ob/shop", "releases/ · current · journal · services"]);
 

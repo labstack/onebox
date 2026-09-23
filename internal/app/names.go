@@ -17,8 +17,8 @@ import (
 // hold that application's data.
 //
 // Persistent and provider-internal identifiers are joined with underscores.
-// Hyphens would be ambiguous there: `ob-<app>-<service>` maps both (a-b, c) and
-// (a, b-c) to `ob-a-b-c`. Underscore is excluded from the identifier grammar and
+// Hyphens would be ambiguous there: `onebox-<app>-<service>` maps both (a-b, c)
+// and (a, b-c) to `onebox-a-b-c`. Underscore is excluded from the identifier grammar and
 // accepted in project and volume names, which makes that derivation injective.
 // Runtime segments escape an authored hyphen as `--`, leaving a single hyphen as
 // an unambiguous separator while ordinary names retain the simple form.
@@ -27,9 +27,10 @@ const (
 	ProxyProject   = "onebox-proxy"
 	IngressNetwork = "onebox-ingress"
 
-	// ManagedContainerPrefix begins every container Onebox runs from its own
-	// images: the host proxy and a managed service alike.
-	ManagedContainerPrefix = "onebox"
+	// Namespace begins every name Onebox derives outside the author's own
+	// containers: onebox-<component> for what it runs from its own images, and
+	// onebox_<app>_... for the application's data and plumbing.
+	Namespace = "onebox"
 
 	// HostNamespace holds state shared by everything on the box.
 	HostNamespace = "_host"
@@ -72,7 +73,7 @@ func (n Names) ApplicationNetwork() string { return join(n.App, "default") }
 // ServiceProject is a supporting service's own Compose project, kept separate
 // from the application's so a release or rollback cannot remove it.
 func (n Names) ServiceProject(service string) string {
-	return join("ob", n.App, service)
+	return join(Namespace, n.App, service)
 }
 
 // ServiceContainer is a managed service's container. The name says who runs it,
@@ -80,7 +81,7 @@ func (n Names) ServiceProject(service string) string {
 // application, so the application in the name would tell an operator nothing.
 // There is no ordinal because a managed service is always a singleton.
 func (n Names) ServiceContainer(service string) string {
-	return runtimeName(ManagedContainerPrefix, service)
+	return runtimeName(Namespace, service)
 }
 
 // ServiceNetwork joins the application to its services. It is one network per
@@ -91,7 +92,7 @@ func (n Names) ServiceContainer(service string) string {
 // It cannot collide with ServiceProject — that always carries a third segment —
 // and it is created once, outside any release, because the services attached to
 // it outlive every release.
-func (n Names) ServiceNetwork() string { return join("ob", n.App) }
+func (n Names) ServiceNetwork() string { return join(Namespace, n.App) }
 
 // ServiceDir holds what services need and releases must not touch: their
 // generated Compose documents and their credentials.
@@ -196,29 +197,29 @@ func (n Names) ServiceAliasFile(service, workload string) string {
 // workload and service identifiers are unique across both blocks, which the
 // loader enforces; without that rule these would collide.
 func (n Names) WorkloadVolume(workload, volume string) string {
-	return join("ob", n.App, workload, volume)
+	return join(Namespace, n.App, workload, volume)
 }
 
 func (n Names) ServiceVolume(service, volume string) string {
-	return join("ob", n.App, service, volume)
+	return join(Namespace, n.App, service, volume)
 }
 
 func (n Names) BackupRestoreProject(service string) string {
-	return join("ob", n.App, service, "restore")
+	return join(Namespace, n.App, service, "restore")
 }
 
 // BackupRestoreContainer is the transient restore-drill container beside a
 // managed service, named like the service it restores.
 func (n Names) BackupRestoreContainer(service string) string {
-	return runtimeName(ManagedContainerPrefix, service, "restore")
+	return runtimeName(Namespace, service, "restore")
 }
 
 func (n Names) BackupRestoreNetwork(service string) string {
-	return join("ob", n.App, service, "restore-net")
+	return join(Namespace, n.App, service, "restore-net")
 }
 
 func (n Names) BackupRestoreVolume(service string) string {
-	return join("ob", n.App, service, "restore-stage")
+	return join(Namespace, n.App, service, "restore-stage")
 }
 
 // ScheduledJobUnit is the systemd unit name without its suffix.

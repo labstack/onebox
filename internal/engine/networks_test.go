@@ -98,7 +98,7 @@ func TestLegacyServiceNetworkRequiresServiceStateBeforeAcceptance(t *testing.T) 
 			f := happyFake()
 			base := f.Dynamic
 			f.Dynamic = func(command string) (transport.Result, bool) {
-				if strings.Contains(command, "network inspect") && strings.Contains(command, "ob_sample") {
+				if strings.Contains(command, "network inspect") && strings.Contains(command, "onebox_sample") {
 					return transport.Result{Stdout: "def456||\n"}, true
 				}
 				if strings.Contains(command, "test -d '/var/lib/ob/sample/services'") {
@@ -139,7 +139,7 @@ func TestRemoveOwnedNetworksRefusesAttachedEndpoints(t *testing.T) {
 		t.Fatalf("attached endpoint error = %v", err)
 	}
 	commands := strings.Join(f.Commands, "\n")
-	if strings.Contains(commands, "docker network rm 'ob_sample'") {
+	if strings.Contains(commands, "docker network rm 'onebox_sample'") {
 		t.Fatalf("teardown continued after the application network could not be removed:\n%s", commands)
 	}
 }
@@ -153,7 +153,7 @@ func TestRemoveOwnedNetworksIgnoresServiceNameWithoutServiceState(t *testing.T) 
 		if strings.Contains(command, "test -d '/var/lib/ob/sample/services'") {
 			return transport.Result{ExitCode: 1}, true
 		}
-		if strings.Contains(command, "network inspect") && strings.Contains(command, "ob_sample") {
+		if strings.Contains(command, "network inspect") && strings.Contains(command, "onebox_sample") {
 			return transport.Result{Stdout: "def456||\n"}, true
 		}
 		return base(command)
@@ -163,10 +163,10 @@ func TestRemoveOwnedNetworksIgnoresServiceNameWithoutServiceState(t *testing.T) 
 		t.Fatal(err)
 	}
 	commands := strings.Join(f.Commands, "\n")
-	if strings.Contains(commands, "network inspect") && strings.Contains(commands, "ob_sample") {
+	if strings.Contains(commands, "network inspect") && strings.Contains(commands, "onebox_sample") {
 		t.Fatalf("destroy inspected an undeclared service-network name:\n%s", commands)
 	}
-	if strings.Contains(commands, "network rm 'ob_sample'") {
+	if strings.Contains(commands, "network rm 'onebox_sample'") {
 		t.Fatalf("destroy removed an undeclared service-network name:\n%s", commands)
 	}
 }

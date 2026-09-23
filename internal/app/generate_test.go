@@ -182,7 +182,7 @@ func TestRenderedRuntime(t *testing.T) {
 		"condition: service_healthy",
 		"stop_grace_period: 30s",
 		"mem_limit: 1GB",
-		"ob_ledger_web_uploads",
+		"onebox_ledger_web_uploads",
 		"/data/postgres:/var/lib/postgresql/data",
 		"pg_isready -U ledger",
 	} {
@@ -524,7 +524,7 @@ func TestReplicaCountIsBound(t *testing.T) {
 // name, would never see a collision that exists. Found by deploying.
 func TestVolumeNamesArePinned(t *testing.T) {
 	out := string(render(t, appFixture))
-	if !strings.Contains(out, "name: ob_ledger_web_uploads") {
+	if !strings.Contains(out, "name: onebox_ledger_web_uploads") {
 		t.Errorf("the derived volume name must be pinned\n%s", out)
 	}
 }

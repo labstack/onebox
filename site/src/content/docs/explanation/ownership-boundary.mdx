@@ -51,7 +51,7 @@ record before it does anything. A different application is refused with
 
 Runtime resources carry the same boundary. Containers, volumes, and networks
 created by Onebox have an `ob.app` label, and preflight includes the application
-default network (`<app>_default`) and service network (`ob_<app>`) in its
+default network (`<app>_default`) and service network (`onebox_<app>`) in its
 collision set. Both networks are external to a release's Compose lifecycle: a
 release can be removed without deleting a network still used by an unmanaged
 proxy or a supporting service. Networks created by older versions cannot be

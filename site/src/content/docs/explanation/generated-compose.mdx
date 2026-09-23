@@ -36,7 +36,7 @@ becomes a question rather than a fact.
 - **Derived, stable names.** Workload containers use the uniform
   `<app>-<component>-<replica>` grammar, such as `shop-web-1`; managed services
   are `onebox-<service>`, such as `onebox-postgres`; persistent and
-  provider resources include `shop_default`, `ob_shop_postgres_data`, `ob_shop`,
+  provider resources include `shop_default`, `onebox_shop_postgres_data`, `onebox_shop`,
   and `onebox-ingress`. The application and service networks are declared external
   and created under Onebox's ownership fence, so Compose cannot remove a live
   shared network during release teardown. A full `ob destroy --volumes` removes

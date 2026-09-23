@@ -54,12 +54,12 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger-worker-1",
 		"ledger-worker-new",
 		"ledger_default",
-		"ob_ledger",
-		"ob_ledger_postgres",
-		"ob_ledger_postgres_data",
-		"ob_ledger_postgres_wal",
-		"ob_ledger_web_uploads",
 		"onebox-postgres",
+		"onebox_ledger",
+		"onebox_ledger_postgres",
+		"onebox_ledger_postgres_data",
+		"onebox_ledger_postgres_wal",
+		"onebox_ledger_web_uploads",
 	}
 	got := p.All("production")
 	if len(got) != len(want) {

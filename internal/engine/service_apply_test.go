@@ -51,14 +51,14 @@ func TestServiceApplyConvergesUnderRegime(t *testing.T) {
 
 	// Its own project, not the application's: a release must not be able to
 	// stop it and a rollback must not be able to remove its volume.
-	if !strings.Contains(seq, "docker compose -p 'onebox_sample_postgres'") {
+	if !strings.Contains(seq, "docker compose -p 'onebox_postgres'") {
 		t.Fatalf("service did not converge in its own project:\n%s", seq)
 	}
 	if strings.Contains(seq, "docker compose -p sample -f") && strings.Contains(seq, "postgres") {
 		t.Fatalf("service converged inside the application's project:\n%s", seq)
 	}
 	for _, c := range f.Commands {
-		if strings.Contains(c, "onebox_sample_postgres' -f") && !strings.Contains(c, "ob-fenced") {
+		if strings.Contains(c, "onebox_postgres' -f") && !strings.Contains(c, "ob-fenced") {
 			t.Fatalf("converge not fenced: %s", c)
 		}
 	}
@@ -84,7 +84,7 @@ func TestServiceApplyStopsWhenJournalStartFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "journal service apply start") {
 		t.Fatalf("service apply error = %v", err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "docker compose -p 'onebox_sample_postgres'") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "docker compose -p 'onebox_postgres'") {
 		t.Fatalf("service apply mutated after journal failure:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
@@ -121,7 +121,7 @@ func TestServiceApplyRefusesDestructiveMounts(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "pgdata") {
 		t.Fatalf("want destructive refusal naming pgdata, got %v", err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "onebox_sample_postgres' -f") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "onebox_postgres' -f") {
 		t.Fatal("must not converge after refusal")
 	}
 	// A per-release payload bind changes every release by construction and is
@@ -188,7 +188,7 @@ func TestAnUnsafeMajorUpgradeIsRefusedBeforeConverging(t *testing.T) {
 			if !strings.Contains(err.Error(), "cannot be opened") {
 				t.Fatalf("the refusal must say what would happen: %v", err)
 			}
-			if strings.Contains(strings.Join(f.Commands, "\n"), "onebox_sample_postgres' -f") {
+			if strings.Contains(strings.Join(f.Commands, "\n"), "onebox_postgres' -f") {
 				t.Fatal("it must refuse before replacing the container")
 			}
 		})
@@ -230,8 +230,8 @@ func TestAVolumeWithoutItsCredentialIsRefused(t *testing.T) {
 		if strings.Contains(cmd, "postgres.secret.env") && strings.Contains(cmd, "test -f") {
 			return transport.Result{Stdout: ""}, true // no credential
 		}
-		if strings.Contains(cmd, "volume ls -q") && strings.Contains(cmd, "onebox_sample_postgres_data") {
-			return transport.Result{Stdout: "onebox_sample_postgres_data\n"}, true // data is there
+		if strings.Contains(cmd, "volume ls -q") && strings.Contains(cmd, "onebox_postgres_data") {
+			return transport.Result{Stdout: "onebox_postgres_data\n"}, true // data is there
 		}
 		return base(cmd)
 	}

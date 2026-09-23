@@ -24,15 +24,16 @@ Do the steps below **before** the first deploy with the new version.
 | --- | --- | --- |
 | Managed service container | `shop-postgres-1` | `onebox-postgres` |
 | Restore-drill container | `shop-postgres-restore-1` | `onebox-postgres-restore` |
-| Service and workload volumes | `ob_shop_postgres_data` | `onebox_shop_postgres_data` |
-| Service Compose project | `ob_shop_postgres` | `onebox_shop_postgres` |
-| Service network | `ob_shop` | `onebox_shop` |
+| Service and workload volumes | `ob_shop_postgres_data` | `onebox_postgres_data` |
+| Service Compose project | `ob_shop_postgres` | `onebox_postgres` |
+| Service network | `ob_shop` | `onebox_services` |
 | Ingress network | `ob-ingress` | `onebox-ingress` |
 | Workload containers | `shop-web-1` | unchanged |
 | Application network | `shop_default` | unchanged |
 
-Application names may no longer be `onebox` or begin with `onebox-`, and a
-service may not be called `proxy` or `discovery`.
+Names in the `onebox` namespace no longer carry the application. Application
+names may no longer be `onebox` or begin with `onebox-`, and a service may not
+be called `proxy`, `discovery` or `services`.
 
 ## What the next deploy does without these steps
 
@@ -41,7 +42,7 @@ service may not be called `proxy` or `discovery`.
   application connects to an empty database.
 - **Protected PostgreSQL refuses to apply.** A service with `backup` records its
   cluster identity, so the deploy stops with `data volume
-  onebox_<app>_<service>_data is missing`. Nothing is started.
+  onebox_<service>_data is missing`. Nothing is started.
 - **The old service containers keep running.** They belong to the old Compose
   project, so the deploy does not replace them. They keep the old volumes open.
 - **Routing stops until the workloads are redeployed.** The proxy moves to
@@ -65,12 +66,12 @@ doubles the disk space they use.
 
    Removing the service containers does not remove their volumes.
 
-3. Copy every `ob_` volume into its `onebox_` name, keeping the labels Onebox
-   uses to recognise it as its own:
+3. Copy every `ob_<app>_` volume into its `onebox_` name, keeping the labels
+   Onebox uses to recognise it as its own:
 
    ```sh
    for old in $(docker volume ls -q --filter label=ob.app=$APP | grep '^ob_'); do
-     new="onebox_${old#ob_}"
+     new="onebox_${old#ob_${APP}_}"
      labels=$(docker volume inspect -f '{{range $k, $v := .Labels}}{{if or (eq $k "ob.app") (eq $k "ob.service")}}--label {{$k}}={{$v}} {{end}}{{end}}' "$old")
      docker volume create $labels "$new"
      docker run --rm -v "$old":/from:ro -v "$new":/to alpine cp -a /from/. /to/

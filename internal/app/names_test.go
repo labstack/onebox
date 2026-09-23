@@ -55,11 +55,11 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger-worker-new",
 		"ledger_default",
 		"onebox-postgres",
-		"onebox_ledger",
-		"onebox_ledger_postgres",
-		"onebox_ledger_postgres_data",
-		"onebox_ledger_postgres_wal",
-		"onebox_ledger_web_uploads",
+		"onebox_postgres",
+		"onebox_postgres_data",
+		"onebox_postgres_wal",
+		"onebox_services",
+		"onebox_web_uploads",
 	}
 	got := p.All("production")
 	if len(got) != len(want) {
@@ -74,21 +74,20 @@ func TestDerivedNamesGolden(t *testing.T) {
 
 // TestDerivationIsInjective is the property the naming contract rests on. The
 // obvious hyphen-joined pattern fails it: (a-b, c) and (a, b-c) both derive
-// ob-a-b-c, and two resources would share one volume.
+// onebox-a-b-c, and two resources would share one volume. The application is
+// not part of these names — a host has one — so only the components vary.
 func TestDerivationIsInjective(t *testing.T) {
 	idents := []string{"a", "b", "a-b", "b-c", "c", "web", "web-1", "x-y-z"}
 	seen := map[string]string{}
-	for _, app := range idents {
-		n := Names{App: app, BasePath: DefaultBasePath}
-		for _, svc := range idents {
-			for _, vol := range idents {
-				name := n.ServiceVolume(svc, vol)
-				key := app + "|" + svc + "|" + vol
-				if prev, dup := seen[name]; dup {
-					t.Fatalf("collision: %q derived from both %s and %s", name, prev, key)
-				}
-				seen[name] = key
+	n := Names{App: "shop", BasePath: DefaultBasePath}
+	for _, svc := range idents {
+		for _, vol := range idents {
+			name := n.ServiceVolume(svc, vol)
+			key := svc + "|" + vol
+			if prev, dup := seen[name]; dup {
+				t.Fatalf("collision: %q derived from both %s and %s", name, prev, key)
 			}
+			seen[name] = key
 		}
 	}
 }
@@ -330,6 +329,17 @@ spec:
     web: {image: nginx}
   services:
     proxy: {driver: redis, version: 7}
+`,
+		"service services": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    services: {driver: redis, version: 7}
 `,
 		"service discovery": `apiVersion: onebox.run/v1alpha1
 kind: Application

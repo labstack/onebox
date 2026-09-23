@@ -57,7 +57,7 @@ func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 	}{
 		{n.ApplicationNetwork(), n.ComposeProject(), ""},
 	}
-	// `onebox_<app>` is reserved only when the app has services. A project that
+	// `onebox_services` is reserved only when the app has services. A project that
 	// never declared one must not have full destroy blocked by an unrelated,
 	// unlabelled network at that otherwise-unused name. Durable service state
 	// also includes the network for projects that removed services from the

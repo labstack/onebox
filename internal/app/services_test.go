@@ -43,10 +43,10 @@ func renderStore(t *testing.T, body string) string {
 // mean a rollback could remove the database's volume.
 func TestServiceIsItsOwnProject(t *testing.T) {
 	doc := renderStore(t, "services: {store: {driver: postgres, version: 17}}\n")
-	if !strings.Contains(doc, "name: onebox_shop_store") {
+	if !strings.Contains(doc, "name: onebox_store") {
 		t.Fatalf("service is not in its own project:\n%s", doc)
 	}
-	if !strings.Contains(doc, "onebox_shop_store_data:/var/lib/postgresql/data") {
+	if !strings.Contains(doc, "onebox_store_data:/var/lib/postgresql/data") {
 		t.Fatalf("no durable volume at the driver's data path:\n%s", doc)
 	}
 	if !strings.Contains(doc, "external: true") {
@@ -76,7 +76,7 @@ func TestNeedingAServiceJoinsItAndReadsItsURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(out.Bytes)
-	if !strings.Contains(body, "onebox_shop") {
+	if !strings.Contains(body, "onebox_services") {
 		t.Fatalf("workload did not join the service network:\n%s", body)
 	}
 	if !strings.Contains(body, "/var/lib/ob/shop/services/store.client.env") {

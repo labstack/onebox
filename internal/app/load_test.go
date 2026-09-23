@@ -28,7 +28,7 @@ func TestAPIVersionV1IsRequired(t *testing.T) {
 }
 
 func TestRoutedProjectRefusesDefaultAsProxyNetwork(t *testing.T) {
-	for _, network := range []string{"default", "ledger_default", "onebox_ledger"} {
+	for _, network := range []string{"default", "ledger_default", "onebox_services"} {
 		t.Run(network, func(t *testing.T) {
 			_, err := loadFixtureBytes([]byte(min+"proxy: {network: "+network+"}\n"), "ob.yml")
 			if err == nil || !strings.Contains(err.Error(), "proxy.network") || !strings.Contains(err.Error(), "reserved") {

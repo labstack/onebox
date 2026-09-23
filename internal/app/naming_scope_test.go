@@ -5,21 +5,18 @@ import (
 	"testing"
 )
 
-// 8.5 — every name derived from the author's components carries the
-// application.
+// 8.5 — every name derived from the author's workloads carries the
+// application; everything Onebox derives for itself is in the onebox namespace.
 //
-// Container, volume and network names are host-global in the container
-// runtime. A workload-scoped name such as `web` or `data` can collide with
-// something Onebox does not own, and the collision surfaces as a container
-// that vanishes or a volume shared between two applications — not as an error.
-//
-// Managed service containers are the exception, by design: they are
-// onebox-<service>, the namespace of containers Onebox runs from its own
-// images. Their volumes and projects still carry the application, because
-// those hold its data.
-//
+// Container names are host-global in the container runtime. A workload-scoped
+// name such as `web-1` can collide with something the operator runs by hand,
+// and the collision surfaces as a container that vanishes — not as an error.
 // The transient rollout name is included deliberately: it exists for seconds
 // during a handover, which is exactly when nobody is looking at it.
+//
+// Onebox's own containers, volumes, projects and networks do not carry the
+// application. A host has one application, the ob.app label records which, and
+// the host is released only after those resources are removed.
 func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 	n := Names{App: "shop", BasePath: DefaultBasePath}
 
@@ -27,10 +24,6 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 		"container":           n.Container("web", 1),
 		"replica container":   n.Container("web", 2),
 		"transient rollout":   n.TransientContainer("web"),
-		"workload volume":     n.WorkloadVolume("web", "uploads"),
-		"service project":     n.ServiceProject("postgres"),
-		"service volume":      n.ServiceVolume("postgres", "data"),
-		"service network":     n.ServiceNetwork(),
 		"application network": n.ApplicationNetwork(),
 		"compose project":     n.ComposeProject(),
 		"proxy service":       n.ProxyService("web"),
@@ -51,21 +44,20 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 			t.Errorf("%s = %q, which is not in the onebox-* namespace", label, got)
 		}
 	}
-
-	// And two applications never derive the same name for the same thing.
-	other := Names{App: "ledger", BasePath: DefaultBasePath}
-	for label, pair := range map[string][2]string{
-		"container":           {n.Container("web", 1), other.Container("web", 1)},
-		"transient":           {n.TransientContainer("web"), other.TransientContainer("web")},
-		"workload volume":     {n.WorkloadVolume("web", "data"), other.WorkloadVolume("web", "data")},
-		"service volume":      {n.ServiceVolume("postgres", "data"), other.ServiceVolume("postgres", "data")},
-		"service network":     {n.ServiceNetwork(), other.ServiceNetwork()},
-		"application network": {n.ApplicationNetwork(), other.ApplicationNetwork()},
-		"router":              {n.Router("web", 0), other.Router("web", 0)},
-		"application dir":     {n.AppDir(), other.AppDir()},
+	for label, got := range map[string]string{
+		"workload volume": n.WorkloadVolume("web", "uploads"),
+		"service project": n.ServiceProject("postgres"),
+		"service volume":  n.ServiceVolume("postgres", "data"),
+		"service network": n.ServiceNetwork(),
+		"restore project": n.BackupRestoreProject("postgres"),
+		"restore network": n.BackupRestoreNetwork("postgres"),
+		"restore volume":  n.BackupRestoreVolume("postgres"),
 	} {
-		if pair[0] == pair[1] {
-			t.Errorf("%s: two applications derive the same name %q", label, pair[0])
+		if !strings.HasPrefix(got, Namespace+"_") {
+			t.Errorf("%s = %q, which is not in the onebox_ namespace", label, got)
+		}
+		if strings.Contains(got, "shop") {
+			t.Errorf("%s = %q, which carries the application", label, got)
 		}
 	}
 }

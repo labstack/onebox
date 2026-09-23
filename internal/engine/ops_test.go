@@ -98,7 +98,7 @@ func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
 	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
 		t.Fatalf("complete teardown without a managed proxy retained host ownership:\n%s", seq)
 	}
-	for _, network := range []string{"sample_default", "onebox_sample"} {
+	for _, network := range []string{"sample_default", "onebox_services"} {
 		if !strings.Contains(seq, "docker network rm '"+network+"'") {
 			t.Fatalf("complete teardown retained network %s:\n%s", network, seq)
 		}
@@ -223,7 +223,7 @@ func TestLogsAndExecShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker compose -p onebox_sample_postgres -f '/var/lib/ob/sample/services/postgres.yaml' logs --tail 20 postgres") {
+	if !strings.Contains(seq, "docker compose -p onebox_postgres -f '/var/lib/ob/sample/services/postgres.yaml' logs --tail 20 postgres") {
 		t.Fatalf("service logs shape wrong:\n%s", seq)
 	}
 	if _, err := e.ExecInAudited(context.Background(), "exec-workload", "web", "alembic current", "inspect migration state", &out, io.Discard); err != nil {
@@ -450,12 +450,12 @@ func TestRemoveServicesRemovesPreservedRestoreVolumes(t *testing.T) {
 		case strings.Contains(cmd, "docker ps -aq"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "docker volume ls") && strings.Contains(cmd, "label=com.docker.compose.project"):
-			return transport.Result{Stdout: "onebox_sample_postgres_data\n"}, true
+			return transport.Result{Stdout: "onebox_postgres_data\n"}, true
 		case strings.Contains(cmd, "docker volume ls") && strings.Contains(cmd, "before-restore"):
 			return transport.Result{Stdout: strings.Join([]string{
-				"onebox_sample_postgres_data-before-restore-20260822T160242Z",
-				"onebox_sample_postgres_data-before-restore-not-a-timestamp",
-				"onebox_other_postgres_data-before-restore-20260822T160242Z",
+				"onebox_postgres_data-before-restore-20260822T160242Z",
+				"onebox_postgres_data-before-restore-not-a-timestamp",
+				"onebox_other_data-before-restore-20260822T160242Z",
 			}, "\n")}, true
 		}
 		return transport.Result{}, false
@@ -466,10 +466,10 @@ func TestRemoveServicesRemovesPreservedRestoreVolumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker volume rm onebox_sample_postgres_data onebox_sample_postgres_data-before-restore-20260822T160242Z") {
+	if !strings.Contains(seq, "docker volume rm onebox_postgres_data onebox_postgres_data-before-restore-20260822T160242Z") {
 		t.Fatalf("destroy did not remove the live and preserved volumes:\n%s", seq)
 	}
-	if strings.Contains(seq, "docker volume rm onebox_other") || strings.Contains(seq, "docker volume rm onebox_sample_postgres_data-before-restore-not") {
+	if strings.Contains(seq, "docker volume rm onebox_other") || strings.Contains(seq, "docker volume rm onebox_postgres_data-before-restore-not") {
 		t.Fatalf("destroy removed a volume whose ownership was not proved:\n%s", seq)
 	}
 }

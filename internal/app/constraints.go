@@ -210,10 +210,11 @@ var (
 // derive its own names inside it.
 var reservedAppNames = []string{"ob", "onebox", "_host"}
 
-// reservedServiceNames are the host proxy's components. A managed service's
-// container is onebox-<service>, so a service with one of these names would
-// derive the host proxy's container name.
-var reservedServiceNames = []string{"proxy", "discovery"}
+// reservedServiceNames are names a service would share with something else
+// Onebox runs. A managed service's container is onebox-<service>, so proxy and
+// discovery would derive the host proxy's containers; its Compose project is
+// onebox_<service>, so services would derive the service network.
+var reservedServiceNames = []string{"proxy", "discovery", ServiceNetworkName}
 
 // checkServiceName refuses a service name whose container would be the host
 // proxy's.
@@ -221,7 +222,7 @@ func checkServiceName(name string) error {
 	for _, reserved := range reservedServiceNames {
 		if name == reserved {
 			return errf("project_invalid", "services."+name, "",
-				"%q is reserved: its container would be onebox-%s, which the host proxy uses", name, name)
+				"%q is reserved: it would derive onebox-%s or onebox_%s, which Onebox already uses", name, name, name)
 		}
 	}
 	return nil

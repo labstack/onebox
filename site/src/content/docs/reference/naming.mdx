@@ -72,7 +72,8 @@ Onebox provides under `onebox-`.
 The same namespace covers the host's other shared resources: the ingress network
 the proxy and routed workloads join is `onebox-ingress`. Because the namespace
 is Onebox's, an application may not be called `onebox` or begin with `onebox-`
-(or `ob-`), and `proxy` and `discovery` are not valid service names.
+(or `ob-`), and `proxy`, `discovery` and `services` are not valid service
+names.
 
 **Names do not carry the environment.** Staging and production of `shop` both
 derive `shop-web-1` and `onebox-postgres`. What keeps them apart is the host:
@@ -87,21 +88,22 @@ The temporary container joining a rollout is `<app>-<component>-new`. It takes
 the stable numbered slot only after the previous occupant has drained and been
 removed.
 
-**Every other resource Onebox derives is `onebox_<app>_…`.** Volumes, service
-Compose projects, the service network and restore-drill resources:
-`onebox_shop_postgres_data`, `onebox_shop_postgres`, `onebox_shop`. They carry
-the application, even for a managed service, because they hold that
-application's data. They join with underscores because an application or
-component name cannot contain one, so each name maps back to exactly one
-application, component and volume — a hyphen, which names may contain, could
-not promise that. The one exception is the application's own Compose network,
-`shop_default`, which is the name Compose gives it.
+**Every other resource Onebox derives is `onebox_<component>_…`.** Volumes,
+service Compose projects, the service network and restore-drill resources:
+`onebox_postgres_data`, `onebox_web_uploads`, `onebox_postgres`,
+`onebox_services`. They do not carry the application: a host has one, the
+`ob.app` label records which, and `ob destroy` releases the host only after
+removing them. They join with underscores because a component or volume name
+cannot contain one, so each name maps back to exactly one component and
+volume — a hyphen, which names may contain, could not promise that. The one
+exception is the application's own Compose network, `shop_default`, which is
+the name Compose gives it.
 
 | Namespace | Separator | Holds |
 | --- | --- | --- |
 | `<app>-` | hyphen | your workload containers |
 | `onebox-` | hyphen | containers and the ingress network Onebox runs on the host |
-| `onebox_<app>_` | underscore | the application's volumes, service projects and networks |
+| `onebox_` | underscore | volumes, service projects and networks |
 
 ## Commands
 

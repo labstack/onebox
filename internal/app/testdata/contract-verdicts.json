@@ -207,7 +207,7 @@
   {
     "case": "conformance/inferred durability does not refuse replicas",
     "loads": true,
-    "digest": "d13bbcd2e0335e7e22982e45897f8401f0020e3c2eb817f437a103ad124218c1"
+    "digest": "fc4d0a2aff6f4b3713ad28ac0a996ba28799aca4e51c561864f0bd1f1800165a"
   },
   {
     "case": "conformance/job data_effect unknown",
@@ -392,17 +392,17 @@
   {
     "case": "conformance/service backup policy",
     "loads": true,
-    "digest": "c77777d3237d81e886723e6c0261e16bfba9b7b7c16cdaea8f7ab72f882e4f05 postgres=b0a49cda2f10e076"
+    "digest": "7716e66e5cfd6b0c2a4ba040692c8fe6494a5d15fa54bbbcc3b81d736fc7dfcb postgres=818046b94f7dfb29"
   },
   {
     "case": "conformance/service scalar",
     "loads": true,
-    "digest": "eefc3de6441d0b4b45d4b4259f2de211607540b321498fe65e3af90ad4b42ee0 postgres=c59aab9fd1501991"
+    "digest": "58655dd0bcba7f5fdfdd4bff8a13763401ae1d40a15f487ecf23e33267f83e7c postgres=14970cbe488cb31f"
   },
   {
     "case": "conformance/settings key that is a real driver flag",
     "loads": true,
-    "digest": "eefc3de6441d0b4b45d4b4259f2de211607540b321498fe65e3af90ad4b42ee0 redis=4aecae94a6d00a7f"
+    "digest": "58655dd0bcba7f5fdfdd4bff8a13763401ae1d40a15f487ecf23e33267f83e7c redis=ee0801c9bacecc53"
   },
   {
     "case": "conformance/settings key with a shell metacharacter",
@@ -497,7 +497,7 @@
   {
     "case": "conformance/volume scalar with a path",
     "loads": true,
-    "digest": "7379acefd6cf74a474ecdd9133f8c0e9f0ba910ac1404aab3e82b53138b0e11a"
+    "digest": "d01a9f018c0e78b13e356eb8055fdd8a2087c9427da603757f255feaeb293d34"
   },
   {
     "case": "conformance/volume scalar without a path",
@@ -507,7 +507,7 @@
   {
     "case": "conformance/volumes without persistence still load",
     "loads": true,
-    "digest": "7379acefd6cf74a474ecdd9133f8c0e9f0ba910ac1404aab3e82b53138b0e11a"
+    "digest": "d01a9f018c0e78b13e356eb8055fdd8a2087c9427da603757f255feaeb293d34"
   },
   {
     "case": "conformance/worker with schedule",
@@ -532,17 +532,17 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "4892c3bbbcd176f7f2fbf83498e81ebbcfbf948e63451033c41ef119dcfd6420 postgres=b0ba235b1e704413 redis=4ef4f7f539752048"
+    "digest": "2202fcb86cd2cd04d7b693d8d7930192440238d310f4949bbc6877a720bc5627 postgres=9d597f5da1926a42 redis=8d4cfce9447047aa"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "bee72ac827020e37936385f0b0d4a97c43e36497975e907a2e8b214a21b37b73 postgres=b0ba235b1e704413 redis=4ef4f7f539752048"
+    "digest": "3068425213c316ac96b029c62005bc6483a13d905a35b95e0c31bcd324a63c51 postgres=9d597f5da1926a42 redis=8d4cfce9447047aa"
   },
   {
     "case": "corpus/ext-authentik.yml",
     "loads": true,
-    "digest": "44555148878878035b190abf72f6aad5e89c6125483390dc71fa74321152c4e1"
+    "digest": "b9eb700cc86f53209f22f5886b01f509b0c9c5b134729f77d435a95f73808a79"
   },
   {
     "case": "corpus/ext-frigate.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "9890e66856b0dbd265a19c1611fee3cb7278f8a673ed8db7a54dcc9f690fbd23 postgres=977859980d7da3af"
+    "digest": "eae6e33eb4abf65aecd4c7d930ca880178b0e78c92ff6f5d46fe68bfcfe50442 postgres=603c07798b9cf982"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -567,32 +567,32 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "791afef8d46ace5704c9a6d197ddf0056963d916d18882f32bb1b7aaaaf687bd postgres=3ab7645f27cecf79 redis=32b18c7b5b7754ab"
+    "digest": "2b4f82be3fa842b8b95363edd03b3a5eaf715df6699c334d76a3cfdbd940ed78 postgres=b7c083be80e3ca7d redis=25418a76a70caba2"
   },
   {
     "case": "corpus/ext-paperless.yml",
     "loads": true,
-    "digest": "fe8470a02daf8294ec22543cada04daf026fae6600c9e03bedaf8552f5e00dc8"
+    "digest": "0337c7874581b5884c67ba0eb78587259af8d0273d8d3fb423fc3f8069e5c3bf"
   },
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "38d84ccdbf9c71c3d5a5b793a74d5bf86852c7fefc887d98daeabe44e206da33 events=24c1d2c053cc0165 postgres=e47f5a3f0d281968"
+    "digest": "20af7df837e1d22a421033082adde67e1484cd7b4f5d02598b895d58016ebe70 events=dbea2ef4d0c835a2 postgres=a9d1af1f5dc1ee11"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
-    "digest": "094f74c54d96e608dcd805e778e876afa01e494ec2baa395ad87269b8ad7f6b5 postgres=228e41ff3d707075"
+    "digest": "f7fd92b303f5cd1c56a1395d24324d22d42ad14507fd28466b1fa06c19abbfdb postgres=fa306c6e4104bd3e"
   },
   {
     "case": "corpus/ghost.yml",
     "loads": true,
-    "digest": "07c39c8bb59e7e46f07c987d69fadfc06f675db1c4685a546b5f6c042caa1ad5 mysql=33e6c87322ca558d"
+    "digest": "e6f9bb5839535bf428588d9176f3f5c921a8adac91ed5456207d4280951e771c mysql=f9c6ef95af207a8d"
   },
   {
     "case": "corpus/gitea.yml",
     "loads": true,
-    "digest": "777a3a2818843a49b43f270266d48ad98f7db1a1f2fec971eae30f09f1233c96"
+    "digest": "9b3770ed716daf6e1aa4844b212773ce4b3448f0ddf0e347f6839104184e3648"
   },
   {
     "case": "corpus/goal.yml",
@@ -602,7 +602,7 @@
   {
     "case": "corpus/immich.yml",
     "loads": true,
-    "digest": "1da904b1ae5b9a1eb95975a9da4f33cc2a24c5761dd328f1e8e75adb3485aea5"
+    "digest": "0da2b001800e2d4bd727e5ef62e077a572d3005b7addd760fa7ed773e18041b1"
   },
   {
     "case": "corpus/monk.yml",
@@ -612,17 +612,17 @@
   {
     "case": "corpus/n8n.yml",
     "loads": true,
-    "digest": "4fb377f149fc9392317096ffee3b0d2981005942377b03ec8ce95a3dd030839f"
+    "digest": "8392e4f9f5674595042ed6c63858776ef300a00335e8e5016397df6286f2aff3"
   },
   {
     "case": "corpus/paperless.yml",
     "loads": true,
-    "digest": "022818666ab351319737f7a6a68bcc8fd3ba441ac30200b594d8786e55cdd843"
+    "digest": "9a40f70d296d8f132804bb94920809effb6b8227f65cd5d3bff77f81c0787a5c"
   },
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "4acc932a773548a637cf2342af978634a5b89999e048243f453a49356efc4a41 postgres=b92ba9f4e9b4375a redis=5a183a9ec1c0221c"
+    "digest": "d3385f03a6d23d7a556662d85710050d85318ddadffe5f4e77bfb1698a144a36 postgres=cd0c1feae31470d5 redis=a44cbdbccdf3fdb7"
   },
   {
     "case": "corpus/pursue.yml",
@@ -637,12 +637,12 @@
   {
     "case": "corpus/rocketchat.yml",
     "loads": true,
-    "digest": "442a640151b50f969beac7f6659fba2e9077273d4c0dc06351fadc1aa646c4f7 mongodb=eb676981eccc96b6"
+    "digest": "91b3e8b029f49595f82c88643719c609484d1b0fcbf375ef9c957d16fbcc744f mongodb=ba797e9006dfd6b5"
   },
   {
     "case": "corpus/umami.yml",
     "loads": true,
-    "digest": "25527dbae71bdc67468e983f0676fa4333063bba5f0aaad53c0eacfafe30880b"
+    "digest": "3248bffd82b0882fba905063365e2eda228bc0cbd3252f1789ab7edd41433245"
   },
   {
     "case": "corpus/uptime-kuma.yml",
@@ -652,6 +652,6 @@
   {
     "case": "corpus/vaultwarden.yml",
     "loads": true,
-    "digest": "5c2d33df2effb118879256b3ea6b870ee10500b0961c1e40767f6838c3d59ab5"
+    "digest": "40992c777230d019d54eda82d61f2f2438aad334f291cde457089071eb936336"
   }
 ]

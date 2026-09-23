@@ -13,12 +13,11 @@ import (
 // grammar. Containers Onebox runs from its own images — managed services, their
 // restore drills, and the host proxy — use onebox-<component> with no ordinal,
 // because none of them has replicas. Persistent and provider-internal names use
-// the injective join below and keep the application in every name, since they
-// hold that application's data.
+// the injective join below under onebox_.
 //
 // Persistent and provider-internal identifiers are joined with underscores.
-// Hyphens would be ambiguous there: `onebox-<app>-<service>` maps both (a-b, c)
-// and (a, b-c) to `onebox-a-b-c`. Underscore is excluded from the identifier grammar and
+// Hyphens would be ambiguous there: `onebox-<service>-<volume>` maps both
+// (a-b, c) and (a, b-c) to `onebox-a-b-c`. Underscore is excluded from the identifier grammar and
 // accepted in project and volume names, which makes that derivation injective.
 // Runtime segments escape an authored hyphen as `--`, leaving a single hyphen as
 // an unambiguous separator while ordinary names retain the simple form.
@@ -29,8 +28,14 @@ const (
 
 	// Namespace begins every name Onebox derives outside the author's own
 	// containers: onebox-<component> for what it runs from its own images, and
-	// onebox_<app>_... for the application's data and plumbing.
+	// onebox_<component>_... for data and plumbing. Neither carries the
+	// application: a host has one, the ob.app label records which, and the host
+	// is released only after these resources are removed.
 	Namespace = "onebox"
+
+	// ServiceNetworkName is the last segment of the network that joins workloads
+	// to managed services.
+	ServiceNetworkName = "services"
 
 	// HostNamespace holds state shared by everything on the box.
 	HostNamespace = "_host"
@@ -73,7 +78,7 @@ func (n Names) ApplicationNetwork() string { return join(n.App, "default") }
 // ServiceProject is a supporting service's own Compose project, kept separate
 // from the application's so a release or rollback cannot remove it.
 func (n Names) ServiceProject(service string) string {
-	return join(Namespace, n.App, service)
+	return join(Namespace, service)
 }
 
 // ServiceContainer is a managed service's container. The name says who runs it,
@@ -89,10 +94,10 @@ func (n Names) ServiceContainer(service string) string {
 // declared name, and a network per service would mean every workload joining
 // several to say the same thing.
 //
-// It cannot collide with ServiceProject — that always carries a third segment —
-// and it is created once, outside any release, because the services attached to
-// it outlive every release.
-func (n Names) ServiceNetwork() string { return join(Namespace, n.App) }
+// It would collide with the project of a service called "services", so that
+// name is reserved. It is created once, outside any release, because the
+// services attached to it outlive every release.
+func (n Names) ServiceNetwork() string { return join(Namespace, ServiceNetworkName) }
 
 // ServiceDir holds what services need and releases must not touch: their
 // generated Compose documents and their credentials.
@@ -197,15 +202,15 @@ func (n Names) ServiceAliasFile(service, workload string) string {
 // workload and service identifiers are unique across both blocks, which the
 // loader enforces; without that rule these would collide.
 func (n Names) WorkloadVolume(workload, volume string) string {
-	return join(Namespace, n.App, workload, volume)
+	return join(Namespace, workload, volume)
 }
 
 func (n Names) ServiceVolume(service, volume string) string {
-	return join(Namespace, n.App, service, volume)
+	return join(Namespace, service, volume)
 }
 
 func (n Names) BackupRestoreProject(service string) string {
-	return join(Namespace, n.App, service, "restore")
+	return join(Namespace, service, "restore")
 }
 
 // BackupRestoreContainer is the transient restore-drill container beside a
@@ -215,11 +220,11 @@ func (n Names) BackupRestoreContainer(service string) string {
 }
 
 func (n Names) BackupRestoreNetwork(service string) string {
-	return join(Namespace, n.App, service, "restore-net")
+	return join(Namespace, service, "restore-net")
 }
 
 func (n Names) BackupRestoreVolume(service string) string {
-	return join(Namespace, n.App, service, "restore-stage")
+	return join(Namespace, service, "restore-stage")
 }
 
 // ScheduledJobUnit is the systemd unit name without its suffix.

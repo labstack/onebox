@@ -1292,6 +1292,9 @@
                 },
                 {
                   "const": "discovery"
+                },
+                {
+                  "const": "services"
                 }
               ]
             }

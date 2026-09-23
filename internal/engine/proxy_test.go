@@ -352,7 +352,7 @@ func TestEnsureProxyReleasesHostLock(t *testing.T) {
 // a torn record must not stop pruning for the life of the host.
 func TestHostJournalPrunesOldestFiles(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		body := `{"phase":"proxy-apply"}` + "\n"
 		if i == 3 {
 			body = `{"phase":"pro` // torn
@@ -364,7 +364,7 @@ func TestHostJournalPrunesOldestFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "unrelated.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("sh", "-c", pruneHostJournalCommand(dir, 20)).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(t.Context(), "sh", "-c", pruneHostJournalCommand(dir, 20)).CombinedOutput(); err != nil {
 		t.Fatalf("prune: %v\n%s", err, out)
 	}
 	entries, err := os.ReadDir(dir)
@@ -378,7 +378,7 @@ func TestHostJournalPrunesOldestFiles(t *testing.T) {
 	if len(names) != 21 || names[0] != "20260901-120005-nogit-proxy.jsonl" || names[20] != "unrelated.txt" {
 		t.Fatalf("after pruning: %v", names)
 	}
-	if out, err := exec.Command("sh", "-c", pruneHostJournalCommand(filepath.Join(dir, "absent"), 20)).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(t.Context(), "sh", "-c", pruneHostJournalCommand(filepath.Join(dir, "absent"), 20)).CombinedOutput(); err != nil {
 		t.Fatalf("an absent journal is nothing to prune: %v\n%s", err, out)
 	}
 }

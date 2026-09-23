@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +17,9 @@ import (
 func TestClaimAppDirOnlyTakesWhatIsOurs(t *testing.T) {
 	run := func(t *testing.T, base string) (int, string) {
 		t.Helper()
-		out, err := exec.Command("sh", "-c", claimAppDirCommand(app.Names{App: "shop", BasePath: base}, "shop")).Output()
-		if exit, ok := err.(*exec.ExitError); ok {
+		out, err := exec.CommandContext(t.Context(), "sh", "-c", claimAppDirCommand(app.Names{App: "shop", BasePath: base}, "shop")).Output()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
 			return exit.ExitCode(), string(out)
 		} else if err != nil {
 			t.Fatal(err)

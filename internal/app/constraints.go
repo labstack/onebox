@@ -208,7 +208,7 @@ var (
 // names what Onebox runs on the host — the proxy, its ingress network, managed
 // services — and an application called onebox or onebox-<anything> would
 // derive its own names inside it.
-var reservedAppNames = []string{"onebox", "_host"}
+var reservedAppNames = []string{"onebox"}
 
 // reservedServiceNames are names a service would share with something else
 // Onebox runs. A managed service's container is onebox-<service>, so proxy,
@@ -293,6 +293,12 @@ func checkEnum(path, value string, allowed []string) error {
 	return errf("project_invalid", path, "",
 		"%q is not one of %s", value, strings.Join(quoteAll(allowed), ", "))
 }
+
+// MaxReplicas bounds a workload's replicas. Onebox runs every replica on one
+// host, and every derived name and rollout step is per replica, so an
+// unbounded count — a typo with an extra zero — would make loading a project
+// build millions of names.
+const MaxReplicas = 100
 
 func checkPositive(path string, value int) error {
 	if value <= 0 {

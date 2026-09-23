@@ -590,6 +590,18 @@ func TestOverLongEscapedContainerNameRefused(t *testing.T) {
 	}
 }
 
+// Every replica has a name and a rollout step on one host, so the count is
+// bounded before anything derives from it: a typo must not build billions of
+// names while the project loads.
+func TestReplicasAreBounded(t *testing.T) {
+	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: shop\n" +
+		"spec:\n  environments: {p: {server: h}}\n  workloads: {web: {image: nginx, replicas: 2000000000}}\n"
+	_, err := loadFixtureBytes([]byte(y), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "replicas") {
+		t.Fatalf("an unbounded replica count loaded: %v", err)
+	}
+}
+
 // TestConversionDrafts loads every draft recorded for tasks 1.1-1.3. These are
 // real projects: five here and eight open-source.
 func TestConversionDrafts(t *testing.T) {

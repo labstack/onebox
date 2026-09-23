@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -108,7 +107,7 @@ func main() {
 		ui.RestoreCursor(os.Stderr)
 		stopSignals()
 	}()
-	warnTestHostStateOverride(os.Stderr)
+	applyTestHostStateOverride(os.Stderr)
 	if err := newRootCmd().ExecuteContext(ctx); err != nil {
 		// the one line every failure ends on — red where the terminal allows
 		ui.New(os.Stderr, false).Failf("ob: %v", err)
@@ -126,18 +125,21 @@ func main() {
 	}
 }
 
-// warnTestHostStateOverride says so whenever the test-only host state override
-// is in the environment. With it, one host can hold more than one owner
-// record, so it must never be in effect silently — least of all by leaking
-// into an operator's shell or a deploy job from a test job.
-func warnTestHostStateOverride(w io.Writer) {
+// applyTestHostStateOverride honours the test-only host state override, and
+// says so whenever it is in the environment. With it, one host can hold more
+// than one owner record, so it must never be in effect silently — least of
+// all by leaking into an operator's shell or a deploy job from a test job.
+func applyTestHostStateOverride(w io.Writer) (restore func()) {
+	restore = func() {}
 	value, set := os.LookupEnv(app.TestHostStateDirEnv)
 	if !set {
-		return
+		return restore
 	}
-	if !path.IsAbs(value) {
-		fmt.Fprintf(w, "warning: %s=%q is ignored: it is not an absolute path\n", app.TestHostStateDirEnv, value)
-		return
+	undo, err := app.SetTestHostStateDir(value)
+	if err != nil {
+		fmt.Fprintf(w, "warning: %s is ignored: %v\n", app.TestHostStateDirEnv, err)
+		return restore
 	}
 	fmt.Fprintf(w, "warning: %s=%s moves host state for a test suite; unset it on real hosts\n", app.TestHostStateDirEnv, value)
+	return undo
 }

@@ -415,7 +415,7 @@ var schemaConstraints = []struct {
 	{[]string{"environments", "*", "policy", "migrations", "backup_max_age"}, pattern(gDur)},
 
 	{[]string{"workloads", "*", "role"}, enum(eRole)},
-	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1}},
+	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1, "maximum": MaxReplicas}},
 	{[]string{"workloads", "*", "strategy"}, enum(eStrategy)},
 	{[]string{"workloads", "*", "deployment_phase"}, enum(eJobDeploymentPhase)},
 	{[]string{"workloads", "*", "operator_run"}, enum(eJobOperatorRun)},

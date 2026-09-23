@@ -47,7 +47,11 @@ func TestPathsHostScoped(t *testing.T) {
 	if p.Compose != app.HostStateDir+"/proxy/compose.yaml" || p.Owner != app.HostStateDir+"/owner" || p.Journal != app.HostStateDir+"/journal" {
 		t.Fatalf("paths: %+v", p)
 	}
-	t.Setenv(app.TestHostStateDirEnv, "/tmp/fixture-host")
+	restore, err := app.SetTestHostStateDir("/tmp/fixture-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restore)
 	if got := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"}).Owner; got != "/tmp/fixture-host/owner" {
 		t.Fatalf("test host state override ignored: %s", got)
 	}

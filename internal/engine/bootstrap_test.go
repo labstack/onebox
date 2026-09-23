@@ -130,7 +130,11 @@ func TestConcurrentBootstrapDoesNotRunSecondHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv(app.TestHostStateDirEnv, filepath.Join(dir, "host"))
+	restoreHost, hostErr := app.SetTestHostStateDir(filepath.Join(dir, "host"))
+	if hostErr != nil {
+		t.Fatal(hostErr)
+	}
+	t.Cleanup(restoreHost)
 
 	entered := filepath.Join(dir, "hook-entered")
 	release := filepath.Join(dir, "release-hook")

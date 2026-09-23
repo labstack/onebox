@@ -140,13 +140,16 @@ func TestExplicitProjectPathDoesNotFallback(t *testing.T) {
 func TestTestHostStateOverrideIsNeverSilent(t *testing.T) {
 	var out bytes.Buffer
 	t.Setenv(app.TestHostStateDirEnv, "/tmp/fixture-host")
-	warnTestHostStateOverride(&out)
+	t.Cleanup(applyTestHostStateOverride(&out))
 	if !strings.Contains(out.String(), "unset it on real hosts") {
 		t.Fatalf("override warning = %q", out.String())
 	}
+	if got := (app.Names{}).HostDir(); got != "/tmp/fixture-host" {
+		t.Fatalf("override not applied: %s", got)
+	}
 	out.Reset()
 	t.Setenv(app.TestHostStateDirEnv, "relative")
-	warnTestHostStateOverride(&out)
+	applyTestHostStateOverride(&out)
 	if !strings.Contains(out.String(), "is ignored") {
 		t.Fatalf("relative override warning = %q", out.String())
 	}

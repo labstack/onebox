@@ -108,27 +108,12 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 	if owner.Application == "" {
 		return fmt.Errorf("host has no Onebox application owner; run `ob bootstrap` for %q first", e.Spec.Name)
 	}
-	if owner.Application != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
-	}
-	if owner.Environment != e.Opts.Environment {
-		return &HostEnvironmentMismatchError{
-			Application: e.Spec.Name,
-			Requesting:  e.Opts.Environment,
-			Owner:       owner.Environment,
-		}
-	}
-	return nil
+	return e.ownerConflict(owner)
 }
 
-// refuseForeignHostOwner reads the owner record and refuses a host claimed by
-// another application or environment. It changes nothing; claimHostOwner
-// repeats the check under the host lock before it writes.
-func (e *Engine) refuseForeignHostOwner(ctx context.Context) error {
-	owner, err := e.readHostOwner(ctx)
-	if err != nil {
-		return err
-	}
+// ownerConflict is the one comparison of an owner record with this engine:
+// another application, or this application in another environment.
+func (e *Engine) ownerConflict(owner hostOwner) error {
 	if owner.Application != "" && owner.Application != e.Spec.Name {
 		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
 	}
@@ -141,28 +126,17 @@ func (e *Engine) refuseForeignHostOwner(ctx context.Context) error {
 // claimHostOwner is bootstrap's only host-ownership transition. It checks for
 // a foreign owner before acquiring a lock, then rechecks under the host lock so
 // two first-contact attempts cannot both claim the same machine.
-func (e *Engine) claimHostOwner(ctx context.Context) error {
+func (e *Engine) claimHostOwner(ctx context.Context, owner hostOwner) error {
 	// The record names the environment, and one without it is unreadable: a
 	// claim written with an empty environment would lock every command out of
 	// the host until someone removed the file by hand.
 	if e.Opts.Environment == "" {
 		return errors.New("cannot claim the host without an environment")
 	}
-	owner, err := e.readHostOwner(ctx)
-	if err != nil {
+	if err := e.ownerConflict(owner); err != nil {
 		return err
 	}
-	if owner.Application != "" && owner.Application != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
-	}
 	if owner.Application == e.Spec.Name {
-		if owner.Environment != e.Opts.Environment {
-			return &HostEnvironmentMismatchError{
-				Application: e.Spec.Name,
-				Requesting:  e.Opts.Environment,
-				Owner:       owner.Environment,
-			}
-		}
 		return nil
 	}
 	// Unclaimed: take the lock and recheck, so two first-contact attempts
@@ -171,21 +145,14 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 		return err
 	}
 	defer e.releaseHostLock(ctx)
-	owner, err = e.readHostOwner(ctx)
+	owner, err := e.readHostOwner(ctx)
 	if err != nil {
 		return err
 	}
-	if owner.Application != "" && owner.Application != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
+	if err := e.ownerConflict(owner); err != nil {
+		return err
 	}
 	if owner.Application == e.Spec.Name {
-		if owner.Environment != e.Opts.Environment {
-			return &HostEnvironmentMismatchError{
-				Application: e.Spec.Name,
-				Requesting:  e.Opts.Environment,
-				Owner:       owner.Environment,
-			}
-		}
 		return nil
 	}
 	claim := hostOwner{Application: e.Spec.Name, Environment: e.Opts.Environment}

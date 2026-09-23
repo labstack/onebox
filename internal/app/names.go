@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -39,9 +38,8 @@ const (
 	// to managed services.
 	ServiceNetworkName = "services"
 
-	// HostNamespace holds state shared by everything on the box. It begins with
-	// an underscore, which no identifier can, so nothing derived from the
-	// project can name the same directory.
+	// HostNamespace is the last segment of HostStateDir, the state shared by
+	// everything on the box.
 	HostNamespace = "_host"
 
 	// AppNamespace holds the application's state. It is fixed rather than the
@@ -64,8 +62,9 @@ const (
 	// without the application relies on one application per host.
 	HostStateDir = DefaultBasePath + "/" + HostNamespace
 
-	// TestHostStateDirEnv relocates HostStateDir for test suites that cannot
-	// write to /var/lib, or that keep a fixture's host state inside the
+	// TestHostStateDirEnv is the environment variable the ob command reads to
+	// call SetTestHostStateDir, for test suites that drive the binary and
+	// cannot write to /var/lib, or that keep a fixture's host state inside the
 	// fixture's own directory so its cleanup removes it. Fixture applications
 	// must still not run on one machine at the same time: units and managed
 	// containers carry no application. It is not a supported setting — with it,
@@ -367,10 +366,26 @@ func (n Names) ReleaseDir(id string) string {
 }
 func (n Names) CurrentLink() string { return path.Join(n.AppDir(), "current") }
 func (n Names) HostDir() string {
-	if dir := os.Getenv(TestHostStateDirEnv); path.IsAbs(dir) {
-		return path.Clean(dir)
+	if testHostStateDir != "" {
+		return testHostStateDir
 	}
 	return HostStateDir
+}
+
+// testHostStateDir is set only by SetTestHostStateDir. Nothing in the product
+// reads the environment for it: the ob command does, loudly, and test suites
+// set it directly.
+var testHostStateDir string
+
+// SetTestHostStateDir relocates host state for a test suite, and returns the
+// function that restores it. A relative dir is refused, not ignored.
+func SetTestHostStateDir(dir string) (restore func(), err error) {
+	if !path.IsAbs(dir) {
+		return nil, fmt.Errorf("test host state directory %q is not an absolute path", dir)
+	}
+	previous := testHostStateDir
+	testHostStateDir = path.Clean(dir)
+	return func() { testHostStateDir = previous }, nil
 }
 
 // HostJournalDir holds the journal of operations on the host itself, such as

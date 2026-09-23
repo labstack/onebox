@@ -1,5 +1,5 @@
 // Package release manages the versioned remote layout:
-// /var/lib/ob/<app>/releases/<id>/ + a `current` symlink. Nothing live is
+// <basePath>/app/releases/<id>/ + a `current` symlink. Nothing live is
 // ever overwritten; rollback re-activates a previous directory.
 package release
 

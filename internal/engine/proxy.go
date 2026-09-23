@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -239,27 +240,25 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 // is housekeeping, in one round trip: a failure is reported and never turns
 // an applied proxy into a failed one.
 func (e *Engine) pruneHostJournal(ctx context.Context) {
-	dir := e.names().HostJournalDir()
-	ids, err := journal.List(ctx, e.T, dir)
-	if err != nil {
-		e.logf("proxy: host journal not pruned: %v", err)
-		return
-	}
 	keep := e.Spec.Deployment.RetainReleases * 2
-	if keep < 1 || len(ids) <= keep {
+	if keep < 1 {
 		return
 	}
-	paths := make([]string, 0, len(ids)-keep)
-	for _, id := range ids[:len(ids)-keep] {
-		paths = append(paths, q(dir+"/"+id+".jsonl"))
-	}
-	res, err := e.hostMutate(ctx, "rm -f "+strings.Join(paths, " "))
+	res, err := e.hostMutate(ctx, pruneHostJournalCommand(e.names().HostJournalDir(), keep))
 	if err == nil && res.ExitCode != 0 {
 		err = errors.New(strings.TrimSpace(res.Stderr))
 	}
 	if err != nil {
 		e.logf("proxy: host journal not pruned: %v", err)
 	}
+}
+
+// pruneHostJournalCommand removes all but the newest keep journal files.
+// Journal ids begin with a timestamp, so name order is age order.
+func pruneHostJournalCommand(dir string, keep int) string {
+	return "if [ -d " + q(dir) + " ]; then cd " + q(dir) + " || exit 1; " +
+		"ls -1 | grep '\\.jsonl$' | sort -r | sed '1," + strconv.Itoa(keep) + "d' | " +
+		"while IFS= read -r f; do rm -f -- \"$f\" || exit 1; done; fi"
 }
 
 func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {

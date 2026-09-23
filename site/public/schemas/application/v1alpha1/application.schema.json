@@ -37,9 +37,6 @@
               },
               {
                 "const": "onebox"
-              },
-              {
-                "const": "_host"
               }
             ]
           },
@@ -2122,6 +2119,7 @@
                 "examples": [
                   2
                 ],
+                "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
               },

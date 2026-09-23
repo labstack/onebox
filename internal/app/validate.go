@@ -255,6 +255,10 @@ func validateWorkload(w Workload, path string) error {
 	if err := checkEnum(path+".role", w.Role, eRole); err != nil {
 		return err
 	}
+	if w.Replicas > MaxReplicas {
+		return errf("project_invalid", path+".replicas", "",
+			"%d replicas is more than the %d one host runs; Onebox deploys to a single host", w.Replicas, MaxReplicas)
+	}
 	if err := checkPositive(path+".replicas", w.Replicas); err != nil {
 		return err
 	}

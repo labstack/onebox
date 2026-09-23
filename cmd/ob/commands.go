@@ -670,7 +670,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 		// Without this the engine derives every path from the project default
 		// rather than the selected environment, so `ob status --env staging`
 		// against an environment with its own base_path reported on
-		// /var/lib/ob/<app> while staging lives in /srv/staging/<app>. It also
+		// /var/lib/onebox/app while staging lives in /srv/staging/app. It also
 		// leaves Environment empty on the host-ownership check, which now
 		// compares it.
 		Environment: g.Env,

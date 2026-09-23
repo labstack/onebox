@@ -1,5 +1,5 @@
 // Package journal implements the append-only deploy journal at
-// /var/lib/ob/<app>/journal/<deploy-id>.jsonl, one sync per record. It is
+// <basePath>/app/journal/<deploy-id>.jsonl, one sync per record. It is
 // the mechanism behind resume, abort, fencing forensics, and audit — a spec,
 // not a noun.
 package journal

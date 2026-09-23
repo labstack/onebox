@@ -551,6 +551,9 @@ func crossFieldRules(p *Spec) error {
 	}
 
 	for _, name := range sortedKeys(p.Services) {
+		if err := checkServiceName(name); err != nil {
+			return err
+		}
 		if _, clash := p.Workloads[name]; clash {
 			return errf("identifier_collision", "services."+name, "",
 				"%q names both a workload and a service; their derived volume names would collide", name)
@@ -664,36 +667,15 @@ func canonicalRouteHost(host string) string {
 }
 
 // checkDerivedNames refuses an over-long generated name rather than truncating.
+// It measures the names themselves — every one All derives, with the escaped
+// hyphens, replica ordinals and restore suffixes that make them longer than the
+// identifiers they come from.
 func checkDerivedNames(p *Spec) error {
-	check := func(kind, name string) error {
-		if len(name) <= maxDerivedName {
-			return nil
-		}
-		return errf("derived_name_too_long", name, "",
-			"derived %s name %q is %d characters, over the %d-character limit; shorten the identifiers",
-			kind, name, len(name), maxDerivedName)
-	}
-	for _, w := range sortedKeys(p.Workloads) {
-		if err := check("container", p.Name+"_"+w); err != nil {
-			return err
-		}
-		for _, v := range p.Workloads[w].Volumes {
-			if v.IsBind() {
-				continue
-			}
-			if err := check("volume", "ob_"+p.Name+"_"+w+"_"+v.Name); err != nil {
-				return err
-			}
-		}
-	}
-	for _, s := range sortedKeys(p.Services) {
-		if err := check("service project", "ob_"+p.Name+"_"+s); err != nil {
-			return err
-		}
-		for _, v := range p.Services[s].Volumes {
-			if err := check("volume", "ob_"+p.Name+"_"+s+"_"+v); err != nil {
-				return err
-			}
+	for _, name := range p.All("") {
+		if len(name) > maxDerivedName {
+			return errf("derived_name_too_long", name, "",
+				"derived name %q is %d characters, over the %d-character limit; shorten the identifiers",
+				name, len(name), maxDerivedName)
 		}
 	}
 	return nil

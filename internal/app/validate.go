@@ -255,6 +255,10 @@ func validateWorkload(w Workload, path string) error {
 	if err := checkEnum(path+".role", w.Role, eRole); err != nil {
 		return err
 	}
+	if w.Replicas > MaxReplicas {
+		return errf("project_invalid", path+".replicas", "",
+			"%d replicas is more than the %d one host runs; Onebox deploys to a single host", w.Replicas, MaxReplicas)
+	}
 	if err := checkPositive(path+".replicas", w.Replicas); err != nil {
 		return err
 	}
@@ -463,7 +467,7 @@ func validateWorkload(w Workload, path string) error {
 		return err
 	}
 	for key := range w.Labels {
-		if strings.HasPrefix(key, "ob.") || strings.HasPrefix(key, "traefik.") {
+		if strings.HasPrefix(key, "onebox.") || strings.HasPrefix(key, "traefik.") {
 			return errf("project_invalid", path+".labels", "",
 				"%q is in a namespace Onebox generates into; choose another key", key)
 		}

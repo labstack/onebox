@@ -46,8 +46,7 @@ import (
 // project no longer describes, and nothing in the project would explain why.
 func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	n := e.names()
-	prefixes := n.BackupUnitPrefixesForEnvironment(e.Opts.Environment)
-	prefix := prefixes[0]
+	prefix := app.BackupUnitPrefix
 	// flock creates the lock file but not the directory holding it.
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/backup")); err != nil {
 		return err
@@ -66,18 +65,8 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
-		if matchesRuntimePrefix(bare, prefix) {
+		if strings.HasPrefix(bare, prefix) {
 			installed[bare] = true
-			continue
-		}
-		if matchesAnyPrefix(unit, prefixes[1:]) {
-			owned, err := e.scheduleUnitBelongsToOwner(ctx, bare, true)
-			if err != nil {
-				return err
-			}
-			if owned {
-				installed[bare] = true
-			}
 		}
 	}
 
@@ -138,7 +127,7 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 					service, expression, unit.schedule.Cron)
 			}
 			wanted = append(wanted, wantedUnit{
-				name:     n.BackupUnitForEnvironment(e.Opts.Environment, service, unit.operation),
+				name:     n.BackupUnit(service, unit.operation),
 				calendar: expression,
 				cron:     unit.schedule.Cron,
 				body:     backupServiceUnit(e.Spec.Spec.Name, e.Opts.Environment, service, unit.operation, n.BackupRunLock(service), unit.commands),

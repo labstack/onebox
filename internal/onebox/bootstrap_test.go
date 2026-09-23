@@ -48,7 +48,7 @@ func TestBootstrapAcceptsBuildSourceWithoutStagingApplicationPayload(t *testing.
 		TargetName: "deploy@example.invalid",
 		Dynamic: func(command string) (transport.Result, bool) {
 			if strings.Contains(command, "/_host/owner") {
-				return transport.Result{Stdout: "demo\n"}, true
+				return transport.Result{Stdout: "demo production\n"}, true
 			}
 			if strings.Contains(command, "imagetools inspect --help") {
 				return transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}, true

@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-// projectContainers reads "id|service|ob.release|status" lines.
+// projectContainers reads "id|service|onebox.release|status" lines.
 func containerEngine(t *testing.T, psOut string) (*Engine, *transport.Fake) {
 	t.Helper()
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {

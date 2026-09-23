@@ -60,7 +60,7 @@ spec:
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
 		t.Fatalf("create owned application network: %v", err)
 	}
-	owner, err := exec.CommandContext(ctx, "docker", "network", "inspect", "-f", `{{index .Labels "ob.app"}}`, network).Output()
+	owner, err := exec.CommandContext(ctx, "docker", "network", "inspect", "-f", `{{index .Labels "onebox.app"}}`, network).Output()
 	if err != nil || strings.TrimSpace(string(owner)) != application {
 		t.Fatalf("new network owner = %q, %v", owner, err)
 	}
@@ -87,11 +87,11 @@ spec:
 	})
 	up := append(append([]string{}, legacyArgs...), "up", "-d")
 	if out, err := exec.CommandContext(ctx, "docker", up...).CombinedOutput(); err != nil {
-		t.Fatalf("start legacy proxy: %v\n%s", err, out)
+		t.Fatalf("start the Compose proxy: %v\n%s", err, out)
 	}
 
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
-		t.Fatalf("migrate legacy Compose network: %v", err)
+		t.Fatalf("adopt the application.s Compose network: %v", err)
 	}
 
 	runtimePath := filepath.Join(dir, "runtime.yaml")

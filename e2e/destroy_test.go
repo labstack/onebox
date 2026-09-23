@@ -51,6 +51,10 @@ spec:
 	if err := os.MkdirAll(releaseDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// What bootstrap writes; destroy deletes nothing without it.
+	if err := os.WriteFile(resolved.NamesFor("production").AppMarker(), []byte(application+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	composePath := filepath.Join(releaseDir, "compose.yaml")
 	envPath := filepath.Join(releaseDir, "legacy.env")
 	composeBody := fmt.Sprintf(`services:
@@ -68,7 +72,7 @@ volumes:
 	for path, body := range map[string]string{
 		composePath: composeBody,
 		envPath:     "LEGACY_SECRET=recorded-value\n",
-		filepath.Join(releaseDir, "ob.snapshot.yml"): snapshotBody,
+		filepath.Join(releaseDir, "onebox.snapshot.yml"): snapshotBody,
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

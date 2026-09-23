@@ -44,8 +44,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		return err
 	}
 	n := e.names()
-	prefixes := n.ScheduledJobUnitPrefixes()
-	prefix := prefixes[0]
+	prefix := app.JobUnitPrefix
 
 	// What is installed now, so anything no longer declared can go.
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
@@ -55,30 +54,12 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	installed := map[string]bool{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		unit := strings.TrimSpace(line)
-		// Backups own their own namespace and reconciles it separately. Its
-		// units begin "ob-backup-", which also begins with this prefix when
-		// the application is literally named "backup" — belt and braces,
-		// because the failure mode is a deploy silently deleting every
-		// scheduled backup.
-		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
-			continue
-		}
 		if !strings.HasSuffix(unit, ".timer") || !unitName.MatchString(unit) {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
-		if matchesRuntimePrefix(bare, prefix) {
+		if strings.HasPrefix(bare, prefix) {
 			installed[bare] = true
-			continue
-		}
-		if matchesAnyPrefix(unit, prefixes[1:]) {
-			owned, err := e.scheduleUnitBelongsToOwner(ctx, bare, false)
-			if err != nil {
-				return err
-			}
-			if owned {
-				installed[bare] = true
-			}
 		}
 	}
 
@@ -243,7 +224,7 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	projectDir := q(names.CurrentLink())
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --label " + q(ExecutionJobLabel+"="+job.Name) + " --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -274,13 +255,18 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	return strings.Join(lines, "\n")
 }
 
+// ExecutionJobLabel names the job a one-off container runs. Every scheduled run
+// carries it, durable or not, so a container a crash left behind is still
+// provably this job's when the durable runner has to reclaim it.
+const ExecutionJobLabel = "onebox.execution.job"
+
 func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	scheduleDir := names.AppDir() + "/schedule"
 	container := names.Container(job.Name, 1)
 	projectDir := `"$release_dir"`
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --label " + q(ExecutionJobLabel+"="+job.Name) + " --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -296,8 +282,8 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"release=${release_dir##*/}",
 		"if ! printf '%s\\n' \"$release\" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9A-Za-z_-]+$'; then echo 'onebox: current release identity is invalid' >&2; exit 1; fi",
 		"if [ ! -f \"$release_dir/compose.yaml\" ]; then echo 'onebox: pinned release has no compose.yaml' >&2; exit 1; fi",
-		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
-		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
+		"exec 7>>\"$release_dir/.onebox-schedule.lease\"",
+		"chmod 600 \"$release_dir/.onebox-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
 		// The immutable release is leased, so the writer rendezvous is complete.
 		// Container cleanup and state bookkeeping are per-job work and must not
@@ -667,7 +653,7 @@ const scheduleNotificationTimestamp = "__ONEBOX_SCHEDULE_TIMESTAMP__"
 // and such an entry has no _SYSTEMD_UNIT at all; `journalctl -u` would never
 // find it. Explicit fields survive that race, and `logger --journald` is
 // util-linux, which flock already requires.
-const scheduleRunIdentifier = "ob-run"
+const scheduleRunIdentifier = "onebox-run"
 
 // scheduleRunRecordLines finalises the run the runner started. This lives in
 // ExecStopPost because only systemd knows how the run ended: a timed-out
@@ -758,9 +744,6 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		cleanup = durableContainerStop(e.names().Container(job.Name, 1), job.ShutdownGrace)
 	}
 	environment := e.Opts.Environment
-	if environment == "" {
-		environment = e.Spec.Env
-	}
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -936,15 +919,11 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 	// Both namespaces this application installs into.
 	//
 	// Backup timers are deliberately named outside the job scheduler's
-	// namespace — app.BackupTimerForEnvironment explains why: a deploy used to
-	// treat them as "no longer declared" and delete every scheduled backup.
-	// Teardown is the opposite case and needs both, and matching only the job
-	// prefix meant `ob destroy` left ob-backup-<app>-<env>-<service>-<op>
-	// timers loaded and firing against a release directory it had just
-	// deleted. They belong to this application and they go with it.
-	n := e.names()
-	jobPrefixes := n.ScheduledJobUnitPrefixes()
-	backupPrefixes := n.BackupUnitPrefixes()
+	// namespace — app.JobUnitPrefix explains why. Teardown is the opposite case
+	// and needs both: matching only the job prefix once left backup timers
+	// loaded and firing against a release directory `ob destroy` had just
+	// deleted. They belong to this application and they go with it: the host
+	// owner record keeps a host to one application.
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
 	if err != nil {
 		return err
@@ -956,26 +935,7 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 			continue
 		}
 		unit = strings.TrimSuffix(unit, ".timer")
-		var owned bool
-		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
-			switch {
-			case matchesRuntimePrefix(unit, backupPrefixes[0]):
-				owned = true
-			case matchesAnyPrefix(unit, backupPrefixes[1:]):
-				owned, err = e.scheduleUnitBelongsToOwner(ctx, unit, true)
-			}
-		} else {
-			switch {
-			case matchesRuntimePrefix(unit, jobPrefixes[0]):
-				owned = true
-			case matchesAnyPrefix(unit, jobPrefixes[1:]):
-				owned, err = e.scheduleUnitBelongsToOwner(ctx, unit, false)
-			}
-		}
-		if err != nil {
-			return err
-		}
-		if owned {
+		if strings.HasPrefix(unit, app.JobUnitPrefix) || strings.HasPrefix(unit, app.BackupUnitPrefix) {
 			units = append(units, unit)
 		}
 	}
@@ -1018,50 +978,4 @@ func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
 		errs = append(errs, fmt.Errorf("remove schedule files %s failed (exit %d): %s", unit, remove.ExitCode, strings.TrimSpace(remove.Stderr)))
 	}
 	return errors.Join(errs...)
-}
-
-func matchesAnyPrefix(name string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchesRuntimePrefix distinguishes a component boundary from the first half
-// of an escaped hyphen. For example, ob-acme- owns ob-acme-nightly but not
-// ob-acme--web-nightly, whose application component is acme-web.
-func matchesRuntimePrefix(name, prefix string) bool {
-	return strings.HasPrefix(name, prefix) && len(name) > len(prefix) && name[len(prefix)] != '-'
-}
-
-// scheduleUnitBelongsToOwner resolves an ambiguous old unit name from the
-// unambiguous owner embedded in its service body. New backup units include the
-// environment as well; the application-only suffix remains migration input for
-// units written before environments were recorded there.
-// Missing or unfamiliar files are left alone: ownership must be proved before
-// reconciliation removes a host-global unit.
-func (e *Engine) scheduleUnitBelongsToOwner(ctx context.Context, unit string, backup bool) (bool, error) {
-	res, err := e.T.Run(ctx, "cat "+q("/etc/systemd/system/"+unit+".service")+" 2>/dev/null")
-	if err != nil {
-		return false, fmt.Errorf("inspect legacy schedule %s: %w", unit, err)
-	}
-	if res.ExitCode != 0 {
-		return false, nil
-	}
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if backup {
-			if strings.HasPrefix(line, "Description=Onebox backup ") &&
-				(strings.HasSuffix(line, " ("+e.Spec.Name+"/"+e.Opts.Environment+")") ||
-					strings.HasSuffix(line, " ("+e.Spec.Name+")")) {
-				return true, nil
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "Description=Onebox scheduled job ") && strings.HasSuffix(line, " for "+e.Spec.Name) {
-			return true, nil
-		}
-	}
-	return false, nil
 }

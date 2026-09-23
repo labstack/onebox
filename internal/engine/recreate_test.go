@@ -339,7 +339,7 @@ func TestRunHookSetsComposeEnvAndFailsHard(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks["migrate"] = app.Command{Run: "docker compose run --rm --no-deps migrate"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.RunHook(context.Background(), "migrate", "/var/lib/ob/sample/releases/R1", "/var/lib/ob/sample/releases/R1/compose.yaml")
+	err := e.RunHook(context.Background(), "migrate", "/var/lib/onebox/app/releases/R1", "/var/lib/onebox/app/releases/R1/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "alembic exploded") {
 		t.Fatalf("hook failure must halt deploy with stderr, got %v", err)
 	}

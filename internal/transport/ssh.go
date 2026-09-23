@@ -412,8 +412,8 @@ func knownHostKeyAlgos(cb ssh.HostKeyCallback, addr string) []string {
 // KeyError whose Want lists the pinned host keys.
 type probeKey struct{}
 
-func (probeKey) Type() string                        { return "ob-probe" }
-func (probeKey) Marshal() []byte                     { return []byte("ob-probe") }
+func (probeKey) Type() string                        { return "onebox-probe" }
+func (probeKey) Marshal() []byte                     { return []byte("onebox-probe") }
 func (probeKey) Verify([]byte, *ssh.Signature) error { return errors.New("probe") }
 
 func (s *SSH) Run(ctx context.Context, cmd string) (Result, error) {

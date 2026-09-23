@@ -60,7 +60,7 @@ func (e *Engine) JobHistory(ctx context.Context, name string, n int) ([]JobHisto
 		}
 	}
 
-	ids, journals, err := journal.Journals(ctx, e.T, e.names())
+	ids, journals, err := journal.Journals(ctx, e.T, journal.Dir(e.names()))
 	if err != nil {
 		return nil, err
 	}

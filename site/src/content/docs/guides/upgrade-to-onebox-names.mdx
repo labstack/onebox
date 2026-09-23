@@ -1,0 +1,167 @@
+---
+title: Upgrade to onebox names
+description: Move an existing host to the onebox namespace. Onebox does not migrate anything for you.
+summary: What the rename changes, what happens if you deploy without preparing the host, and the manual steps that carry the data and state across.
+sidebar:
+  order: 10
+read_when:
+  - "Upgrading a host that was deployed before the onebox naming change"
+  - "A deploy is refused because a resource is held by something Onebox does not own"
+  - "A deploy came up with an empty database after an upgrade"
+---
+
+Everything Onebox puts on a host is now named `onebox`, and nothing it runs for
+you carries the application's name. **There is no migration and no fallback.**
+Onebox does not look for the old names, labels, paths or units, read from them,
+or remove them. Prepare the host with the steps below **before** the first
+command with the new version.
+
+## What changes
+
+| Resource | Before | After |
+| --- | --- | --- |
+| State directory | `/var/lib/ob/shop` | `/var/lib/onebox/app` |
+| Host state | `/var/lib/ob/_host` | `/var/lib/onebox/_host` |
+| Owner record | `shop` or `shop production` | `shop production` only |
+| Ownership labels | `ob.app`, `ob.workload`, `ob.service`, … | `onebox.app`, `onebox.workload`, `onebox.service`, … |
+| Managed service container | `shop-postgres-1` | `onebox-postgres` |
+| Restore-drill container | `shop-postgres-restore-1` | `onebox-postgres-restore` |
+| Volumes | `ob_shop_postgres_data` | `onebox_postgres_data` |
+| Service Compose project | `ob_shop_postgres` | `onebox_postgres` |
+| Service network | `ob_shop` | `onebox_services` |
+| Ingress network | `ob-ingress` | `onebox-ingress` |
+| Scheduled job units | `ob-shop-nightly` | `onebox-job-nightly` |
+| Backup units | `ob-backup-shop-production-postgres-backup` | `onebox-backup-postgres-backup` |
+| Proxy routers | `shop_web_r0` | `onebox_web_r0` |
+| Job run journal identifier | `ob-run` | `onebox-run` |
+| Files Onebox keeps beside its own | `.ob-schedule.lease`, `.ob-secret-generations/`, `.ob-tmp` | `.onebox-schedule.lease`, `.onebox-secret-generations/`, `.onebox-tmp` |
+| Drain marker in containers | `/tmp/ob-drain` | `/tmp/onebox-drain` |
+| Release snapshot | `ob.snapshot.yml` | `onebox.snapshot.yml` |
+| Workload containers | `shop-web-1` | unchanged, but labelled `onebox.app` |
+| Application network | `shop_default` | unchanged, but labelled `onebox.app` |
+
+Application names may no longer be `onebox` or begin with `onebox-`. Service
+names may not be `proxy`, `discovery`, `ingress` or `services`. Custom Traefik objects may
+not begin with `onebox_`. The default `basePath` is now `/var/lib/onebox`; if
+you set your own, the application's state moves to `<basePath>/app`. Host state
+is always `/var/lib/onebox/_host` now, whatever `basePath` says.
+
+## What happens without these steps
+
+- **Every command reports an unowned host.** The owner record is read from
+  `/var/lib/onebox/_host/owner`, which does not exist yet. `ob bootstrap` would
+  claim the host again from scratch.
+- **Deploys are refused.** `shop-web-1` and `shop_default` still carry the old
+  `ob.app` label, so preflight reports them as held by a resource Onebox does
+  not own. Docker cannot relabel a container or network.
+- **Unprotected services start empty** if the deploy gets that far. A service
+  without `backup` starts on a new, empty `onebox_` volume.
+- **Protected PostgreSQL refuses to apply**, because its recorded data volume is
+  missing.
+- **Old timers keep firing.** The `ob-shop-*` and `ob-backup-shop-*` units stay
+  enabled and run jobs and backups against the old state directory, next to the
+  new units.
+
+## Move the host
+
+Run the host steps as root. Set `APP` to your application name and `ENV` to the
+environment that owns the host. If you set `basePath`, use it in place of
+`/var/lib/ob` and `/var/lib/onebox` in step 5 for the application's directory,
+but not for `_host`: that moves from `<basePath>/_host` to
+`/var/lib/onebox/_host`. The application is down from step 2 until step 6. Copying the volumes temporarily doubles the disk space they use.
+
+1. Upgrade `ob` on your machine. Do not run any other `ob` command yet.
+
+2. Stop and remove the old scheduled job and backup units, so nothing runs
+   against the state while it moves:
+
+   ```sh
+   APP=shop
+   ENV=production
+   # Older versions doubled a hyphen in the application's name: my-shop was
+   # written ob-my--shop-nightly. Match both spellings.
+   ESC=$(printf '%s' "$APP" | sed 's/-/--/g')
+   systemctl list-unit-files --no-legend "ob-$APP-*" "ob-$ESC-*" "ob-backup-$APP-*" "ob-backup-$ESC-*" \
+     | awk '{print $1}' | xargs -r systemctl disable --now
+   rm -f /etc/systemd/system/ob-$APP-* /etc/systemd/system/ob-$ESC-* \
+     /etc/systemd/system/ob-backup-$APP-* /etc/systemd/system/ob-backup-$ESC-*
+   systemctl daemon-reload
+   ```
+
+3. Remove the application's containers and the proxy. Volumes are not removed:
+
+   ```sh
+   docker ps -aq --filter label=ob.app=$APP | xargs -r docker rm -f
+   docker ps -aq --filter label=com.docker.compose.project=onebox-proxy | xargs -r docker rm -f
+   ```
+
+4. Copy every volume into its new name, with the labels Onebox and Compose
+   give a volume they create:
+
+   ```sh
+   for old in $(docker volume ls -q --filter label=ob.app=$APP | grep "^ob_${APP}_"); do
+     new="onebox_${old#ob_${APP}_}"
+     service=$(docker volume inspect -f '{{index .Labels "ob.service"}}' "$old")
+     if [ -n "$service" ]; then
+       set -- --label onebox.service="$service" --label com.docker.compose.project="onebox_$service"
+     else
+       set -- --label com.docker.compose.project="$APP"
+     fi
+     docker volume create --label onebox.app="$APP" "$@" \
+       --label com.docker.compose.volume="$new" "$new"
+     docker run --rm -v "$old":/from:ro -v "$new":/to alpine cp -a /from/. /to/
+   done
+   ```
+
+   A volume without the `onebox.app` label is refused by preflight as a
+   resource Onebox does not own. Without the Compose project label,
+   `ob destroy --volumes` would not find the volume, and would leave the data
+   behind.
+
+5. Move the state and rewrite the owner record:
+
+   ```sh
+   mkdir -p /var/lib/onebox
+   mv /var/lib/ob/$APP /var/lib/onebox/app
+   mv /var/lib/ob/_host /var/lib/onebox/_host
+   printf '%s %s\n' "$APP" "$ENV" > /var/lib/onebox/_host/owner
+   printf '%s\n' "$APP" > /var/lib/onebox/app/.onebox-app
+   for network in "${APP}_default" "ob_$APP" ob-ingress; do
+     if docker network inspect "$network" >/dev/null 2>&1; then
+       docker network rm "$network"
+     fi
+   done
+   ```
+
+   `ob_$APP` exists only if the application declared a service.
+
+   The state directory holds the managed services' credentials. Moving it, not
+   recreating it, is what lets the new containers open the copied data. The
+   `.onebox-app` marker says the directory is this application's: bootstrap
+   refuses to adopt a non-empty `app` directory without it, and destroy refuses
+   to delete one.
+
+6. From your machine, bootstrap and deploy:
+
+   ```sh
+   ob bootstrap production
+   ob deploy production
+   ```
+
+   Bootstrap recreates the networks, the proxy, the managed services and the
+   units under their new names. A protected PostgreSQL service checks that the
+   copied volume holds the cluster it recorded, and stops here if the copy is
+   incomplete.
+
+7. Check that the application sees its data. Then remove the old volumes:
+
+   ```sh
+   docker volume ls -q --filter label=ob.app=$APP | grep "^ob_${APP}_" | xargs -r docker volume rm
+   ```
+
+   Leave them until you are sure. They are the only copy of the data from
+   before the upgrade.
+
+Releases deployed before the upgrade stay in `releases/`, but their Compose
+files name the old volumes and paths. Do not roll back to them; roll back only
+to releases deployed after step 6.

@@ -31,7 +31,7 @@ func invalidateExecutionCommand(root string) string {
 }
 
 func durableContainerStop(container string, grace time.Duration) string {
-	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"ob.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerStop(container, grace) + "; fi"
+	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"onebox.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerStop(container, grace) + "; fi"
 }
 
 type executionDefinition struct {
@@ -126,7 +126,7 @@ func (e *Engine) durableScheduleRunner(job app.ScheduledJob, envFiles []app.EnvF
 		"release_dir=$(readlink -f "+q(n.CurrentLink())+")",
 		"release=${release_dir##*/}",
 		"[ \"${release_dir%/*}\" = "+q(n.ReleasesDir())+" ] || exit 1",
-		"exec 7>>\"$release_dir/.ob-schedule.lease\"", "chmod 600 \"$release_dir/.ob-schedule.lease\"", "/usr/bin/flock --shared 7")
+		"exec 7>>\"$release_dir/.onebox-schedule.lease\"", "chmod 600 \"$release_dir/.onebox-schedule.lease\"", "/usr/bin/flock --shared 7")
 	lines = append(lines, scheduleRunPreamble(true)...)
 	lines = append(lines, schedulePlannedBindingLines()...)
 	lines = append(lines, "phase=running", "write_state 1",
@@ -219,7 +219,7 @@ func (e *Engine) ExecutionAbandon(ctx context.Context, operation, id string) (er
 	if err := e.WriteFence(ctx, operation, epoch); err != nil {
 		return err
 	}
-	writer := &journal.Writer{T: e.T, Names: e.names(), DeployID: operation, Epoch: epoch,
+	writer := &journal.Writer{T: e.T, Dir: journal.Dir(e.names()), DeployID: operation, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	record := journal.Record{Phase: "execution-abandon", Event: "start", Status: "ok", Target: id, TargetKind: "job"}
 	if err := writer.Append(ctx, record); err != nil {

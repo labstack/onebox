@@ -225,7 +225,7 @@ func (e *Engine) healthDiagnosis(ctx context.Context, id string) string {
 // container is present but not serving, so not strictly running).
 type svcContainer struct {
 	id       string
-	release  string // the ob.release label ("" for a non-ob container)
+	release  string // the onebox.release label ("" for a non-ob container)
 	revision string // the stable per-workload runtime revision
 	health   string // healthy | unhealthy | starting | none | down (not running)
 }
@@ -235,7 +235,7 @@ type svcContainer struct {
 // service in docker's newest-first order. This is the whole of status's app
 // side: `docker ps` already carries the release label and a health hint in
 // `.Status`, so no per-container `docker inspect` is needed. (A single batched
-// inspect emitting BOTH the ob.release label and health was tried and can't be
+// inspect emitting BOTH the onebox.release label and health was tried and can't be
 // relied on: over multiple containers, a template that reads .Config.Labels and
 // guards .State.Health errors — "map has no entry for key Health" — on any
 // container without a healthcheck. A single-id health inspect is fine, but that
@@ -246,8 +246,8 @@ func (e *Engine) projectContainers(ctx context.Context) (map[string][]svcContain
 	// looked only in the application's project would report a database that is
 	// running perfectly well as missing.
 	res, err := e.T.Run(ctx,
-		"docker ps --filter label=ob.app="+q(e.Spec.Name)+
-			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"ob.release\"}}|{{.Label \""+app.WorkloadRevisionLabel+"\"}}|{{.Status}}'")
+		"docker ps --filter label=onebox.app="+q(e.Spec.Name)+
+			" --format '{{.ID}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"onebox.release\"}}|{{.Label \""+app.WorkloadRevisionLabel+"\"}}|{{.Status}}'")
 	if err != nil {
 		return nil, err
 	}

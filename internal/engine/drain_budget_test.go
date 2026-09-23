@@ -90,7 +90,7 @@ func flippingFake(clock *virtualClock, flipAfter time.Duration, baked string) *t
 			return transport.Result{Stdout: "\n"}, true
 		case strings.Contains(cmd, "State.Status"):
 			return transport.Result{Stdout: "running\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "onebox.release="):
 			return transport.Result{Stdout: strings.Join(news, "\n") + "\n"}, true
 		case strings.Contains(cmd, "compose.service='web'"):
 			return transport.Result{Stdout: strings.Join(append(append([]string{}, olds...), news...), "\n") + "\n"}, true
@@ -135,7 +135,7 @@ func TestDrainBudgetCoversTheFlipTheGeneratedHealthcheckProduces(t *testing.T) {
 	fake := flippingFake(clock, flip, bakedHealthcheckJSON("5s", 3))
 	out := &bytes.Buffer{}
 	e := New(config, testProject(t), fake, Options{Out: out, Sleep: clock.sleep, Now: clock.now})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v", err)
 	}
 	assertDrained(t, out.String())
@@ -191,7 +191,7 @@ func TestDrainBudgetCoversAContainerBakedBeforeTheChange(t *testing.T) {
 	fake := flippingFake(clock, 4*dockerDefaultInterval-time.Millisecond, bakedHealthcheckJSON("", 0))
 	out := &bytes.Buffer{}
 	e := New(config, testProject(t), fake, Options{Out: out, Sleep: clock.sleep, Now: clock.now})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v", err)
 	}
 	assertDrained(t, out.String())

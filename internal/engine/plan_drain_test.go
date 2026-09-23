@@ -22,7 +22,7 @@ func TestPlanPromisesADrainWaitOnlyWhenTheDeployTakesOne(t *testing.T) {
 
 	// Scoped to this workload: the fixture's worker authors a drain wait of its
 	// own, and that line is correct.
-	lines := strings.Join(newPlanEngine(t, config).Describe("/var/lib/ob/sample/releases/R1/compose.yaml"), "\n")
+	lines := strings.Join(newPlanEngine(t, config).Describe("/var/lib/onebox/app/releases/R1/compose.yaml"), "\n")
 	if strings.Contains(lines, "<current web>") {
 		t.Fatalf("the plan promises a drain step the deploy does not take:\n%s", lines)
 	}
@@ -30,7 +30,7 @@ func TestPlanPromisesADrainWaitOnlyWhenTheDeployTakesOne(t *testing.T) {
 	withWait := workload
 	withWait.Drain = &app.Drain{Signal: "USR1", Wait: "12s"}
 	config.Workloads["web"] = withWait
-	lines = strings.Join(newPlanEngine(t, config).Describe("/var/lib/ob/sample/releases/R1/compose.yaml"), "\n")
+	lines = strings.Join(newPlanEngine(t, config).Describe("/var/lib/onebox/app/releases/R1/compose.yaml"), "\n")
 	if !strings.Contains(lines, "--signal=USR1 <current web>; wait up to 12s for exit") {
 		t.Fatalf("the plan omits the drain step the deploy does take:\n%s", lines)
 	}
@@ -52,7 +52,7 @@ func TestPlanShowsTheDrainStepForTheDefaultSignalToo(t *testing.T) {
 	workload.Drain = &app.Drain{Wait: "15s"} // no signal: TERM
 	config.Workloads["web"] = workload
 
-	lines := strings.Join(newPlanEngine(t, config).Describe("/var/lib/ob/sample/releases/R1/compose.yaml"), "\n")
+	lines := strings.Join(newPlanEngine(t, config).Describe("/var/lib/onebox/app/releases/R1/compose.yaml"), "\n")
 	if !strings.Contains(lines, "--signal=TERM <current web>; wait up to 15s for exit") {
 		t.Fatalf("the plan hides the drain step recreate will take:\n%s", lines)
 	}

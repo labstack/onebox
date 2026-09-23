@@ -1,5 +1,5 @@
 // Package journal implements the append-only deploy journal at
-// /var/lib/ob/<app>/journal/<deploy-id>.jsonl, one sync per record. It is
+// <basePath>/app/journal/<deploy-id>.jsonl, one sync per record. It is
 // the mechanism behind resume, abort, fencing forensics, and audit — a spec,
 // not a noun.
 package journal
@@ -97,9 +97,10 @@ type WorkloadPlanEvidence struct {
 
 type Writer struct {
 	T transport.Transport
-	// Names carries the resolved layout, so a journal is written where the
-	// release it describes actually lives.
-	Names                   app.Names
+	// Dir is the journal directory: Dir(names) for an application's journal,
+	// names.HostJournalDir() for the host's. Every reader takes the same directory, so
+	// a journal is read and pruned exactly where it was written.
+	Dir                     string
 	DeployID                string
 	Epoch                   int
 	Operator                string
@@ -115,8 +116,10 @@ type Writer struct {
 	MigrationBackup         *MigrationBackupEvidence
 }
 
-func dir(n app.Names) string             { return release.PathsFor(n).Base + "/journal" }
-func file(n app.Names, id string) string { return dir(n) + "/" + id + ".jsonl" }
+// Dir is an application's journal directory, beside the releases it describes.
+func Dir(n app.Names) string { return release.PathsFor(n).Base + "/journal" }
+
+func file(dir, id string) string { return dir + "/" + id + ".jsonl" }
 
 func DefaultOperator() string {
 	user := os.Getenv("USER")
@@ -182,8 +185,11 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	if err != nil {
 		return err
 	}
-	f := file(w.Names, w.DeployID)
-	cmd := "mkdir -p " + q(dir(w.Names)) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
+	if w.Dir == "" {
+		return errors.New("journal writer has no directory")
+	}
+	f := file(w.Dir, w.DeployID)
+	cmd := "mkdir -p " + q(w.Dir) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
 	res, err := w.T.Run(ctx, cmd)
 	if err != nil {
 		return err
@@ -196,8 +202,8 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 
 // Read returns the records of one deploy; unparseable lines are tolerated
 // (the journal is forensic — a torn write must not block recovery).
-func Read(ctx context.Context, t transport.Transport, n app.Names, deployID string) ([]Record, error) {
-	res, err := t.Run(ctx, "cat "+q(file(n, deployID))+" 2>/dev/null || true")
+func Read(ctx context.Context, t transport.Transport, dir, deployID string) ([]Record, error) {
+	res, err := t.Run(ctx, "cat "+q(file(dir, deployID))+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +222,8 @@ func Read(ctx context.Context, t transport.Transport, n app.Names, deployID stri
 }
 
 // List returns deploy ids with journals, oldest first (ids sort by time).
-func List(ctx context.Context, t transport.Transport, n app.Names) ([]string, error) {
-	res, err := t.Run(ctx, "ls -1 "+q(dir(n))+" 2>/dev/null || true")
+func List(ctx context.Context, t transport.Transport, dir string) ([]string, error) {
+	res, err := t.Run(ctx, "ls -1 "+q(dir)+" 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +241,7 @@ func List(ctx context.Context, t transport.Transport, n app.Names) ([]string, er
 // journalMarker prefixes each file's contents in the bulk read below. Journal
 // records are single-line JSON objects (they start with '{'), so a line
 // starting with this marker is unambiguous.
-const journalMarker = "@@ob-journal@@"
+const journalMarker = "@@onebox-journal@@"
 
 // Journals returns every deploy's records keyed by id, plus the ids oldest
 // first, in a SINGLE round trip. FindIncomplete is the caller that needs this
@@ -243,7 +249,7 @@ const journalMarker = "@@ob-journal@@"
 // high-latency host, paid in full even when no deploy is incomplete. A per-file
 // marker lets one command carry them all while parsing and Summarize stay here.
 // (Audit reads per-file — it is not on the status hot path.)
-func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string, map[string][]Record, error) {
+func Journals(ctx context.Context, t transport.Transport, dir string) ([]string, map[string][]Record, error) {
 	// A missing journal directory is a valid never-deployed state. Existing but
 	// unreadable directories/files fail so status cannot report false completeness.
 	// -e follows symlinks, so the -L arm is what keeps a dangling journal-dir
@@ -252,7 +258,7 @@ func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string
 	// a crash can leave a journal's last record un-terminated, and without it
 	// that record's line would swallow the following file's marker, losing an
 	// entire deploy's records to one torn write.
-	cmd := "if [ -d " + q(dir(n)) + " ]; then cd " + q(dir(n)) + " || exit; " +
+	cmd := "if [ -d " + q(dir) + " ]; then cd " + q(dir) + " || exit; " +
 		// Searchable but not readable: cd succeeds and the glob cannot
 		// enumerate, so the loop never runs and the read looks like a
 		// never-deployed host. Same false completeness, one step over.
@@ -264,11 +270,11 @@ func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string
 		// catches a directory or device sitting where a journal belongs;
 		// -L catches the dangling link -e cannot see.
 		"if [ -e \"$f\" ] || [ -L \"$f\" ]; then exit 2; fi; continue; fi; echo " + q(journalMarker) +
-		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir(n)) + " ] || [ -L " + q(dir(n)) + " ]; then exit 2; else " +
+		"\"$f\"; cat \"$f\" || exit; echo; done; elif [ -e " + q(dir) + " ] || [ -L " + q(dir) + " ]; then exit 2; else " +
 		// An unsearchable ancestor hides the directory as thoroughly as a
 		// missing one, and answering "never deployed" there strands an
 		// interrupted deploy: FindIncomplete reports nothing to resume.
-		app.UndeterminedArm(dir(n)) + "true; fi"
+		app.UndeterminedArm(dir) + "true; fi"
 	res, err := t.Run(ctx, cmd)
 	if err != nil {
 		return nil, nil, err
@@ -277,11 +283,11 @@ func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string
 	// would print an exit code and no cause.
 	switch res.ExitCode {
 	case 2:
-		return nil, nil, fmt.Errorf("read deployment journals failed: %s exists but a journal there could not be read; inspect the deployment state directory", dir(n))
+		return nil, nil, fmt.Errorf("read deployment journals failed: %s exists but a journal there could not be read; inspect the deployment state directory", dir)
 	case app.ProbeStatePathNotDirectory:
-		return nil, nil, fmt.Errorf("read deployment journals failed: the path that should hold %s is not a directory; inspect the deployment state directory", dir(n))
+		return nil, nil, fmt.Errorf("read deployment journals failed: the path that should hold %s is not a directory; inspect the deployment state directory", dir)
 	case app.ProbeUndetermined:
-		return nil, nil, fmt.Errorf("read deployment journals failed: a directory holding %s cannot be searched, so a never-deployed host cannot be told from an unreadable one; verify access, then retry", dir(n))
+		return nil, nil, fmt.Errorf("read deployment journals failed: a directory holding %s cannot be searched, so a never-deployed host cannot be told from an unreadable one; verify access, then retry", dir)
 	}
 	if res.ExitCode != 0 {
 		return nil, nil, fmt.Errorf("read deployment journals failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
@@ -314,11 +320,11 @@ func Journals(ctx context.Context, t transport.Transport, n app.Names) ([]string
 // PruneCandidates returns journal ids beyond independent deploy and auxiliary
 // keep windows, oldest first. High-frequency exec/job/service activity must not
 // evict the deploy history needed for recovery and audit.
-func PruneCandidates(ctx context.Context, t transport.Transport, n app.Names, keep int) ([]string, error) {
+func PruneCandidates(ctx context.Context, t transport.Transport, dir string, keep int) ([]string, error) {
 	if keep < 1 {
 		return nil, errors.New("journal retention keep window must be positive")
 	}
-	ids, byID, err := Journals(ctx, t, n)
+	ids, byID, err := Journals(ctx, t, dir)
 	if err != nil {
 		return nil, err
 	}

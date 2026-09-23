@@ -139,7 +139,7 @@ func (e *Engine) ServiceApply(ctx context.Context, releaseID string, allowDestru
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Dir: journal.Dir(e.names()), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "service-apply", Event: "start", Detail: strings.Join(e.Spec.ServiceNames(), ",")}); err != nil {
 		return fmt.Errorf("journal service apply start: %w", err)
 	}

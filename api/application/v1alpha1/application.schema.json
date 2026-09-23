@@ -26,23 +26,17 @@
           "type": "object"
         },
         "name": {
-          "description": "The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin \"ob-\" or be a name the host layout reserves. Stable application name used in generated runtime identities.",
+          "description": "The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin \"onebox-\" or be a name the host layout reserves. Stable application name used in generated runtime identities.",
           "examples": [
             "shop"
           ],
           "not": {
             "anyOf": [
               {
-                "pattern": "^ob-"
+                "pattern": "^onebox-"
               },
               {
-                "const": "ob"
-              },
-              {
-                "const": "onebox-proxy"
-              },
-              {
-                "const": "_host"
+                "const": "onebox"
               }
             ]
           },
@@ -221,7 +215,7 @@
           "type": "object"
         },
         "basePath": {
-          "default": "/var/lib/ob",
+          "default": "/var/lib/onebox",
           "description": "Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter.",
           "examples": [
             "/srv/ob"
@@ -926,7 +920,7 @@
               "type": "boolean"
             },
             "network": {
-              "default": "ob-ingress",
+              "default": "onebox-ingress",
               "description": "External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved.",
               "type": "string"
             }
@@ -1281,6 +1275,24 @@
             "description": "Also accepts the version to run."
           },
           "description": "Supporting services managed outside application releases, such as databases and caches.",
+          "propertyNames": {
+            "not": {
+              "anyOf": [
+                {
+                  "const": "proxy"
+                },
+                {
+                  "const": "discovery"
+                },
+                {
+                  "const": "ingress"
+                },
+                {
+                  "const": "services"
+                }
+              ]
+            }
+          },
           "type": "object"
         },
         "workloads": {
@@ -2107,6 +2119,7 @@
                 "examples": [
                   2
                 ],
+                "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
               },

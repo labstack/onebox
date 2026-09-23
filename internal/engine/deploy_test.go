@@ -20,7 +20,7 @@ import (
 // drain guard first, so a rollout can take the container out of rotation before
 // it stops it. A rollout probes for this, and a fake that did not answer would
 // exercise the unguardable path in every test.
-const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/ob-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
+const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/onebox-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
 const enginePreviousFrontendProject = `apiVersion: onebox.run/v1alpha1
 kind: Application
@@ -74,7 +74,7 @@ func happyFake() *transport.Fake {
 		newGone, workerGone := false, false
 		name := map[string]string{"OLD1": "web"}
 		for _, c := range f.Commands {
-			if strings.Contains(c, "docker ps -aq") && strings.Contains(c, "label=ob.app=") && strings.Contains(c, "label=ob.release=") {
+			if strings.Contains(c, "docker ps -aq") && strings.Contains(c, "label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
 				seenExactReleaseQuery = true
 			}
 			if strings.Contains(c, "--scale web=") {
@@ -99,7 +99,7 @@ func happyFake() *transport.Fake {
 			if strings.Contains(c, "docker rm -f W1") {
 				workerGone = true
 			}
-			if strings.Contains(c, "ob-drain") {
+			if strings.Contains(c, "onebox-drain") {
 				drained = true
 			}
 			if i := strings.Index(c, "docker rename "); i >= 0 {
@@ -121,9 +121,9 @@ func happyFake() *transport.Fake {
 		case strings.Contains(cmd, "State.Status"):
 			return transport.Result{Stdout: "running\n"}, true
 		case strings.Contains(cmd, "/_host/owner"):
-			return transport.Result{Stdout: "sample\n"}, true
+			return transport.Result{Stdout: "sample production\n"}, true
 		case strings.Contains(cmd, "docker network inspect --format"):
-			return transport.Result{Stdout: "abc123|sample|\n"}, true
+			return transport.Result{Stdout: "abc123|sample\n"}, true
 		case strings.Contains(cmd, "docker version"):
 			return transport.Result{Stdout: "27.0.3\n"}, true
 		case strings.Contains(cmd, "imagetools inspect --help"):
@@ -138,7 +138,7 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: "PG1\n"}, true
 		case strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PG1"):
 			return transport.Result{Stdout: "healthy\n"}, true
-		case strings.Contains(cmd, "compose.service='web'") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "compose.service='web'") && strings.Contains(cmd, "onebox.release="):
 			if scaled && (!newGone || scaleCount > initialScaleCount) {
 				return transport.Result{Stdout: "NEW1\n"}, true
 			}
@@ -169,7 +169,7 @@ func happyFake() *transport.Fake {
 			// Recreate drain observes the old worker after signalling it. The happy
 			// fixture models a worker that exits promptly and can be replaced.
 			return transport.Result{Stdout: "false\n"}, true
-		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "onebox.release="):
 			if !workerGone || recreateCount > initialRecreateCount {
 				return transport.Result{Stdout: "W1\n"}, true
 			}
@@ -179,7 +179,7 @@ func happyFake() *transport.Fake {
 				return transport.Result{Stdout: "W1\n"}, true
 			}
 			return transport.Result{}, true
-		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=ob.app=") && strings.Contains(cmd, "label=ob.release="):
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=onebox.app=") && strings.Contains(cmd, "label=onebox.release="):
 			var ids []string
 			if initialScaleCount > 0 && !newGone {
 				ids = append(ids, "NEW1")
@@ -196,7 +196,7 @@ func happyFake() *transport.Fake {
 			return transport.Result{Stdout: ""}, true
 		case strings.Contains(cmd, "ls -1"):
 			return transport.Result{Stdout: "20260101-000000-aaa111\n"}, true
-		case strings.Contains(cmd, "ob.snapshot.yml"):
+		case strings.Contains(cmd, "onebox.snapshot.yml"):
 			return transport.Result{Stdout: engineProject}, true
 		case strings.Contains(cmd, "/journal/"+engineTestPreviousReleaseID+".jsonl"):
 			return transport.Result{Stdout: `{"deploy_id":"` + engineTestPreviousReleaseID + `","phase":"activation","event":"result","status":"ok","detail":"release=` + engineTestPreviousReleaseID + `"}` + "\n"}, true
@@ -234,7 +234,7 @@ func TestDeployRefusesUnsupportedPredecessorSnapshotBeforeRuntimeMutation(t *tes
 		switch {
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(command, "/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(command, "/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: strings.Replace(enginePreviousFrontendProject, app.APIVersion, "onebox.run/v2", 1)}, true
 		}
 		return base(command)
@@ -260,7 +260,7 @@ func TestDeployRetainsPlannedWorkloadWithoutRuntimeMutation(t *testing.T) {
 	revision := "sha256:" + strings.Repeat("a", 64)
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "docker ps --filter label=ob.app=") && strings.Contains(command, "--format") {
+		if strings.Contains(command, "docker ps --filter label=onebox.app=") && strings.Contains(command, "--format") {
 			return transport.Result{Stdout: "OLD1|web|R0||Up (healthy)\nW1|worker|R0|" + revision + "|Up\n"}, true
 		}
 		return base(command)
@@ -394,15 +394,15 @@ func TestDeployJournalsAndFencesLifecycle(t *testing.T) {
 		last = i
 	}
 	// every mutation is fence-guarded
-	for _, mut := range []string{"--scale web=2", "touch /tmp/ob-drain", "docker stop -t 30 OLD1", "--force-recreate --timeout 30 worker", "ln -sfn"} {
+	for _, mut := range []string{"--scale web=2", "touch /tmp/onebox-drain", "docker stop -t 30 OLD1", "--force-recreate --timeout 30 worker", "ln -sfn"} {
 		for _, c := range f.Commands {
-			if strings.Contains(c, mut) && !strings.Contains(c, "ob-fenced") {
+			if strings.Contains(c, mut) && !strings.Contains(c, "onebox-fenced") {
 				t.Fatalf("mutation not fence-guarded: %s", c)
 			}
 		}
 	}
 	// lock released at the end
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/sample/lock'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatal("lock never released")
 	}
 }
@@ -496,7 +496,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 		}
 		last = i
 	}
-	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/ob/sample/releases/20260101-000000-aaa111") {
+	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/onebox/app/releases/20260101-000000-aaa111") {
 		t.Fatalf("transfer missing: %v", f.Uploads)
 	}
 }
@@ -508,13 +508,13 @@ func TestDeployRetiresWorkloadRemovedByRenameAfterActivation(t *testing.T) {
 		draining := false
 		removed := false
 		for _, previous := range f.Commands {
-			draining = draining || strings.Contains(previous, "docker exec FRONT1 touch /tmp/ob-drain")
+			draining = draining || strings.Contains(previous, "docker exec FRONT1 touch /tmp/onebox-drain")
 			removed = removed || strings.Contains(previous, "docker rm FRONT1")
 		}
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(cmd, "/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: enginePreviousFrontendProject}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='frontend'"):
 			if removed {
@@ -537,7 +537,7 @@ func TestDeployRetiresWorkloadRemovedByRenameAfterActivation(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	verifyAt := strings.Index(seq, "curl -fsS -m 5")
 	activateAt := strings.Index(seq, "ln -sfn 'releases/"+engineTestDeployReleaseID+"'")
-	drainAt := strings.Index(seq, "docker exec FRONT1 touch /tmp/ob-drain")
+	drainAt := strings.Index(seq, "docker exec FRONT1 touch /tmp/onebox-drain")
 	removeAt := strings.Index(seq, "docker rm FRONT1")
 	if verifyAt < 0 || activateAt < verifyAt || drainAt < activateAt || removeAt < drainAt {
 		t.Fatalf("old workload must drain only after verify and activation:\n%s", seq)
@@ -601,7 +601,7 @@ func TestDeployRefusesWhileAForeignJobContainerRuns(t *testing.T) {
 	f := happyFake()
 	inner := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "label='ob.operation'") {
+		if strings.Contains(cmd, "label='onebox.operation'") {
 			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
 		}
 		return inner(cmd)
@@ -623,7 +623,7 @@ func TestDeployKeepsAndExplainsTheLockWhenItRefuses(t *testing.T) {
 	f := happyFake()
 	inner := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "label='ob.operation'") {
+		if strings.Contains(cmd, "label='onebox.operation'") {
 			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
 		}
 		return inner(cmd)
@@ -634,7 +634,7 @@ func TestDeployKeepsAndExplainsTheLockWhenItRefuses(t *testing.T) {
 		t.Fatal("expected a refusal")
 	}
 	for _, c := range f.Commands {
-		if strings.Contains(c, "rm -f '/var/lib/ob/sample/lock'") {
+		if strings.Contains(c, "rm -f '/var/lib/onebox/app/lock'") {
 			t.Fatalf("the lock was released over a live container:\n%s", c)
 		}
 	}

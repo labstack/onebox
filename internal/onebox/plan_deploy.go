@@ -287,7 +287,7 @@ func readLiveComposeState(ctx context.Context, e *engine.Engine, currentRelease 
 // patch into a document afterwards, and no second place where the runtime can
 // differ from what `ob preview` showed.
 func stageExecution(ctx context.Context, lp *loadedProject, environment, releaseID, secretGeneration string, secretRevisions map[string]string, images app.Images) (string, func(), error) {
-	staging, err := os.MkdirTemp("", "ob-"+lp.resolved.Name)
+	staging, err := os.MkdirTemp("", "onebox-"+lp.resolved.Name)
 	if err != nil {
 		return "", nil, err
 	}

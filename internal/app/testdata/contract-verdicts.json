@@ -7,7 +7,7 @@
   {
     "case": "conformance/a plugin log driver",
     "loads": true,
-    "digest": "cec4ac9813f5363b2a55a480f5db33cc53c04c91ad11af39c9100be5fd0010f1"
+    "digest": "ba08f725a75ef6f26e3b0e2b5032d479dd54be284babd8b08c21a4e6814c2365"
   },
   {
     "case": "conformance/absolute compose ref",
@@ -22,15 +22,15 @@
   {
     "case": "conformance/absolute writable bind mount",
     "loads": true,
-    "digest": "49df20c8d9726213a80cb8f865a8f25083a6003d1c9a15aff869098b74673455"
+    "digest": "963edc703c904f47a04f88a78ca109468367b232ab6e4ff656cb07cc270fc300"
   },
   {
     "case": "conformance/an absolute bind mount is external",
     "loads": true,
-    "digest": "0c9e00afa123a09626e894b0de83007cf142155735146d9cd0e0c814785ed526"
+    "digest": "d8dda544924031d00c57aeb7dfaae6b02bec441e7389d50deaec73a3bf801a26"
   },
   {
-    "case": "conformance/app starting ob-",
+    "case": "conformance/app starting onebox-",
     "loads": false,
     "code": "project_invalid"
   },
@@ -92,7 +92,7 @@
   {
     "case": "conformance/base_path absolute",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
   },
   {
     "case": "conformance/bind source containing a compose separator",
@@ -107,7 +107,7 @@
   {
     "case": "conformance/daemon role",
     "loads": true,
-    "digest": "10803382e10cb8685ebf5006c9f47cd74e6544cdab7b1a1674e79f0ba302bf0f"
+    "digest": "6c35d6ada2608260eec6a61921f0abb12e0ef48aeb03c400d1315314e4b195a2"
   },
   {
     "case": "conformance/declared durability still refuses replicas",
@@ -117,12 +117,12 @@
   {
     "case": "conformance/duration in days",
     "loads": true,
-    "digest": "087192685a9b863e38bc6b96e8436075b279b2d7222ad66b7ff1a9d782a127d2"
+    "digest": "dac5c9ed4decb409eb9fb2ed8c90191ffd524d92a17dfc3ce442600f9b78d60d"
   },
   {
     "case": "conformance/encrypted env file entry",
     "loads": true,
-    "digest": "d87891ad760c2aca38053753731a3bf03ddab6f987d4cd9e87110af4715708d3"
+    "digest": "c300b69e70991a95bc2625fe246ca4a41557913ec412009253dcc7365b03b3c3"
   },
   {
     "case": "conformance/env file entry without a file",
@@ -132,17 +132,17 @@
   {
     "case": "conformance/environment-scoped env files",
     "loads": true,
-    "digest": "56cbcd764cb9b8ee0cb78468a1cacc7b54a5afa917ccb1b222194727ddb3434c"
+    "digest": "68c89d3fbb35e9876736c4d05ca6d384af1c2fd110e60fbf00285ce7e538ede8"
   },
   {
     "case": "conformance/explicit operator job remains a runtime service",
     "loads": true,
-    "digest": "13d1b0f2e12b3bee654c9611be6461f90c52efdcbc8294597e53f6378bb70c28"
+    "digest": "0b39c8152c3d3542a65d61c8455f58b63aece4ed100c66dff9e851afa4c631c7"
   },
   {
     "case": "conformance/explicit workloads block",
     "loads": true,
-    "digest": "6f81377bb89168720a2e43bb638100f9e70d9b4f6392559ee65a6c8089637ba2"
+    "digest": "9526cdd08e1b6b018b4fce194741030d5cc09618317df9d24072e4fdcee99356"
   },
   {
     "case": "conformance/external lifecycle field",
@@ -152,12 +152,12 @@
   {
     "case": "conformance/external service connection",
     "loads": true,
-    "digest": "704b83e1340e576ad8acda97f924dbdcb10de59395a7c22bc05a83bdece753a9"
+    "digest": "9b15e15fef71409b167288343b8e318b300a7f595ee4393cb83e4cd0cf52ea19"
   },
   {
     "case": "conformance/hook naming a declared job",
     "loads": true,
-    "digest": "4af7b3c8d6b1fc8122040f4ec485f748900153b6cb41f2e145413c23b6d20db2"
+    "digest": "ec59f3b4014aade8bb1eb3bf58e086504f16555e8eebe3894a1d6beb9c6a4485"
   },
   {
     "case": "conformance/hook naming an unlisted seam",
@@ -172,7 +172,7 @@
   {
     "case": "conformance/hook with local",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
   },
   {
     "case": "conformance/host proxy name",
@@ -192,7 +192,7 @@
   {
     "case": "conformance/image reference with registry port",
     "loads": true,
-    "digest": "1d27b063513ee1c15067cb23e31898cb271aba6250df66dd6f1c115369c2f80e"
+    "digest": "6f8443574dda0e2d8ae2f91ea46e46c67853c72401610578c8bc8fdfe0e31472"
   },
   {
     "case": "conformance/image reference with uppercase repository",
@@ -207,12 +207,12 @@
   {
     "case": "conformance/inferred durability does not refuse replicas",
     "loads": true,
-    "digest": "0c179c61a883e6dd0a59885d60ca765709015aec445fc4be770a6e021e2d7201"
+    "digest": "448ed517fa84e18a05c9cb777a168a8c503d5d65ec8d69fed2825a2b3a00bf47"
   },
   {
     "case": "conformance/job data_effect unknown",
     "loads": true,
-    "digest": "13d1b0f2e12b3bee654c9611be6461f90c52efdcbc8294597e53f6378bb70c28"
+    "digest": "0b39c8152c3d3542a65d61c8455f58b63aece4ed100c66dff9e851afa4c631c7"
   },
   {
     "case": "conformance/job requires data_effect",
@@ -222,7 +222,7 @@
   {
     "case": "conformance/job with data_effect",
     "loads": true,
-    "digest": "13d1b0f2e12b3bee654c9611be6461f90c52efdcbc8294597e53f6378bb70c28"
+    "digest": "0b39c8152c3d3542a65d61c8455f58b63aece4ed100c66dff9e851afa4c631c7"
   },
   {
     "case": "conformance/log driver with a space",
@@ -242,12 +242,12 @@
   {
     "case": "conformance/migration_policy expand-only",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
   },
   {
     "case": "conformance/minimum project",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
   },
   {
     "case": "conformance/missing api_version",
@@ -282,17 +282,17 @@
   {
     "case": "conformance/notification with no events",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
   },
   {
     "case": "conformance/one-char identifier",
     "loads": true,
-    "digest": "087192685a9b863e38bc6b96e8436075b279b2d7222ad66b7ff1a9d782a127d2"
+    "digest": "dac5c9ed4decb409eb9fb2ed8c90191ffd524d92a17dfc3ce442600f9b78d60d"
   },
   {
     "case": "conformance/operator proxy owns route middleware",
     "loads": true,
-    "digest": "bfb6fed92b7b1fee8a9170f5d5880e5eb70d36854803c8675f17fcb17dc002ba"
+    "digest": "93ba8c0a7344004feaa711ef682e2fe31c226768397069613a0a723e58177782"
   },
   {
     "case": "conformance/persistence block with no mode still refuses replicas",
@@ -302,7 +302,7 @@
   {
     "case": "conformance/persistence external",
     "loads": true,
-    "digest": "8bc10aaa4453e53980a552c2a78fd78dc7ebf42259a6567b27920fe784c3d579"
+    "digest": "1c8cf8cafe45c46cc614eba4f81fc6ed7adca446b097004aff81e02158b430f5"
   },
   {
     "case": "conformance/port out of range",
@@ -312,7 +312,7 @@
   {
     "case": "conformance/provider-qualified route middlewares",
     "loads": true,
-    "digest": "68e64d82ad9afb845f41e9bfe57a920c0452649a74644877f6f69949714edbc4"
+    "digest": "995ffdd8bfc296f2187388c2664856775d4b37beaa21c2351e0d88908411210e"
   },
   {
     "case": "conformance/proxy kind none with a route",
@@ -322,17 +322,17 @@
   {
     "case": "conformance/proxy kind none without a route",
     "loads": true,
-    "digest": "6f81377bb89168720a2e43bb638100f9e70d9b4f6392559ee65a6c8089637ba2"
+    "digest": "9526cdd08e1b6b018b4fce194741030d5cc09618317df9d24072e4fdcee99356"
   },
   {
     "case": "conformance/published udp port",
     "loads": true,
-    "digest": "029238424aa0c9fd448a4c2b930ded33d9ce30b53b3ab45a087f47f8ff77de8c"
+    "digest": "5decea845fe4a831db17eb6fe96ea5e0a767b6e438a0315f9b260d9f314da508"
   },
   {
     "case": "conformance/recreate workload with published host port",
     "loads": true,
-    "digest": "c8766522ff86082d00c7d2e43233e15696c4bf2567a0df2a3ccc8fede134fbfd"
+    "digest": "ffaae765a295e0440afa21cf7e1b2bfc9b915a2c3997b93850daf77d65f5b316"
   },
   {
     "case": "conformance/relative bind escaping the release",
@@ -347,12 +347,12 @@
   {
     "case": "conformance/relative env_file",
     "loads": true,
-    "digest": "9d40880f62c05790ff682afc8c185f0ebc454e77522e9e734ef8f256461dea91"
+    "digest": "cc5dff1d0b16cd83e693041b4d4f1ac0c9fffa34073e36d23c81755fab16418d"
   },
   {
     "case": "conformance/relative read-only bind mount",
     "loads": true,
-    "digest": "a2527f885d806b157fa60c13f03e245749143e08e512d512f14970da6f8f2a95"
+    "digest": "937f5226f44cc90e738d5fd68de1201d3a227a3be9709011fac9515b5a5e3481"
   },
   {
     "case": "conformance/relative writable bind mount",
@@ -362,7 +362,7 @@
   {
     "case": "conformance/repeated route middleware remains ordered",
     "loads": true,
-    "digest": "2422cebd0a6c76e245e576cfefa0bb2596966f7e47dda8c3fa42013633339b3e"
+    "digest": "5fb1a46d08a46a8d9b481a560c06893857d6451cd50ed96d4b53d571772ee245"
   },
   {
     "case": "conformance/rolling workload with published host port",
@@ -372,12 +372,12 @@
   {
     "case": "conformance/routes list",
     "loads": true,
-    "digest": "c44552dd7728f71b6232b172d17b60dff503ae9e576cc039db083dd76365a488"
+    "digest": "324585a45f34f693d6ef1660d91bb04866f3d29170abf3515df0cde234ff4e38"
   },
   {
     "case": "conformance/scheduled job",
     "loads": true,
-    "digest": "13d1b0f2e12b3bee654c9611be6461f90c52efdcbc8294597e53f6378bb70c28"
+    "digest": "0b39c8152c3d3542a65d61c8455f58b63aece4ed100c66dff9e851afa4c631c7"
   },
   {
     "case": "conformance/scheduled job invalid timeout",
@@ -387,22 +387,22 @@
   {
     "case": "conformance/scheduled job run policy",
     "loads": true,
-    "digest": "13d1b0f2e12b3bee654c9611be6461f90c52efdcbc8294597e53f6378bb70c28"
+    "digest": "0b39c8152c3d3542a65d61c8455f58b63aece4ed100c66dff9e851afa4c631c7"
   },
   {
     "case": "conformance/service backup policy",
     "loads": true,
-    "digest": "77d034b99d52d2ca044aae16988d35c67e0b24a504d092a5050887a0063abe06 postgres=c1475eb63145a73b"
+    "digest": "73135190e9f9fae42347e107f496211e4d2f75bfe5ff934ead0096f4f3571a19 postgres=ee9972ab51c56731"
   },
   {
     "case": "conformance/service scalar",
     "loads": true,
-    "digest": "8ccece3e82ae24e63d91e2a5cc565adfd1b30cd185b644846c24ccce9e3b1742 postgres=16f6016ba043ba3b"
+    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a postgres=f566c9221cb196ab"
   },
   {
     "case": "conformance/settings key that is a real driver flag",
     "loads": true,
-    "digest": "8ccece3e82ae24e63d91e2a5cc565adfd1b30cd185b644846c24ccce9e3b1742 redis=f5e4171f39cd0dcb"
+    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a redis=fd038e9c5b5c3b09"
   },
   {
     "case": "conformance/settings key with a shell metacharacter",
@@ -477,7 +477,7 @@
   {
     "case": "conformance/unmanaged proxy keeps its routes",
     "loads": true,
-    "digest": "1427479dd14b45dd67d0ede585e8a7101f77d8e0b138fcc9bfd2f3b564b487c7"
+    "digest": "11d9655e57e8814a2fad47821e7e691d7d401f01d2595d4610fe260c1a2a443c"
   },
   {
     "case": "conformance/unqualified route middleware",
@@ -492,12 +492,12 @@
   {
     "case": "conformance/url check with contains and advisory",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
   },
   {
     "case": "conformance/volume scalar with a path",
     "loads": true,
-    "digest": "70ab58ff576ee933006bae05e3634e08a4bbb45bde2422bc62d2a5ad41ad12e6"
+    "digest": "615d6b5e05cc3cda30185684fe9773c6eb24abe8be3ab8733e98056279b6275f"
   },
   {
     "case": "conformance/volume scalar without a path",
@@ -507,7 +507,7 @@
   {
     "case": "conformance/volumes without persistence still load",
     "loads": true,
-    "digest": "70ab58ff576ee933006bae05e3634e08a4bbb45bde2422bc62d2a5ad41ad12e6"
+    "digest": "615d6b5e05cc3cda30185684fe9773c6eb24abe8be3ab8733e98056279b6275f"
   },
   {
     "case": "conformance/worker with schedule",
@@ -532,17 +532,17 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "64ea7ff80a65ba1594bc9565675e7ff194b3acdb44540ebb2e84a46d2e4c4bf1 postgres=dc4f8448b8b82b4a redis=d2660eeb4faa49fe"
+    "digest": "e82f2e9eac87e3494cf0aa86b80f91a60f363f0af7aac28bb45e1ec6ed2e40fb postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "baf976b3c71b90c78e1bcab801a9765b6111abae7df5600a15233a9811c99a0e postgres=dc4f8448b8b82b4a redis=d2660eeb4faa49fe"
+    "digest": "10748708444a383dc2e587286c13f06a4f3ea218835e2eeab1af83ed312ec741 postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
   },
   {
     "case": "corpus/ext-authentik.yml",
     "loads": true,
-    "digest": "e5aebd1b4f98af7beaa603ae44d981486150335461306d7cabf173476bdf27ee"
+    "digest": "d7fdef6fcc8d19296aa43c09e11a3925f1e31ba035c8e90bd6cb9095d3a59cac"
   },
   {
     "case": "corpus/ext-frigate.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "96f5d0556ae66e0c5052343fb6d763a16686510181a1406266864c5eed49be80 postgres=e70cc45c347098f9"
+    "digest": "f6028df90e48b43f68c3375115ef402255ebd0aadf0ddde9eb9e2d538598cb65 postgres=446e25618a3d2e4e"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -567,32 +567,32 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "1b9c415f24ea342e79a3c14b5ad6bb485f29df88b7478371e99ee7f59006d86a postgres=809549d286e2dbdc redis=86933b446609e6d8"
+    "digest": "3831bd9a52d01deada4936e218fc8ba33c96a0b1d939e6bf503f3fbda8ba0895 postgres=c9e06c2c21513656 redis=83f7ec43501bb1f4"
   },
   {
     "case": "corpus/ext-paperless.yml",
     "loads": true,
-    "digest": "8ec597bfc4bc7d71d879e5f7dc12d94009c326fdba1720b65d7c5ea726e7a183"
+    "digest": "b0ef183132b8159b180a29eb5bdb28de719dc97e7e5c151bc7896b96cbdb04ad"
   },
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "9919231c9f5b2702f56fda1f56bae20a1d3912039e8013144af7ce204b986f2f events=1e798590e3a5dda4 postgres=b1fac70440c33545"
+    "digest": "4574810017062b8d857ad2c43597b484fe88e6b4198f75ec74c2d705cbcf17d1 events=79a3b4327069a1dc postgres=128c7ea3ed2b4f69"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
-    "digest": "4088b4fc05094ac274c76205c774fb6b99f03c00abc97f7e2574eadf4ca7c6f6 postgres=36c6c38ba304b445"
+    "digest": "fd193a8c2f51cbe206e2e038ccd277c3e6785c84912b5967a2afd58c1320ac13 postgres=a0f143f02b9f5845"
   },
   {
     "case": "corpus/ghost.yml",
     "loads": true,
-    "digest": "ba2aaf586bcb73298f6175fb36813d8720a3f67d58c7bc023bf35a564b1e19d3 mysql=0f13a6374095d11b"
+    "digest": "7ab89c09054e821edfb0edd5c014b488ca06785d052f4178a688d4008961e1ad mysql=6dc2ab74dac73160"
   },
   {
     "case": "corpus/gitea.yml",
     "loads": true,
-    "digest": "c6347add0af261bc2f87d29691f6de5b14401d63c7034ed5ba8c0798913d7d52"
+    "digest": "0bf67b194d6c01daec00313f1e6f2cd9be3613a5dffd8ad0097a728360d7a269"
   },
   {
     "case": "corpus/goal.yml",
@@ -602,7 +602,7 @@
   {
     "case": "corpus/immich.yml",
     "loads": true,
-    "digest": "d8e311adf9eb1ae4fc7e1362e53de2ba2e6ccefa2deefd0a8b1a976c7b5bfa06"
+    "digest": "923534f84d1c3d4c4d0fd59c6c20b9d2d197acfc045046531b7235cfc73e0d3e"
   },
   {
     "case": "corpus/monk.yml",
@@ -612,17 +612,17 @@
   {
     "case": "corpus/n8n.yml",
     "loads": true,
-    "digest": "45034dd978133e0aab7db59c3ee86a2157e306a608a8633feeb204b4958c5fef"
+    "digest": "ecc2235d37c777399acbda26f8c149515e3960fbfbdd286873459fc5c8b0164d"
   },
   {
     "case": "corpus/paperless.yml",
     "loads": true,
-    "digest": "80991cdd434564e0612397e3f64427088ce51d87f30e2502cdc9a496773ba81c"
+    "digest": "c5eea938217dd6488e684078199dc338bc4915d8be3de3e0f728e6ced3b2b01d"
   },
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "4d7d95dd74e291c481366cf606f5b2537fa5bf97cf126bea50df9fa927d26da3 postgres=fc584b1b50db23a6 redis=fcccb6a023ae5734"
+    "digest": "1cd500aae4deac5cf744dec3f1222b13aec493457de4b6069a3449126ad70210 postgres=fce3c20f4ad2e0e4 redis=e6f4fb5264fe75ae"
   },
   {
     "case": "corpus/pursue.yml",
@@ -637,21 +637,21 @@
   {
     "case": "corpus/rocketchat.yml",
     "loads": true,
-    "digest": "0b1a575f884bc3ae2aa87bde1df62dc2a00068ba17c56f2288fa7412eb918a96 mongodb=eaca06e5d1b88e4b"
+    "digest": "4a091cd29c4a572eb57fcc9cd68edb76fbd56eb88ce16aab29efb30cb16af69f mongodb=09562fa5123be0a1"
   },
   {
     "case": "corpus/umami.yml",
     "loads": true,
-    "digest": "ea01ea117cbbae96ad9e6f3bc9dff6bf40839cdb21dcc540aca078e2d79d503b"
+    "digest": "93e16cdd46259289535d57fa3fe762f65717a8ab054daa365e14f1ca8f5b815d"
   },
   {
     "case": "corpus/uptime-kuma.yml",
     "loads": true,
-    "digest": "e3f215d2cbbd19d05f6c4dd7b07f5b2e7cb28a79fc1877ec2ca25b06ff2feef4"
+    "digest": "0814a4130438e336934f9265f6d4f482bac99ba4198df1c7ccc0f2668655003e"
   },
   {
     "case": "corpus/vaultwarden.yml",
     "loads": true,
-    "digest": "d09dabcf3ed38023913407762fa2d2c6a25db15625ae90386ee23cd9628ab838"
+    "digest": "5779468825f6562666a9d32ad1e7e1390e35de0ffaef97e8a377ccf81047f99b"
   }
 ]

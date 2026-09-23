@@ -404,6 +404,7 @@ var schemaConstraints = []struct {
 	{[]string{"api_version"}, map[string]any{"const": APIVersion}},
 	{[]string{"app"}, appNameConstraint()},
 	{[]string{"base_path"}, pattern(gAbsPath)},
+	{[]string{"services"}, serviceNamesConstraint()},
 	{[]string{"services", "*", "features", "extensions"}, map[string]any{
 		"propertyNames": map[string]any{"pattern": gExtension.pattern.String()},
 	}},
@@ -414,7 +415,7 @@ var schemaConstraints = []struct {
 	{[]string{"environments", "*", "policy", "migrations", "backup_max_age"}, pattern(gDur)},
 
 	{[]string{"workloads", "*", "role"}, enum(eRole)},
-	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1}},
+	{[]string{"workloads", "*", "replicas"}, map[string]any{"minimum": 1, "maximum": MaxReplicas}},
 	{[]string{"workloads", "*", "strategy"}, enum(eStrategy)},
 	{[]string{"workloads", "*", "deployment_phase"}, enum(eJobDeploymentPhase)},
 	{[]string{"workloads", "*", "operator_run"}, enum(eJobOperatorRun)},
@@ -725,15 +726,24 @@ func anyRequired(fields []any) []any {
 // reservations, which a schema can hold as well as the loader can.
 func appNameConstraint() map[string]any {
 	forbidden := make([]any, 0, len(reservedAppNames)+1)
-	forbidden = append(forbidden, map[string]any{"pattern": "^ob-"})
+	forbidden = append(forbidden, map[string]any{"pattern": "^onebox-"})
 	for _, name := range reservedAppNames {
 		forbidden = append(forbidden, map[string]any{"const": name})
 	}
 	out := pattern(gIdent)
 	out["not"] = map[string]any{"anyOf": forbidden}
 	out["description"] = "The application's name. Expects " + gIdent.means +
-		", and may not begin \"ob-\" or be a name the host layout reserves."
+		", and may not begin \"onebox-\" or be a name the host layout reserves."
 	return out
+}
+
+// serviceNamesConstraint holds the service names the host proxy reserves.
+func serviceNamesConstraint() map[string]any {
+	forbidden := make([]any, 0, len(reservedServiceNames))
+	for _, name := range reservedServiceNames {
+		forbidden = append(forbidden, map[string]any{"const": name})
+	}
+	return map[string]any{"propertyNames": map[string]any{"not": map[string]any{"anyOf": forbidden}}}
 }
 
 func bindSourceConstraint() map[string]any {

@@ -667,7 +667,7 @@ func stageArtifact(final, suffix string, write func(string) error) (stagedArtifa
 	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
 		return stagedArtifact{}, err
 	}
-	reserved, err := os.CreateTemp(filepath.Dir(final), filepath.Base(final)+".ob-tmp"+suffix+"-")
+	reserved, err := os.CreateTemp(filepath.Dir(final), filepath.Base(final)+".onebox-tmp"+suffix+"-")
 	if err != nil {
 		return stagedArtifact{}, err
 	}
@@ -682,7 +682,7 @@ func stageArtifact(final, suffix string, write func(string) error) (stagedArtifa
 	// the other kill window, between the two renames inside commit(), and
 	// there it is the caller's only remaining copy: deleting it would destroy
 	// the data this machinery exists to protect.
-	backup := final + ".ob-bak" + suffix
+	backup := final + ".onebox-bak" + suffix
 	orphan := false
 	switch {
 	case fileExists(final):
@@ -802,7 +802,7 @@ func commitArtifactSet(artifacts ...stagedArtifact) error {
 	// the STAGED name durable — the renames above are further directory
 	// changes with nothing behind them. Without this, a command can report
 	// success and a power loss can leave the destination absent while the
-	// .ob-tmp name survives.
+	// .onebox-tmp name survives.
 	//
 	// A sync failure rolls the set back like any other: returning it with the
 	// renames standing would report failure with a fresh, complete, approvable

@@ -120,10 +120,10 @@ func newRollingGenerationFakeWith(t *testing.T, project string, generations map[
 		}
 		switch {
 		case strings.Contains(command, "_host/owner"):
-			return transport.Result{Stdout: "shop\n"}, true
+			return transport.Result{Stdout: "shop production\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
-		case strings.Contains(command, "/ob.snapshot.yml"):
+		case strings.Contains(command, "/onebox.snapshot.yml"):
 			return transport.Result{Stdout: state.project}, true
 		case strings.HasPrefix(strings.TrimSpace(command), "cat ") && strings.Contains(command, "/compose.yaml"):
 			return transport.Result{Stdout: currentGenerationCompose(oldSecretGeneration)}, true
@@ -152,12 +152,12 @@ func newRollingGenerationFakeWith(t *testing.T, project string, generations map[
 			return transport.Result{Stdout: state.worker + "\n"}, true
 		case strings.Contains(command, "compose.service='web'"):
 			generation := ""
-			if i := strings.Index(command, "ob.secret-generation='"); i >= 0 {
-				generation = command[i+len("ob.secret-generation='"):]
+			if i := strings.Index(command, "onebox.secret-generation='"); i >= 0 {
+				generation = command[i+len("onebox.secret-generation='"):]
 				generation = generation[:strings.IndexByte(generation, '\'')]
 			}
 			return transport.Result{Stdout: strings.Join(webIDs(generation), "\n") + "\n"}, true
-		case strings.Contains(command, "ob.secret-generation"):
+		case strings.Contains(command, "onebox.secret-generation"):
 			id := lastField(command)
 			if generation, ok := state.generations[id]; ok {
 				return transport.Result{Stdout: generation + "\n"}, true
@@ -285,7 +285,7 @@ func TestForceSecretGenerationIsNoOpWhenAlreadyConverged(t *testing.T) {
 	checkpoint, err := release.NewSecretCheckpoint(
 		"20260809-120000-current", oldSecretGeneration, newSecretGeneration,
 		[]string{"web", "worker"},
-		[]string{".ob-decrypted-sops-web.enc.env", ".ob-decrypted-sops-worker.enc.env"},
+		[]string{".onebox-decrypted-sops-web.enc.env", ".onebox-decrypted-sops-worker.enc.env"},
 		time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
@@ -310,7 +310,7 @@ func TestForceSecretGenerationRefusesWhenTheLabelCannotBeRead(t *testing.T) {
 	fake, _ := newRollingGenerationFake(t)
 	inner := fake.Dynamic
 	fake.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "ob.secret-generation") && strings.HasSuffix(strings.TrimSpace(command), "W1") {
+		if strings.Contains(command, "onebox.secret-generation") && strings.HasSuffix(strings.TrimSpace(command), "W1") {
 			return transport.Result{ExitCode: 1, Stderr: "no such object"}, true
 		}
 		return inner(command)
@@ -320,7 +320,7 @@ func TestForceSecretGenerationRefusesWhenTheLabelCannotBeRead(t *testing.T) {
 	checkpoint, err := release.NewSecretCheckpoint(
 		"20260809-120000-current", oldSecretGeneration, newSecretGeneration,
 		[]string{"web", "worker"},
-		[]string{".ob-decrypted-sops-web.enc.env", ".ob-decrypted-sops-worker.enc.env"},
+		[]string{".onebox-decrypted-sops-web.enc.env", ".onebox-decrypted-sops-worker.enc.env"},
 		time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
@@ -353,7 +353,7 @@ func TestForceSecretGenerationResumesAPartlyRolledWorkload(t *testing.T) {
 	checkpoint, err := release.NewSecretCheckpoint(
 		"20260809-120000-current", oldSecretGeneration, newSecretGeneration,
 		[]string{"web", "worker"},
-		[]string{".ob-decrypted-sops-web.enc.env", ".ob-decrypted-sops-worker.enc.env"},
+		[]string{".onebox-decrypted-sops-web.enc.env", ".onebox-decrypted-sops-worker.enc.env"},
 		time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC),
 	)
 	if err != nil {

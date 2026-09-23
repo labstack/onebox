@@ -47,7 +47,7 @@ func (e *Engine) nextEpoch(ctx context.Context, epochPath string) (int, error) {
 // by permissions or replaced with another kind of filesystem object.
 func epochProbeCmd(epochPath string) string {
 	p := q(epochPath)
-	return ": ob-epoch-probe; if [ ! -e " + p + " ] && [ ! -L " + p + " ]; then " +
+	return ": onebox-epoch-probe; if [ ! -e " + p + " ] && [ ! -L " + p + " ]; then " +
 		app.UndeterminedArm(epochPath) + "exit " + strconv.Itoa(app.ProbeAbsent) + "; fi; " +
 		"if [ ! -f " + p + " ] || [ -L " + p + " ]; then exit " + strconv.Itoa(app.ProbeNotRegular) + "; fi; " +
 		"if [ ! -r " + p + " ]; then exit " + strconv.Itoa(app.ProbeUnreadable) + "; fi; cat " + p

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,8 +14,6 @@ import (
 
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
-
-	"github.com/labstack/onebox/internal/app"
 )
 
 // EnsureProxy converges the HOST-scoped managed proxy (design: one Traefik
@@ -51,13 +50,14 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	}
 
 	// Lock order is safe by construction: every acquirer holds either the
-	// host lock alone (proxy apply) or its OWN app lock first (bootstrap) —
-	// two apps never contend on an app lock, so no cycle exists.
+	// host lock alone (proxy apply) or its own app lock first (bootstrap). A
+	// host has one application, so no two acquirers contend on an app lock and
+	// no cycle exists.
 	if err := e.acquireHostLock(ctx, breakLock); err != nil {
 		return err
 	}
 	defer e.releaseHostLock(ctx)
-	jw := &journal.Writer{T: e.T, Names: app.Names{App: app.HostNamespace, BasePath: e.names().BasePath}, DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Dir: e.names().HostJournalDir(), DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "start", Detail: "hash=" + hash}); err != nil {
 		return fmt.Errorf("journal proxy apply start: %w", err)
 	}
@@ -69,7 +69,9 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		}
 		if journalErr := jw.Append(ctx, finish); journalErr != nil {
 			err = errors.Join(err, fmt.Errorf("journal proxy apply finish: %w", journalErr))
+			return
 		}
+		e.pruneHostJournal(ctx)
 	}()
 	res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true")
 	if err != nil {
@@ -230,6 +232,35 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	return nil
 }
 
+// pruneHostJournal keeps the host journal to the application journal's window.
+// Every proxy check writes to it — an unchanged proxy included — so it runs on
+// every one, after the finish record. The host journal holds only proxy
+// applies, which nothing recovers from, so it keeps the newest files by name
+// and needs no record to be readable: a torn file ages out like any other. It
+// is housekeeping, in one round trip: a failure is reported and never turns
+// an applied proxy into a failed one.
+func (e *Engine) pruneHostJournal(ctx context.Context) {
+	keep := e.Spec.Deployment.RetainReleases * 2
+	if keep < 1 {
+		return
+	}
+	res, err := e.hostMutate(ctx, pruneHostJournalCommand(e.names().HostJournalDir(), keep))
+	if err == nil && res.ExitCode != 0 {
+		err = errors.New(strings.TrimSpace(res.Stderr))
+	}
+	if err != nil {
+		e.logf("proxy: host journal not pruned: %v", err)
+	}
+}
+
+// pruneHostJournalCommand removes all but the newest keep journal files.
+// Journal ids begin with a timestamp, so name order is age order.
+func pruneHostJournalCommand(dir string, keep int) string {
+	return "if [ -d " + q(dir) + " ]; then cd " + q(dir) + " || exit 1; " +
+		"ls -1 | grep '\\.jsonl$' | sort -r | sed '1," + strconv.Itoa(keep) + "d' | " +
+		"while IFS= read -r f; do rm -f -- \"$f\" || exit 1; done; fi"
+}
+
 func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {
 	res, err := e.T.Run(ctx, "docker ps -q --filter label=com.docker.compose.project="+q(proxy.Project)+
 		" --filter label=com.docker.compose.service=proxy")
@@ -251,7 +282,7 @@ func (e *Engine) discoveryContainerIDs(ctx context.Context) ([]string, error) {
 // ProxyApply is the CLI verb: converge the host proxy outside any deploy.
 func (e *Engine) ProxyApply(ctx context.Context, deployID string) error {
 	if !e.Spec.Proxy.Managed {
-		return fmt.Errorf("proxy is not managed (proxy.managed: true enables ob-owned Traefik)")
+		return fmt.Errorf("proxy is not managed (proxy.managed: true enables Onebox-owned Traefik)")
 	}
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err

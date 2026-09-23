@@ -28,7 +28,7 @@ var ErrNoIncomplete = errors.New("no incomplete deploy found in the journal")
 // actionable and `runPhases` refuses it on its superseded manifest before any
 // effect runs.
 func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
-	ids, byID, err := journal.Journals(ctx, e.T, e.names())
+	ids, byID, err := journal.Journals(ctx, e.T, journal.Dir(e.names()))
 	if err != nil {
 		return journal.Summary{}, err
 	}
@@ -46,7 +46,7 @@ func (e *Engine) FindIncomplete(ctx context.Context) (journal.Summary, error) {
 }
 
 // Resume continues an interrupted deploy from the journal: completed phases
-// and roles skip; the half-rolled role is adopted via its ob.release label.
+// and roles skip; the half-rolled role is adopted via its onebox.release label.
 // A NEW lock epoch is taken, which fences the old runner if it still lives.
 //
 // A deploy interrupted AFTER activation is resumed too, but nothing is
@@ -140,7 +140,7 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 		return err
 	}
 	jw := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: s.DeployID, Epoch: epoch,
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: s.DeployID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner,
 		ApprovalDigest: s.ApprovalDigest, ApprovalClass: s.ApprovalClass,
 		ApprovedBy: s.ApprovedBy, ApprovalSource: s.ApprovalSource,

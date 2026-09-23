@@ -14,7 +14,7 @@ import (
 func jobContainerFake(running []string) *transport.Fake {
 	return &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "label='ob.operation'"):
+		case strings.Contains(cmd, "label='onebox.operation'"):
 			return transport.Result{Stdout: strings.Join(running, "\n") + "\n"}, true
 		}
 		return transport.Result{}, false
@@ -81,7 +81,7 @@ func TestRefuseCatchesAnotherInvocationOfTheSameOperation(t *testing.T) {
 func TestRefuseDoesNotExemptAContainerWithNoEpoch(t *testing.T) {
 	f := jobContainerFake([]string{"abc123def456 J1 "})
 	err := jobContainerEngine(t, f).refuseForeignJobContainers(context.Background(), "J1", 4)
-	if err == nil || !strings.Contains(err.Error(), "carrying no ob.epoch label") {
+	if err == nil || !strings.Contains(err.Error(), "carrying no onebox.epoch label") {
 		t.Fatalf("unlabelled epoch = %v, want a refusal saying it cannot be placed", err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
@@ -128,9 +129,9 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		return err
 	}
 	// External means release-independent, not ownerless. A full destroy removes
-	// both app-scoped networks before deleting the evidence that proves legacy
-	// ownership. Docker refuses removal while any unmanaged endpoint remains;
-	// propagate that refusal so state and host ownership stay recoverable.
+	// both app-scoped networks before deleting state. Docker refuses removal
+	// while any unmanaged endpoint remains; propagate that refusal so state and
+	// host ownership stay recoverable.
 	if removeVolumes {
 		if err := e.removeOwnedNetworks(ctx); err != nil {
 			return err
@@ -139,7 +140,13 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
 	base := release.PathsFor(e.names()).Base
+	// The marker is the proof this directory is ours to delete. A destroy that
+	// keeps anything keeps the marker too, so the destroy that finishes the
+	// job can still prove it.
 	sweep := "rm -rf " + q(base)
+	if !removeVolumes {
+		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name %s -exec rm -rf {} +", q(base), q(app.AppMarkerFile))
+	}
 	keepingCredentials := !removeVolumes && len(e.Spec.Services) > 0
 	if keepingCredentials {
 		// A service credential is generated once, on the target, and exists
@@ -151,10 +158,14 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		//
 		// So the key stays with the lock. Everything else — releases,
 		// journals, locks, fences — goes.
-		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name services -exec rm -rf {} +", q(base))
+		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name services ! -name %s -exec rm -rf {} +", q(base), q(app.AppMarkerFile))
 	}
-	if res, err := e.mutate(ctx, sweep); err != nil {
+	marker := q(e.names().AppMarker())
+	guarded := "if [ -e " + q(base) + " ]; then [ \"$(cat " + marker + " 2>/dev/null)\" = " + q(e.Spec.Name) + " ] || exit " + fmt.Sprint(appDirUnmarked) + "; " + sweep + "; fi"
+	if res, err := e.mutate(ctx, guarded); err != nil {
 		return err
+	} else if res.ExitCode == appDirUnmarked {
+		return fmt.Errorf("remove state dir: %s does not carry this application's %s marker, so Onebox will not delete it; remove it by hand if it is Onebox's", base, app.AppMarkerFile)
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
 	}
@@ -219,10 +230,8 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
 				"proxy_orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=proxy) || exit $?; " +
 				"discovery_orphans=$(docker ps -aq --filter name=^" + proxy.DiscoveryContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=discovery) || exit $?; " +
-				"legacy_discovery_orphans=$(docker ps -aq --filter name=^" + proxy.LegacyDiscoveryContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=discovery) || exit $?; " +
 				"if [ -n \"$proxy_orphans\" ]; then docker rm -f $proxy_orphans || exit $?; fi; " +
-				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans || exit $?; fi; " +
-				"if [ -n \"$legacy_discovery_orphans\" ]; then docker rm -f $legacy_discovery_orphans; fi"
+				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans || exit $?; fi"
 			if res, err := e.hostMutate(ctx, down); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
@@ -401,7 +410,7 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 	containerID = ids[0]
 	commandDigest := HashBytes([]byte(command))
 	writer := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}
 	invocation := journal.Record{

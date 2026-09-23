@@ -13,10 +13,10 @@ func TestJobHistoryMergesTimerAndOperatorStoresByOperation(t *testing.T) {
 	hostRecords := `{"run":"11111111111111111111111111111111","job":"nightly","trigger":"operator","operation":"op-host","release":"release-a","started_at":"2026-09-16T03:00:00Z","finished_at":"2026-09-16T03:00:04Z","duration_s":4,"attempts":1,"exit_status":0,"outcome":"success","inputs":{"SOURCE":"prices"}}
 {"run":"22222222222222222222222222222222","job":"nightly","trigger":"timer","release":"release-a","started_at":"2026-09-16T02:00:00Z","finished_at":"2026-09-16T02:00:03Z","duration_s":3,"attempts":1,"exit_status":1,"outcome":"failure","inputs":{}}
 `
-	journals := `@@ob-journal@@op-direct.jsonl
+	journals := `@@onebox-journal@@op-direct.jsonl
 {"deploy_id":"op-direct","phase":"job","event":"start","status":"ok","ts":"2026-09-16T04:00:00Z","operator":"bob@example","service":"nightly","release_id":"release-a"}
 {"deploy_id":"op-direct","phase":"job","event":"finish","status":"ok","ts":"2026-09-16T04:00:05Z","service":"nightly"}
-@@ob-journal@@op-host.jsonl
+@@onebox-journal@@op-host.jsonl
 {"deploy_id":"op-host","phase":"schedule-run","event":"start","status":"ok","ts":"2026-09-16T02:59:59Z","operator":"alice@example","target":"nightly"}
 {"deploy_id":"op-host","phase":"schedule-run","event":"finish","status":"ok","ts":"2026-09-16T03:00:04Z","target":"nightly"}
 `
@@ -24,7 +24,7 @@ func TestJobHistoryMergesTimerAndOperatorStoresByOperation(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "journalctl"):
 			return transport.Result{Stdout: hostRecords}, true
-		case strings.Contains(cmd, "@@ob-journal@@"):
+		case strings.Contains(cmd, "@@onebox-journal@@"):
 			return transport.Result{Stdout: journals}, true
 		default:
 			return transport.Result{}, false

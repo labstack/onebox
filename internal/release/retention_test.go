@@ -120,7 +120,7 @@ func TestRetentionProtectsReleaseLeasedByScheduledJob(t *testing.T) {
 		switch {
 		case strings.Contains(command, "ls -1A"):
 			return transport.Result{Stdout: leasedID + "\n" + currentID + "\n"}, true
-		case strings.Contains(command, ".ob-schedule.lease"):
+		case strings.Contains(command, ".onebox-schedule.lease"):
 			return transport.Result{Stdout: leasedID + "\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true
@@ -483,7 +483,7 @@ func TestRetentionDoesNotPinAReleaseAContainerOnlyLabels(t *testing.T) {
 			// The container was created in the expired release and retained
 			// ever since, so it still carries that label — while mounting
 			// nothing out of the release store.
-			if strings.Contains(command, "ob.release") {
+			if strings.Contains(command, "onebox.release") {
 				return transport.Result{Stdout: staleID + "\n"}, true
 			}
 			return transport.Result{Stdout: "/var/run/docker.sock,app-data\n"}, true

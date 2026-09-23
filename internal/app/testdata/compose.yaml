@@ -42,11 +42,11 @@ services:
   owned:
     image: nginx
     labels:
-      ob.app: someone-else
+      onebox.app: someone-else
 
   attached:
     image: nginx
-    networks: [default, ob-ingress]
+    networks: [default, onebox-ingress]
 
   segmented:
     image: nginx

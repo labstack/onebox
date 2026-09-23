@@ -3,7 +3,7 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 APP="$1"; PORT="$2"; PATHQ="$3"; WL="${4:-}"
-NAME="ob-e2e-$APP"
+NAME="onebox-e2e-$APP"
 S=${ONEBOX_E2E_SCRATCH:-/tmp}
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -94,7 +94,7 @@ fi
 
 # Verify from the host, not inside the container: depending on whichever of
 # curl or wget an image happens to ship is not a property of the deploy.
-ip=$(ssh -o BatchMode=yes "root@$IP" "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \$(docker ps -q --filter label=ob.app=$APP --filter label=ob.workload=$WL | head -1) 2>/dev/null | awk '{print \$1}'" 2>/dev/null | tr -d '\r')
+ip=$(ssh -o BatchMode=yes "root@$IP" "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \$(docker ps -q --filter label=onebox.app=$APP --filter label=onebox.workload=$WL | head -1) 2>/dev/null | awk '{print \$1}'" 2>/dev/null | tr -d '\r')
 code=""
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
   code=$(ssh -o BatchMode=yes "root@$IP" "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://$ip:$PORT$PATHQ" 2>/dev/null | tr -d '\r')
@@ -102,9 +102,9 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
   sleep 6
 done
 
-running=$(ssh -o BatchMode=yes "root@$IP" "docker ps -q --filter label=ob.app=$APP | wc -l" 2>/dev/null | tr -d ' ')
-vols=$(ssh -o BatchMode=yes "root@$IP" "docker volume ls --format '{{.Name}}' | grep -c '^ob_' || true" 2>/dev/null | tr -d ' ')
-cur=$(ssh -o BatchMode=yes "root@$IP" "readlink /var/lib/ob/$APP/current" 2>/dev/null)
+running=$(ssh -o BatchMode=yes "root@$IP" "docker ps -q --filter label=onebox.app=$APP | wc -l" 2>/dev/null | tr -d ' ')
+vols=$(ssh -o BatchMode=yes "root@$IP" "docker volume ls --format '{{.Name}}' | grep -c '^onebox_' || true" 2>/dev/null | tr -d ' ')
+cur=$(ssh -o BatchMode=yes "root@$IP" "readlink /var/lib/onebox/app/current" 2>/dev/null)
 
 healthy=$(echo "$out" | grep '^healthy' | sed 's/^healthy *//')
 echo "  ${elapsed}s  http=$code  containers=$running  volumes=$vols  healthy=[${healthy:-none declared}]"

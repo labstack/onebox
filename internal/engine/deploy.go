@@ -156,7 +156,7 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	}
 
 	jw := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch,
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: releaseID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
 		ApprovalDigest: e.Opts.ApprovalDigest, ApprovalClass: e.Opts.ApprovalClass,
 		ApprovedBy: e.Opts.ApprovedBy, ApprovalSource: e.Opts.ApprovalSource,
@@ -245,7 +245,7 @@ func (e *Engine) pinnedScheduleDeployConflict() string {
 // finish:fail; a later successful activation/current release or an explicit
 // abort clears that historical debt.
 func (e *Engine) rollbackEffectDebt(ctx context.Context, current string) (bool, error) {
-	ids, byID, err := journal.Journals(ctx, e.T, e.names())
+	ids, byID, err := journal.Journals(ctx, e.T, journal.Dir(e.names()))
 	if err != nil {
 		return false, err
 	}
@@ -559,7 +559,7 @@ const retentionSkipped = "release-store cleanup skipped: retention evidence is i
 // when it deliberately declined to delete anything, so that the journal records
 // a skip rather than an unqualified success.
 func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
-	journalIDs, err := journal.List(ctx, e.T, e.names())
+	journalIDs, err := journal.List(ctx, e.T, journal.Dir(e.names()))
 	if err != nil {
 		return "", err
 	}
@@ -599,12 +599,12 @@ func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 			e.logf("pruned %d expired release-store entries", len(decision.Victims))
 		}
 	}
-	jvictims, err := journal.PruneCandidates(ctx, e.T, e.names(), e.Spec.Deployment.RetainReleases*2)
+	jvictims, err := journal.PruneCandidates(ctx, e.T, journal.Dir(e.names()), e.Spec.Deployment.RetainReleases*2)
 	if err != nil {
 		return "", err
 	}
 	for _, id := range jvictims {
-		if err := e.mutateChecked(ctx, "prune journal "+id, "rm -f "+q(release.PathsFor(e.names()).Base+"/journal/"+id+".jsonl")); err != nil {
+		if err := e.mutateChecked(ctx, "prune journal "+id, "rm -f "+q(journal.Dir(e.names())+"/"+id+".jsonl")); err != nil {
 			return "", err
 		}
 	}
@@ -662,7 +662,7 @@ func (e *Engine) rollbackTo(ctx context.Context, prev, current string, epoch int
 	}
 
 	replay.fenceVal = e.fenceVal
-	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Dir: journal.Dir(e.names()), DeployID: prev, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "rollback", Event: "start"}); err != nil {
 		return fmt.Errorf("journal rollback start: %w", err)
 	}

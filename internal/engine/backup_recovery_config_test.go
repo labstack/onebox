@@ -14,7 +14,7 @@ import (
 func recoveryConfigTestEngine(fake *transport.Fake) *Engine {
 	spec := &app.Spec{
 		Name:     "shop",
-		BasePath: "/var/lib/ob",
+		BasePath: "/var/lib/onebox",
 		Services: map[string]app.Service{"database": {Driver: "postgres", Version: "18"}},
 	}
 	return New(&app.Resolved{Spec: spec, Env: "production"}, nil, fake,
@@ -31,7 +31,7 @@ func TestRecoveryClearsAnyTargetTheBaseBackupCarried(t *testing.T) {
 	fake := &transport.Fake{}
 	e := recoveryConfigTestEngine(fake)
 
-	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "database", ""); err != nil {
+	if err := e.replayRecovery(context.Background(), "onebox-database-restore", "database", ""); err != nil {
 		t.Fatalf("replaying to the newest recoverable point: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestAStatedRecoveryTargetSurvivesTheClearing(t *testing.T) {
 	fake := &transport.Fake{}
 	e := recoveryConfigTestEngine(fake)
 
-	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "database", "2026-08-20T13:58:00Z"); err != nil {
+	if err := e.replayRecovery(context.Background(), "onebox-database-restore", "database", "2026-08-20T13:58:00Z"); err != nil {
 		t.Fatalf("replaying to a point in time: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestRecoveryStartsWithDeclaredExtensionPreloads(t *testing.T) {
 	}}
 	e.Spec.Services["database"] = service
 
-	if err := e.replayRecovery(context.Background(), "shop-database-restore-1", "database", ""); err != nil {
+	if err := e.replayRecovery(context.Background(), "onebox-database-restore", "database", ""); err != nil {
 		t.Fatal(err)
 	}
 	commands := strings.Join(fake.Commands, "\n")
@@ -117,7 +117,7 @@ func TestPromotionRemovesTheRecoveryConfiguration(t *testing.T) {
 	fake := &transport.Fake{}
 	e := recoveryConfigTestEngine(fake)
 
-	if err := e.stripRecoveryConfiguration(context.Background(), "shop-database-restore-1"); err != nil {
+	if err := e.stripRecoveryConfiguration(context.Background(), "onebox-database-restore"); err != nil {
 		t.Fatalf("stripping the recovery configuration: %v", err)
 	}
 	if len(fake.Commands) != 1 {

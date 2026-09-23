@@ -18,8 +18,8 @@ func statusFake(webRelease, recorded string) *transport.Fake {
 			return transport.Result{Stdout: "releases/" + recorded + "\n"}, true
 		// one ownership-filtered docker ps → every container Onebox owns for
 		// this application, workloads and services alike
-		// one docker ps carries id|service|ob.release|status for every container
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		// one docker ps carries id|service|onebox.release|status for every container
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1|web|" + webRelease + "|Up (healthy)\n" +
 				"W1|worker|" + recorded + "|Up (healthy)\nPG1|postgres|" + recorded + "|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"): // no journals
@@ -76,12 +76,12 @@ func TestStatusAcceptsDigestPinnedRetainedWorkload(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1|web|R2||Up (healthy)\n" +
 				"W1|worker|R1|" + pinnedWorkerRevision + "|Up (healthy)\n" +
 				"PG1|postgres|R2||Up (healthy)\n"}, true
 		case strings.Contains(cmd, "/releases/R2/compose.yaml"):
-			return transport.Result{Stdout: "services:\n  worker:\n    labels:\n      ob.workload-revision: " + pinnedWorkerRevision + "\n"}, true
+			return transport.Result{Stdout: "services:\n  worker:\n    labels:\n      onebox.workload-revision: " + pinnedWorkerRevision + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -100,7 +100,7 @@ func TestStatusFlagsUndeclaredAppContainer(t *testing.T) {
 	f := statusFake("R2", "R2")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app") {
 			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n" +
 				"OLD1|frontend|R1|Up (healthy)\n"}, true
@@ -126,7 +126,7 @@ func TestStatusFlagsNotRunning(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			// only the web role's container is up: worker + postgres are gone
 			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -152,7 +152,7 @@ func TestStatusFlagsUnhealthyRole(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1|web|R2|Up (unhealthy)\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -178,7 +178,7 @@ func TestStatusFlagsCrashLoopingRole(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1|web|R2|Restarting (1) 3 seconds ago\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -208,7 +208,7 @@ func TestStatusFlagsCrashLoopingService(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Restarting (1) 2 seconds ago\n"}, true
 		case strings.Contains(cmd, "ls -1"):
@@ -245,7 +245,7 @@ func TestStatusSurfacesReadError(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1;reboot|web|R2|Up (healthy)\n"}, true
 		case strings.Contains(cmd, "ls -1"):
 			return transport.Result{Stdout: ""}, true

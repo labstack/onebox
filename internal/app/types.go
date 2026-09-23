@@ -34,7 +34,7 @@ type Spec struct {
 	// then writes `.App.App`. The authored key is still `app:`.
 	Name             string                     `json:"app" description:"Stable application name used in generated container, volume, network, and host paths." example:"shop"`
 	Annotations      map[string]string          `json:"-"`
-	BasePath         string                     `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/ob" example:"/srv/ob"`
+	BasePath         string                     `json:"base_path" description:"Absolute host directory beneath which Onebox stores application state and releases." default:"/var/lib/onebox" example:"/srv/ob"`
 	Environments     map[string]Environment     `json:"environments" description:"Named environments, each naming the server it deploys to and the policy applied to it."`
 	Workloads        map[string]Workload        `json:"workloads,omitempty" description:"Application containers, workers, daemons, and jobs managed as releases."`
 	Services         map[string]Service         `json:"services,omitempty" description:"Supporting services managed outside application releases, such as databases and caches."`
@@ -551,7 +551,7 @@ type Proxy struct {
 	Kind         string                     `json:"kind" description:"Proxy implementation, or none to disable routing." default:"traefik-docker"`
 	Image        string                     `json:"image,omitempty" description:"Container image used for the managed proxy."`
 	Config       string                     `json:"config,omitempty" description:"Repository-relative proxy configuration directory. Dynamic YAML or TOML files extend Onebox's managed configuration. A managed DNS challenge may use a directory containing only .env for provider credentials. Including traefik.yml or traefik.yaml instead takes ownership of the static configuration, which must use the watched file-provider directory /etc/traefik/dynamic, must not enable the Docker provider, must define certificatesResolvers.letsencrypt for exact terminating routes, and must define the DNS-01 certificatesResolvers.onebox-wildcard for wildcard terminating routes. Dynamic files may not reuse Onebox-generated router or service names or redefine the managed onebox-compress middleware."`
-	Network      string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"ob-ingress"`
+	Network      string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"onebox-ingress"`
 	Entrypoints  map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a proxy.config containing custom traefik.yml or traefik.yaml must define matching Traefik entrypoints."`
 	DNSChallenge *ProxyDNSChallenge         `json:"dns_challenge,omitempty" description:"Managed ACME DNS-01 challenge used to issue wildcard certificates. Provider credentials belong in proxy.config/.env; Onebox continues to own the static proxy configuration."`
 }
@@ -603,5 +603,5 @@ func (e EnvFile) StagedPath() string {
 	// the separator alone collides, and the generated document would then list
 	// one name twice and quietly keep whichever entry came last.
 	escaped := strings.ReplaceAll(strings.ReplaceAll(e.File, "-", "--"), "/", "-")
-	return ".ob-decrypted-" + e.Provider + "-" + escaped
+	return ".onebox-decrypted-" + e.Provider + "-" + escaped
 }

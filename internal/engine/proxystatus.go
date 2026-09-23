@@ -25,7 +25,7 @@ type proxyRaw struct {
 	discovery bool     // isolated Docker discovery controller is running
 	applied   string   // config hash the host applied
 	owner     string   // sole application identity from the host owner record
-	ownerEnv  string   // environment identity when the record is not legacy
+	ownerEnv  string   // environment identity from the owner record
 	acme      []string // raw ACME stores; parsed at render, and keys never leave
 	localHash string   // hash of the locally staged config (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather

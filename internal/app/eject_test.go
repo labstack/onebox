@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const ejectProject = `apiVersion: onebox.run/v1alpha1
@@ -57,7 +59,7 @@ func TestEjectedRuntimeIsOrdinaryCompose(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(body)
-	for _, forbidden := range []string{"ob.app", "ob.release", "ob.workload", "traefik.", "ob-ingress"} {
+	for _, forbidden := range []string{"onebox.app", "onebox.release", "onebox.workload", "traefik.", "onebox-ingress"} {
 		if strings.Contains(out, forbidden) {
 			t.Errorf("ejected runtime still carries %q\n%s", forbidden, out)
 		}
@@ -302,7 +304,7 @@ spec:
 		t.Fatalf("the workload was not handed over: %+v", res.Workloads)
 	}
 	// And no temporary file survives to be mistaken for the runtime.
-	if _, err := os.Stat(filepath.Join(dir, "compose.yaml.ob-tmp")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "compose.yaml.onebox-tmp")); !os.IsNotExist(err) {
 		t.Error("a temporary runtime was left behind")
 	}
 	// The project now references the file that is actually on disk.
@@ -312,5 +314,23 @@ spec:
 	}
 	if ref := reloaded.Workloads["web"].Compose; ref != "compose.yaml#web" {
 		t.Fatalf("project was not repointed at the placed file: %q", ref)
+	}
+}
+
+// Only Onebox's own namespace is stripped. An author's network that happens to
+// begin "ob-" is theirs, and dropping it would cut the ejected service off.
+func TestDropIngressKeepsTheAuthorsNetworks(t *testing.T) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte("networks: [default, onebox-ingress, ob-backend]\n"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	svc := doc.Content[0]
+	dropIngress(svc)
+	out, err := yaml.Marshal(svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "onebox-ingress") || !strings.Contains(string(out), "ob-backend") {
+		t.Fatalf("networks after ejection:\n%s", out)
 	}
 }

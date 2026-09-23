@@ -14,7 +14,7 @@ import (
 
 func backupLockTestEngine(fake *transport.Fake) *Engine {
 	engine := New(
-		&app.Resolved{Spec: &app.Spec{Name: "example", BasePath: "/var/lib/ob"}, Env: "production"},
+		&app.Resolved{Spec: &app.Spec{Name: "example", BasePath: "/var/lib/onebox"}, Env: "production"},
 		nil,
 		fake,
 		Options{Out: io.Discard, LockTTL: 10 * time.Second, Sleep: func(time.Duration) {}, Now: func() time.Time {
@@ -117,7 +117,7 @@ func TestBackupLockReclaimsStaleHolderWithNewFence(t *testing.T) {
 func TestBackupMutationRejectsStaleFence(t *testing.T) {
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "write-database-data") {
-			return transport.Result{ExitCode: 98, Stderr: "ob-backup-fenced\n"}, true
+			return transport.Result{ExitCode: 98, Stderr: "onebox-backup-fenced\n"}, true
 		}
 		return transport.Result{}, false
 	}}

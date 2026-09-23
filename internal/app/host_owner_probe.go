@@ -91,22 +91,14 @@ func HostOwnerProbe(recordPath string) string {
 // HostOwnerRecord is the parsed content of the host owner record: the
 // application that claimed the host, and the environment it claimed it for.
 //
-// The record is a single line, "<application>" or "<application> <environment>".
-// The first form predates the environment field; it still identifies the owner,
-// so it parses rather than failing, and Environment is empty.
+// The record is a single line, "<application> <environment>".
 type HostOwnerRecord struct {
 	Application string
 	Environment string
 }
 
-// Legacy reports a record written before the environment was recorded.
-func (r HostOwnerRecord) Legacy() bool { return r.Environment == "" }
-
 // String renders the record as it is written to the host.
 func (r HostOwnerRecord) String() string {
-	if r.Legacy() {
-		return r.Application
-	}
 	return r.Application + " " + r.Environment
 }
 
@@ -124,18 +116,8 @@ func (r HostOwnerRecord) String() string {
 // environment. Anything else is not a record this tool wrote.
 func ParseHostOwnerRecord(record string) (HostOwnerRecord, bool) {
 	fields := strings.Fields(record)
-	switch len(fields) {
-	case 1:
-		if !gIdent.pattern.MatchString(fields[0]) {
-			return HostOwnerRecord{}, false
-		}
-		return HostOwnerRecord{Application: fields[0]}, true
-	case 2:
-		if !gIdent.pattern.MatchString(fields[0]) || !gIdent.pattern.MatchString(fields[1]) {
-			return HostOwnerRecord{}, false
-		}
-		return HostOwnerRecord{Application: fields[0], Environment: fields[1]}, true
-	default:
+	if len(fields) != 2 || !gIdent.pattern.MatchString(fields[0]) || !gIdent.pattern.MatchString(fields[1]) {
 		return HostOwnerRecord{}, false
 	}
+	return HostOwnerRecord{Application: fields[0], Environment: fields[1]}, true
 }

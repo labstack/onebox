@@ -13,7 +13,7 @@ func serviceImageTestResolved(withPolicy bool) *Resolved {
 	}
 	return &Resolved{
 		Spec: &Spec{
-			Name: "example", BasePath: "/var/lib/ob",
+			Name: "example", BasePath: "/var/lib/onebox",
 			Services:      map[string]Service{"database": service},
 			BackupTargets: map[string]BackupTarget{"offsite": backupTestTarget()},
 		},

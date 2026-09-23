@@ -35,13 +35,13 @@ func TestScheduleRunWritesInputsJournalsThenStartsAfterReleasingTheLock(t *testi
 	if err != nil {
 		t.Fatalf("schedule run: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
-	if !result.Started || result.Unit != "ob-sample-sync" || result.Inputs["SOURCE"] != "prices" || result.Operation != "20260905-151200-schedule_run-7c1e" {
+	if !result.Started || result.Unit != "onebox-job-sync" || result.Inputs["SOURCE"] != "prices" || result.Operation != "20260905-151200-schedule_run-7c1e" {
 		t.Fatalf("result = %#v", result)
 	}
 	seq := strings.Join(f.Commands, "\n")
 	inputs := strings.Index(seq, "sync.inputs")
-	start := strings.Index(seq, "systemctl start --no-block 'ob-sample-sync.service'")
-	release := strings.LastIndex(seq, "rm -f '/var/lib/ob/sample/lock'")
+	start := strings.Index(seq, "systemctl start --no-block 'onebox-job-sync.service'")
+	release := strings.LastIndex(seq, "rm -f '/var/lib/onebox/app/lock'")
 	if inputs < 0 || start < 0 || release < 0 || !(inputs < release && release < start) {
 		t.Fatalf("expected inputs write, lock release, then start:\n%s", seq)
 	}
@@ -107,7 +107,7 @@ func TestPlannedJobRunStagesItsExactBindingAndDetachesToSystemd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("planned job run: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
-	if !result.Started || result.Operation != operation || result.Unit != "ob-sample-refresh" {
+	if !result.Started || result.Operation != operation || result.Unit != "onebox-job-refresh" {
 		t.Fatalf("result = %#v", result)
 	}
 	written := strings.Join(f.Inputs, "\n")
@@ -121,10 +121,10 @@ func TestPlannedJobRunStagesItsExactBindingAndDetachesToSystemd(t *testing.T) {
 		}
 	}
 	commands := strings.Join(f.Commands, "\n")
-	if !strings.Contains(commands, "grep -Fq '"+sealedManualJobBindingMarker+"' '/etc/systemd/system/ob-sample-refresh.run'") {
+	if !strings.Contains(commands, "grep -Fq '"+sealedManualJobBindingMarker+"' '/etc/systemd/system/onebox-job-refresh.run'") {
 		t.Fatalf("planned job did not verify the installed runner protocol:\n%s", commands)
 	}
-	if !strings.Contains(commands, "systemctl start --no-block 'ob-sample-refresh.service'") {
+	if !strings.Contains(commands, "systemctl start --no-block 'onebox-job-refresh.service'") {
 		t.Fatalf("planned job was not detached to systemd:\n%s", commands)
 	}
 	for _, want := range []string{`"approval_digest":"approval-digest"`, `"approval_class":"strong"`} {
@@ -197,9 +197,9 @@ func TestScheduleRunWaitReportsTheRecordAndFailsOnAnyOtherOutcome(t *testing.T) 
 				return transport.Result{Stdout: "ok\n"}, true
 			case strings.Contains(cmd, "systemctl is-active"):
 				return transport.Result{Stdout: "inactive\n"}, true
-			case strings.Contains(cmd, "systemctl start 'ob-sample-sync.service'"):
+			case strings.Contains(cmd, "systemctl start 'onebox-job-sync.service'"):
 				return transport.Result{}, true
-			case strings.Contains(cmd, "SYSLOG_IDENTIFIER=ob-run"):
+			case strings.Contains(cmd, "SYSLOG_IDENTIFIER=onebox-run"):
 				// Newest first: a stale record from an earlier run precedes ours,
 				// and must not be mistaken for it.
 				return transport.Result{Stdout: `{"run":"ffffffffffffffffffffffffffffffff","job":"sync","trigger":"timer","operation":"","started_at":"2026-09-05T14:00:01Z","finished_at":"2026-09-05T14:00:02Z","duration_s":1,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}` + "\n" +
@@ -237,7 +237,7 @@ func TestScheduleRunDiscardsItsInputsWhenTheStartFails(t *testing.T) {
 		case strings.Contains(cmd, "systemctl is-active"):
 			return transport.Result{Stdout: "inactive\n"}, true
 		case strings.Contains(cmd, "systemctl start"):
-			return transport.Result{ExitCode: 5, Stderr: "Unit ob-sample-sync.service not found."}, true
+			return transport.Result{ExitCode: 5, Stderr: "Unit onebox-job-sync.service not found."}, true
 		}
 		return base(cmd)
 	}
@@ -247,7 +247,7 @@ func TestScheduleRunDiscardsItsInputsWhenTheStartFails(t *testing.T) {
 		t.Fatalf("start failure was not reported: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/sample/schedule/sync.inputs'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/app/schedule/sync.inputs'") {
 		t.Fatalf("a failed start left the inputs file pending:\n%s", seq)
 	}
 }
@@ -348,7 +348,7 @@ func TestScheduleRunJournalsAFailedRequestAsFailed(t *testing.T) {
 		case strings.Contains(cmd, "systemctl is-active"):
 			return transport.Result{Stdout: "inactive\n"}, true
 		case strings.Contains(cmd, "systemctl start"):
-			return transport.Result{ExitCode: 5, Stderr: "Unit ob-sample-sync.service not found."}, true
+			return transport.Result{ExitCode: 5, Stderr: "Unit onebox-job-sync.service not found."}, true
 		}
 		return base(cmd)
 	}

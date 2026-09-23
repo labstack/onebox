@@ -35,6 +35,13 @@ func gate(t *testing.T) {
 	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
 		t.Fatalf("ONEBOX_E2E=1 was set but docker is not usable: %v", err)
 	}
+	// Host state is fixed under /var/lib/onebox, which this suite neither can
+	// nor should write; each test gets its own, as each gets its own basePath.
+	restore, err := app.SetTestHostStateDir(filepath.Join(t.TempDir(), "host"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restore)
 }
 
 // buildDeploy loads config+compose fresh (env-sensitive) and returns an
@@ -43,7 +50,7 @@ func gate(t *testing.T) {
 // so it has to be the project as this test actually configured it — the project
 // file plus the base path the fixture overrides in Go. Staging a placeholder
 // meant recovery refused every interrupted release as unparseable, and staging
-// the file alone left it pointing at the default /var/lib/ob.
+// the file alone left it pointing at the default /var/lib/onebox.
 func releaseSnapshot(t *testing.T, dir, cfgFile, base string) []byte {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(dir, cfgFile))
@@ -228,7 +235,7 @@ func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 	}
 	waitBody(t, "http://localhost:18081/", "v1\n", 30*time.Second)
 
-	e2, id2, staging2 := buildDeploy(t, dir, "ob-broken.yml", "v2", base)
+	e2, id2, staging2 := buildDeploy(t, dir, "broken.yml", "v2", base)
 	err := e2.Deploy(context.Background(), id2, staging2)
 	if err == nil || !strings.Contains(err.Error(), "worker") {
 		t.Fatalf("broken worker must halt the release: %v", err)

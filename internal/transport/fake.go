@@ -118,7 +118,7 @@ func (f *Fake) evalLocked(cmd string) Result {
 	}
 	// Engine epoch probes default to an absent file on a fresh fake host. Tests
 	// can override this default through Dynamic or Script.
-	if strings.HasPrefix(cmd, ": ob-epoch-probe;") {
+	if strings.HasPrefix(cmd, ": onebox-epoch-probe;") {
 		return Result{ExitCode: 3}
 	}
 	return Result{ExitCode: 0}

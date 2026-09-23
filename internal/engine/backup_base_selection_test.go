@@ -26,7 +26,7 @@ func baseSelectionEngine(listing string) (*Engine, *transport.Fake) {
 	}}
 	spec := &app.Spec{
 		Name:     "shop",
-		BasePath: "/var/lib/ob",
+		BasePath: "/var/lib/onebox",
 		Services: map[string]app.Service{"database": {Driver: "postgres", Version: "18"}},
 	}
 	e := New(&app.Resolved{Spec: spec, Env: "production"}, nil, fake,

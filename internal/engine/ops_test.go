@@ -19,7 +19,7 @@ func opsFake(remoteSecretsHash string) *transport.Fake {
 		if strings.Contains(cmd, "readlink") {
 			return transport.Result{Stdout: "releases/R7\n"}, true
 		}
-		if strings.Contains(cmd, "/releases/R7/ob.snapshot.yml") {
+		if strings.Contains(cmd, "/releases/R7/onebox.snapshot.yml") {
 			return transport.Result{Stdout: engineProject}, true
 		}
 		if strings.Contains(cmd, "sha256sum") {
@@ -48,10 +48,10 @@ func TestDestroySequence(t *testing.T) {
 	}
 	// Volumes are kept, so the credentials that open them are kept too. The
 	// alternative is data nobody can ever read again.
-	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
+	if strings.Contains(seq, "rm -rf '/var/lib/onebox/app'") {
 		t.Fatalf("kept volumes lost their credentials:\n%s", seq)
 	}
-	if !strings.Contains(seq, "systemctl disable --now ob-sample-") &&
+	if !strings.Contains(seq, "systemctl disable --now onebox-job-") &&
 		strings.Contains(seq, "list-unit-files") {
 		// no timers installed in this fixture; the sweep still has to run
 		if !strings.Contains(seq, "list-unit-files --no-legend --type=timer") {
@@ -64,7 +64,7 @@ func TestDestroyRefusesActivePinnedScheduleLease(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, ".ob-schedule.lease") {
+		if strings.Contains(command, ".onebox-schedule.lease") {
 			return transport.Result{Stdout: "20260828-120000-running\n"}, true
 		}
 		return base(command)
@@ -75,10 +75,10 @@ func TestDestroyRefusesActivePinnedScheduleLease(t *testing.T) {
 		t.Fatalf("destroy error = %v", err)
 	}
 	commands := strings.Join(f.Commands, "\n")
-	if strings.Contains(commands, "down --remove-orphans") || strings.Contains(commands, "rm -rf '/var/lib/ob/sample'") {
+	if strings.Contains(commands, "down --remove-orphans") || strings.Contains(commands, "rm -rf '/var/lib/onebox/app'") {
 		t.Fatalf("destroy mutated the application while a release was leased:\n%s", commands)
 	}
-	if !strings.Contains(commands, "rm -f '/var/lib/ob/sample/lock'") {
+	if !strings.Contains(commands, "rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatalf("destroy retained its application lock after refusing:\n%s", commands)
 	}
 }
@@ -92,13 +92,13 @@ func TestDestroyWithVolumesRemovesEverything(t *testing.T) {
 		t.Fatalf("destroy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") {
+	if !strings.Contains(seq, "rm -rf '/var/lib/onebox/app'") {
 		t.Fatalf("state dir not removed:\n%s", seq)
 	}
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/_host/owner'") {
 		t.Fatalf("complete teardown without a managed proxy retained host ownership:\n%s", seq)
 	}
-	for _, network := range []string{"sample_default", "ob_sample"} {
+	for _, network := range []string{"sample_default", "onebox_services"} {
 		if !strings.Contains(seq, "docker network rm '"+network+"'") {
 			t.Fatalf("complete teardown retained network %s:\n%s", network, seq)
 		}
@@ -120,7 +120,7 @@ func TestDestroyStopsBeforeStateRemovalWhenNetworkHasEndpoints(t *testing.T) {
 		t.Fatalf("destroy endpoint error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") || strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+	if strings.Contains(seq, "rm -rf '/var/lib/onebox/app'") || strings.Contains(seq, "rm -f '/var/lib/onebox/_host/owner'") {
 		t.Fatalf("destroy discarded recovery state after network removal failed:\n%s", seq)
 	}
 }
@@ -140,7 +140,7 @@ func TestDestroyStopsBeforeStateRemovalWhenNetworkInspectFails(t *testing.T) {
 		t.Fatalf("destroy inspect error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "rm -rf '/var/lib/ob/sample'") || strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+	if strings.Contains(seq, "rm -rf '/var/lib/onebox/app'") || strings.Contains(seq, "rm -f '/var/lib/onebox/_host/owner'") {
 		t.Fatalf("destroy discarded recovery state after network inspection failed:\n%s", seq)
 	}
 }
@@ -153,7 +153,7 @@ func TestDestroyUsesTheCurrentReleaseEnvironment(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
+		if strings.Contains(command, "/releases/R7/onebox.snapshot.yml") {
 			return transport.Result{Stdout: engineProject + "\n  runtime:\n    envFiles: [legacy.env]\n"}, true
 		}
 		return base(command)
@@ -163,7 +163,7 @@ func TestDestroyUsesTheCurrentReleaseEnvironment(t *testing.T) {
 		t.Fatalf("destroy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	commands := strings.Join(f.Commands, "\n")
-	want := "--env-file '/var/lib/ob/sample/releases/R7/legacy.env' down --remove-orphans -v"
+	want := "--env-file '/var/lib/onebox/app/releases/R7/legacy.env' down --remove-orphans -v"
 	if !strings.Contains(commands, want) {
 		t.Fatalf("destroy did not use the current release's interpolation environment; want %q:\n%s", want, commands)
 	}
@@ -173,7 +173,7 @@ func TestDestroyRefusesMissingCurrentReleaseSnapshot(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
+		if strings.Contains(command, "/releases/R7/onebox.snapshot.yml") {
 			return transport.Result{ExitCode: 1, Stderr: "not found"}, true
 		}
 		return base(command)
@@ -184,7 +184,7 @@ func TestDestroyRefusesMissingCurrentReleaseSnapshot(t *testing.T) {
 		t.Fatalf("destroy error = %v", err)
 	}
 	commands := strings.Join(f.Commands, "\n")
-	if strings.Contains(commands, "down --remove-orphans") || strings.Contains(commands, "docker volume rm") || strings.Contains(commands, "rm -rf '/var/lib/ob/sample'") {
+	if strings.Contains(commands, "down --remove-orphans") || strings.Contains(commands, "docker volume rm") || strings.Contains(commands, "rm -rf '/var/lib/onebox/app'") {
 		t.Fatalf("destroy mutated release state without its snapshot:\n%s", commands)
 	}
 }
@@ -193,7 +193,7 @@ func TestDestroyReleasesAppLockOnEarlyFailure(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "> '/var/lib/ob/sample/fence'") {
+		if strings.Contains(command, "> '/var/lib/onebox/app/fence'") {
 			return transport.Result{ExitCode: 70, Stderr: "fence is read-only"}, true
 		}
 		return base(command)
@@ -202,7 +202,7 @@ func TestDestroyReleasesAppLockOnEarlyFailure(t *testing.T) {
 	if err := e.Destroy(context.Background(), false, false); err == nil {
 		t.Fatal("destroy succeeded after fence failure")
 	}
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/sample/lock'") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatalf("destroy retained app lock after early failure:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
@@ -223,7 +223,7 @@ func TestLogsAndExecShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq = strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker compose -p ob_sample_postgres -f '/var/lib/ob/sample/services/postgres.yaml' logs --tail 20 postgres") {
+	if !strings.Contains(seq, "docker compose -p onebox_postgres -f '/var/lib/onebox/app/services/postgres.yaml' logs --tail 20 postgres") {
 		t.Fatalf("service logs shape wrong:\n%s", seq)
 	}
 	if _, err := e.ExecInAudited(context.Background(), "exec-workload", "web", "alembic current", "inspect migration state", &out, io.Discard); err != nil {
@@ -233,7 +233,7 @@ func TestLogsAndExecShapes(t *testing.T) {
 	if !strings.Contains(seq, "docker exec OLD1 sh -c 'alembic current'") {
 		t.Fatalf("exec shape wrong:\n%s", seq)
 	}
-	if !strings.Contains(seq, `cat '/var/lib/ob/sample/fence'`) || !strings.Contains(seq, `then docker exec OLD1`) {
+	if !strings.Contains(seq, `cat '/var/lib/onebox/app/fence'`) || !strings.Contains(seq, `then docker exec OLD1`) {
 		t.Fatalf("exec is not guarded by the acquired mutation fence:\n%s", seq)
 	}
 	if _, err := e.ExecInAudited(context.Background(), "exec-service", "postgres", "psql --version", "verify client version", &out, io.Discard); err != nil {
@@ -348,7 +348,7 @@ func TestDestroyKeepsHostProxyWithoutFlag(t *testing.T) {
 	if strings.Contains(seq, "/proxy/apps") {
 		t.Fatalf("destroy must not consult a cross-application proxy registry:\n%s", seq)
 	}
-	if strings.Contains(seq, "-p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
+	if strings.Contains(seq, "-p onebox-proxy -f '/var/lib/onebox/_host/proxy/compose.yaml' down") {
 		t.Fatalf("without --proxy the host proxy must survive:\n%s", seq)
 	}
 }
@@ -360,19 +360,18 @@ func TestDestroyProxyTeardownForSoleOwner(t *testing.T) {
 		t.Fatalf("destroy --proxy: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' down") {
+	if !strings.Contains(seq, "docker compose -p onebox-proxy -f '/var/lib/onebox/_host/proxy/compose.yaml' down") {
 		t.Fatalf("sole owner with --proxy must tear the proxy down:\n%s", seq)
 	}
 	for _, selector := range []string{
 		"name=^onebox-proxy$ --filter label=com.docker.compose.project=onebox-proxy --filter label=com.docker.compose.service=proxy",
 		"name=^onebox-discovery$ --filter label=com.docker.compose.project=onebox-proxy --filter label=com.docker.compose.service=discovery",
-		"name=^onebox-proxy-discovery$ --filter label=com.docker.compose.project=onebox-proxy --filter label=com.docker.compose.service=discovery",
 	} {
 		if !strings.Contains(seq, selector) {
 			t.Fatalf("proxy teardown must sweep owned orphan %s even when Compose state is missing:\n%s", selector, seq)
 		}
 	}
-	if !strings.Contains(seq, "rm -rf '/var/lib/ob/_host/proxy'") {
+	if !strings.Contains(seq, "rm -rf '/var/lib/onebox/_host/proxy'") {
 		t.Fatalf("proxy state dir must go with it:\n%s", seq)
 	}
 }
@@ -384,7 +383,7 @@ func TestCompleteDestroyReleasesHostOwnership(t *testing.T) {
 		t.Fatalf("complete destroy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/_host/owner'") {
 		t.Fatalf("complete teardown must release the sole owner record:\n%s", seq)
 	}
 }
@@ -450,12 +449,12 @@ func TestRemoveServicesRemovesPreservedRestoreVolumes(t *testing.T) {
 		case strings.Contains(cmd, "docker ps -aq"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "docker volume ls") && strings.Contains(cmd, "label=com.docker.compose.project"):
-			return transport.Result{Stdout: "ob_sample_postgres_data\n"}, true
+			return transport.Result{Stdout: "onebox_postgres_data\n"}, true
 		case strings.Contains(cmd, "docker volume ls") && strings.Contains(cmd, "before-restore"):
 			return transport.Result{Stdout: strings.Join([]string{
-				"ob_sample_postgres_data-before-restore-20260822T160242Z",
-				"ob_sample_postgres_data-before-restore-not-a-timestamp",
-				"ob_other_postgres_data-before-restore-20260822T160242Z",
+				"onebox_postgres_data-before-restore-20260822T160242Z",
+				"onebox_postgres_data-before-restore-not-a-timestamp",
+				"onebox_other_data-before-restore-20260822T160242Z",
 			}, "\n")}, true
 		}
 		return transport.Result{}, false
@@ -466,10 +465,10 @@ func TestRemoveServicesRemovesPreservedRestoreVolumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "docker volume rm ob_sample_postgres_data ob_sample_postgres_data-before-restore-20260822T160242Z") {
+	if !strings.Contains(seq, "docker volume rm onebox_postgres_data onebox_postgres_data-before-restore-20260822T160242Z") {
 		t.Fatalf("destroy did not remove the live and preserved volumes:\n%s", seq)
 	}
-	if strings.Contains(seq, "docker volume rm ob_other") || strings.Contains(seq, "docker volume rm ob_sample_postgres_data-before-restore-not") {
+	if strings.Contains(seq, "docker volume rm onebox_other") || strings.Contains(seq, "docker volume rm onebox_postgres_data-before-restore-not") {
 		t.Fatalf("destroy removed a volume whose ownership was not proved:\n%s", seq)
 	}
 }
@@ -504,7 +503,7 @@ func TestDestroyRefusesFailedSweepDiscovery(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("destroy error = %v, want %q", err, test.want)
 			}
-			if commands := strings.Join(f.Commands, "\n"); strings.Contains(commands, "rm -rf '/var/lib/ob/sample'") {
+			if commands := strings.Join(f.Commands, "\n"); strings.Contains(commands, "rm -rf '/var/lib/onebox/app'") {
 				t.Fatalf("destroy removed state after failed discovery:\n%s", commands)
 			}
 		})
@@ -522,7 +521,7 @@ func TestDestroyKeepsHostOwnershipWhileDataRemains(t *testing.T) {
 		t.Fatalf("destroy: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "rm -f '/var/lib/ob/_host/owner'") {
+	if strings.Contains(seq, "rm -f '/var/lib/onebox/_host/owner'") {
 		t.Fatalf("ownership was released while volumes were kept:\n%s", seq)
 	}
 }
@@ -563,5 +562,67 @@ func TestDestroyTellsTheOperatorHowToReleaseTheHost(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "--volumes --proxy") {
 		t.Fatalf("retention notice demanded --proxy for an unmanaged proxy:\n%s", out.String())
+	}
+}
+
+// Destroy deletes the state directory whole, so it must first see this
+// application's marker in it: without one, the directory may not be Onebox's.
+func TestDestroyRefusesAnUnmarkedStateDirectory(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, app.AppMarkerFile) && strings.Contains(cmd, "rm -rf") {
+			return transport.Result{ExitCode: appDirUnmarked}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), true, false)
+	if err == nil || !strings.Contains(err.Error(), "will not delete it") {
+		t.Fatalf("destroy of an unmarked directory = %v", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "host ownership released") {
+		t.Fatal("host ownership was released after the state directory was refused")
+	}
+}
+
+// A destroy that keeps anything keeps the marker, so the destroy that finishes
+// the job can still prove the directory is this application's.
+func TestPlainDestroyKeepsTheStateDirectoryMarker(t *testing.T) {
+	f := opsFake("x")
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Destroy(context.Background(), false, false); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	var sweep string
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "-mindepth 1 -maxdepth 1") {
+			sweep = cmd
+		}
+	}
+	if !strings.Contains(sweep, "! -name '"+app.AppMarkerFile+"'") {
+		t.Fatalf("plain destroy removed the marker:\n%s", sweep)
+	}
+}
+
+// Every lock acquisition claims the state directory, so no command writes its
+// lock, fence or journal into a directory Onebox has not marked.
+func TestAcquireLockClaimsTheStateDirectory(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, app.AppMarkerFile) && strings.Contains(cmd, "ls -A") {
+			return transport.Result{ExitCode: appDirUnmarked}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if _, err := e.AcquireLock(context.Background(), "R9", false); err == nil || !strings.Contains(err.Error(), "was not created by Onebox") {
+		t.Fatalf("lock acquisition in an unmarked directory = %v", err)
+	}
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "/lock") && !strings.Contains(cmd, app.AppMarkerFile) {
+			t.Fatalf("wrote the lock after the directory was refused: %s", cmd)
+		}
 	}
 }

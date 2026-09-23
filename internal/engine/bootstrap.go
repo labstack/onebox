@@ -34,19 +34,25 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 		}
 		passwords[name] = password
 	}
-	if err := e.claimHostOwner(ctx); err != nil {
+	// Refuse a foreign owner before anything else, check the state directory
+	// before claiming the host, and create the directory only after: a refused
+	// directory leaves the host unclaimed, and a refused claim leaves nothing
+	// behind. The lock acquisition below creates the directory.
+	owner, err := e.readHostOwner(ctx)
+	if err != nil {
 		return err
 	}
-
+	if err := e.ownerConflict(owner); err != nil {
+		return err
+	}
+	if err := e.checkAppDir(ctx); err != nil {
+		return err
+	}
+	if err := e.claimHostOwner(ctx, owner); err != nil {
+		return err
+	}
 	e.logf("bootstrap: base dirs")
 	p := release.PathsFor(e.names())
-	res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases))
-	if err != nil {
-		return fmt.Errorf("mkdir %s: %w", p.Releases, err)
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("mkdir %s: %s", p.Releases, strings.TrimSpace(res.Stderr))
-	}
 
 	// one regime for every mutation: bootstrap locks, fences,
 	// and journals like a deploy
@@ -58,7 +64,7 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	if err := e.WriteFence(ctx, releaseID, epoch); err != nil {
 		return err
 	}
-	jw := &journal.Writer{T: e.T, Names: e.names(), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Dir: journal.Dir(e.names()), DeployID: releaseID, Epoch: epoch, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "bootstrap", Event: "start"}); err != nil {
 		return fmt.Errorf("journal bootstrap start: %w", err)
 	}
@@ -161,4 +167,67 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	}
 	e.logf("bootstrap complete — run `ob deploy` for the first release")
 	return nil
+}
+
+const (
+	appDirForeign  = 3
+	appDirUnmarked = 4
+)
+
+// claimAppDir creates the application's state directory, or accepts one that
+// carries this application's marker. It is the only place the directory is
+// created — bootstrap and every lock acquisition go through it — so nothing
+// ever writes into a directory Onebox has not marked as this application's.
+func (e *Engine) claimAppDir(ctx context.Context) error {
+	return e.runAppDirCommand(ctx, claimAppDirCommand(e.names(), e.Spec.Name))
+}
+
+// checkAppDir refuses a state directory Onebox may not adopt, changing nothing.
+func (e *Engine) checkAppDir(ctx context.Context) error {
+	return e.runAppDirCommand(ctx, checkAppDirCommand(e.names(), e.Spec.Name))
+}
+
+func (e *Engine) runAppDirCommand(ctx context.Context, command string) error {
+	n := e.names()
+	res, err := e.T.Run(ctx, command)
+	if err != nil {
+		return fmt.Errorf("claim %s: %w", n.AppDir(), err)
+	}
+	switch res.ExitCode {
+	case 0:
+		return nil
+	case appDirForeign:
+		return fmt.Errorf("%s holds another application's state (%s says %q); choose another basePath", n.AppDir(), app.AppMarkerFile, strings.TrimSpace(res.Stdout))
+	case appDirUnmarked:
+		return fmt.Errorf("%s already exists and was not created by Onebox, or cannot be read; move it aside or choose another basePath — Onebox will not adopt a directory it may later delete", n.AppDir())
+	default:
+		return fmt.Errorf("claim %s: %s", n.AppDir(), strings.TrimSpace(res.Stderr))
+	}
+}
+
+// checkAppDirCommand accepts a state directory that is absent, provably empty,
+// or marked as this application's, and changes nothing. An existing directory
+// it cannot read counts as not empty.
+func checkAppDirCommand(n app.Names, application string) string {
+	dir, marker := q(n.AppDir()), q(n.AppMarker())
+	return "if [ -e " + marker + " ]; then owner=$(cat " + marker + ") || exit 1; " +
+		"[ \"$owner\" = " + q(application) + " ] || { printf '%s' \"$owner\"; exit " + fmt.Sprint(appDirForeign) + "; }; " +
+		"elif [ -e " + dir + " ] || [ -L " + dir + " ]; then " +
+		"[ -d " + dir + " ] && [ -r " + dir + " ] && [ -x " + dir + " ] || exit " + fmt.Sprint(appDirUnmarked) + "; " +
+		"entries=$(ls -A " + dir + ") || exit " + fmt.Sprint(appDirUnmarked) + "; " +
+		"[ -z \"$entries\" ] || exit " + fmt.Sprint(appDirUnmarked) + "; fi"
+}
+
+// claimAppDirCommand runs the same check, then creates the directory. The
+// marker is written only when it is missing, through a temporary file and a
+// rename: it is the one proof of ownership destroy trusts, so no interrupted
+// write may ever leave it empty.
+func claimAppDirCommand(n app.Names, application string) string {
+	marker := q(n.AppMarker())
+	staged := q(n.AppMarker()+".tmp.") + "$$"
+	// The marker first, then everything else: a claim cut short must never
+	// leave a non-empty directory without it.
+	return checkAppDirCommand(n, application) + "; mkdir -p " + q(n.AppDir()) + " || exit 1; " +
+		"[ -e " + marker + " ] || { printf '%s\\n' " + q(application) + " > " + staged + " && mv -f " + staged + " " + marker + "; } || exit 1; " +
+		"mkdir -p " + q(n.ReleasesDir())
 }

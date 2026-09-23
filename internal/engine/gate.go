@@ -223,9 +223,9 @@ func jobRunLabels(operationID string, epoch int) string {
 const (
 	// JobOperationLabel carries the operation id of the run that created a
 	// one-off job container.
-	JobOperationLabel = "ob.operation"
+	JobOperationLabel = "onebox.operation"
 	// JobEpochLabel carries the lock epoch that run held.
-	JobEpochLabel = "ob.epoch"
+	JobEpochLabel = "onebox.epoch"
 )
 
 func injectComposeJobLabels(command, operationID string, epoch int) (string, bool) {
@@ -327,7 +327,7 @@ func (e *Engine) jobRollbackPolicySafe(service string) bool {
 }
 
 // removeNewcomers stops and removes every container of the given release
-// (identified by the ob.release label the render injected).
+// (identified by the onebox.release label the render injected).
 func (e *Engine) removeNewcomers(ctx context.Context, releaseID string) error {
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		ids, err := e.newcomerIDs(ctx, roleName, releaseID, "")

@@ -12,7 +12,7 @@ func TestValidateRetainedWorkloadsRefusesRevisionDrift(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "docker ps --filter label=ob.app=") && strings.Contains(command, "--format") {
+		if strings.Contains(command, "docker ps --filter label=onebox.app=") && strings.Contains(command, "--format") {
 			return transport.Result{Stdout: "W1|worker|R0|sha256:" + strings.Repeat("b", 64) + "|Up\n"}, true
 		}
 		return base(command)

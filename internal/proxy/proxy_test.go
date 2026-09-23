@@ -38,23 +38,27 @@ func writeCfg(t *testing.T, files map[string]string) string {
 }
 
 func TestPathsHostScoped(t *testing.T) {
-	// The base comes from the project's resolved names, so an app declaring
-	// base_path puts the host proxy beside its own state rather than in a
-	// second tree nothing else reads.
+	// basePath moves an application's state, never the host's: the owner record
+	// here is what keeps a host to one application, so it cannot be per basePath.
 	p := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"})
-	if p.Base != "/tmp/obbase/_host" {
+	if p.Base != app.HostStateDir {
 		t.Fatalf("base: %s", p.Base)
 	}
-	if p.Compose != "/tmp/obbase/_host/proxy/compose.yaml" || p.Owner != "/tmp/obbase/_host/owner" {
+	if p.Compose != app.HostStateDir+"/proxy/compose.yaml" || p.Owner != app.HostStateDir+"/owner" || p.Journal != app.HostStateDir+"/journal" {
 		t.Fatalf("paths: %+v", p)
 	}
-	if p.Lock != "/tmp/obbase/_host/lock" || p.Acme != "/tmp/obbase/_host/proxy/acme" {
-		t.Fatalf("paths: %+v", p)
+	restore, err := app.SetTestHostStateDir("/tmp/fixture-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restore)
+	if got := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"}).Owner; got != "/tmp/fixture-host/owner" {
+		t.Fatalf("test host state override ignored: %s", got)
 	}
 }
 
 func TestRenderCompose(t *testing.T) {
-	b := string(RenderCompose("traefik:v3.7", "ob-ingress", true, nil))
+	b := string(RenderCompose("traefik:v3.7", "onebox-ingress", true, nil))
 	for _, want := range []string{
 		"container_name: onebox-proxy",
 		"image: traefik:v3.7",
@@ -68,7 +72,7 @@ func TestRenderCompose(t *testing.T) {
 		"cap_add: [NET_BIND_SERVICE]",
 		"config/.env",
 		`["CMD", "traefik", "healthcheck"]`,
-		"name: ob-ingress",
+		"name: onebox-ingress",
 	} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("rendered compose missing %q:\n%s", want, b)
@@ -85,7 +89,7 @@ func TestRenderCompose(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(b), &parsed); err != nil {
 		t.Fatalf("rendered compose is not valid YAML: %v\n%s", err, b)
 	}
-	noEnv := string(RenderCompose("traefik:v3.7", "ob-ingress", false, nil))
+	noEnv := string(RenderCompose("traefik:v3.7", "onebox-ingress", false, nil))
 	if strings.Contains(noEnv, ".env") {
 		t.Fatalf("env_file must be omitted without .env:\n%s", noEnv)
 	}
@@ -650,7 +654,7 @@ func TestCertExpiries(t *testing.T) {
 // same one every time.
 func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
 	staging := t.TempDir()
-	hash, err := Stage("", staging, "traefik:v3.7", "ob-ingress", nil, true)
+	hash, err := Stage("", staging, "traefik:v3.7", "onebox-ingress", nil, true)
 	if err != nil {
 		t.Fatalf("a project without proxy.config must still bootstrap: %v", err)
 	}
@@ -700,7 +704,7 @@ func TestDeclaredConfigWithoutTraefikFilesSaysWhatToDo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "README.txt"), []byte("notes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress", nil, false)
+	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "onebox-ingress", nil, false)
 	if err == nil {
 		t.Fatal("a declared config directory without dynamic or static Traefik files must be refused")
 	}

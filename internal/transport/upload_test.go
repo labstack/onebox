@@ -62,13 +62,13 @@ func TestUploadFailsWhenTheSourceCannotBeRead(t *testing.T) {
 func TestUploadSucceedsAndCopiesEverything(t *testing.T) {
 	source := t.TempDir()
 	writeFile(t, filepath.Join(source, "compose.yaml"), "services: {}\n")
-	writeFile(t, filepath.Join(source, "ob.snapshot.yml"), "app: shop\n")
+	writeFile(t, filepath.Join(source, "onebox.snapshot.yml"), "app: shop\n")
 
 	dest := filepath.Join(t.TempDir(), "releases", "20260808-120000-abc")
 	if err := NewLocal().Upload(context.Background(), source, dest); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
-	for _, name := range []string{"compose.yaml", "ob.snapshot.yml"} {
+	for _, name := range []string{"compose.yaml", "onebox.snapshot.yml"} {
 		if _, err := os.Stat(filepath.Join(dest, name)); err != nil {
 			t.Errorf("%s did not arrive: %v", name, err)
 		}

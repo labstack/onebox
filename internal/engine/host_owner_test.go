@@ -38,7 +38,7 @@ func TestForeignHostOwnerBlocksMutationsBeforeEffects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 				if strings.Contains(command, "_host/owner") {
-					return transport.Result{Stdout: "another-app\n"}, true
+					return transport.Result{Stdout: "another-app production\n"}, true
 				}
 				return transport.Result{}, false
 			}}
@@ -135,16 +135,15 @@ func TestClaimHostOwnerRechecksUnderLock(t *testing.T) {
 	reads := 0
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "_host/owner") && strings.Contains(command, "cat ") {
+			// The caller read the host unclaimed (hostOwner{} below); another
+			// claim lands before the lock, so the read under it finds it.
 			reads++
-			if reads == 1 {
-				return transport.Result{ExitCode: 3}, true
-			}
-			return transport.Result{Stdout: "another-app\n"}, true
+			return transport.Result{Stdout: "another-app production\n"}, true
 		}
 		return transport.Result{}, false
 	}}
 	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := engine.claimHostOwner(context.Background())
+	err := engine.claimHostOwner(context.Background(), hostOwner{})
 	if err == nil || !strings.Contains(err.Error(), "another-app") {
 		t.Fatalf("concurrent owner claim was accepted: %v", err)
 	}
@@ -167,7 +166,7 @@ func TestClaimHostOwnerReportsAtomicWriteFailure(t *testing.T) {
 		}
 	}}
 	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := engine.claimHostOwner(context.Background()); err == nil || !strings.Contains(err.Error(), "record host owner") {
+	if err := engine.claimHostOwner(context.Background(), hostOwner{}); err == nil || !strings.Contains(err.Error(), "record host owner") {
 		t.Fatalf("owner write failure was hidden: %v", err)
 	}
 }
@@ -201,6 +200,21 @@ func TestMigrationGateGuidanceMatchesTheRefusedCommand(t *testing.T) {
 		// The flag still has to reach a human, who is the one allowed to use it.
 		if !strings.Contains(err.Error(), "--break-migration-gate") {
 			t.Errorf("Refused=%q no longer names the override for an operator", refused)
+		}
+	}
+}
+
+func TestClaimHostOwnerRefusesAnEmptyEnvironment(t *testing.T) {
+	fake := &transport.Fake{}
+	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	engine.Opts.Environment = ""
+	err := engine.claimHostOwner(context.Background(), hostOwner{})
+	if err == nil || !strings.Contains(err.Error(), "without an environment") {
+		t.Fatalf("claim without an environment = %v", err)
+	}
+	for _, command := range fake.Commands {
+		if strings.Contains(command, "_host/owner") && strings.Contains(command, "printf") {
+			t.Fatalf("an unreadable owner record was written: %s", command)
 		}
 	}
 }

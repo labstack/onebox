@@ -56,7 +56,7 @@ func TestRecordedProjectionWinsOverEditedIntent(t *testing.T) {
 	}
 	edited := &Resolved{
 		Spec: &Spec{
-			Name: "shop", BasePath: "/var/lib/ob",
+			Name: "shop", BasePath: "/var/lib/onebox",
 			Services: map[string]Service{"db": {Driver: "postgres", Version: 18, Backup: &BackupPolicy{
 				Target: "moved", RecoveryKind: "pitr", MaxDataLoss: "15m",
 			}}},

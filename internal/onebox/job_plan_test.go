@@ -352,7 +352,7 @@ func TestExecuteScheduledDestructiveJobDetachesToHostUnit(t *testing.T) {
 		t.Fatalf("detached result = %+v", result)
 	}
 	commands := strings.Join(fake.Commands, "\n")
-	if !strings.Contains(commands, "systemctl start --no-block 'ob-demo-maintenance.service'") {
+	if !strings.Contains(commands, "systemctl start --no-block 'onebox-job-maintenance.service'") {
 		t.Fatalf("job was not submitted to its host unit:\n%s", commands)
 	}
 	if strings.Contains(commands, "ONEBOX_RESULT_FILE=/run/onebox/job-result") {

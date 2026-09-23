@@ -28,7 +28,7 @@ func TestAPIVersionV1IsRequired(t *testing.T) {
 }
 
 func TestRoutedProjectRefusesDefaultAsProxyNetwork(t *testing.T) {
-	for _, network := range []string{"default", "ledger_default", "ob_ledger"} {
+	for _, network := range []string{"default", "ledger_default", "onebox_services"} {
 		t.Run(network, func(t *testing.T) {
 			_, err := loadFixtureBytes([]byte(min+"proxy: {network: "+network+"}\n"), "ob.yml")
 			if err == nil || !strings.Contains(err.Error(), "proxy.network") || !strings.Contains(err.Error(), "reserved") {
@@ -191,10 +191,10 @@ spec:
     a:
       image: nginx
 `, true},
-		{"app starting ob-", `apiVersion: onebox.run/v1alpha1
+		{"app starting onebox-", `apiVersion: onebox.run/v1alpha1
 kind: Application
 metadata:
-  name: ob-app
+  name: onebox-app
 spec:
   environments: {p: {server: h}}
   workloads:
@@ -476,11 +476,11 @@ func TestDefaultsMaterialise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.BasePath != "/var/lib/ob" {
-		t.Errorf("base_path = %q, want /var/lib/ob", p.BasePath)
+	if p.BasePath != "/var/lib/onebox" {
+		t.Errorf("base_path = %q, want /var/lib/onebox", p.BasePath)
 	}
-	if p.Proxy.Network != "ob-ingress" {
-		t.Errorf("proxy.network = %q, want ob-ingress", p.Proxy.Network)
+	if p.Proxy.Network != "onebox-ingress" {
+		t.Errorf("proxy.network = %q, want onebox-ingress", p.Proxy.Network)
 	}
 	if p.Deployment.RetainReleases != 5 {
 		t.Errorf("retain_releases = %d, want 5", p.Deployment.RetainReleases)
@@ -570,6 +570,35 @@ func TestOverLongNameRefused(t *testing.T) {
 	var e *Error
 	if !asError(err, &e) || e.Code != "derived_name_too_long" {
 		t.Fatalf("got %v, want derived_name_too_long", err)
+	}
+}
+
+// Escaped hyphens and the rollout suffix make a container name longer than its
+// identifiers. The limit applies to the name Docker is given, not the inputs.
+func TestOverLongEscapedContainerNameRefused(t *testing.T) {
+	application := "a-b-c-d-e-f-g-h-i-j-k-l-m-n-o"
+	workload := "w-x-y-z-a-b-c"
+	if len(application)+1+len(workload) > maxDerivedName {
+		t.Fatal("fixture no longer isolates the escaped-name case")
+	}
+	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: " + application +
+		"\nspec:\n  environments: {p: {server: h}}\n  workloads: {" + workload + ": {image: nginx}}\n"
+	_, err := loadFixtureBytes([]byte(y), "ob.yml")
+	var e *Error
+	if !asError(err, &e) || e.Code != "derived_name_too_long" {
+		t.Fatalf("got %v, want derived_name_too_long for %s", err, (Names{App: application}).TransientContainer(workload))
+	}
+}
+
+// Every replica has a name and a rollout step on one host, so the count is
+// bounded before anything derives from it: a typo must not build billions of
+// names while the project loads.
+func TestReplicasAreBounded(t *testing.T) {
+	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: shop\n" +
+		"spec:\n  environments: {p: {server: h}}\n  workloads: {web: {image: nginx, replicas: 2000000000}}\n"
+	_, err := loadFixtureBytes([]byte(y), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "replicas") {
+		t.Fatalf("an unbounded replica count loaded: %v", err)
 	}
 }
 
@@ -847,7 +876,7 @@ spec:
 		{"image reference with a command",
 			base + "workloads: {w: {role: application, image: \"x:1; rm -rf /\"}}\n"},
 		{"base path with a quote",
-			base + "workloads: {w: {role: application, image: x:1}}\nbase_path: \"/var/lib/ob'; rm -rf /; '\"\n"},
+			base + "workloads: {w: {role: application, image: x:1}}\nbase_path: \"/var/lib/onebox'; rm -rf /; '\"\n"},
 		{"env file path with a newline",
 			base + "workloads: {w: {role: application, image: x:1, env_files: [\"a.env\\nb\"]}}\n"},
 		{"health path with a quote",

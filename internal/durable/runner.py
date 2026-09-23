@@ -244,16 +244,8 @@ def cleanup_container(config, invocation=None, shutdown_grace=30, state_path=Non
     rows = json.loads(docker(["inspect"] + ids))
     for row in rows:
         labels = row["Config"].get("Labels") or {}
-        legacy_job = (
-            invocation is None
-            and not any(key.startswith("ob.execution.") for key in labels)
-            and row.get("Name") == "/" + config["container"]
-            and labels.get("com.docker.compose.project") == config["application"]
-            and labels.get("com.docker.compose.service") == config["job"]
-            and labels.get("com.docker.compose.oneoff", "").lower() == "true"
-        )
         require(
-            labels.get("ob.execution.job") == config["job"] or legacy_job,
+            labels.get("onebox.execution.job") == config["job"],
             "existing container has no matching job ownership; inspect and remove it manually",
         )
         if invocation is None:
@@ -263,7 +255,7 @@ def cleanup_container(config, invocation=None, shutdown_grace=30, state_path=Non
             )
         else:
             require(
-                labels.get("ob.execution.invocation") == invocation,
+                labels.get("onebox.execution.invocation") == invocation,
                 "container belongs to another invocation",
             )
             running = row["State"].get("Running") or row["State"].get("Restarting")
@@ -563,9 +555,9 @@ def execute(store, identity, invocation, shutdown_grace=30):
                         "--name",
                         config["container"],
                         "--label",
-                        "ob.execution.job=" + config["job"],
+                        "onebox.execution.job=" + config["job"],
                         "--label",
-                        "ob.execution.invocation=" + invocation,
+                        "onebox.execution.invocation=" + invocation,
                         "--volume",
                         output_dir + ":/onebox-output",
                     ]

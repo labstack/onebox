@@ -13,31 +13,29 @@ import (
 // remain attached while one release is torn down.
 func (e *Engine) EnsureApplicationNetwork(ctx context.Context) error {
 	n := e.names()
-	return e.ensureOwnedNetwork(ctx, n.ApplicationNetwork(), n.ComposeProject(), "")
+	return e.ensureOwnedNetwork(ctx, n.ApplicationNetwork())
 }
 
 // ensureServiceNetwork establishes the long-lived network shared by workloads
-// and supporting services. A legacy state directory is accepted as migration
-// evidence because older Onebox versions created this network without labels.
+// and supporting services.
 func (e *Engine) ensureServiceNetwork(ctx context.Context, n app.Names) error {
-	return e.ensureOwnedNetwork(ctx, n.ServiceNetwork(), "", n.ServiceDir())
+	return e.ensureOwnedNetwork(ctx, n.ServiceNetwork())
 }
 
-// ensureOwnedNetwork creates a labelled network or accepts a network whose
-// legacy ownership is independently provable. Docker cannot add labels to an
-// existing network, and recreating one would sever live endpoints, so legacy
-// networks remain intact. A derived name alone is never
-// evidence: silently adopting a hand-created network is the bug this boundary
-// exists to prevent.
-func (e *Engine) ensureOwnedNetwork(ctx context.Context, name, legacyComposeProject, legacyStateDir string) error {
-	exists, err := e.ownedNetworkExists(ctx, name, legacyComposeProject, legacyStateDir)
+// ensureOwnedNetwork creates a labelled network or accepts one this
+// application provably owns: it carries the application's label, or
+// app.Names.ComposeCreatedApplicationNetwork says Compose created it for the
+// application's own project. A derived name alone is never evidence: silently
+// adopting a hand-created network is the bug this boundary exists to prevent.
+func (e *Engine) ensureOwnedNetwork(ctx context.Context, name string) error {
+	exists, err := e.ownedNetworkExists(ctx, name)
 	if err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	created, createErr := e.mutate(ctx, "docker network create --label "+q("ob.app="+e.Spec.Name)+" "+q(name))
+	created, createErr := e.mutate(ctx, "docker network create --label "+q("onebox.app="+e.Spec.Name)+" "+q(name))
 	if createErr != nil {
 		return createErr
 	}
@@ -52,12 +50,8 @@ func (e *Engine) ensureOwnedNetwork(ctx context.Context, name, legacyComposeProj
 // either remove them or stop before deleting state and releasing host ownership.
 func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 	n := e.names()
-	networks := []struct {
-		name, legacyComposeProject, legacyStateDir string
-	}{
-		{n.ApplicationNetwork(), n.ComposeProject(), ""},
-	}
-	// `ob_<app>` is reserved only when the app has services. A project that
+	networks := []string{n.ApplicationNetwork()}
+	// `onebox_services` is reserved only when the app has services. A project that
 	// never declared one must not have full destroy blocked by an unrelated,
 	// unlabelled network at that otherwise-unused name. Durable service state
 	// also includes the network for projects that removed services from the
@@ -71,24 +65,22 @@ func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 		includeServiceNetwork = state.ExitCode == 0
 	}
 	if includeServiceNetwork {
-		networks = append(networks, struct {
-			name, legacyComposeProject, legacyStateDir string
-		}{n.ServiceNetwork(), "", n.ServiceDir()})
+		networks = append(networks, n.ServiceNetwork())
 	}
 	for _, network := range networks {
-		exists, err := e.ownedNetworkExists(ctx, network.name, network.legacyComposeProject, network.legacyStateDir)
+		exists, err := e.ownedNetworkExists(ctx, network)
 		if err != nil {
 			return err
 		}
 		if !exists {
 			continue
 		}
-		removed, removeErr := e.mutate(ctx, "docker network rm "+q(network.name))
+		removed, removeErr := e.mutate(ctx, "docker network rm "+q(network))
 		if removeErr != nil {
 			return removeErr
 		}
 		if removed.ExitCode != 0 {
-			return fmt.Errorf("network %s: cannot remove owned network: %s; detach its remaining endpoints, then retry destroy", network.name, strings.TrimSpace(removed.Stderr))
+			return fmt.Errorf("network %s: cannot remove owned network: %s; detach its remaining endpoints, then retry destroy", network, strings.TrimSpace(removed.Stderr))
 		}
 	}
 	return nil
@@ -97,12 +89,12 @@ func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 // ownedNetworkExists reports absence and otherwise proves that an existing
 // network belongs to this application before a caller creates, uses, or removes
 // it. The same proof must guard every lifecycle transition.
-func (e *Engine) ownedNetworkExists(ctx context.Context, name, legacyComposeProject, legacyStateDir string) (bool, error) {
+func (e *Engine) ownedNetworkExists(ctx context.Context, name string) (bool, error) {
 	// `docker network inspect --format` prints a backslash-t literally on some
 	// Docker releases (unlike the list formatter). Use a delimiter that the
 	// formatter does not have to interpret; none of these validated identities
 	// can contain a pipe.
-	inspect := "docker network inspect --format '{{.Id}}|{{index .Labels \"ob.app\"}}|{{index .Labels \"com.docker.compose.project\"}}' " + q(name)
+	inspect := "docker network inspect --format '{{.Id}}|{{index .Labels \"onebox.app\"}}|{{index .Labels \"com.docker.compose.project\"}}' " + q(name)
 	res, err := e.T.Run(ctx, inspect)
 	if err != nil {
 		return false, err
@@ -125,29 +117,17 @@ func (e *Engine) ownedNetworkExists(ctx context.Context, name, legacyComposeProj
 	if len(fields) > 1 {
 		owner = networkLabel(fields[1])
 	}
-	if owner != "" {
-		if owner != e.Spec.Name {
-			return false, fmt.Errorf("network %s is owned by application %s; refusing to adopt it", name, owner)
-		}
-		return true, nil
+	if owner == "" && len(fields) > 2 && e.names().ComposeCreatedApplicationNetwork(name, networkLabel(fields[2])) {
+		owner = e.Spec.Name
 	}
-
-	legacyOwned := false
-	if len(fields) > 2 && legacyComposeProject != "" {
-		legacyOwned = networkLabel(fields[2]) == legacyComposeProject
-	}
-	if !legacyOwned && legacyStateDir != "" {
-		state, stateErr := e.T.Run(ctx, "test -d "+q(legacyStateDir))
-		if stateErr != nil {
-			return false, stateErr
-		}
-		legacyOwned = state.ExitCode == 0
-	}
-	if !legacyOwned {
+	switch owner {
+	case "":
 		return false, fmt.Errorf("network %s exists without Onebox ownership; refusing to adopt it", name)
+	case e.Spec.Name:
+		return true, nil
+	default:
+		return false, fmt.Errorf("network %s is owned by application %s; refusing to adopt it", name, owner)
 	}
-
-	return true, nil
 }
 
 func networkLabel(value string) string {

@@ -47,7 +47,6 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger",
 		"ledger-migrate-1",
 		"ledger-migrate-new",
-		"ledger-postgres-1",
 		"ledger-web-1",
 		"ledger-web-2",
 		"ledger-web-3",
@@ -55,11 +54,12 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger-worker-1",
 		"ledger-worker-new",
 		"ledger_default",
-		"ob_ledger",
-		"ob_ledger_postgres",
-		"ob_ledger_postgres_data",
-		"ob_ledger_postgres_wal",
-		"ob_ledger_web_uploads",
+		"onebox-postgres",
+		"onebox_postgres",
+		"onebox_postgres_data",
+		"onebox_postgres_wal",
+		"onebox_services",
+		"onebox_web_uploads",
 	}
 	got := p.All("production")
 	if len(got) != len(want) {
@@ -74,21 +74,20 @@ func TestDerivedNamesGolden(t *testing.T) {
 
 // TestDerivationIsInjective is the property the naming contract rests on. The
 // obvious hyphen-joined pattern fails it: (a-b, c) and (a, b-c) both derive
-// ob-a-b-c, and two resources would share one volume.
+// onebox-a-b-c, and two resources would share one volume. The application is
+// not part of these names — a host has one — so only the components vary.
 func TestDerivationIsInjective(t *testing.T) {
 	idents := []string{"a", "b", "a-b", "b-c", "c", "web", "web-1", "x-y-z"}
 	seen := map[string]string{}
-	for _, app := range idents {
-		n := Names{App: app, BasePath: DefaultBasePath}
-		for _, svc := range idents {
-			for _, vol := range idents {
-				name := n.ServiceVolume(svc, vol)
-				key := app + "|" + svc + "|" + vol
-				if prev, dup := seen[name]; dup {
-					t.Fatalf("collision: %q derived from both %s and %s", name, prev, key)
-				}
-				seen[name] = key
+	n := Names{App: "shop", BasePath: DefaultBasePath}
+	for _, svc := range idents {
+		for _, vol := range idents {
+			name := n.ServiceVolume(svc, vol)
+			key := svc + "|" + vol
+			if prev, dup := seen[name]; dup {
+				t.Fatalf("collision: %q derived from both %s and %s", name, prev, key)
 			}
+			seen[name] = key
 		}
 	}
 }
@@ -98,63 +97,49 @@ func TestBackupNamesEscapeHyphenatedSegments(t *testing.T) {
 	credentialNames := map[string]string{}
 	jobNames := map[string]string{}
 	unitNames := map[string]string{}
-	for _, application := range idents {
-		n := Names{App: application, BasePath: DefaultBasePath}
-		for _, service := range idents {
-			job := n.ScheduledJobUnit(service)
-			jobSource := application + "|" + service
-			if previous, exists := jobNames[job]; exists {
-				t.Fatalf("scheduled job collision: %q derives from both %s and %s", job, previous, jobSource)
-			}
-			jobNames[job] = jobSource
-			for _, target := range idents {
-				credential := n.BackupCredentialFile(service, target)
-				credentialSource := application + "|" + service + "|" + target
-				// Credential paths are application-scoped, so only pairs within
-				// the same application must be globally unique.
-				credentialKey := application + "|" + credential
-				if previous, exists := credentialNames[credentialKey]; exists {
-					t.Fatalf("credential collision: %q derives from both %s and %s", credential, previous, credentialSource)
-				}
-				credentialNames[credentialKey] = credentialSource
-			}
+	n := Names{App: "shop", BasePath: DefaultBasePath}
+	for _, service := range idents {
+		job := n.ScheduledJobUnit(service)
+		if previous, exists := jobNames[job]; exists {
+			t.Fatalf("scheduled job collision: %q derives from both %s and %s", job, previous, service)
 		}
-		for _, environment := range idents {
-			for _, service := range idents {
-				for _, target := range idents {
-					unit := n.BackupUnitForEnvironment(environment, service, target)
-					unitSource := application + "|" + environment + "|" + service + "|" + target
-					if previous, exists := unitNames[unit]; exists {
-						t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, unitSource)
-					}
-					unitNames[unit] = unitSource
-				}
+		jobNames[job] = service
+		for _, target := range idents {
+			credential := n.BackupCredentialFile(service, target)
+			source := service + "|" + target
+			if previous, exists := credentialNames[credential]; exists {
+				t.Fatalf("credential collision: %q derives from both %s and %s", credential, previous, source)
 			}
+			credentialNames[credential] = source
+		}
+	}
+	for _, service := range idents {
+		for _, operation := range idents {
+			unit := n.BackupUnit(service, operation)
+			source := service + "|" + operation
+			if previous, exists := unitNames[unit]; exists {
+				t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, source)
+			}
+			unitNames[unit] = source
 		}
 	}
 
-	n := Names{App: "help-desk", BasePath: DefaultBasePath}
+	n = Names{App: "help-desk", BasePath: DefaultBasePath}
 	if got := n.BackupCredentialFile("data-base", "off-site"); !strings.HasSuffix(got, "/data--base-off--site.env") {
 		t.Fatalf("escaped credential path = %q", got)
 	}
-	if got := n.BackupUnitForEnvironment("pre-prod", "data-base", "back-up"); got != "ob-backup-help--desk-pre--prod-data--base-back--up" {
+	if got := n.BackupUnit("data-base", "back-up"); got != "onebox-backup-data--base-back--up" {
 		t.Fatalf("escaped backup unit = %q", got)
 	}
-	if got := n.BackupCredentialFiles("data-base", "off-site"); len(got) != 2 || !strings.HasSuffix(got[1], "/data-base-off-site.env") {
-		t.Fatalf("credential migration paths = %#v", got)
-	}
-	if got := n.BackupUnitPrefixesForEnvironment("pre-prod"); len(got) != 2 || got[1] != "ob-backup-help-desk-pre-prod-" {
-		t.Fatalf("unit reconciliation prefixes = %#v", got)
-	}
-	if got := n.ScheduledJobUnit("data-base"); got != "ob-help--desk-data--base" {
-		t.Fatalf("escaped scheduled job unit = %q", got)
+	if got := n.ScheduledJobUnit("data-base"); got != "onebox-job-data-base" {
+		t.Fatalf("scheduled job unit = %q", got)
 	}
 }
 
 // TestHyphenJoinWouldCollide records why underscore was chosen, so the reason
 // survives someone deciding hyphens look tidier.
 func TestHyphenJoinWouldCollide(t *testing.T) {
-	hyphen := func(app, svc string) string { return "ob-" + app + "-" + svc }
+	hyphen := func(app, svc string) string { return "onebox-" + app + "-" + svc }
 	if hyphen("a-b", "c") != hyphen("a", "b-c") {
 		t.Skip("hyphen joining no longer ambiguous; the underscore rule may be revisited")
 	}
@@ -170,13 +155,13 @@ func TestBasePathPerEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.NamesFor("production").ReleaseDir("r1"); got != "/var/lib/ob/ledger/releases/r1" {
+	if got := p.NamesFor("production").ReleaseDir("r1"); got != "/var/lib/onebox/app/releases/r1" {
 		t.Errorf("production release dir = %q", got)
 	}
-	if got := p.NamesFor("staging").ReleaseDir("r1"); got != "/mnt/data/ob/ledger/releases/r1" {
+	if got := p.NamesFor("staging").ReleaseDir("r1"); got != "/mnt/data/ob/app/releases/r1" {
 		t.Errorf("staging release dir = %q", got)
 	}
-	if got := p.NamesFor("production").HostDir(); got != "/var/lib/ob/_host" {
+	if got := p.NamesFor("production").HostDir(); got != "/var/lib/onebox/_host" {
 		t.Errorf("host dir = %q", got)
 	}
 }
@@ -211,7 +196,7 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 	seen := map[string]string{}
 	add := func(name, source string) {
 		t.Helper()
-		if previous, exists := seen[name]; exists {
+		if previous, exists := seen[name]; exists && previous != source {
 			t.Fatalf("runtime name %q derives from both %s and %s", name, previous, source)
 		}
 		seen[name] = source
@@ -223,8 +208,24 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 				add(n.Container(component, replica), fmt.Sprintf("container %s/%s/%d", application, component, replica))
 			}
 			add(n.TransientContainer(component), "transient "+application+"/"+component)
-			add(n.BackupRestoreContainer(component), "restore "+application+"/"+component)
+			// Managed containers do not carry the application: a host has one,
+			// so only the component has to be distinct.
+			add(n.ServiceContainer(component), "service "+component)
+			add(n.BackupRestoreContainer(component), "restore "+component)
 		}
+	}
+}
+
+func TestManagedContainersAreOneboxSingletons(t *testing.T) {
+	n := Names{App: "shop"}
+	if got := n.ServiceContainer("postgres"); got != "onebox-postgres" {
+		t.Errorf("service container = %q, want onebox-postgres", got)
+	}
+	if got := n.BackupRestoreContainer("postgres"); got != "onebox-postgres-restore" {
+		t.Errorf("restore container = %q, want onebox-postgres-restore", got)
+	}
+	if got := n.ServiceContainer("pg-main"); got != "onebox-pg--main" {
+		t.Errorf("hyphenated service container = %q, want onebox-pg--main", got)
 	}
 }
 
@@ -253,8 +254,8 @@ func TestRouterDoesNotLookLikeAReplica(t *testing.T) {
 	if n.Router("web", 2) == n.Container("web", 2) {
 		t.Fatalf("router and replica derive the same name: %q", n.Router("web", 2))
 	}
-	if got := n.Router("web", 0); got != "ledger_web_r0" {
-		t.Errorf("router = %q, want ledger_web_r0", got)
+	if got := n.Router("web", 0); got != "onebox_web_r0" {
+		t.Errorf("router = %q, want onebox_web_r0", got)
 	}
 }
 
@@ -284,8 +285,70 @@ func TestNoDerivedNameCollidesWithHostScoped(t *testing.T) {
 		if name == ProxyProject || name == IngressNetwork {
 			t.Fatalf("derived name %q collides with a host-scoped name", name)
 		}
-		if strings.HasPrefix(name, "ob-") {
-			t.Fatalf("derived name %q entered the reserved hyphenated namespace", name)
+	}
+}
+
+// The onebox-* container namespace is Onebox's. An application called onebox
+// would derive workload containers inside it, and a service called proxy or
+// discovery would derive the host proxy's own container names.
+func TestOneboxContainerNamespaceIsReserved(t *testing.T) {
+	for label, body := range map[string]string{
+		"application onebox": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: onebox
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+`,
+		"service proxy": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    proxy: {driver: redis, version: 7}
+`,
+		"service ingress": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    ingress: {driver: redis, version: 7}
+`,
+		"service services": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    services: {driver: redis, version: 7}
+`,
+		"service discovery": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    discovery: {driver: postgres, version: 18}
+`,
+	} {
+		if _, err := loadFixtureBytes([]byte(body), "ob.yml"); err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("%s: loaded, or refused for another reason: %v", label, err)
 		}
 	}
 }

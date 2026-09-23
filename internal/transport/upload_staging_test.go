@@ -16,7 +16,7 @@ import (
 // read as a release is that the entry it adds there is hidden. This fails if
 // stagingRoot loses its leading dot.
 func TestStagingAddsOnlyAHiddenEntryToTheDestinationsDirectory(t *testing.T) {
-	dest := "/var/lib/ob/shop/releases/20260808-120000-abc"
+	dest := "/var/lib/onebox/app/releases/20260808-120000-abc"
 	staging := stagingPath(dest)
 	parent := filepath.Dir(dest)
 
@@ -126,8 +126,8 @@ func TestAStreamedUploadDoesNotPublishItsSentinel(t *testing.T) {
 }
 
 func TestStagingIsDistinctPerDestination(t *testing.T) {
-	a := stagingPath("/var/lib/ob/shop/releases/r1")
-	b := stagingPath("/var/lib/ob/shop/releases/r2")
+	a := stagingPath("/var/lib/onebox/app/releases/r1")
+	b := stagingPath("/var/lib/onebox/app/releases/r2")
 	if a == b {
 		t.Fatal("two destinations share one staging path")
 	}
@@ -174,11 +174,11 @@ func TestUploadScriptRefusesDangerousDestinations(t *testing.T) {
 // A trailing slash would make staging a child of the target, so removing the
 // target would destroy the payload too. Cleaning the path first prevents it.
 func TestUploadScriptCleansItsDestination(t *testing.T) {
-	withSlash, err := uploadScript("/var/lib/ob/shop/releases/r1/", func(s string) string { return "true" })
+	withSlash, err := uploadScript("/var/lib/onebox/app/releases/r1/", func(s string) string { return "true" })
 	if err != nil {
 		t.Fatal(err)
 	}
-	without, err := uploadScript("/var/lib/ob/shop/releases/r1", func(s string) string { return "true" })
+	without, err := uploadScript("/var/lib/onebox/app/releases/r1", func(s string) string { return "true" })
 	if err != nil {
 		t.Fatal(err)
 	}

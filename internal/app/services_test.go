@@ -43,10 +43,10 @@ func renderStore(t *testing.T, body string) string {
 // mean a rollback could remove the database's volume.
 func TestServiceIsItsOwnProject(t *testing.T) {
 	doc := renderStore(t, "services: {store: {driver: postgres, version: 17}}\n")
-	if !strings.Contains(doc, "name: ob_shop_store") {
+	if !strings.Contains(doc, "name: onebox_store") {
 		t.Fatalf("service is not in its own project:\n%s", doc)
 	}
-	if !strings.Contains(doc, "ob_shop_store_data:/var/lib/postgresql/data") {
+	if !strings.Contains(doc, "onebox_store_data:/var/lib/postgresql/data") {
 		t.Fatalf("no durable volume at the driver's data path:\n%s", doc)
 	}
 	if !strings.Contains(doc, "external: true") {
@@ -60,7 +60,7 @@ func TestServiceDocumentCarriesNoCredential(t *testing.T) {
 	if strings.Contains(doc, "POSTGRES_PASSWORD:") {
 		t.Fatalf("a credential reached the generated runtime:\n%s", doc)
 	}
-	if !strings.Contains(doc, "/var/lib/ob/shop/services/store.secret.env") {
+	if !strings.Contains(doc, "/var/lib/onebox/app/services/store.secret.env") {
 		t.Fatalf("no reference to the target-side credential:\n%s", doc)
 	}
 }
@@ -76,10 +76,10 @@ func TestNeedingAServiceJoinsItAndReadsItsURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(out.Bytes)
-	if !strings.Contains(body, "ob_shop") {
+	if !strings.Contains(body, "onebox_services") {
 		t.Fatalf("workload did not join the service network:\n%s", body)
 	}
-	if !strings.Contains(body, "/var/lib/ob/shop/services/store.client.env") {
+	if !strings.Contains(body, "/var/lib/onebox/app/services/store.client.env") {
 		t.Fatalf("workload cannot learn how to reach the service:\n%s", body)
 	}
 	// depends_on cannot cross Compose projects; emitting it would make the

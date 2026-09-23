@@ -137,7 +137,7 @@ func (e *Engine) SecretsPushBatchWithInputs(ctx context.Context, payloads []Secr
 	if err := runtimeEngine.cleanupSecretUploads(ctx); err != nil {
 		return result, err
 	}
-	jw := &journal.Writer{T: runtimeEngine.T, Names: runtimeEngine.names(), DeployID: current, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &runtimeEngine.Opts.Runner}
+	jw := &journal.Writer{T: runtimeEngine.T, Dir: journal.Dir(runtimeEngine.names()), DeployID: current, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &runtimeEngine.Opts.Runner}
 	journalStarted := false
 	startJournal := func(detail string) error {
 		if err := jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "start", Detail: detail}); err != nil {
@@ -435,9 +435,6 @@ func secretCheckpointMatchesGraph(checkpoint release.SecretCheckpoint, spec *app
 	if !slices.Equal(checkpoint.PayloadPaths, paths) {
 		return false
 	}
-	if checkpoint.SchemaVersion == release.LegacySecretCheckpointSchemaVersion {
-		return len(checkpoint.ChangedPaths) == 0 && slices.Equal(checkpoint.AffectedWorkloads, allWorkloads)
-	}
 	changed := map[string]bool{}
 	for _, changedPath := range checkpoint.ChangedPaths {
 		changed[changedPath] = true
@@ -477,7 +474,7 @@ func (e *Engine) freshSecretGeneration(exclude string) (string, error) {
 }
 
 func stageSecretPayloads(payloads []SecretPayload) (string, func(), error) {
-	directory, err := os.MkdirTemp("", "ob-secret-generation")
+	directory, err := os.MkdirTemp("", "onebox-secret-generation")
 	if err != nil {
 		return "", nil, err
 	}
@@ -842,7 +839,7 @@ func (e *Engine) workloadOnSecretGeneration(ctx context.Context, workload, gener
 // containerSecretGeneration reads one container's generation label. A failure
 // to read it is an error, distinct from reading a value that does not match.
 func (e *Engine) containerSecretGeneration(ctx context.Context, containerID string) (string, error) {
-	result, err := e.T.Run(ctx, "docker inspect -f '{{ index .Config.Labels \"ob.secret-generation\" }}' "+containerID)
+	result, err := e.T.Run(ctx, "docker inspect -f '{{ index .Config.Labels \"onebox.secret-generation\" }}' "+containerID)
 	if err != nil {
 		return "", err
 	}

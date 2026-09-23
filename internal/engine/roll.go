@@ -46,7 +46,7 @@ func (e *Engine) composeCmdForProject(remoteComposePath, remoteProjectDir string
 	return cmd
 }
 
-// newcomerIDs finds RUNNING containers of a specific release — the ob.release
+// newcomerIDs finds RUNNING containers of a specific release — the onebox.release
 // label render injects is what makes resume possible. Running-only is what the
 // surge loop needs: a newcomer that exited has not converged, and counting it
 // toward the desired count would end the roll with a dead replica.
@@ -65,7 +65,7 @@ func (e *Engine) newcomerIDsAnyState(ctx context.Context, svc, releaseID, genera
 
 // generation narrows a newcomer further than the release label can. Rotating a
 // secret replaces containers WITHIN one release, so every container in that
-// roll — old and new — carries the same ob.release. Only the generation label
+// roll — old and new — carries the same onebox.release. Only the generation label
 // tells them apart, and without it the first pass would adopt the containers it
 // is supposed to replace.
 func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID, generation string, anyState bool) ([]string, error) {
@@ -75,9 +75,9 @@ func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID, generation
 	}
 	filters := " --filter label=com.docker.compose.project=" + q(e.Spec.Name) +
 		" --filter label=com.docker.compose.service=" + q(svc) +
-		" --filter label=ob.release=" + q(releaseID)
+		" --filter label=onebox.release=" + q(releaseID)
 	if generation != "" {
-		filters += " --filter label=ob.secret-generation=" + q(generation)
+		filters += " --filter label=onebox.secret-generation=" + q(generation)
 	}
 	res, err := e.T.Run(ctx, ps+filters)
 	if err != nil {
@@ -433,12 +433,10 @@ func (e *Engine) nameOf(ctx context.Context, id string) (string, error) {
 // slotNames is the target name set, from the naming contract.
 //
 // It is the contract's names and not Compose's, and not a local invention
-// either. Container names are host-global: two applications that each have a
-// `web` workload would both want `web-1`, and the second would fail to start
-// or, worse, be renamed over the first. The contract carries the application
-// in every name for exactly that reason, and preflight checks those names for
-// collisions — so a rollout that used different ones would be checking for
-// collisions it then does not create, and creating collisions it never checked.
+// either. Preflight checks the contract's names for collisions with containers
+// Onebox does not own — anything else the operator runs on the host — so a
+// rollout that used different ones would be checking for collisions it then
+// does not create, and creating collisions it never checked.
 func (e *Engine) slotNames(workload string, desired int) []string {
 	n := e.names()
 	out := make([]string, desired)

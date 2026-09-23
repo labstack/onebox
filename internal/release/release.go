@@ -1,5 +1,5 @@
 // Package release manages the versioned remote layout:
-// /var/lib/ob/<app>/releases/<id>/ + a `current` symlink. Nothing live is
+// <basePath>/app/releases/<id>/ + a `current` symlink. Nothing live is
 // ever overwritten; rollback re-activates a previous directory.
 package release
 
@@ -66,7 +66,7 @@ func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), composeYAML, 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "ob.snapshot.yml"), snapshotYAML, 0o644)
+	return os.WriteFile(filepath.Join(dir, "onebox.snapshot.yml"), snapshotYAML, 0o644)
 }
 
 func Push(ctx context.Context, t transport.Transport, stagingDir string, n app.Names, id string) (string, error) {

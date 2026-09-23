@@ -72,7 +72,7 @@ func (r *Resolved) Eject(dest, releaseID string, images Images, overwrite bool) 
 	// Write and rename before touching the project. An interruption then leaves
 	// the project still pointing at the generator rather than at a file that
 	// may not exist.
-	tmp := target + ".ob-tmp"
+	tmp := target + ".onebox-tmp"
 	if err := os.WriteFile(tmp, stripped, 0o600); err != nil {
 		return nil, errf("eject_failed", dest, "", "cannot write %q: %v", dest, err)
 	}
@@ -168,7 +168,7 @@ func dropLabels(svc *yaml.Node) {
 	var kept []*yaml.Node
 	for i := 0; i+1 < len(labels.Content); i += 2 {
 		k := labels.Content[i].Value
-		if strings.HasPrefix(k, "ob.") || strings.HasPrefix(k, "traefik.") {
+		if strings.HasPrefix(k, "onebox.") || strings.HasPrefix(k, "traefik.") {
 			continue
 		}
 		kept = append(kept, labels.Content[i], labels.Content[i+1])
@@ -187,7 +187,7 @@ func dropIngress(svc *yaml.Node) {
 	}
 	var kept []*yaml.Node
 	for _, n := range nets.Content {
-		if n.Value == IngressNetwork || strings.HasPrefix(n.Value, "ob-") {
+		if n.Value == IngressNetwork || strings.HasPrefix(n.Value, Namespace+"-") {
 			continue
 		}
 		kept = append(kept, n)
@@ -265,7 +265,7 @@ func repointProject(path, dest string, names []string) error {
 		return errf("eject_failed", path, "", "%v", err)
 	}
 
-	tmp := path + ".ob-tmp"
+	tmp := path + ".onebox-tmp"
 	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err != nil {
 		return errf("eject_failed", path, "", "%v", err)
 	}

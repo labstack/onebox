@@ -1,6 +1,6 @@
 // Package proxy renders and identifies the HOST-scoped managed proxy (design:
 // "The proxy is owned — managed or external, never assumed"). One Traefik per
-// host, shared by every ob app on it, living under /var/lib/ob/_host/ —
+// host, owned by its one application, living under /var/lib/onebox/_host/ —
 // a name no app can take (app names match ^[a-z][a-z0-9-]*$).
 //
 // The app may supply Traefik configuration as a flat dir (proxy.config).
@@ -41,10 +41,9 @@ const (
 	DiscoveryImageRepository = "ghcr.io/labstack/onebox-discovery"
 	// Project is the compose project name; ContainerName the fixed container
 	// name — both host-global, which is the point.
-	Project                      = app.ProxyProject
-	ContainerName                = app.ProxyProject
-	DiscoveryContainerName       = "onebox-discovery"
-	LegacyDiscoveryContainerName = app.ProxyProject + "-discovery"
+	Project                = app.ProxyProject
+	ContainerName          = app.ProxyProject
+	DiscoveryContainerName = "onebox-discovery"
 )
 
 var releaseVersion = regexp.MustCompile(`^v[0-9]{4}\.[0-9]{1,2}\.[0-9]+$`)
@@ -59,29 +58,29 @@ func DiscoveryImage(version string) string {
 	return DiscoveryImageRepository + ":edge"
 }
 
-// Paths is the host-scoped layout, sibling of the sole application directory.
+// Paths is the host-scoped layout, under app.HostStateDir.
 type Paths struct {
-	Base      string // <root>/_host
-	Lock      string // <root>/_host/lock
-	Journal   string // <root>/_host/journal
-	Dir       string // <root>/_host/proxy
-	Compose   string // <root>/_host/proxy/compose.yaml
-	ConfigDir string // <root>/_host/proxy/config
-	Dynamic   string // <root>/_host/proxy/dynamic
-	Acme      string // <root>/_host/proxy/acme
-	Hash      string // <root>/_host/proxy/config.hash
-	Owner     string // <root>/_host/owner
+	Base      string // /var/lib/onebox/_host
+	Lock      string // …/_host/lock
+	Journal   string // …/_host/journal
+	Dir       string // …/_host/proxy
+	Compose   string // …/_host/proxy/compose.yaml
+	ConfigDir string // …/_host/proxy/config
+	Dynamic   string // …/_host/proxy/dynamic
+	Acme      string // …/_host/proxy/acme
+	Hash      string // …/_host/proxy/config.hash
+	Owner     string // …/_host/owner
 }
 
-// HostPaths is the host-scoped layout, resolved from the same base as
-// everything else this application writes. The owner record prevents another
-// application identity from adopting the same host-scoped state.
+// HostPaths is the host-scoped layout. It does not follow basePath: there is
+// one per host, and the owner record in it is what keeps a host to one
+// application.
 func HostPaths(n app.Names) Paths {
 	base := n.HostDir()
 	return Paths{
 		Base:      base,
 		Lock:      base + "/lock",
-		Journal:   base + "/journal",
+		Journal:   n.HostJournalDir(),
 		Dir:       base + "/proxy",
 		Compose:   base + "/proxy/compose.yaml",
 		ConfigDir: base + "/proxy/config",
@@ -457,7 +456,7 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 			}
 		}
 		if name != staticName && dynamicConfigExtension(name) {
-			if err := validateDynamicOwnership(name, b, application); err != nil {
+			if err := validateDynamicOwnership(name, b); err != nil {
 				return "", fmt.Errorf("proxy.config %s: %w", name, err)
 			}
 		}
@@ -617,7 +616,7 @@ func validateSocketlessStaticConfig(body []byte, requireExactCertificateResolver
 // Before socketless discovery those generated names lived under @docker, so an
 // identically named @file object could coexist; accepting it now would make
 // Traefik discard the conflicting objects during upgrade.
-func validateDynamicOwnership(name string, body []byte, application string) error {
+func validateDynamicOwnership(name string, body []byte) error {
 	var document map[string]any
 	var err error
 	switch strings.ToLower(filepath.Ext(name)) {
@@ -631,7 +630,7 @@ func validateDynamicOwnership(name string, body []byte, application string) erro
 	if err != nil {
 		return fmt.Errorf("parse dynamic configuration: %w", err)
 	}
-	reservedPrefix := app.Join(application, "")
+	reservedPrefix := app.Join(app.Namespace, "")
 	for _, protocol := range []string{"http", "tcp"} {
 		section, _ := document[protocol].(map[string]any)
 		for _, kind := range []string{"routers", "services"} {

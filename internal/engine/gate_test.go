@@ -67,9 +67,9 @@ func TestAutoRollbackUsesPreviousReleaseSnapshot(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
-		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'"):
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "onebox.release='"+engineTestPreviousReleaseID+"'"):
 			return transport.Result{}, true
 		case strings.Contains(cmd, "curl -fsS"):
 			return transport.Result{ExitCode: 22, Stderr: "500"}, true
@@ -117,7 +117,7 @@ func TestAutoRollbackStopsWhenIntentCannotBeJournaled(t *testing.T) {
 func TestRemoveNewcomersRejectsRemoteRemovalFailure(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release='R1'"):
+		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "onebox.release='R1'"):
 			return transport.Result{Stdout: "NEW1\n"}, true
 		case strings.Contains(cmd, "docker stop -t 10 NEW1"):
 			return transport.Result{ExitCode: 55, Stderr: "daemon refused"}, true
@@ -201,7 +201,7 @@ func TestJobDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 		return nil
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	jw := &journal.Writer{T: f, Names: e.Names(), DeployID: "R1", Epoch: 1}
+	jw := &journal.Writer{T: f, Dir: journal.Dir(e.Names()), DeployID: "R1", Epoch: 1}
 	err := e.runJobs(context.Background(), jw, nil, "/remote", "/remote/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the job: %v", err)
@@ -222,7 +222,7 @@ func TestLifecycleHookDoesNotRunWhenIntentCannotBeJournaled(t *testing.T) {
 	cfg := testConfig()
 	cfg.Hooks["pre_release"] = app.Command{Run: "echo SHOULD_NOT_RUN"}
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	jw := &journal.Writer{T: f, Names: e.Names(), DeployID: "R1", Epoch: 1}
+	jw := &journal.Writer{T: f, Dir: journal.Dir(e.Names()), DeployID: "R1", Epoch: 1}
 	err := e.runRollbackEffectHook(context.Background(), jw, nil, "pre_release", "/remote", "/remote/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "journal unavailable") {
 		t.Fatalf("intent journal failure must stop the hook: %v", err)
@@ -317,7 +317,7 @@ func TestFailedDeployRollbackDebtSurvivesNextDeploy(t *testing.T) {
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal") {
 			return transport.Result{Stdout: journalMarkerLine + "R1.jsonl\n" + failed +
 				journalMarkerLine + "R1-service.jsonl\n" + maintenance}, true
 		}
@@ -411,7 +411,7 @@ func TestMigrateComposeJobGetsPrivateWritableBoundResultFile(t *testing.T) {
 	found := false
 	for _, c := range f.Commands {
 		const (
-			resultDir  = "/var/lib/ob/sample/releases/" + engineTestDeployReleaseID + "/.job-migrate-result"
+			resultDir  = "/var/lib/onebox/app/releases/" + engineTestDeployReleaseID + "/.job-migrate-result"
 			resultFile = resultDir + "/result"
 		)
 		privateDir := strings.Index(c, "install -d -m 700 '"+resultDir+"'")
@@ -440,8 +440,8 @@ func TestJobContainerCarriesItsOperationIdentity(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	for _, want := range []string{
-		"--label 'ob.operation=20260909-053225-abc-job_run-deadbeef'",
-		"--label 'ob.epoch=7'",
+		"--label 'onebox.operation=20260909-053225-abc-job_run-deadbeef'",
+		"--label 'onebox.epoch=7'",
 	} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("job container missing %s:\n%s", want, seq)
@@ -451,7 +451,7 @@ func TestJobContainerCarriesItsOperationIdentity(t *testing.T) {
 
 func TestInjectComposeJobLabelsOnlyTouchesAComposeRun(t *testing.T) {
 	got, ok := injectComposeJobLabels("docker compose -f x.yml run --rm migrate", "op-1", 2)
-	if !ok || !strings.Contains(got, "--label 'ob.operation=op-1'") || !strings.Contains(got, "--label 'ob.epoch=2'") {
+	if !ok || !strings.Contains(got, "--label 'onebox.operation=op-1'") || !strings.Contains(got, "--label 'onebox.epoch=2'") {
 		t.Fatalf("compose run = %q ok=%v", got, ok)
 	}
 	// A hook that is not a compose run has no container to label.

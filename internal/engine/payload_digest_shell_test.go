@@ -33,9 +33,9 @@ func TestRemotePayloadDigestAgreesWithTheLocalWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
-		"compose.yaml":    "services: {}\n",
-		"ob.snapshot.yml": "app: sample\n",
-		"server/.env":     "KEY=one\n",
+		"compose.yaml":        "services: {}\n",
+		"onebox.snapshot.yml": "app: sample\n",
+		"server/.env":         "KEY=one\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -163,7 +163,7 @@ func TestRemotePayloadDigestFailsWhenTheReleaseDirectoryIsUnsearchable(t *testin
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "ob.snapshot.yml"), []byte("app: sample\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "onebox.snapshot.yml"), []byte("app: sample\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(dir, 0o000); err != nil {

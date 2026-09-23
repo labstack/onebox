@@ -77,7 +77,7 @@ var errorCodes = map[string]string{
 	"compose_extends":          "a referenced service uses extends, which hides what runs",
 	"compose_container_name":   "a referenced service fixes its container name, which Onebox owns",
 	"compose_network_mode":     "a referenced service sets network_mode, which conflicts with the network it needs",
-	"compose_ob_label":         "a referenced service carries a label in a namespace Onebox generates into",
+	"compose_onebox_label":     "a referenced service carries a label in a namespace Onebox generates into",
 	"compose_traefik_label":    "a referenced service carries routing labels while also declaring a route",
 	"compose_ingress_attached": "a referenced service already attaches the ingress network",
 

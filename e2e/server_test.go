@@ -187,40 +187,39 @@ func TestServerLifecycle(t *testing.T) {
 
 	t.Run("scheduled jobs are bounded and failures reach status", func(t *testing.T) {
 		s.run(t, "systemd-analyze verify "+
-			"/etc/systemd/system/ob-observer-chore.service "+
-			"/etc/systemd/system/ob-observer-chore.timer "+
-			"/etc/systemd/system/ob-observer-timeout--chore.service "+
-			"/etc/systemd/system/ob-observer-timeout--chore.timer")
+			"/etc/systemd/system/onebox-job-chore.service "+
+			"/etc/systemd/system/onebox-job-chore.timer "+
+			"/etc/systemd/system/onebox-job-timeout-chore.service "+
+			"/etc/systemd/system/onebox-job-timeout-chore.timer")
 
-		// Model a host last touched by v2026.8.5: the timer exists, but its
-		// service invokes Compose directly and has no bounded runner or notifier.
-		// Upgrading the local package is intentionally side-effect free; the
-		// scoped apply command must bridge that installed generation without an
-		// unrelated release deploy.
-		legacyService := `[Unit]
+		// Model a unit edited by hand: the timer exists, but its service invokes
+		// Compose directly and has no bounded runner or notifier. The scoped apply
+		// command must restore the generated unit without an unrelated release
+		// deploy.
+		staleService := `[Unit]
 Description=Onebox scheduled job chore for observer
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/compose.yaml run --rm --no-deps chore
+ExecStart=/usr/bin/docker compose -p observer -f /var/lib/onebox/app/current/compose.yaml run --rm --no-deps chore
 `
-		encodedLegacy := base64.StdEncoding.EncodeToString([]byte(legacyService))
+		encodedStale := base64.StdEncoding.EncodeToString([]byte(staleService))
 		s.run(t, strings.Join([]string{
-			"printf '%s' '" + encodedLegacy + "' | base64 -d > /etc/systemd/system/ob-observer-chore.service",
-			"rm -f /etc/systemd/system/ob-observer-chore.run /etc/systemd/system/ob-observer-chore.notify",
+			"printf '%s' '" + encodedStale + "' | base64 -d > /etc/systemd/system/onebox-job-chore.service",
+			"rm -f /etc/systemd/system/onebox-job-chore.run /etc/systemd/system/onebox-job-chore.notify",
 			"systemctl daemon-reload",
 		}, "\n"))
-		before := s.run(t, "systemctl cat ob-observer-chore.service")
+		before := s.run(t, "systemctl cat onebox-job-chore.service")
 		if strings.Contains(before, "TimeoutStartSec=") || strings.Contains(before, "ExecStopPost=") {
-			t.Fatalf("legacy fixture already has the current unit contract:\n%s", before)
+			t.Fatalf("stale fixture already has the current unit contract:\n%s", before)
 		}
 		s.mustOb(t, dir, "schedule", "apply")
 		after := s.run(t, strings.Join([]string{
-			"test -s /etc/systemd/system/ob-observer-chore.run",
-			"test -s /etc/systemd/system/ob-observer-chore.notify",
-			"systemctl cat ob-observer-chore.service",
+			"test -s /etc/systemd/system/onebox-job-chore.run",
+			"test -s /etc/systemd/system/onebox-job-chore.notify",
+			"systemctl cat onebox-job-chore.service",
 		}, "\n"))
 		for _, want := range []string{"ExecStart=/bin/sh", "ExecStopPost=/bin/sh", "TimeoutStartSec="} {
 			if !strings.Contains(after, want) {
@@ -230,9 +229,9 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 
 		// A normal host-fired run proves the generated runner, current-release
 		// lookup, Docker invocation and app-wide schedule lock compose on systemd.
-		s.run(t, "systemctl start ob-observer-chore.service")
+		s.run(t, "systemctl start onebox-job-chore.service")
 		if result := strings.TrimSpace(s.run(t,
-			"systemctl show ob-observer-chore.service --property=Result --value")); result != "success" {
+			"systemctl show onebox-job-chore.service --property=Result --value")); result != "success" {
 			t.Fatalf("normal scheduled run result = %q, want success", result)
 		}
 
@@ -247,7 +246,7 @@ ExecStart=/usr/bin/docker compose -p observer -f /var/lib/ob/observer/current/co
 
 		// One failure, one sleep, one success: the record counts both attempts.
 		s.run(t, "rm -rf /tmp/onebox-e2e-retry && mkdir -p /tmp/onebox-e2e-retry")
-		s.run(t, "systemctl start ob-observer-retry--chore.service")
+		s.run(t, "systemctl start onebox-job-retry-chore.service")
 		retry := s.mustOb(t, dir, "job", "history", "retry-chore", "--output", "json")
 		for _, want := range []string{`"outcome": "success"`, `"attempts": 2`} {
 			if !strings.Contains(retry, want) {
@@ -297,21 +296,21 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		s.run(t, strings.Join([]string{
 			"set -e",
 			"command -v python3 >/dev/null",
-			"systemctl stop ob-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
-			"systemctl reset-failed ob-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
+			"systemctl stop onebox-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
+			"systemctl reset-failed onebox-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
 			"rm -f /tmp/onebox-schedule-notify",
 			"printf '%s' '" + encoded + "' | base64 -d > /tmp/onebox-schedule-receiver.py",
-			"systemd-run --quiet --collect --unit=ob-e2e-schedule-receiver /usr/bin/python3 /tmp/onebox-schedule-receiver.py",
+			"systemd-run --quiet --collect --unit=onebox-e2e-schedule-receiver /usr/bin/python3 /tmp/onebox-schedule-receiver.py",
 			"for i in $(seq 1 50); do ss -ltn | grep -q '127.0.0.1:18080' && break; sleep .1; done",
 			"ss -ltn | grep -q '127.0.0.1:18080'",
 		}, "\n"))
 
 		// systemctl returns non-zero because TimeoutStartSec terminates the job.
-		if err := s.try(t, "systemctl start ob-observer-timeout--chore.service"); err == nil {
+		if err := s.try(t, "systemctl start onebox-job-timeout-chore.service"); err == nil {
 			t.Fatal("wedged scheduled job was not terminated by its timeout")
 		}
 		if result := strings.TrimSpace(s.run(t,
-			"systemctl show ob-observer-timeout--chore.service --property=Result --value")); result != "timeout" {
+			"systemctl show onebox-job-timeout-chore.service --property=Result --value")); result != "timeout" {
 			t.Fatalf("timed-out scheduled run result = %q, want timeout", result)
 		}
 		// The runner was killed mid-run; ExecStopPost still wrote the record.
@@ -486,7 +485,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		// A new host owns a different generated credential while the physical
 		// generation still carries the source role hash. Rotating only the target
 		// file reproduces that boundary without requiring a second test server.
-		s.run(t, "printf 'POSTGRES_PASSWORD=%s\\n' 0123456789abcdef0123456789abcdef0123456789abcdef > /var/lib/ob/observer/services/postgres.secret.env")
+		s.run(t, "printf 'POSTGRES_PASSWORD=%s\\n' 0123456789abcdef0123456789abcdef0123456789abcdef > /var/lib/onebox/app/services/postgres.secret.env")
 		s.mustOb(t, dir, "backup", "restore", "postgres", "--generation", generation, "--confirm", "postgres")
 		if note := s.psql(t, "select note from survivors limit 1"); note != "written before" {
 			t.Fatalf("the recovered cluster does not hold the row: %q", note)
@@ -505,7 +504,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		if mode := s.psql(t, "show archive_mode"); mode == "on" {
 			t.Error("archiving is still on after disable")
 		}
-		units := s.run(t, "systemctl list-units --type=timer --all --no-pager | grep -c ob-backup || true")
+		units := s.run(t, "systemctl list-units --type=timer --all --no-pager | grep -c onebox-backup || true")
 		if strings.TrimSpace(units) != "0" {
 			t.Errorf("backup timers survived disable: %s", units)
 		}
@@ -518,7 +517,7 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 			t.Fatalf("destroy failed: %v\n%s", err, out)
 		}
 		if left := strings.TrimSpace(s.run(t,
-			`docker ps -aq --filter label=ob.app=observer | wc -l`)); left != "0" {
+			`docker ps -aq --filter label=onebox.app=observer | wc -l`)); left != "0" {
 			t.Errorf("%s containers survived destroy", left)
 		}
 		// The object store is not ob's and must be untouched by a teardown of

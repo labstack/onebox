@@ -122,7 +122,7 @@ func TestExecLocksFencesAndJournalsTheExactContainer(t *testing.T) {
 		Dynamic: func(command string) (transport.Result, bool) {
 			switch {
 			case strings.Contains(command, "_host/owner"):
-				return transport.Result{Stdout: "shop\n"}, true
+				return transport.Result{Stdout: "shop production\n"}, true
 			case strings.Contains(command, "docker ps -q"):
 				return transport.Result{Stdout: "bbbbbbbbbbbb\naaaaaaaaaaaa\n"}, true
 			case strings.Contains(command, "docker exec aaaaaaaaaaaa "):
@@ -174,7 +174,7 @@ func TestExecClassifiesCancellation(t *testing.T) {
 		Dynamic: func(command string) (transport.Result, bool) {
 			switch {
 			case strings.Contains(command, "_host/owner"):
-				return transport.Result{Stdout: "shop\n"}, true
+				return transport.Result{Stdout: "shop production\n"}, true
 			case strings.Contains(command, "docker ps -q"):
 				return transport.Result{Stdout: "aaaaaaaaaaaa\n"}, true
 			default:

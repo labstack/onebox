@@ -73,7 +73,7 @@ func TestProtectedDatabaseIdentityRejectsMissingOrReplacedVolume(t *testing.T) {
 		name, actual, want string
 		missing            bool
 	}{
-		{name: "missing", missing: true, want: "data volume ob_shop_postgres_data is missing"},
+		{name: "missing", missing: true, want: "data volume onebox_postgres_data is missing"},
 		{name: "replaced", actual: "7513211627332151224", want: "belongs to PostgreSQL cluster 7513211627332151224"},
 		{name: "same", actual: recorded},
 	} {

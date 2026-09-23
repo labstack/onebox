@@ -94,9 +94,6 @@ func (e *Engine) applyServices(ctx context.Context, names []string, syncSchedule
 	if err := e.ValidateProtectedDatabaseIdentities(ctx); err != nil {
 		return err
 	}
-	if err := e.MigrateBackupCredentialFiles(ctx); err != nil {
-		return fmt.Errorf("backup credentials: %w", err)
-	}
 	// This runs before rendering or Compose mutation. Removing the declaration
 	// does not DROP an extension, so unloading a library it still needs would be
 	// a silent behavioral change and, for some extensions, a startup failure.
@@ -439,17 +436,17 @@ func (e *Engine) ensureServiceSecret(ctx context.Context, n app.Names, name stri
 // shell. It writes beside the target and renames, so an interrupted run cannot
 // leave a half-written Compose file that the next apply would try to use.
 func (e *Engine) writeServiceFile(ctx context.Context, path string, body []byte) error {
-	tmp := path + ".ob-tmp"
+	tmp := path + ".onebox-tmp"
 	cmd := "umask 077 && cat > " + q(tmp) + " && mv -f " + q(tmp) + " " + q(path)
 	if e.fenceVal != "" {
 		cmd = `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` +
-			cmd + `; else echo ob-fenced >&2; exit 97; fi`
+			cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	}
 	res, err := e.T.RunInput(ctx, cmd, string(body))
 	if err != nil {
 		return err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
 		return ErrFenced
 	}
 	if res.ExitCode != 0 {

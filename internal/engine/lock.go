@@ -68,10 +68,8 @@ func (e *Engine) AcquireLock(ctx context.Context, deployID string, force bool) (
 // the one operation that may supply an explicit compatible lease policy.
 func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, leasePolicy pinnedScheduleLeasePolicy) (int, error) {
 	e.lockVal = ""
-	if res, err := e.T.Run(ctx, "mkdir -p "+q(e.base())); err != nil {
+	if err := e.claimAppDir(ctx); err != nil {
 		return 0, err
-	} else if res.ExitCode != 0 {
-		return 0, fmt.Errorf("mkdir %s: %s", e.base(), res.Stderr)
 	}
 
 	for range 4 {
@@ -95,14 +93,6 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			return 0, scheduleErr
 		}
 		useScheduleLock := e.hasScheduleFlock(ctx)
-		useLegacyScheduleLock := false
-		if !useScheduleLock {
-			// The current spec may have just removed its last schedule while an
-			// old unit is already starting. Preserve the pre-upgrade rendezvous
-			// with the short-option interface in that transition. Its ambiguous
-			// nonzero exits fail visibly below instead of being called contention.
-			useLegacyScheduleLock = e.hasFlock(ctx)
-		}
 		if len(jobs) > 0 && !useScheduleLock {
 			return 0, errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
 		}
@@ -114,9 +104,6 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			// after the last schedule is removed: an old unit may already be
 			// starting while that removal deploy begins.
 			create = "/usr/bin/flock --exclusive --timeout " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " " +
-				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
-		} else if useLegacyScheduleLock {
-			create = "/usr/bin/flock -x -w " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " " +
 				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
 		}
 
@@ -338,12 +325,12 @@ func (e *Engine) WriteFence(ctx context.Context, deployID string, epoch int) err
 		return fmt.Errorf("write fence: app lock is not owned")
 	}
 	val := deployID + " " + strconv.Itoa(epoch)
-	cmd := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(e.lockVal) + ` ]; then echo ` + q(val) + ` > ` + q(e.fencePath()) + `; else echo ob-lock-lost >&2; exit 96; fi`
+	cmd := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(e.lockVal) + ` ]; then echo ` + q(val) + ` > ` + q(e.fencePath()) + `; else echo onebox-lock-lost >&2; exit 96; fi`
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return err
 	}
-	if res.ExitCode == 96 && strings.Contains(res.Stderr, "ob-lock-lost") {
+	if res.ExitCode == 96 && strings.Contains(res.Stderr, "onebox-lock-lost") {
 		return ErrFenced
 	}
 	if res.ExitCode != 0 {
@@ -359,12 +346,12 @@ func (e *Engine) mutate(ctx context.Context, cmd string) (res transport.Result, 
 	if e.fenceVal == "" {
 		return e.T.Run(ctx, cmd)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	res, err = e.T.Run(ctx, guarded)
 	if err != nil {
 		return res, err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
 		return res, ErrFenced
 	}
 	return res, nil
@@ -377,12 +364,12 @@ func (e *Engine) mutateInput(ctx context.Context, cmd, input string) (res transp
 	if e.fenceVal == "" {
 		return e.T.RunInput(ctx, cmd, input)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	res, err = e.T.RunInput(ctx, guarded, input)
 	if err != nil {
 		return res, err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
 		return res, ErrFenced
 	}
 	return res, nil
@@ -395,7 +382,7 @@ func (e *Engine) mutateStream(ctx context.Context, cmd string, stdout, stderr io
 	if e.fenceVal == "" {
 		return e.T.RunStream(ctx, cmd, stdout, stderr)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	return e.T.RunStream(ctx, guarded, stdout, stderr)
 }
 

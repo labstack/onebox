@@ -13,7 +13,7 @@ import (
 
 func TestAppendCommandShape(t *testing.T) {
 	f := &transport.Fake{}
-	w := &Writer{T: f, Names: app.Names{App: "sample", BasePath: app.DefaultBasePath}, DeployID: "R1", Epoch: 3, GitSHA: "abc1234", ConfigHash: "sha256:x"}
+	w := &Writer{T: f, Dir: Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}), DeployID: "R1", Epoch: 3, GitSHA: "abc1234", ConfigHash: "sha256:x"}
 	if err := w.Append(context.Background(), Record{Phase: "release", Role: "web", Event: "result", Status: "ok"}); err != nil {
 		t.Fatal(err)
 	}
@@ -22,9 +22,9 @@ func TestAppendCommandShape(t *testing.T) {
 	}
 	cmd := f.Commands[0]
 	for _, want := range []string{
-		"mkdir -p '/var/lib/ob/sample/journal'",
-		">> '/var/lib/ob/sample/journal/R1.jsonl'",
-		"sync '/var/lib/ob/sample/journal/R1.jsonl'",
+		"mkdir -p '/var/lib/onebox/app/journal'",
+		">> '/var/lib/onebox/app/journal/R1.jsonl'",
+		"sync '/var/lib/onebox/app/journal/R1.jsonl'",
 		`"deploy_id":"R1"`,
 		`"epoch":3`,
 		`"role":"web"`,
@@ -41,7 +41,7 @@ func TestAppendCommandShape(t *testing.T) {
 
 func TestAppendRedactsFailureDetails(t *testing.T) {
 	f := &transport.Fake{}
-	w := &Writer{T: f, Names: app.Names{App: "sample", BasePath: app.DefaultBasePath}, DeployID: "R1", Epoch: 1}
+	w := &Writer{T: f, Dir: Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}), DeployID: "R1", Epoch: 1}
 	if err := w.Append(context.Background(), Record{
 		Phase: "verify", Event: "result", Status: "fail",
 		Detail: "request failed: Authorization=Bearer super-secret-token",
@@ -65,7 +65,7 @@ func TestAppendRedactsFailureDetails(t *testing.T) {
 func TestAppendScopesAuthorizationContextToEvidenceRecords(t *testing.T) {
 	f := &transport.Fake{}
 	w := &Writer{
-		T: f, Names: app.Names{App: "sample", BasePath: app.DefaultBasePath}, DeployID: "R1", Epoch: 1,
+		T: f, Dir: Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}), DeployID: "R1", Epoch: 1,
 		ApprovalDigest: "sha256:approval", ApprovedBy: "operator@example",
 		MigrationBackup: &MigrationBackupEvidence{
 			Mode: "override", OverrideReason: "incident INC-42", ProtectedResources: []string{"database/postgres"},
@@ -117,7 +117,7 @@ func TestReadAndSummary(t *testing.T) {
 		}
 		return transport.Result{}, false
 	}}
-	got, err := Read(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath}, "R2")
+	got, err := Read(context.Background(), f, Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}), "R2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestReadAndSummary(t *testing.T) {
 	if !s.Done["transfer"] || !s.Done["job:migrate"] || !s.Done["release:web"] || s.Done["release:worker"] {
 		t.Fatalf("done: %+v", s.Done)
 	}
-	ids, err := List(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
+	ids, err := List(context.Background(), f, Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}))
 	if err != nil || len(ids) != 2 || ids[1] != "R2" {
 		t.Fatalf("list: %v %v", ids, err)
 	}

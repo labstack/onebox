@@ -42,6 +42,6 @@ spec:
     kind: TraefikDocker
     image: "traefik:v3.7@sha256:1cb3845d7a05e1473c9086351426597e911db49db382b6e4769f9b0744962ac8"
     config: traefik
-    network: ob-ingress
+    network: onebox-ingress
   registries:
     ghcr: {server: ghcr.io, username: vishr, passwordEnv: GHCR_TOKEN}

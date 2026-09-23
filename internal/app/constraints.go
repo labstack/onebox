@@ -201,18 +201,42 @@ var (
 
 // reservedAppNames are the identities the host layout already uses. An
 // application taking one of them would derive names that collide with the
-// proxy's or the host namespace's, and the collision would appear as a
-// container that vanishes rather than as an error.
-var reservedAppNames = []string{"ob", "onebox-proxy", "_host"}
+// host's, and the collision would appear as a container that vanishes rather
+// than as an error.
+//
+// The onebox-* namespace is refused by prefix as well, in checkAppName: it
+// names what Onebox runs on the host — the proxy, its ingress network, managed
+// services — and an application called onebox or onebox-<anything> would
+// derive its own names inside it.
+var reservedAppNames = []string{"onebox"}
+
+// reservedServiceNames are names a service would share with something else
+// Onebox runs. A managed service's container is onebox-<service>, so proxy,
+// discovery and ingress would derive the host proxy's containers or its ingress
+// network; its Compose project is onebox_<service>, so services would derive
+// the service network.
+var reservedServiceNames = []string{"proxy", "discovery", "ingress", ServiceNetworkName}
+
+// checkServiceName refuses a service name whose container would be the host
+// proxy's.
+func checkServiceName(name string) error {
+	for _, reserved := range reservedServiceNames {
+		if name == reserved {
+			return errf("project_invalid", "services."+name, "",
+				"%q is reserved: it would derive onebox-%s or onebox_%s, which Onebox already uses", name, name, name)
+		}
+	}
+	return nil
+}
 
 // checkAppName is the identifier grammar plus the reservations.
 func checkAppName(name string) error {
 	if err := gIdent.check("app", name); err != nil {
 		return err
 	}
-	if strings.HasPrefix(name, "ob-") {
+	if strings.HasPrefix(name, Namespace+"-") {
 		return errf("project_invalid", "app", "",
-			"%q begins with \"ob-\", which names host-scoped resources Onebox owns", name)
+			"%q begins with %q, which names host-scoped resources Onebox owns", name, Namespace+"-")
 	}
 	for _, reserved := range reservedAppNames {
 		if name == reserved {
@@ -269,6 +293,12 @@ func checkEnum(path, value string, allowed []string) error {
 	return errf("project_invalid", path, "",
 		"%q is not one of %s", value, strings.Join(quoteAll(allowed), ", "))
 }
+
+// MaxReplicas bounds a workload's replicas. Onebox runs every replica on one
+// host, and every derived name and rollout step is per replica, so an
+// unbounded count — a typo with an extra zero — would make loading a project
+// build millions of names.
+const MaxReplicas = 100
 
 func checkPositive(path string, value int) error {
 	if value <= 0 {

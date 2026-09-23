@@ -43,16 +43,16 @@ func healthyRunner() *fakeRunner {
 	return &fakeRunner{answers: map[string]transport.Result{
 		"docker version": {Stdout: "27.1.1\n"},
 		"docker buildx imagetools inspect --help": {Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"},
-		"/_host/owner":   {Stdout: "ledger\n"},
+		"/_host/owner":   {Stdout: "ledger production\n"},
 		"docker ps":      {Stdout: ""},
 		"docker volume":  {Stdout: ""},
-		"docker network": {Stdout: "ob-ingress\t\n"},
+		"docker network": {Stdout: "onebox-ingress\t\n"},
 	}}
 }
 
 func TestPreflightRefusesForeignHostOwner(t *testing.T) {
 	run := healthyRunner()
-	run.answers["/_host/owner"] = transport.Result{Stdout: "another-app\n"}
+	run.answers["/_host/owner"] = transport.Result{Stdout: "another-app production\n"}
 	report := preflight(t, run, preflightProject)
 	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "another-app") {
 		t.Fatalf("foreign host owner was not reported: %+v", report.Failures())
@@ -218,12 +218,12 @@ func TestPreviousReleaseIsNotACollision(t *testing.T) {
 // create must never be adopted silently.
 func TestForeignHolderIsACollision(t *testing.T) {
 	run := healthyRunner()
-	run.answers["docker volume"] = transport.Result{Stdout: "ob_ledger_web_uploads\t\n"}
+	run.answers["docker volume"] = transport.Result{Stdout: "onebox_web_uploads\t\n"}
 
 	rep := preflight(t, run, preflightProject)
 	var found bool
 	for _, c := range rep.Failures() {
-		if c.Name == "name collisions" && strings.Contains(c.Detail, "ob_ledger_web_uploads") {
+		if c.Name == "name collisions" && strings.Contains(c.Detail, "onebox_web_uploads") {
 			found = true
 		}
 	}
@@ -242,22 +242,10 @@ func TestForeignApplicationNetworkIsACollision(t *testing.T) {
 	}
 }
 
-func TestLegacyComposeApplicationNetworkBelongsToTheApp(t *testing.T) {
-	run := healthyRunner()
-	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\t\tledger\n"}
-
-	report := preflight(t, run, preflightProject)
-	for _, failure := range report.Failures() {
-		if failure.Name == "name collisions" {
-			t.Fatalf("the app's legacy Compose network was reported as foreign: %s", failure.Detail)
-		}
-	}
-}
-
 func TestOwnedNetworkDoesNotMaskForeignHolderOfTheSameName(t *testing.T) {
 	run := healthyRunner()
 	run.answers["docker volume ls"] = transport.Result{Stdout: "ledger_default\t\n"}
-	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\tledger\tledger\n"}
+	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\tledger\n"}
 
 	report := preflight(t, run, preflightProject)
 	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "ledger_default") {
@@ -265,50 +253,33 @@ func TestOwnedNetworkDoesNotMaskForeignHolderOfTheSameName(t *testing.T) {
 	}
 }
 
-func TestLegacyServiceNetworkRequiresOneboxState(t *testing.T) {
+func TestComposeProjectOwnsOnlyTheApplicationNetwork(t *testing.T) {
+	run := healthyRunner()
+	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\t\tledger\n"}
+	report := preflight(t, run, preflightProject)
+	for _, failure := range report.Failures() {
+		if failure.Name == "name collisions" {
+			t.Fatalf("the application's Compose network was reported as foreign: %s", failure.Detail)
+		}
+	}
+
 	project := preflightProject + "services: {postgres: {version: 17}}\n"
+	run = healthyRunner()
+	run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\tledger\n"}
+	report = preflight(t, run, project)
+	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
+		t.Fatalf("a project label proved ownership of the service network: %+v", report.Failures())
+	}
+}
 
-	t.Run("fresh host refuses an unlabelled network", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker network ls"] = transport.Result{Stdout: "ob_ledger\t\t\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{ExitCode: 1}
-		report := preflight(t, run, project)
-		if report.OK() || !strings.Contains(report.Failures()[0].Detail, "ob_ledger") {
-			t.Fatalf("an unproved service network must be foreign: %+v", report.Failures())
-		}
-	})
-
-	t.Run("compose project is not service ownership evidence", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker network ls"] = transport.Result{Stdout: "ob_ledger\t\tledger\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{ExitCode: 1}
-		report := preflight(t, run, project)
-		if report.OK() || !strings.Contains(report.Failures()[0].Detail, "ob_ledger") {
-			t.Fatalf("a Compose label incorrectly proved service-network ownership: %+v", report.Failures())
-		}
-	})
-
-	t.Run("existing service state proves the legacy network", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker network ls"] = transport.Result{Stdout: "ob_ledger\t\t\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{}
-		report := preflight(t, run, project)
-		for _, failure := range report.Failures() {
-			if failure.Name == "name collisions" {
-				t.Fatalf("the app's legacy service network was reported as foreign: %s", failure.Detail)
-			}
-		}
-	})
-
-	t.Run("service state does not bless another resource kind", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker volume ls"] = transport.Result{Stdout: "ob_ledger\t\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{}
-		report := preflight(t, run, project)
-		if report.OK() || !strings.Contains(report.Failures()[0].Detail, "ob_ledger") {
-			t.Fatalf("legacy service state masked a foreign volume: %+v", report.Failures())
-		}
-	})
+func TestUnlabelledServiceNetworkIsForeign(t *testing.T) {
+	project := preflightProject + "services: {postgres: {version: 17}}\n"
+	run := healthyRunner()
+	run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\n"}
+	report := preflight(t, run, project)
+	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
+		t.Fatalf("an unlabelled service network must be foreign: %+v", report.Failures())
+	}
 }
 
 // TestRuntimeFailureShortCircuits: without a container runtime every other
@@ -567,7 +538,7 @@ func TestHostOwnerRecordParsesTheSameForPreflightAndEngine(t *testing.T) {
 		record string
 		ok     bool
 	}{
-		{"sample", true},
+		{"sample", false},
 		{"sample production", true},
 		{"  sample   production  ", true},
 		{"sample production extra", false},
@@ -604,5 +575,25 @@ func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 		if _, ok := ParseHostOwnerRecord("sample " + name); !ok {
 			t.Fatalf("environment name %q is accepted by the loader but not by the owner-record parser", name)
 		}
+	}
+}
+
+// Host state does not follow basePath, so a basePath this account owns proves
+// nothing about it: preflight must test the host state directory itself.
+func TestPreflightChecksTheFixedHostStateDirectory(t *testing.T) {
+	run := healthyRunner()
+	run.answers[`p="/var/lib/onebox/_host"`] = transport.Result{ExitCode: 1, Stdout: "/var/lib\n"}
+	report := preflight(t, run, preflightProject)
+	var found bool
+	for _, failure := range report.Failures() {
+		if failure.Name == "host state" && strings.Contains(failure.Remedy, "/var/lib") {
+			found = true
+		}
+		if failure.Name == "base path" {
+			t.Fatalf("the base path was reported for the host state directory: %+v", failure)
+		}
+	}
+	if !found {
+		t.Fatalf("an unwritable host state directory was not reported: %+v", report.Failures())
 	}
 }

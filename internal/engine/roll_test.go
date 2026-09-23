@@ -95,7 +95,7 @@ func replicaFakeWithStopped(desired int, oldIDs []string, oldNames map[string]st
 		// -aq before -q: "docker ps -aq" does not contain "docker ps -q".
 		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "status=exited"):
 			return lines(stopped), true
-		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "onebox.release="):
 			return lines(news), true
 		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "service='web'"):
 			return lines(append(append(append([]string{}, olds...), news...), stopped...)), true
@@ -107,7 +107,7 @@ func replicaFakeWithStopped(desired int, oldIDs []string, oldNames map[string]st
 				}
 			}
 			return transport.Result{Stdout: "running\n"}, true
-		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "ob.release="):
+		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "onebox.release="):
 			return transport.Result{Stdout: strings.Join(news, "\n") + "\n"}, true
 		case strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "service='web'"):
 			return transport.Result{Stdout: strings.Join(append(append([]string{}, olds...), news...), "\n") + "\n"}, true
@@ -146,7 +146,7 @@ func noSleep(time.Duration) {}
 func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	early, rm, final := -1, -1, -1
@@ -174,14 +174,14 @@ func TestRollRoleRenamesSurvivorToService(t *testing.T) {
 func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 	f := replicaFake(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, true)
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("resume roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	if strings.Contains(seq, "--scale") || strings.Contains(seq, "pull --quiet") {
 		t.Fatalf("resume must not re-scale or re-pull:\n%s", seq)
 	}
-	if !strings.Contains(seq, "touch /tmp/ob-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
+	if !strings.Contains(seq, "touch /tmp/onebox-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
 		t.Fatalf("resume must continue drain+stop of old:\n%s", seq)
 	}
 }
@@ -189,15 +189,15 @@ func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 func TestRollRoleCommandSequence(t *testing.T) {
 	f := rollFake()
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
-		"docker compose -p sample --project-directory '/var/lib/ob/sample/releases/R1' -f '/var/lib/ob/sample/releases/R1/compose.yaml' pull --quiet web",
+		"docker compose -p sample --project-directory '/var/lib/onebox/app/releases/R1' -f '/var/lib/onebox/app/releases/R1/compose.yaml' pull --quiet web",
 		"up -d --no-deps --no-recreate --scale web=2 web",
 		"docker rename NEW1 sample-web-new",
-		"docker exec OLD1 touch /tmp/ob-drain",
+		"docker exec OLD1 touch /tmp/onebox-drain",
 		"docker stop -t 30 OLD1",
 		"docker rm OLD1",
 	}
@@ -213,7 +213,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 		last = i
 	}
 	// Drain MUST precede stop so SIGTERM never races the proxy.
-	if strings.Index(seq, "ob-drain") > strings.Index(seq, "docker stop") {
+	if strings.Index(seq, "onebox-drain") > strings.Index(seq, "docker stop") {
 		t.Fatal("drain must happen before stop")
 	}
 }
@@ -252,7 +252,7 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	r.Replicas = 2
 	cfg.Workloads["web"] = r
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("2-replica roll: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -278,7 +278,7 @@ func TestRollRoleDrainGraceConfigurable(t *testing.T) {
 	r.Drain = &app.Drain{Grace: "8s"}
 	cfg.Workloads["web"] = r
 	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
@@ -290,7 +290,7 @@ func TestRollRoleDrainGraceConfigurable(t *testing.T) {
 	}
 }
 
-// The ob-side health poll defaults to 2s — matching the generated healthcheck
+// The runner-side health poll defaults to 2s — matching the generated healthcheck
 // cadence — so joins and drain flips are detected promptly; within stays 120s.
 // Declared values still win (asserted by the sequence tests).
 func TestReadyTimingDefaults(t *testing.T) {
@@ -320,7 +320,7 @@ func TestRollRoleReplacesStoppedReplicas(t *testing.T) {
 	stopped := []string{"STOP1", "STOP2", "STOP3"}
 	f := replicaFakeWithStopped(3, nil, nil, false, stopped)
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll over stopped replicas: %v", err)
 	}
 	joined := strings.Join(f.Commands, "\n")
@@ -345,7 +345,7 @@ func TestRollRoleReplacesStoppedReplicas(t *testing.T) {
 func TestRollRoleSweepsOnlyStoppedReplicas(t *testing.T) {
 	f := replicaFakeWithStopped(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, false, []string{"STOP1"})
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml"); err != nil {
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
 		t.Fatalf("roll: %v", err)
 	}
 	joined := strings.Join(f.Commands, "\n")
@@ -377,7 +377,7 @@ func TestRollRoleReportsNewcomerThatExited(t *testing.T) {
 		return inner(cmd)
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.RollRole(context.Background(), "web", "/var/lib/ob/sample/releases/R1/compose.yaml")
+	err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml")
 	if err == nil || !strings.Contains(err.Error(), "exited before becoming healthy") {
 		t.Fatalf("roll error = %v, want the newcomer's own exit", err)
 	}

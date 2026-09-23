@@ -269,9 +269,9 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 }
 
 func TestOnlyReleaseLabelsChanged(t *testing.T) {
-	live := "services:\n  server:\n    labels:\n      ob.app: sample\n      ob.release: 20260704-203351-f65179e\n    image: x:1\n"
-	relabel := "services:\n  server:\n    labels:\n      ob.app: sample\n      ob.release: 20260704-214927-f65179e\n    image: x:1\n"
-	changed := "services:\n  server:\n    labels:\n      ob.app: sample\n      ob.release: 20260704-214927-f65179e\n    image: x:2\n"
+	live := "services:\n  server:\n    labels:\n      onebox.app: sample\n      onebox.release: 20260704-203351-f65179e\n    image: x:1\n"
+	relabel := "services:\n  server:\n    labels:\n      onebox.app: sample\n      onebox.release: 20260704-214927-f65179e\n    image: x:1\n"
+	changed := "services:\n  server:\n    labels:\n      onebox.app: sample\n      onebox.release: 20260704-214927-f65179e\n    image: x:2\n"
 
 	if !OnlyReleaseLabelsChanged(live, relabel) {
 		t.Fatal("label-only change must be detected as content-identical")
@@ -302,7 +302,7 @@ func TestPayloadDigests(t *testing.T) {
 		}
 	}
 	write("compose.yaml", "services: {}\n") // excluded: compared label-invariantly
-	write("ob.snapshot.yml", "app: sample\n")
+	write("onebox.snapshot.yml", "app: sample\n")
 	write("server/.env", "KEY=one\n")
 
 	d1, err := LocalPayloadDigest(testConfig(), dir)
@@ -359,7 +359,7 @@ func TestPayloadDigests(t *testing.T) {
 // A release directory is a staging directory plus what the lifecycle writes to
 // it afterwards. If those extras count as payload the two digests can never be
 // equal and no deploy is ever a no-op. The inverse matters just as much:
-// .ob-secret-generations IS staged, so excluding it would make a rotated secret
+// .onebox-secret-generations IS staged, so excluding it would make a rotated secret
 // hash identically and deploy as a no-op.
 func TestPayloadDigestSpansStagedSecretsButNotReleaseMetadata(t *testing.T) {
 	spec := testConfig()
@@ -374,15 +374,15 @@ func TestPayloadDigestSpansStagedSecretsButNotReleaseMetadata(t *testing.T) {
 		}
 	}
 	const generation = "sg-000000000000000000000000"
-	secretPath := app.SecretGenerationPath(generation, ".ob-decrypted-sops-app.enc.env")
+	secretPath := app.SecretGenerationPath(generation, ".onebox-decrypted-sops-app.enc.env")
 
 	staging := t.TempDir()
 	write(staging, "compose.yaml", "services: {}\n")
-	write(staging, "ob.snapshot.yml", "app: sample\n")
+	write(staging, "onebox.snapshot.yml", "app: sample\n")
 	write(staging, secretPath, "TOKEN=value\n")
 
 	released := t.TempDir()
-	for _, rel := range []string{"compose.yaml", "ob.snapshot.yml", secretPath} {
+	for _, rel := range []string{"compose.yaml", "onebox.snapshot.yml", secretPath} {
 		body, err := os.ReadFile(filepath.Join(staging, filepath.FromSlash(rel)))
 		if err != nil {
 			t.Fatal(err)
@@ -429,7 +429,7 @@ func TestLocalAndRemotePayloadSelectionAgree(t *testing.T) {
 	// because find's -path lets * cross a slash, a near-miss suffix, and a
 	// regular file carrying a directory's reserved name.
 	for _, rel := range []string{
-		"ob.snapshot.yml",
+		"onebox.snapshot.yml",
 		"compose.yaml",
 		"nested/compose.yaml",
 		"manifest.json",
@@ -574,7 +574,7 @@ func TestRefreshIgnoresRunningJobContainers(t *testing.T) {
 	inner := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "label=ob.app='sample'") && strings.Contains(cmd, "docker ps"):
+		case strings.Contains(cmd, "label=onebox.app='sample'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "J1|migrate|R0|rev1|Up 3 seconds\n"}, true
 		case strings.Contains(cmd, "service='migrate'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "J1\n"}, true

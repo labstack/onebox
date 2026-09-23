@@ -58,9 +58,8 @@ type driver struct {
 	secretEnv []string
 	// scheme builds the client URL: scheme://user:password@host:port/database.
 	scheme string
-	// user is the identity the service is created with, and database is the
-	// application name, so two projects on one host cannot end up sharing a
-	// database by accident.
+	// user is the identity the service is created with; the database is named
+	// after the application, an identity Onebox derives rather than asks for.
 	user string
 	// urlQuery is appended to the connection string. Some drivers need a
 	// parameter to be usable at all: a Mongo root user created through
@@ -368,9 +367,9 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		"restart":        "unless-stopped",
 		"container_name": n.ServiceContainer(name),
 		"labels": map[string]any{
-			"ob.app":     p.Name,
-			"ob.service": name,
-			"ob.driver":  key,
+			"onebox.app":     p.Name,
+			"onebox.service": name,
+			"onebox.driver":  key,
 		},
 		"networks": []string{n.ServiceNetwork()},
 		// The credential file is written on the target and never travels with
@@ -464,7 +463,7 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		svc["volumes"] = mounts
 		volumes[full] = map[string]any{
 			"name":   full,
-			"labels": map[string]any{"ob.app": p.Name, "ob.service": name},
+			"labels": map[string]any{"onebox.app": p.Name, "onebox.service": name},
 		}
 	}
 	if s.Resources != nil {
@@ -497,8 +496,8 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 }
 
 // identityEnv is the user and database the service is created with, under the
-// variable names each driver expects. Both are the application name, so two
-// projects on one host cannot silently share a database.
+// variable names each driver expects. The user is the driver's fixed role and
+// the database is named after the application.
 func identityEnv(key string, d driver, app string) map[string]any {
 	switch key {
 	case "postgres":
@@ -847,7 +846,7 @@ func writeEnvFile(path string, names map[string]string, parts map[string]string)
 // on Debian and Ubuntu. The temp file shares the target's directory so the
 // rename cannot cross a filesystem.
 func atomicEnvFile(path string, body func(target string) string) string {
-	quoted, temp := shellQuote(path), shellQuote(path+".ob-tmp")
+	quoted, temp := shellQuote(path), shellQuote(path+".onebox-tmp")
 	var b strings.Builder
 	fmt.Fprintf(&b, "if ! printf '' > %[1]s; then echo 'cannot write '%[1]s >&2; exit 1; fi\n", temp)
 	// Every append is checked too. The rename is only reached when the temp file

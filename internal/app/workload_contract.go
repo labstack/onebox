@@ -17,15 +17,15 @@ const (
 	// WorkloadStartupRevisionLabel binds startup-only, non-secret inputs that are
 	// not represented by the rendered Compose service itself. The value is a
 	// one-way aggregate; source values never enter the runtime or plan.
-	WorkloadStartupRevisionLabel = "ob.startup-revision"
+	WorkloadStartupRevisionLabel = "onebox.startup-revision"
 	// WorkloadSecretRevisionLabel is an opaque per-workload secret identity. It
-	// deliberately differs from ob.secret-generation: a generation is the
+	// deliberately differs from onebox.secret-generation: a generation is the
 	// transaction-wide storage slot, while this identity changes only for the
 	// workloads whose effective secret inputs changed.
-	WorkloadSecretRevisionLabel = "ob.secret-revision"
+	WorkloadSecretRevisionLabel = "onebox.secret-revision"
 	// WorkloadSecretInputRevisionLabel identifies the encrypted source material
 	// and value-free projection declaration that produced a workload's secrets.
-	WorkloadSecretInputRevisionLabel = "ob.secret-input-revision"
+	WorkloadSecretInputRevisionLabel = "onebox.secret-input-revision"
 )
 
 var workloadStartupRevision = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)

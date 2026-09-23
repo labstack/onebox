@@ -33,10 +33,11 @@ becomes a question rather than a fact.
 
 ## What generation buys
 
-- **Derived, stable names.** Application containers use the uniform
-  `<app>-<component>-<replica>` grammar, such as `shop-web-1`; persistent and
-  provider resources include `shop_default`, `ob_shop_postgres_data`, `ob_shop`,
-  and `ob-ingress`. The application and service networks are declared external
+- **Derived, stable names.** Workload containers use the uniform
+  `<app>-<component>-<replica>` grammar, such as `shop-web-1`; managed services
+  are `onebox-<service>`, such as `onebox-postgres`; persistent and
+  provider resources include `shop_default`, `onebox_postgres_data`, `onebox_services`,
+  and `onebox-ingress`. The application and service networks are declared external
   and created under Onebox's ownership fence, so Compose cannot remove a live
   shared network during release teardown. A full `ob destroy --volumes` removes
   them; if an unmanaged endpoint remains attached, destruction stops without
@@ -90,7 +91,7 @@ workloads:
 ```
 
 Refusals apply only where the referenced service contradicts something Onebox
-owns — `extends`, a fixed `container_name`, `network_mode`, labels in the `ob.`
+owns — `extends`, a fixed `container_name`, `network_mode`, labels in the `onebox.`
 or `traefik.` namespaces. See [Adopt an existing Compose file](/guides/adopt-compose).
 
 The result is a contract that generates by default and defers on request, rather

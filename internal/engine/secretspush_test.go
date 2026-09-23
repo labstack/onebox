@@ -72,10 +72,10 @@ func TestSecretsPushRefusesExactDeclarationGraphDriftBeforeMutation(t *testing.T
 			f := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 				switch {
 				case strings.Contains(command, "_host/owner"):
-					return transport.Result{Stdout: "shop\n"}, true
+					return transport.Result{Stdout: "shop production\n"}, true
 				case strings.Contains(command, "readlink"):
 					return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
-				case strings.Contains(command, "/ob.snapshot.yml"):
+				case strings.Contains(command, "/onebox.snapshot.yml"):
 					return transport.Result{Stdout: deployedProject}, true
 				default:
 					return transport.Result{}, true
@@ -87,9 +87,9 @@ func TestSecretsPushRefusesExactDeclarationGraphDriftBeforeMutation(t *testing.T
 			})
 
 			_, err := e.SecretsPushBatch(context.Background(), []SecretPayload{
-				{Path: ".ob-decrypted-sops-shared.enc.env", Bytes: []byte("SHARED=changed\n")},
-				{Path: ".ob-decrypted-sops-first.enc.env", Bytes: []byte("FIRST=changed\n")},
-				{Path: ".ob-decrypted-sops-second.enc.env", Bytes: []byte("SECOND=changed\n")},
+				{Path: ".onebox-decrypted-sops-shared.enc.env", Bytes: []byte("SHARED=changed\n")},
+				{Path: ".onebox-decrypted-sops-first.enc.env", Bytes: []byte("FIRST=changed\n")},
+				{Path: ".onebox-decrypted-sops-second.enc.env", Bytes: []byte("SECOND=changed\n")},
 			})
 			var drift *SecretDeclarationDriftError
 			if !errors.As(err, &drift) {
@@ -114,7 +114,7 @@ func TestValidateSecretPayloadsRefusesIncompleteOrUnsafeGraphs(t *testing.T) {
 	tests := map[string][]SecretPayload{
 		"missing":   append([]SecretPayload(nil), valid[:len(valid)-1]...),
 		"duplicate": append(append([]SecretPayload(nil), valid...), valid[0]),
-		"unknown":   append(append([]SecretPayload(nil), valid...), SecretPayload{Path: ".ob-unknown", Bytes: []byte("value")}),
+		"unknown":   append(append([]SecretPayload(nil), valid...), SecretPayload{Path: ".onebox-unknown", Bytes: []byte("value")}),
 		"absolute":  {{Path: "/tmp/secret", Bytes: []byte("value")}},
 		"traversal": {{Path: "../secret", Bytes: []byte("value")}},
 	}
@@ -130,7 +130,7 @@ func TestValidateSecretPayloadsRefusesIncompleteOrUnsafeGraphs(t *testing.T) {
 func TestCurrentSecretEngineKeepsDeployedOperationalSettings(t *testing.T) {
 	deployed := strings.Replace(secretGraphProject, "    web:\n      image: nginx\n", "    web:\n      image: nginx\n      replicas: 3\n", 1)
 	target := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/ob.snapshot.yml") {
+		if strings.Contains(command, "/onebox.snapshot.yml") {
 			return transport.Result{Stdout: deployed}, true
 		}
 		return transport.Result{}, false

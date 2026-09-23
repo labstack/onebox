@@ -33,7 +33,7 @@ func TestPreviewRendersAndRedacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preview failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"# digest ", "name: demo", "nginx:1.27", "ob.app: demo"} {
+	for _, want := range []string{"# digest ", "name: demo", "nginx:1.27", "onebox.app: demo"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q\n%s", want, out)
 		}

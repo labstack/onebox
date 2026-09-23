@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
@@ -100,12 +99,13 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 3. The base path. Checked without creating anything: preflight that
 	// mutates is not preflight.
 	report.Checks = append(report.Checks, basePathCheck(ctx, run, n.BasePath))
+	report.Checks = append(report.Checks, hostStateCheck(ctx, run, n.HostDir()))
 	report.Checks = append(report.Checks, hostOwnerCheck(ctx, run, n.HostOwnerPath(), p.Name, r.Env))
 
 	// 4. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
 	// round trips.
-	owned, err := ownedNames(ctx, run, p, r.Env)
+	owned, err := ownedNames(ctx, run, p.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -203,11 +203,8 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application, environm
 	if owner.Application != application {
 		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", owner.Application), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
 	}
-	if owner.Legacy() {
-		return Check{Name: "host owner", OK: true, Detail: application + " (claimed before environments were recorded; ob bootstrap will complete it)"}
-	}
 	if owner.Environment != environment {
-		// Every runtime name is application-scoped, so a second environment on
+		// No derived name carries the environment, so a second environment on
 		// this host would reuse the first one's containers and volumes rather
 		// than collide with them. Nothing downstream can see the difference.
 		return Check{
@@ -220,6 +217,18 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application, environm
 }
 
 func basePathCheck(ctx context.Context, run Runner, base string) Check {
+	return writablePathCheck(ctx, run, "base path", base, "set base_path to a directory this account owns")
+}
+
+// hostStateCheck tests the fixed host state directory the same way. It does
+// not follow basePath, so a basePath this account owns says nothing about it.
+func hostStateCheck(ctx context.Context, run Runner, dir string) Check {
+	return writablePathCheck(ctx, run, "host state", dir, "deploy as an account that can write it")
+}
+
+// writablePathCheck reports whether this account can create or write path.
+// setting names what the operator changes instead of granting access.
+func writablePathCheck(ctx context.Context, run Runner, label, base, setting string) Check {
 	// Walk up to the nearest ancestor we can see and test that it is usable.
 	//
 	// -e follows symlinks, so the walk has to stop at a link it cannot
@@ -238,36 +247,36 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 		base, ProbeNotRegular, ProbeStatePathNotDirectory, ProbeUndetermined)
 	res, err := run.Run(ctx, cmd)
 	if err != nil {
-		return Check{Name: "base path", Detail: "could not read the base path", Remedy: "verify target access, then retry"}
+		return Check{Name: label, Detail: "could not read the " + label, Remedy: "verify target access, then retry"}
 	}
 	where := strings.TrimSpace(res.Stdout)
 	switch res.ExitCode {
 	case 0:
-		return Check{Name: "base path", OK: true, Detail: base}
+		return Check{Name: label, OK: true, Detail: base}
 	case ProbeNotRegular:
 		return Check{
-			Name:   "base path",
+			Name:   label,
 			Detail: fmt.Sprintf("%s is a symlink whose target does not exist", where),
-			Remedy: fmt.Sprintf("repair or remove %s; ob will not create a base path through a broken link", where),
+			Remedy: fmt.Sprintf("repair or remove %s; ob will not create a directory through a broken link", where),
 		}
 	case ProbeStatePathNotDirectory:
 		return Check{
-			Name:   "base path",
+			Name:   label,
 			Detail: fmt.Sprintf("%s is not a directory", where),
-			Remedy: fmt.Sprintf("remove %s, or set base_path somewhere ob can create a directory", where),
+			Remedy: fmt.Sprintf("remove %s, or %s", where, setting),
 		}
 	case ProbeUndetermined:
 		return Check{
-			Name:   "base path",
+			Name:   label,
 			Detail: fmt.Sprintf("%s cannot be searched, so its contents could not be checked", where),
 			Remedy: fmt.Sprintf("grant this account access to %s, then retry", where),
 		}
 	}
 	if res.ExitCode == 1 {
 		return Check{
-			Name:   "base path",
+			Name:   label,
 			Detail: fmt.Sprintf("%s is not writable by this account", where),
-			Remedy: fmt.Sprintf("grant write access to %s, or set base_path to a directory this account owns", where),
+			Remedy: fmt.Sprintf("grant write access to %s, or %s", where, setting),
 		}
 	}
 	// The probe emits 0, 1, 4, 5 and 6 and nothing else, so any other status
@@ -276,8 +285,8 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 	// a cause preflight never observed, with an empty path where the offending
 	// directory should be.
 	return Check{
-		Name:   "base path",
-		Detail: fmt.Sprintf("the base path could not be checked (exit %d)", res.ExitCode),
+		Name:   label,
+		Detail: fmt.Sprintf("the %s could not be checked (exit %d)", label, res.ExitCode),
 		Remedy: "verify target access and that a POSIX shell is available, then retry",
 	}
 }
@@ -285,26 +294,15 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 // ownedNames lists the container, volume and network names already on the host,
 // with whichever application owns each. A name held by this application is the
 // normal case — a previous release — and only a foreign holder is a collision.
-func ownedNames(ctx context.Context, run Runner, project *Spec, environment string) (map[string]string, error) {
+func ownedNames(ctx context.Context, run Runner, application string) (map[string]string, error) {
 	owned := map[string]string{}
-	application := project.Name
-	n := project.NamesFor(environment)
-	legacyServiceState := false
-	if len(project.Services) > 0 {
-		res, err := run.Run(ctx, "test -d "+shellquote.Quote(n.ServiceDir()))
-		if err != nil {
-			return nil, errf("server_unreachable", "", "", "cannot inspect legacy service-network ownership: %v", err)
-		}
-		legacyServiceState = res.ExitCode == 0
-	}
-
+	n := Names{App: application}
 	for _, q := range []struct {
-		cmd, kind      string
-		composeProject bool
+		cmd, kind string
 	}{
-		{`docker ps -a --format '{{.Names}}\t{{.Label "ob.app"}}'`, "container", false},
-		{`docker volume ls --format '{{.Name}}\t{{.Label "ob.app"}}'`, "volume", false},
-		{`docker network ls --format '{{.Name}}\t{{.Label "ob.app"}}\t{{.Label "com.docker.compose.project"}}'`, "network", true},
+		{`docker ps -a --format '{{.Names}}\t{{.Label "onebox.app"}}'`, "container"},
+		{`docker volume ls --format '{{.Name}}\t{{.Label "onebox.app"}}'`, "volume"},
+		{`docker network ls --format '{{.Name}}\t{{.Label "onebox.app"}}\t{{.Label "com.docker.compose.project"}}'`, "network"},
 	} {
 		res, err := run.Run(ctx, q.cmd)
 		if err != nil {
@@ -328,17 +326,8 @@ func ownedNames(ctx context.Context, run Runner, project *Spec, environment stri
 			if len(fields) > 1 {
 				owner = strings.TrimSpace(fields[1])
 			}
-			// Before Onebox labelled networks, Compose still labelled the
-			// application default with its project. That is sufficient migration
-			// evidence for this exact application, but not for a hand-created
-			// network with only the derived name.
-			if owner == "" && q.composeProject && name == n.ApplicationNetwork() && len(fields) > 2 && strings.TrimSpace(fields[2]) == application {
-				owner = application
-			}
-			// Durable service state proves only an observed legacy service
-			// network. Applying it after all resource kinds are merged would also
-			// bless an unlabelled container or volume with the same name.
-			if owner == "" && q.kind == "network" && name == n.ServiceNetwork() && legacyServiceState {
+			// The same rule the engine applies, so preflight predicts it.
+			if owner == "" && q.kind == "network" && len(fields) > 2 && n.ComposeCreatedApplicationNetwork(name, strings.TrimSpace(fields[2])) {
 				owner = application
 			}
 			// Docker permits the same name in different resource kinds. Every

@@ -46,13 +46,13 @@ func interruptedFakeWithPolicy(gateDetail string, policySafe bool) *transport.Fa
 			return transport.Result{Stdout: "\n"}, true
 		case strings.Contains(cmd, "State.Status"):
 			return transport.Result{Stdout: "running\n"}, true
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(cmd, "ls -1 '/var/lib/ob/sample/releases'"):
+		case strings.Contains(cmd, "ls -1 '/var/lib/onebox/app/releases'"):
 			return transport.Result{Stdout: engineTestPreviousReleaseID + "\n" + engineTestDeployReleaseID + "\n"}, true
 		}
 		return base(cmd)
@@ -104,10 +104,10 @@ func TestResumePreservesJournaledRetainAction(t *testing.T) {
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal") {
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		}
-		if strings.Contains(cmd, "docker ps --filter label=ob.app=") && strings.Contains(cmd, "--format") {
+		if strings.Contains(cmd, "docker ps --filter label=onebox.app=") && strings.Contains(cmd, "--format") {
 			return transport.Result{Stdout: "OLD1|web|R0||Up (healthy)\nW1|worker|R0|" + revision + "|Up\n"}, true
 		}
 		return base(cmd)
@@ -137,9 +137,9 @@ func TestResumeUsesInterruptedReleaseSnapshotAfterConfigEdit(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
-		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
@@ -169,7 +169,7 @@ func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
 	f := interruptedFake("changed=false")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml") {
+		if strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/onebox.snapshot.yml") {
 			return transport.Result{ExitCode: 1, Stderr: "No such file"}, true
 		}
 		return base(cmd)
@@ -179,7 +179,7 @@ func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
 	if id != engineTestDeployReleaseID || err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
 		t.Fatalf("resume id/error = %q, %v", id, err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "ob-fenced") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "onebox-fenced") {
 		t.Fatalf("resume must fail before mutation:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
@@ -203,9 +203,9 @@ func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
-		case strings.Contains(cmd, "ob.snapshot.yml"):
+		case strings.Contains(cmd, "onebox.snapshot.yml"):
 			return transport.Result{Stdout: strings.Replace(engineProject, "dataEffect: Unknown", "dataEffect: Migration", 1)}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
@@ -253,7 +253,7 @@ func TestResumeWithNothingIncomplete(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal") {
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + journalLines(
 				journal.Record{DeployID: engineTestDeployReleaseID, Phase: "deploy", Event: "start"},
 				journal.Record{DeployID: engineTestDeployReleaseID, Phase: "deploy", Event: "finish", Status: "ok"},
@@ -310,7 +310,7 @@ func TestAbortExpandOnlyDoesNotCoverLifecycleHook(t *testing.T) {
 func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe bool) {
 	t.Helper()
 	f := interruptedFakeWithPolicy(gateDetail, policySafe)
-	// abort path: web rolled to R1 — its container carries ob.release='R1';
+	// abort path: web rolled to R1 — its container carries onebox.release='R1';
 	// replaying R0 must drain it. The fake: newcomer query for R0 returns the
 	// R0 container only after R0's up --scale ran.
 	base := f.Dynamic
@@ -331,7 +331,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		return false
 	}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'") && strings.Contains(cmd, "service='web'") {
+		if strings.Contains(cmd, "onebox.release='"+engineTestPreviousReleaseID+"'") && strings.Contains(cmd, "service='web'") {
 			if r0Scaled() {
 				return transport.Result{Stdout: "PREV1\n"}, true
 			}
@@ -339,7 +339,7 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 		}
 		// live server set: OLD1 (the R1 container being replaced) until removed,
 		// plus the R0 newcomer PREV1 once the R0 scale ran.
-		if strings.Contains(cmd, "compose.service='web'") && !strings.Contains(cmd, "ob.release=") {
+		if strings.Contains(cmd, "compose.service='web'") && !strings.Contains(cmd, "onebox.release=") {
 			var ids []string
 			if !oldGone() {
 				ids = append(ids, "OLD1")
@@ -349,10 +349,10 @@ func testAbortReplaysPreviousRelease(t *testing.T, gateDetail string, policySafe
 			}
 			return transport.Result{Stdout: strings.Join(ids, "\n") + "\n"}, true
 		}
-		if strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'") && strings.Contains(cmd, "service='worker'") {
+		if strings.Contains(cmd, "onebox.release='"+engineTestPreviousReleaseID+"'") && strings.Contains(cmd, "service='worker'") {
 			return transport.Result{Stdout: ""}, true // worker never completed → recreate from R0
 		}
-		if strings.Contains(cmd, "ob.release='"+engineTestDeployReleaseID+"'") {
+		if strings.Contains(cmd, "onebox.release='"+engineTestDeployReleaseID+"'") {
 			return transport.Result{Stdout: ""}, true // straggler sweep finds none
 		}
 		if strings.Contains(cmd, "inspect") && strings.Contains(cmd, "PREV1") {
@@ -415,24 +415,24 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
-		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: interruptedWebSnapshot}, true
-		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=ob.release='"+engineTestDeployReleaseID+"'"):
+		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=onebox.release='"+engineTestDeployReleaseID+"'"):
 			for _, recorded := range f.Commands {
 				if strings.Contains(recorded, "docker rm -f NEW1") {
 					return transport.Result{}, true
 				}
 			}
 			return transport.Result{Stdout: "NEW1\n"}, true
-		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "ob.release='"+engineTestPreviousReleaseID+"'"):
+		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "onebox.release='"+engineTestPreviousReleaseID+"'"):
 			return transport.Result{}, true
-		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "ob.release='"+engineTestDeployReleaseID+"'"):
+		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "onebox.release='"+engineTestDeployReleaseID+"'"):
 			return transport.Result{Stdout: "NEW1\n"}, true
 		}
 		return base(cmd)
@@ -489,7 +489,7 @@ func TestAbortRefusesUnreadablePreviousSnapshot(t *testing.T) {
 				f := interruptedFake(gate.detail)
 				base := f.Dynamic
 				f.Dynamic = func(cmd string) (transport.Result, bool) {
-					if strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml") {
+					if strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml") {
 						return prev.res, true
 					}
 					return base(cmd)
@@ -547,7 +547,7 @@ func TestResumeRefusesADeploySupersededByANewerOne(t *testing.T) {
 	)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal") {
+		if strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal") {
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		}
 		return base(cmd)

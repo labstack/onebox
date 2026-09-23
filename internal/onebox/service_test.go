@@ -80,11 +80,11 @@ func serviceFake() *transport.Fake {
 		Dynamic: func(cmd string) (transport.Result, bool) {
 			switch {
 			case strings.Contains(cmd, "/_host/owner"):
-				return transport.Result{Stdout: "demo\n"}, true
+				return transport.Result{Stdout: "demo production\n"}, true
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/R0\n"}, true
 			// Ahead of the project-container probe, which also uses --format.
-			case strings.Contains(cmd, "docker ps --filter label='ob.operation'"):
+			case strings.Contains(cmd, "docker ps --filter label='onebox.operation'"):
 				return transport.Result{Stdout: "\n"}, true
 			case strings.Contains(cmd, "docker ps") && strings.Contains(cmd, "--format"):
 				return transport.Result{Stdout: "S1|web|R0|Up (healthy)\nPG1|database|R0|Up (healthy)\n"}, true
@@ -155,7 +155,7 @@ func TestPlanDeployBindsAndRendersEveryRuntimeImage(t *testing.T) {
 			t.Fatalf("rendered runtime does not use %s pin:\n%s", workload, plan.Artifact.RenderedCompose)
 		}
 	}
-	if !strings.Contains(plan.Artifact.RenderedCompose, "ob.workload: database") {
+	if !strings.Contains(plan.Artifact.RenderedCompose, "onebox.workload: database") {
 		t.Fatalf("pinning the adopted Compose service dropped authored/overlay keys:\n%s", plan.Artifact.RenderedCompose)
 	}
 }
@@ -263,21 +263,21 @@ spec:
 	liveCompose := `services:
   web:
     image: ` + imageWeb + `
-    env_file: [.ob-secret-generations/` + oldGeneration + `/.ob-decrypted-sops-web.enc.env]
-    labels: {ob.app: demo, ob.release: R0, ob.workload: web, ob.secret-generation: ` + oldGeneration + `}
+    env_file: [.onebox-secret-generations/` + oldGeneration + `/.onebox-decrypted-sops-web.enc.env]
+    labels: {onebox.app: demo, onebox.release: R0, onebox.workload: web, onebox.secret-generation: ` + oldGeneration + `}
   worker:
     image: ` + imageWorker + `
-    labels: {ob.app: demo, ob.release: R0, ob.workload: worker}
+    labels: {onebox.app: demo, onebox.release: R0, onebox.workload: worker}
 `
 	fake := serviceFake()
 	baseDynamic := fake.Dynamic
 	fake.Dynamic = func(command string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(command, "ob.snapshot.yml"):
+		case strings.Contains(command, "onebox.snapshot.yml"):
 			return transport.Result{Stdout: project(false)}, true
 		case strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml"):
 			return transport.Result{Stdout: liveCompose}, true
-		case strings.Contains(command, "docker ps --filter label='ob.operation'"):
+		case strings.Contains(command, "docker ps --filter label='onebox.operation'"):
 			return transport.Result{Stdout: "\n"}, true
 		case strings.Contains(command, "docker ps") && strings.Contains(command, "--format"):
 			return transport.Result{Stdout: "S1|web|R0|Up\nW1|worker|R0|Up\n"}, true

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 // Exercise the public CLI through SSH, generated systemd units, real Docker,
@@ -18,8 +20,11 @@ func TestServerDurableExecutions(t *testing.T) {
 	s.requireDocker(t)
 	name := fmt.Sprintf("durable%d", time.Now().UnixNano())
 	base := "/tmp/onebox-" + name
-	root := base + "/" + name
-	unit := "ob-" + name + "-refresh"
+	root := base + "/app"
+	// This fixture shares the server with the suite's own application, so it
+	// needs host state of its own; one host holds one owner record otherwise.
+	t.Setenv(app.TestHostStateDirEnv, base+"/_host")
+	unit := "onebox-job-refresh"
 	dir := t.TempDir()
 	s.run(t, "mkdir -p "+base+"/data")
 	t.Cleanup(func() {
@@ -70,9 +75,6 @@ spec:
 		t.Fatal(err)
 	}
 	s.deploy(t, dir)
-	// A legacy compose-run container can survive a crash without durable labels.
-	// The first durable activation must reclaim this stopped, owned container.
-	s.run(t, "docker compose -p "+name+" --project-directory "+root+"/current -f "+root+"/current/compose.yaml run --no-deps --name "+name+"-refresh-1 refresh true")
 	if out, err := s.obInput(t, dir, s.obHome(t), "y\n", "job", "run", "refresh", "--input", "SOURCE=custom"); err == nil {
 		t.Fatalf("index should fail before allow marker: %s", out)
 	}

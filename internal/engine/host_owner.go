@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -47,37 +48,9 @@ func (e *HostEnvironmentMismatchError) Error() string {
 
 func (e *HostEnvironmentMismatchError) Code() string { return "host_environment_mismatch" }
 
-// hostOwner is the parsed owner record: an application, and the environment
-// that claimed the host.
-//
-// A record written before the environment was recorded carries the application
-// alone. That is not treated as a failure — it predates the field — but it also
-// cannot prove which environment owns the host, so it is upgraded in place the
-// next time bootstrap runs. Until then the application check still applies.
-type hostOwner struct {
-	App         string
-	Environment string
-}
-
-func (o hostOwner) legacy() bool { return o.Environment == "" }
-
-func parseHostOwner(record string) (hostOwner, bool) {
-	// One parser, shared with preflight. Two readings of the same file drift,
-	// and the drift showed: preflight read the first two fields and ignored the
-	// rest, so a three-field record passed there and failed here.
-	parsed, ok := app.ParseHostOwnerRecord(record)
-	if !ok {
-		return hostOwner{}, false
-	}
-	return hostOwner{App: parsed.Application, Environment: parsed.Environment}, true
-}
-
-func (o hostOwner) record() string {
-	if o.legacy() {
-		return o.App
-	}
-	return o.App + " " + o.Environment
-}
+// hostOwner is app.HostOwnerRecord: one type, one parser and one writer for a
+// record the engine writes and preflight reads.
+type hostOwner = app.HostOwnerRecord
 
 func (e *Engine) readHostOwner(ctx context.Context) (hostOwner, error) {
 	path := proxy.HostPaths(e.names()).Owner
@@ -109,7 +82,7 @@ func (e *Engine) readHostOwner(ctx context.Context) (hostOwner, error) {
 		return hostOwner{}, fmt.Errorf("read host owner record %s failed (exit %d): %s", path, result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	record := strings.TrimSpace(result.Stdout)
-	owner, ok := parseHostOwner(record)
+	owner, ok := app.ParseHostOwnerRecord(record)
 	if !ok {
 		// An empty record is the reachable case: a claim interrupted between
 		// the noclobber open and the write leaves a zero-byte file, and from
@@ -132,25 +105,20 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if owner.App == "" {
+	if owner.Application == "" {
 		return fmt.Errorf("host has no Onebox application owner; run `ob bootstrap` for %q first", e.Spec.Name)
 	}
-	if owner.App != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
+	return e.ownerConflict(owner)
+}
+
+// ownerConflict is the one comparison of an owner record with this engine:
+// another application, or this application in another environment.
+func (e *Engine) ownerConflict(owner hostOwner) error {
+	if owner.Application != "" && owner.Application != e.Spec.Name {
+		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.Application}
 	}
-	// A record from before the environment was written down cannot say which
-	// environment owns the host, and refusing on that would strand every host
-	// claimed by an older ob. The application check still holds; bootstrap
-	// upgrades the record when it next runs.
-	if owner.legacy() {
-		return nil
-	}
-	if owner.Environment != e.Opts.Environment {
-		return &HostEnvironmentMismatchError{
-			Application: e.Spec.Name,
-			Requesting:  e.Opts.Environment,
-			Owner:       owner.Environment,
-		}
+	if owner.Application == e.Spec.Name && owner.Environment != e.Opts.Environment {
+		return &HostEnvironmentMismatchError{Application: e.Spec.Name, Requesting: e.Opts.Environment, Owner: owner.Environment}
 	}
 	return nil
 }
@@ -158,58 +126,40 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 // claimHostOwner is bootstrap's only host-ownership transition. It checks for
 // a foreign owner before acquiring a lock, then rechecks under the host lock so
 // two first-contact attempts cannot both claim the same machine.
-func (e *Engine) claimHostOwner(ctx context.Context) error {
-	owner, err := e.readHostOwner(ctx)
-	if err != nil {
+func (e *Engine) claimHostOwner(ctx context.Context, owner hostOwner) error {
+	// The record names the environment, and one without it is unreadable: a
+	// claim written with an empty environment would lock every command out of
+	// the host until someone removed the file by hand.
+	if e.Opts.Environment == "" {
+		return errors.New("cannot claim the host without an environment")
+	}
+	if err := e.ownerConflict(owner); err != nil {
 		return err
 	}
-	if owner.App != "" && owner.App != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
-	}
-	if owner.App == e.Spec.Name && !owner.legacy() {
-		if owner.Environment != e.Opts.Environment {
-			return &HostEnvironmentMismatchError{
-				Application: e.Spec.Name,
-				Requesting:  e.Opts.Environment,
-				Owner:       owner.Environment,
-			}
-		}
+	if owner.Application == e.Spec.Name {
 		return nil
 	}
-	// Either unclaimed, or claimed by this application under a record that
-	// predates the environment field. Both take the lock: the first to write a
-	// full record, the second to upgrade one in place.
+	// Unclaimed: take the lock and recheck, so two first-contact attempts
+	// cannot both claim the same machine.
 	if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 		return err
 	}
 	defer e.releaseHostLock(ctx)
-	owner, err = e.readHostOwner(ctx)
+	owner, err := e.readHostOwner(ctx)
 	if err != nil {
 		return err
 	}
-	if owner.App != "" && owner.App != e.Spec.Name {
-		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
+	if err := e.ownerConflict(owner); err != nil {
+		return err
 	}
-	if owner.App == e.Spec.Name && !owner.legacy() {
-		if owner.Environment != e.Opts.Environment {
-			return &HostEnvironmentMismatchError{
-				Application: e.Spec.Name,
-				Requesting:  e.Opts.Environment,
-				Owner:       owner.Environment,
-			}
-		}
+	if owner.Application == e.Spec.Name {
 		return nil
 	}
-	claim := hostOwner{App: e.Spec.Name, Environment: e.Opts.Environment}
+	claim := hostOwner{Application: e.Spec.Name, Environment: e.Opts.Environment}
 	path := proxy.HostPaths(e.names()).Owner
 	// `set -C` refuses to clobber, which is what makes a first claim a race
-	// nobody wins twice. Upgrading a legacy record is a rewrite of a file that
-	// already exists, so it cannot use the same guard — it runs under the host
-	// lock, having just re-read the record it is replacing.
-	write := "umask 077 && set -C && printf '%s\\n' " + q(claim.record()) + " > " + q(path)
-	if owner.legacy() {
-		write = "umask 077 && printf '%s\\n' " + q(claim.record()) + " > " + q(path)
-	}
+	// nobody wins twice.
+	write := "umask 077 && set -C && printf '%s\\n' " + q(claim.String()) + " > " + q(path)
 	result, err := e.hostMutate(ctx, write)
 	if err != nil {
 		return err

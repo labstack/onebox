@@ -86,7 +86,7 @@ func TestDurableNotifierGracefullyStopsOnlyItsInvocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`ob.execution.invocation`, `${INVOCATION_ID:-missing}`,
+		`onebox.execution.invocation`, `${INVOCATION_ID:-missing}`,
 		`docker kill --signal TERM 'sample-refresh-1'`,
 		`deadline=$(($(date -u '+%s')+12))`,
 		`docker kill --signal KILL 'sample-refresh-1'`,
@@ -95,8 +95,8 @@ func TestDurableNotifierGracefullyStopsOnlyItsInvocation(t *testing.T) {
 			t.Fatalf("durable notifier is missing %q:\n%s", want, script)
 		}
 	}
-	state := strings.Index(script, "state='/var/lib/ob/sample/schedule/refresh.state'")
-	cleanup := strings.Index(script, "ob.execution.invocation")
+	state := strings.Index(script, "state='/var/lib/onebox/app/schedule/refresh.state'")
+	cleanup := strings.Index(script, "onebox.execution.invocation")
 	if state < 0 || cleanup < 0 || state >= cleanup {
 		t.Fatalf("durable notifier must initialize state before fallback cleanup:\n%s", script)
 	}

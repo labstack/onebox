@@ -92,7 +92,7 @@ spec:
 ```
 
 It derives the application container, Traefik routing and TLS, release layout
-under `/var/lib/ob/shop`, and retention policy. `ob canonical` prints every
+under `/var/lib/onebox/app`, and retention policy. `ob canonical` prints every
 derived value with its source: `# default`, `# shorthand`, or `# override`.
 
 ### 3. Plan, approve, deploy

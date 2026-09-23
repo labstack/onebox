@@ -162,7 +162,7 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(runtime), "ob.secret-generation: sg-000000000000000000000001") ||
+	if !strings.Contains(string(runtime), "onebox.secret-generation: sg-000000000000000000000001") ||
 		!strings.Contains(string(runtime), app.SecretGenerationDirectory+"/sg-000000000000000000000001/") {
 		t.Fatalf("initial deployment runtime does not bind the opaque generation:\n%s", runtime)
 	}
@@ -184,7 +184,7 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 // A plaintext entry is referenced under its own name, never a staged one.
 //
 // Routing every entry through StagedPath would have the runtime reference
-// `.ob-decrypted-…` for a file that is checked in and never decrypted.
+// `.onebox-decrypted-…` for a file that is checked in and never decrypted.
 func TestAPlaintextEntryKeepsItsOwnName(t *testing.T) {
 	fakeSops(t)
 	configPath := twoEncryptedEntries(t)
@@ -206,7 +206,7 @@ func TestAPlaintextEntryKeepsItsOwnName(t *testing.T) {
 	if !strings.Contains(string(body), "shared.env") {
 		t.Error("the plaintext entry is not referenced")
 	}
-	if strings.Contains(string(body), ".ob-decrypted-sops-shared.env") {
+	if strings.Contains(string(body), ".onebox-decrypted-sops-shared.env") {
 		t.Error("a plaintext entry was given a decrypted name; nothing writes that file")
 	}
 }
@@ -291,7 +291,7 @@ spec:
 	}
 	defer cleanup()
 
-	projectionPath := ".ob-external-database_web.env"
+	projectionPath := ".onebox-external-database_web.env"
 	generationPath := filepath.FromSlash(app.SecretGenerationPath("sg-000000000000000000000001", projectionPath))
 	projected, err := os.ReadFile(filepath.Join(staging, generationPath))
 	if err != nil {

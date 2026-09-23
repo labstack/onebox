@@ -194,7 +194,7 @@ func TestApplicationLockEpochMatrix(t *testing.T) {
 	for _, test := range epochAcquisitionCases() {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
-				if command == epochProbeCmd("/var/lib/ob/sample/epoch") {
+				if command == epochProbeCmd("/var/lib/onebox/app/epoch") {
 					return test.result, true
 				}
 				return transport.Result{}, false
@@ -210,7 +210,7 @@ func TestBackupLockEpochMatrix(t *testing.T) {
 	for _, test := range epochAcquisitionCases() {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
-				if command == epochProbeCmd("/var/lib/ob/example/backup/locks/database.epoch") {
+				if command == epochProbeCmd("/var/lib/onebox/app/backup/locks/database.epoch") {
 					return test.result, true
 				}
 				return transport.Result{}, false
@@ -241,7 +241,7 @@ func assertEpochAcquisition(t *testing.T, fake *transport.Fake, got int, err err
 
 func TestApplicationEpochPersistenceFailureReleasesLock(t *testing.T) {
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "mktemp '/var/lib/ob/sample/epoch.tmp.XXXXXX'") {
+		if strings.Contains(command, "mktemp '/var/lib/onebox/app/epoch.tmp.XXXXXX'") {
 			return transport.Result{ExitCode: 23, Stderr: "rename interrupted"}, true
 		}
 		return transport.Result{}, false
@@ -250,14 +250,14 @@ func TestApplicationEpochPersistenceFailureReleasesLock(t *testing.T) {
 	if _, err := engine.AcquireLock(context.Background(), "operation", false); err == nil {
 		t.Fatal("acquisition succeeded after epoch persistence failed")
 	}
-	if engine.lockVal != "" || !strings.Contains(strings.Join(fake.Commands, "\n"), "then rm -f '/var/lib/ob/sample/lock'") {
+	if engine.lockVal != "" || !strings.Contains(strings.Join(fake.Commands, "\n"), "then rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatalf("failed acquisition left its lock published:\n%s", strings.Join(fake.Commands, "\n"))
 	}
 }
 
 func TestBackupEpochPersistenceFailureReleasesLock(t *testing.T) {
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "mktemp '/var/lib/ob/example/backup/locks/database.epoch.tmp.XXXXXX'") {
+		if strings.Contains(command, "mktemp '/var/lib/onebox/app/backup/locks/database.epoch.tmp.XXXXXX'") {
 			return transport.Result{ExitCode: 23, Stderr: "rename interrupted"}, true
 		}
 		return transport.Result{}, false
@@ -267,7 +267,7 @@ func TestBackupEpochPersistenceFailureReleasesLock(t *testing.T) {
 		t.Fatal("backup acquisition succeeded after epoch persistence failed")
 	}
 	if engine.backupLockVals["database"] != "" || engine.backupFenceVals["database"] != "" ||
-		!strings.Contains(strings.Join(fake.Commands, "\n"), "then rm -f '/var/lib/ob/example/backup/locks/database.lock'") {
+		!strings.Contains(strings.Join(fake.Commands, "\n"), "then rm -f '/var/lib/onebox/app/backup/locks/database.lock'") {
 		t.Fatalf("failed backup acquisition left its lock or fence published:\n%s", strings.Join(fake.Commands, "\n"))
 	}
 }

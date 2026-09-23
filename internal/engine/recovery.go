@@ -25,10 +25,7 @@ func (e *Engine) engineFromReleaseSnapshot(ctx context.Context, releaseID string
 func (e *Engine) engineFromReleaseSnapshotFor(ctx context.Context, releaseID, operation string) (*Engine, error) {
 	names := e.names()
 	environment := e.Opts.Environment
-	if environment == "" {
-		environment = e.Spec.Env
-	}
-	path := release.PathsFor(names).Releases + "/" + releaseID + "/ob.snapshot.yml"
+	path := release.PathsFor(names).Releases + "/" + releaseID + "/onebox.snapshot.yml"
 	res, err := e.T.Run(ctx, "cat "+q(path))
 	if err != nil {
 		return nil, fmt.Errorf("read release %s snapshot: %w", releaseID, err)
@@ -193,7 +190,7 @@ func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest
 }
 
 func (e *Engine) exactReleaseContainerIDs(ctx context.Context, releaseID string) ([]string, error) {
-	result, err := e.T.Run(ctx, "docker ps -aq --filter label=ob.app="+q(e.Spec.Name)+" --filter label=ob.release="+q(releaseID))
+	result, err := e.T.Run(ctx, "docker ps -aq --filter label=onebox.app="+q(e.Spec.Name)+" --filter label=onebox.release="+q(releaseID))
 	if err != nil {
 		return nil, err
 	}

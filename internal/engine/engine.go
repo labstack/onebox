@@ -129,6 +129,10 @@ func New(a *app.Resolved, c *ctypes.Project, t transport.Transport, o Options) *
 	if o.Out == nil {
 		o.Out = os.Stdout
 	}
+	// The resolved project already knows which environment it describes.
+	if o.Environment == "" && a != nil {
+		o.Environment = a.Env
+	}
 	if o.Sleep == nil {
 		o.Sleep = time.Sleep
 	}

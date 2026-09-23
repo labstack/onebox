@@ -53,11 +53,71 @@ duration is an integer.
 
 ## Runtime resources
 
-**Every application container is `<app>-<component>-<replica>`.** Replica
-ordinals are one-based and never omitted, including for a singleton. A
+**`ob` is the command; `onebox` is everything it puts anywhere else.** Only
+what an operator types or keeps next to the project uses `ob`: the command, the
+project file `ob.yml`, and the artifacts passed between commands
+(`ob-plan.json`, `ob-approval.json`, `ob-backup-report.json`). Every name Onebox
+creates on a host, inside a container, or for its own use begins with
+`onebox`, and the separator says what kind of name it is:
+
+| Form | For | Examples |
+| --- | --- | --- |
+| `onebox-<name>` | named things on the host and in containers | `onebox-postgres`, `onebox-ingress`, `onebox-job-nightly`, `onebox-run`, `/tmp/onebox-drain` |
+| `onebox_<a>_<b>` | names joined from several identifiers, which must stay unambiguous | `onebox_postgres_data`, `onebox_services`, `onebox_web_r0` |
+| `onebox.<key>` | labels | `onebox.app`, `onebox.release` |
+| `ONEBOX_<KEY>` | environment variables | `ONEBOX_STEP_ID` |
+| `/var/lib/onebox/…` | paths | `/var/lib/onebox/app` |
+| `.onebox-<name>` | Onebox's own files inside a directory it shares | `.onebox-schedule.lease`, `.onebox-tmp` |
+
+The application's name appears only in the author's own workload containers
+and Compose project, and where the application has to be identified beyond the
+host: the owner record, the backup repository path and the database name. A
+test fails the build when code introduces any other `ob-`, `ob_` or `ob.` name.
+
+**Every workload container is `<app>-<component>-<replica>`.** Replica
+ordinals are one-based and never omitted, including for a singleton, because
+replicas can change and a rollout moves containers between numbered slots. A
 three-replica `server` workload in the `monk` application is therefore
-`monk-server-1`, `monk-server-2`, and `monk-server-3`; singleton components are
-`monk-feed-1`, `monk-postgres-1`, and `monk-redis-1`.
+`monk-server-1`, `monk-server-2`, and `monk-server-3`; a singleton workload is
+`monk-feed-1`.
+
+**Every container Onebox runs from its own images is `onebox-<component>`.**
+There is no ordinal, because none of them has replicas. Managed services are
+`onebox-postgres` and `onebox-redis`; a restore drill beside one is
+`onebox-postgres-restore`; the host proxy is `onebox-proxy` and its discovery
+controller `onebox-discovery`. The application is not in these names: a host
+runs one application, and the `onebox.app` label records which. So `docker ps`
+reads as two groups — your images under your application's name, and what
+Onebox provides under `onebox-`.
+
+The same namespace covers the host's other shared resources: the ingress network
+the proxy and routed workloads join is `onebox-ingress`. Because the namespace
+is Onebox's, an application may not be called `onebox` or begin with `onebox-`,
+and `proxy`, `discovery`, `ingress` and `services` are not valid service
+names.
+
+**Everything else Onebox puts on the host is in the same namespace, without the
+application.**
+
+| What | Name |
+| --- | --- |
+| State directory | `/var/lib/onebox/app` (releases, `current`, journal, services, backup) |
+| Host state | `/var/lib/onebox/_host` (owner record, host lock, host journal, proxy), whatever `basePath` says |
+| Scheduled job units | `onebox-job-<job>.service` and `.timer` |
+| Backup units | `onebox-backup-<service>-<operation>` |
+| Proxy routers and services | `onebox_<workload>_r<n>`, `onebox_<workload>` |
+| Ownership labels | `onebox.app`, `onebox.workload`, `onebox.service`, `onebox.release`, … |
+
+The `onebox.app` label, not any name, is what records which application owns a
+resource. Names can drop the application because a host has exactly one: the
+owner record is at a fixed path, so a different `basePath` does not give a
+second application a second record. Custom Traefik objects in a proxy
+configuration directory may not begin with `onebox_`.
+
+**Names do not carry the environment.** Staging and production of `shop` both
+derive `shop-web-1` and `onebox-postgres`. What keeps them apart is the host:
+its owner record names one application and one environment, and preflight
+refuses a deploy of any other.
 
 A hyphen authored inside `app` or a component is doubled in the runtime name,
 so the separator remains unambiguous: app `help-desk` and component `web-api`
@@ -65,11 +125,24 @@ produce `help--desk-web--api-1`.
 
 The temporary container joining a rollout is `<app>-<component>-new`. It takes
 the stable numbered slot only after the previous occupant has drained and been
-removed. The host-scoped managed proxy is `onebox-proxy`.
+removed.
 
-Container names are the human-facing runtime grammar. Persistent volumes,
-Compose projects, networks, and proxy-provider objects use their own derived
-names because they have different collision and data-lifetime constraints.
+**Every other resource Onebox derives is `onebox_<component>_…`.** Volumes,
+service Compose projects, the service network and restore-drill resources:
+`onebox_postgres_data`, `onebox_web_uploads`, `onebox_postgres`,
+`onebox_services`. They do not carry the application: a host has one, the
+`onebox.app` label records which, and `ob destroy` releases the host only after
+removing them. They join with underscores because a component or volume name
+cannot contain one, so each name maps back to exactly one component and
+volume — a hyphen, which names may contain, could not promise that. The one
+exception is the application's own Compose network, `shop_default`, which is
+the name Compose gives it.
+
+| Namespace | Separator | Holds |
+| --- | --- | --- |
+| `<app>-` | hyphen | your workload containers |
+| `onebox-` | hyphen | containers and the ingress network Onebox runs on the host |
+| `onebox_` | underscore | volumes, service projects and networks |
 
 ## Commands
 

@@ -105,7 +105,7 @@ func TestActivateManifestPersistsEveryBoundaryInOrder(t *testing.T) {
 	// gone, and nothing has journalled the activation — a state finalize
 	// refuses on every retry while the release is healthy and live. The
 	// caller clears it once that evidence is durable.
-	if strings.Contains(commands, "rm -f '/var/lib/ob/sample/activation.json'") {
+	if strings.Contains(commands, "rm -f '/var/lib/onebox/app/activation.json'") {
 		t.Fatalf("activation cleared its own checkpoint before any evidence was journalled:\n%s", commands)
 	}
 	if _, err := release.ReadActivationCheckpoint(context.Background(), target, engine.Names()); err != nil {
@@ -156,7 +156,7 @@ func TestActivateManifestCrashAfterSupersedingPredecessorKeepsCheckpoint(t *test
 	if err != nil || storedPrevious.State != release.StateSuperseded {
 		t.Fatalf("predecessor = %+v, %v", storedPrevious, err)
 	}
-	if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/ob/sample/activation.json'") {
+	if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/onebox/app/activation.json'") {
 		t.Fatal("failed final checkpoint was cleared")
 	}
 }
@@ -202,7 +202,7 @@ func TestActivateManifestCrashLeavesLastDurableBoundary(t *testing.T) {
 			if err != nil || stored.State != test.wantManifest {
 				t.Fatalf("manifest = %+v, %v; want %s", stored, err, test.wantManifest)
 			}
-			if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/ob/sample/activation.json'") {
+			if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/onebox/app/activation.json'") {
 				t.Fatal("failed activation cleared its recovery checkpoint")
 			}
 		})
@@ -242,7 +242,7 @@ func TestActivateManifestPredecessorWriteFailureLeavesTwoServingManifestsRecover
 			t.Fatalf("manifest %s = %+v, %v; want recoverable serving state", releaseID, stored, err)
 		}
 	}
-	if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/ob/sample/activation.json'") {
+	if strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/onebox/app/activation.json'") {
 		t.Fatal("two-serving-manifest crash state lost its recovery checkpoint")
 	}
 }

@@ -29,6 +29,6 @@ cannot drift from what `ob validate` accepts.
 | `kind` `*` | string | — | Authored resource kind. |
 | `metadata` `*` | object | — | Application identity and opaque user metadata. |
 | `metadata.annotations` | map | — | Opaque user metadata that never affects plans or runtime behavior. |
-| `metadata.name` `*` | — | — | The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin "ob-" or be a name the host layout reserves. Stable application name used in generated runtime identities. |
+| `metadata.name` `*` | — | — | The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin "ob-" or "onebox-" or be a name the host layout reserves. Stable application name used in generated runtime identities. |
 
 `*` marks a field that is required within its own object.

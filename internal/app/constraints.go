@@ -201,13 +201,14 @@ var (
 
 // reservedAppNames are the identities the host layout already uses. An
 // application taking one of them would derive names that collide with the
-// proxy's or the host namespace's, and the collision would appear as a
-// container that vanishes rather than as an error.
+// host's, and the collision would appear as a container that vanishes rather
+// than as an error.
 //
-// "onebox" is reserved because onebox-* names the containers Onebox runs from
-// its own images; an application called onebox would derive workload names in
-// that namespace and read as if Onebox ran them.
-var reservedAppNames = []string{"ob", "onebox", "onebox-proxy", "_host"}
+// The onebox-* namespace is refused by prefix as well, in checkAppName: it
+// names what Onebox runs on the host — the proxy, its ingress network, managed
+// services — and an application called onebox or onebox-<anything> would
+// derive its own names inside it.
+var reservedAppNames = []string{"ob", "onebox", "_host"}
 
 // reservedServiceNames are the host proxy's components. A managed service's
 // container is onebox-<service>, so a service with one of these names would
@@ -231,9 +232,11 @@ func checkAppName(name string) error {
 	if err := gIdent.check("app", name); err != nil {
 		return err
 	}
-	if strings.HasPrefix(name, "ob-") {
-		return errf("project_invalid", "app", "",
-			"%q begins with \"ob-\", which names host-scoped resources Onebox owns", name)
+	for _, prefix := range []string{"ob-", "onebox-"} {
+		if strings.HasPrefix(name, prefix) {
+			return errf("project_invalid", "app", "",
+				"%q begins with %q, which names host-scoped resources Onebox owns", name, prefix)
+		}
 	}
 	for _, reserved := range reservedAppNames {
 		if name == reserved {

@@ -46,7 +46,7 @@ services:
 
   attached:
     image: nginx
-    networks: [default, ob-ingress]
+    networks: [default, onebox-ingress]
 
   segmented:
     image: nginx

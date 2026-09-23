@@ -51,13 +51,13 @@ func TestMergePreservesWhatTheUserWrote(t *testing.T) {
 
 // TestMergeAppendsIngressPreservingOrder: existing networks are kept, in order.
 func TestMergeAppendsIngressPreservingOrder(t *testing.T) {
-	got, err := mergeFixture(t, "redis", overlay{Network: "ob-ingress"})
+	got, err := mergeFixture(t, "redis", overlay{Network: "onebox-ingress"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	nets := networkNames(got["networks"])
-	if len(nets) != 2 || nets[0] != "default" || nets[1] != "ob-ingress" {
-		t.Fatalf("networks = %v, want [default ob-ingress]", nets)
+	if len(nets) != 2 || nets[0] != "default" || nets[1] != "onebox-ingress" {
+		t.Fatalf("networks = %v, want [default onebox-ingress]", nets)
 	}
 }
 
@@ -70,10 +70,10 @@ func TestMergeRefusesConflicts(t *testing.T) {
 		code    string
 	}{
 		{"named", overlay{}, "compose_container_name"},
-		{"hostnet", overlay{Network: "ob-ingress"}, "compose_network_mode"},
+		{"hostnet", overlay{Network: "onebox-ingress"}, "compose_network_mode"},
 		{"labelled", overlay{HasRoute: true}, "compose_traefik_label"},
 		{"owned", overlay{}, "compose_ob_label"},
-		{"attached", overlay{Network: "ob-ingress"}, "compose_ingress_attached"},
+		{"attached", overlay{Network: "onebox-ingress"}, "compose_ingress_attached"},
 	}
 	for _, c := range cases {
 		t.Run(c.code, func(t *testing.T) {

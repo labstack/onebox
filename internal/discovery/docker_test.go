@@ -59,7 +59,7 @@ func TestDockerClientReadsOnlyRequiredContainerState(t *testing.T) {
                   "Created":"2026-08-27T12:00:00Z",
                   "Config":{"Env":["SECRET=must-not-cross-boundary"],"Labels":{"traefik.enable":"true"}},
                   "State":{"Status":"running","Health":{"Status":"healthy"}},
-                  "NetworkSettings":{"Networks":{"ob-ingress":{"IPAddress":"172.20.0.8"}}}
+                  "NetworkSettings":{"Networks":{"onebox-ingress":{"IPAddress":"172.20.0.8"}}}
                 }`)
 		default:
 			http.NotFound(w, r)
@@ -70,7 +70,7 @@ func TestDockerClientReadsOnlyRequiredContainerState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(containers) != 1 || containers[0].Health != "healthy" || containers[0].Networks["ob-ingress"] != "172.20.0.8" {
+	if len(containers) != 1 || containers[0].Health != "healthy" || containers[0].Networks["onebox-ingress"] != "172.20.0.8" {
 		t.Fatalf("containers = %+v", containers)
 	}
 	if got := fmt.Sprint(containers[0]); strings.Contains(got, "must-not-cross-boundary") {
@@ -94,7 +94,7 @@ func TestDockerClientFallsBackToGlobalIPv6Address(t *testing.T) {
                   "Created":"2026-08-27T12:00:00Z",
                   "Config":{"Labels":{"traefik.enable":"true"}},
                   "State":{"Status":"running"},
-                  "NetworkSettings":{"Networks":{"ob-ingress":{"IPAddress":"","GlobalIPv6Address":"2001:db8::8"}}}
+                  "NetworkSettings":{"Networks":{"onebox-ingress":{"IPAddress":"","GlobalIPv6Address":"2001:db8::8"}}}
                 }`)
 		default:
 			http.NotFound(w, r)
@@ -105,7 +105,7 @@ func TestDockerClientFallsBackToGlobalIPv6Address(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(containers) != 1 || containers[0].Networks["ob-ingress"] != "2001:db8::8" {
+	if len(containers) != 1 || containers[0].Networks["onebox-ingress"] != "2001:db8::8" {
 		t.Fatalf("IPv6-only endpoint = %+v", containers)
 	}
 }

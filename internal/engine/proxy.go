@@ -51,8 +51,9 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	}
 
 	// Lock order is safe by construction: every acquirer holds either the
-	// host lock alone (proxy apply) or its OWN app lock first (bootstrap) —
-	// two apps never contend on an app lock, so no cycle exists.
+	// host lock alone (proxy apply) or its own app lock first (bootstrap). A
+	// host has one application, so no two acquirers contend on an app lock and
+	// no cycle exists.
 	if err := e.acquireHostLock(ctx, breakLock); err != nil {
 		return err
 	}

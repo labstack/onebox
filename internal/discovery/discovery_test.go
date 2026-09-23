@@ -17,7 +17,7 @@ func routedContainer(id string, created time.Time, health, ip string, labels map
 	}
 	return Container{
 		ID: id, Created: created, Running: true, Health: health,
-		Labels: base, Networks: map[string]string{"ob-ingress": ip},
+		Labels: base, Networks: map[string]string{"onebox-ingress": ip},
 	}
 }
 
@@ -39,7 +39,7 @@ func TestBuildPreservesHealthAwareHTTPRouting(t *testing.T) {
 		routedContainer("starting", old, "starting", "172.20.0.4", labels),
 		routedContainer("unhealthy", old, "unhealthy", "172.20.0.5", labels),
 	}
-	document, err := Build(containers, "ob-ingress")
+	document, err := Build(containers, "onebox-ingress")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestBuildPreservesWildcardRuleAndCertificateDomain(t *testing.T) {
 		"traefik.http.routers.preview_web_r0.service":                "preview_web",
 		"traefik.http.services.preview_web.loadbalancer.server.port": "8080",
 	}
-	document, err := Build([]Container{routedContainer("healthy", time.Now(), "healthy", "172.20.0.2", labels)}, "ob-ingress")
+	document, err := Build([]Container{routedContainer("healthy", time.Now(), "healthy", "172.20.0.2", labels)}, "onebox-ingress")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestBuildUsesNewestHealthyRouterDuringRollAndRollback(t *testing.T) {
 	document, err := Build([]Container{
 		routedContainer("old-release", base, "healthy", "172.20.0.2", labels("old.example.com")),
 		routedContainer("new-container", base.Add(time.Minute), "healthy", "172.20.0.3", labels("new.example.com")),
-	}, "ob-ingress")
+	}, "onebox-ingress")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestBuildTCPPassthrough(t *testing.T) {
 		"traefik.tcp.routers.app_db_r0.tls.passthrough":        "true",
 		"traefik.tcp.routers.app_db_r0.tls.certresolver":       "letsencrypt",
 		"traefik.tcp.services.app_db.loadbalancer.server.port": "5432",
-	})}, "ob-ingress")
+	})}, "onebox-ingress")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestBuildRejectsInvalidGeneratedBackend(t *testing.T) {
 		"traefik.http.routers.app_web_r0.rule":                   "Host(`app.example.com`)",
 		"traefik.http.routers.app_web_r0.service":                "app_web",
 		"traefik.http.services.app_web.loadbalancer.server.port": "root",
-	})}, "ob-ingress")
+	})}, "onebox-ingress")
 	if err == nil || !strings.Contains(err.Error(), "invalid backend port") {
 		t.Fatalf("invalid port error = %v", err)
 	}

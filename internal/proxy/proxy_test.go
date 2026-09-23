@@ -54,7 +54,7 @@ func TestPathsHostScoped(t *testing.T) {
 }
 
 func TestRenderCompose(t *testing.T) {
-	b := string(RenderCompose("traefik:v3.7", "ob-ingress", true, nil))
+	b := string(RenderCompose("traefik:v3.7", "onebox-ingress", true, nil))
 	for _, want := range []string{
 		"container_name: onebox-proxy",
 		"image: traefik:v3.7",
@@ -68,7 +68,7 @@ func TestRenderCompose(t *testing.T) {
 		"cap_add: [NET_BIND_SERVICE]",
 		"config/.env",
 		`["CMD", "traefik", "healthcheck"]`,
-		"name: ob-ingress",
+		"name: onebox-ingress",
 	} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("rendered compose missing %q:\n%s", want, b)
@@ -85,7 +85,7 @@ func TestRenderCompose(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(b), &parsed); err != nil {
 		t.Fatalf("rendered compose is not valid YAML: %v\n%s", err, b)
 	}
-	noEnv := string(RenderCompose("traefik:v3.7", "ob-ingress", false, nil))
+	noEnv := string(RenderCompose("traefik:v3.7", "onebox-ingress", false, nil))
 	if strings.Contains(noEnv, ".env") {
 		t.Fatalf("env_file must be omitted without .env:\n%s", noEnv)
 	}
@@ -650,7 +650,7 @@ func TestCertExpiries(t *testing.T) {
 // same one every time.
 func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
 	staging := t.TempDir()
-	hash, err := Stage("", staging, "traefik:v3.7", "ob-ingress", nil, true)
+	hash, err := Stage("", staging, "traefik:v3.7", "onebox-ingress", nil, true)
 	if err != nil {
 		t.Fatalf("a project without proxy.config must still bootstrap: %v", err)
 	}
@@ -700,7 +700,7 @@ func TestDeclaredConfigWithoutTraefikFilesSaysWhatToDo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "README.txt"), []byte("notes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "ob-ingress", nil, false)
+	_, err := Stage(dir, t.TempDir(), "traefik:v3.7", "onebox-ingress", nil, false)
 	if err == nil {
 		t.Fatal("a declared config directory without dynamic or static Traefik files must be refused")
 	}

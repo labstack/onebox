@@ -57,7 +57,7 @@ func TestEjectedRuntimeIsOrdinaryCompose(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(body)
-	for _, forbidden := range []string{"ob.app", "ob.release", "ob.workload", "traefik.", "ob-ingress"} {
+	for _, forbidden := range []string{"ob.app", "ob.release", "ob.workload", "traefik.", "onebox-ingress"} {
 		if strings.Contains(out, forbidden) {
 			t.Errorf("ejected runtime still carries %q\n%s", forbidden, out)
 		}

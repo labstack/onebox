@@ -479,8 +479,8 @@ func TestDefaultsMaterialise(t *testing.T) {
 	if p.BasePath != "/var/lib/ob" {
 		t.Errorf("base_path = %q, want /var/lib/ob", p.BasePath)
 	}
-	if p.Proxy.Network != "ob-ingress" {
-		t.Errorf("proxy.network = %q, want ob-ingress", p.Proxy.Network)
+	if p.Proxy.Network != "onebox-ingress" {
+		t.Errorf("proxy.network = %q, want onebox-ingress", p.Proxy.Network)
 	}
 	if p.Deployment.RetainReleases != 5 {
 		t.Errorf("retain_releases = %d, want 5", p.Deployment.RetainReleases)

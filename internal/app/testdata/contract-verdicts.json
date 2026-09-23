@@ -92,7 +92,7 @@
   {
     "case": "conformance/base_path absolute",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "fc966ee4b52865c22b76ad779fa79095161b4900b01c6d570780921ea827aaa5"
   },
   {
     "case": "conformance/bind source containing a compose separator",
@@ -122,7 +122,7 @@
   {
     "case": "conformance/encrypted env file entry",
     "loads": true,
-    "digest": "d87891ad760c2aca38053753731a3bf03ddab6f987d4cd9e87110af4715708d3"
+    "digest": "db841b109dcdf458f70da407aa50581e1c864fbab0bd21986b6144380594ff8c"
   },
   {
     "case": "conformance/env file entry without a file",
@@ -172,7 +172,7 @@
   {
     "case": "conformance/hook with local",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "fc966ee4b52865c22b76ad779fa79095161b4900b01c6d570780921ea827aaa5"
   },
   {
     "case": "conformance/host proxy name",
@@ -242,12 +242,12 @@
   {
     "case": "conformance/migration_policy expand-only",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "fc966ee4b52865c22b76ad779fa79095161b4900b01c6d570780921ea827aaa5"
   },
   {
     "case": "conformance/minimum project",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "fc966ee4b52865c22b76ad779fa79095161b4900b01c6d570780921ea827aaa5"
   },
   {
     "case": "conformance/missing api_version",
@@ -282,7 +282,7 @@
   {
     "case": "conformance/notification with no events",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "fc966ee4b52865c22b76ad779fa79095161b4900b01c6d570780921ea827aaa5"
   },
   {
     "case": "conformance/one-char identifier",
@@ -292,7 +292,7 @@
   {
     "case": "conformance/operator proxy owns route middleware",
     "loads": true,
-    "digest": "bfb6fed92b7b1fee8a9170f5d5880e5eb70d36854803c8675f17fcb17dc002ba"
+    "digest": "880e1ce6682dad40a183ae3d9a2efb8f5b43a1ef0e45eaacb815723ad5e19092"
   },
   {
     "case": "conformance/persistence block with no mode still refuses replicas",
@@ -312,7 +312,7 @@
   {
     "case": "conformance/provider-qualified route middlewares",
     "loads": true,
-    "digest": "68e64d82ad9afb845f41e9bfe57a920c0452649a74644877f6f69949714edbc4"
+    "digest": "df7af95b36d6abb23c8e1f47023bfc8e781a07d48f4f1403368e0094eb344978"
   },
   {
     "case": "conformance/proxy kind none with a route",
@@ -347,7 +347,7 @@
   {
     "case": "conformance/relative env_file",
     "loads": true,
-    "digest": "9d40880f62c05790ff682afc8c185f0ebc454e77522e9e734ef8f256461dea91"
+    "digest": "adb10456ea95baaf80e2f783e9e84db51f972aa81f71649c82da57987d791761"
   },
   {
     "case": "conformance/relative read-only bind mount",
@@ -362,7 +362,7 @@
   {
     "case": "conformance/repeated route middleware remains ordered",
     "loads": true,
-    "digest": "2422cebd0a6c76e245e576cfefa0bb2596966f7e47dda8c3fa42013633339b3e"
+    "digest": "0a6bfca2ad6f0229e81f60a6852da916b6d1a2574f3c5d12e48fb75e05f37a37"
   },
   {
     "case": "conformance/rolling workload with published host port",
@@ -372,7 +372,7 @@
   {
     "case": "conformance/routes list",
     "loads": true,
-    "digest": "c44552dd7728f71b6232b172d17b60dff503ae9e576cc039db083dd76365a488"
+    "digest": "786555d998e67d069b77eef7703c44647f55abe916753bd4dd5f99705c64e2d6"
   },
   {
     "case": "conformance/scheduled job",
@@ -397,12 +397,12 @@
   {
     "case": "conformance/service scalar",
     "loads": true,
-    "digest": "8ccece3e82ae24e63d91e2a5cc565adfd1b30cd185b644846c24ccce9e3b1742 postgres=39cc6d687e2f025a"
+    "digest": "9509ff723ef0fc5a08762ae337f3079561d228468a05c59b4cb803310b6e1a43 postgres=39cc6d687e2f025a"
   },
   {
     "case": "conformance/settings key that is a real driver flag",
     "loads": true,
-    "digest": "8ccece3e82ae24e63d91e2a5cc565adfd1b30cd185b644846c24ccce9e3b1742 redis=03e2b07b335d9d4d"
+    "digest": "9509ff723ef0fc5a08762ae337f3079561d228468a05c59b4cb803310b6e1a43 redis=03e2b07b335d9d4d"
   },
   {
     "case": "conformance/settings key with a shell metacharacter",
@@ -477,7 +477,7 @@
   {
     "case": "conformance/unmanaged proxy keeps its routes",
     "loads": true,
-    "digest": "1427479dd14b45dd67d0ede585e8a7101f77d8e0b138fcc9bfd2f3b564b487c7"
+    "digest": "0dc9890f12ee12cb5b2b1ec6c3d95ec735364e90909f2d13405ec8d324b28861"
   },
   {
     "case": "conformance/unqualified route middleware",
@@ -492,7 +492,7 @@
   {
     "case": "conformance/url check with contains and advisory",
     "loads": true,
-    "digest": "ba9ad62124d9e1ec28ae239b4e0f2f3a76ebca0076ea43b4c131d7491a4065b8"
+    "digest": "fc966ee4b52865c22b76ad779fa79095161b4900b01c6d570780921ea827aaa5"
   },
   {
     "case": "conformance/volume scalar with a path",
@@ -532,17 +532,17 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "64ea7ff80a65ba1594bc9565675e7ff194b3acdb44540ebb2e84a46d2e4c4bf1 postgres=fdfb04e3041d33f3 redis=aa4294d2c247915d"
+    "digest": "f396a8553e5fd21bc517a8f98991f1f23b9f0211e73b668f5d55acfe365f4c7f postgres=fdfb04e3041d33f3 redis=aa4294d2c247915d"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "baf976b3c71b90c78e1bcab801a9765b6111abae7df5600a15233a9811c99a0e postgres=fdfb04e3041d33f3 redis=aa4294d2c247915d"
+    "digest": "cd41c544b5bddfc67ea99d1e23343a4b3a060280e92b6aa253e0220771328957 postgres=fdfb04e3041d33f3 redis=aa4294d2c247915d"
   },
   {
     "case": "corpus/ext-authentik.yml",
     "loads": true,
-    "digest": "e5aebd1b4f98af7beaa603ae44d981486150335461306d7cabf173476bdf27ee"
+    "digest": "22cba89f300edb95c59528a3b9f92657c45ea8170b18ad0f96a0c494e2953e31"
   },
   {
     "case": "corpus/ext-frigate.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "96f5d0556ae66e0c5052343fb6d763a16686510181a1406266864c5eed49be80 postgres=386b5386322a6f60"
+    "digest": "490a7fab6a66a1f12bf04972d2d5341a1fa4b1fc9bbce44140718977f24190b4 postgres=386b5386322a6f60"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -567,32 +567,32 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "1b9c415f24ea342e79a3c14b5ad6bb485f29df88b7478371e99ee7f59006d86a postgres=4bd0ec307400e5a3 redis=3737afbfd7ea3993"
+    "digest": "dd00315223d8fed419d6055ec2cd8ec63b7fd05062e012508a7d262aed0f0146 postgres=4bd0ec307400e5a3 redis=3737afbfd7ea3993"
   },
   {
     "case": "corpus/ext-paperless.yml",
     "loads": true,
-    "digest": "8ec597bfc4bc7d71d879e5f7dc12d94009c326fdba1720b65d7c5ea726e7a183"
+    "digest": "a9c1ed1a0d3e5b4fca6f3380ab509ec23b425b7078b4aabe4d1f273d76c6976d"
   },
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "9919231c9f5b2702f56fda1f56bae20a1d3912039e8013144af7ce204b986f2f events=5a78ea7c04e14c7b postgres=c68d89056320290b"
+    "digest": "f92ebb3de2c4afabd40d9dcd1506c75e85f586c295f9e98676a8c5698d0b2611 events=5a78ea7c04e14c7b postgres=c68d89056320290b"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
-    "digest": "4088b4fc05094ac274c76205c774fb6b99f03c00abc97f7e2574eadf4ca7c6f6 postgres=ed21f5c56a4992c0"
+    "digest": "23c82fe78d147be1d3ac296d9e68c071b6eb9120752381d3c23ea99cda0159ae postgres=ed21f5c56a4992c0"
   },
   {
     "case": "corpus/ghost.yml",
     "loads": true,
-    "digest": "ba2aaf586bcb73298f6175fb36813d8720a3f67d58c7bc023bf35a564b1e19d3 mysql=c56ab5644e9756b3"
+    "digest": "d1ec8afc6bb9304e38d1ed79b55ec0de9f15dde5c1dfe2a8328acf277c3fd1a7 mysql=c56ab5644e9756b3"
   },
   {
     "case": "corpus/gitea.yml",
     "loads": true,
-    "digest": "c6347add0af261bc2f87d29691f6de5b14401d63c7034ed5ba8c0798913d7d52"
+    "digest": "6420a7d55a997a328d0ba9e8ea56dfff13bd97ebfe8336a8b71ad7835f65a25a"
   },
   {
     "case": "corpus/goal.yml",
@@ -602,7 +602,7 @@
   {
     "case": "corpus/immich.yml",
     "loads": true,
-    "digest": "d8e311adf9eb1ae4fc7e1362e53de2ba2e6ccefa2deefd0a8b1a976c7b5bfa06"
+    "digest": "bf9f8c2734487afc3974d6878018dc6425402bdfb554d192ed97eb8f97b50ad7"
   },
   {
     "case": "corpus/monk.yml",
@@ -612,17 +612,17 @@
   {
     "case": "corpus/n8n.yml",
     "loads": true,
-    "digest": "45034dd978133e0aab7db59c3ee86a2157e306a608a8633feeb204b4958c5fef"
+    "digest": "f7f606a6bee885271e88ffb204f911c9be28af50c1b97c3d5f696b44b44850a8"
   },
   {
     "case": "corpus/paperless.yml",
     "loads": true,
-    "digest": "80991cdd434564e0612397e3f64427088ce51d87f30e2502cdc9a496773ba81c"
+    "digest": "9ed4200e8494120111c786503327ccdbbbf69f88089e4a8b867ccbd018918ff5"
   },
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "4d7d95dd74e291c481366cf606f5b2537fa5bf97cf126bea50df9fa927d26da3 postgres=06cc17f4fab42e94 redis=0888684827c826dd"
+    "digest": "fdd3fa682e3fbe0221f566e67944f735d856915c545add134d66f054fcb35db2 postgres=06cc17f4fab42e94 redis=0888684827c826dd"
   },
   {
     "case": "corpus/pursue.yml",
@@ -637,21 +637,21 @@
   {
     "case": "corpus/rocketchat.yml",
     "loads": true,
-    "digest": "0b1a575f884bc3ae2aa87bde1df62dc2a00068ba17c56f2288fa7412eb918a96 mongodb=cde22b543b70d444"
+    "digest": "7bfda0263b19cdc21acaa254f8a742f8687e126df7af1893376f099280e84339 mongodb=cde22b543b70d444"
   },
   {
     "case": "corpus/umami.yml",
     "loads": true,
-    "digest": "ea01ea117cbbae96ad9e6f3bc9dff6bf40839cdb21dcc540aca078e2d79d503b"
+    "digest": "71219adba7acff3f73a521dd805a0f5a47838a99745954b685b1e8b00b896bd1"
   },
   {
     "case": "corpus/uptime-kuma.yml",
     "loads": true,
-    "digest": "e3f215d2cbbd19d05f6c4dd7b07f5b2e7cb28a79fc1877ec2ca25b06ff2feef4"
+    "digest": "2b3f8cbc10a34be3d17b51b8dcc7b5dd4897cf1d37f476899301090b444accfa"
   },
   {
     "case": "corpus/vaultwarden.yml",
     "loads": true,
-    "digest": "d09dabcf3ed38023913407762fa2d2c6a25db15625ae90386ee23cd9628ab838"
+    "digest": "160fccdae522ddf42957c7f371a0e1c316af4643def09e5bce921aad20aeb283"
   }
 ]

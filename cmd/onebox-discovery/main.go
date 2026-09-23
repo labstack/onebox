@@ -17,7 +17,7 @@ func main() {
 	var socket, output, network, application string
 	flag.StringVar(&socket, "socket", "/var/run/docker.sock", "Docker Engine Unix socket")
 	flag.StringVar(&output, "output", "/dynamic/onebox.yml", "atomic Traefik dynamic configuration output")
-	flag.StringVar(&network, "network", "ob-ingress", "Docker network carrying routed backends")
+	flag.StringVar(&network, "network", "onebox-ingress", "Docker network carrying routed backends")
 	flag.StringVar(&application, "app", "", "Onebox Compose project to observe")
 	flag.Parse()
 	if application == "" {

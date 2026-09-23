@@ -69,8 +69,15 @@ runs one application, and the `ob.app` label records which. So `docker ps`
 reads as two groups — your images under your application's name, and what
 Onebox provides under `onebox-`.
 
-Because of that namespace, `onebox` is not a valid application name, and
-`proxy` and `discovery` are not valid service names.
+The same namespace covers the host's other shared resources: the ingress network
+the proxy and routed workloads join is `onebox-ingress`. Because the namespace
+is Onebox's, an application may not be called `onebox` or begin with `onebox-`
+(or `ob-`), and `proxy` and `discovery` are not valid service names.
+
+**Names do not carry the environment.** Staging and production of `shop` both
+derive `shop-web-1` and `onebox-postgres`. What keeps them apart is the host:
+its owner record names one application and one environment, and preflight
+refuses a deploy of any other.
 
 A hyphen authored inside `app` or a component is doubled in the runtime name,
 so the separator remains unambiguous: app `help-desk` and component `web-api`

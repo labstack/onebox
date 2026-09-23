@@ -288,7 +288,7 @@ func TestNoProxyAddsNothing(t *testing.T) {
 	if strings.Contains(out, "traefik") {
 		t.Error("no proxy must not add routing labels")
 	}
-	if strings.Contains(out, "ob-ingress") {
+	if strings.Contains(out, "onebox-ingress") {
 		t.Error("no proxy must not attach an ingress network")
 	}
 }

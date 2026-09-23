@@ -25,7 +25,7 @@ import (
 const (
 	// ProxyProject and IngressNetwork are host-scoped.
 	ProxyProject   = "onebox-proxy"
-	IngressNetwork = "ob-ingress"
+	IngressNetwork = "onebox-ingress"
 
 	// ManagedContainerPrefix begins every container Onebox runs from its own
 	// images: the host proxy and a managed service alike.
@@ -60,7 +60,7 @@ func (p *Spec) NamesFor(env string) Names {
 
 // ComposeProject is the application's Compose project. It is the application
 // identifier alone, which cannot collide with any derived name because
-// identifiers contain no underscore and may not begin `ob-`.
+// identifiers contain no underscore and may not begin `ob-` or `onebox-`.
 func (n Names) ComposeProject() string { return n.App }
 
 // ApplicationNetwork is the stable default network shared by every workload

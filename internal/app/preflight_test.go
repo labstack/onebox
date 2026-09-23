@@ -46,7 +46,7 @@ func healthyRunner() *fakeRunner {
 		"/_host/owner":   {Stdout: "ledger\n"},
 		"docker ps":      {Stdout: ""},
 		"docker volume":  {Stdout: ""},
-		"docker network": {Stdout: "ob-ingress\t\n"},
+		"docker network": {Stdout: "onebox-ingress\t\n"},
 	}}
 }
 

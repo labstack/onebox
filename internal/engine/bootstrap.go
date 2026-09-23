@@ -40,11 +40,17 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 
 	e.logf("bootstrap: base dirs")
 	p := release.PathsFor(e.names())
-	res, err := e.T.Run(ctx, "mkdir -p "+q(p.Releases))
+	res, err := e.T.Run(ctx, claimAppDirCommand(e.names(), e.Spec.Name))
 	if err != nil {
 		return fmt.Errorf("mkdir %s: %w", p.Releases, err)
 	}
-	if res.ExitCode != 0 {
+	switch res.ExitCode {
+	case 0:
+	case appDirForeign:
+		return fmt.Errorf("%s holds another application's state (%s says %q); choose another basePath", e.names().AppDir(), app.AppMarkerFile, strings.TrimSpace(res.Stdout))
+	case appDirUnmarked:
+		return fmt.Errorf("%s already exists and was not created by Onebox; move it aside or choose another basePath — Onebox will not adopt a directory it may later delete", e.names().AppDir())
+	default:
 		return fmt.Errorf("mkdir %s: %s", p.Releases, strings.TrimSpace(res.Stderr))
 	}
 
@@ -161,4 +167,21 @@ func (e *Engine) Bootstrap(ctx context.Context, releaseID string) (err error) {
 	}
 	e.logf("bootstrap complete — run `ob deploy` for the first release")
 	return nil
+}
+
+const (
+	appDirForeign  = 3
+	appDirUnmarked = 4
+)
+
+// claimAppDirCommand creates the application's state directory, or accepts
+// one that carries this application's marker. An existing, non-empty directory
+// without the marker is refused: AppDir is a generic name under a basePath the
+// operator chose, and destroy removes it whole.
+func claimAppDirCommand(n app.Names, application string) string {
+	dir, marker := q(n.AppDir()), q(n.AppMarker())
+	return "if [ -e " + marker + " ]; then owner=$(cat " + marker + ") || exit 1; " +
+		"[ \"$owner\" = " + q(application) + " ] || { printf '%s' \"$owner\"; exit " + fmt.Sprint(appDirForeign) + "; }; " +
+		"elif [ -d " + dir + " ] && [ -n \"$(ls -A " + dir + ")\" ]; then exit " + fmt.Sprint(appDirUnmarked) + "; fi; " +
+		"mkdir -p " + q(n.ReleasesDir()) + " && printf '%s\\n' " + q(application) + " > " + marker
 }

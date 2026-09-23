@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 const mainTestProject = `apiVersion: onebox.run/v1alpha1
@@ -132,5 +134,20 @@ func TestExplicitProjectPathDoesNotFallback(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "cannot read project file") {
 		t.Fatalf("explicit missing ob.yml must not fall back to ob.yaml: %v", err)
+	}
+}
+
+func TestTestHostStateOverrideIsNeverSilent(t *testing.T) {
+	var out bytes.Buffer
+	t.Setenv(app.TestHostStateDirEnv, "/tmp/fixture-host")
+	warnTestHostStateOverride(&out)
+	if !strings.Contains(out.String(), "unset it on real hosts") {
+		t.Fatalf("override warning = %q", out.String())
+	}
+	out.Reset()
+	t.Setenv(app.TestHostStateDirEnv, "relative")
+	warnTestHostStateOverride(&out)
+	if !strings.Contains(out.String(), "is ignored") {
+		t.Fatalf("relative override warning = %q", out.String())
 	}
 }

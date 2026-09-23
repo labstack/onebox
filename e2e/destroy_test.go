@@ -51,6 +51,10 @@ spec:
 	if err := os.MkdirAll(releaseDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// What bootstrap writes; destroy deletes nothing without it.
+	if err := os.WriteFile(resolved.NamesFor("production").AppMarker(), []byte(application+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	composePath := filepath.Join(releaseDir, "compose.yaml")
 	envPath := filepath.Join(releaseDir, "legacy.env")
 	composeBody := fmt.Sprintf(`services:

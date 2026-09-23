@@ -744,9 +744,6 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		cleanup = durableContainerStop(e.names().Container(job.Name, 1), job.ShutdownGrace)
 	}
 	environment := e.Opts.Environment
-	if environment == "" {
-		environment = e.Spec.Env
-	}
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",

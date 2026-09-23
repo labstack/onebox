@@ -125,6 +125,7 @@ but not for `_host`: that moves from `<basePath>/_host` to
    mv /var/lib/ob/$APP /var/lib/onebox/app
    mv /var/lib/ob/_host /var/lib/onebox/_host
    printf '%s %s\n' "$APP" "$ENV" > /var/lib/onebox/_host/owner
+   printf '%s\n' "$APP" > /var/lib/onebox/app/.onebox-app
    for network in "${APP}_default" "ob_$APP" ob-ingress; do
      if docker network inspect "$network" >/dev/null 2>&1; then
        docker network rm "$network"
@@ -135,7 +136,10 @@ but not for `_host`: that moves from `<basePath>/_host` to
    `ob_$APP` exists only if the application declared a service.
 
    The state directory holds the managed services' credentials. Moving it, not
-   recreating it, is what lets the new containers open the copied data.
+   recreating it, is what lets the new containers open the copied data. The
+   `.onebox-app` marker says the directory is this application's: bootstrap
+   refuses to adopt a non-empty `app` directory without it, and destroy refuses
+   to delete one.
 
 6. From your machine, bootstrap and deploy:
 

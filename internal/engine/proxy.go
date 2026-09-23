@@ -68,7 +68,9 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		}
 		if journalErr := jw.Append(ctx, finish); journalErr != nil {
 			err = errors.Join(err, fmt.Errorf("journal proxy apply finish: %w", journalErr))
+			return
 		}
+		e.pruneHostJournal(ctx)
 	}()
 	res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true")
 	if err != nil {
@@ -226,23 +228,30 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return fmt.Errorf("write proxy hash: %s", strings.TrimSpace(res.Stderr))
 	}
 	e.logf("proxy: healthy at config %.8s", hash)
-	// The host journal is written only here, so it is pruned only here, with
-	// the application journal's window; otherwise it grows for the host's life.
-	hostJournal := e.names().HostJournalDir()
-	victims, err := journal.PruneCandidates(ctx, e.T, hostJournal, e.Spec.Deployment.RetainReleases*2)
+	return nil
+}
+
+// pruneHostJournal keeps the host journal to the application journal's window.
+// Every proxy check writes to it — an unchanged proxy included — so it runs on
+// every one, after the finish record. It is housekeeping: a failure is reported
+// and never turns an applied proxy into a failed one.
+func (e *Engine) pruneHostJournal(ctx context.Context) {
+	dir := e.names().HostJournalDir()
+	victims, err := journal.PruneCandidates(ctx, e.T, dir, e.Spec.Deployment.RetainReleases*2)
 	if err != nil {
-		return fmt.Errorf("prune host journal: %w", err)
+		e.logf("proxy: host journal not pruned: %v", err)
+		return
 	}
 	for _, id := range victims {
-		res, err := e.hostMutate(ctx, "rm -f "+q(hostJournal+"/"+id+".jsonl"))
-		if err != nil {
-			return err
+		res, err := e.hostMutate(ctx, "rm -f "+q(dir+"/"+id+".jsonl"))
+		if err == nil && res.ExitCode != 0 {
+			err = errors.New(strings.TrimSpace(res.Stderr))
 		}
-		if res.ExitCode != 0 {
-			return fmt.Errorf("prune host journal %s: %s", id, strings.TrimSpace(res.Stderr))
+		if err != nil {
+			e.logf("proxy: host journal entry %s not pruned: %v", id, err)
+			return
 		}
 	}
-	return nil
 }
 
 func (e *Engine) proxyContainerIDs(ctx context.Context) ([]string, error) {

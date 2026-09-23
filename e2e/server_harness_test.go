@@ -304,7 +304,22 @@ func (s *server) obInput(t *testing.T, dir, home, stdin string, args ...string) 
 	)
 	out, err := cmd.CombinedOutput()
 	t.Logf("ob %s\n%s", strings.Join(args, " "), out)
-	return string(out), err
+	return withoutHostStateWarning(string(out)), err
+}
+
+// withoutHostStateWarning drops the warning ob prints while a fixture's
+// test-only host state override is set, so callers parsing output see only
+// what the command itself wrote.
+func withoutHostStateWarning(out string) string {
+	prefix := "warning: " + app.TestHostStateDirEnv + "="
+	lines := strings.SplitAfter(out, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if !strings.HasPrefix(line, prefix) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "")
 }
 
 func (s *server) mustOb(t *testing.T, dir string, args ...string) string {

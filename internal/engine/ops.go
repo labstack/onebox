@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
@@ -139,6 +140,7 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 	// state dir last (takes the lock, fence, and journals with it — that is
 	// the point of destroy)
 	base := release.PathsFor(e.names()).Base
+	// The marker is the proof this directory is ours to delete.
 	sweep := "rm -rf " + q(base)
 	keepingCredentials := !removeVolumes && len(e.Spec.Services) > 0
 	if keepingCredentials {
@@ -151,10 +153,14 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		//
 		// So the key stays with the lock. Everything else — releases,
 		// journals, locks, fences — goes.
-		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name services -exec rm -rf {} +", q(base))
+		sweep = fmt.Sprintf("find %s -mindepth 1 -maxdepth 1 ! -name services ! -name %s -exec rm -rf {} +", q(base), q(app.AppMarkerFile))
 	}
-	if res, err := e.mutate(ctx, sweep); err != nil {
+	marker := q(e.names().AppMarker())
+	guarded := "if [ -e " + q(base) + " ]; then [ \"$(cat " + marker + " 2>/dev/null)\" = " + q(e.Spec.Name) + " ] || exit " + fmt.Sprint(appDirUnmarked) + "; " + sweep + "; fi"
+	if res, err := e.mutate(ctx, guarded); err != nil {
 		return err
+	} else if res.ExitCode == appDirUnmarked {
+		return fmt.Errorf("remove state dir: %s does not carry this application's %s marker, so Onebox will not delete it; remove it by hand if it is Onebox's", base, app.AppMarkerFile)
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("remove state dir: %s", res.Stderr)
 	}

@@ -577,3 +577,23 @@ func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 		}
 	}
 }
+
+// Host state does not follow basePath, so a basePath this account owns proves
+// nothing about it: preflight must test the host state directory itself.
+func TestPreflightChecksTheFixedHostStateDirectory(t *testing.T) {
+	run := healthyRunner()
+	run.answers[`p="/var/lib/onebox/_host"`] = transport.Result{ExitCode: 1, Stdout: "/var/lib\n"}
+	report := preflight(t, run, preflightProject)
+	var found bool
+	for _, failure := range report.Failures() {
+		if failure.Name == "host state" && strings.Contains(failure.Remedy, "/var/lib") {
+			found = true
+		}
+		if failure.Name == "base path" {
+			t.Fatalf("the base path was reported for the host state directory: %+v", failure)
+		}
+	}
+	if !found {
+		t.Fatalf("an unwritable host state directory was not reported: %+v", report.Failures())
+	}
+}

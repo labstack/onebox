@@ -564,3 +564,24 @@ func TestDestroyTellsTheOperatorHowToReleaseTheHost(t *testing.T) {
 		t.Fatalf("retention notice demanded --proxy for an unmanaged proxy:\n%s", out.String())
 	}
 }
+
+// Destroy deletes the state directory whole, so it must first see this
+// application's marker in it: without one, the directory may not be Onebox's.
+func TestDestroyRefusesAnUnmarkedStateDirectory(t *testing.T) {
+	f := opsFake("x")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, app.AppMarkerFile) && strings.Contains(cmd, "rm -rf") {
+			return transport.Result{ExitCode: appDirUnmarked}, true
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Destroy(context.Background(), true, false)
+	if err == nil || !strings.Contains(err.Error(), "will not delete it") {
+		t.Fatalf("destroy of an unmarked directory = %v", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "host ownership released") {
+		t.Fatal("host ownership was released after the state directory was refused")
+	}
+}

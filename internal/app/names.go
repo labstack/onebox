@@ -49,6 +49,9 @@ const (
 	// says which.
 	AppNamespace = "app"
 
+	// AppMarkerFile is the ownership marker inside AppDir.
+	AppMarkerFile = ".onebox-app"
+
 	// DefaultBasePath follows the platform convention for variable state owned
 	// by a program that installs nothing of its own.
 	DefaultBasePath = "/var/lib/onebox"
@@ -62,9 +65,11 @@ const (
 	HostStateDir = DefaultBasePath + "/" + HostNamespace
 
 	// TestHostStateDirEnv relocates HostStateDir for test suites that cannot
-	// write to /var/lib or that run several fixture applications against one
-	// machine. It is not a supported setting: with it, one host can hold
-	// several owner records again.
+	// write to /var/lib, or that keep a fixture's host state inside the
+	// fixture's own directory so its cleanup removes it. Fixture applications
+	// must still not run on one machine at the same time: units and managed
+	// containers carry no application. It is not a supported setting — with it,
+	// one host can hold several owner records — and ob warns when it is set.
 	TestHostStateDirEnv = "ONEBOX_TEST_HOST_STATE_DIR"
 )
 
@@ -351,6 +356,12 @@ func (n Names) ProxyServiceFor(workload string, route int) string {
 // AppDir, ReleasesDir, ReleaseDir, CurrentLink and HostDir are the remote layout.
 func (n Names) AppDir() string      { return path.Join(n.BasePath, AppNamespace) }
 func (n Names) ReleasesDir() string { return path.Join(n.AppDir(), "releases") }
+
+// AppMarker records which application's state AppDir holds. AppDir is a fixed,
+// generic name under an operator-chosen basePath, so a directory of that name
+// may predate Onebox: bootstrap refuses to adopt one without the marker, and
+// destroy removes nothing without it.
+func (n Names) AppMarker() string { return path.Join(n.AppDir(), AppMarkerFile) }
 func (n Names) ReleaseDir(id string) string {
 	return path.Join(n.ReleasesDir(), id)
 }

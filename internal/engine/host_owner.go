@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -142,6 +143,12 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 // a foreign owner before acquiring a lock, then rechecks under the host lock so
 // two first-contact attempts cannot both claim the same machine.
 func (e *Engine) claimHostOwner(ctx context.Context) error {
+	// The record names the environment, and one without it is unreadable: a
+	// claim written with an empty environment would lock every command out of
+	// the host until someone removed the file by hand.
+	if e.Opts.Environment == "" {
+		return errors.New("cannot claim the host without an environment")
+	}
 	owner, err := e.readHostOwner(ctx)
 	if err != nil {
 		return err

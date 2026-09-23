@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const ejectProject = `apiVersion: onebox.run/v1alpha1
@@ -312,5 +314,23 @@ spec:
 	}
 	if ref := reloaded.Workloads["web"].Compose; ref != "compose.yaml#web" {
 		t.Fatalf("project was not repointed at the placed file: %q", ref)
+	}
+}
+
+// Only Onebox's own namespace is stripped. An author's network that happens to
+// begin "ob-" is theirs, and dropping it would cut the ejected service off.
+func TestDropIngressKeepsTheAuthorsNetworks(t *testing.T) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte("networks: [default, onebox-ingress, ob-backend]\n"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	svc := doc.Content[0]
+	dropIngress(svc)
+	out, err := yaml.Marshal(svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "onebox-ingress") || !strings.Contains(string(out), "ob-backend") {
+		t.Fatalf("networks after ejection:\n%s", out)
 	}
 }

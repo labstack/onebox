@@ -211,10 +211,11 @@ var (
 var reservedAppNames = []string{"onebox", "_host"}
 
 // reservedServiceNames are names a service would share with something else
-// Onebox runs. A managed service's container is onebox-<service>, so proxy and
-// discovery would derive the host proxy's containers; its Compose project is
-// onebox_<service>, so services would derive the service network.
-var reservedServiceNames = []string{"proxy", "discovery", ServiceNetworkName}
+// Onebox runs. A managed service's container is onebox-<service>, so proxy,
+// discovery and ingress would derive the host proxy's containers or its ingress
+// network; its Compose project is onebox_<service>, so services would derive
+// the service network.
+var reservedServiceNames = []string{"proxy", "discovery", "ingress", ServiceNetworkName}
 
 // checkServiceName refuses a service name whose container would be the host
 // proxy's.

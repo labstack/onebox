@@ -37,7 +37,7 @@ command with the new version.
 | Application network | `shop_default` | unchanged, but labelled `onebox.app` |
 
 Application names may no longer be `onebox` or begin with `onebox-`. Service
-names may not be `proxy`, `discovery` or `services`. Custom Traefik objects may
+names may not be `proxy`, `discovery`, `ingress` or `services`. Custom Traefik objects may
 not begin with `onebox_`. The default `basePath` is now `/var/lib/onebox`; if
 you set your own, the application's state moves to `<basePath>/app`.
 
@@ -72,9 +72,13 @@ step 6. Copying the volumes temporarily doubles the disk space they use.
    ```sh
    APP=shop
    ENV=production
-   systemctl list-unit-files --no-legend "ob-$APP-*" "ob-backup-$APP-*" | awk '{print $1}' \
-     | xargs -r systemctl disable --now
-   rm -f /etc/systemd/system/ob-$APP-* /etc/systemd/system/ob-backup-$APP-*
+   # Older versions doubled a hyphen in the application's name: my-shop was
+   # written ob-my--shop-nightly. Match both spellings.
+   ESC=$(printf '%s' "$APP" | sed 's/-/--/g')
+   systemctl list-unit-files --no-legend "ob-$APP-*" "ob-$ESC-*" "ob-backup-$APP-*" "ob-backup-$ESC-*" \
+     | awk '{print $1}' | xargs -r systemctl disable --now
+   rm -f /etc/systemd/system/ob-$APP-* /etc/systemd/system/ob-$ESC-* \
+     /etc/systemd/system/ob-backup-$APP-* /etc/systemd/system/ob-backup-$ESC-*
    systemctl daemon-reload
    ```
 
@@ -85,21 +89,28 @@ step 6. Copying the volumes temporarily doubles the disk space they use.
    docker ps -aq --filter label=com.docker.compose.project=onebox-proxy | xargs -r docker rm -f
    ```
 
-4. Copy every volume into its new name, with the new labels:
+4. Copy every volume into its new name, with the labels Onebox and Compose
+   give a volume they create:
 
    ```sh
    for old in $(docker volume ls -q --filter label=ob.app=$APP | grep "^ob_${APP}_"); do
      new="onebox_${old#ob_${APP}_}"
      service=$(docker volume inspect -f '{{index .Labels "ob.service"}}' "$old")
-     labels="--label onebox.app=$APP"
-     [ -n "$service" ] && labels="$labels --label onebox.service=$service"
-     docker volume create $labels "$new"
+     if [ -n "$service" ]; then
+       set -- --label onebox.service="$service" --label com.docker.compose.project="onebox_$service"
+     else
+       set -- --label com.docker.compose.project="$APP"
+     fi
+     docker volume create --label onebox.app="$APP" "$@" \
+       --label com.docker.compose.volume="$new" "$new"
      docker run --rm -v "$old":/from:ro -v "$new":/to alpine cp -a /from/. /to/
    done
    ```
 
    A volume without the `onebox.app` label is refused by preflight as a
-   resource Onebox does not own.
+   resource Onebox does not own. Without the Compose project label,
+   `ob destroy --volumes` would not find the volume, and would leave the data
+   behind.
 
 5. Move the state and rewrite the owner record:
 
@@ -108,8 +119,14 @@ step 6. Copying the volumes temporarily doubles the disk space they use.
    mv /var/lib/ob/$APP /var/lib/onebox/app
    mv /var/lib/ob/_host /var/lib/onebox/_host
    printf '%s %s\n' "$APP" "$ENV" > /var/lib/onebox/_host/owner
-   docker network rm ${APP}_default ob_$APP ob-ingress
+   for network in "${APP}_default" "ob_$APP" ob-ingress; do
+     if docker network inspect "$network" >/dev/null 2>&1; then
+       docker network rm "$network"
+     fi
+   done
    ```
+
+   `ob_$APP` exists only if the application declared a service.
 
    The state directory holds the managed services' credentials. Moving it, not
    recreating it, is what lets the new containers open the copied data.

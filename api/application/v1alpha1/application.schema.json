@@ -1288,6 +1288,9 @@
                   "const": "discovery"
                 },
                 {
+                  "const": "ingress"
+                },
+                {
                   "const": "services"
                 }
               ]

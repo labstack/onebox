@@ -204,3 +204,18 @@ func TestMigrationGateGuidanceMatchesTheRefusedCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestClaimHostOwnerRefusesAnEmptyEnvironment(t *testing.T) {
+	fake := &transport.Fake{}
+	engine := New(testConfig(), testProject(t), fake, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	engine.Opts.Environment = ""
+	err := engine.claimHostOwner(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "without an environment") {
+		t.Fatalf("claim without an environment = %v", err)
+	}
+	for _, command := range fake.Commands {
+		if strings.Contains(command, "_host/owner") && strings.Contains(command, "printf") {
+			t.Fatalf("an unreadable owner record was written: %s", command)
+		}
+	}
+}

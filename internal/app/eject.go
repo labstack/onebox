@@ -187,7 +187,7 @@ func dropIngress(svc *yaml.Node) {
 	}
 	var kept []*yaml.Node
 	for _, n := range nets.Content {
-		if n.Value == IngressNetwork || strings.HasPrefix(n.Value, "ob-") || strings.HasPrefix(n.Value, "onebox-") {
+		if n.Value == IngressNetwork || strings.HasPrefix(n.Value, Namespace+"-") {
 			continue
 		}
 		kept = append(kept, n)

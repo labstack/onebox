@@ -203,7 +203,7 @@ func refuseConflicts(ref string, svc map[string]any, ov overlay) error {
 	for _, k := range sortedKeys(labelMap(svc["labels"])) {
 		if strings.HasPrefix(k, "onebox.") {
 			return errf("compose_onebox_label", ref, "",
-				"referenced service in %q declares %q; the ob. namespace is Onebox's", ref, k)
+				"referenced service in %q declares %q; the onebox. namespace is Onebox's", ref, k)
 		}
 		if ov.HasRoute && strings.HasPrefix(k, "traefik.") {
 			return errf("compose_traefik_label", ref, "",

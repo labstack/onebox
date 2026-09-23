@@ -321,6 +321,17 @@ spec:
   services:
     proxy: {driver: redis, version: 7}
 `,
+		"service ingress": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    ingress: {driver: redis, version: 7}
+`,
 		"service services": `apiVersion: onebox.run/v1alpha1
 kind: Application
 metadata:

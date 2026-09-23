@@ -333,15 +333,7 @@ func (n Names) ProxyServiceFor(workload string, route int) string {
 }
 
 // AppDir, ReleasesDir, ReleaseDir, CurrentLink and HostDir are the remote layout.
-//
-// The host's own journal is written through Names{App: HostNamespace}, so that
-// one application name resolves to the host directory.
-func (n Names) AppDir() string {
-	if n.App == HostNamespace {
-		return n.HostDir()
-	}
-	return path.Join(n.BasePath, AppNamespace)
-}
+func (n Names) AppDir() string      { return path.Join(n.BasePath, AppNamespace) }
 func (n Names) ReleasesDir() string { return path.Join(n.AppDir(), "releases") }
 func (n Names) ReleaseDir(id string) string {
 	return path.Join(n.ReleasesDir(), id)
@@ -474,18 +466,6 @@ func join(parts ...string) string {
 			out += "_"
 		}
 		out += p
-	}
-	return out
-}
-
-func distinctNames(names ...string) []string {
-	out := make([]string, 0, len(names))
-	seen := map[string]bool{}
-	for _, name := range names {
-		if !seen[name] {
-			out = append(out, name)
-			seen[name] = true
-		}
 	}
 	return out
 }

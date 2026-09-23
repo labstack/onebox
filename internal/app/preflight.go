@@ -104,7 +104,7 @@ func (r *Resolved) Preflight(ctx context.Context, run Runner) (*Report, error) {
 	// 4. Name collisions. One listing per resource kind rather than one command
 	// per name — a project with twenty derived names should not cost twenty
 	// round trips.
-	owned, err := ownedNames(ctx, run, p, r.Env)
+	owned, err := ownedNames(ctx, run, p.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -281,9 +281,8 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 // ownedNames lists the container, volume and network names already on the host,
 // with whichever application owns each. A name held by this application is the
 // normal case — a previous release — and only a foreign holder is a collision.
-func ownedNames(ctx context.Context, run Runner, project *Spec, environment string) (map[string]string, error) {
+func ownedNames(ctx context.Context, run Runner, application string) (map[string]string, error) {
 	owned := map[string]string{}
-	application := project.Name
 	for _, q := range []struct {
 		cmd, kind string
 	}{

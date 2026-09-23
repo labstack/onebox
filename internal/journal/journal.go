@@ -99,7 +99,10 @@ type Writer struct {
 	T transport.Transport
 	// Names carries the resolved layout, so a journal is written where the
 	// release it describes actually lives.
-	Names                   app.Names
+	Names app.Names
+	// Dir replaces the application's journal directory. The host journal,
+	// which belongs to no application, is written through it.
+	Dir                     string
 	DeployID                string
 	Epoch                   int
 	Operator                string
@@ -182,8 +185,12 @@ func (w *Writer) Append(ctx context.Context, r Record) error {
 	if err != nil {
 		return err
 	}
-	f := file(w.Names, w.DeployID)
-	cmd := "mkdir -p " + q(dir(w.Names)) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
+	d := w.Dir
+	if d == "" {
+		d = dir(w.Names)
+	}
+	f := d + "/" + w.DeployID + ".jsonl"
+	cmd := "mkdir -p " + q(d) + " && printf '%s\\n' " + q(string(b)) + " >> " + q(f) + " && sync " + q(f)
 	res, err := w.T.Run(ctx, cmd)
 	if err != nil {
 		return err

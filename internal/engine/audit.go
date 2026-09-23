@@ -76,7 +76,7 @@ type AuditRecord struct {
 }
 
 func (e *Engine) AuditSnapshot(ctx context.Context, n int) ([]AuditRecord, error) {
-	ids, err := journal.List(ctx, e.T, e.names())
+	ids, err := journal.List(ctx, e.T, journal.Dir(e.names()))
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (e *Engine) AuditSnapshot(ctx context.Context, n int) ([]AuditRecord, error
 
 	var rows []auditRow
 	for _, id := range ids {
-		recs, err := journal.Read(ctx, e.T, e.names(), id)
+		recs, err := journal.Read(ctx, e.T, journal.Dir(e.names()), id)
 		if err != nil {
 			return nil, err
 		}

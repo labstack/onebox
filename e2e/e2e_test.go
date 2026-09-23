@@ -29,7 +29,7 @@ func TestApplicationFixturesLoad(t *testing.T) {
 	for _, path := range []string{
 		"testdata/app/ob.yml",
 		"testdata/worker/ob.yml",
-		"testdata/worker/ob-broken.yml",
+		"testdata/worker/broken.yml",
 	} {
 		t.Run(path, func(t *testing.T) {
 			// Loading validates: there is no separate step that can be

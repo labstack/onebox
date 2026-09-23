@@ -19,7 +19,7 @@ func TestServerDurableExecutions(t *testing.T) {
 	name := fmt.Sprintf("durable%d", time.Now().UnixNano())
 	base := "/tmp/onebox-" + name
 	root := base + "/app"
-	unit := "ob-" + name + "-refresh"
+	unit := "onebox-job-refresh"
 	dir := t.TempDir()
 	s.run(t, "mkdir -p "+base+"/data")
 	t.Cleanup(func() {

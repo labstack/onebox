@@ -42,7 +42,7 @@ func TestJournalsOneRoundTrip(t *testing.T) {
 		return transport.Result{}, false
 	}}
 
-	ids, byID, err := Journals(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
+	ids, byID, err := Journals(context.Background(), f, Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 		}
 		return transport.Result{}, false
 	}}
-	ids, byID, err := Journals(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
+	ids, byID, err := Journals(context.Background(), f, Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestJournalsTornLastRecordDoesNotSwallowNextFile(t *testing.T) {
 // output, and Journals returns nothing rather than erroring.
 func TestJournalsNoJournalDir(t *testing.T) {
 	f := &transport.Fake{} // default: empty stdout, exit 0
-	ids, byID, err := Journals(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath})
+	ids, byID, err := Journals(context.Background(), f, Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestPruneCandidatesKeepsIndependentDeployAndAuxiliaryWindows(t *testing.T) 
 		}
 		return transport.Result{}, false
 	}}
-	victims, err := PruneCandidates(context.Background(), fake, app.Names{App: "sample", BasePath: app.DefaultBasePath}, 2)
+	victims, err := PruneCandidates(context.Background(), fake, Dir(app.Names{App: "sample", BasePath: app.DefaultBasePath}), 2)
 	if err != nil {
 		t.Fatal(err)
 	}

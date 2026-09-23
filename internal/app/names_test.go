@@ -113,16 +113,14 @@ func TestBackupNamesEscapeHyphenatedSegments(t *testing.T) {
 			credentialNames[credential] = source
 		}
 	}
-	for _, environment := range idents {
-		for _, service := range idents {
-			for _, target := range idents {
-				unit := n.BackupUnitForEnvironment(environment, service, target)
-				source := environment + "|" + service + "|" + target
-				if previous, exists := unitNames[unit]; exists {
-					t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, source)
-				}
-				unitNames[unit] = source
+	for _, service := range idents {
+		for _, operation := range idents {
+			unit := n.BackupUnit(service, operation)
+			source := service + "|" + operation
+			if previous, exists := unitNames[unit]; exists {
+				t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, source)
 			}
+			unitNames[unit] = source
 		}
 	}
 
@@ -130,11 +128,8 @@ func TestBackupNamesEscapeHyphenatedSegments(t *testing.T) {
 	if got := n.BackupCredentialFile("data-base", "off-site"); !strings.HasSuffix(got, "/data--base-off--site.env") {
 		t.Fatalf("escaped credential path = %q", got)
 	}
-	if got := n.BackupUnitForEnvironment("pre-prod", "data-base", "back-up"); got != "onebox-backup-pre--prod-data--base-back--up" {
+	if got := n.BackupUnit("data-base", "back-up"); got != "onebox-backup-data--base-back--up" {
 		t.Fatalf("escaped backup unit = %q", got)
-	}
-	if got := n.BackupUnitPrefixForEnvironment("pre-prod"); got != "onebox-backup-pre--prod-" {
-		t.Fatalf("unit reconciliation prefix = %q", got)
 	}
 	if got := n.ScheduledJobUnit("data-base"); got != "onebox-job-data-base" {
 		t.Fatalf("scheduled job unit = %q", got)

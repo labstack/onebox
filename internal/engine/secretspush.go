@@ -137,7 +137,7 @@ func (e *Engine) SecretsPushBatchWithInputs(ctx context.Context, payloads []Secr
 	if err := runtimeEngine.cleanupSecretUploads(ctx); err != nil {
 		return result, err
 	}
-	jw := &journal.Writer{T: runtimeEngine.T, Names: runtimeEngine.names(), DeployID: current, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &runtimeEngine.Opts.Runner}
+	jw := &journal.Writer{T: runtimeEngine.T, Dir: journal.Dir(runtimeEngine.names()), DeployID: current, Epoch: epoch, Operator: journal.DefaultOperator(), Runner: &runtimeEngine.Opts.Runner}
 	journalStarted := false
 	startJournal := func(detail string) error {
 		if err := jw.Append(ctx, journal.Record{Phase: "secrets-push", Event: "start", Detail: detail}); err != nil {

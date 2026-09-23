@@ -399,7 +399,7 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 	containerID = ids[0]
 	commandDigest := HashBytes([]byte(command))
 	writer := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}
 	invocation := journal.Record{

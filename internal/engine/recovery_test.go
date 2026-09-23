@@ -46,7 +46,7 @@ func seedInterruptedRecoveryState(t *testing.T, engine *Engine) {
 }
 
 func recoveryWriter(engine *Engine) *journal.Writer {
-	return &journal.Writer{T: engine.T, Names: engine.Names(), DeployID: engineTestDeployReleaseID, Epoch: 2}
+	return &journal.Writer{T: engine.T, Dir: journal.Dir(engine.Names()), DeployID: engineTestDeployReleaseID, Epoch: 2}
 }
 
 func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.T) {

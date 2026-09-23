@@ -228,7 +228,7 @@ func TestBrokenWorkerHaltsDeployOldKeepsServing(t *testing.T) {
 	}
 	waitBody(t, "http://localhost:18081/", "v1\n", 30*time.Second)
 
-	e2, id2, staging2 := buildDeploy(t, dir, "ob-broken.yml", "v2", base)
+	e2, id2, staging2 := buildDeploy(t, dir, "broken.yml", "v2", base)
 	err := e2.Deploy(context.Background(), id2, staging2)
 	if err == nil || !strings.Contains(err.Error(), "worker") {
 		t.Fatalf("broken worker must halt the release: %v", err)

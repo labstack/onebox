@@ -168,7 +168,7 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 	}()
 
 	writer := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 		ApprovalDigest: e.Opts.ApprovalDigest, ApprovalClass: e.Opts.ApprovalClass,
 		ApprovedBy: e.Opts.ApprovedBy, ApprovalSource: e.Opts.ApprovalSource,

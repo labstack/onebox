@@ -46,7 +46,11 @@ import (
 // project no longer describes, and nothing in the project would explain why.
 func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	n := e.names()
-	prefix := n.BackupUnitPrefixForEnvironment(e.Opts.Environment)
+	prefix := app.BackupUnitPrefix
+	owners, err := e.scheduleUnitOwners(ctx)
+	if err != nil {
+		return err
+	}
 	// flock creates the lock file but not the directory holding it.
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/backup")); err != nil {
 		return err
@@ -65,7 +69,7 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
-		if matchesRuntimePrefix(bare, prefix) {
+		if matchesRuntimePrefix(bare, prefix) && owners[bare] == e.Spec.Name {
 			installed[bare] = true
 		}
 	}
@@ -127,7 +131,7 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 					service, expression, unit.schedule.Cron)
 			}
 			wanted = append(wanted, wantedUnit{
-				name:     n.BackupUnitForEnvironment(e.Opts.Environment, service, unit.operation),
+				name:     n.BackupUnit(service, unit.operation),
 				calendar: expression,
 				cron:     unit.schedule.Cron,
 				body:     backupServiceUnit(e.Spec.Spec.Name, e.Opts.Environment, service, unit.operation, n.BackupRunLock(service), unit.commands),
@@ -147,6 +151,11 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 		}
 	}
 
+	for _, unit := range wanted {
+		if err := e.requireUnitOwnership(owners, unit.name); err != nil {
+			return err
+		}
+	}
 	wantedNames := map[string]bool{}
 	for _, unit := range wanted {
 		wantedNames[unit.name] = true

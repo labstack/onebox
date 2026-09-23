@@ -219,7 +219,7 @@ func (e *Engine) ExecutionAbandon(ctx context.Context, operation, id string) (er
 	if err := e.WriteFence(ctx, operation, epoch); err != nil {
 		return err
 	}
-	writer := &journal.Writer{T: e.T, Names: e.names(), DeployID: operation, Epoch: epoch,
+	writer := &journal.Writer{T: e.T, Dir: journal.Dir(e.names()), DeployID: operation, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	record := journal.Record{Phase: "execution-abandon", Event: "start", Status: "ok", Target: id, TargetKind: "job"}
 	if err := writer.Append(ctx, record); err != nil {

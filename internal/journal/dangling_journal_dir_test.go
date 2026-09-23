@@ -20,7 +20,7 @@ func TestJournalReadRefusesDanglingDirectory(t *testing.T) {
 	base := t.TempDir()
 	names := app.Names{App: "sample", BasePath: base}
 
-	journalDir := dir(names)
+	journalDir := Dir(names)
 	if err := os.MkdirAll(filepath.Dir(journalDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestJournalReadRefusesDanglingDirectory(t *testing.T) {
 	}
 
 	fake := &transport.Fake{}
-	if _, _, err := Journals(context.Background(), fake, names); err != nil {
+	if _, _, err := Journals(context.Background(), fake, Dir(names)); err != nil {
 		t.Fatalf("capture command: %v", err)
 	}
 	if len(fake.Commands) == 0 {
@@ -50,14 +50,14 @@ func TestJournalReadRefusesDanglingDirectory(t *testing.T) {
 func TestJournalReadRefusesDanglingEntry(t *testing.T) {
 	base := t.TempDir()
 	names := app.Names{App: "sample", BasePath: base}
-	if err := os.MkdirAll(dir(names), 0o700); err != nil {
+	if err := os.MkdirAll(Dir(names), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(base, "gone"), filepath.Join(dir(names), "R1.jsonl")); err != nil {
+	if err := os.Symlink(filepath.Join(base, "gone"), filepath.Join(Dir(names), "R1.jsonl")); err != nil {
 		t.Fatal(err)
 	}
 	fake := &transport.Fake{}
-	if _, _, err := Journals(context.Background(), fake, names); err != nil {
+	if _, _, err := Journals(context.Background(), fake, Dir(names)); err != nil {
 		t.Fatalf("capture command: %v", err)
 	}
 	if exit := shellExit(t, fake.Commands[len(fake.Commands)-1]); exit != 2 {
@@ -74,7 +74,7 @@ func TestJournalReadRefusesUnsearchableAncestor(t *testing.T) {
 	}
 	base := t.TempDir()
 	names := app.Names{App: "sample", BasePath: base}
-	journalDir := dir(names)
+	journalDir := Dir(names)
 	if err := os.MkdirAll(journalDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestJournalReadRefusesUnsearchableAncestor(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 
 	fake := &transport.Fake{}
-	if _, _, err := Journals(context.Background(), fake, names); err != nil {
+	if _, _, err := Journals(context.Background(), fake, Dir(names)); err != nil {
 		t.Fatalf("capture command: %v", err)
 	}
 	if exit := shellExit(t, fake.Commands[len(fake.Commands)-1]); exit != app.ProbeUndetermined {
@@ -105,7 +105,7 @@ func TestJournalReadRefusesUnreadableDirectory(t *testing.T) {
 	}
 	base := t.TempDir()
 	names := app.Names{App: "sample", BasePath: base}
-	journalDir := dir(names)
+	journalDir := Dir(names)
 	if err := os.MkdirAll(journalDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestJournalReadRefusesUnreadableDirectory(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(journalDir, 0o700) })
 
 	fake := &transport.Fake{}
-	if _, _, err := Journals(context.Background(), fake, names); err != nil {
+	if _, _, err := Journals(context.Background(), fake, Dir(names)); err != nil {
 		t.Fatalf("capture command: %v", err)
 	}
 	if exit := shellExit(t, fake.Commands[len(fake.Commands)-1]); exit != 2 {
@@ -133,15 +133,15 @@ func TestJournalReadRefusesUnreadableDirectory(t *testing.T) {
 func TestJournalReadRefusesNonRegularEntry(t *testing.T) {
 	base := t.TempDir()
 	names := app.Names{App: "sample", BasePath: base}
-	if err := os.MkdirAll(dir(names), 0o700); err != nil {
+	if err := os.MkdirAll(Dir(names), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	// A directory where a journal belongs.
-	if err := os.Mkdir(filepath.Join(dir(names), "R1.jsonl"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(Dir(names), "R1.jsonl"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	fake := &transport.Fake{}
-	if _, _, err := Journals(context.Background(), fake, names); err != nil {
+	if _, _, err := Journals(context.Background(), fake, Dir(names)); err != nil {
 		t.Fatalf("capture command: %v", err)
 	}
 	if exit := shellExit(t, fake.Commands[len(fake.Commands)-1]); exit != 2 {
@@ -154,11 +154,11 @@ func TestJournalReadRefusesNonRegularEntry(t *testing.T) {
 func TestJournalReadAcceptsRealDirectory(t *testing.T) {
 	base := t.TempDir()
 	names := app.Names{App: "sample", BasePath: base}
-	if err := os.MkdirAll(dir(names), 0o700); err != nil {
+	if err := os.MkdirAll(Dir(names), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	fake := &transport.Fake{}
-	if _, _, err := Journals(context.Background(), fake, names); err != nil {
+	if _, _, err := Journals(context.Background(), fake, Dir(names)); err != nil {
 		t.Fatalf("capture command: %v", err)
 	}
 	if exit := shellExit(t, fake.Commands[len(fake.Commands)-1]); exit != 0 {

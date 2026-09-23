@@ -104,12 +104,13 @@ application.**
 | State directory | `/var/lib/onebox/app` (releases, `current`, journal, services, backup) |
 | Host state | `/var/lib/onebox/_host` (owner record, proxy) |
 | Scheduled job units | `onebox-job-<job>.service` and `.timer` |
-| Backup units | `onebox-backup-<environment>-<service>-<operation>` |
+| Backup units | `onebox-backup-<service>-<operation>` |
 | Proxy routers and services | `onebox_<workload>_r<n>`, `onebox_<workload>` |
 | Ownership labels | `onebox.app`, `onebox.workload`, `onebox.service`, `onebox.release`, … |
 
 The `onebox.app` label, not any name, is what records which application owns a
-resource. Custom Traefik objects in a proxy configuration directory may not
+resource; for a systemd unit, its `Description` does. Onebox never removes or
+overwrites a unit whose `Description` names another application. Custom Traefik objects in a proxy configuration directory may not
 begin with `onebox_`.
 
 **Names do not carry the environment.** Staging and production of `shop` both

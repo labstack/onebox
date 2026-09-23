@@ -30,14 +30,17 @@ var cliNames = map[string]bool{
 	"ob-backup-report.json":     true,
 }
 
-var obName = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(\.?ob[-_.][A-Za-z0-9][A-Za-z0-9_.-]*)`)
+// obName also matches a bare "ob-", "ob_" or "ob." literal, because names
+// were built by joining such a prefix onto an identifier.
+var obName = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(\.?ob[-_.](?:[A-Za-z0-9][A-Za-z0-9_.-]*)?)`)
 
-// TestNoNewNamesOutsideTheOneboxNamespace fails when a string literal in the
-// product introduces an ob-, ob_ or ob. name that is not one of cliNames.
-// Comments are not checked; names are.
+// TestNoNewNamesOutsideTheOneboxNamespace fails when a string literal
+// introduces an ob-, ob_ or ob. name that is not one of cliNames. It reads the
+// product, and the end-to-end suites, whose names must match what the product
+// installs or their probes pass vacuously. Comments are not checked; names are.
 func TestNoNewNamesOutsideTheOneboxNamespace(t *testing.T) {
 	root := filepath.Join("..", "..")
-	for _, dir := range []string{"internal", "cmd"} {
+	for _, dir := range []string{"internal", "cmd", "e2e"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -48,7 +51,8 @@ func TestNoNewNamesOutsideTheOneboxNamespace(t *testing.T) {
 				}
 				return nil
 			}
-			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_test.py") {
+			inE2E := strings.HasPrefix(filepath.ToSlash(path), filepath.ToSlash(filepath.Join(root, "e2e"))+"/")
+			if !inE2E && (strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_test.py")) {
 				return nil
 			}
 			var literals []string
@@ -62,7 +66,10 @@ func TestNoNewNamesOutsideTheOneboxNamespace(t *testing.T) {
 			}
 			for _, literal := range literals {
 				for _, match := range obName.FindAllStringSubmatch(literal, -1) {
-					name := strings.TrimRight(match[1], ".")
+					name := match[1]
+					if len(name) > len("ob.") {
+						name = strings.TrimRight(name, ".")
+					}
 					if !cliNames[name] {
 						t.Errorf("%s: %q is outside the onebox namespace; only the CLI's own files keep the ob prefix", path, name)
 					}

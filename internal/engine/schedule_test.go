@@ -200,7 +200,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		"--project-directory",
 		"/var/lib/onebox/app/current",
 		"compose.yaml",
-		`run --rm --no-deps "$@" --name 'sample-nightly-1'`,
+		`run --rm --no-deps "$@" --label 'onebox.execution.job=nightly' --name 'sample-nightly-1'`,
 		"docker rm -f 'sample-nightly-1'",
 		"docker kill --signal TERM 'sample-nightly-1'",
 		"docker kill --signal KILL 'sample-nightly-1'",
@@ -313,7 +313,7 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 		"--project-directory \"$release_dir\"",
 		"-f \"$release_dir\"/'compose.yaml'",
 		"--env-file \"$release_dir\"/'config/runtime.env'",
-		`run --rm --no-deps "$@" --name 'sample-refresh-1' 'refresh'`,
+		`run --rm --no-deps "$@" --label 'onebox.execution.job=refresh' --name 'sample-refresh-1' 'refresh'`,
 		"docker rm -f 'sample-refresh-1'",
 	} {
 		if !strings.Contains(runner, want) {
@@ -848,6 +848,8 @@ func TestRemoveSchedulesRemovesFilesAndReloadsAfterFailedDisable(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "list-unit-files"):
 			return transport.Result{Stdout: "onebox-job-nightly.timer\n"}, true
+		case strings.Contains(cmd, "grep -H '^Description=Onebox '"):
+			return transport.Result{Stdout: unitOwnerListing("onebox-job-nightly", "sample")}, true
 		case strings.Contains(cmd, "systemctl disable --now"):
 			return transport.Result{ExitCode: 5, Stderr: "unit is busy"}, true
 		}
@@ -944,7 +946,7 @@ func TestScheduleSyncIgnoresInvalidHostListedUnitNames(t *testing.T) {
 // trace being a line saying the schedule was "no longer declared".
 func TestSyncSchedulesLeavesBackupTimersAlone(t *testing.T) {
 	backupTimer := app.Names{App: "example", BasePath: "/var/lib/onebox"}.
-		BackupTimerForEnvironment("production", "database", "backup")
+		BackupTimer("database", "backup")
 	if strings.HasPrefix(backupTimer, app.JobUnitPrefix) {
 		t.Fatalf("backup timer %q is inside the job scheduler's namespace and a deploy would delete it", backupTimer)
 	}
@@ -962,13 +964,21 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 		if strings.Contains(cmd, "list-unit-files") {
 			return transport.Result{Stdout: strings.Join([]string{
 				"onebox-job-nightly.timer",
-				"onebox-backup-production-postgres-backup.timer",
-				"onebox-backup-production-postgres-verify.timer",
-				// Outside Onebox's namespaces, and a stranger's. Neither is ours.
+				"onebox-backup-postgres-backup.timer",
+				"onebox-backup-postgres-verify.timer",
+				// Another application's, outside Onebox's namespaces, and a
+				// stranger's. None is ours.
+				"onebox-backup-other-backup.timer",
 				"backup-other-production-postgres-backup.timer",
 				"logrotate.timer",
 				"",
 			}, "\n")}, true
+		}
+		if strings.Contains(cmd, "grep -H '^Description=Onebox '") {
+			return transport.Result{Stdout: unitOwnerListing("onebox-job-nightly", "sample") +
+				backupOwnerListing("onebox-backup-postgres-backup", "sample") +
+				backupOwnerListing("onebox-backup-postgres-verify", "sample") +
+				backupOwnerListing("onebox-backup-other-backup", "other")}, true
 		}
 		return transport.Result{}, false
 	}}
@@ -979,14 +989,14 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	for _, want := range []string{
 		"onebox-job-nightly",
-		"onebox-backup-production-postgres-backup",
-		"onebox-backup-production-postgres-verify",
+		"onebox-backup-postgres-backup",
+		"onebox-backup-postgres-verify",
 	} {
 		if !strings.Contains(seq, "rm -f /etc/systemd/system/"+want+".timer") {
 			t.Errorf("teardown left %s installed:\n%s", want, seq)
 		}
 	}
-	for _, never := range []string{"backup-other-production", "logrotate"} {
+	for _, never := range []string{"onebox-backup-other-backup", "backup-other-production", "logrotate"} {
 		if strings.Contains(seq, never) {
 			t.Errorf("teardown removed a unit that is not this application's (%s):\n%s", never, seq)
 		}
@@ -1433,7 +1443,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 		`ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;`,
 		`[A-Z]*=*) set -- "$@" -e "$line"`,
 		`rm -f "$inputs_file"`,
-		`run --rm --no-deps "$@" --name 'sample-sync-1' 'sync'`,
+		`run --rm --no-deps "$@" --label 'onebox.execution.job=sync' --name 'sample-sync-1' 'sync'`,
 	} {
 		if !strings.Contains(runner, want) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
@@ -1453,7 +1463,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
 	}
 	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
-	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --name`) {
+	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --label`) {
 		t.Fatalf("exclusive runner does not consume inputs:\n%s", exclusive)
 	}
 }
@@ -1893,5 +1903,54 @@ ActiveState=active
 	}
 	if got := statuses[0]; got.Diverged || got.LastOutcome != "success" {
 		t.Fatalf("a stale systemd result outvoted the record: %#v", got)
+	}
+}
+
+func unitOwnerListing(unit, application string) string {
+	return "/etc/systemd/system/" + unit + ".service:Description=Onebox scheduled job nightly for " + application + "\n"
+}
+
+func backupOwnerListing(unit, application string) string {
+	return "/etc/systemd/system/" + unit + ".service:Description=Onebox backup backup for postgres (" + application + "/production)\n"
+}
+
+// A unit name is not proof of ownership: a second application with its own
+// basePath has its own owner record, so its units can share names with ours.
+func TestScheduleSyncNeverTouchesAnotherApplicationsUnits(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "list-unit-files"):
+			return transport.Result{Stdout: "onebox-job-cleanup.timer\n"}, true
+		case strings.Contains(cmd, "grep -H '^Description=Onebox '"):
+			return transport.Result{Stdout: unitOwnerListing("onebox-job-cleanup", "other")}, true
+		}
+		return transport.Result{}, false
+	}}
+	cfg := testConfig()
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.SyncSchedules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "onebox-job-cleanup.timer /etc") || strings.Contains(seq, "disable --now onebox-job-cleanup") {
+		t.Fatalf("sync removed another application's unit:\n%s", seq)
+	}
+}
+
+func TestUnitDescriptionOwner(t *testing.T) {
+	for description, want := range map[string]string{
+		"Onebox scheduled job nightly for shop":                   "shop",
+		"Onebox scheduled job nightly-for-x for shop":             "shop",
+		"Onebox backup backup for postgres (shop/production)":     "shop",
+		"Onebox backup verify for data-base (help-desk/pre-prod)": "help-desk",
+		"Onebox schedule for nightly (shop)":                      "",
+		"Something else":                                          "",
+	} {
+		if got := unitDescriptionOwner(description); got != want {
+			t.Errorf("unitDescriptionOwner(%q) = %q, want %q", description, got, want)
+		}
+	}
+	e := &Engine{Spec: testConfig()}
+	if err := e.requireUnitOwnership(map[string]string{"onebox-job-nightly": "other"}, "onebox-job-nightly"); err == nil || !strings.Contains(err.Error(), "belongs to application other") {
+		t.Fatalf("another application's unit was not refused: %v", err)
 	}
 }

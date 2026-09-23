@@ -39,7 +39,7 @@ func TestServerProbes(t *testing.T) {
 			t.Error("the service is archiving into a repository it cannot reach")
 		}
 		timers := strings.TrimSpace(s.run(t,
-			"systemctl list-units --type=timer --all --no-pager | grep -c ob-backup || true"))
+			"systemctl list-units --type=timer --all --no-pager | grep -c onebox-backup- || true"))
 		if timers != "0" {
 			t.Errorf("a failed enablement left %s backup timer(s) installed", timers)
 		}
@@ -203,11 +203,11 @@ func TestServerProbes(t *testing.T) {
 
 		for _, probe := range []struct{ name, command, want string }{
 			{"release tree", "ls -d /var/lib/onebox/app 2>/dev/null | wc -l", "0"},
-			{"backup timers", "systemctl list-units --type=timer --all --no-pager | grep -c ob-backup || true", "0"},
-			{"unit files", "ls /etc/systemd/system/ob-backup-* 2>/dev/null | wc -l", "0"},
+			{"backup timers", "systemctl list-units --type=timer --all --no-pager | grep -c onebox-backup- || true", "0"},
+			{"unit files", "ls /etc/systemd/system/onebox-backup-* 2>/dev/null | wc -l", "0"},
 			{"containers", "docker ps -aq --filter label=onebox.app=observer | wc -l", "0"},
 			{"networks", "docker network ls --filter label=onebox.app=observer -q | wc -l", "0"},
-			{"volumes", "docker volume ls -q | grep -c observer || true", "0"},
+			{"volumes", "docker volume ls -q --filter label=onebox.app=observer | wc -l", "0"},
 		} {
 			if got := strings.TrimSpace(s.run(t, probe.command)); got != probe.want {
 				t.Errorf("destroy left %s behind: %s (want %s)", probe.name, got, probe.want)

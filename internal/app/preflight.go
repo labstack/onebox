@@ -283,6 +283,7 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 // normal case — a previous release — and only a foreign holder is a collision.
 func ownedNames(ctx context.Context, run Runner, application string) (map[string]string, error) {
 	owned := map[string]string{}
+	n := Names{App: application}
 	for _, q := range []struct {
 		cmd, kind string
 	}{
@@ -312,12 +313,8 @@ func ownedNames(ctx context.Context, run Runner, application string) (map[string
 			if len(fields) > 1 {
 				owner = strings.TrimSpace(fields[1])
 			}
-			// A Compose file that runs its own proxy beside the workloads makes
-			// Compose create the application network, labelled with the
-			// application's project but not with onebox.app. The engine accepts
-			// it; preflight must predict that. Only this exact name: a project
-			// label on anything else proves nothing.
-			if owner == "" && q.kind == "network" && name == (Names{App: application}).ApplicationNetwork() && len(fields) > 2 && strings.TrimSpace(fields[2]) == application {
+			// The same rule the engine applies, so preflight predicts it.
+			if owner == "" && q.kind == "network" && len(fields) > 2 && n.ComposeCreatedApplicationNetwork(name, strings.TrimSpace(fields[2])) {
 				owner = application
 			}
 			// Docker permits the same name in different resource kinds. Every

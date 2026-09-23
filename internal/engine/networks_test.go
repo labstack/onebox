@@ -78,7 +78,7 @@ func TestUnlabelledNetworkIsRefused(t *testing.T) {
 				return base(command)
 			}
 			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-			_, err := e.ownedNetworkExists(context.Background(), name, "sample")
+			_, err := e.ownedNetworkExists(context.Background(), name)
 			if err == nil || !strings.Contains(err.Error(), "refusing to adopt") {
 				t.Fatalf("unlabelled network error = %v", err)
 			}

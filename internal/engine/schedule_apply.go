@@ -53,7 +53,7 @@ func (e *Engine) ScheduleApply(ctx context.Context, operationID string) (err err
 	}
 
 	jw := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch,
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: operationID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA,
 		ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}

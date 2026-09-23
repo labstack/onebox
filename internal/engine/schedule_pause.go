@@ -87,7 +87,7 @@ func (e *Engine) setSchedulePause(ctx context.Context, operationID, name, reason
 		phase, verb = "schedule-pause", "paused"
 	}
 	writer := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: operationID, Epoch: epoch, Operator: journal.DefaultOperator(),
 		GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner,
 	}
 	record := journal.Record{Phase: phase, Event: "start", Status: "ok", Target: name, TargetKind: "job", Reason: reason}

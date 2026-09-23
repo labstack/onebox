@@ -106,7 +106,7 @@ func (e *Engine) RunJobWithJournalID(ctx context.Context, request JobRunRequest)
 	}
 
 	writer := &journal.Writer{
-		T: e.T, Names: e.names(), DeployID: operationID, Epoch: epoch,
+		T: e.T, Dir: journal.Dir(e.names()), DeployID: operationID, Epoch: epoch,
 		Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash,
 		ApprovalDigest: e.Opts.ApprovalDigest, ApprovalClass: e.Opts.ApprovalClass,
 		ApprovedBy: e.Opts.ApprovedBy, ApprovalSource: e.Opts.ApprovalSource,

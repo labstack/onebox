@@ -77,6 +77,17 @@ func (p *Spec) NamesFor(env string) Names {
 // identifiers contain no underscore and may not be or begin `onebox`.
 func (n Names) ComposeProject() string { return n.App }
 
+// ComposeCreatedApplicationNetwork reports whether a network with no
+// onebox.app label is still this application's: Compose created it for the
+// application's own project, as it does when the project's Compose file runs a
+// proxy beside the workloads before Onebox creates the network. Docker cannot
+// label it afterwards. The engine and preflight both decide with this, so
+// preflight predicts the engine exactly; a project label on any other name
+// proves nothing.
+func (n Names) ComposeCreatedApplicationNetwork(network, composeProject string) bool {
+	return network == n.ApplicationNetwork() && composeProject == n.ComposeProject()
+}
+
 // ApplicationNetwork is the stable default network shared by every workload
 // in the application Compose project. It is created outside Compose so a
 // release teardown cannot remove a network that still has an unmanaged proxy
@@ -258,21 +269,17 @@ func (n Names) ScheduledJobPause(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".paused")
 }
 
-// BackupTimerForEnvironment names a backup timer.
-func (n Names) BackupTimerForEnvironment(environment, service, operation string) string {
-	return n.BackupUnitForEnvironment(environment, service, operation) + ".timer"
+// BackupTimer names a backup timer.
+func (n Names) BackupTimer(service, operation string) string {
+	return n.BackupUnit(service, operation) + ".timer"
 }
 
-// BackupUnitForEnvironment is the systemd unit name without its suffix, so
-// the .service and .timer that pair together cannot be spelled differently.
-func (n Names) BackupUnitForEnvironment(environment, service, operation string) string {
-	return BackupUnitPrefix + runtimeName(environment, service, operation)
-}
-
-// BackupUnitPrefixForEnvironment is the part of every backup unit name that
-// belongs to one environment.
-func (n Names) BackupUnitPrefixForEnvironment(environment string) string {
-	return BackupUnitPrefix + runtimeName(environment) + "-"
+// BackupUnit is the systemd unit name without its suffix, so the .service and
+// .timer that pair together cannot be spelled differently. It carries neither
+// the application nor the environment: the host owner record names both, and
+// the unit's Description records the owner for reconciliation.
+func (n Names) BackupUnit(service, operation string) string {
+	return BackupUnitPrefix + runtimeName(service, operation)
 }
 
 // JobUnitPrefix and BackupUnitPrefix are the systemd namespaces Onebox owns

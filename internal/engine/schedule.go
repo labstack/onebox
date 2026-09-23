@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -45,6 +46,10 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	}
 	n := e.names()
 	prefix := app.JobUnitPrefix
+	owners, err := e.scheduleUnitOwners(ctx)
+	if err != nil {
+		return err
+	}
 
 	// What is installed now, so anything no longer declared can go.
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
@@ -58,7 +63,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
-		if matchesRuntimePrefix(bare, prefix) {
+		if matchesRuntimePrefix(bare, prefix) && owners[bare] == e.Spec.Name {
 			installed[bare] = true
 		}
 	}
@@ -66,6 +71,11 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	wanted := map[string]bool{}
 	if err := e.requireScheduleHost(ctx, jobs); err != nil {
 		return err
+	}
+	for _, job := range jobs {
+		if err := e.requireUnitOwnership(owners, n.ScheduledJobUnit(job.Name)); err != nil {
+			return err
+		}
 	}
 	for _, job := range jobs {
 		if job.Execution != nil {
@@ -224,7 +234,7 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	projectDir := q(names.CurrentLink())
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --label " + q(ExecutionJobLabel+"="+job.Name) + " --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -255,13 +265,18 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	return strings.Join(lines, "\n")
 }
 
+// ExecutionJobLabel names the job a one-off container runs. Every scheduled run
+// carries it, durable or not, so a container a crash left behind is still
+// provably this job's when the durable runner has to reclaim it.
+const ExecutionJobLabel = "onebox.execution.job"
+
 func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	scheduleDir := names.AppDir() + "/schedule"
 	container := names.Container(job.Name, 1)
 	projectDir := `"$release_dir"`
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --label " + q(ExecutionJobLabel+"="+job.Name) + " --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -920,7 +935,12 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 	// namespace — app.JobUnitPrefix explains why. Teardown is the opposite case
 	// and needs both: matching only the job prefix once left backup timers
 	// loaded and firing against a release directory `ob destroy` had just
-	// deleted. They belong to this application and they go with it.
+	// deleted. They belong to this application and they go with it — and only
+	// those whose Description names it.
+	owners, err := e.scheduleUnitOwners(ctx)
+	if err != nil {
+		return err
+	}
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
 	if err != nil {
 		return err
@@ -932,7 +952,8 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 			continue
 		}
 		unit = strings.TrimSuffix(unit, ".timer")
-		if matchesRuntimePrefix(unit, app.JobUnitPrefix) || matchesRuntimePrefix(unit, app.BackupUnitPrefix) {
+		if (matchesRuntimePrefix(unit, app.JobUnitPrefix) || matchesRuntimePrefix(unit, app.BackupUnitPrefix)) &&
+			owners[unit] == e.Spec.Name {
 			units = append(units, unit)
 		}
 	}
@@ -975,6 +996,60 @@ func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
 		errs = append(errs, fmt.Errorf("remove schedule files %s failed (exit %d): %s", unit, remove.ExitCode, strings.TrimSpace(remove.Stderr)))
 	}
 	return errors.Join(errs...)
+}
+
+// scheduleUnitOwners reads which application owns each installed Onebox job and
+// backup unit, from the Description Onebox writes into every .service.
+//
+// The name alone is not proof. A host has one owner per basePath, so a second
+// application with its own basePath can install units with the same names; a
+// deploy or destroy that trusted the name would delete or overwrite them.
+// Units whose owner cannot be read are nobody's: they are left alone.
+func (e *Engine) scheduleUnitOwners(ctx context.Context) (map[string]string, error) {
+	res, err := e.T.Run(ctx, "grep -H '^Description=Onebox ' /etc/systemd/system/"+app.JobUnitPrefix+"*.service /etc/systemd/system/"+app.BackupUnitPrefix+"*.service 2>/dev/null || true")
+	if err != nil {
+		return nil, fmt.Errorf("read schedule unit owners: %w", err)
+	}
+	owners := map[string]string{}
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		file, description, ok := strings.Cut(strings.TrimSpace(line), ":Description=")
+		if !ok {
+			continue
+		}
+		unit := strings.TrimSuffix(path.Base(file), ".service")
+		if owner := unitDescriptionOwner(description); owner != "" && unitName.MatchString(unit+".service") {
+			owners[unit] = owner
+		}
+	}
+	return owners, nil
+}
+
+// unitDescriptionOwner extracts the application from the two Description
+// forms Onebox writes: "Onebox scheduled job <job> for <app>" and
+// "Onebox backup <op> for <service> (<app>/<env>)".
+func unitDescriptionOwner(description string) string {
+	if rest, ok := strings.CutPrefix(description, "Onebox backup "); ok {
+		open := strings.LastIndex(rest, "(")
+		if open < 0 || !strings.HasSuffix(rest, ")") {
+			return ""
+		}
+		owner, _, _ := strings.Cut(rest[open+1:len(rest)-1], "/")
+		return owner
+	}
+	if rest, ok := strings.CutPrefix(description, "Onebox scheduled job "); ok {
+		if at := strings.LastIndex(rest, " for "); at >= 0 {
+			return rest[at+len(" for "):]
+		}
+	}
+	return ""
+}
+
+// requireUnitOwnership refuses to write over a unit another application owns.
+func (e *Engine) requireUnitOwnership(owners map[string]string, unit string) error {
+	if owner, ok := owners[unit]; ok && owner != e.Spec.Name {
+		return fmt.Errorf("systemd unit %s belongs to application %s; one host runs one application — remove it or use another host", unit, owner)
+	}
+	return nil
 }
 
 // matchesRuntimePrefix distinguishes a component boundary from the first half

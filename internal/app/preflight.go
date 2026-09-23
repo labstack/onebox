@@ -288,7 +288,7 @@ func ownedNames(ctx context.Context, run Runner, application string) (map[string
 	}{
 		{`docker ps -a --format '{{.Names}}\t{{.Label "onebox.app"}}'`, "container"},
 		{`docker volume ls --format '{{.Name}}\t{{.Label "onebox.app"}}'`, "volume"},
-		{`docker network ls --format '{{.Name}}\t{{.Label "onebox.app"}}'`, "network"},
+		{`docker network ls --format '{{.Name}}\t{{.Label "onebox.app"}}\t{{.Label "com.docker.compose.project"}}'`, "network"},
 	} {
 		res, err := run.Run(ctx, q.cmd)
 		if err != nil {
@@ -303,7 +303,7 @@ func ownedNames(ctx context.Context, run Runner, application string) (map[string
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			fields := strings.SplitN(line, "\t", 2)
+			fields := strings.SplitN(line, "\t", 3)
 			name := strings.TrimSpace(fields[0])
 			if name == "" {
 				continue
@@ -311,6 +311,14 @@ func ownedNames(ctx context.Context, run Runner, application string) (map[string
 			owner := ""
 			if len(fields) > 1 {
 				owner = strings.TrimSpace(fields[1])
+			}
+			// A Compose file that runs its own proxy beside the workloads makes
+			// Compose create the application network, labelled with the
+			// application's project but not with onebox.app. The engine accepts
+			// it; preflight must predict that. Only this exact name: a project
+			// label on anything else proves nothing.
+			if owner == "" && q.kind == "network" && name == (Names{App: application}).ApplicationNetwork() && len(fields) > 2 && strings.TrimSpace(fields[2]) == application {
+				owner = application
 			}
 			// Docker permits the same name in different resource kinds. Every
 			// holder must belong to this application: one foreign or unlabelled

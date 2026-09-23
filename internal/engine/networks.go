@@ -13,21 +13,25 @@ import (
 // remain attached while one release is torn down.
 func (e *Engine) EnsureApplicationNetwork(ctx context.Context) error {
 	n := e.names()
-	return e.ensureOwnedNetwork(ctx, n.ApplicationNetwork())
+	return e.ensureOwnedNetwork(ctx, n.ApplicationNetwork(), n.ComposeProject())
 }
 
 // ensureServiceNetwork establishes the long-lived network shared by workloads
 // and supporting services.
 func (e *Engine) ensureServiceNetwork(ctx context.Context, n app.Names) error {
-	return e.ensureOwnedNetwork(ctx, n.ServiceNetwork())
+	return e.ensureOwnedNetwork(ctx, n.ServiceNetwork(), "")
 }
 
-// ensureOwnedNetwork creates a labelled network or accepts one that already
-// carries this application's label. A derived name alone is never evidence:
+// ensureOwnedNetwork creates a labelled network or accepts one this
+// application provably owns: it carries the application's label, or — for the
+// application network only — Compose created it for the application's own
+// project. The second case is a Compose file that runs its own proxy beside the
+// workloads: Compose creates <app>_default before Onebox does, and Docker cannot
+// add a label to it afterwards. A derived name alone is never evidence:
 // silently adopting a hand-created network is the bug this boundary exists to
 // prevent.
-func (e *Engine) ensureOwnedNetwork(ctx context.Context, name string) error {
-	exists, err := e.ownedNetworkExists(ctx, name)
+func (e *Engine) ensureOwnedNetwork(ctx context.Context, name, composeProject string) error {
+	exists, err := e.ownedNetworkExists(ctx, name, composeProject)
 	if err != nil {
 		return err
 	}
@@ -49,7 +53,7 @@ func (e *Engine) ensureOwnedNetwork(ctx context.Context, name string) error {
 // either remove them or stop before deleting state and releasing host ownership.
 func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 	n := e.names()
-	networks := []string{n.ApplicationNetwork()}
+	networks := []struct{ name, composeProject string }{{n.ApplicationNetwork(), n.ComposeProject()}}
 	// `onebox_services` is reserved only when the app has services. A project that
 	// never declared one must not have full destroy blocked by an unrelated,
 	// unlabelled network at that otherwise-unused name. Durable service state
@@ -64,22 +68,22 @@ func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 		includeServiceNetwork = state.ExitCode == 0
 	}
 	if includeServiceNetwork {
-		networks = append(networks, n.ServiceNetwork())
+		networks = append(networks, struct{ name, composeProject string }{n.ServiceNetwork(), ""})
 	}
 	for _, network := range networks {
-		exists, err := e.ownedNetworkExists(ctx, network)
+		exists, err := e.ownedNetworkExists(ctx, network.name, network.composeProject)
 		if err != nil {
 			return err
 		}
 		if !exists {
 			continue
 		}
-		removed, removeErr := e.mutate(ctx, "docker network rm "+q(network))
+		removed, removeErr := e.mutate(ctx, "docker network rm "+q(network.name))
 		if removeErr != nil {
 			return removeErr
 		}
 		if removed.ExitCode != 0 {
-			return fmt.Errorf("network %s: cannot remove owned network: %s; detach its remaining endpoints, then retry destroy", network, strings.TrimSpace(removed.Stderr))
+			return fmt.Errorf("network %s: cannot remove owned network: %s; detach its remaining endpoints, then retry destroy", network.name, strings.TrimSpace(removed.Stderr))
 		}
 	}
 	return nil
@@ -88,12 +92,12 @@ func (e *Engine) removeOwnedNetworks(ctx context.Context) error {
 // ownedNetworkExists reports absence and otherwise proves that an existing
 // network belongs to this application before a caller creates, uses, or removes
 // it. The same proof must guard every lifecycle transition.
-func (e *Engine) ownedNetworkExists(ctx context.Context, name string) (bool, error) {
+func (e *Engine) ownedNetworkExists(ctx context.Context, name, composeProject string) (bool, error) {
 	// `docker network inspect --format` prints a backslash-t literally on some
 	// Docker releases (unlike the list formatter). Use a delimiter that the
 	// formatter does not have to interpret; none of these validated identities
 	// can contain a pipe.
-	inspect := "docker network inspect --format '{{.Id}}|{{index .Labels \"onebox.app\"}}' " + q(name)
+	inspect := "docker network inspect --format '{{.Id}}|{{index .Labels \"onebox.app\"}}|{{index .Labels \"com.docker.compose.project\"}}' " + q(name)
 	res, err := e.T.Run(ctx, inspect)
 	if err != nil {
 		return false, err
@@ -108,13 +112,16 @@ func (e *Engine) ownedNetworkExists(ctx context.Context, name string) (bool, err
 		return false, fmt.Errorf("network %s: cannot inspect ownership (exit %d): %s", name, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 
-	fields := strings.SplitN(strings.TrimSpace(res.Stdout), "|", 2)
+	fields := strings.SplitN(strings.TrimSpace(res.Stdout), "|", 3)
 	if len(fields) == 0 || !validID.MatchString(strings.TrimSpace(fields[0])) {
 		return false, fmt.Errorf("network %s: inspect returned no valid identity", name)
 	}
 	owner := ""
 	if len(fields) > 1 {
 		owner = networkLabel(fields[1])
+	}
+	if owner == "" && composeProject != "" && len(fields) > 2 && networkLabel(fields[2]) == composeProject {
+		owner = e.Spec.Name
 	}
 	switch owner {
 	case "":

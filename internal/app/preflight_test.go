@@ -253,6 +253,25 @@ func TestOwnedNetworkDoesNotMaskForeignHolderOfTheSameName(t *testing.T) {
 	}
 }
 
+func TestComposeProjectOwnsOnlyTheApplicationNetwork(t *testing.T) {
+	run := healthyRunner()
+	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\t\tledger\n"}
+	report := preflight(t, run, preflightProject)
+	for _, failure := range report.Failures() {
+		if failure.Name == "name collisions" {
+			t.Fatalf("the application's Compose network was reported as foreign: %s", failure.Detail)
+		}
+	}
+
+	project := preflightProject + "services: {postgres: {version: 17}}\n"
+	run = healthyRunner()
+	run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\tledger\n"}
+	report = preflight(t, run, project)
+	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
+		t.Fatalf("a project label proved ownership of the service network: %+v", report.Failures())
+	}
+}
+
 func TestUnlabelledServiceNetworkIsForeign(t *testing.T) {
 	project := preflightProject + "services: {postgres: {version: 17}}\n"
 	run := healthyRunner()

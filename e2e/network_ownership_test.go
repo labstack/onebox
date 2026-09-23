@@ -87,11 +87,11 @@ spec:
 	})
 	up := append(append([]string{}, legacyArgs...), "up", "-d")
 	if out, err := exec.CommandContext(ctx, "docker", up...).CombinedOutput(); err != nil {
-		t.Fatalf("start legacy proxy: %v\n%s", err, out)
+		t.Fatalf("start the Compose proxy: %v\n%s", err, out)
 	}
 
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
-		t.Fatalf("migrate legacy Compose network: %v", err)
+		t.Fatalf("adopt the application.s Compose network: %v", err)
 	}
 
 	runtimePath := filepath.Join(dir, "runtime.yaml")

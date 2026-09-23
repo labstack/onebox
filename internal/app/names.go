@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -51,6 +52,20 @@ const (
 	// DefaultBasePath follows the platform convention for variable state owned
 	// by a program that installs nothing of its own.
 	DefaultBasePath = "/var/lib/onebox"
+
+	// HostStateDir holds the host owner record, the host lock, the host journal
+	// and the proxy. It is fixed, not under basePath. basePath says where one
+	// application's state lives; a host path that moved with it gave every
+	// basePath its own owner record, so a second application with another
+	// basePath could claim the same host — and every name Onebox derives
+	// without the application relies on one application per host.
+	HostStateDir = DefaultBasePath + "/" + HostNamespace
+
+	// TestHostStateDirEnv relocates HostStateDir for test suites that cannot
+	// write to /var/lib or that run several fixture applications against one
+	// machine. It is not a supported setting: with it, one host can hold
+	// several owner records again.
+	TestHostStateDirEnv = "ONEBOX_TEST_HOST_STATE_DIR"
 )
 
 // Names derives every generated name for one project and environment.
@@ -269,15 +284,9 @@ func (n Names) ScheduledJobPause(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".paused")
 }
 
-// BackupTimer names a backup timer.
-func (n Names) BackupTimer(service, operation string) string {
-	return n.BackupUnit(service, operation) + ".timer"
-}
-
 // BackupUnit is the systemd unit name without its suffix, so the .service and
 // .timer that pair together cannot be spelled differently. It carries neither
-// the application nor the environment: the host owner record names both, and
-// the unit's Description records the owner for reconciliation.
+// the application nor the environment: the host owner record names both.
 func (n Names) BackupUnit(service, operation string) string {
 	return BackupUnitPrefix + runtimeName(service, operation)
 }
@@ -346,7 +355,16 @@ func (n Names) ReleaseDir(id string) string {
 	return path.Join(n.ReleasesDir(), id)
 }
 func (n Names) CurrentLink() string { return path.Join(n.AppDir(), "current") }
-func (n Names) HostDir() string     { return path.Join(n.BasePath, HostNamespace) }
+func (n Names) HostDir() string {
+	if dir := os.Getenv(TestHostStateDirEnv); path.IsAbs(dir) {
+		return path.Clean(dir)
+	}
+	return HostStateDir
+}
+
+// HostJournalDir holds the journal of operations on the host itself, such as
+// applying the proxy.
+func (n Names) HostJournalDir() string { return path.Join(n.HostDir(), "journal") }
 
 // HostOwnerPath is where the host owner record lives. Preflight and the engine
 // both probe it, and a preflight that reads a different path than the mutation

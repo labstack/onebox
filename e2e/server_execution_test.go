@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/onebox/internal/app"
 )
 
 // Exercise the public CLI through SSH, generated systemd units, real Docker,
@@ -19,6 +21,9 @@ func TestServerDurableExecutions(t *testing.T) {
 	name := fmt.Sprintf("durable%d", time.Now().UnixNano())
 	base := "/tmp/onebox-" + name
 	root := base + "/app"
+	// This fixture shares the server with the suite's own application, so it
+	// needs host state of its own; one host holds one owner record otherwise.
+	t.Setenv(app.TestHostStateDirEnv, base+"/_host")
 	unit := "onebox-job-refresh"
 	dir := t.TempDir()
 	s.run(t, "mkdir -p "+base+"/data")

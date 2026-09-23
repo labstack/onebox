@@ -608,18 +608,6 @@ func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
-	// The host journal records operations on the host itself, such as proxy
-	// apply. It keeps the same window, or it would grow for the host's life.
-	hostJournal := journal.HostDir(e.names())
-	hvictims, err := journal.PruneCandidates(ctx, e.T, hostJournal, e.Spec.Deployment.RetainReleases*2)
-	if err != nil {
-		return "", err
-	}
-	for _, id := range hvictims {
-		if err := e.mutateChecked(ctx, "prune host journal "+id, "rm -f "+q(hostJournal+"/"+id+".jsonl")); err != nil {
-			return "", err
-		}
-	}
 	return "", nil
 }
 

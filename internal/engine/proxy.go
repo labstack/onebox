@@ -56,7 +56,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return err
 	}
 	defer e.releaseHostLock(ctx)
-	jw := &journal.Writer{T: e.T, Dir: journal.HostDir(e.names()), DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
+	jw := &journal.Writer{T: e.T, Dir: e.names().HostJournalDir(), DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "start", Detail: "hash=" + hash}); err != nil {
 		return fmt.Errorf("journal proxy apply start: %w", err)
 	}
@@ -226,6 +226,22 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return fmt.Errorf("write proxy hash: %s", strings.TrimSpace(res.Stderr))
 	}
 	e.logf("proxy: healthy at config %.8s", hash)
+	// The host journal is written only here, so it is pruned only here, with
+	// the application journal's window; otherwise it grows for the host's life.
+	hostJournal := e.names().HostJournalDir()
+	victims, err := journal.PruneCandidates(ctx, e.T, hostJournal, e.Spec.Deployment.RetainReleases*2)
+	if err != nil {
+		return fmt.Errorf("prune host journal: %w", err)
+	}
+	for _, id := range victims {
+		res, err := e.hostMutate(ctx, "rm -f "+q(hostJournal+"/"+id+".jsonl"))
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("prune host journal %s: %s", id, strings.TrimSpace(res.Stderr))
+		}
+	}
 	return nil
 }
 

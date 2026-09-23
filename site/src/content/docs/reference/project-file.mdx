@@ -118,7 +118,9 @@ once a persistent resource exists its name cannot change without migration. A
 foreign resource already holding a derived name is refused, not adopted.
 
 **Layout** — `/var/lib/onebox/app/releases/<id>`, plus `current`, `journal`, and
-`services`. Configurable per environment with `basePath`.
+`services`. `basePath` moves this per environment. Host state — the owner
+record, host lock and proxy — stays in `/var/lib/onebox/_host` whatever
+`basePath` says, so that one host has one owner.
 
 ### Bind-mount lifetimes
 

@@ -614,8 +614,8 @@ func TestStatePathsFollowTheDeclaredBasePath(t *testing.T) {
 	if got := release.PathsFor(e.Names()).Releases; got != "/srv/ob/app/releases" {
 		t.Errorf("releases = %q, want /srv/ob/app/releases", got)
 	}
-	if got := proxy.HostPaths(e.Names()).Base; got != "/srv/ob/_host" {
-		t.Errorf("host scope = %q, want /srv/ob/_host", got)
+	if got := proxy.HostPaths(e.Names()).Base; got != app.HostStateDir {
+		t.Errorf("host scope = %q, want the fixed %s: basePath must not move host ownership", got, app.HostStateDir)
 	}
 	// And an environment may move it again.
 	env := cfg.Environments["production"]

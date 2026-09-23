@@ -35,6 +35,9 @@ func gate(t *testing.T) {
 	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
 		t.Fatalf("ONEBOX_E2E=1 was set but docker is not usable: %v", err)
 	}
+	// Host state is fixed under /var/lib/onebox, which this suite neither can
+	// nor should write; each test gets its own, as each gets its own basePath.
+	t.Setenv(app.TestHostStateDirEnv, filepath.Join(t.TempDir(), "host"))
 }
 
 // buildDeploy loads config+compose fresh (env-sensitive) and returns an

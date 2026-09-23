@@ -98,7 +98,7 @@ type WorkloadPlanEvidence struct {
 type Writer struct {
 	T transport.Transport
 	// Dir is the journal directory: Dir(names) for an application's journal,
-	// HostDir(names) for the host's. Every reader takes the same directory, so
+	// names.HostJournalDir() for the host's. Every reader takes the same directory, so
 	// a journal is read and pruned exactly where it was written.
 	Dir                     string
 	DeployID                string
@@ -118,10 +118,6 @@ type Writer struct {
 
 // Dir is an application's journal directory, beside the releases it describes.
 func Dir(n app.Names) string { return release.PathsFor(n).Base + "/journal" }
-
-// HostDir is the host's journal directory, for operations on the host itself
-// such as applying the proxy.
-func HostDir(n app.Names) string { return n.HostDir() + "/journal" }
 
 func file(dir, id string) string { return dir + "/" + id + ".jsonl" }
 

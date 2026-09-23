@@ -43,7 +43,8 @@ command with the new version.
 Application names may no longer be `onebox` or begin with `onebox-`. Service
 names may not be `proxy`, `discovery`, `ingress` or `services`. Custom Traefik objects may
 not begin with `onebox_`. The default `basePath` is now `/var/lib/onebox`; if
-you set your own, the application's state moves to `<basePath>/app`.
+you set your own, the application's state moves to `<basePath>/app`. Host state
+is always `/var/lib/onebox/_host` now, whatever `basePath` says.
 
 ## What happens without these steps
 
@@ -65,8 +66,9 @@ you set your own, the application's state moves to `<basePath>/app`.
 
 Run the host steps as root. Set `APP` to your application name and `ENV` to the
 environment that owns the host. If you set `basePath`, use it in place of
-`/var/lib/ob` and `/var/lib/onebox`. The application is down from step 2 until
-step 6. Copying the volumes temporarily doubles the disk space they use.
+`/var/lib/ob` and `/var/lib/onebox` in step 5 for the application's directory,
+but not for `_host`: that moves from `<basePath>/_host` to
+`/var/lib/onebox/_host`. The application is down from step 2 until step 6. Copying the volumes temporarily doubles the disk space they use.
 
 1. Upgrade `ob` on your machine. Do not run any other `ob` command yet.
 

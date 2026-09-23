@@ -47,10 +47,6 @@ import (
 func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	n := e.names()
 	prefix := app.BackupUnitPrefix
-	owners, err := e.scheduleUnitOwners(ctx)
-	if err != nil {
-		return err
-	}
 	// flock creates the lock file but not the directory holding it.
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/backup")); err != nil {
 		return err
@@ -69,7 +65,7 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
-		if matchesRuntimePrefix(bare, prefix) && owners[bare] == e.Spec.Name {
+		if strings.HasPrefix(bare, prefix) {
 			installed[bare] = true
 		}
 	}
@@ -151,11 +147,6 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 		}
 	}
 
-	for _, unit := range wanted {
-		if err := e.requireUnitOwnership(owners, unit.name); err != nil {
-			return err
-		}
-	}
 	wantedNames := map[string]bool{}
 	for _, unit := range wanted {
 		wantedNames[unit.name] = true

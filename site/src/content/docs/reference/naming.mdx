@@ -102,16 +102,17 @@ application.**
 | What | Name |
 | --- | --- |
 | State directory | `/var/lib/onebox/app` (releases, `current`, journal, services, backup) |
-| Host state | `/var/lib/onebox/_host` (owner record, proxy) |
+| Host state | `/var/lib/onebox/_host` (owner record, host lock, host journal, proxy), whatever `basePath` says |
 | Scheduled job units | `onebox-job-<job>.service` and `.timer` |
 | Backup units | `onebox-backup-<service>-<operation>` |
 | Proxy routers and services | `onebox_<workload>_r<n>`, `onebox_<workload>` |
 | Ownership labels | `onebox.app`, `onebox.workload`, `onebox.service`, `onebox.release`, … |
 
 The `onebox.app` label, not any name, is what records which application owns a
-resource; for a systemd unit, its `Description` does. Onebox never removes or
-overwrites a unit whose `Description` names another application. Custom Traefik objects in a proxy configuration directory may not
-begin with `onebox_`.
+resource. Names can drop the application because a host has exactly one: the
+owner record is at a fixed path, so a different `basePath` does not give a
+second application a second record. Custom Traefik objects in a proxy
+configuration directory may not begin with `onebox_`.
 
 **Names do not carry the environment.** Staging and production of `shop` both
 derive `shop-web-1` and `onebox-postgres`. What keeps them apart is the host:

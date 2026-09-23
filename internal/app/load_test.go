@@ -573,6 +573,23 @@ func TestOverLongNameRefused(t *testing.T) {
 	}
 }
 
+// Escaped hyphens and the rollout suffix make a container name longer than its
+// identifiers. The limit applies to the name Docker is given, not the inputs.
+func TestOverLongEscapedContainerNameRefused(t *testing.T) {
+	application := "a-b-c-d-e-f-g-h-i-j-k-l-m-n-o"
+	workload := "w-x-y-z-a-b-c"
+	if len(application)+1+len(workload) > maxDerivedName {
+		t.Fatal("fixture no longer isolates the escaped-name case")
+	}
+	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: " + application +
+		"\nspec:\n  environments: {p: {server: h}}\n  workloads: {" + workload + ": {image: nginx}}\n"
+	_, err := loadFixtureBytes([]byte(y), "ob.yml")
+	var e *Error
+	if !asError(err, &e) || e.Code != "derived_name_too_long" {
+		t.Fatalf("got %v, want derived_name_too_long for %s", err, (Names{App: application}).TransientContainer(workload))
+	}
+}
+
 // TestConversionDrafts loads every draft recorded for tasks 1.1-1.3. These are
 // real projects: five here and eight open-source.
 func TestConversionDrafts(t *testing.T) {

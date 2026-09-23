@@ -38,18 +38,18 @@ func writeCfg(t *testing.T, files map[string]string) string {
 }
 
 func TestPathsHostScoped(t *testing.T) {
-	// The base comes from the project's resolved names, so an app declaring
-	// base_path puts the host proxy beside its own state rather than in a
-	// second tree nothing else reads.
+	// basePath moves an application's state, never the host's: the owner record
+	// here is what keeps a host to one application, so it cannot be per basePath.
 	p := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"})
-	if p.Base != "/tmp/obbase/_host" {
+	if p.Base != app.HostStateDir {
 		t.Fatalf("base: %s", p.Base)
 	}
-	if p.Compose != "/tmp/obbase/_host/proxy/compose.yaml" || p.Owner != "/tmp/obbase/_host/owner" {
+	if p.Compose != app.HostStateDir+"/proxy/compose.yaml" || p.Owner != app.HostStateDir+"/owner" || p.Journal != app.HostStateDir+"/journal" {
 		t.Fatalf("paths: %+v", p)
 	}
-	if p.Lock != "/tmp/obbase/_host/lock" || p.Acme != "/tmp/obbase/_host/proxy/acme" {
-		t.Fatalf("paths: %+v", p)
+	t.Setenv(app.TestHostStateDirEnv, "/tmp/fixture-host")
+	if got := HostPaths(app.Names{App: "sample", BasePath: "/tmp/obbase"}).Owner; got != "/tmp/fixture-host/owner" {
+		t.Fatalf("test host state override ignored: %s", got)
 	}
 }
 

@@ -41,10 +41,11 @@ CVE response, and an upgrade path on a host Onebox otherwise does not manage. An
 operator who wants a pinned installer run inside the lock, fence and journal
 boundary declares it as a bootstrap hook.
 
-Owned application containers have one visible grammar:
-`<app>-<component>-<replica>`, with a one-based replica ordinal that is never
-omitted. The managed host proxy is `onebox-proxy`. These names are generated
-identity, not user configuration.
+Workload containers are `<app>-<component>-<replica>`, with a one-based replica
+ordinal that is never omitted. Containers Onebox runs from its own images are
+`onebox-<component>` with no ordinal, because none of them has replicas: the host
+proxy `onebox-proxy`, and managed services such as `onebox-postgres`. These names
+are generated identity, not user configuration.
 
 The broader managed-operations goal is direction, not an inventory. Owned today:
 host bootstrap, the host prerequisite check, the proxy and its TLS, the host

@@ -551,6 +551,9 @@ func crossFieldRules(p *Spec) error {
 	}
 
 	for _, name := range sortedKeys(p.Services) {
+		if err := checkServiceName(name); err != nil {
+			return err
+		}
 		if _, clash := p.Workloads[name]; clash {
 			return errf("identifier_collision", "services."+name, "",
 				"%q names both a workload and a service; their derived volume names would collide", name)

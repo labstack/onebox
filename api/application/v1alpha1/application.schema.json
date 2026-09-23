@@ -39,6 +39,9 @@
                 "const": "ob"
               },
               {
+                "const": "onebox"
+              },
+              {
                 "const": "onebox-proxy"
               },
               {
@@ -1281,6 +1284,18 @@
             "description": "Also accepts the version to run."
           },
           "description": "Supporting services managed outside application releases, such as databases and caches.",
+          "propertyNames": {
+            "not": {
+              "anyOf": [
+                {
+                  "const": "proxy"
+                },
+                {
+                  "const": "discovery"
+                }
+              ]
+            }
+          },
           "type": "object"
         },
         "workloads": {

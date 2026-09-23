@@ -109,9 +109,9 @@ Full explanation, including why level four outranks the rest:
 
 ## What Onebox generates
 
-**Names** — application containers are uniformly numbered:
-`shop-web-1`, `shop-web-2`, and `shop-postgres-1`. The managed proxy is
-`onebox-proxy`. Persistent and provider names include `ob_shop_postgres`,
+**Names** — workload containers are uniformly numbered: `shop-web-1` and
+`shop-web-2`. Containers Onebox runs from its own images are unnumbered:
+`onebox-postgres` for a managed service and `onebox-proxy` for the proxy. Persistent and provider names include `ob_shop_postgres`,
 `ob_shop_postgres_data`, `shop_default` (the external application network),
 `ob_shop` (the external service network), and `ob-ingress`. These are contract:
 once a persistent resource exists its name cannot change without migration. A

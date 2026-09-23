@@ -203,7 +203,28 @@ var (
 // application taking one of them would derive names that collide with the
 // proxy's or the host namespace's, and the collision would appear as a
 // container that vanishes rather than as an error.
-var reservedAppNames = []string{"ob", "onebox-proxy", "_host"}
+//
+// "onebox" is reserved because onebox-* names the containers Onebox runs from
+// its own images; an application called onebox would derive workload names in
+// that namespace and read as if Onebox ran them.
+var reservedAppNames = []string{"ob", "onebox", "onebox-proxy", "_host"}
+
+// reservedServiceNames are the host proxy's components. A managed service's
+// container is onebox-<service>, so a service with one of these names would
+// derive the host proxy's container name.
+var reservedServiceNames = []string{"proxy", "discovery"}
+
+// checkServiceName refuses a service name whose container would be the host
+// proxy's.
+func checkServiceName(name string) error {
+	for _, reserved := range reservedServiceNames {
+		if name == reserved {
+			return errf("project_invalid", "services."+name, "",
+				"%q is reserved: its container would be onebox-%s, which the host proxy uses", name, name)
+		}
+	}
+	return nil
+}
 
 // checkAppName is the identifier grammar plus the reservations.
 func checkAppName(name string) error {

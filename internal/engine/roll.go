@@ -433,12 +433,10 @@ func (e *Engine) nameOf(ctx context.Context, id string) (string, error) {
 // slotNames is the target name set, from the naming contract.
 //
 // It is the contract's names and not Compose's, and not a local invention
-// either. Container names are host-global: two applications that each have a
-// `web` workload would both want `web-1`, and the second would fail to start
-// or, worse, be renamed over the first. The contract carries the application
-// in every name for exactly that reason, and preflight checks those names for
-// collisions — so a rollout that used different ones would be checking for
-// collisions it then does not create, and creating collisions it never checked.
+// either. Preflight checks the contract's names for collisions with containers
+// Onebox does not own — anything else the operator runs on the host — so a
+// rollout that used different ones would be checking for collisions it then
+// does not create, and creating collisions it never checked.
 func (e *Engine) slotNames(workload string, desired int) []string {
 	n := e.names()
 	out := make([]string, desired)

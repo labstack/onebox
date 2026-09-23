@@ -47,7 +47,6 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ledger",
 		"ledger-migrate-1",
 		"ledger-migrate-new",
-		"ledger-postgres-1",
 		"ledger-web-1",
 		"ledger-web-2",
 		"ledger-web-3",
@@ -60,6 +59,7 @@ func TestDerivedNamesGolden(t *testing.T) {
 		"ob_ledger_postgres_data",
 		"ob_ledger_postgres_wal",
 		"ob_ledger_web_uploads",
+		"onebox-postgres",
 	}
 	got := p.All("production")
 	if len(got) != len(want) {
@@ -211,7 +211,7 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 	seen := map[string]string{}
 	add := func(name, source string) {
 		t.Helper()
-		if previous, exists := seen[name]; exists {
+		if previous, exists := seen[name]; exists && previous != source {
 			t.Fatalf("runtime name %q derives from both %s and %s", name, previous, source)
 		}
 		seen[name] = source
@@ -223,8 +223,24 @@ func TestRuntimeContainerDerivationIsInjective(t *testing.T) {
 				add(n.Container(component, replica), fmt.Sprintf("container %s/%s/%d", application, component, replica))
 			}
 			add(n.TransientContainer(component), "transient "+application+"/"+component)
-			add(n.BackupRestoreContainer(component), "restore "+application+"/"+component)
+			// Managed containers do not carry the application: a host has one,
+			// so only the component has to be distinct.
+			add(n.ServiceContainer(component), "service "+component)
+			add(n.BackupRestoreContainer(component), "restore "+component)
 		}
+	}
+}
+
+func TestManagedContainersAreOneboxSingletons(t *testing.T) {
+	n := Names{App: "shop"}
+	if got := n.ServiceContainer("postgres"); got != "onebox-postgres" {
+		t.Errorf("service container = %q, want onebox-postgres", got)
+	}
+	if got := n.BackupRestoreContainer("postgres"); got != "onebox-postgres-restore" {
+		t.Errorf("restore container = %q, want onebox-postgres-restore", got)
+	}
+	if got := n.ServiceContainer("pg-main"); got != "onebox-pg--main" {
+		t.Errorf("hyphenated service container = %q, want onebox-pg--main", got)
 	}
 }
 
@@ -286,6 +302,49 @@ func TestNoDerivedNameCollidesWithHostScoped(t *testing.T) {
 		}
 		if strings.HasPrefix(name, "ob-") {
 			t.Fatalf("derived name %q entered the reserved hyphenated namespace", name)
+		}
+	}
+}
+
+// The onebox-* container namespace is Onebox's. An application called onebox
+// would derive workload containers inside it, and a service called proxy or
+// discovery would derive the host proxy's own container names.
+func TestOneboxContainerNamespaceIsReserved(t *testing.T) {
+	for label, body := range map[string]string{
+		"application onebox": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: onebox
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+`,
+		"service proxy": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    proxy: {driver: redis, version: 7}
+`,
+		"service discovery": `apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  services:
+    discovery: {driver: postgres, version: 18}
+`,
+	} {
+		if _, err := loadFixtureBytes([]byte(body), "ob.yml"); err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("%s: loaded, or refused for another reason: %v", label, err)
 		}
 	}
 }

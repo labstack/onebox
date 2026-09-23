@@ -53,11 +53,24 @@ duration is an integer.
 
 ## Runtime resources
 
-**Every application container is `<app>-<component>-<replica>`.** Replica
-ordinals are one-based and never omitted, including for a singleton. A
+**Every workload container is `<app>-<component>-<replica>`.** Replica
+ordinals are one-based and never omitted, including for a singleton, because
+replicas can change and a rollout moves containers between numbered slots. A
 three-replica `server` workload in the `monk` application is therefore
-`monk-server-1`, `monk-server-2`, and `monk-server-3`; singleton components are
-`monk-feed-1`, `monk-postgres-1`, and `monk-redis-1`.
+`monk-server-1`, `monk-server-2`, and `monk-server-3`; a singleton workload is
+`monk-feed-1`.
+
+**Every container Onebox runs from its own images is `onebox-<component>`.**
+There is no ordinal, because none of them has replicas. Managed services are
+`onebox-postgres` and `onebox-redis`; a restore drill beside one is
+`onebox-postgres-restore`; the host proxy is `onebox-proxy` and its discovery
+controller `onebox-discovery`. The application is not in these names: a host
+runs one application, and the `ob.app` label records which. So `docker ps`
+reads as two groups — your images under your application's name, and what
+Onebox provides under `onebox-`.
+
+Because of that namespace, `onebox` is not a valid application name, and
+`proxy` and `discovery` are not valid service names.
 
 A hyphen authored inside `app` or a component is doubled in the runtime name,
 so the separator remains unambiguous: app `help-desk` and component `web-api`
@@ -69,7 +82,9 @@ removed. The host-scoped managed proxy is `onebox-proxy`.
 
 Container names are the human-facing runtime grammar. Persistent volumes,
 Compose projects, networks, and proxy-provider objects use their own derived
-names because they have different collision and data-lifetime constraints.
+names because they have different collision and data-lifetime constraints. They
+carry the application even for a managed service — its data volume is
+`ob_shop_postgres_data` — because they hold that application's data.
 
 ## Commands
 

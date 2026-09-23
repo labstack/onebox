@@ -151,8 +151,7 @@ func WalgEnvironment(target BackupTarget, repository, database, service string) 
 // PgSuperuser is the role the postgres driver creates. It must agree with the
 // driver's `user` field, and the contract test holds the two together. wal-g
 // connects as it rather than as the operating-system user, which is `postgres`
-// — a role the driver never creates, because Onebox owns the identity and makes
-// it the application's so two projects on one host cannot silently share one.
+// — a role the driver never creates, because Onebox owns the identity.
 const PgSuperuser = "onebox"
 
 // WalgCredentialEntries are the entry names the target-side credential file

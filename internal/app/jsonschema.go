@@ -404,6 +404,7 @@ var schemaConstraints = []struct {
 	{[]string{"api_version"}, map[string]any{"const": APIVersion}},
 	{[]string{"app"}, appNameConstraint()},
 	{[]string{"base_path"}, pattern(gAbsPath)},
+	{[]string{"services"}, serviceNamesConstraint()},
 	{[]string{"services", "*", "features", "extensions"}, map[string]any{
 		"propertyNames": map[string]any{"pattern": gExtension.pattern.String()},
 	}},
@@ -734,6 +735,15 @@ func appNameConstraint() map[string]any {
 	out["description"] = "The application's name. Expects " + gIdent.means +
 		", and may not begin \"ob-\" or be a name the host layout reserves."
 	return out
+}
+
+// serviceNamesConstraint holds the service names the host proxy reserves.
+func serviceNamesConstraint() map[string]any {
+	forbidden := make([]any, 0, len(reservedServiceNames))
+	for _, name := range reservedServiceNames {
+		forbidden = append(forbidden, map[string]any{"const": name})
+	}
+	return map[string]any{"propertyNames": map[string]any{"not": map[string]any{"anyOf": forbidden}}}
 }
 
 func bindSourceConstraint() map[string]any {

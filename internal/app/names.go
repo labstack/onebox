@@ -9,8 +9,12 @@ import (
 
 // Derived names are contract. Once a volume exists its name can never change
 // without moving data, so every pattern here is fixed and pinned by a golden
-// test. Runtime containers use the human-facing <app>-<component>-<replica>
-// grammar; persistent and provider-internal names use the injective join below.
+// test. Workload containers use the human-facing <app>-<component>-<replica>
+// grammar. Containers Onebox runs from its own images — managed services, their
+// restore drills, and the host proxy — use onebox-<component> with no ordinal,
+// because none of them has replicas. Persistent and provider-internal names use
+// the injective join below and keep the application in every name, since they
+// hold that application's data.
 //
 // Persistent and provider-internal identifiers are joined with underscores.
 // Hyphens would be ambiguous there: `ob-<app>-<service>` maps both (a-b, c) and
@@ -22,6 +26,10 @@ const (
 	// ProxyProject and IngressNetwork are host-scoped.
 	ProxyProject   = "onebox-proxy"
 	IngressNetwork = "ob-ingress"
+
+	// ManagedContainerPrefix begins every container Onebox runs from its own
+	// images: the host proxy and a managed service alike.
+	ManagedContainerPrefix = "onebox"
 
 	// HostNamespace holds state shared by everything on the box.
 	HostNamespace = "_host"
@@ -67,10 +75,12 @@ func (n Names) ServiceProject(service string) string {
 	return join("ob", n.App, service)
 }
 
-// ServiceContainer is a service's stable singleton slot. The explicit ordinal
-// keeps every application-owned runtime name in one predictable grammar.
+// ServiceContainer is a managed service's container. The name says who runs it,
+// not who owns it: the ob.app label carries ownership, and a host has one
+// application, so the application in the name would tell an operator nothing.
+// There is no ordinal because a managed service is always a singleton.
 func (n Names) ServiceContainer(service string) string {
-	return containerName(n.App, service, 1)
+	return runtimeName(ManagedContainerPrefix, service)
 }
 
 // ServiceNetwork joins the application to its services. It is one network per
@@ -197,8 +207,10 @@ func (n Names) BackupRestoreProject(service string) string {
 	return join("ob", n.App, service, "restore")
 }
 
+// BackupRestoreContainer is the transient restore-drill container beside a
+// managed service, named like the service it restores.
 func (n Names) BackupRestoreContainer(service string) string {
-	return runtimeName(n.App, service, "restore", "1")
+	return runtimeName(ManagedContainerPrefix, service, "restore")
 }
 
 func (n Names) BackupRestoreNetwork(service string) string {
@@ -290,9 +302,11 @@ func (n Names) BackupUnitPrefixes() []string {
 // BackupUnitPrefix is the systemd namespace backup owns outright.
 const BackupUnitPrefix = "ob-backup-"
 
-// Container is a workload's stable runtime slot. Container names are
-// host-global, so every one carries the application, component, and a
-// one-based replica ordinal — including singleton workloads.
+// Container is a workload's stable runtime slot. It carries the application,
+// component, and a one-based replica ordinal — including singleton workloads,
+// because replicas can change and a rollout moves containers between slots. The
+// application keeps the author's containers distinct from the onebox-* ones
+// Onebox runs, and from anything else the operator runs on the host.
 func (n Names) Container(workload string, replica int) string {
 	return containerName(n.App, workload, replica)
 }

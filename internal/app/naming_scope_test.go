@@ -5,12 +5,18 @@ import (
 	"testing"
 )
 
-// 8.5 — every name Onebox derives carries the application.
+// 8.5 — every name derived from the author's components carries the
+// application.
 //
 // Container, volume and network names are host-global in the container
 // runtime. A workload-scoped name such as `web` or `data` can collide with
 // something Onebox does not own, and the collision surfaces as a container
 // that vanishes or a volume shared between two applications — not as an error.
+//
+// Managed service containers are the exception, by design: they are
+// onebox-<service>, the namespace of containers Onebox runs from its own
+// images. Their volumes and projects still carry the application, because
+// those hold its data.
 //
 // The transient rollout name is included deliberately: it exists for seconds
 // during a handover, which is exactly when nobody is looking at it.
@@ -22,7 +28,6 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 		"replica container":   n.Container("web", 2),
 		"transient rollout":   n.TransientContainer("web"),
 		"workload volume":     n.WorkloadVolume("web", "uploads"),
-		"service container":   n.ServiceContainer("postgres"),
 		"service project":     n.ServiceProject("postgres"),
 		"service volume":      n.ServiceVolume("postgres", "data"),
 		"service network":     n.ServiceNetwork(),
@@ -36,6 +41,14 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 	} {
 		if !strings.Contains(got, "shop") {
 			t.Errorf("%s = %q, which does not carry the application", label, got)
+		}
+	}
+	for label, got := range map[string]string{
+		"service container": n.ServiceContainer("postgres"),
+		"restore container": n.BackupRestoreContainer("postgres"),
+	} {
+		if !strings.HasPrefix(got, ManagedContainerPrefix+"-") {
+			t.Errorf("%s = %q, which is not in the onebox-* namespace", label, got)
 		}
 	}
 

@@ -58,9 +58,8 @@ type driver struct {
 	secretEnv []string
 	// scheme builds the client URL: scheme://user:password@host:port/database.
 	scheme string
-	// user is the identity the service is created with, and database is the
-	// application name, so two projects on one host cannot end up sharing a
-	// database by accident.
+	// user is the identity the service is created with; the database is named
+	// after the application, an identity Onebox derives rather than asks for.
 	user string
 	// urlQuery is appended to the connection string. Some drivers need a
 	// parameter to be usable at all: a Mongo root user created through
@@ -497,8 +496,8 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 }
 
 // identityEnv is the user and database the service is created with, under the
-// variable names each driver expects. Both are the application name, so two
-// projects on one host cannot silently share a database.
+// variable names each driver expects. The user is the driver's fixed role and
+// the database is named after the application.
 func identityEnv(key string, d driver, app string) map[string]any {
 	switch key {
 	case "postgres":

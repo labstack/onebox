@@ -149,7 +149,7 @@ var (
 func obBinary(t *testing.T) string {
 	t.Helper()
 	obOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "ob-e2e-bin")
+		dir, err := os.MkdirTemp("", "onebox-e2e-bin")
 		if err != nil {
 			obErr = err
 			return

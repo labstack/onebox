@@ -28,7 +28,7 @@ func (e *Engine) engineFromReleaseSnapshotFor(ctx context.Context, releaseID, op
 	if environment == "" {
 		environment = e.Spec.Env
 	}
-	path := release.PathsFor(names).Releases + "/" + releaseID + "/ob.snapshot.yml"
+	path := release.PathsFor(names).Releases + "/" + releaseID + "/onebox.snapshot.yml"
 	res, err := e.T.Run(ctx, "cat "+q(path))
 	if err != nil {
 		return nil, fmt.Errorf("read release %s snapshot: %w", releaseID, err)

@@ -181,7 +181,7 @@ func TestRollRoleResumeAdoptsExistingNewcomer(t *testing.T) {
 	if strings.Contains(seq, "--scale") || strings.Contains(seq, "pull --quiet") {
 		t.Fatalf("resume must not re-scale or re-pull:\n%s", seq)
 	}
-	if !strings.Contains(seq, "touch /tmp/ob-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
+	if !strings.Contains(seq, "touch /tmp/onebox-drain") || !strings.Contains(seq, "docker stop -t 30 OLD1") {
 		t.Fatalf("resume must continue drain+stop of old:\n%s", seq)
 	}
 }
@@ -197,7 +197,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 		"docker compose -p sample --project-directory '/var/lib/onebox/app/releases/R1' -f '/var/lib/onebox/app/releases/R1/compose.yaml' pull --quiet web",
 		"up -d --no-deps --no-recreate --scale web=2 web",
 		"docker rename NEW1 sample-web-new",
-		"docker exec OLD1 touch /tmp/ob-drain",
+		"docker exec OLD1 touch /tmp/onebox-drain",
 		"docker stop -t 30 OLD1",
 		"docker rm OLD1",
 	}
@@ -213,7 +213,7 @@ func TestRollRoleCommandSequence(t *testing.T) {
 		last = i
 	}
 	// Drain MUST precede stop so SIGTERM never races the proxy.
-	if strings.Index(seq, "ob-drain") > strings.Index(seq, "docker stop") {
+	if strings.Index(seq, "onebox-drain") > strings.Index(seq, "docker stop") {
 		t.Fatal("drain must happen before stop")
 	}
 }
@@ -290,7 +290,7 @@ func TestRollRoleDrainGraceConfigurable(t *testing.T) {
 	}
 }
 
-// The ob-side health poll defaults to 2s — matching the generated healthcheck
+// The runner-side health poll defaults to 2s — matching the generated healthcheck
 // cadence — so joins and drain flips are detected promptly; within stays 120s.
 // Declared values still win (asserted by the sequence tests).
 func TestReadyTimingDefaults(t *testing.T) {

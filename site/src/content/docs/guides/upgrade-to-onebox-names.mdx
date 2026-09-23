@@ -33,6 +33,10 @@ command with the new version.
 | Scheduled job units | `ob-shop-nightly` | `onebox-job-nightly` |
 | Backup units | `ob-backup-shop-production-postgres-backup` | `onebox-backup-production-postgres-backup` |
 | Proxy routers | `shop_web_r0` | `onebox_web_r0` |
+| Job run journal identifier | `ob-run` | `onebox-run` |
+| Files Onebox keeps beside its own | `.ob-schedule.lease`, `.ob-secret-generations/`, `.ob-tmp` | `.onebox-schedule.lease`, `.onebox-secret-generations/`, `.onebox-tmp` |
+| Drain marker in containers | `/tmp/ob-drain` | `/tmp/onebox-drain` |
+| Release snapshot | `ob.snapshot.yml` | `onebox.snapshot.yml` |
 | Workload containers | `shop-web-1` | unchanged, but labelled `onebox.app` |
 | Application network | `shop_default` | unchanged, but labelled `onebox.app` |
 

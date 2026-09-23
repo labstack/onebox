@@ -147,8 +147,8 @@ that no run record exists yet.
 ## Every run leaves a record
 
 When a run ends, for any reason, the unit's `ExecStopPost` writes one record
-to the host journal with the syslog identifier `ob-run` and the job's unit in
-its `ONEBOX_UNIT` field, so `journalctl SYSLOG_IDENTIFIER=ob-run
+to the host journal with the syslog identifier `onebox-run` and the job's unit in
+its `ONEBOX_UNIT` field, so `journalctl SYSLOG_IDENTIFIER=onebox-run
 ONEBOX_UNIT=onebox-job-<job> -o cat` on the host is the raw history:
 
 ```json

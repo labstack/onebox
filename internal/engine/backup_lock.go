@@ -172,12 +172,12 @@ func (e *Engine) writeBackupFence(ctx context.Context, service, operationID stri
 	fenceValue := operationID + " " + strconv.Itoa(epoch)
 	command := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ]; then ` +
 		atomicEpochWriteCmd(e.backupEpochPath(service), epoch) + `; echo ` + q(fenceValue) + ` > ` + q(e.backupFencePath(service)) +
-		`; else echo ob-backup-lock-lost >&2; exit 96; fi`
+		`; else echo onebox-backup-lock-lost >&2; exit 96; fi`
 	result, err := e.T.Run(ctx, command)
 	if err != nil {
 		return err
 	}
-	if result.ExitCode == 96 && strings.Contains(result.Stderr, "ob-backup-lock-lost") {
+	if result.ExitCode == 96 && strings.Contains(result.Stderr, "onebox-backup-lock-lost") {
 		return ErrBackupFenced
 	}
 	if result.ExitCode != 0 {
@@ -245,12 +245,12 @@ func (e *Engine) BackupMutate(ctx context.Context, service, command string) (tra
 	if e.lockVal == "" || e.fenceVal == "" || lockValue == "" || fenceValue == "" {
 		return transport.Result{}, errors.New("backup mutation requires application and service lock ownership")
 	}
-	guarded := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ] && [ "$(cat ` + q(e.backupFencePath(service)) + ` 2>/dev/null)" = ` + q(fenceValue) + ` ]; then ` + command + `; else echo ob-backup-fenced >&2; exit 98; fi`
+	guarded := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ] && [ "$(cat ` + q(e.backupFencePath(service)) + ` 2>/dev/null)" = ` + q(fenceValue) + ` ]; then ` + command + `; else echo onebox-backup-fenced >&2; exit 98; fi`
 	result, err := e.mutate(ctx, guarded)
 	if err != nil {
 		return result, err
 	}
-	if result.ExitCode == 98 && strings.Contains(result.Stderr, "ob-backup-fenced") {
+	if result.ExitCode == 98 && strings.Contains(result.Stderr, "onebox-backup-fenced") {
 		return result, ErrBackupFenced
 	}
 	return result, nil

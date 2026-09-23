@@ -120,7 +120,7 @@ func TestRetentionProtectsReleaseLeasedByScheduledJob(t *testing.T) {
 		switch {
 		case strings.Contains(command, "ls -1A"):
 			return transport.Result{Stdout: leasedID + "\n" + currentID + "\n"}, true
-		case strings.Contains(command, ".ob-schedule.lease"):
+		case strings.Contains(command, ".onebox-schedule.lease"):
 			return transport.Result{Stdout: leasedID + "\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + currentID + "\n"}, true

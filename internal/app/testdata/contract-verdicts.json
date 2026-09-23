@@ -122,7 +122,7 @@
   {
     "case": "conformance/encrypted env file entry",
     "loads": true,
-    "digest": "ee857837f209fe0d1117fda8120dab3e2fa45a4d36a549a0f340f6dd7fb32c10"
+    "digest": "c300b69e70991a95bc2625fe246ca4a41557913ec412009253dcc7365b03b3c3"
   },
   {
     "case": "conformance/env file entry without a file",
@@ -152,7 +152,7 @@
   {
     "case": "conformance/external service connection",
     "loads": true,
-    "digest": "36e28ac892b8231ed5bec3495f7d0273f22e51d91e02e635a1f34dda94550f9e"
+    "digest": "9b15e15fef71409b167288343b8e318b300a7f595ee4393cb83e4cd0cf52ea19"
   },
   {
     "case": "conformance/hook naming a declared job",
@@ -532,17 +532,17 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "9ebfd098386e0ba17df924e39dfb559e9a048195b35fc3ce4f936e195789ccf0 postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
+    "digest": "e82f2e9eac87e3494cf0aa86b80f91a60f363f0af7aac28bb45e1ec6ed2e40fb postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "695e57ce7479e93105765d7425026586bd3c9111ee4834018b131b773c4073dd postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
+    "digest": "10748708444a383dc2e587286c13f06a4f3ea218835e2eeab1af83ed312ec741 postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
   },
   {
     "case": "corpus/ext-authentik.yml",
     "loads": true,
-    "digest": "d047ba583e16538ace0f57403c5d25023c0a86c65df975f16236a9deb3a1f37d"
+    "digest": "d7fdef6fcc8d19296aa43c09e11a3925f1e31ba035c8e90bd6cb9095d3a59cac"
   },
   {
     "case": "corpus/ext-frigate.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "1f899cb760e6e261d8391959ab41a447b66db79d1b71cf63f59c83e31dd2d917 postgres=446e25618a3d2e4e"
+    "digest": "f6028df90e48b43f68c3375115ef402255ebd0aadf0ddde9eb9e2d538598cb65 postgres=446e25618a3d2e4e"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -567,7 +567,7 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "8c9e2e6bae6a1434fec4fd16a7470999743dc58877ba0b945b09fa5e8fc7dc88 postgres=c9e06c2c21513656 redis=83f7ec43501bb1f4"
+    "digest": "3831bd9a52d01deada4936e218fc8ba33c96a0b1d939e6bf503f3fbda8ba0895 postgres=c9e06c2c21513656 redis=83f7ec43501bb1f4"
   },
   {
     "case": "corpus/ext-paperless.yml",
@@ -587,12 +587,12 @@
   {
     "case": "corpus/ghost.yml",
     "loads": true,
-    "digest": "aba3c31a08bb6fe625c52c3ce330e6e1d0e9af08fb1aa51f520c9b906b3fc024 mysql=6dc2ab74dac73160"
+    "digest": "7ab89c09054e821edfb0edd5c014b488ca06785d052f4178a688d4008961e1ad mysql=6dc2ab74dac73160"
   },
   {
     "case": "corpus/gitea.yml",
     "loads": true,
-    "digest": "0d0f9d727619f0067c830853351fa1861c36de508259c181af38a239ab2d2256"
+    "digest": "0bf67b194d6c01daec00313f1e6f2cd9be3613a5dffd8ad0097a728360d7a269"
   },
   {
     "case": "corpus/goal.yml",
@@ -602,7 +602,7 @@
   {
     "case": "corpus/immich.yml",
     "loads": true,
-    "digest": "378aa6674b9040640023b55a1ad48d8c338ab60fad7957db23f467264707ca42"
+    "digest": "923534f84d1c3d4c4d0fd59c6c20b9d2d197acfc045046531b7235cfc73e0d3e"
   },
   {
     "case": "corpus/monk.yml",
@@ -612,17 +612,17 @@
   {
     "case": "corpus/n8n.yml",
     "loads": true,
-    "digest": "bb31040f4c0b7a657c68f21ec13d070626ce0b6ca2cb0bbd3fd556b6bc062521"
+    "digest": "ecc2235d37c777399acbda26f8c149515e3960fbfbdd286873459fc5c8b0164d"
   },
   {
     "case": "corpus/paperless.yml",
     "loads": true,
-    "digest": "898956cb196cc1ed8381c8be43592177886085bf255ad676c00d549c73845fc1"
+    "digest": "c5eea938217dd6488e684078199dc338bc4915d8be3de3e0f728e6ced3b2b01d"
   },
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "ec20c704e16fd00dcead5fc3931ddf9e03f3add10eacd731620c27af59340612 postgres=fce3c20f4ad2e0e4 redis=e6f4fb5264fe75ae"
+    "digest": "1cd500aae4deac5cf744dec3f1222b13aec493457de4b6069a3449126ad70210 postgres=fce3c20f4ad2e0e4 redis=e6f4fb5264fe75ae"
   },
   {
     "case": "corpus/pursue.yml",
@@ -637,17 +637,17 @@
   {
     "case": "corpus/rocketchat.yml",
     "loads": true,
-    "digest": "f065d84ec4900a79f1f3c60c6da9958e976ba424e1f3490ba7082cafcdc738ca mongodb=09562fa5123be0a1"
+    "digest": "4a091cd29c4a572eb57fcc9cd68edb76fbd56eb88ce16aab29efb30cb16af69f mongodb=09562fa5123be0a1"
   },
   {
     "case": "corpus/umami.yml",
     "loads": true,
-    "digest": "086a6a692883531cd9db9485f1b78a84edc0e40392b104378f258c0654a161d4"
+    "digest": "93e16cdd46259289535d57fa3fe762f65717a8ab054daa365e14f1ca8f5b815d"
   },
   {
     "case": "corpus/uptime-kuma.yml",
     "loads": true,
-    "digest": "19c85a8a0102688af4808ca1790c84492215fd2061cf9f9384a77f301bf101ff"
+    "digest": "0814a4130438e336934f9265f6d4f482bac99ba4198df1c7ccc0f2668655003e"
   },
   {
     "case": "corpus/vaultwarden.yml",

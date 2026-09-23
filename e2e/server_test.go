@@ -296,11 +296,11 @@ HTTPServer(("127.0.0.1", 18080), Handler).handle_request()
 		s.run(t, strings.Join([]string{
 			"set -e",
 			"command -v python3 >/dev/null",
-			"systemctl stop ob-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
-			"systemctl reset-failed ob-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
+			"systemctl stop onebox-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
+			"systemctl reset-failed onebox-e2e-schedule-receiver.service >/dev/null 2>&1 || true",
 			"rm -f /tmp/onebox-schedule-notify",
 			"printf '%s' '" + encoded + "' | base64 -d > /tmp/onebox-schedule-receiver.py",
-			"systemd-run --quiet --collect --unit=ob-e2e-schedule-receiver /usr/bin/python3 /tmp/onebox-schedule-receiver.py",
+			"systemd-run --quiet --collect --unit=onebox-e2e-schedule-receiver /usr/bin/python3 /tmp/onebox-schedule-receiver.py",
 			"for i in $(seq 1 50); do ss -ltn | grep -q '127.0.0.1:18080' && break; sleep .1; done",
 			"ss -ltn | grep -q '127.0.0.1:18080'",
 		}, "\n"))

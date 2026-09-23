@@ -35,8 +35,8 @@ spec:
 `)
 	graph := resolved.SecretDeclarationGraph()
 	want := []SecretDeclaration{
-		{ID: "secret_bb87e5bf4bf6", SourceFile: "shared.enc.env", Provider: "sops", OutputPath: ".ob-decrypted-sops-shared.enc.env", Scope: "runtime-default", Order: 0, AffectedWorkloads: []string{"web", "worker"}},
-		{ID: "secret_dbdbbfa277bf", SourceFile: "later.enc.env", Provider: "sops", OutputPath: ".ob-decrypted-sops-later.enc.env", Scope: "runtime-default", Order: 1, AffectedWorkloads: []string{"web", "worker"}},
+		{ID: "secret_4cb584324f13", SourceFile: "shared.enc.env", Provider: "sops", OutputPath: ".onebox-decrypted-sops-shared.enc.env", Scope: "runtime-default", Order: 0, AffectedWorkloads: []string{"web", "worker"}},
+		{ID: "secret_d3ed670385a9", SourceFile: "later.enc.env", Provider: "sops", OutputPath: ".onebox-decrypted-sops-later.enc.env", Scope: "runtime-default", Order: 1, AffectedWorkloads: []string{"web", "worker"}},
 	}
 	if !reflect.DeepEqual(graph, want) {
 		t.Fatalf("graph = %#v, want %#v", graph, want)
@@ -55,7 +55,7 @@ spec:
 `)
 	first := resolved.SecretDeclarationGraph()
 	second := resolved.SecretDeclarationGraph()
-	if len(first) != 1 || first[0].ID != "secret_ee5df50c58b5" || !reflect.DeepEqual(first, second) {
+	if len(first) != 1 || first[0].ID != "secret_b495147e924f" || !reflect.DeepEqual(first, second) {
 		t.Fatalf("unstable declaration IDs: first=%+v second=%+v", first, second)
 	}
 }
@@ -76,8 +76,8 @@ spec:
     worker: {role: Worker, image: nginx}
 `
 	want := []SecretDeclaration{
-		{ID: "secret_a87617a41c5a", SourceFile: "first.enc.env", Provider: "sops", OutputPath: ".ob-decrypted-sops-first.enc.env", Scope: "runtime-default", Order: 0, AffectedWorkloads: []string{"web", "worker"}},
-		{ID: "secret_e21b0c3c5c76", SourceFile: "second.enc.env", Provider: "sops", OutputPath: ".ob-decrypted-sops-second.enc.env", Scope: "runtime-default", Order: 1, AffectedWorkloads: []string{"web", "worker"}},
+		{ID: "secret_5f8f352141fa", SourceFile: "first.enc.env", Provider: "sops", OutputPath: ".onebox-decrypted-sops-first.enc.env", Scope: "runtime-default", Order: 0, AffectedWorkloads: []string{"web", "worker"}},
+		{ID: "secret_9ac32abb2f52", SourceFile: "second.enc.env", Provider: "sops", OutputPath: ".onebox-decrypted-sops-second.enc.env", Scope: "runtime-default", Order: 1, AffectedWorkloads: []string{"web", "worker"}},
 	}
 	if got := secretGraphProject(t, base).SecretDeclarationGraph(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("base graph = %#v, want literal %#v", got, want)
@@ -158,8 +158,8 @@ spec:
       probe: {}
 `)
 	want := []SecretDeclaration{{
-		ID: "secret_84b31ed35a16", SourceFile: "secrets/database.env", Provider: "sops",
-		OutputPath: ".ob-external-database_web.env", Scope: "external:web", Order: 0,
+		ID: "secret_d625b2713093", SourceFile: "secrets/database.env", Provider: "sops",
+		OutputPath: ".onebox-external-database_web.env", Scope: "external:web", Order: 0,
 		AffectedWorkloads: []string{"web"},
 		ProjectionEntries: []SecretProjectionEntry{
 			{Destination: "A_DATABASE_URL", Source: "DATABASE_URL"},

@@ -66,7 +66,7 @@ func Stage(dir string, composeYAML, snapshotYAML []byte) error {
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), composeYAML, 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "ob.snapshot.yml"), snapshotYAML, 0o644)
+	return os.WriteFile(filepath.Join(dir, "onebox.snapshot.yml"), snapshotYAML, 0o644)
 }
 
 func Push(ctx context.Context, t transport.Transport, stagingDir string, n app.Names, id string) (string, error) {

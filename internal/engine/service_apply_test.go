@@ -58,7 +58,7 @@ func TestServiceApplyConvergesUnderRegime(t *testing.T) {
 		t.Fatalf("service converged inside the application's project:\n%s", seq)
 	}
 	for _, c := range f.Commands {
-		if strings.Contains(c, "onebox_postgres' -f") && !strings.Contains(c, "ob-fenced") {
+		if strings.Contains(c, "onebox_postgres' -f") && !strings.Contains(c, "onebox-fenced") {
 			t.Fatalf("converge not fenced: %s", c)
 		}
 	}

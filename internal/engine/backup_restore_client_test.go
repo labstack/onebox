@@ -55,7 +55,7 @@ func TestRecoveredClientCredentialIsReconciledAndVerified(t *testing.T) {
 	if len(fake.Inputs) != 1 || !strings.Contains(fake.Inputs[0], `ALTER ROLE "onebox"`) {
 		t.Fatalf("reconciliation input = %#v", fake.Inputs)
 	}
-	if !strings.Contains(fake.Inputs[0], `\getenv ob_managed_password POSTGRES_PASSWORD`) {
+	if !strings.Contains(fake.Inputs[0], `\getenv onebox_managed_password POSTGRES_PASSWORD`) {
 		t.Fatalf("reconciliation did not read the credential inside psql: %q", fake.Inputs[0])
 	}
 }

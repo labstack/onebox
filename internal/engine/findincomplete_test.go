@@ -12,7 +12,7 @@ import (
 
 // mirrors journal.journalMarker (unexported) — this test simulates the remote
 // bulk-read output that Journals parses.
-const journalMarkerLine = "@@ob-journal@@"
+const journalMarkerLine = "@@onebox-journal@@"
 
 // A crash left R1 half-done, then R2 deployed cleanly. R2 rolled every role and
 // activated its own release, so nothing about R1 is still completable: resuming

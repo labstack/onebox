@@ -465,7 +465,7 @@ func (e *Engine) replayRecovery(ctx context.Context, container, service, targetT
 		return fmt.Errorf("cannot write the recovery configuration: %s", lastLines(res.Stderr, 3))
 	}
 	start := "docker exec -u postgres " + q(container) +
-		" pg_ctl -D " + q(app.PgDataPath) + " -l /tmp/ob-recovery.log -w -t 300"
+		" pg_ctl -D " + q(app.PgDataPath) + " -l /tmp/onebox-recovery.log -w -t 300"
 	serviceSettings := e.Spec.PostgresServiceSettings(service)
 	if len(serviceSettings) > 0 {
 		var postgresOptions []string
@@ -480,7 +480,7 @@ func (e *Engine) replayRecovery(ctx context.Context, container, service, targetT
 		return err
 	}
 	if res.ExitCode != 0 {
-		log, _ := e.T.Run(ctx, "docker exec "+q(container)+" tail -20 /tmp/ob-recovery.log")
+		log, _ := e.T.Run(ctx, "docker exec "+q(container)+" tail -20 /tmp/onebox-recovery.log")
 		return fmt.Errorf("the recovered cluster did not start: %s", lastLines(log.Stdout, 8))
 	}
 	return nil
@@ -583,8 +583,8 @@ func (e *Engine) ensureRecoveredClientCredential(ctx context.Context, container 
 	// credential value, so transport logging and test captures remain safe.
 	command := "docker exec -i -u postgres " + q(container) +
 		" psql -X -v ON_ERROR_STOP=1 -U " + q(app.PgSuperuser) + " -d postgres"
-	script := "\\getenv ob_managed_password POSTGRES_PASSWORD\n" +
-		"ALTER ROLE \"" + app.PgSuperuser + "\" PASSWORD :'ob_managed_password';\n"
+	script := "\\getenv onebox_managed_password POSTGRES_PASSWORD\n" +
+		"ALTER ROLE \"" + app.PgSuperuser + "\" PASSWORD :'onebox_managed_password';\n"
 	res, err := e.T.RunInput(ctx, command, script)
 	if err != nil {
 		return err

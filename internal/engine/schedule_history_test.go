@@ -56,7 +56,7 @@ func TestScheduleHistoryReadsTheUnitJournalNewestFirst(t *testing.T) {
 		t.Fatalf("records = %#v", records)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, want := range []string{"journalctl SYSLOG_IDENTIFIER=ob-run ONEBOX_UNIT='onebox-job-nightly'", "-o cat", "-r", "-n 20", "--no-pager"} {
+	for _, want := range []string{"journalctl SYSLOG_IDENTIFIER=onebox-run ONEBOX_UNIT='onebox-job-nightly'", "-o cat", "-r", "-n 20", "--no-pager"} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("history read is missing %q:\n%s", want, seq)
 		}
@@ -88,7 +88,7 @@ func TestScheduleListReadsTimerState(t *testing.T) {
 func TestScheduleLogsTargetsOneInvocation(t *testing.T) {
 	e, f := scheduledFixture(t)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "SYSLOG_IDENTIFIER=ob-run") {
+		if strings.Contains(cmd, "SYSLOG_IDENTIFIER=onebox-run") {
 			return transport.Result{Stdout: sampleRunRecords}, true
 		}
 		return transport.Result{}, false

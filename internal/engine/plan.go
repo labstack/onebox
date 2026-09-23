@@ -326,7 +326,7 @@ func OnlyReleaseLabelsChanged(live, planned string) bool {
 // local and remote digests permanently unequal — every plan then reports a
 // change, no deploy short-circuits, and pre-release migrations re-run.
 //
-// `.ob-secret-generations/` is deliberately NOT excluded. Staging writes the
+// `.onebox-secret-generations/` is deliberately NOT excluded. Staging writes the
 // bound generation's decrypted payload there (see stageExecution), so
 // excluding it would drop every secret byte from the digest: a rotated secret
 // reusing the live generation would hash identically, the deploy would
@@ -579,7 +579,7 @@ func (e *Engine) DescribeWorkloadPlans(remoteCompose string, plans map[string]Wo
 				"  docker rm -f <stopped replicas> (compose counts them toward --scale)",
 				step+fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=<+1> %s", cc, svc, svc),
 				"  wait <new> healthy (ready gate)",
-				"    ├─ healthy → converge → docker exec <old> touch /tmp/ob-drain → wait unhealthy → converge",
+				"    ├─ healthy → converge → docker exec <old> touch /tmp/onebox-drain → wait unhealthy → converge",
 				fmt.Sprintf("    │    └─ docker stop -t %d <old> && docker rm <old> && rename <new> into the freed slot", role.StopGraceSeconds()),
 				"    └─ unhealthy/timeout → docker rm -f <new>; existing keep serving; deploy halts",
 			)

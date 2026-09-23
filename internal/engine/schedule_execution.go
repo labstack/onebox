@@ -126,7 +126,7 @@ func (e *Engine) durableScheduleRunner(job app.ScheduledJob, envFiles []app.EnvF
 		"release_dir=$(readlink -f "+q(n.CurrentLink())+")",
 		"release=${release_dir##*/}",
 		"[ \"${release_dir%/*}\" = "+q(n.ReleasesDir())+" ] || exit 1",
-		"exec 7>>\"$release_dir/.ob-schedule.lease\"", "chmod 600 \"$release_dir/.ob-schedule.lease\"", "/usr/bin/flock --shared 7")
+		"exec 7>>\"$release_dir/.onebox-schedule.lease\"", "chmod 600 \"$release_dir/.onebox-schedule.lease\"", "/usr/bin/flock --shared 7")
 	lines = append(lines, scheduleRunPreamble(true)...)
 	lines = append(lines, schedulePlannedBindingLines()...)
 	lines = append(lines, "phase=running", "write_state 1",

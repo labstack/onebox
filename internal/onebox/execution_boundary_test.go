@@ -689,7 +689,7 @@ func TestExecuteRecoveryCorrelatesOperationWithJournalEvidence(t *testing.T) {
 	baseDynamic := fake.Dynamic
 	fake.Dynamic = func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "for f in *.jsonl") {
-			return transport.Result{Stdout: "@@ob-journal@@R-INCOMPLETE.jsonl\n" +
+			return transport.Result{Stdout: "@@onebox-journal@@R-INCOMPLETE.jsonl\n" +
 				`{"deploy_id":"R-INCOMPLETE","phase":"deploy","event":"start","ts":"2026-07-12T19:00:00Z"}` + "\n"}, true
 		}
 		return baseDynamic(command)

@@ -47,15 +47,15 @@ func pushFake() *transport.Fake {
 				return transport.Result{Stdout: "shop production\n"}, true
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/20260712-180000-current\n"}, true
-			case strings.Contains(cmd, "/ob.snapshot.yml"):
+			case strings.Contains(cmd, "/onebox.snapshot.yml"):
 				return transport.Result{Stdout: pushProjectYAML}, true
 			case strings.HasPrefix(strings.TrimSpace(cmd), "cat ") && strings.Contains(cmd, "/compose.yaml"):
 				return transport.Result{Stdout: `services:
   web:
-    env_file: [.ob-secret-generations/sg-111111111111111111111111/.ob-decrypted-sops-api.enc.env]
+    env_file: [.onebox-secret-generations/sg-111111111111111111111111/.onebox-decrypted-sops-api.enc.env]
     labels: {onebox.secret-generation: sg-111111111111111111111111}
   jobs:
-    env_file: [.ob-secret-generations/sg-111111111111111111111111/.ob-decrypted-sops-worker.enc.env]
+    env_file: [.onebox-secret-generations/sg-111111111111111111111111/.onebox-decrypted-sops-worker.enc.env]
     labels: {onebox.secret-generation: sg-111111111111111111111111}
 `}, true
 			case strings.Contains(cmd, "cmp -s"):
@@ -94,7 +94,7 @@ func pushFake() *transport.Fake {
 }
 
 func generationFromSecretCommand(command string) string {
-	const marker = "/.ob-secret-generations/"
+	const marker = "/.onebox-secret-generations/"
 	start := strings.Index(command, marker)
 	if start < 0 {
 		return ""

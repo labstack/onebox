@@ -144,7 +144,7 @@ func TestBackupNamesEscapeHyphenatedSegments(t *testing.T) {
 // TestHyphenJoinWouldCollide records why underscore was chosen, so the reason
 // survives someone deciding hyphens look tidier.
 func TestHyphenJoinWouldCollide(t *testing.T) {
-	hyphen := func(app, svc string) string { return "ob-" + app + "-" + svc }
+	hyphen := func(app, svc string) string { return "onebox-" + app + "-" + svc }
 	if hyphen("a-b", "c") != hyphen("a", "b-c") {
 		t.Skip("hyphen joining no longer ambiguous; the underscore rule may be revisited")
 	}
@@ -289,9 +289,6 @@ func TestNoDerivedNameCollidesWithHostScoped(t *testing.T) {
 	for _, name := range p.All("production") {
 		if name == ProxyProject || name == IngressNetwork {
 			t.Fatalf("derived name %q collides with a host-scoped name", name)
-		}
-		if strings.HasPrefix(name, "ob-") {
-			t.Fatalf("derived name %q entered the reserved hyphenated namespace", name)
 		}
 	}
 }

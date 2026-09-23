@@ -524,7 +524,7 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 	}
 
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		return transport.Result{ExitCode: 97, Stderr: "ob-fenced"}, true
+		return transport.Result{ExitCode: 97, Stderr: "onebox-fenced"}, true
 	}
 	_, err = e.mutate(context.Background(), "docker stop OLD1")
 	if !errors.Is(err, ErrFenced) {
@@ -558,7 +558,7 @@ func TestMutateStreamExecutesOnlyWhileFenceMatches(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	err := e.mutateStream(context.Background(), "printf forbidden", &stdout, &stderr)
-	if err == nil || stdout.Len() != 0 || !strings.Contains(stderr.String(), "ob-fenced") {
+	if err == nil || stdout.Len() != 0 || !strings.Contains(stderr.String(), "onebox-fenced") {
 		t.Fatalf("stale fence executed stream: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
 	}
 }

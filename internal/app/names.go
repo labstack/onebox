@@ -137,7 +137,7 @@ func (n Names) BackupAdapterDir(service string) string {
 // optional trust store and holds no secret: it names credential entries and
 // reads their values from the environment.
 func (n Names) BackupWrapperFile(service string) string {
-	return path.Join(n.BackupAdapterDir(service), "ob-wal-g")
+	return path.Join(n.BackupAdapterDir(service), "onebox-wal-g")
 }
 
 // BackupTrustStoreFile is an optional host certificate authority bundle. It is

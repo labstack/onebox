@@ -68,7 +68,7 @@ volumes:
 	for path, body := range map[string]string{
 		composePath: composeBody,
 		envPath:     "LEGACY_SECRET=recorded-value\n",
-		filepath.Join(releaseDir, "ob.snapshot.yml"): snapshotBody,
+		filepath.Join(releaseDir, "onebox.snapshot.yml"): snapshotBody,
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

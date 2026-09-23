@@ -3,7 +3,7 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 APP="$1"; PORT="$2"; PATHQ="$3"; WL="${4:-}"
-NAME="ob-e2e-$APP"
+NAME="onebox-e2e-$APP"
 S=${ONEBOX_E2E_SCRATCH:-/tmp}
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 

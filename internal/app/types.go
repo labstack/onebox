@@ -603,5 +603,5 @@ func (e EnvFile) StagedPath() string {
 	// the separator alone collides, and the generated document would then list
 	// one name twice and quietly keep whichever entry came last.
 	escaped := strings.ReplaceAll(strings.ReplaceAll(e.File, "-", "--"), "/", "-")
-	return ".ob-decrypted-" + e.Provider + "-" + escaped
+	return ".onebox-decrypted-" + e.Provider + "-" + escaped
 }

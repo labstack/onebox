@@ -254,7 +254,7 @@ func TestFinalizeRecoveredReleaseReactivatesSupersededPredecessor(t *testing.T) 
 func TestRecoverySnapshotRejectsAnotherApplication(t *testing.T) {
 	target := happyFake()
 	target.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/ob.snapshot.yml") {
+		if strings.Contains(command, "/onebox.snapshot.yml") {
 			return transport.Result{Stdout: strings.Replace(engineProject, "name: sample", "name: other", 1)}, true
 		}
 		return transport.Result{}, false
@@ -272,7 +272,7 @@ func TestRecoveryEngineUsesSnapshotChoreography(t *testing.T) {
 	target := happyFake()
 	base := target.Dynamic
 	target.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/ob.snapshot.yml") {
+		if strings.Contains(command, "/onebox.snapshot.yml") {
 			return transport.Result{Stdout: snapshot}, true
 		}
 		if strings.Contains(command, "readlink") {

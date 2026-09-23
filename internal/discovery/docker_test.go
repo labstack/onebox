@@ -16,7 +16,7 @@ import (
 
 func dockerTestServer(t *testing.T, handler http.Handler) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "ob-discovery-test-")
+	dir, err := os.MkdirTemp("/tmp", "onebox-discovery-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

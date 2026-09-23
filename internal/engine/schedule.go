@@ -277,8 +277,8 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 		"release=${release_dir##*/}",
 		"if ! printf '%s\\n' \"$release\" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9A-Za-z_-]+$'; then echo 'onebox: current release identity is invalid' >&2; exit 1; fi",
 		"if [ ! -f \"$release_dir/compose.yaml\" ]; then echo 'onebox: pinned release has no compose.yaml' >&2; exit 1; fi",
-		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
-		"chmod 600 \"$release_dir/.ob-schedule.lease\"",
+		"exec 7>>\"$release_dir/.onebox-schedule.lease\"",
+		"chmod 600 \"$release_dir/.onebox-schedule.lease\"",
 		"/usr/bin/flock --shared 7",
 		// The immutable release is leased, so the writer rendezvous is complete.
 		// Container cleanup and state bookkeeping are per-job work and must not
@@ -648,7 +648,7 @@ const scheduleNotificationTimestamp = "__ONEBOX_SCHEDULE_TIMESTAMP__"
 // and such an entry has no _SYSTEMD_UNIT at all; `journalctl -u` would never
 // find it. Explicit fields survive that race, and `logger --journald` is
 // util-linux, which flock already requires.
-const scheduleRunIdentifier = "ob-run"
+const scheduleRunIdentifier = "onebox-run"
 
 // scheduleRunRecordLines finalises the run the runner started. This lives in
 // ExecStopPost because only systemd knows how the run ended: a timed-out

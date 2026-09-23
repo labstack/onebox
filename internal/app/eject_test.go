@@ -304,7 +304,7 @@ spec:
 		t.Fatalf("the workload was not handed over: %+v", res.Workloads)
 	}
 	// And no temporary file survives to be mistaken for the runtime.
-	if _, err := os.Stat(filepath.Join(dir, "compose.yaml.ob-tmp")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "compose.yaml.onebox-tmp")); !os.IsNotExist(err) {
 		t.Error("a temporary runtime was left behind")
 	}
 	// The project now references the file that is actually on disk.

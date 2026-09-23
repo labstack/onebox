@@ -139,7 +139,7 @@ func TestResumeUsesInterruptedReleaseSnapshotAfterConfigEdit(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
-		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
@@ -169,7 +169,7 @@ func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
 	f := interruptedFake("changed=false")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml") {
+		if strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/onebox.snapshot.yml") {
 			return transport.Result{ExitCode: 1, Stderr: "No such file"}, true
 		}
 		return base(cmd)
@@ -179,7 +179,7 @@ func TestResumeRefusesMissingInterruptedSnapshot(t *testing.T) {
 	if id != engineTestDeployReleaseID || err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
 		t.Fatalf("resume id/error = %q, %v", id, err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "ob-fenced") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "onebox-fenced") {
 		t.Fatalf("resume must fail before mutation:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
@@ -205,7 +205,7 @@ func interruptedBeforeMigrationFake(allowUnknown bool) *transport.Fake {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
-		case strings.Contains(cmd, "ob.snapshot.yml"):
+		case strings.Contains(cmd, "onebox.snapshot.yml"):
 			return transport.Result{Stdout: strings.Replace(engineProject, "dataEffect: Unknown", "dataEffect: Migration", 1)}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
@@ -417,9 +417,9 @@ func TestAbortUsesBothReleaseSnapshotsAfterConfigEdit(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
-		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestDeployReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: interruptedWebSnapshot}, true
-		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
@@ -489,7 +489,7 @@ func TestAbortRefusesUnreadablePreviousSnapshot(t *testing.T) {
 				f := interruptedFake(gate.detail)
 				base := f.Dynamic
 				f.Dynamic = func(cmd string) (transport.Result, bool) {
-					if strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml") {
+					if strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml") {
 						return prev.res, true
 					}
 					return base(cmd)

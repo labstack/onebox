@@ -99,7 +99,7 @@ func buildActivatedFake(t *testing.T, activationResult bool, tail ...journal.Rec
 			return transport.Result{ExitCode: 0}, true
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestDeployReleaseID + "\n"}, true
-		case strings.Contains(cmd, "ob.snapshot.yml"):
+		case strings.Contains(cmd, "onebox.snapshot.yml"):
 			return transport.Result{Stdout: engineProjectWithPostDeployHook}, true
 		case strings.Contains(cmd, "docker ps --filter label=onebox.app="):
 			return transport.Result{Stdout: "NEW1|web|" + engineTestDeployReleaseID + "|Up 2 minutes (healthy)\n" +

@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const scheduleLeaseFile = ".ob-schedule.lease"
+const scheduleLeaseFile = ".onebox-schedule.lease"
 const scheduleLeaseConflictExitCode = 200
 
 // ActiveScheduleLeases returns release ids held by pinned scheduled jobs. The

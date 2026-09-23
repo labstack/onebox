@@ -102,12 +102,12 @@ func (e *Engine) hostMutate(ctx context.Context, cmd string) (res transport.Resu
 	if e.hostLockVal == "" {
 		return res, fmt.Errorf("host mutation attempted without owning the host lock")
 	}
-	guarded := `if [ "$(cat ` + q(proxy.HostPaths(e.names()).Lock) + ` 2>/dev/null)" = ` + q(e.hostLockVal) + ` ]; then ` + cmd + `; else echo ob-host-fenced >&2; exit 96; fi`
+	guarded := `if [ "$(cat ` + q(proxy.HostPaths(e.names()).Lock) + ` 2>/dev/null)" = ` + q(e.hostLockVal) + ` ]; then ` + cmd + `; else echo onebox-host-fenced >&2; exit 96; fi`
 	res, err = e.mutate(ctx, guarded)
 	if err != nil {
 		return res, err
 	}
-	if res.ExitCode == 96 && strings.Contains(res.Stderr, "ob-host-fenced") {
+	if res.ExitCode == 96 && strings.Contains(res.Stderr, "onebox-host-fenced") {
 		return res, ErrFenced
 	}
 	return res, nil

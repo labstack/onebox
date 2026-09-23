@@ -846,7 +846,7 @@ func writeEnvFile(path string, names map[string]string, parts map[string]string)
 // on Debian and Ubuntu. The temp file shares the target's directory so the
 // rename cannot cross a filesystem.
 func atomicEnvFile(path string, body func(target string) string) string {
-	quoted, temp := shellQuote(path), shellQuote(path+".ob-tmp")
+	quoted, temp := shellQuote(path), shellQuote(path+".onebox-tmp")
 	var b strings.Builder
 	fmt.Fprintf(&b, "if ! printf '' > %[1]s; then echo 'cannot write '%[1]s >&2; exit 1; fi\n", temp)
 	// Every append is checked too. The rename is only reached when the temp file

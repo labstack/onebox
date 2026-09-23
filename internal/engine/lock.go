@@ -327,12 +327,12 @@ func (e *Engine) WriteFence(ctx context.Context, deployID string, epoch int) err
 		return fmt.Errorf("write fence: app lock is not owned")
 	}
 	val := deployID + " " + strconv.Itoa(epoch)
-	cmd := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(e.lockVal) + ` ]; then echo ` + q(val) + ` > ` + q(e.fencePath()) + `; else echo ob-lock-lost >&2; exit 96; fi`
+	cmd := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(e.lockVal) + ` ]; then echo ` + q(val) + ` > ` + q(e.fencePath()) + `; else echo onebox-lock-lost >&2; exit 96; fi`
 	res, err := e.T.Run(ctx, cmd)
 	if err != nil {
 		return err
 	}
-	if res.ExitCode == 96 && strings.Contains(res.Stderr, "ob-lock-lost") {
+	if res.ExitCode == 96 && strings.Contains(res.Stderr, "onebox-lock-lost") {
 		return ErrFenced
 	}
 	if res.ExitCode != 0 {
@@ -348,12 +348,12 @@ func (e *Engine) mutate(ctx context.Context, cmd string) (res transport.Result, 
 	if e.fenceVal == "" {
 		return e.T.Run(ctx, cmd)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	res, err = e.T.Run(ctx, guarded)
 	if err != nil {
 		return res, err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
 		return res, ErrFenced
 	}
 	return res, nil
@@ -366,12 +366,12 @@ func (e *Engine) mutateInput(ctx context.Context, cmd, input string) (res transp
 	if e.fenceVal == "" {
 		return e.T.RunInput(ctx, cmd, input)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	res, err = e.T.RunInput(ctx, guarded, input)
 	if err != nil {
 		return res, err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "ob-fenced") {
+	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
 		return res, ErrFenced
 	}
 	return res, nil
@@ -384,7 +384,7 @@ func (e *Engine) mutateStream(ctx context.Context, cmd string, stdout, stderr io
 	if e.fenceVal == "" {
 		return e.T.RunStream(ctx, cmd, stdout, stderr)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo ob-fenced >&2; exit 97; fi`
+	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
 	return e.T.RunStream(ctx, guarded, stdout, stderr)
 }
 

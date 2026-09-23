@@ -15,7 +15,7 @@ func TestWorkloadRevisionIgnoresSecretStorageGeneration(t *testing.T) {
 	compose := []byte(`services:
   worker:
     image: example/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    env_file: [.ob-secret-generations/` + first + `/app.env]
+    env_file: [.onebox-secret-generations/` + first + `/app.env]
     labels: {onebox.app: sample, onebox.release: R1, onebox.secret-generation: ` + first + `}
 `)
 	contract := map[string]WorkloadContract{"worker": {

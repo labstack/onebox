@@ -114,7 +114,7 @@ func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 	}
 	for _, command := range f.Commands {
 		if strings.Contains(command, "/etc/systemd/system/onebox-job-nightly") &&
-			strings.Contains(command, ".ob-tmp") && !strings.Contains(command, "ob-fenced") {
+			strings.Contains(command, ".onebox-tmp") && !strings.Contains(command, "onebox-fenced") {
 			t.Errorf("schedule artifact write escaped the fence: %s", command)
 		}
 	}
@@ -304,7 +304,7 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 		"exec 8>'/var/lib/onebox/app/schedule.lock'",
 		"flock --shared --timeout 10 --conflict-exit-code 200 8",
 		"release_dir=$(readlink -f '/var/lib/onebox/app/current')",
-		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
+		"exec 7>>\"$release_dir/.onebox-schedule.lease\"",
 		"flock --shared 7",
 		"flock --unlock 8",
 		"trap cleanup 0",
@@ -672,7 +672,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	}
 	assertLock(names.ScheduleRunLock(), true)
 	assertLock(names.ScheduledJobRunLock(job.Name), false)
-	assertLock(filepath.Join(releaseDir, ".ob-schedule.lease"), false)
+	assertLock(filepath.Join(releaseDir, ".onebox-schedule.lease"), false)
 	leases, err := release.ActiveScheduleLeases(ctx, transport.NewLocal(), names)
 	if err != nil || len(leases) != 1 || leases[0] != releaseID {
 		t.Fatalf("active release lease was not observable: leases=%v err=%v", leases, err)
@@ -711,7 +711,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	if _, err := os.Stat(removed); err != nil {
 		t.Fatalf("completed run did not clean its named container: %v", err)
 	}
-	assertLock(filepath.Join(releaseDir, ".ob-schedule.lease"), true)
+	assertLock(filepath.Join(releaseDir, ".onebox-schedule.lease"), true)
 	leases, err = release.ActiveScheduleLeases(ctx, transport.NewLocal(), names)
 	if err != nil || len(leases) != 0 {
 		t.Fatalf("completed release remained leased: leases=%v err=%v", leases, err)
@@ -964,8 +964,8 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 				"onebox-job-nightly.timer",
 				"onebox-backup-production-postgres-backup.timer",
 				"onebox-backup-production-postgres-verify.timer",
-				// Another application's, and a stranger's. Neither is ours.
-				"ob-backup-other-production-postgres-backup.timer",
+				// Outside Onebox's namespaces, and a stranger's. Neither is ours.
+				"backup-other-production-postgres-backup.timer",
 				"logrotate.timer",
 				"",
 			}, "\n")}, true
@@ -986,7 +986,7 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 			t.Errorf("teardown left %s installed:\n%s", want, seq)
 		}
 	}
-	for _, never := range []string{"ob-backup-other-production", "logrotate"} {
+	for _, never := range []string{"backup-other-production", "logrotate"} {
 		if strings.Contains(seq, never) {
 			t.Errorf("teardown removed a unit that is not this application's (%s):\n%s", never, seq)
 		}
@@ -1061,7 +1061,7 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 		`"run":"%s","job":"%s","trigger":"%s","operation":"%s","release":"%s"`,
 		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","forced_kill":%s,"reason":"%s","inputs":{%s}`,
 		`"${INVOCATION_ID:-}" 'nightly'`,
-		`SYSLOG_IDENTIFIER=ob-run\nONEBOX_APP=%s\nONEBOX_UNIT=%s\nONEBOX_JOB=%s`,
+		`SYSLOG_IDENTIFIER=onebox-run\nONEBOX_APP=%s\nONEBOX_UNIT=%s\nONEBOX_JOB=%s`,
 		`"$record" 'sample' 'onebox-job-nightly' 'nightly' | logger --journald`,
 	} {
 		if !strings.Contains(script, want) {
@@ -1120,7 +1120,7 @@ func runNotifierIn(t *testing.T, base string, job app.ScheduledJob, notification
 	// keeps only the MESSAGE line, as `journalctl -o cat` would show it.
 	stub := "#!/bin/sh\n[ \"$1\" = --journald ] || exit 9\n" +
 		"fields=$(cat)\n" +
-		"printf '%s\\n' \"$fields\" | grep -q '^SYSLOG_IDENTIFIER=ob-run$' || exit 8\n" +
+		"printf '%s\\n' \"$fields\" | grep -q '^SYSLOG_IDENTIFIER=onebox-run$' || exit 8\n" +
 		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_UNIT=onebox-job-nightly$' || exit 7\n" +
 		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_JOB=nightly$' || exit 6\n" +
 		"printf '%s\\n' \"$fields\" | sed -n 's/^MESSAGE=//p' >>" + record + "\n"

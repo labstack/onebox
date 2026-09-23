@@ -242,12 +242,12 @@ func TestSameArtifactPathSeesThroughEquivalentSpellings(t *testing.T) {
 // it replaced — the opposite of the guarantee.
 func TestDiscardKeepsTheBackupWhenTheRestoreFailed(t *testing.T) {
 	dir := t.TempDir()
-	backup := filepath.Join(dir, "plan.json.ob-bak.plan")
+	backup := filepath.Join(dir, "plan.json.onebox-bak.plan")
 	if err := os.WriteFile(backup, []byte("previous plan"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	artifact := stagedArtifact{
-		staged: filepath.Join(dir, "plan.json.ob-tmp.plan"),
+		staged: filepath.Join(dir, "plan.json.onebox-tmp.plan"),
 		// A destination whose directory does not exist, so restore's rename
 		// cannot succeed.
 		final:    filepath.Join(dir, "gone", "plan.json"),
@@ -271,12 +271,12 @@ func TestDiscardKeepsTheBackupWhenTheRestoreFailed(t *testing.T) {
 func TestDiscardRemovesTheBackupWhenTheRestoreSucceeded(t *testing.T) {
 	dir := t.TempDir()
 	final := filepath.Join(dir, "plan.json")
-	backup := filepath.Join(dir, "plan.json.ob-bak.plan")
+	backup := filepath.Join(dir, "plan.json.onebox-bak.plan")
 	if err := os.WriteFile(backup, []byte("previous plan"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	artifact := stagedArtifact{
-		staged:   filepath.Join(dir, "plan.json.ob-tmp.plan"),
+		staged:   filepath.Join(dir, "plan.json.onebox-tmp.plan"),
 		final:    final,
 		backup:   backup,
 		replaced: true,
@@ -322,7 +322,7 @@ func TestStageArtifactClearsARedundantBackup(t *testing.T) {
 	if err := os.WriteFile(plan, []byte("current plan"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stale := plan + ".ob-bak.plan"
+	stale := plan + ".onebox-bak.plan"
 	if err := os.WriteFile(stale, []byte("previous run's plan"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestStageArtifactClearsARedundantBackup(t *testing.T) {
 func TestStageArtifactKeepsABackupThatIsTheOnlyCopy(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "plan.json")
-	orphan := plan + ".ob-bak.plan"
+	orphan := plan + ".onebox-bak.plan"
 	if err := os.WriteFile(orphan, []byte("the only copy"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestAFailedRunLeavesAnOrphanBackupIntact(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "plan.json")
 	report := filepath.Join(dir, "report.json")
-	orphan := plan + ".ob-bak.plan"
+	orphan := plan + ".onebox-bak.plan"
 	if err := os.WriteFile(orphan, []byte("the only copy"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestAFailedRunLeavesAnOrphanBackupIntact(t *testing.T) {
 func TestASuccessfulRunClearsAnOrphanBackup(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "plan.json")
-	orphan := plan + ".ob-bak.plan"
+	orphan := plan + ".onebox-bak.plan"
 	if err := os.WriteFile(orphan, []byte("previous copy"), 0o600); err != nil {
 		t.Fatal(err)
 	}

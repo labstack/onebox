@@ -72,7 +72,7 @@ func (r *Resolved) Eject(dest, releaseID string, images Images, overwrite bool) 
 	// Write and rename before touching the project. An interruption then leaves
 	// the project still pointing at the generator rather than at a file that
 	// may not exist.
-	tmp := target + ".ob-tmp"
+	tmp := target + ".onebox-tmp"
 	if err := os.WriteFile(tmp, stripped, 0o600); err != nil {
 		return nil, errf("eject_failed", dest, "", "cannot write %q: %v", dest, err)
 	}
@@ -265,7 +265,7 @@ func repointProject(path, dest string, names []string) error {
 		return errf("eject_failed", path, "", "%v", err)
 	}
 
-	tmp := path + ".ob-tmp"
+	tmp := path + ".onebox-tmp"
 	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err != nil {
 		return errf("eject_failed", path, "", "%v", err)
 	}

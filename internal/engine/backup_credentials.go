@@ -46,7 +46,7 @@ func (e *Engine) InstallBackupCredentialFile(ctx context.Context, service, targe
 		}
 	}
 
-	localStaging, err := os.MkdirTemp("", "ob-backup-credentials-")
+	localStaging, err := os.MkdirTemp("", "onebox-backup-credentials-")
 	if err != nil {
 		return "", errors.New("create private backup credential staging")
 	}

@@ -34,7 +34,7 @@ type Rendered struct {
 // UnresolvedImage is what an unresolved build stands in as. It is not a real
 // reference and no registry serves it, so a runtime carrying it fails at the
 // pull rather than starting something unintended.
-const UnresolvedImage = "ob-unresolved-image:no-release"
+const UnresolvedImage = "onebox-unresolved-image:no-release"
 
 // WorkloadRevisionLabel identifies the complete rendered service contract
 // independently of the application release that happened to create it.
@@ -617,7 +617,7 @@ func (p *Spec) routesAnywhere() bool {
 // before anything sends a signal. Without the guard the container reports
 // healthy until the moment it dies, and the requests in flight at that moment
 // are lost.
-const DrainFile = "/tmp/ob-drain"
+const DrainFile = "/tmp/onebox-drain"
 
 // drainGuarded prefixes a shell-form check with the drain test.
 func drainGuarded(check string) string {
@@ -919,7 +919,7 @@ func (p *Spec) ExternalConnectionProjections(workloadName string, w Workload) []
 			entries[destination] = external.Connection.Entries[part]
 		}
 		out = append(out, ExternalConnectionProjection{
-			Path:    ".ob-external-" + need.Name + "_" + workloadName + ".env",
+			Path:    ".onebox-external-" + need.Name + "_" + workloadName + ".env",
 			Source:  external.Connection.Source,
 			Entries: entries,
 		})

@@ -111,7 +111,7 @@ func (e *Engine) Status(ctx context.Context) error {
 		for _, c := range cs {
 			actual := c.release
 			if actual == "" || actual == "<no value>" {
-				actual = "(not ob-deployed)"
+				actual = "(not deployed by Onebox)"
 			}
 			state := e.ui.OK("in sync")
 			if !workloadReleaseMatches(c.release, c.revision, recordedRelease, expectedRevisions[roleName]) {
@@ -140,7 +140,7 @@ func (e *Engine) Status(ctx context.Context) error {
 		for _, container := range orphan.Containers {
 			actual := container.Release
 			if actual == "" || actual == "<no value>" {
-				actual = "(not ob-deployed)"
+				actual = "(not deployed by Onebox)"
 			}
 			e.ui.Println(fmt.Sprintf(row, orphan.Service, "orphan", actual, container.Health, e.ui.Warn("UNDECLARED ⚠")))
 		}

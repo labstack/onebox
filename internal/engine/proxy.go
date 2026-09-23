@@ -250,7 +250,7 @@ func (e *Engine) discoveryContainerIDs(ctx context.Context) ([]string, error) {
 // ProxyApply is the CLI verb: converge the host proxy outside any deploy.
 func (e *Engine) ProxyApply(ctx context.Context, deployID string) error {
 	if !e.Spec.Proxy.Managed {
-		return fmt.Errorf("proxy is not managed (proxy.managed: true enables ob-owned Traefik)")
+		return fmt.Errorf("proxy is not managed (proxy.managed: true enables Onebox-owned Traefik)")
 	}
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return err

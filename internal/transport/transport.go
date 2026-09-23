@@ -163,7 +163,7 @@ func stagingPath(remoteDir string) string {
 // uploadSentinel is written as the final archive entry by transports that
 // stream, so the receiver can tell a complete payload from a truncated one.
 // See uploadScript.
-const uploadSentinel = ".ob-upload-complete"
+const uploadSentinel = ".onebox-upload-complete"
 
 // uploadScript wraps a transfer so an interrupted one cannot be mistaken for a
 // finished one.

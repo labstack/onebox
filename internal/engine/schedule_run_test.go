@@ -199,7 +199,7 @@ func TestScheduleRunWaitReportsTheRecordAndFailsOnAnyOtherOutcome(t *testing.T) 
 				return transport.Result{Stdout: "inactive\n"}, true
 			case strings.Contains(cmd, "systemctl start 'onebox-job-sync.service'"):
 				return transport.Result{}, true
-			case strings.Contains(cmd, "SYSLOG_IDENTIFIER=ob-run"):
+			case strings.Contains(cmd, "SYSLOG_IDENTIFIER=onebox-run"):
 				// Newest first: a stale record from an earlier run precedes ours,
 				// and must not be mistaken for it.
 				return transport.Result{Stdout: `{"run":"ffffffffffffffffffffffffffffffff","job":"sync","trigger":"timer","operation":"","started_at":"2026-09-05T14:00:01Z","finished_at":"2026-09-05T14:00:02Z","duration_s":1,"attempts":1,"exit_status":0,"outcome":"success","inputs":{}}` + "\n" +

@@ -29,15 +29,15 @@ func TestSecretGenerationValidatorIsStrict(t *testing.T) {
 func TestApplySecretGenerationChangesOnlyAffectedSecretBindings(t *testing.T) {
 	input := []byte(`services:
   web:
-    env_file: [plain.env, .ob-decrypted-sops-api.env, .ob-service-postgres.env]
+    env_file: [plain.env, .onebox-decrypted-sops-api.env, .onebox-service-postgres.env]
     labels: {onebox.app: shop}
   worker:
-    env_file: [.ob-decrypted-sops-worker.env]
+    env_file: [.onebox-decrypted-sops-worker.env]
     labels: {onebox.app: shop}
 `)
 	graph := []SecretDeclaration{
-		{OutputPath: ".ob-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}},
-		{OutputPath: ".ob-decrypted-sops-worker.env", AffectedWorkloads: []string{"worker"}},
+		{OutputPath: ".onebox-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}},
+		{OutputPath: ".onebox-decrypted-sops-worker.env", AffectedWorkloads: []string{"worker"}},
 	}
 	generation := "sg-111111111111111111111111"
 	output, err := ApplySecretGeneration(input, graph, generation)
@@ -45,12 +45,12 @@ func TestApplySecretGenerationChangesOnlyAffectedSecretBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(output)
-	for _, secret := range []string{".ob-decrypted-sops-api.env", ".ob-decrypted-sops-worker.env"} {
+	for _, secret := range []string{".onebox-decrypted-sops-api.env", ".onebox-decrypted-sops-worker.env"} {
 		if !strings.Contains(text, SecretGenerationPath(generation, secret)) {
 			t.Fatalf("runtime does not select generation path for %s:\n%s", secret, text)
 		}
 	}
-	for _, unchanged := range []string{"plain.env", ".ob-service-postgres.env"} {
+	for _, unchanged := range []string{"plain.env", ".onebox-service-postgres.env"} {
 		if !strings.Contains(text, unchanged) {
 			t.Fatalf("non-secret binding %s changed:\n%s", unchanged, text)
 		}
@@ -85,10 +85,10 @@ func TestApplySecretGenerationReplacesListFormLabel(t *testing.T) {
 	const newGeneration = "sg-222222222222222222222222"
 	input := []byte(`services:
   web:
-    env_file: [.ob-decrypted-sops-api.env]
+    env_file: [.onebox-decrypted-sops-api.env]
     labels: [onebox.app=shop, onebox.secret-generation=` + oldGeneration + `]
 `)
-	graph := []SecretDeclaration{{OutputPath: ".ob-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}}}
+	graph := []SecretDeclaration{{OutputPath: ".onebox-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}}}
 	output, err := ApplySecretGeneration(input, graph, newGeneration)
 	if err != nil {
 		t.Fatal(err)

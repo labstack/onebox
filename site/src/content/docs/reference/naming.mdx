@@ -53,6 +53,27 @@ duration is an integer.
 
 ## Runtime resources
 
+**`ob` is the command; `onebox` is everything it puts anywhere else.** Only
+what an operator types or keeps next to the project uses `ob`: the command, the
+project file `ob.yml`, and the artifacts passed between commands
+(`ob-plan.json`, `ob-approval.json`, `ob-backup-report.json`). Every name Onebox
+creates on a host, inside a container, or for its own use begins with
+`onebox`, and the separator says what kind of name it is:
+
+| Form | For | Examples |
+| --- | --- | --- |
+| `onebox-<name>` | named things on the host and in containers | `onebox-postgres`, `onebox-ingress`, `onebox-job-nightly`, `onebox-run`, `/tmp/onebox-drain` |
+| `onebox_<a>_<b>` | names joined from several identifiers, which must stay unambiguous | `onebox_postgres_data`, `onebox_services`, `onebox_web_r0` |
+| `onebox.<key>` | labels | `onebox.app`, `onebox.release` |
+| `ONEBOX_<KEY>` | environment variables | `ONEBOX_STEP_ID` |
+| `/var/lib/onebox/…` | paths | `/var/lib/onebox/app` |
+| `.onebox-<name>` | Onebox's own files inside a directory it shares | `.onebox-schedule.lease`, `.onebox-tmp` |
+
+The application's name appears only in the author's own workload containers
+and Compose project, and where the application has to be identified beyond the
+host: the owner record, the backup repository path and the database name. A
+test fails the build when code introduces any other `ob-`, `ob_` or `ob.` name.
+
 **Every workload container is `<app>-<component>-<replica>`.** Replica
 ordinals are one-based and never omitted, including for a singleton, because
 replicas can change and a rollout moves containers between numbered slots. A

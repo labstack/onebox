@@ -72,7 +72,7 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 		if strings.Contains(cmd, "ls -1") {
 			return transport.Result{Stdout: "20260101-000000-aaa111\n20260102-000000-bbb222\n"}, true
 		}
-		if strings.Contains(cmd, "ob.snapshot.yml") {
+		if strings.Contains(cmd, "onebox.snapshot.yml") {
 			return transport.Result{Stdout: oldSnapshot}, true
 		}
 		return base(cmd)
@@ -111,7 +111,7 @@ func TestRollbackRefusesWithoutUsableSnapshot(t *testing.T) {
 					return transport.Result{Stdout: "releases/20260102-000000-bbb222\n"}, true
 				case strings.Contains(cmd, "ls -1"):
 					return transport.Result{Stdout: "20260101-000000-aaa111\n20260102-000000-bbb222\n"}, true
-				case strings.Contains(cmd, "ob.snapshot.yml"):
+				case strings.Contains(cmd, "onebox.snapshot.yml"):
 					return tt.snapshot, true
 				}
 				return base(cmd)
@@ -121,7 +121,7 @@ func TestRollbackRefusesWithoutUsableSnapshot(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("rollback error = %v, want %q", err, tt.want)
 			}
-			if strings.Contains(strings.Join(f.Commands, "\n"), "ob-fenced") {
+			if strings.Contains(strings.Join(f.Commands, "\n"), "onebox-fenced") {
 				t.Fatalf("rollback must fail before mutation:\n%s", strings.Join(f.Commands, "\n"))
 			}
 		})
@@ -170,7 +170,7 @@ func TestRepeatedRollbackFollowsTheNewPredecessor(t *testing.T) {
 			}
 			return transport.Result{Stdout: "releases/" + current + "\n"}, true
 		}
-		if strings.Contains(command, "/releases/"+rollbackPreviousID+"/ob.snapshot.yml") {
+		if strings.Contains(command, "/releases/"+rollbackPreviousID+"/onebox.snapshot.yml") {
 			return transport.Result{Stdout: oldSnapshot}, true
 		}
 		return base(command)

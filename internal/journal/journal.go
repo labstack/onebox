@@ -242,7 +242,7 @@ func List(ctx context.Context, t transport.Transport, n app.Names) ([]string, er
 // journalMarker prefixes each file's contents in the bulk read below. Journal
 // records are single-line JSON objects (they start with '{'), so a line
 // starting with this marker is unambiguous.
-const journalMarker = "@@ob-journal@@"
+const journalMarker = "@@onebox-journal@@"
 
 // Journals returns every deploy's records keyed by id, plus the ids oldest
 // first, in a SINGLE round trip. FindIncomplete is the caller that needs this

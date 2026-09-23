@@ -117,7 +117,7 @@ func TestBackupLockReclaimsStaleHolderWithNewFence(t *testing.T) {
 func TestBackupMutationRejectsStaleFence(t *testing.T) {
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "write-database-data") {
-			return transport.Result{ExitCode: 98, Stderr: "ob-backup-fenced\n"}, true
+			return transport.Result{ExitCode: 98, Stderr: "onebox-backup-fenced\n"}, true
 		}
 		return transport.Result{}, false
 	}}

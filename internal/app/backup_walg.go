@@ -39,7 +39,7 @@ const WalgExecutable = "/usr/local/bin/wal-g"
 // while a backup target names its own entries, so something has to bridge the
 // two — and doing it here keeps the project's vocabulary out of wal-g's and
 // wal-g's out of the operator's encrypted file.
-const WalgBinary = WalgMountPath + "/ob-wal-g"
+const WalgBinary = WalgMountPath + "/onebox-wal-g"
 
 // WalgTrustStore is the host trust store as the container sees it. The staged
 // copy lands beside the binary, inside the directory already mounted read-only

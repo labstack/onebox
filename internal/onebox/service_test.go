@@ -263,7 +263,7 @@ spec:
 	liveCompose := `services:
   web:
     image: ` + imageWeb + `
-    env_file: [.ob-secret-generations/` + oldGeneration + `/.ob-decrypted-sops-web.enc.env]
+    env_file: [.onebox-secret-generations/` + oldGeneration + `/.onebox-decrypted-sops-web.enc.env]
     labels: {onebox.app: demo, onebox.release: R0, onebox.workload: web, onebox.secret-generation: ` + oldGeneration + `}
   worker:
     image: ` + imageWorker + `
@@ -273,7 +273,7 @@ spec:
 	baseDynamic := fake.Dynamic
 	fake.Dynamic = func(command string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(command, "ob.snapshot.yml"):
+		case strings.Contains(command, "onebox.snapshot.yml"):
 			return transport.Result{Stdout: project(false)}, true
 		case strings.Contains(command, "cat ") && strings.Contains(command, "compose.yaml"):
 			return transport.Result{Stdout: liveCompose}, true

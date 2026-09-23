@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const SecretGenerationDirectory = ".ob-secret-generations"
+const SecretGenerationDirectory = ".onebox-secret-generations"
 
 var opaqueSecretGeneration = regexp.MustCompile(`^sg-[0-9a-f]{24}$`)
 

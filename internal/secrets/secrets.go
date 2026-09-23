@@ -54,7 +54,7 @@ func RenderContext(ctx context.Context, configDir, sopsFile string) ([]byte, err
 // callers can fingerprint exactly the ciphertext bytes that produced the
 // returned runtime payload without a second, racy read of the source path.
 func RenderBytesContext(ctx context.Context, sourceName string, encrypted []byte) ([]byte, error) {
-	directory, err := os.MkdirTemp("", "ob-sops-snapshot")
+	directory, err := os.MkdirTemp("", "onebox-sops-snapshot")
 	if err != nil {
 		return nil, err
 	}

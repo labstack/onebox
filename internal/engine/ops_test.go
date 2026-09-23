@@ -19,7 +19,7 @@ func opsFake(remoteSecretsHash string) *transport.Fake {
 		if strings.Contains(cmd, "readlink") {
 			return transport.Result{Stdout: "releases/R7\n"}, true
 		}
-		if strings.Contains(cmd, "/releases/R7/ob.snapshot.yml") {
+		if strings.Contains(cmd, "/releases/R7/onebox.snapshot.yml") {
 			return transport.Result{Stdout: engineProject}, true
 		}
 		if strings.Contains(cmd, "sha256sum") {
@@ -51,7 +51,7 @@ func TestDestroySequence(t *testing.T) {
 	if strings.Contains(seq, "rm -rf '/var/lib/onebox/app'") {
 		t.Fatalf("kept volumes lost their credentials:\n%s", seq)
 	}
-	if !strings.Contains(seq, "systemctl disable --now ob-sample-") &&
+	if !strings.Contains(seq, "systemctl disable --now onebox-job-") &&
 		strings.Contains(seq, "list-unit-files") {
 		// no timers installed in this fixture; the sweep still has to run
 		if !strings.Contains(seq, "list-unit-files --no-legend --type=timer") {
@@ -64,7 +64,7 @@ func TestDestroyRefusesActivePinnedScheduleLease(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, ".ob-schedule.lease") {
+		if strings.Contains(command, ".onebox-schedule.lease") {
 			return transport.Result{Stdout: "20260828-120000-running\n"}, true
 		}
 		return base(command)
@@ -153,7 +153,7 @@ func TestDestroyUsesTheCurrentReleaseEnvironment(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
+		if strings.Contains(command, "/releases/R7/onebox.snapshot.yml") {
 			return transport.Result{Stdout: engineProject + "\n  runtime:\n    envFiles: [legacy.env]\n"}, true
 		}
 		return base(command)
@@ -173,7 +173,7 @@ func TestDestroyRefusesMissingCurrentReleaseSnapshot(t *testing.T) {
 	f := opsFake("x")
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "/releases/R7/ob.snapshot.yml") {
+		if strings.Contains(command, "/releases/R7/onebox.snapshot.yml") {
 			return transport.Result{ExitCode: 1, Stderr: "not found"}, true
 		}
 		return base(command)

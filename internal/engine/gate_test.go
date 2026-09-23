@@ -67,7 +67,7 @@ func TestAutoRollbackUsesPreviousReleaseSnapshot(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/ob.snapshot.yml"):
+		case strings.Contains(cmd, "/releases/"+engineTestPreviousReleaseID+"/onebox.snapshot.yml"):
 			return transport.Result{Stdout: oldSnapshot}, true
 		case strings.Contains(cmd, "service='worker'") && strings.Contains(cmd, "onebox.release='"+engineTestPreviousReleaseID+"'"):
 			return transport.Result{}, true

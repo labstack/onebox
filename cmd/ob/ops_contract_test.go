@@ -190,7 +190,7 @@ spec:
 	}
 	fake := &transport.Fake{HostName: "example.invalid", Dynamic: func(command string) (transport.Result, bool) {
 		switch {
-		case strings.HasPrefix(command, ": ob-epoch-probe;"):
+		case strings.HasPrefix(command, ": onebox-epoch-probe;"):
 			return transport.Result{ExitCode: app.ProbeAbsent}, true
 		case strings.Contains(command, "/_host/owner"):
 			return transport.Result{Stdout: "shop production\n"}, true

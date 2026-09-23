@@ -474,7 +474,7 @@ func (e *Engine) freshSecretGeneration(exclude string) (string, error) {
 }
 
 func stageSecretPayloads(payloads []SecretPayload) (string, func(), error) {
-	directory, err := os.MkdirTemp("", "ob-secret-generation")
+	directory, err := os.MkdirTemp("", "onebox-secret-generation")
 	if err != nil {
 		return "", nil, err
 	}

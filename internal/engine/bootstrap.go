@@ -224,7 +224,10 @@ func checkAppDirCommand(n app.Names, application string) string {
 // write may ever leave it empty.
 func claimAppDirCommand(n app.Names, application string) string {
 	marker := q(n.AppMarker())
-	staged := q(n.AppMarker() + ".tmp")
-	return checkAppDirCommand(n, application) + "; mkdir -p " + q(n.ReleasesDir()) + " || exit 1; " +
-		"[ -e " + marker + " ] || { printf '%s\\n' " + q(application) + " > " + staged + " && mv -f " + staged + " " + marker + "; }"
+	staged := q(n.AppMarker()+".tmp.") + "$$"
+	// The marker first, then everything else: a claim cut short must never
+	// leave a non-empty directory without it.
+	return checkAppDirCommand(n, application) + "; mkdir -p " + q(n.AppDir()) + " || exit 1; " +
+		"[ -e " + marker + " ] || { printf '%s\\n' " + q(application) + " > " + staged + " && mv -f " + staged + " " + marker + "; } || exit 1; " +
+		"mkdir -p " + q(n.ReleasesDir())
 }

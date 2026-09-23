@@ -610,6 +610,10 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 	if err := os.MkdirAll(releaseDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// What bootstrap writes; no lock is taken in an unmarked directory.
+	if err := os.WriteFile(names.AppMarker(), []byte("sample\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(releaseDir, "compose.yaml"), []byte("services: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

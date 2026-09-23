@@ -44,8 +44,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		return err
 	}
 	n := e.names()
-	prefixes := n.ScheduledJobUnitPrefixes()
-	prefix := prefixes[0]
+	prefix := app.JobUnitPrefix
 
 	// What is installed now, so anything no longer declared can go.
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
@@ -55,30 +54,12 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 	installed := map[string]bool{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		unit := strings.TrimSpace(line)
-		// Backups own their own namespace and reconciles it separately. Its
-		// units begin "ob-backup-", which also begins with this prefix when
-		// the application is literally named "backup" — belt and braces,
-		// because the failure mode is a deploy silently deleting every
-		// scheduled backup.
-		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
-			continue
-		}
 		if !strings.HasSuffix(unit, ".timer") || !unitName.MatchString(unit) {
 			continue
 		}
 		bare := strings.TrimSuffix(unit, ".timer")
 		if matchesRuntimePrefix(bare, prefix) {
 			installed[bare] = true
-			continue
-		}
-		if matchesAnyPrefix(unit, prefixes[1:]) {
-			owned, err := e.scheduleUnitBelongsToOwner(ctx, bare, false)
-			if err != nil {
-				return err
-			}
-			if owned {
-				installed[bare] = true
-			}
 		}
 	}
 
@@ -936,15 +917,10 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 	// Both namespaces this application installs into.
 	//
 	// Backup timers are deliberately named outside the job scheduler's
-	// namespace — app.BackupTimerForEnvironment explains why: a deploy used to
-	// treat them as "no longer declared" and delete every scheduled backup.
-	// Teardown is the opposite case and needs both, and matching only the job
-	// prefix meant `ob destroy` left ob-backup-<app>-<env>-<service>-<op>
-	// timers loaded and firing against a release directory it had just
+	// namespace — app.JobUnitPrefix explains why. Teardown is the opposite case
+	// and needs both: matching only the job prefix once left backup timers
+	// loaded and firing against a release directory `ob destroy` had just
 	// deleted. They belong to this application and they go with it.
-	n := e.names()
-	jobPrefixes := n.ScheduledJobUnitPrefixes()
-	backupPrefixes := n.BackupUnitPrefixes()
 	res, err := e.T.Run(ctx, "systemctl list-unit-files --no-legend --type=timer 2>/dev/null | awk '{print $1}'")
 	if err != nil {
 		return err
@@ -956,26 +932,7 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 			continue
 		}
 		unit = strings.TrimSuffix(unit, ".timer")
-		var owned bool
-		if strings.HasPrefix(unit, app.BackupUnitPrefix) {
-			switch {
-			case matchesRuntimePrefix(unit, backupPrefixes[0]):
-				owned = true
-			case matchesAnyPrefix(unit, backupPrefixes[1:]):
-				owned, err = e.scheduleUnitBelongsToOwner(ctx, unit, true)
-			}
-		} else {
-			switch {
-			case matchesRuntimePrefix(unit, jobPrefixes[0]):
-				owned = true
-			case matchesAnyPrefix(unit, jobPrefixes[1:]):
-				owned, err = e.scheduleUnitBelongsToOwner(ctx, unit, false)
-			}
-		}
-		if err != nil {
-			return err
-		}
-		if owned {
+		if matchesRuntimePrefix(unit, app.JobUnitPrefix) || matchesRuntimePrefix(unit, app.BackupUnitPrefix) {
 			units = append(units, unit)
 		}
 	}
@@ -1020,48 +977,10 @@ func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
 	return errors.Join(errs...)
 }
 
-func matchesAnyPrefix(name string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // matchesRuntimePrefix distinguishes a component boundary from the first half
-// of an escaped hyphen. For example, ob-acme- owns ob-acme-nightly but not
-// ob-acme--web-nightly, whose application component is acme-web.
+// of an escaped hyphen. For example, onebox-backup-prod- owns
+// onebox-backup-prod-db-base but not onebox-backup-prod--eu-db-base, whose
+// environment is prod-eu.
 func matchesRuntimePrefix(name, prefix string) bool {
 	return strings.HasPrefix(name, prefix) && len(name) > len(prefix) && name[len(prefix)] != '-'
-}
-
-// scheduleUnitBelongsToOwner resolves an ambiguous old unit name from the
-// unambiguous owner embedded in its service body. New backup units include the
-// environment as well; the application-only suffix remains migration input for
-// units written before environments were recorded there.
-// Missing or unfamiliar files are left alone: ownership must be proved before
-// reconciliation removes a host-global unit.
-func (e *Engine) scheduleUnitBelongsToOwner(ctx context.Context, unit string, backup bool) (bool, error) {
-	res, err := e.T.Run(ctx, "cat "+q("/etc/systemd/system/"+unit+".service")+" 2>/dev/null")
-	if err != nil {
-		return false, fmt.Errorf("inspect legacy schedule %s: %w", unit, err)
-	}
-	if res.ExitCode != 0 {
-		return false, nil
-	}
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if backup {
-			if strings.HasPrefix(line, "Description=Onebox backup ") &&
-				(strings.HasSuffix(line, " ("+e.Spec.Name+"/"+e.Opts.Environment+")") ||
-					strings.HasSuffix(line, " ("+e.Spec.Name+")")) {
-				return true, nil
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "Description=Onebox scheduled job ") && strings.HasSuffix(line, " for "+e.Spec.Name) {
-			return true, nil
-		}
-	}
-	return false, nil
 }

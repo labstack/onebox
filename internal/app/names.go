@@ -17,8 +17,9 @@ import (
 //
 // Persistent and provider-internal identifiers are joined with underscores.
 // Hyphens would be ambiguous there: `onebox-<service>-<volume>` maps both
-// (a-b, c) and (a, b-c) to `onebox-a-b-c`. Underscore is excluded from the identifier grammar and
-// accepted in project and volume names, which makes that derivation injective.
+// (a-b, c) and (a, b-c) to `onebox-a-b-c`. Underscore is excluded from the
+// identifier grammar and accepted in project and volume names, which makes that
+// derivation injective.
 // Runtime segments escape an authored hyphen as `--`, leaving a single hyphen as
 // an unambiguous separator while ordinary names retain the simple form.
 const (
@@ -29,7 +30,7 @@ const (
 	// Namespace begins every name Onebox derives outside the author's own
 	// containers: onebox-<component> for what it runs from its own images, and
 	// onebox_<component>_... for data and plumbing. Neither carries the
-	// application: a host has one, the ob.app label records which, and the host
+	// application: a host has one, the onebox.app label records which, and the host
 	// is released only after these resources are removed.
 	Namespace = "onebox"
 
@@ -37,12 +38,19 @@ const (
 	// to managed services.
 	ServiceNetworkName = "services"
 
-	// HostNamespace holds state shared by everything on the box.
+	// HostNamespace holds state shared by everything on the box. It begins with
+	// an underscore, which no identifier can, so nothing derived from the
+	// project can name the same directory.
 	HostNamespace = "_host"
+
+	// AppNamespace holds the application's state. It is fixed rather than the
+	// application's name: a host has one application, and the host owner record
+	// says which.
+	AppNamespace = "app"
 
 	// DefaultBasePath follows the platform convention for variable state owned
 	// by a program that installs nothing of its own.
-	DefaultBasePath = "/var/lib/ob"
+	DefaultBasePath = "/var/lib/onebox"
 )
 
 // Names derives every generated name for one project and environment.
@@ -66,7 +74,7 @@ func (p *Spec) NamesFor(env string) Names {
 
 // ComposeProject is the application's Compose project. It is the application
 // identifier alone, which cannot collide with any derived name because
-// identifiers contain no underscore and may not begin `ob-` or `onebox-`.
+// identifiers contain no underscore and may not be or begin `onebox`.
 func (n Names) ComposeProject() string { return n.App }
 
 // ApplicationNetwork is the stable default network shared by every workload
@@ -82,7 +90,7 @@ func (n Names) ServiceProject(service string) string {
 }
 
 // ServiceContainer is a managed service's container. The name says who runs it,
-// not who owns it: the ob.app label carries ownership, and a host has one
+// not who owns it: the onebox.app label carries ownership, and a host has one
 // application, so the application in the name would tell an operator nothing.
 // There is no ordinal because a managed service is always a singleton.
 func (n Names) ServiceContainer(service string) string {
@@ -156,18 +164,6 @@ func (n Names) BackupCredentialFile(service, target string) string {
 	return path.Join(n.BackupSecretDir(), runtimeName(service, target)+".env")
 }
 
-// BackupCredentialFiles returns the current credential path followed by the
-// pre-2026.8.6 spelling when the two differ. The legacy path is removal and
-// migration input only; new runtime documents always use the first path.
-func (n Names) BackupCredentialFiles(service, target string) []string {
-	current := n.BackupCredentialFile(service, target)
-	legacy := path.Join(n.BackupSecretDir(), service+"-"+target+".env")
-	if current == legacy {
-		return []string{current}
-	}
-	return []string{current, legacy}
-}
-
 // BackupLifecycleStateFile is the durable target-side source used before
 // rendering a managed service. It is separate from active-volume selection:
 // one binds lifecycle/image policy, the other binds the physical data volume.
@@ -229,7 +225,7 @@ func (n Names) BackupRestoreVolume(service string) string {
 
 // ScheduledJobUnit is the systemd unit name without its suffix.
 func (n Names) ScheduledJobUnit(job string) string {
-	return "ob-" + runtimeName(n.App, job)
+	return JobUnitPrefix + job
 }
 
 // ScheduleRunLock serializes host-fired jobs with every operation holding the
@@ -262,20 +258,7 @@ func (n Names) ScheduledJobPause(job string) string {
 	return path.Join(n.AppDir(), "schedule", job+".paused")
 }
 
-// ScheduledJobUnitPrefixes returns the current namespace followed by the
-// pre-2026.8.6 spelling when the application name contains a hyphen.
-func (n Names) ScheduledJobUnitPrefixes() []string {
-	return distinctNames("ob-"+runtimeName(n.App)+"-", "ob-"+n.App+"-")
-}
-
 // BackupTimerForEnvironment names a backup timer.
-//
-// The "ob-backup-" prefix keeps it out of the namespace SyncSchedules owns.
-// That is not cosmetic: the job scheduler treats every unit named "ob-<app>-*"
-// as its own and removes the ones no longer declared, so backup timers named
-// that way were deleted by the next deploy — every scheduled backup silently
-// stopped, and the only trace was a line in the deploy output saying the
-// schedule was "no longer declared".
 func (n Names) BackupTimerForEnvironment(environment, service, operation string) string {
 	return n.BackupUnitForEnvironment(environment, service, operation) + ".timer"
 }
@@ -283,30 +266,24 @@ func (n Names) BackupTimerForEnvironment(environment, service, operation string)
 // BackupUnitForEnvironment is the systemd unit name without its suffix, so
 // the .service and .timer that pair together cannot be spelled differently.
 func (n Names) BackupUnitForEnvironment(environment, service, operation string) string {
-	return BackupUnitPrefix + runtimeName(n.App, environment, service, operation)
+	return BackupUnitPrefix + runtimeName(environment, service, operation)
 }
 
-// BackupUnitPrefixesForEnvironment returns the current injective namespace and
-// the pre-2026.8.6 namespace when they differ. Reconciliation needs both so an
-// upgrade removes old timers instead of leaving duplicate schedules behind.
-func (n Names) BackupUnitPrefixesForEnvironment(environment string) []string {
-	return distinctNames(
-		BackupUnitPrefix+runtimeName(n.App, environment)+"-",
-		BackupUnitPrefix+n.App+"-"+environment+"-",
-	)
+// BackupUnitPrefixForEnvironment is the part of every backup unit name that
+// belongs to one environment.
+func (n Names) BackupUnitPrefixForEnvironment(environment string) string {
+	return BackupUnitPrefix + runtimeName(environment) + "-"
 }
 
-// BackupUnitPrefixes returns every application-wide backup namespace that
-// teardown owns, including the legacy spelling used before segment escaping.
-func (n Names) BackupUnitPrefixes() []string {
-	return distinctNames(
-		BackupUnitPrefix+runtimeName(n.App)+"-",
-		BackupUnitPrefix+n.App+"-",
-	)
-}
-
-// BackupUnitPrefix is the systemd namespace backup owns outright.
-const BackupUnitPrefix = "ob-backup-"
+// JobUnitPrefix and BackupUnitPrefix are the systemd namespaces Onebox owns
+// outright. They are disjoint, and that is not cosmetic: the job scheduler
+// removes every unit in its namespace that the project no longer declares, and
+// backup timers once named inside it were deleted by the next deploy — every
+// scheduled backup silently stopped.
+const (
+	JobUnitPrefix    = Namespace + "-job-"
+	BackupUnitPrefix = Namespace + "-backup-"
+)
 
 // Container is a workload's stable runtime slot. It carries the application,
 // component, and a one-based replica ordinal — including singleton workloads,
@@ -333,11 +310,11 @@ func (n Names) TransientContainer(workload string) string {
 // harmless while the two live in different namespaces, and a trap the moment
 // anyone reads one list and assumes the other.
 func (n Names) Router(workload string, route int) string {
-	return join(n.App, workload, fmt.Sprintf("r%d", route))
+	return join(Namespace, workload, fmt.Sprintf("r%d", route))
 }
 
 func (n Names) ProxyService(workload string) string {
-	return join(n.App, workload)
+	return join(Namespace, workload)
 }
 
 // ProxyServiceFor is the Traefik backend for one route.
@@ -352,11 +329,19 @@ func (n Names) ProxyServiceFor(workload string, route int) string {
 	if route == 0 {
 		return n.ProxyService(workload)
 	}
-	return join(n.App, workload, fmt.Sprintf("r%d", route))
+	return join(Namespace, workload, fmt.Sprintf("r%d", route))
 }
 
 // AppDir, ReleasesDir, ReleaseDir, CurrentLink and HostDir are the remote layout.
-func (n Names) AppDir() string      { return path.Join(n.BasePath, n.App) }
+//
+// The host's own journal is written through Names{App: HostNamespace}, so that
+// one application name resolves to the host directory.
+func (n Names) AppDir() string {
+	if n.App == HostNamespace {
+		return n.HostDir()
+	}
+	return path.Join(n.BasePath, AppNamespace)
+}
 func (n Names) ReleasesDir() string { return path.Join(n.AppDir(), "releases") }
 func (n Names) ReleaseDir(id string) string {
 	return path.Join(n.ReleasesDir(), id)

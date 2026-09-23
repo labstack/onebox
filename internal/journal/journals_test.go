@@ -49,7 +49,7 @@ func TestJournalsOneRoundTrip(t *testing.T) {
 	if len(f.Commands) != 1 {
 		t.Fatalf("want exactly 1 round trip, got %d: %v", len(f.Commands), f.Commands)
 	}
-	if !strings.Contains(got, "'/var/lib/ob/sample/journal'") {
+	if !strings.Contains(got, "'/var/lib/onebox/app/journal'") {
 		t.Fatalf("command must target the app's journal dir: %s", got)
 	}
 	if len(ids) != 2 || ids[0] != "R1" || ids[1] != "R2" {

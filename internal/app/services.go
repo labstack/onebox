@@ -367,9 +367,9 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		"restart":        "unless-stopped",
 		"container_name": n.ServiceContainer(name),
 		"labels": map[string]any{
-			"ob.app":     p.Name,
-			"ob.service": name,
-			"ob.driver":  key,
+			"onebox.app":     p.Name,
+			"onebox.service": name,
+			"onebox.driver":  key,
 		},
 		"networks": []string{n.ServiceNetwork()},
 		// The credential file is written on the target and never travels with
@@ -463,7 +463,7 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		svc["volumes"] = mounts
 		volumes[full] = map[string]any{
 			"name":   full,
-			"labels": map[string]any{"ob.app": p.Name, "ob.service": name},
+			"labels": map[string]any{"onebox.app": p.Name, "onebox.service": name},
 		}
 	}
 	if s.Resources != nil {

@@ -269,9 +269,9 @@ func TestDescribeShowsBranchesAndHooks(t *testing.T) {
 }
 
 func TestOnlyReleaseLabelsChanged(t *testing.T) {
-	live := "services:\n  server:\n    labels:\n      ob.app: sample\n      ob.release: 20260704-203351-f65179e\n    image: x:1\n"
-	relabel := "services:\n  server:\n    labels:\n      ob.app: sample\n      ob.release: 20260704-214927-f65179e\n    image: x:1\n"
-	changed := "services:\n  server:\n    labels:\n      ob.app: sample\n      ob.release: 20260704-214927-f65179e\n    image: x:2\n"
+	live := "services:\n  server:\n    labels:\n      onebox.app: sample\n      onebox.release: 20260704-203351-f65179e\n    image: x:1\n"
+	relabel := "services:\n  server:\n    labels:\n      onebox.app: sample\n      onebox.release: 20260704-214927-f65179e\n    image: x:1\n"
+	changed := "services:\n  server:\n    labels:\n      onebox.app: sample\n      onebox.release: 20260704-214927-f65179e\n    image: x:2\n"
 
 	if !OnlyReleaseLabelsChanged(live, relabel) {
 		t.Fatal("label-only change must be detected as content-identical")
@@ -574,7 +574,7 @@ func TestRefreshIgnoresRunningJobContainers(t *testing.T) {
 	inner := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "label=ob.app='sample'") && strings.Contains(cmd, "docker ps"):
+		case strings.Contains(cmd, "label=onebox.app='sample'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "J1|migrate|R0|rev1|Up 3 seconds\n"}, true
 		case strings.Contains(cmd, "service='migrate'") && strings.Contains(cmd, "docker ps"):
 			return transport.Result{Stdout: "J1\n"}, true

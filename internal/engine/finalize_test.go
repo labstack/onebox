@@ -93,7 +93,7 @@ func buildActivatedFake(t *testing.T, activationResult bool, tail ...journal.Rec
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + lines}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
@@ -101,7 +101,7 @@ func buildActivatedFake(t *testing.T, activationResult bool, tail ...journal.Rec
 			return transport.Result{Stdout: "releases/" + engineTestDeployReleaseID + "\n"}, true
 		case strings.Contains(cmd, "ob.snapshot.yml"):
 			return transport.Result{Stdout: engineProjectWithPostDeployHook}, true
-		case strings.Contains(cmd, "docker ps --filter label=ob.app="):
+		case strings.Contains(cmd, "docker ps --filter label=onebox.app="):
 			return transport.Result{Stdout: "NEW1|web|" + engineTestDeployReleaseID + "|Up 2 minutes (healthy)\n" +
 				"W1|worker|" + engineTestDeployReleaseID + "|Up 2 minutes\n"}, true
 		}
@@ -321,7 +321,7 @@ func TestARefusedFinalizeLeavesTheCheckpointIntact(t *testing.T) {
 	// A workload is no longer running, so the live check refuses.
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "docker ps --filter label=ob.app=") {
+		if strings.Contains(cmd, "docker ps --filter label=onebox.app=") {
 			return transport.Result{Stdout: "NEW1|web|" + engineTestDeployReleaseID + "|Up (healthy)\n"}, true
 		}
 		return base(cmd)
@@ -387,7 +387,7 @@ func TestFinalizeRefusesWhenActivationEvidenceDisagrees(t *testing.T) {
 			arrange: func(f *transport.Fake) {
 				base := f.Dynamic
 				f.Dynamic = func(cmd string) (transport.Result, bool) {
-					if strings.Contains(cmd, "docker ps --filter label=ob.app=") {
+					if strings.Contains(cmd, "docker ps --filter label=onebox.app=") {
 						return transport.Result{Stdout: "NEW1|web|" + engineTestDeployReleaseID + "|Up (healthy)\n" +
 							"W1|worker|" + engineTestPreviousReleaseID + "|Up\n"}, true
 					}
@@ -401,7 +401,7 @@ func TestFinalizeRefusesWhenActivationEvidenceDisagrees(t *testing.T) {
 			arrange: func(f *transport.Fake) {
 				base := f.Dynamic
 				f.Dynamic = func(cmd string) (transport.Result, bool) {
-					if strings.Contains(cmd, "docker ps --filter label=ob.app=") {
+					if strings.Contains(cmd, "docker ps --filter label=onebox.app=") {
 						return transport.Result{Stdout: "NEW1|web|" + engineTestDeployReleaseID + "|Up (healthy)\n"}, true
 					}
 					return base(cmd)
@@ -441,7 +441,7 @@ func TestFinalizeRefusesWithoutJournaledActivation(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + lines}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true
@@ -467,7 +467,7 @@ func TestRetentionEvidenceRefusalIsReportedAndDoesNotFailTheDeploy(t *testing.T)
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "/var/lib/ob/sample/activation.json") && strings.Contains(cmd, "printf 'mode=%s") {
+		if strings.Contains(cmd, "/var/lib/onebox/app/activation.json") && strings.Contains(cmd, "printf 'mode=%s") {
 			return transport.Result{Stdout: "mode=600\n{ this is not a checkpoint"}, true
 		}
 		return base(cmd)
@@ -497,7 +497,7 @@ func TestRetentionEvidenceRefusalIsReportedAndDoesNotFailTheDeploy(t *testing.T)
 	// Journals are the evidence that protects release directories with no
 	// readable manifest. The run that just declared the evidence incomplete must
 	// not delete them either.
-	if strings.Contains(seq, "rm -f '/var/lib/ob/sample/journal/") {
+	if strings.Contains(seq, "rm -f '/var/lib/onebox/app/journal/") {
 		t.Fatalf("a refused retention must not prune journals:\n%s", seq)
 	}
 	if !strings.Contains(seq, `"event":"finish","status":"ok"`) {
@@ -516,9 +516,9 @@ func TestRetentionDeletionFailureStillFailsTheDeploy(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "ls -1A") || strings.Contains(cmd, "ls -1 '/var/lib/ob/sample/releases'"):
+		case strings.Contains(cmd, "ls -1A") || strings.Contains(cmd, "ls -1 '/var/lib/onebox/app/releases'"):
 			return transport.Result{Stdout: "20250101-000000-old\n20260101-000000-aaa111\n"}, true
-		case strings.Contains(cmd, "rm -rf '/var/lib/ob/sample/releases/20250101-000000-old'"):
+		case strings.Contains(cmd, "rm -rf '/var/lib/onebox/app/releases/20250101-000000-old'"):
 			return transport.Result{ExitCode: 1, Stderr: "read-only file system"}, true
 		}
 		return base(cmd)
@@ -658,7 +658,7 @@ func TestResumeRefusesASupersededReleaseBeforeAnyEffect(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: journalMarkerLine + engineTestDeployReleaseID + ".jsonl\n" + jr}, true
 		case strings.Contains(cmd, "test -d"):
 			return transport.Result{ExitCode: 0}, true

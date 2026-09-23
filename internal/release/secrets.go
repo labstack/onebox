@@ -23,8 +23,7 @@ var ErrSecretCheckpointMissing = errors.New("secret checkpoint missing")
 type SecretPhase string
 
 const (
-	LegacySecretCheckpointSchemaVersion = "onebox.run/secret-checkpoint/v1alpha1"
-	SecretCheckpointSchemaVersion       = "onebox.run/secret-checkpoint/v1alpha2"
+	SecretCheckpointSchemaVersion = "onebox.run/secret-checkpoint/v1alpha2"
 
 	SecretPrepared   SecretPhase = "prepared"
 	SecretReplacing  SecretPhase = "replacing"
@@ -119,7 +118,7 @@ func (checkpoint *SecretCheckpoint) MarkReplaced(workload string, at time.Time) 
 }
 
 func (checkpoint SecretCheckpoint) Validate() error {
-	if checkpoint.SchemaVersion != SecretCheckpointSchemaVersion && checkpoint.SchemaVersion != LegacySecretCheckpointSchemaVersion {
+	if checkpoint.SchemaVersion != SecretCheckpointSchemaVersion {
 		return fmt.Errorf("secret checkpoint schema %q is not supported", checkpoint.SchemaVersion)
 	}
 	if !IsID(checkpoint.ReleaseID) {
@@ -137,10 +136,7 @@ func (checkpoint SecretCheckpoint) Validate() error {
 	if !sortedUniqueExact(checkpoint.AffectedWorkloads) || !sortedUniqueExact(checkpoint.PayloadPaths) || !sortedUniqueExact(checkpoint.ChangedPaths) || !sortedUniqueExact(checkpoint.ReplacedWorkloads) {
 		return errors.New("secret checkpoint lists must be sorted and unique")
 	}
-	if checkpoint.SchemaVersion == LegacySecretCheckpointSchemaVersion && len(checkpoint.ChangedPaths) != 0 {
-		return errors.New("legacy secret checkpoint cannot contain changed paths")
-	}
-	if checkpoint.SchemaVersion == SecretCheckpointSchemaVersion && len(checkpoint.ChangedPaths) == 0 {
+	if len(checkpoint.ChangedPaths) == 0 {
 		return errors.New("secret checkpoint must bind changed paths")
 	}
 	for _, payloadPath := range checkpoint.PayloadPaths {

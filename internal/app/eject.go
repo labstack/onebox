@@ -168,7 +168,7 @@ func dropLabels(svc *yaml.Node) {
 	var kept []*yaml.Node
 	for i := 0; i+1 < len(labels.Content); i += 2 {
 		k := labels.Content[i].Value
-		if strings.HasPrefix(k, "ob.") || strings.HasPrefix(k, "traefik.") {
+		if strings.HasPrefix(k, "onebox.") || strings.HasPrefix(k, "traefik.") {
 			continue
 		}
 		kept = append(kept, labels.Content[i], labels.Content[i+1])

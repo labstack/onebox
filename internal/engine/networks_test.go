@@ -23,7 +23,7 @@ func TestApplicationNetworkIsCreatedWithOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	commands := strings.Join(f.Commands, "\n")
-	if !strings.Contains(commands, "docker network create --label 'ob.app=sample' 'sample_default'") {
+	if !strings.Contains(commands, "docker network create --label 'onebox.app=sample' 'sample_default'") {
 		t.Fatalf("application network was not created with ownership:\n%s", commands)
 	}
 }
@@ -66,59 +66,21 @@ func TestApplicationNetworkRefusesForeignOwner(t *testing.T) {
 	}
 }
 
-func TestLegacyComposeNetworkIsAcceptedByIdentity(t *testing.T) {
-	f := happyFake()
-	base := f.Dynamic
-	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "network inspect") && strings.Contains(command, "sample_default") {
-			return transport.Result{Stdout: "abc123||sample\n"}, true
-		}
-		return base(command)
-	}
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.EnsureApplicationNetwork(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	commands := strings.Join(f.Commands, "\n")
-	if strings.Contains(commands, "network create") {
-		t.Fatalf("legacy application network was replaced:\n%s", commands)
-	}
-}
-
-func TestLegacyServiceNetworkRequiresServiceStateBeforeAcceptance(t *testing.T) {
-	for _, tt := range []struct {
-		name      string
-		stateExit int
-		wantErr   bool
-	}{
-		{name: "legacy state", stateExit: 0},
-		{name: "no state", stateExit: 1, wantErr: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
+func TestUnlabelledNetworkIsRefused(t *testing.T) {
+	for _, name := range []string{"sample_default", "onebox_services"} {
+		t.Run(name, func(t *testing.T) {
 			f := happyFake()
 			base := f.Dynamic
 			f.Dynamic = func(command string) (transport.Result, bool) {
-				if strings.Contains(command, "network inspect") && strings.Contains(command, "onebox_services") {
-					return transport.Result{Stdout: "def456||\n"}, true
-				}
-				if strings.Contains(command, "test -d '/var/lib/ob/sample/services'") {
-					return transport.Result{ExitCode: tt.stateExit}, true
+				if strings.Contains(command, "network inspect") && strings.Contains(command, name) {
+					return transport.Result{Stdout: "def456|\n"}, true
 				}
 				return base(command)
 			}
-			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
-			err := e.EnsureServiceConnections(context.Background())
-			if tt.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "refusing to adopt") {
-					t.Fatalf("missing legacy state error = %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(strings.Join(f.Commands, "\n"), "network create") {
-				t.Fatalf("legacy service network was replaced:\n%s", strings.Join(f.Commands, "\n"))
+			e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			_, err := e.ownedNetworkExists(context.Background(), name)
+			if err == nil || !strings.Contains(err.Error(), "refusing to adopt") {
+				t.Fatalf("unlabelled network error = %v", err)
 			}
 		})
 	}
@@ -150,11 +112,11 @@ func TestRemoveOwnedNetworksIgnoresServiceNameWithoutServiceState(t *testing.T) 
 	f := happyFake()
 	base := f.Dynamic
 	f.Dynamic = func(command string) (transport.Result, bool) {
-		if strings.Contains(command, "test -d '/var/lib/ob/sample/services'") {
+		if strings.Contains(command, "test -d '/var/lib/onebox/app/services'") {
 			return transport.Result{ExitCode: 1}, true
 		}
 		if strings.Contains(command, "network inspect") && strings.Contains(command, "onebox_services") {
-			return transport.Result{Stdout: "def456||\n"}, true
+			return transport.Result{Stdout: "def456|\n"}, true
 		}
 		return base(command)
 	}

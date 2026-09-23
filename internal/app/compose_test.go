@@ -26,7 +26,7 @@ func mergeFixtureDeps(t *testing.T, service string, ov overlay) definitions {
 // workload the declaration cannot express keeps every setting it declared.
 func TestMergePreservesWhatTheUserWrote(t *testing.T) {
 	got, err := mergeFixture(t, "postgres", overlay{
-		Labels: map[string]any{"ob.app": "ledger", "ob.workload": "db", "ob.release": "r1"},
+		Labels: map[string]any{"onebox.app": "ledger", "onebox.workload": "db", "onebox.release": "r1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestMergePreservesWhatTheUserWrote(t *testing.T) {
 		t.Error("the authored environment must survive")
 	}
 	labels := labelMap(got["labels"])
-	if labels["ob.app"] != "ledger" || labels["ob.release"] != "r1" {
+	if labels["onebox.app"] != "ledger" || labels["onebox.release"] != "r1" {
 		t.Errorf("identity labels missing: %v", labels)
 	}
 }
@@ -72,7 +72,7 @@ func TestMergeRefusesConflicts(t *testing.T) {
 		{"named", overlay{}, "compose_container_name"},
 		{"hostnet", overlay{Network: "onebox-ingress"}, "compose_network_mode"},
 		{"labelled", overlay{HasRoute: true}, "compose_traefik_label"},
-		{"owned", overlay{}, "compose_ob_label"},
+		{"owned", overlay{}, "compose_onebox_label"},
 		{"attached", overlay{Network: "onebox-ingress"}, "compose_ingress_attached"},
 	}
 	for _, c := range cases {
@@ -160,7 +160,7 @@ spec:
 		t.Fatal(err)
 	}
 	out := string(r.Bytes)
-	for _, want := range []string{webPin, databasePin, "pg_isready", "ob.workload: db"} {
+	for _, want := range []string{webPin, databasePin, "pg_isready", "onebox.workload: db"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in rendered runtime\n%s", want, out)
 		}

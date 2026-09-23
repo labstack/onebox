@@ -44,7 +44,7 @@ func pushFake() *transport.Fake {
 		Dynamic: func(cmd string) (transport.Result, bool) {
 			switch {
 			case strings.Contains(cmd, "_host/owner"):
-				return transport.Result{Stdout: "shop\n"}, true
+				return transport.Result{Stdout: "shop production\n"}, true
 			case strings.Contains(cmd, "readlink"):
 				return transport.Result{Stdout: "releases/20260712-180000-current\n"}, true
 			case strings.Contains(cmd, "/ob.snapshot.yml"):
@@ -53,10 +53,10 @@ func pushFake() *transport.Fake {
 				return transport.Result{Stdout: `services:
   web:
     env_file: [.ob-secret-generations/sg-111111111111111111111111/.ob-decrypted-sops-api.enc.env]
-    labels: {ob.secret-generation: sg-111111111111111111111111}
+    labels: {onebox.secret-generation: sg-111111111111111111111111}
   jobs:
     env_file: [.ob-secret-generations/sg-111111111111111111111111/.ob-decrypted-sops-worker.enc.env]
-    labels: {ob.secret-generation: sg-111111111111111111111111}
+    labels: {onebox.secret-generation: sg-111111111111111111111111}
 `}, true
 			case strings.Contains(cmd, "cmp -s"):
 				return transport.Result{ExitCode: 1}, true
@@ -76,7 +76,7 @@ func pushFake() *transport.Fake {
 					workload = "jobs"
 				}
 				return transport.Result{Stdout: containerByWorkload[workload] + "\n"}, true
-			case strings.Contains(cmd, "ob.secret-generation"):
+			case strings.Contains(cmd, "onebox.secret-generation"):
 				for identifier, generation := range containerGeneration {
 					if strings.HasSuffix(cmd, " "+identifier) {
 						return transport.Result{Stdout: generation + "\n"}, true

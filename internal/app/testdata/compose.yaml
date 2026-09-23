@@ -42,7 +42,7 @@ services:
   owned:
     image: nginx
     labels:
-      ob.app: someone-else
+      onebox.app: someone-else
 
   attached:
     image: nginx

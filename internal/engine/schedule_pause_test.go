@@ -35,7 +35,7 @@ func TestSchedulePauseStopsTheTimerAndRecordsWhy(t *testing.T) {
 		t.Fatalf("pause: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "systemctl disable --now 'ob-sample-nightly.timer'") {
+	if !strings.Contains(seq, "systemctl disable --now 'onebox-job-nightly.timer'") {
 		t.Fatalf("the timer was not stopped:\n%s", seq)
 	}
 	if !strings.Contains(seq, "nightly.paused") {
@@ -83,10 +83,10 @@ func TestScheduleResumeClearsTheMarkerAndStartsTheTimer(t *testing.T) {
 		t.Fatalf("resume: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/ob/sample/schedule/nightly.paused'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/app/schedule/nightly.paused'") {
 		t.Fatalf("the marker was not removed:\n%s", seq)
 	}
-	if !strings.Contains(seq, "systemctl enable --now 'ob-sample-nightly.timer'") {
+	if !strings.Contains(seq, "systemctl enable --now 'onebox-job-nightly.timer'") {
 		t.Fatalf("the timer was not started:\n%s", seq)
 	}
 	if !strings.Contains(seq, `"phase":"schedule-resume"`) {
@@ -116,14 +116,14 @@ func TestSyncSchedulesLeavesAPausedTimerStopped(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "systemctl enable --now ob-sample-nightly.timer") {
+	if strings.Contains(seq, "systemctl enable --now onebox-job-nightly.timer") {
 		t.Fatalf("reconciliation re-enabled a paused timer:\n%s", seq)
 	}
-	if !strings.Contains(seq, "systemctl disable --now ob-sample-nightly.timer") {
+	if !strings.Contains(seq, "systemctl disable --now onebox-job-nightly.timer") {
 		t.Fatalf("a paused job's timer was left running:\n%s", seq)
 	}
 	// The units are still written, so a fix lands even while paused.
-	if artifacts := strings.Join(f.Inputs, "\n"); !strings.Contains(artifacts, "ob-sample-nightly.run") &&
+	if artifacts := strings.Join(f.Inputs, "\n"); !strings.Contains(artifacts, "onebox-job-nightly.run") &&
 		!strings.Contains(artifacts, "TimeoutStartSec") {
 		t.Fatalf("a paused job stopped receiving unit updates:\n%s", artifacts)
 	}
@@ -224,7 +224,7 @@ func TestPausedJobsCountsAMarkerWithNoFields(t *testing.T) {
 	}
 	// Reading the fields is not enough: the host has to be asked whether the
 	// file is there, because a marker with no readable fields is still a pause.
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "[ -e '/var/lib/ob/sample/schedule/nightly.paused' ]") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "[ -e '/var/lib/onebox/app/schedule/nightly.paused' ]") {
 		t.Fatalf("the read does not test whether the marker exists:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
@@ -250,10 +250,10 @@ func TestScheduleResumeClearsTheMarkerBeforeStartingTheTimer(t *testing.T) {
 	}
 	removed, enabled := -1, -1
 	for i, cmd := range f.Commands {
-		if removed < 0 && strings.Contains(cmd, "rm -f '/var/lib/ob/sample/schedule/nightly.paused'") {
+		if removed < 0 && strings.Contains(cmd, "rm -f '/var/lib/onebox/app/schedule/nightly.paused'") {
 			removed = i
 		}
-		if enabled < 0 && strings.Contains(cmd, "systemctl enable --now 'ob-sample-nightly.timer'") {
+		if enabled < 0 && strings.Contains(cmd, "systemctl enable --now 'onebox-job-nightly.timer'") {
 			enabled = i
 		}
 	}
@@ -287,7 +287,7 @@ func TestSchedulePauseRefusesToOverwriteAnExistingPause(t *testing.T) {
 		t.Fatalf("the refusal does not say what the standing pause is: %v", err)
 	}
 	for _, cmd := range f.Commands {
-		if strings.Contains(cmd, "cat > '/var/lib/ob/sample/schedule/nightly.paused'") {
+		if strings.Contains(cmd, "cat > '/var/lib/onebox/app/schedule/nightly.paused'") {
 			t.Fatalf("the standing marker was overwritten: %s", cmd)
 		}
 	}
@@ -344,10 +344,10 @@ func TestSyncSchedulesRemovesThePauseMarkerOfAnUndeclaredJob(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "'/var/lib/ob/sample/schedule/retired.paused'") {
+	if !strings.Contains(seq, "'/var/lib/onebox/app/schedule/retired.paused'") {
 		t.Fatalf("the orphaned marker was left behind:\n%s", seq)
 	}
-	if strings.Contains(seq, "rm -f '/var/lib/ob/sample/schedule/nightly.paused'") {
+	if strings.Contains(seq, "rm -f '/var/lib/onebox/app/schedule/nightly.paused'") {
 		t.Fatalf("reconciliation deleted a declared job's pause:\n%s", seq)
 	}
 }

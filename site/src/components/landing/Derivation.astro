@@ -266,7 +266,7 @@
         derived.push(["onebox_postgres_data", "the durable volume — renaming it would need a migration"]);
         derived.push(["onebox_services", "the external service network"]);
       }
-      derived.push(["/var/lib/ob/shop", "releases/ · current · journal · services"]);
+      derived.push(["/var/lib/onebox/app", "releases/ · current · journal · services"]);
 
       listOut.innerHTML = derived
         .map(([name, what]) => `<li><code>${esc(name)}</code>${esc(what)}</li>`)

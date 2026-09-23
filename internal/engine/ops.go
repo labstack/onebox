@@ -128,9 +128,9 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 		return err
 	}
 	// External means release-independent, not ownerless. A full destroy removes
-	// both app-scoped networks before deleting the evidence that proves legacy
-	// ownership. Docker refuses removal while any unmanaged endpoint remains;
-	// propagate that refusal so state and host ownership stay recoverable.
+	// both app-scoped networks before deleting state. Docker refuses removal
+	// while any unmanaged endpoint remains; propagate that refusal so state and
+	// host ownership stay recoverable.
 	if removeVolumes {
 		if err := e.removeOwnedNetworks(ctx); err != nil {
 			return err
@@ -219,10 +219,8 @@ func (e *Engine) Destroy(ctx context.Context, removeVolumes, removeProxy bool) e
 			down := "if [ -f " + q(hp.Compose) + " ]; then docker compose -p " + proxy.Project + " -f " + q(hp.Compose) + " down || exit $?; fi; " +
 				"proxy_orphans=$(docker ps -aq --filter name=^" + proxy.ContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=proxy) || exit $?; " +
 				"discovery_orphans=$(docker ps -aq --filter name=^" + proxy.DiscoveryContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=discovery) || exit $?; " +
-				"legacy_discovery_orphans=$(docker ps -aq --filter name=^" + proxy.LegacyDiscoveryContainerName + "$ --filter label=com.docker.compose.project=" + proxy.Project + " --filter label=com.docker.compose.service=discovery) || exit $?; " +
 				"if [ -n \"$proxy_orphans\" ]; then docker rm -f $proxy_orphans || exit $?; fi; " +
-				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans || exit $?; fi; " +
-				"if [ -n \"$legacy_discovery_orphans\" ]; then docker rm -f $legacy_discovery_orphans; fi"
+				"if [ -n \"$discovery_orphans\" ]; then docker rm -f $discovery_orphans || exit $?; fi"
 			if res, err := e.hostMutate(ctx, down); err != nil {
 				return err
 			} else if res.ExitCode != 0 {

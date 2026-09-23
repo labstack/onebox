@@ -22,7 +22,7 @@ import (
 // overlayKeys is the closed set. Anything outside it is copied untouched.
 type overlay struct {
 	Network  string         // ingress network to append, empty when the proxy is off
-	Labels   map[string]any // ob.* identity and traefik.* routing
+	Labels   map[string]any // onebox.* identity and traefik.* routing
 	HasRoute bool           // routes were declared, so traefik.* is ours
 	// EnvFiles are the resolved entries and connection files, projected onto
 	// the referenced service. A workload adopted from a Compose file has a role
@@ -201,8 +201,8 @@ func refuseConflicts(ref string, svc map[string]any, ov overlay) error {
 		}
 	}
 	for _, k := range sortedKeys(labelMap(svc["labels"])) {
-		if strings.HasPrefix(k, "ob.") {
-			return errf("compose_ob_label", ref, "",
+		if strings.HasPrefix(k, "onebox.") {
+			return errf("compose_onebox_label", ref, "",
 				"referenced service in %q declares %q; the ob. namespace is Onebox's", ref, k)
 		}
 		if ov.HasRoute && strings.HasPrefix(k, "traefik.") {

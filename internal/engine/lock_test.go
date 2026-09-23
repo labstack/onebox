@@ -24,7 +24,7 @@ func lockEngine(t *testing.T, f *transport.Fake) *Engine {
 
 func TestAcquireLockHappyPath(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/epoch'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/epoch'") {
 			return transport.Result{Stdout: "6\n"}, true
 		}
 		return transport.Result{}, false
@@ -38,12 +38,12 @@ func TestAcquireLockHappyPath(t *testing.T) {
 		t.Fatalf("epoch: %d", epoch)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "lock.candidate.XXXXXX") || !strings.Contains(seq, `link "$tmp" '/var/lib/ob/sample/lock'`) {
+	if !strings.Contains(seq, "lock.candidate.XXXXXX") || !strings.Contains(seq, `link "$tmp" '/var/lib/onebox/app/lock'`) {
 		t.Fatalf("atomic lock publication missing:\n%s", seq)
 	}
-	if !strings.Contains(seq, "mktemp '/var/lib/ob/sample/epoch.tmp.XXXXXX'") ||
+	if !strings.Contains(seq, "mktemp '/var/lib/onebox/app/epoch.tmp.XXXXXX'") ||
 		!strings.Contains(seq, "printf '%s\\n' 7") ||
-		!strings.Contains(seq, `mv -f "$tmp" '/var/lib/ob/sample/epoch'`) {
+		!strings.Contains(seq, `mv -f "$tmp" '/var/lib/onebox/app/epoch'`) {
 		t.Fatalf("epoch not persisted:\n%s", seq)
 	}
 }
@@ -176,37 +176,14 @@ func TestAcquireLockReportsScheduleRendezvousFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "lock creation or schedule rendezvous failed (exit 74): flock: I/O error") {
 		t.Fatalf("error = %v, want preserved flock failure", err)
 	}
-	if strings.Contains(strings.Join(f.Commands, "\n"), "cat '/var/lib/ob/sample/lock'") {
+	if strings.Contains(strings.Join(f.Commands, "\n"), "cat '/var/lib/onebox/app/lock'") {
 		t.Fatalf("infrastructure failure was treated as a held application lock:\n%s", strings.Join(f.Commands, "\n"))
-	}
-}
-
-func TestAcquireLockKeepsLegacyRendezvousAfterLastScheduleIsRemoved(t *testing.T) {
-	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		switch {
-		case strings.Contains(cmd, "command -v flock") && strings.Contains(cmd, "--conflict-exit-code"):
-			return transport.Result{}, true // flock exists, but lacks the strict schedule interface
-		case strings.Contains(cmd, "command -v flock"):
-			return transport.Result{Stdout: "ok\n"}, true
-		case strings.Contains(cmd, "/usr/bin/flock -x -w 10"):
-			return transport.Result{ExitCode: 1, Stderr: "legacy rendezvous unavailable\n"}, true
-		}
-		return transport.Result{}, false
-	}}
-	e := lockEngine(t, f) // no jobs in the current spec
-	_, err := e.AcquireLock(context.Background(), "R9", false)
-	if err == nil || !strings.Contains(err.Error(), "legacy rendezvous unavailable") {
-		t.Fatalf("legacy schedule rendezvous failure was not preserved: %v", err)
-	}
-	sequence := strings.Join(f.Commands, "\n")
-	if !strings.Contains(sequence, "/usr/bin/flock -x -w 10") || strings.Contains(sequence, "/usr/bin/flock --exclusive --timeout 10 --conflict-exit-code 200") {
-		t.Fatalf("last-schedule transition did not use the legacy-compatible rendezvous:\n%s", sequence)
 	}
 }
 
 func TestReleaseLockRemovesOnlyOwnedToken(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/epoch'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/epoch'") {
 			return transport.Result{Stdout: "2\n"}, true
 		}
 		return transport.Result{}, false
@@ -221,9 +198,9 @@ func TestReleaseLockRemovesOnlyOwnedToken(t *testing.T) {
 		t.Fatalf("release commands = %v", f.Commands)
 	}
 	command := f.Commands[0]
-	if !strings.Contains(command, "$(cat '/var/lib/ob/sample/lock'") ||
+	if !strings.Contains(command, "$(cat '/var/lib/onebox/app/lock'") ||
 		!strings.Contains(command, `"deploy_id":"R-owned"`) ||
-		!strings.Contains(command, "then rm -f '/var/lib/ob/sample/lock'") {
+		!strings.Contains(command, "then rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatalf("release is not ownership-conditional: %s", command)
 	}
 }
@@ -233,7 +210,7 @@ func TestAcquireLockHeldFreshRefuses(t *testing.T) {
 		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			return transport.Result{ExitCode: applicationLockHeldExitCode, Stderr: "cannot overwrite"}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'") {
 			return transport.Result{Stdout: `{"owner":"alice@laptop","deploy_id":"R8","epoch":6}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") { // age computation
@@ -259,7 +236,7 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 			}
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'") {
 			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R7","epoch":5}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -271,7 +248,7 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 	if _, err := e.AcquireLock(context.Background(), "R9", false); err != nil {
 		t.Fatalf("stale lock should be taken over: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
-	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/ob/sample/lock'") {
+	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatal("stale lock not removed")
 	}
 }
@@ -287,10 +264,10 @@ func TestAcquireLockSameDeployReclaims(t *testing.T) {
 			}
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'") {
 			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R9","epoch":6}`}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/epoch'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/epoch'") {
 			return transport.Result{Stdout: "6\n"}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -316,7 +293,7 @@ func TestAcquireLockReReadsEpochAfterBreakingStaleLock(t *testing.T) {
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "cat '/var/lib/ob/sample/epoch'"):
+		case strings.Contains(cmd, "cat '/var/lib/onebox/app/epoch'"):
 			epochReads++
 			if epochReads == 1 {
 				return transport.Result{Stdout: "5\n"}, true // stale holder's value
@@ -328,7 +305,7 @@ func TestAcquireLockReReadsEpochAfterBreakingStaleLock(t *testing.T) {
 				return transport.Result{ExitCode: applicationLockHeldExitCode}, true // held → forces a break + retry
 			}
 			return transport.Result{}, true // win on retry
-		case strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'"):
+		case strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'"):
 			return transport.Result{Stdout: `{"owner":"dead@runner","deploy_id":"R7","epoch":5}`}, true
 		case strings.Contains(cmd, "date +%s"):
 			return transport.Result{Stdout: "999999\n"}, true // past TTL → take over
@@ -442,13 +419,13 @@ func TestLockAgeCmdFailsClosedWhenUnobservable(t *testing.T) {
 }
 
 func TestLockAgeCmdIsPortable(t *testing.T) {
-	got := lockAgeCmd("/var/lib/ob/sample/lock")
+	got := lockAgeCmd("/var/lib/onebox/app/lock")
 	for _, want := range []string{
-		"[ -L '/var/lib/ob/sample/lock' ] && [ ! -e '/var/lib/ob/sample/lock' ]", // dangling symlink → refuse, portably
-		"stat -c %Y '/var/lib/ob/sample/lock'",                                   // GNU
-		"stat -f %m '/var/lib/ob/sample/lock'",                                   // BSD/macOS fallback
-		"[ -e '/var/lib/ob/sample/lock' ] || [ -L '/var/lib/ob/sample/lock' ]",   // present → refuse (echo 0)
-		"then date +%s; else echo 0; fi",                                         // absence established → take over; not established → refuse
+		"[ -L '/var/lib/onebox/app/lock' ] && [ ! -e '/var/lib/onebox/app/lock' ]", // dangling symlink → refuse, portably
+		"stat -c %Y '/var/lib/onebox/app/lock'",                                    // GNU
+		"stat -f %m '/var/lib/onebox/app/lock'",                                    // BSD/macOS fallback
+		"[ -e '/var/lib/onebox/app/lock' ] || [ -L '/var/lib/onebox/app/lock' ]",   // present → refuse (echo 0)
+		"then date +%s; else echo 0; fi",                                           // absence established → take over; not established → refuse
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lockAgeCmd missing %q:\n%s", want, got)
@@ -506,7 +483,7 @@ func TestForceBreakPrintsHolderJournalTail(t *testing.T) {
 			}
 			return transport.Result{}, true
 		}
-		if strings.Contains(cmd, "cat '/var/lib/ob/sample/lock'") {
+		if strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'") {
 			return transport.Result{Stdout: `{"owner":"bob@ci","deploy_id":"R8","epoch":6}`}, true
 		}
 		if strings.Contains(cmd, "date +%s") {
@@ -539,7 +516,7 @@ func TestMutateWrapsWithFenceAndTranslates97(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := f.Commands[len(f.Commands)-1]
-	if !strings.Contains(last, `[ "$(cat '/var/lib/ob/sample/fence' 2>/dev/null)" = 'R9 7' ]`) {
+	if !strings.Contains(last, `[ "$(cat '/var/lib/onebox/app/fence' 2>/dev/null)" = 'R9 7' ]`) {
 		t.Fatalf("fence guard missing: %s", last)
 	}
 	if !strings.Contains(last, "docker stop OLD1") {
@@ -611,11 +588,11 @@ func TestHeartbeatTouchesLock(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	// `touch -c` refreshes the mtime but never creates the file — a lock another
 	// runner deleted on takeover must not be resurrected.
-	if !strings.Contains(seq, "touch -c '/var/lib/ob/sample/lock'") {
+	if !strings.Contains(seq, "touch -c '/var/lib/onebox/app/lock'") {
 		t.Fatalf("heartbeat never touched lock:\n%s", seq)
 	}
 	// and it only refreshes while the fence still names this runner.
-	if !strings.Contains(seq, "cat '/var/lib/ob/sample/fence'") {
+	if !strings.Contains(seq, "cat '/var/lib/onebox/app/fence'") {
 		t.Fatalf("heartbeat must be fence-guarded:\n%s", seq)
 	}
 }
@@ -631,11 +608,11 @@ func TestStatePathsFollowTheDeclaredBasePath(t *testing.T) {
 	cfg.BasePath = "/srv/ob"
 	e := New(cfg, testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
 
-	if got := e.base(); got != "/srv/ob/sample" {
-		t.Errorf("lock/fence base = %q, want /srv/ob/sample", got)
+	if got := e.base(); got != "/srv/ob/app" {
+		t.Errorf("lock/fence base = %q, want /srv/ob/app", got)
 	}
-	if got := release.PathsFor(e.Names()).Releases; got != "/srv/ob/sample/releases" {
-		t.Errorf("releases = %q, want /srv/ob/sample/releases", got)
+	if got := release.PathsFor(e.Names()).Releases; got != "/srv/ob/app/releases" {
+		t.Errorf("releases = %q, want /srv/ob/app/releases", got)
 	}
 	if got := proxy.HostPaths(e.Names()).Base; got != "/srv/ob/_host" {
 		t.Errorf("host scope = %q, want /srv/ob/_host", got)
@@ -645,7 +622,7 @@ func TestStatePathsFollowTheDeclaredBasePath(t *testing.T) {
 	env.BasePath = "/mnt/data/ob"
 	cfg.Environments["production"] = env
 	e2 := New(cfg, testProject(t), &transport.Fake{}, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
-	if got := e2.base(); got != "/mnt/data/ob/sample" {
+	if got := e2.base(); got != "/mnt/data/ob/app" {
 		t.Errorf("environment base_path ignored: %q", got)
 	}
 }

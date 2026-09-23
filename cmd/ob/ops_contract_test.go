@@ -193,7 +193,7 @@ spec:
 		case strings.HasPrefix(command, ": ob-epoch-probe;"):
 			return transport.Result{ExitCode: app.ProbeAbsent}, true
 		case strings.Contains(command, "/_host/owner"):
-			return transport.Result{Stdout: "shop\n"}, true
+			return transport.Result{Stdout: "shop production\n"}, true
 		case strings.Contains(command, " logs "):
 			return transport.Result{Stdout: "log-secret\n", Stderr: "log-warning\n"}, true
 		case strings.Contains(command, "docker ps"):

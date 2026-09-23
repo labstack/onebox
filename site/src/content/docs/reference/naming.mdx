@@ -65,15 +65,30 @@ There is no ordinal, because none of them has replicas. Managed services are
 `onebox-postgres` and `onebox-redis`; a restore drill beside one is
 `onebox-postgres-restore`; the host proxy is `onebox-proxy` and its discovery
 controller `onebox-discovery`. The application is not in these names: a host
-runs one application, and the `ob.app` label records which. So `docker ps`
+runs one application, and the `onebox.app` label records which. So `docker ps`
 reads as two groups — your images under your application's name, and what
 Onebox provides under `onebox-`.
 
 The same namespace covers the host's other shared resources: the ingress network
 the proxy and routed workloads join is `onebox-ingress`. Because the namespace
-is Onebox's, an application may not be called `onebox` or begin with `onebox-`
-(or `ob-`), and `proxy`, `discovery` and `services` are not valid service
-names.
+is Onebox's, an application may not be called `onebox` or begin with `onebox-`,
+and `proxy`, `discovery` and `services` are not valid service names.
+
+**Everything else Onebox puts on the host is in the same namespace, without the
+application.**
+
+| What | Name |
+| --- | --- |
+| State directory | `/var/lib/onebox/app` (releases, `current`, journal, services, backup) |
+| Host state | `/var/lib/onebox/_host` (owner record, proxy) |
+| Scheduled job units | `onebox-job-<job>.service` and `.timer` |
+| Backup units | `onebox-backup-<environment>-<service>-<operation>` |
+| Proxy routers and services | `onebox_<workload>_r<n>`, `onebox_<workload>` |
+| Ownership labels | `onebox.app`, `onebox.workload`, `onebox.service`, `onebox.release`, … |
+
+The `onebox.app` label, not any name, is what records which application owns a
+resource. Custom Traefik objects in a proxy configuration directory may not
+begin with `onebox_`.
 
 **Names do not carry the environment.** Staging and production of `shop` both
 derive `shop-web-1` and `onebox-postgres`. What keeps them apart is the host:
@@ -92,7 +107,7 @@ removed.
 service Compose projects, the service network and restore-drill resources:
 `onebox_postgres_data`, `onebox_web_uploads`, `onebox_postgres`,
 `onebox_services`. They do not carry the application: a host has one, the
-`ob.app` label records which, and `ob destroy` releases the host only after
+`onebox.app` label records which, and `ob destroy` releases the host only after
 removing them. They join with underscores because a component or volume name
 cannot contain one, so each name maps back to exactly one component and
 volume — a hyphen, which names may contain, could not promise that. The one

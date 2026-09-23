@@ -72,16 +72,16 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 			return transport.Result{Stdout: "PD1\n"}, true
 		case strings.Contains(cmd, "project='onebox-proxy'"): // proxy id + health in one ps
 			return transport.Result{Stdout: "PX1|Up 2 days (" + proxyHealth + ")\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/config.hash'"):
+		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: *appliedHash + "\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/ob/_host/owner'"):
-			return transport.Result{Stdout: "sample\n"}, true
-		case strings.Contains(cmd, "cat '/var/lib/ob/_host/proxy/acme/acme.json'"):
+		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/owner'"):
+			return transport.Result{Stdout: "sample production\n"}, true
+		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app='sample'"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app='sample'"):
 			return transport.Result{Stdout: "S1|web|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
-		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/ob/sample/journal"):
+		case strings.Contains(cmd, "for f in") && strings.Contains(cmd, "/var/lib/onebox/app/journal"):
 			return transport.Result{Stdout: ""}, true
 		}
 		return transport.Result{}, false
@@ -283,7 +283,7 @@ func TestStatusUnmanagedProxyUnchanged(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R7\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app='sample'"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app='sample'"):
 			return transport.Result{Stdout: "S1|web|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
 		}

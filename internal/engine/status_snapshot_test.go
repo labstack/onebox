@@ -82,12 +82,12 @@ func TestStatusSnapshotAcceptsRetainedWorkloadFromEarlierRelease(t *testing.T) {
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			return transport.Result{Stdout: "S1|web|R2|" + webRevision + "|Up (healthy)\n" +
 				"W1|worker|R1|" + pinnedWorkerRevision + "|Up (healthy)\n" +
 				"PG1|postgres|R2||Up (healthy)\n"}, true
 		case strings.Contains(cmd, "/releases/R2/compose.yaml"):
-			return transport.Result{Stdout: "services:\n  worker:\n    labels:\n      ob.workload-revision: " + pinnedWorkerRevision + "\n"}, true
+			return transport.Result{Stdout: "services:\n  worker:\n    labels:\n      onebox.workload-revision: " + pinnedWorkerRevision + "\n"}, true
 		}
 		return base(cmd)
 	}
@@ -105,7 +105,7 @@ func TestStatusSnapshotTreatsUnreadableActiveRuntimeAsPartial(t *testing.T) {
 	pinnedWorkerRevision := "sha256:" + strings.Repeat("b", 64)
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app") {
 			return transport.Result{Stdout: "S1|web|R2||Up (healthy)\n" +
 				"W1|worker|R1|" + pinnedWorkerRevision + "|Up (healthy)\n" +
 				"PG1|postgres|R2||Up (healthy)\n"}, true
@@ -149,7 +149,7 @@ func TestStatusSnapshotReportsUndeclaredAppContainer(t *testing.T) {
 	f := statusFake("R2", "R2")
 	base := f.Dynamic
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app") {
+		if strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app") {
 			return transport.Result{Stdout: "S1|web|R2|Up (healthy)\n" +
 				"W1|worker|R2|Up (healthy)\nPG1|postgres|R2|Up (healthy)\n" +
 				"OLD2|frontend|R1|Up (healthy)\nOLD1|frontend|R1|Up (healthy)\n"}, true
@@ -183,7 +183,7 @@ func TestStatusSnapshotReportsObservedDivergenceAndIncompleteDeploy(t *testing.T
 		switch {
 		case strings.Contains(cmd, "readlink"):
 			return transport.Result{Stdout: "releases/R2\n"}, true
-		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "ob.app"):
+		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app"):
 			// Deliberately reverse the web ids: the public result must be stable.
 			return transport.Result{Stdout: "S2|web|R1|Up (healthy)\n" +
 				"S1|web|R2|Up (unhealthy)\n" +

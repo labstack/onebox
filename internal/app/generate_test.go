@@ -173,12 +173,12 @@ func TestRenderedRuntime(t *testing.T) {
 	for _, want := range []string{
 		"name: ledger",
 		"image: ghcr.io/acme/ledger:1.4.0",
-		"ob.app: ledger",
-		"ob.workload: web",
-		"ob.release: 20260802-120000-abc1234",
+		"onebox.app: ledger",
+		"onebox.workload: web",
+		"onebox.release: 20260802-120000-abc1234",
 		"traefik.enable:",
 		"Host(`ledger.example.com`)",
-		"traefik.http.services.ledger_web.loadbalancer.server.port:",
+		"traefik.http.services.onebox_web.loadbalancer.server.port:",
 		"condition: service_healthy",
 		"stop_grace_period: 30s",
 		"mem_limit: 1GB",
@@ -485,7 +485,7 @@ spec:
 		t.Errorf("an explicit false must not be dropped\n%s", out)
 	}
 	// Onebox's own labels still land alongside the user's.
-	if !strings.Contains(out, "ob.app: ledger") {
+	if !strings.Contains(out, "onebox.app: ledger") {
 		t.Error("identity labels must survive user labels")
 	}
 }
@@ -493,7 +493,7 @@ spec:
 // TestUserLabelsCannotClaimOneboxNamespaces: the two namespaces Onebox
 // generates into are reserved, so a user label can never silently win.
 func TestUserLabelsCannotClaimOneboxNamespaces(t *testing.T) {
-	for _, bad := range []string{"ob.app", "traefik.enable"} {
+	for _, bad := range []string{"onebox.app", "traefik.enable"} {
 		y := `apiVersion: onebox.run/v1alpha1
 kind: Application
 metadata: {name: ledger}

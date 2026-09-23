@@ -19,7 +19,7 @@ func fakeEngine(t *testing.T, f *transport.Fake) *Engine {
 
 func TestPreflightHappyPath(t *testing.T) {
 	f := &transport.Fake{Script: []transport.Rule{
-		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample\n"}},
+		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample production\n"}},
 		{Match: regexp.MustCompile(`docker version`), Result: transport.Result{Stdout: "27.0.3\n"}},
 		{Match: regexp.MustCompile(`docker compose version`), Result: transport.Result{Stdout: "2.29.1\n"}},
 		{Match: regexp.MustCompile(`imagetools inspect --help`), Result: transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}},
@@ -35,7 +35,7 @@ func TestPreflightHappyPath(t *testing.T) {
 
 func TestPreflightFailsOnStoppedService(t *testing.T) {
 	f := &transport.Fake{Script: []transport.Rule{
-		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample\n"}},
+		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample production\n"}},
 		{Match: regexp.MustCompile(`docker version`), Result: transport.Result{Stdout: "27.0.3\n"}},
 		{Match: regexp.MustCompile(`docker compose version`), Result: transport.Result{Stdout: "2.29.1\n"}},
 		{Match: regexp.MustCompile(`imagetools inspect --help`), Result: transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"}},
@@ -64,7 +64,7 @@ func TestPreflightManagedProxyMustRun(t *testing.T) {
 		return &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 			switch {
 			case strings.Contains(cmd, "_host/owner"):
-				return transport.Result{Stdout: "sample\n"}, true
+				return transport.Result{Stdout: "sample production\n"}, true
 			case strings.Contains(cmd, "docker version"):
 				return transport.Result{Stdout: "27.0.3\n"}, true
 			case strings.Contains(cmd, "docker compose version"):
@@ -108,7 +108,7 @@ func TestPreflightRequiresProxyDiscoveryController(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "_host/owner"):
-			return transport.Result{Stdout: "sample\n"}, true
+			return transport.Result{Stdout: "sample production\n"}, true
 		case strings.Contains(cmd, "docker version"):
 			return transport.Result{Stdout: "27.0.3\n"}, true
 		case strings.Contains(cmd, "docker compose version"):
@@ -140,7 +140,7 @@ func TestPreflightRequiresProxyDiscoveryController(t *testing.T) {
 // gates now ask the same questions.
 func TestPreflightRefusesIncompatibleBuildx(t *testing.T) {
 	f := &transport.Fake{Script: []transport.Rule{
-		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample\n"}},
+		{Match: regexp.MustCompile(`_host/owner`), Result: transport.Result{Stdout: "sample production\n"}},
 		{Match: regexp.MustCompile(`docker version`), Result: transport.Result{Stdout: "27.0.3\n"}},
 		{Match: regexp.MustCompile(`docker compose version`), Result: transport.Result{Stdout: "2.29.1\n"}},
 		{Match: regexp.MustCompile(`imagetools inspect --help`), Result: transport.Result{Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n"}},

@@ -43,7 +43,7 @@ func healthyRunner() *fakeRunner {
 	return &fakeRunner{answers: map[string]transport.Result{
 		"docker version": {Stdout: "27.1.1\n"},
 		"docker buildx imagetools inspect --help": {Stdout: "Usage: docker buildx imagetools inspect [OPTIONS] NAME\n      --format string\n"},
-		"/_host/owner":   {Stdout: "ledger\n"},
+		"/_host/owner":   {Stdout: "ledger production\n"},
 		"docker ps":      {Stdout: ""},
 		"docker volume":  {Stdout: ""},
 		"docker network": {Stdout: "onebox-ingress\t\n"},
@@ -52,7 +52,7 @@ func healthyRunner() *fakeRunner {
 
 func TestPreflightRefusesForeignHostOwner(t *testing.T) {
 	run := healthyRunner()
-	run.answers["/_host/owner"] = transport.Result{Stdout: "another-app\n"}
+	run.answers["/_host/owner"] = transport.Result{Stdout: "another-app production\n"}
 	report := preflight(t, run, preflightProject)
 	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "another-app") {
 		t.Fatalf("foreign host owner was not reported: %+v", report.Failures())
@@ -242,22 +242,10 @@ func TestForeignApplicationNetworkIsACollision(t *testing.T) {
 	}
 }
 
-func TestLegacyComposeApplicationNetworkBelongsToTheApp(t *testing.T) {
-	run := healthyRunner()
-	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\t\tledger\n"}
-
-	report := preflight(t, run, preflightProject)
-	for _, failure := range report.Failures() {
-		if failure.Name == "name collisions" {
-			t.Fatalf("the app's legacy Compose network was reported as foreign: %s", failure.Detail)
-		}
-	}
-}
-
 func TestOwnedNetworkDoesNotMaskForeignHolderOfTheSameName(t *testing.T) {
 	run := healthyRunner()
 	run.answers["docker volume ls"] = transport.Result{Stdout: "ledger_default\t\n"}
-	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\tledger\tledger\n"}
+	run.answers["docker network ls"] = transport.Result{Stdout: "ledger_default\tledger\n"}
 
 	report := preflight(t, run, preflightProject)
 	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "ledger_default") {
@@ -265,50 +253,14 @@ func TestOwnedNetworkDoesNotMaskForeignHolderOfTheSameName(t *testing.T) {
 	}
 }
 
-func TestLegacyServiceNetworkRequiresOneboxState(t *testing.T) {
+func TestUnlabelledServiceNetworkIsForeign(t *testing.T) {
 	project := preflightProject + "services: {postgres: {version: 17}}\n"
-
-	t.Run("fresh host refuses an unlabelled network", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\t\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{ExitCode: 1}
-		report := preflight(t, run, project)
-		if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
-			t.Fatalf("an unproved service network must be foreign: %+v", report.Failures())
-		}
-	})
-
-	t.Run("compose project is not service ownership evidence", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\tledger\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{ExitCode: 1}
-		report := preflight(t, run, project)
-		if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
-			t.Fatalf("a Compose label incorrectly proved service-network ownership: %+v", report.Failures())
-		}
-	})
-
-	t.Run("existing service state proves the legacy network", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\t\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{}
-		report := preflight(t, run, project)
-		for _, failure := range report.Failures() {
-			if failure.Name == "name collisions" {
-				t.Fatalf("the app's legacy service network was reported as foreign: %s", failure.Detail)
-			}
-		}
-	})
-
-	t.Run("service state does not bless another resource kind", func(t *testing.T) {
-		run := healthyRunner()
-		run.answers["docker volume ls"] = transport.Result{Stdout: "onebox_services\t\n"}
-		run.answers["test -d '/var/lib/ob/ledger/services'"] = transport.Result{}
-		report := preflight(t, run, project)
-		if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
-			t.Fatalf("legacy service state masked a foreign volume: %+v", report.Failures())
-		}
-	})
+	run := healthyRunner()
+	run.answers["docker network ls"] = transport.Result{Stdout: "onebox_services\t\n"}
+	report := preflight(t, run, project)
+	if report.OK() || !strings.Contains(report.Failures()[0].Detail, "onebox_services") {
+		t.Fatalf("an unlabelled service network must be foreign: %+v", report.Failures())
+	}
 }
 
 // TestRuntimeFailureShortCircuits: without a container runtime every other
@@ -567,7 +519,7 @@ func TestHostOwnerRecordParsesTheSameForPreflightAndEngine(t *testing.T) {
 		record string
 		ok     bool
 	}{
-		{"sample", true},
+		{"sample", false},
 		{"sample production", true},
 		{"  sample   production  ", true},
 		{"sample production extra", false},

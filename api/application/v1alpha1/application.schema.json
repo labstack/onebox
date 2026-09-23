@@ -26,20 +26,14 @@
           "type": "object"
         },
         "name": {
-          "description": "The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin \"ob-\" or \"onebox-\" or be a name the host layout reserves. Stable application name used in generated runtime identities.",
+          "description": "The application's name. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters, and may not begin \"onebox-\" or be a name the host layout reserves. Stable application name used in generated runtime identities.",
           "examples": [
             "shop"
           ],
           "not": {
             "anyOf": [
               {
-                "pattern": "^ob-"
-              },
-              {
                 "pattern": "^onebox-"
-              },
-              {
-                "const": "ob"
               },
               {
                 "const": "onebox"
@@ -224,7 +218,7 @@
           "type": "object"
         },
         "basePath": {
-          "default": "/var/lib/ob",
+          "default": "/var/lib/onebox",
           "description": "Absolute host directory beneath which Onebox stores application state and releases. Expects an absolute path with no control character or shell metacharacter.",
           "examples": [
             "/srv/ob"

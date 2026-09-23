@@ -31,7 +31,7 @@ func invalidateExecutionCommand(root string) string {
 }
 
 func durableContainerStop(container string, grace time.Duration) string {
-	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"ob.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerStop(container, grace) + "; fi"
+	return "if [ \"$(/usr/bin/docker inspect --format '{{ index .Config.Labels \"onebox.execution.invocation\" }}' " + q(container) + " 2>/dev/null)\" = \"${INVOCATION_ID:-missing}\" ]; then " + scheduleContainerStop(container, grace) + "; fi"
 }
 
 type executionDefinition struct {

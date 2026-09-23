@@ -191,10 +191,10 @@ spec:
     a:
       image: nginx
 `, true},
-		{"app starting ob-", `apiVersion: onebox.run/v1alpha1
+		{"app starting onebox-", `apiVersion: onebox.run/v1alpha1
 kind: Application
 metadata:
-  name: ob-app
+  name: onebox-app
 spec:
   environments: {p: {server: h}}
   workloads:
@@ -476,8 +476,8 @@ func TestDefaultsMaterialise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.BasePath != "/var/lib/ob" {
-		t.Errorf("base_path = %q, want /var/lib/ob", p.BasePath)
+	if p.BasePath != "/var/lib/onebox" {
+		t.Errorf("base_path = %q, want /var/lib/onebox", p.BasePath)
 	}
 	if p.Proxy.Network != "onebox-ingress" {
 		t.Errorf("proxy.network = %q, want onebox-ingress", p.Proxy.Network)
@@ -847,7 +847,7 @@ spec:
 		{"image reference with a command",
 			base + "workloads: {w: {role: application, image: \"x:1; rm -rf /\"}}\n"},
 		{"base path with a quote",
-			base + "workloads: {w: {role: application, image: x:1}}\nbase_path: \"/var/lib/ob'; rm -rf /; '\"\n"},
+			base + "workloads: {w: {role: application, image: x:1}}\nbase_path: \"/var/lib/onebox'; rm -rf /; '\"\n"},
 		{"env file path with a newline",
 			base + "workloads: {w: {role: application, image: x:1, env_files: [\"a.env\\nb\"]}}\n"},
 		{"health path with a quote",

@@ -14,7 +14,7 @@ import (
 func recoveryConfigTestEngine(fake *transport.Fake) *Engine {
 	spec := &app.Spec{
 		Name:     "shop",
-		BasePath: "/var/lib/ob",
+		BasePath: "/var/lib/onebox",
 		Services: map[string]app.Service{"database": {Driver: "postgres", Version: "18"}},
 	}
 	return New(&app.Resolved{Spec: spec, Env: "production"}, nil, fake,

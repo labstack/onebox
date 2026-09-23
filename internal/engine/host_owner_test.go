@@ -38,7 +38,7 @@ func TestForeignHostOwnerBlocksMutationsBeforeEffects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 				if strings.Contains(command, "_host/owner") {
-					return transport.Result{Stdout: "another-app\n"}, true
+					return transport.Result{Stdout: "another-app production\n"}, true
 				}
 				return transport.Result{}, false
 			}}
@@ -139,7 +139,7 @@ func TestClaimHostOwnerRechecksUnderLock(t *testing.T) {
 			if reads == 1 {
 				return transport.Result{ExitCode: 3}, true
 			}
-			return transport.Result{Stdout: "another-app\n"}, true
+			return transport.Result{Stdout: "another-app production\n"}, true
 		}
 		return transport.Result{}, false
 	}}

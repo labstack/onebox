@@ -99,10 +99,10 @@ func TestServiceApplyEstablishesCredentialWithoutTravelling(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "/var/lib/ob/sample/services/postgres.secret.env") {
+	if !strings.Contains(seq, "/var/lib/onebox/app/services/postgres.secret.env") {
 		t.Fatalf("no credential established:\n%s", seq)
 	}
-	if !strings.Contains(seq, "if [ -s '/var/lib/ob/sample/services/postgres.secret.env' ]") {
+	if !strings.Contains(seq, "if [ -s '/var/lib/onebox/app/services/postgres.secret.env' ]") {
 		t.Fatalf("credential is not established conditionally — a re-apply would rotate it:\n%s", seq)
 	}
 	if !strings.Contains(seq, "POSTGRES_URL") {
@@ -115,7 +115,7 @@ func TestServiceApplyEstablishesCredentialWithoutTravelling(t *testing.T) {
 
 func TestServiceApplyRefusesDestructiveMounts(t *testing.T) {
 	// The running service uses a volume the planned document no longer names.
-	f := accFake("volume=pgdata bind=/var/lib/ob/sample/releases/R0/conf")
+	f := accFake("volume=pgdata bind=/var/lib/onebox/app/releases/R0/conf")
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
 	err := e.ServiceApply(context.Background(), "R9-acc", false)
 	if err == nil || !strings.Contains(err.Error(), "pgdata") {

@@ -49,17 +49,10 @@ func (e *HostEnvironmentMismatchError) Code() string { return "host_environment_
 
 // hostOwner is the parsed owner record: an application, and the environment
 // that claimed the host.
-//
-// A record written before the environment was recorded carries the application
-// alone. That is not treated as a failure — it predates the field — but it also
-// cannot prove which environment owns the host, so it is upgraded in place the
-// next time bootstrap runs. Until then the application check still applies.
 type hostOwner struct {
 	App         string
 	Environment string
 }
-
-func (o hostOwner) legacy() bool { return o.Environment == "" }
 
 func parseHostOwner(record string) (hostOwner, bool) {
 	// One parser, shared with preflight. Two readings of the same file drift,
@@ -73,9 +66,6 @@ func parseHostOwner(record string) (hostOwner, bool) {
 }
 
 func (o hostOwner) record() string {
-	if o.legacy() {
-		return o.App
-	}
 	return o.App + " " + o.Environment
 }
 
@@ -138,13 +128,6 @@ func (e *Engine) RequireHostOwner(ctx context.Context) error {
 	if owner.App != e.Spec.Name {
 		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
 	}
-	// A record from before the environment was written down cannot say which
-	// environment owns the host, and refusing on that would strand every host
-	// claimed by an older ob. The application check still holds; bootstrap
-	// upgrades the record when it next runs.
-	if owner.legacy() {
-		return nil
-	}
 	if owner.Environment != e.Opts.Environment {
 		return &HostEnvironmentMismatchError{
 			Application: e.Spec.Name,
@@ -166,7 +149,7 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 	if owner.App != "" && owner.App != e.Spec.Name {
 		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
 	}
-	if owner.App == e.Spec.Name && !owner.legacy() {
+	if owner.App == e.Spec.Name {
 		if owner.Environment != e.Opts.Environment {
 			return &HostEnvironmentMismatchError{
 				Application: e.Spec.Name,
@@ -176,9 +159,8 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 		}
 		return nil
 	}
-	// Either unclaimed, or claimed by this application under a record that
-	// predates the environment field. Both take the lock: the first to write a
-	// full record, the second to upgrade one in place.
+	// Unclaimed: take the lock and recheck, so two first-contact attempts
+	// cannot both claim the same machine.
 	if err := e.acquireHostLock(ctx, e.Opts.ForceLock); err != nil {
 		return err
 	}
@@ -190,7 +172,7 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 	if owner.App != "" && owner.App != e.Spec.Name {
 		return &HostOwnerMismatchError{Requesting: e.Spec.Name, Owner: owner.App}
 	}
-	if owner.App == e.Spec.Name && !owner.legacy() {
+	if owner.App == e.Spec.Name {
 		if owner.Environment != e.Opts.Environment {
 			return &HostEnvironmentMismatchError{
 				Application: e.Spec.Name,
@@ -203,13 +185,8 @@ func (e *Engine) claimHostOwner(ctx context.Context) error {
 	claim := hostOwner{App: e.Spec.Name, Environment: e.Opts.Environment}
 	path := proxy.HostPaths(e.names()).Owner
 	// `set -C` refuses to clobber, which is what makes a first claim a race
-	// nobody wins twice. Upgrading a legacy record is a rewrite of a file that
-	// already exists, so it cannot use the same guard — it runs under the host
-	// lock, having just re-read the record it is replacing.
+	// nobody wins twice.
 	write := "umask 077 && set -C && printf '%s\\n' " + q(claim.record()) + " > " + q(path)
-	if owner.legacy() {
-		write = "umask 077 && printf '%s\\n' " + q(claim.record()) + " > " + q(path)
-	}
 	result, err := e.hostMutate(ctx, write)
 	if err != nil {
 		return err

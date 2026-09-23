@@ -97,56 +97,47 @@ func TestBackupNamesEscapeHyphenatedSegments(t *testing.T) {
 	credentialNames := map[string]string{}
 	jobNames := map[string]string{}
 	unitNames := map[string]string{}
-	for _, application := range idents {
-		n := Names{App: application, BasePath: DefaultBasePath}
-		for _, service := range idents {
-			job := n.ScheduledJobUnit(service)
-			jobSource := application + "|" + service
-			if previous, exists := jobNames[job]; exists {
-				t.Fatalf("scheduled job collision: %q derives from both %s and %s", job, previous, jobSource)
-			}
-			jobNames[job] = jobSource
-			for _, target := range idents {
-				credential := n.BackupCredentialFile(service, target)
-				credentialSource := application + "|" + service + "|" + target
-				// Credential paths are application-scoped, so only pairs within
-				// the same application must be globally unique.
-				credentialKey := application + "|" + credential
-				if previous, exists := credentialNames[credentialKey]; exists {
-					t.Fatalf("credential collision: %q derives from both %s and %s", credential, previous, credentialSource)
-				}
-				credentialNames[credentialKey] = credentialSource
-			}
+	n := Names{App: "shop", BasePath: DefaultBasePath}
+	for _, service := range idents {
+		job := n.ScheduledJobUnit(service)
+		if previous, exists := jobNames[job]; exists {
+			t.Fatalf("scheduled job collision: %q derives from both %s and %s", job, previous, service)
 		}
-		for _, environment := range idents {
-			for _, service := range idents {
-				for _, target := range idents {
-					unit := n.BackupUnitForEnvironment(environment, service, target)
-					unitSource := application + "|" + environment + "|" + service + "|" + target
-					if previous, exists := unitNames[unit]; exists {
-						t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, unitSource)
-					}
-					unitNames[unit] = unitSource
+		jobNames[job] = service
+		for _, target := range idents {
+			credential := n.BackupCredentialFile(service, target)
+			source := service + "|" + target
+			if previous, exists := credentialNames[credential]; exists {
+				t.Fatalf("credential collision: %q derives from both %s and %s", credential, previous, source)
+			}
+			credentialNames[credential] = source
+		}
+	}
+	for _, environment := range idents {
+		for _, service := range idents {
+			for _, target := range idents {
+				unit := n.BackupUnitForEnvironment(environment, service, target)
+				source := environment + "|" + service + "|" + target
+				if previous, exists := unitNames[unit]; exists {
+					t.Fatalf("backup unit collision: %q derives from both %s and %s", unit, previous, source)
 				}
+				unitNames[unit] = source
 			}
 		}
 	}
 
-	n := Names{App: "help-desk", BasePath: DefaultBasePath}
+	n = Names{App: "help-desk", BasePath: DefaultBasePath}
 	if got := n.BackupCredentialFile("data-base", "off-site"); !strings.HasSuffix(got, "/data--base-off--site.env") {
 		t.Fatalf("escaped credential path = %q", got)
 	}
-	if got := n.BackupUnitForEnvironment("pre-prod", "data-base", "back-up"); got != "ob-backup-help--desk-pre--prod-data--base-back--up" {
+	if got := n.BackupUnitForEnvironment("pre-prod", "data-base", "back-up"); got != "onebox-backup-pre--prod-data--base-back--up" {
 		t.Fatalf("escaped backup unit = %q", got)
 	}
-	if got := n.BackupCredentialFiles("data-base", "off-site"); len(got) != 2 || !strings.HasSuffix(got[1], "/data-base-off-site.env") {
-		t.Fatalf("credential migration paths = %#v", got)
+	if got := n.BackupUnitPrefixForEnvironment("pre-prod"); got != "onebox-backup-pre--prod-" {
+		t.Fatalf("unit reconciliation prefix = %q", got)
 	}
-	if got := n.BackupUnitPrefixesForEnvironment("pre-prod"); len(got) != 2 || got[1] != "ob-backup-help-desk-pre-prod-" {
-		t.Fatalf("unit reconciliation prefixes = %#v", got)
-	}
-	if got := n.ScheduledJobUnit("data-base"); got != "ob-help--desk-data--base" {
-		t.Fatalf("escaped scheduled job unit = %q", got)
+	if got := n.ScheduledJobUnit("data-base"); got != "onebox-job-data-base" {
+		t.Fatalf("scheduled job unit = %q", got)
 	}
 }
 
@@ -169,13 +160,13 @@ func TestBasePathPerEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.NamesFor("production").ReleaseDir("r1"); got != "/var/lib/ob/ledger/releases/r1" {
+	if got := p.NamesFor("production").ReleaseDir("r1"); got != "/var/lib/onebox/app/releases/r1" {
 		t.Errorf("production release dir = %q", got)
 	}
-	if got := p.NamesFor("staging").ReleaseDir("r1"); got != "/mnt/data/ob/ledger/releases/r1" {
+	if got := p.NamesFor("staging").ReleaseDir("r1"); got != "/mnt/data/ob/app/releases/r1" {
 		t.Errorf("staging release dir = %q", got)
 	}
-	if got := p.NamesFor("production").HostDir(); got != "/var/lib/ob/_host" {
+	if got := p.NamesFor("production").HostDir(); got != "/var/lib/onebox/_host" {
 		t.Errorf("host dir = %q", got)
 	}
 }
@@ -268,8 +259,8 @@ func TestRouterDoesNotLookLikeAReplica(t *testing.T) {
 	if n.Router("web", 2) == n.Container("web", 2) {
 		t.Fatalf("router and replica derive the same name: %q", n.Router("web", 2))
 	}
-	if got := n.Router("web", 0); got != "ledger_web_r0" {
-		t.Errorf("router = %q, want ledger_web_r0", got)
+	if got := n.Router("web", 0); got != "onebox_web_r0" {
+		t.Errorf("router = %q, want onebox_web_r0", got)
 	}
 }
 

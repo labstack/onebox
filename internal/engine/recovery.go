@@ -193,7 +193,7 @@ func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest
 }
 
 func (e *Engine) exactReleaseContainerIDs(ctx context.Context, releaseID string) ([]string, error) {
-	result, err := e.T.Run(ctx, "docker ps -aq --filter label=ob.app="+q(e.Spec.Name)+" --filter label=ob.release="+q(releaseID))
+	result, err := e.T.Run(ctx, "docker ps -aq --filter label=onebox.app="+q(e.Spec.Name)+" --filter label=onebox.release="+q(releaseID))
 	if err != nil {
 		return nil, err
 	}

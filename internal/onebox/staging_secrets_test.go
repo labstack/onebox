@@ -162,7 +162,7 @@ func TestEveryEncryptedEntryIsStagedUnderItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(runtime), "ob.secret-generation: sg-000000000000000000000001") ||
+	if !strings.Contains(string(runtime), "onebox.secret-generation: sg-000000000000000000000001") ||
 		!strings.Contains(string(runtime), app.SecretGenerationDirectory+"/sg-000000000000000000000001/") {
 		t.Fatalf("initial deployment runtime does not bind the opaque generation:\n%s", runtime)
 	}

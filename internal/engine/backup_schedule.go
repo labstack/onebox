@@ -46,8 +46,7 @@ import (
 // project no longer describes, and nothing in the project would explain why.
 func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	n := e.names()
-	prefixes := n.BackupUnitPrefixesForEnvironment(e.Opts.Environment)
-	prefix := prefixes[0]
+	prefix := n.BackupUnitPrefixForEnvironment(e.Opts.Environment)
 	// flock creates the lock file but not the directory holding it.
 	if res, err := e.T.Run(ctx, "mkdir -p "+q(n.AppDir()+"/backup")); err != nil {
 		return err
@@ -68,16 +67,6 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 		bare := strings.TrimSuffix(unit, ".timer")
 		if matchesRuntimePrefix(bare, prefix) {
 			installed[bare] = true
-			continue
-		}
-		if matchesAnyPrefix(unit, prefixes[1:]) {
-			owned, err := e.scheduleUnitBelongsToOwner(ctx, bare, true)
-			if err != nil {
-				return err
-			}
-			if owned {
-				installed[bare] = true
-			}
 		}
 	}
 

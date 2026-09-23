@@ -483,7 +483,7 @@ func TestRetentionDoesNotPinAReleaseAContainerOnlyLabels(t *testing.T) {
 			// The container was created in the expired release and retained
 			// ever since, so it still carries that label — while mounting
 			// nothing out of the release store.
-			if strings.Contains(command, "ob.release") {
+			if strings.Contains(command, "onebox.release") {
 				return transport.Result{Stdout: staleID + "\n"}, true
 			}
 			return transport.Result{Stdout: "/var/run/docker.sock,app-data\n"}, true

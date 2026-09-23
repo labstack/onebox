@@ -667,7 +667,7 @@ func (e *Engine) promoteRecoveredVolume(ctx context.Context, service, container,
 	preserve := strings.Join([]string{
 		"docker compose -p " + q(n.ServiceProject(service)) + " -f " + q(n.ServiceFile(service)) + " down",
 		"docker volume create --label " + q("com.docker.compose.project="+n.ServiceProject(service)) +
-			" --label " + q("ob.app="+e.Spec.Name) + " --label " + q("ob.service="+service) + " " + q(kept),
+			" --label " + q("onebox.app="+e.Spec.Name) + " --label " + q("onebox.service="+service) + " " + q(kept),
 		"docker run --rm -v " + q(live+":/from") + " -v " + q(kept+":/to") + " alpine sh -c 'cp -a /from/. /to/'",
 	}, " && ")
 	res, err := e.mutate(ctx, preserve)

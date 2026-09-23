@@ -44,7 +44,7 @@ func TestSyncSchedulesRetainsManualScheduledJob(t *testing.T) {
 		t.Fatalf("sync schedules: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, want := range []string{"ob-sample-nightly.service", "ob-sample-nightly.timer", "systemctl enable --now ob-sample-nightly.timer"} {
+	for _, want := range []string{"onebox-job-nightly.service", "onebox-job-nightly.timer", "systemctl enable --now onebox-job-nightly.timer"} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("manual scheduled job omitted %q:\n%s", want, seq)
 		}
@@ -75,7 +75,7 @@ func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 		case strings.Contains(cmd, "list-unit-files"):
 			// v2026.8.5 installed this timer, but its service had no bounded
 			// runner or failure notifier. Presence must not make apply skip it.
-			return transport.Result{Stdout: "ob-sample-nightly.timer\n"}, true
+			return transport.Result{Stdout: "onebox-job-nightly.timer\n"}, true
 		case strings.Contains(cmd, "systemd-analyze calendar"):
 			return transport.Result{Stdout: "ok\n"}, true
 		case strings.Contains(cmd, "command -v flock"):
@@ -92,9 +92,9 @@ func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	for _, want := range []string{
 		`"phase":"schedule-apply","event":"start"`,
-		"systemctl enable --now ob-sample-nightly.timer",
+		"systemctl enable --now onebox-job-nightly.timer",
 		`"phase":"schedule-apply","event":"finish","status":"ok"`,
-		"rm -f '/var/lib/ob/sample/lock'",
+		"rm -f '/var/lib/onebox/app/lock'",
 	} {
 		if !strings.Contains(seq, want) {
 			t.Errorf("schedule apply is missing %q:\n%s", want, seq)
@@ -102,8 +102,8 @@ func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 	}
 	artifacts := strings.Join(f.Inputs, "\n")
 	for _, want := range []string{
-		"ExecStart=/bin/sh /etc/systemd/system/ob-sample-nightly.run",
-		"ExecStopPost=/bin/sh /etc/systemd/system/ob-sample-nightly.notify",
+		"ExecStart=/bin/sh /etc/systemd/system/onebox-job-nightly.run",
+		"ExecStopPost=/bin/sh /etc/systemd/system/onebox-job-nightly.notify",
 		"TimeoutStartSec=45m",
 		"flock --exclusive --nonblock",
 		"Persistent=false",
@@ -113,7 +113,7 @@ func TestScheduleApplyUpgradesLegacyUnitsUnderRegime(t *testing.T) {
 		}
 	}
 	for _, command := range f.Commands {
-		if strings.Contains(command, "/etc/systemd/system/ob-sample-nightly") &&
+		if strings.Contains(command, "/etc/systemd/system/onebox-job-nightly") &&
 			strings.Contains(command, ".ob-tmp") && !strings.Contains(command, "ob-fenced") {
 			t.Errorf("schedule artifact write escaped the fence: %s", command)
 		}
@@ -140,7 +140,7 @@ func TestScheduleApplyRefusesBeforeFirstRelease(t *testing.T) {
 		t.Fatalf("error = %v, want first-release refusal", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if len(f.Inputs) != 0 || !strings.Contains(seq, "rm -f '/var/lib/ob/sample/lock'") {
+	if len(f.Inputs) != 0 || !strings.Contains(seq, "rm -f '/var/lib/onebox/app/lock'") {
 		t.Fatalf("schedule apply wrote units or leaked its lock before refusing:\n%s", seq)
 	}
 }
@@ -170,7 +170,7 @@ func TestScheduleApplyStopsBeforeUnitWritesWhenJournalStartFails(t *testing.T) {
 		t.Fatalf("error = %v, want journal refusal", err)
 	}
 	for _, command := range f.Commands {
-		if strings.Contains(command, "/etc/systemd/system/ob-sample-nightly") {
+		if strings.Contains(command, "/etc/systemd/system/onebox-job-nightly") {
 			t.Fatalf("unit mutation followed failed journal start: %s", command)
 		}
 	}
@@ -182,23 +182,23 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		Calendar: "*-*-* 02:00:00", Timeout: "45m", ShutdownGrace: 12 * time.Second,
 		CatchUp: false, DeployLock: "exclusive",
 	}
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	service := scheduleServiceUnit("sample", job,
-		"/etc/systemd/system/ob-sample-nightly.run",
-		"/etc/systemd/system/ob-sample-nightly.notify")
+		"/etc/systemd/system/onebox-job-nightly.run",
+		"/etc/systemd/system/onebox-job-nightly.notify")
 	timer := scheduleTimerUnit("sample", job)
 
 	for _, want := range []string{
-		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
+		"exec 9>'/var/lib/onebox/app/schedule/nightly.lock'",
 		"flock --exclusive --nonblock --conflict-exit-code 200 9",
-		"exec 8>'/var/lib/ob/sample/schedule.lock'",
+		"exec 8>'/var/lib/onebox/app/schedule.lock'",
 		"flock --exclusive --timeout 10 --conflict-exit-code 200 8",
-		"/var/lib/ob/sample/lock",
+		"/var/lib/onebox/app/lock",
 		"application operation holds the deploy lock",
 		"docker compose",
 		"--project-directory",
-		"/var/lib/ob/sample/current",
+		"/var/lib/onebox/app/current",
 		"compose.yaml",
 		`run --rm --no-deps "$@" --name 'sample-nightly-1'`,
 		"docker rm -f 'sample-nightly-1'",
@@ -241,8 +241,8 @@ func TestScheduledJobUnitContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Type=oneshot",
-		"ExecStart=/bin/sh /etc/systemd/system/ob-sample-nightly.run",
-		"ExecStopPost=/bin/sh /etc/systemd/system/ob-sample-nightly.notify",
+		"ExecStart=/bin/sh /etc/systemd/system/onebox-job-nightly.run",
+		"ExecStopPost=/bin/sh /etc/systemd/system/onebox-job-nightly.notify",
 		"TimeoutStartSec=45m",
 	} {
 		if !strings.Contains(service, want) {
@@ -282,8 +282,8 @@ func TestScheduleRendezvousWaitReservesShortJobTimeout(t *testing.T) {
 		}
 	}
 
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", app.ScheduledJob{Name: "quick", Timeout: "1s", DeployLock: "pinned"}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
+	runner := scheduleRunnerScript("sample", app.ScheduledJob{Name: "quick", Timeout: "1s", DeployLock: "pinned"}, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	if !strings.Contains(runner, "flock --shared --nonblock --conflict-exit-code 200 8") ||
 		!strings.Contains(runner, "skip 'the scheduling rendezvous is busy'") {
 		t.Fatalf("short-timeout runner can outlive its rendezvous budget:\n%s", runner)
@@ -292,24 +292,24 @@ func TestScheduleRendezvousWaitReservesShortJobTimeout(t *testing.T) {
 
 func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 	job := app.ScheduledJob{Name: "refresh", DeployLock: "pinned"}
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", []app.EnvFile{
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", []app.EnvFile{
 		{File: "config/runtime.env"},
 		{File: "secrets/runtime.env", Provider: "sops"},
 	}, 10*time.Minute, true)
 
 	for _, want := range []string{
-		"exec 9>'/var/lib/ob/sample/schedule/refresh.lock'",
+		"exec 9>'/var/lib/onebox/app/schedule/refresh.lock'",
 		"flock --exclusive --nonblock --conflict-exit-code 200 9",
-		"exec 8>'/var/lib/ob/sample/schedule.lock'",
+		"exec 8>'/var/lib/onebox/app/schedule.lock'",
 		"flock --shared --timeout 10 --conflict-exit-code 200 8",
-		"release_dir=$(readlink -f '/var/lib/ob/sample/current')",
+		"release_dir=$(readlink -f '/var/lib/onebox/app/current')",
 		"exec 7>>\"$release_dir/.ob-schedule.lease\"",
 		"flock --shared 7",
 		"flock --unlock 8",
 		"trap cleanup 0",
 		"pinned release has no compose.yaml",
-		"/var/lib/ob/sample/schedule/refresh.state",
+		"/var/lib/onebox/app/schedule/refresh.state",
 		"--project-directory \"$release_dir\"",
 		"-f \"$release_dir\"/'compose.yaml'",
 		"--env-file \"$release_dir\"/'config/runtime.env'",
@@ -743,7 +743,7 @@ func TestScheduledJobFailureNotifierUsesConfiguredWebhooks(t *testing.T) {
 	}
 	for _, want := range []string{
 		`${SERVICE_RESULT:-success}`,
-		"exec 9>'/var/lib/ob/sample/schedule/nightly.lock'",
+		"exec 9>'/var/lib/onebox/app/schedule/nightly.lock'",
 		"flock --exclusive --nonblock 9",
 		"docker rm -f 'sample-nightly-1'",
 		`ts=$(date -u`,
@@ -847,7 +847,7 @@ func TestRemoveSchedulesRemovesFilesAndReloadsAfterFailedDisable(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "list-unit-files"):
-			return transport.Result{Stdout: "ob-sample-nightly.timer\n"}, true
+			return transport.Result{Stdout: "onebox-job-nightly.timer\n"}, true
 		case strings.Contains(cmd, "systemctl disable --now"):
 			return transport.Result{ExitCode: 5, Stderr: "unit is busy"}, true
 		}
@@ -855,17 +855,17 @@ func TestRemoveSchedulesRemovesFilesAndReloadsAfterFailedDisable(t *testing.T) {
 	}}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
 	err := e.RemoveSchedules(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "disable schedule ob-sample-nightly failed (exit 5): unit is busy") {
+	if err == nil || !strings.Contains(err.Error(), "disable schedule onebox-job-nightly failed (exit 5): unit is busy") {
 		t.Fatalf("remove schedules error = %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f /etc/systemd/system/ob-sample-nightly.timer /etc/systemd/system/ob-sample-nightly.service /etc/systemd/system/ob-sample-nightly.run /etc/systemd/system/ob-sample-nightly.notify") {
+	if !strings.Contains(seq, "rm -f /etc/systemd/system/onebox-job-nightly.timer /etc/systemd/system/onebox-job-nightly.service /etc/systemd/system/onebox-job-nightly.run /etc/systemd/system/onebox-job-nightly.notify") {
 		t.Fatalf("disable failure stranded the unit files:\n%s", seq)
 	}
 	if !strings.Contains(seq, "systemctl daemon-reload") {
 		t.Fatalf("systemd was not reloaded after removing the unit files:\n%s", seq)
 	}
-	if strings.Contains(seq, "systemctl disable --now ob-sample-nightly.timer >/dev/null 2>&1") {
+	if strings.Contains(seq, "systemctl disable --now onebox-job-nightly.timer >/dev/null 2>&1") {
 		t.Fatalf("disable stderr was discarded instead of captured:\n%s", seq)
 	}
 }
@@ -877,12 +877,10 @@ func TestRuntimePrefixStopsAtEscapedComponentBoundary(t *testing.T) {
 		prefix string
 		want   bool
 	}{
-		{"job owned", "ob-acme-nightly", "ob-acme-", true},
-		{"hyphenated job owner", "ob-acme--web-nightly", "ob-acme--web-", true},
-		{"job belongs to hyphen extension", "ob-acme--web-nightly", "ob-acme-", false},
-		{"backup environment owned", "ob-backup-acme-prod-postgres-backup", "ob-backup-acme-prod-", true},
-		{"hyphenated backup environment owned", "ob-backup-acme-prod--eu-postgres-backup", "ob-backup-acme-prod--eu-", true},
-		{"backup belongs to hyphen extension", "ob-backup-acme-prod--eu-postgres-backup", "ob-backup-acme-prod-", false},
+		{"job owned", "onebox-job-nightly", "onebox-job-", true},
+		{"backup environment owned", "onebox-backup-prod-postgres-backup", "onebox-backup-prod-", true},
+		{"hyphenated backup environment owned", "onebox-backup-prod--eu-postgres-backup", "onebox-backup-prod--eu-", true},
+		{"backup belongs to hyphen extension", "onebox-backup-prod--eu-postgres-backup", "onebox-backup-prod-", false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -893,43 +891,10 @@ func TestRuntimePrefixStopsAtEscapedComponentBoundary(t *testing.T) {
 	}
 }
 
-func TestScheduleReconciliationDoesNotCrossEscapedApplicationBoundary(t *testing.T) {
-	listed := strings.Join([]string{
-		"ob-acme--web-nightly.timer",
-		"ob-backup-acme--web-production-postgres-backup.timer",
-		"",
-	}, "\n")
-	for _, test := range []struct {
-		name string
-		run  func(*Engine) error
-	}{
-		{"sync", func(e *Engine) error { return e.SyncSchedules(context.Background()) }},
-		{"remove", func(e *Engine) error { return e.RemoveSchedules(context.Background()) }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-				if strings.Contains(cmd, "list-unit-files") {
-					return transport.Result{Stdout: listed}, true
-				}
-				return transport.Result{}, false
-			}}
-			cfg := testConfig()
-			cfg.Spec.Name = "acme"
-			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-			if err := test.run(e); err != nil {
-				t.Fatal(err)
-			}
-			if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "rm -f") {
-				t.Fatalf("%s removed a hyphen-extension application's schedule:\n%s", test.name, seq)
-			}
-		})
-	}
-}
-
 func TestBackupScheduleSyncDoesNotCrossEscapedEnvironmentBoundary(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "list-unit-files") {
-			return transport.Result{Stdout: "ob-backup-acme-prod--eu-postgres-backup.timer\n"}, true
+			return transport.Result{Stdout: "onebox-backup-prod--eu-postgres-backup.timer\n"}, true
 		}
 		return transport.Result{}, false
 	}}
@@ -950,8 +915,8 @@ func TestScheduleSyncIgnoresInvalidHostListedUnitNames(t *testing.T) {
 		listed string
 		run    func(*Engine) error
 	}{
-		{"job", "ob-sample-nightly;touch.timer\n", func(e *Engine) error { return e.SyncSchedules(context.Background()) }},
-		{"backup", "ob-backup-sample-production-postgres;touch.timer\n", func(e *Engine) error { return e.SyncBackupSchedules(context.Background()) }},
+		{"job", "onebox-job-nightly;touch.timer\n", func(e *Engine) error { return e.SyncSchedules(context.Background()) }},
+		{"backup", "onebox-backup-production-postgres;touch.timer\n", func(e *Engine) error { return e.SyncBackupSchedules(context.Background()) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
@@ -973,17 +938,14 @@ func TestScheduleSyncIgnoresInvalidHostListedUnitNames(t *testing.T) {
 
 // A deploy must not delete the backup timers.
 //
-// SyncSchedules owns "ob-<app>-*" and removes what the project no longer
-// declares. Backup timers were named inside that namespace, so every deploy
+// SyncSchedules owns JobUnitPrefix and removes what the project no longer
+// declares. Backup timers were once named inside that namespace, so every deploy
 // reclaimed them as stale and silently stopped all scheduled backups — the only
 // trace being a line saying the schedule was "no longer declared".
 func TestSyncSchedulesLeavesBackupTimersAlone(t *testing.T) {
-	if !strings.HasPrefix(app.BackupUnitPrefix, "ob-") {
-		t.Fatalf("backup prefix %q is expected to sit under the ob- namespace", app.BackupUnitPrefix)
-	}
-	backupTimer := app.Names{App: "example", BasePath: "/var/lib/ob"}.
+	backupTimer := app.Names{App: "example", BasePath: "/var/lib/onebox"}.
 		BackupTimerForEnvironment("production", "database", "backup")
-	if strings.HasPrefix(backupTimer, "ob-example-") {
+	if strings.HasPrefix(backupTimer, app.JobUnitPrefix) {
 		t.Fatalf("backup timer %q is inside the job scheduler's namespace and a deploy would delete it", backupTimer)
 	}
 }
@@ -993,15 +955,15 @@ func TestSyncSchedulesLeavesBackupTimersAlone(t *testing.T) {
 // Backup timers are named outside the job scheduler's namespace on purpose —
 // a deploy used to treat them as "no longer declared" and delete every
 // scheduled backup. Teardown is the opposite case: matching only the job
-// prefix left `ob destroy` with ob-backup-<app>-… timers still loaded, firing
+// prefix left `ob destroy` with backup timers still loaded, firing
 // against a release directory the same command had just deleted.
 func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "list-unit-files") {
 			return transport.Result{Stdout: strings.Join([]string{
-				"ob-sample-nightly.timer",
-				"ob-backup-sample-production-postgres-backup.timer",
-				"ob-backup-sample-production-postgres-verify.timer",
+				"onebox-job-nightly.timer",
+				"onebox-backup-production-postgres-backup.timer",
+				"onebox-backup-production-postgres-verify.timer",
 				// Another application's, and a stranger's. Neither is ours.
 				"ob-backup-other-production-postgres-backup.timer",
 				"logrotate.timer",
@@ -1016,9 +978,9 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 	}
 	seq := strings.Join(f.Commands, "\n")
 	for _, want := range []string{
-		"ob-sample-nightly",
-		"ob-backup-sample-production-postgres-backup",
-		"ob-backup-sample-production-postgres-verify",
+		"onebox-job-nightly",
+		"onebox-backup-production-postgres-backup",
+		"onebox-backup-production-postgres-verify",
 	} {
 		if !strings.Contains(seq, "rm -f /etc/systemd/system/"+want+".timer") {
 			t.Errorf("teardown left %s installed:\n%s", want, seq)
@@ -1031,42 +993,6 @@ func TestRemoveSchedulesTakesBackupTimersToo(t *testing.T) {
 	}
 }
 
-func TestScheduleOwnershipComesFromServiceBody(t *testing.T) {
-	tests := []struct {
-		name   string
-		backup bool
-		body   string
-		want   bool
-	}{
-		{"owned job", false, "Description=Onebox scheduled job nightly for help-desk\n", true},
-		{"other job", false, "Description=Onebox scheduled job nightly for help\n", false},
-		{"owned backup current", true, "Description=Onebox backup verify for database (help-desk/production)\n", true},
-		{"owned backup legacy", true, "Description=Onebox backup verify for database (help-desk)\n", true},
-		{"other environment backup", true, "Description=Onebox backup verify for database (help-desk/staging)\n", false},
-		{"other backup", true, "Description=Onebox backup verify for database (help)\n", false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-				if strings.HasPrefix(cmd, "cat ") {
-					return transport.Result{Stdout: test.body}, true
-				}
-				return transport.Result{}, false
-			}}
-			cfg := testConfig()
-			cfg.Spec.Name = "help-desk"
-			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
-			got, err := e.scheduleUnitBelongsToOwner(context.Background(), "legacy", test.backup)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != test.want {
-				t.Fatalf("ownership = %t, want %t", got, test.want)
-			}
-		})
-	}
-}
-
 func TestBackupServiceUnitRecordsEnvironmentOwnership(t *testing.T) {
 	body := backupServiceUnit("sample", "production", "postgres", "backup", "/tmp/lock", []string{"true"})
 	if !strings.Contains(body, "Description=Onebox backup backup for postgres (sample/production)") {
@@ -1074,26 +1000,8 @@ func TestBackupServiceUnitRecordsEnvironmentOwnership(t *testing.T) {
 	}
 }
 
-func TestAppNamedBackupDoesNotOwnEveryBackupTimer(t *testing.T) {
-	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "list-unit-files") {
-			return transport.Result{Stdout: "ob-backup-other-production-postgres-backup.timer\n"}, true
-		}
-		return transport.Result{}, false
-	}}
-	cfg := testConfig()
-	cfg.Spec.Name = "backup"
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.RemoveSchedules(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "rm -f") {
-		t.Fatalf("app named backup removed another application's timer:\n%s", seq)
-	}
-}
-
 func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
 	for _, tc := range []struct {
 		name string
 		job  app.ScheduledJob
@@ -1102,9 +1010,9 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 		{"pinned", app.ScheduledJob{Name: "nightly", Cron: "0 2 * * *", Timezone: "UTC", Calendar: "*-*-* 02:00:00", Timeout: "45m", DeployLock: "pinned"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+			runner := scheduleRunnerScript("sample", tc.job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 			for _, want := range []string{
-				"state='/var/lib/ob/sample/schedule/nightly.state'",
+				"state='/var/lib/onebox/app/schedule/nightly.state'",
 				"write_state() {",
 				"started_epoch=%s",
 				"trigger=%s",
@@ -1126,7 +1034,7 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 		})
 	}
 	service := scheduleServiceUnit("sample", app.ScheduledJob{Name: "nightly", Timeout: "45m"},
-		"/etc/systemd/system/ob-sample-nightly.run", "/etc/systemd/system/ob-sample-nightly.notify")
+		"/etc/systemd/system/onebox-job-nightly.run", "/etc/systemd/system/onebox-job-nightly.notify")
 	if strings.Contains(service, "SuccessExitStatus") {
 		t.Errorf("a skip is recorded by the runner and exits 0; the unit needs no exit-status remap:\n%s", service)
 	}
@@ -1141,7 +1049,7 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"state='/var/lib/ob/sample/schedule/nightly.state'",
+		"state='/var/lib/onebox/app/schedule/nightly.state'",
 		`started_epoch=*) started_epoch=${line#started_epoch=}`,
 		`rm -f "$state"`,
 		`result=${SERVICE_RESULT:-success}`,
@@ -1154,7 +1062,7 @@ func TestScheduledJobNotifierWritesOneRunRecordToTheJournal(t *testing.T) {
 		`"duration_s":%s,"attempts":%s,"exit_status":%s,"outcome":"%s","forced_kill":%s,"reason":"%s","inputs":{%s}`,
 		`"${INVOCATION_ID:-}" 'nightly'`,
 		`SYSLOG_IDENTIFIER=ob-run\nONEBOX_APP=%s\nONEBOX_UNIT=%s\nONEBOX_JOB=%s`,
-		`"$record" 'sample' 'ob-sample-nightly' 'nightly' | logger --journald`,
+		`"$record" 'sample' 'onebox-job-nightly' 'nightly' | logger --journald`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("notifier is missing %q:\n%s", want, script)
@@ -1175,7 +1083,7 @@ func runNotifier(t *testing.T, job app.ScheduledJob, notifications map[string]ap
 	t.Helper()
 	base := t.TempDir()
 	if state != "" {
-		scheduleDir := filepath.Join(base, "sample", "schedule")
+		scheduleDir := filepath.Join(base, "app", "schedule")
 		if err := os.MkdirAll(scheduleDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -1201,7 +1109,7 @@ func runNotifierIn(t *testing.T, base string, job app.ScheduledJob, notification
 	if err != nil {
 		t.Fatal(err)
 	}
-	scheduleDir := filepath.Join(base, "sample", "schedule")
+	scheduleDir := filepath.Join(base, "app", "schedule")
 	if err := os.MkdirAll(scheduleDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1213,7 +1121,7 @@ func runNotifierIn(t *testing.T, base string, job app.ScheduledJob, notification
 	stub := "#!/bin/sh\n[ \"$1\" = --journald ] || exit 9\n" +
 		"fields=$(cat)\n" +
 		"printf '%s\\n' \"$fields\" | grep -q '^SYSLOG_IDENTIFIER=ob-run$' || exit 8\n" +
-		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_UNIT=ob-sample-nightly$' || exit 7\n" +
+		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_UNIT=onebox-job-nightly$' || exit 7\n" +
 		"printf '%s\\n' \"$fields\" | grep -q '^ONEBOX_JOB=nightly$' || exit 6\n" +
 		"printf '%s\\n' \"$fields\" | sed -n 's/^MESSAGE=//p' >>" + record + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "logger"), []byte(stub), 0o755); err != nil {
@@ -1269,7 +1177,7 @@ func TestScheduledJobNotifierRecordsEachOutcomeAndRemovesState(t *testing.T) {
 		"failure":      {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "1"}, "failure", float64(1), 2},
 		"timeout":      {state, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "TERM"}, "timeout", nil, 2},
 		"forced kill":  {forced, map[string]string{"SERVICE_RESULT": "timeout", "EXIT_STATUS": "KILL"}, "timeout", nil, 2},
-		"skipped":      {"skipped=another run of this job is still in progress\noperation=\ninputs=\n", map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "TRIGGER_UNIT": "ob-sample-nightly.timer"}, "skipped", float64(0), 0},
+		"skipped":      {"skipped=another run of this job is still in progress\noperation=\ninputs=\n", map[string]string{"SERVICE_RESULT": "success", "EXIT_STATUS": "0", "TRIGGER_UNIT": "onebox-job-nightly.timer"}, "skipped", float64(0), 0},
 		"job exits 75": {state, map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "75"}, "failure", float64(75), 2},
 		"no state":     {"", map[string]string{"SERVICE_RESULT": "exit-code", "EXIT_STATUS": "3"}, "failure", float64(3), 0},
 	} {
@@ -1391,8 +1299,8 @@ ActiveState=active
 func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 	job := app.ScheduledJob{Name: "nightly", Timeout: "45m", DeployLock: "exclusive",
 		RetryAttempts: 3, RetryBackoff: 30 * time.Second, RetryMaxBackoff: 10 * time.Minute}
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	for _, want := range []string{
 		"max_attempts=3", "backoff=30", "max_backoff=600",
 		"attempt=1", "while :; do", "write_state \"$attempt\"",
@@ -1404,11 +1312,11 @@ func TestScheduledJobRunnerRetriesWithCappedDoublingBackoff(t *testing.T) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
 		}
 	}
-	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	single := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	if strings.Contains(single, "max_attempts=") {
 		t.Errorf("a single-attempt job must not carry a retry loop:\n%s", single)
 	}
-	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	pinned := scheduleRunnerScript("sample", app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "pinned", RetryAttempts: 2, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	if !strings.Contains(pinned, "max_attempts=") || strings.Index(pinned, "flock --unlock 8") > strings.Index(pinned, "max_attempts=") {
 		t.Errorf("pinned runner must release the schedule mutex before its attempt loop:\n%s", pinned)
 	}
@@ -1516,10 +1424,10 @@ func TestScheduledJobNotifierSendsOnlySelectedOutcomesWithTheRunID(t *testing.T)
 func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *testing.T) {
 	job := app.ScheduledJob{Name: "sync", Timeout: "45m", DeployLock: "pinned", RetryAttempts: 1,
 		Inputs: map[string]app.JobInput{"SOURCE": {Enum: []string{"catalog"}, Default: "catalog"}}}
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	for _, want := range []string{
-		"inputs_file='/var/lib/ob/sample/schedule/sync.inputs'",
+		"inputs_file='/var/lib/onebox/app/schedule/sync.inputs'",
 		`if [ -z "${TRIGGER_UNIT:-}" ] && [ -f "$inputs_file" ]; then`,
 		`while IFS= read -r line || [ -n "$line" ]; do`,
 		`ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;`,
@@ -1544,7 +1452,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 	if strings.Index(runner, "inputs_file=") > strings.Index(runner, "exec 9>") {
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
 	}
-	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --name`) {
 		t.Fatalf("exclusive runner does not consume inputs:\n%s", exclusive)
 	}
@@ -1604,7 +1512,7 @@ func TestScheduleInputsLinesParseTheFileIntoArguments(t *testing.T) {
 		`printf 'operation=%s\n' "$operation"`,
 		`printf 'json=%s\n' "$inputs_json"`,
 	), "\n")
-	for _, trigger := range []string{"", "ob-sample-sync.timer"} {
+	for _, trigger := range []string{"", "onebox-job-sync.timer"} {
 		command := exec.CommandContext(context.Background(), "sh", "-s")
 		command.Stdin = strings.NewReader(script)
 		command.Env = []string{"PATH=" + os.Getenv("PATH")}
@@ -1746,9 +1654,9 @@ func TestScheduleStatusDegradesWhenTheJournalCannotBeRead(t *testing.T) {
 // A firing that cannot take the job lock must leave the running job's state
 // alone: that file is the evidence its own notifier turns into the record.
 func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
 	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	// The note is keyed to this activation, so it cannot be mistaken for the
 	// state file of the run that holds the lock.
 	if !strings.Contains(runner, `skip_marker="$state.skip.${INVOCATION_ID:-}"`) ||
@@ -1776,10 +1684,10 @@ func TestScheduledJobRunnerDoesNotClobberARunningJobsState(t *testing.T) {
 // The container name is fixed, so a corpse from one attempt would fail every
 // attempt after it.
 func TestScheduledJobRunnerClearsTheContainerBetweenAttempts(t *testing.T) {
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
 	job := app.ScheduledJob{Name: "nightly", Timeout: "45m", DeployLock: "exclusive",
 		RetryAttempts: 3, RetryBackoff: time.Second, RetryMaxBackoff: time.Minute}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	loop := runner[strings.Index(runner, "while :; do"):]
 	if !strings.Contains(loop, "docker rm -f 'sample-nightly-1'") {
 		t.Fatalf("no cleanup inside the attempt loop:\n%s", loop)
@@ -1789,10 +1697,10 @@ func TestScheduledJobRunnerClearsTheContainerBetweenAttempts(t *testing.T) {
 // On a systemd without TRIGGER_UNIT the runner cannot see the trigger, and
 // says so rather than calling every timer firing an operator's run.
 func TestScheduledJobRunnerRecordsAnUnknownTriggerOnAnOlderSystemd(t *testing.T) {
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
 	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
-	modern := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
-	older := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, false)
+	modern := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
+	older := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, false)
 	if !strings.Contains(modern, "else trigger=operator; fi") {
 		t.Fatalf("a host that sets TRIGGER_UNIT must name the operator:\n%s", modern)
 	}
@@ -1856,7 +1764,7 @@ func TestSyncSchedulesRequiresSystemd252OnlyForInputs(t *testing.T) {
 // evidence of the one that did.
 func TestScheduledJobNotifierReadsAStandAsideNoteAndSpareTheRunningState(t *testing.T) {
 	base := t.TempDir()
-	scheduleDir := filepath.Join(base, "sample", "schedule")
+	scheduleDir := filepath.Join(base, "app", "schedule")
 	if err := os.MkdirAll(scheduleDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1892,9 +1800,9 @@ func TestScheduledJobNotifierReadsAStandAsideNoteAndSpareTheRunningState(t *test
 // it with the same expression or the note is invisible, and the notifier goes
 // back to the state file belonging to the run that is still going.
 func TestScheduleSkipMarkerIsNamedIdenticallyOnBothSides(t *testing.T) {
-	names := app.Names{App: "sample", BasePath: "/var/lib/ob"}
+	names := app.Names{App: "sample", BasePath: "/var/lib/onebox"}
 	job := app.ScheduledJob{Name: "nightly", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}
-	runner := scheduleRunnerScript("sample", job, names, "/var/lib/ob/sample/lock", nil, 10*time.Minute, true)
+	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	cfg := testConfig()
 	e := New(cfg, testProject(t), &transport.Fake{TargetName: "root@example.internal"}, Options{Environment: "production", Out: &bytes.Buffer{}, Sleep: noSleep})
 	notifier, err := e.scheduleNotifier(job)

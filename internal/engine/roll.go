@@ -46,7 +46,7 @@ func (e *Engine) composeCmdForProject(remoteComposePath, remoteProjectDir string
 	return cmd
 }
 
-// newcomerIDs finds RUNNING containers of a specific release — the ob.release
+// newcomerIDs finds RUNNING containers of a specific release — the onebox.release
 // label render injects is what makes resume possible. Running-only is what the
 // surge loop needs: a newcomer that exited has not converged, and counting it
 // toward the desired count would end the roll with a dead replica.
@@ -65,7 +65,7 @@ func (e *Engine) newcomerIDsAnyState(ctx context.Context, svc, releaseID, genera
 
 // generation narrows a newcomer further than the release label can. Rotating a
 // secret replaces containers WITHIN one release, so every container in that
-// roll — old and new — carries the same ob.release. Only the generation label
+// roll — old and new — carries the same onebox.release. Only the generation label
 // tells them apart, and without it the first pass would adopt the containers it
 // is supposed to replace.
 func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID, generation string, anyState bool) ([]string, error) {
@@ -75,9 +75,9 @@ func (e *Engine) newcomerIDsWith(ctx context.Context, svc, releaseID, generation
 	}
 	filters := " --filter label=com.docker.compose.project=" + q(e.Spec.Name) +
 		" --filter label=com.docker.compose.service=" + q(svc) +
-		" --filter label=ob.release=" + q(releaseID)
+		" --filter label=onebox.release=" + q(releaseID)
 	if generation != "" {
-		filters += " --filter label=ob.secret-generation=" + q(generation)
+		filters += " --filter label=onebox.secret-generation=" + q(generation)
 	}
 	res, err := e.T.Run(ctx, ps+filters)
 	if err != nil {

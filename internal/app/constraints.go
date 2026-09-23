@@ -208,7 +208,7 @@ var (
 // names what Onebox runs on the host — the proxy, its ingress network, managed
 // services — and an application called onebox or onebox-<anything> would
 // derive its own names inside it.
-var reservedAppNames = []string{"ob", "onebox", "_host"}
+var reservedAppNames = []string{"onebox", "_host"}
 
 // reservedServiceNames are names a service would share with something else
 // Onebox runs. A managed service's container is onebox-<service>, so proxy and
@@ -233,11 +233,9 @@ func checkAppName(name string) error {
 	if err := gIdent.check("app", name); err != nil {
 		return err
 	}
-	for _, prefix := range []string{"ob-", "onebox-"} {
-		if strings.HasPrefix(name, prefix) {
-			return errf("project_invalid", "app", "",
-				"%q begins with %q, which names host-scoped resources Onebox owns", name, prefix)
-		}
+	if strings.HasPrefix(name, Namespace+"-") {
+		return errf("project_invalid", "app", "",
+			"%q begins with %q, which names host-scoped resources Onebox owns", name, Namespace+"-")
 	}
 	for _, reserved := range reservedAppNames {
 		if name == reserved {

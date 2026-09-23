@@ -43,7 +43,7 @@ func gate(t *testing.T) {
 // so it has to be the project as this test actually configured it — the project
 // file plus the base path the fixture overrides in Go. Staging a placeholder
 // meant recovery refused every interrupted release as unparseable, and staging
-// the file alone left it pointing at the default /var/lib/ob.
+// the file alone left it pointing at the default /var/lib/onebox.
 func releaseSnapshot(t *testing.T, dir, cfgFile, base string) []byte {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(dir, cfgFile))

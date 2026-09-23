@@ -14,7 +14,7 @@ import (
 
 // Status prints recorded vs actual per role — divergence is the point
 // of divergence. Recorded = the current symlink; actual = what each role's
-// container says via its ob.release label and health.
+// container says via its onebox.release label and health.
 //
 // The host is high-latency and every command is a full SSH round trip (the
 // docker work itself is negligible), so status is round-trip-bound. It fires

@@ -56,7 +56,7 @@ func newGenerationFake(t *testing.T, unchanged bool) (*transport.Fake, *generati
 	fake.Dynamic = func(command string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(command, "_host/owner"):
-			return transport.Result{Stdout: "shop\n"}, true
+			return transport.Result{Stdout: "shop production\n"}, true
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
 		case strings.Contains(command, "/ob.snapshot.yml"):
@@ -87,7 +87,7 @@ func newGenerationFake(t *testing.T, unchanged bool) (*transport.Fake, *generati
 		case strings.Contains(command, "docker ps -q"):
 			workload := generationWorkload(command)
 			return transport.Result{Stdout: state.containers[workload] + "\n"}, true
-		case strings.Contains(command, "ob.secret-generation"):
+		case strings.Contains(command, "onebox.secret-generation"):
 			for identifier, generation := range state.generations {
 				if strings.HasSuffix(command, " "+identifier) {
 					return transport.Result{Stdout: generation + "\n"}, true
@@ -126,7 +126,7 @@ func generationFromEngineSecretCommand(command string) string {
 
 func requireGenerationProjectDirectory(t *testing.T, commands []string, generation string) {
 	t.Helper()
-	releaseDir := "/srv/onebox/shop/releases/20260809-120000-current"
+	releaseDir := "/srv/onebox/app/releases/20260809-120000-current"
 	composePath := releaseDir + "/.ob-secret-generations/" + generation + "/compose.yaml"
 	projectArg := "--project-directory '" + releaseDir + "'"
 	found := false
@@ -148,10 +148,10 @@ func currentGenerationCompose(generation string) string {
 	return fmt.Sprintf(`services:
   web:
     env_file: [.ob-secret-generations/%[1]s/.ob-decrypted-sops-web.enc.env]
-    labels: {ob.app: shop, ob.release: 20260809-120000-current, ob.secret-generation: %[1]s}
+    labels: {onebox.app: shop, onebox.release: 20260809-120000-current, onebox.secret-generation: %[1]s}
   worker:
     env_file: [.ob-secret-generations/%[1]s/.ob-decrypted-sops-worker.enc.env]
-    labels: {ob.app: shop, ob.release: 20260809-120000-current, ob.secret-generation: %[1]s}
+    labels: {onebox.app: shop, onebox.release: 20260809-120000-current, onebox.secret-generation: %[1]s}
 `, generation)
 }
 
@@ -449,7 +449,7 @@ func TestSecretGenerationCheckpointFailureRemovesInstalledCandidate(t *testing.T
 	}
 	commands := strings.Join(fake.Commands, "\n")
 	installed := strings.Index(commands, "cp -R")
-	removed := strings.LastIndex(commands, "rm -rf '/srv/onebox/shop/releases/20260809-120000-current/.ob-secret-generations/"+newSecretGeneration+"'")
+	removed := strings.LastIndex(commands, "rm -rf '/srv/onebox/app/releases/20260809-120000-current/.ob-secret-generations/"+newSecretGeneration+"'")
 	if installed < 0 || removed <= installed {
 		t.Fatalf("installed plaintext candidate survived checkpoint failure:\n%s", commands)
 	}

@@ -190,7 +190,7 @@ func TestRunJobRefusesWhileAForeignJobContainerRuns(t *testing.T) {
 	target := currentJobFake(runtime)
 	inner := target.Dynamic
 	target.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "label='ob.operation'") {
+		if strings.Contains(cmd, "label='onebox.operation'") {
 			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
 		}
 		return inner(cmd)
@@ -217,7 +217,7 @@ func TestRunJobKeepsTheLockWhenItRefuses(t *testing.T) {
 	target := currentJobFake(runtime)
 	inner := target.Dynamic
 	target.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "label='ob.operation'") {
+		if strings.Contains(cmd, "label='onebox.operation'") {
 			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
 		}
 		return inner(cmd)
@@ -230,7 +230,7 @@ func TestRunJobKeepsTheLockWhenItRefuses(t *testing.T) {
 		t.Fatal("expected a refusal")
 	}
 	for _, c := range target.Commands {
-		if strings.Contains(c, "rm -f '/var/lib/ob/sample/lock'") {
+		if strings.Contains(c, "rm -f '/var/lib/onebox/app/lock'") {
 			t.Fatalf("the lock was released over a live container:\n%s", c)
 		}
 	}
@@ -244,7 +244,7 @@ func TestRunJobExplainsWhyItKeptTheLock(t *testing.T) {
 	target := currentJobFake(runtime)
 	inner := target.Dynamic
 	target.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "label='ob.operation'") {
+		if strings.Contains(cmd, "label='onebox.operation'") {
 			return transport.Result{Stdout: "abc123def456 other-op 2\n"}, true
 		}
 		return inner(cmd)
@@ -273,7 +273,7 @@ func TestRunJobKeepsTheLockWhenItCannotAskTheHost(t *testing.T) {
 	target := currentJobFake(runtime)
 	inner := target.Dynamic
 	target.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "label='ob.operation'") {
+		if strings.Contains(cmd, "label='onebox.operation'") {
 			return transport.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon"}, true
 		}
 		return inner(cmd)
@@ -287,7 +287,7 @@ func TestRunJobKeepsTheLockWhenItCannotAskTheHost(t *testing.T) {
 		t.Fatal("an unanswerable host must refuse")
 	}
 	for _, c := range target.Commands {
-		if strings.Contains(c, "rm -f '/var/lib/ob/sample/lock'") {
+		if strings.Contains(c, "rm -f '/var/lib/onebox/app/lock'") {
 			t.Fatalf("the lock was released without an answer:\n%s", c)
 		}
 	}

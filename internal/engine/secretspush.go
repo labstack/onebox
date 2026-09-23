@@ -435,9 +435,6 @@ func secretCheckpointMatchesGraph(checkpoint release.SecretCheckpoint, spec *app
 	if !slices.Equal(checkpoint.PayloadPaths, paths) {
 		return false
 	}
-	if checkpoint.SchemaVersion == release.LegacySecretCheckpointSchemaVersion {
-		return len(checkpoint.ChangedPaths) == 0 && slices.Equal(checkpoint.AffectedWorkloads, allWorkloads)
-	}
 	changed := map[string]bool{}
 	for _, changedPath := range checkpoint.ChangedPaths {
 		changed[changedPath] = true
@@ -842,7 +839,7 @@ func (e *Engine) workloadOnSecretGeneration(ctx context.Context, workload, gener
 // containerSecretGeneration reads one container's generation label. A failure
 // to read it is an error, distinct from reading a value that does not match.
 func (e *Engine) containerSecretGeneration(ctx context.Context, containerID string) (string, error) {
-	result, err := e.T.Run(ctx, "docker inspect -f '{{ index .Config.Labels \"ob.secret-generation\" }}' "+containerID)
+	result, err := e.T.Run(ctx, "docker inspect -f '{{ index .Config.Labels \"onebox.secret-generation\" }}' "+containerID)
 	if err != nil {
 		return "", err
 	}

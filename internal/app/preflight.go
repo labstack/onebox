@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/labstack/onebox/internal/shellquote"
 	"github.com/labstack/onebox/internal/transport"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
@@ -203,11 +202,8 @@ func hostOwnerCheck(ctx context.Context, run Runner, path, application, environm
 	if owner.Application != application {
 		return Check{Name: "host owner", Detail: fmt.Sprintf("host is owned by application %s", owner.Application), Remedy: "choose an unowned host; Onebox supports one application owner per host"}
 	}
-	if owner.Legacy() {
-		return Check{Name: "host owner", OK: true, Detail: application + " (claimed before environments were recorded; ob bootstrap will complete it)"}
-	}
 	if owner.Environment != environment {
-		// Every runtime name is application-scoped, so a second environment on
+		// No derived name carries the environment, so a second environment on
 		// this host would reuse the first one's containers and volumes rather
 		// than collide with them. Nothing downstream can see the difference.
 		return Check{
@@ -288,23 +284,12 @@ func basePathCheck(ctx context.Context, run Runner, base string) Check {
 func ownedNames(ctx context.Context, run Runner, project *Spec, environment string) (map[string]string, error) {
 	owned := map[string]string{}
 	application := project.Name
-	n := project.NamesFor(environment)
-	legacyServiceState := false
-	if len(project.Services) > 0 {
-		res, err := run.Run(ctx, "test -d "+shellquote.Quote(n.ServiceDir()))
-		if err != nil {
-			return nil, errf("server_unreachable", "", "", "cannot inspect legacy service-network ownership: %v", err)
-		}
-		legacyServiceState = res.ExitCode == 0
-	}
-
 	for _, q := range []struct {
-		cmd, kind      string
-		composeProject bool
+		cmd, kind string
 	}{
-		{`docker ps -a --format '{{.Names}}\t{{.Label "ob.app"}}'`, "container", false},
-		{`docker volume ls --format '{{.Name}}\t{{.Label "ob.app"}}'`, "volume", false},
-		{`docker network ls --format '{{.Name}}\t{{.Label "ob.app"}}\t{{.Label "com.docker.compose.project"}}'`, "network", true},
+		{`docker ps -a --format '{{.Names}}\t{{.Label "onebox.app"}}'`, "container"},
+		{`docker volume ls --format '{{.Name}}\t{{.Label "onebox.app"}}'`, "volume"},
+		{`docker network ls --format '{{.Name}}\t{{.Label "onebox.app"}}'`, "network"},
 	} {
 		res, err := run.Run(ctx, q.cmd)
 		if err != nil {
@@ -319,7 +304,7 @@ func ownedNames(ctx context.Context, run Runner, project *Spec, environment stri
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			fields := strings.SplitN(line, "\t", 3)
+			fields := strings.SplitN(line, "\t", 2)
 			name := strings.TrimSpace(fields[0])
 			if name == "" {
 				continue
@@ -327,19 +312,6 @@ func ownedNames(ctx context.Context, run Runner, project *Spec, environment stri
 			owner := ""
 			if len(fields) > 1 {
 				owner = strings.TrimSpace(fields[1])
-			}
-			// Before Onebox labelled networks, Compose still labelled the
-			// application default with its project. That is sufficient migration
-			// evidence for this exact application, but not for a hand-created
-			// network with only the derived name.
-			if owner == "" && q.composeProject && name == n.ApplicationNetwork() && len(fields) > 2 && strings.TrimSpace(fields[2]) == application {
-				owner = application
-			}
-			// Durable service state proves only an observed legacy service
-			// network. Applying it after all resource kinds are merged would also
-			// bless an unlabelled container or volume with the same name.
-			if owner == "" && q.kind == "network" && name == n.ServiceNetwork() && legacyServiceState {
-				owner = application
 			}
 			// Docker permits the same name in different resource kinds. Every
 			// holder must belong to this application: one foreign or unlabelled

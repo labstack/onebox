@@ -14,8 +14,8 @@ import (
 // The transient rollout name is included deliberately: it exists for seconds
 // during a handover, which is exactly when nobody is looking at it.
 //
-// Onebox's own containers, volumes, projects and networks do not carry the
-// application. A host has one application, the ob.app label records which, and
+// Onebox's own containers, volumes, projects, networks, proxy routes and state
+// directory do not carry the application. A host has one application, the onebox.app label records which, and
 // the host is released only after those resources are removed.
 func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 	n := Names{App: "shop", BasePath: DefaultBasePath}
@@ -26,11 +26,6 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 		"transient rollout":   n.TransientContainer("web"),
 		"application network": n.ApplicationNetwork(),
 		"compose project":     n.ComposeProject(),
-		"proxy service":       n.ProxyService("web"),
-		"proxy service r1":    n.ProxyServiceFor("web", 1),
-		"router":              n.Router("web", 0),
-		"application dir":     n.AppDir(),
-		"release dir":         n.ReleaseDir("R1"),
 	} {
 		if !strings.Contains(got, "shop") {
 			t.Errorf("%s = %q, which does not carry the application", label, got)
@@ -45,19 +40,30 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 		}
 	}
 	for label, got := range map[string]string{
-		"workload volume": n.WorkloadVolume("web", "uploads"),
-		"service project": n.ServiceProject("postgres"),
-		"service volume":  n.ServiceVolume("postgres", "data"),
-		"service network": n.ServiceNetwork(),
-		"restore project": n.BackupRestoreProject("postgres"),
-		"restore network": n.BackupRestoreNetwork("postgres"),
-		"restore volume":  n.BackupRestoreVolume("postgres"),
+		"workload volume":  n.WorkloadVolume("web", "uploads"),
+		"service project":  n.ServiceProject("postgres"),
+		"service volume":   n.ServiceVolume("postgres", "data"),
+		"service network":  n.ServiceNetwork(),
+		"restore project":  n.BackupRestoreProject("postgres"),
+		"restore network":  n.BackupRestoreNetwork("postgres"),
+		"restore volume":   n.BackupRestoreVolume("postgres"),
+		"proxy service":    n.ProxyService("web"),
+		"proxy service r1": n.ProxyServiceFor("web", 1),
+		"router":           n.Router("web", 0),
 	} {
 		if !strings.HasPrefix(got, Namespace+"_") {
 			t.Errorf("%s = %q, which is not in the onebox_ namespace", label, got)
 		}
 		if strings.Contains(got, "shop") {
 			t.Errorf("%s = %q, which carries the application", label, got)
+		}
+	}
+	for label, got := range map[string]string{
+		"application dir": n.AppDir(),
+		"release dir":     n.ReleaseDir("R1"),
+	} {
+		if !strings.HasPrefix(got, "/var/lib/onebox/app") {
+			t.Errorf("%s = %q, which is not under /var/lib/onebox/app", label, got)
 		}
 	}
 }
@@ -106,27 +112,27 @@ spec:
 	runtime := string(rendered.Bytes)
 	for _, want := range []string{
 		// One backend per route, each carrying its own port.
-		"traefik.http.services.shop_web.loadbalancer.server.port: \"3000\"",
-		"traefik.http.services.shop_web_r1.loadbalancer.server.port: \"3001\"",
-		"traefik.http.services.shop_web_r2.loadbalancer.server.port: \"9000\"",
-		"traefik.tcp.services.shop_web_r3.loadbalancer.server.port: \"5432\"",
+		"traefik.http.services.onebox_web.loadbalancer.server.port: \"3000\"",
+		"traefik.http.services.onebox_web_r1.loadbalancer.server.port: \"3001\"",
+		"traefik.http.services.onebox_web_r2.loadbalancer.server.port: \"9000\"",
+		"traefik.tcp.services.onebox_web_r3.loadbalancer.server.port: \"5432\"",
 		// Each router names the backend it means.
-		"traefik.http.routers.shop_web_r0.service: shop_web",
-		"traefik.http.routers.shop_web_r1.service: shop_web_r1",
+		"traefik.http.routers.onebox_web_r0.service: onebox_web",
+		"traefik.http.routers.onebox_web_r1.service: onebox_web_r1",
 		// Middleware order is authored behavior, not a set to sort.
-		"traefik.http.routers.shop_web_r0.middlewares: compress@file,secure-headers@file",
+		"traefik.http.routers.onebox_web_r0.middlewares: compress@file,secure-headers@file",
 		// The non-HTTP route is a TCP router matching on SNI, forwarded intact.
-		"traefik.tcp.routers.shop_web_r3.rule: HostSNI(`db.example.com`)",
-		"traefik.tcp.routers.shop_web_r3.middlewares: office-only@file",
-		"traefik.tcp.routers.shop_web_r3.tls.passthrough: \"true\"",
+		"traefik.tcp.routers.onebox_web_r3.rule: HostSNI(`db.example.com`)",
+		"traefik.tcp.routers.onebox_web_r3.middlewares: office-only@file",
+		"traefik.tcp.routers.onebox_web_r3.tls.passthrough: \"true\"",
 		// And the scheme reaches the backend that needs it.
-		"traefik.http.services.shop_web_r2.loadbalancer.server.scheme: h2c",
+		"traefik.http.services.onebox_web_r2.loadbalancer.server.scheme: h2c",
 	} {
 		if !strings.Contains(runtime, want) {
 			t.Errorf("the generated runtime is missing:\n  %s", want)
 		}
 	}
-	if strings.Contains(runtime, "traefik.http.routers.shop_web_r1.middlewares") {
+	if strings.Contains(runtime, "traefik.http.routers.onebox_web_r1.middlewares") {
 		t.Fatal("middleware from route zero leaked onto route one")
 	}
 }
@@ -153,7 +159,7 @@ spec:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "traefik.http.routers.shop_web_r0.middlewares: prefix@file,auth@file,prefix@file"; !strings.Contains(string(rendered.Bytes), want) {
+	if want := "traefik.http.routers.onebox_web_r0.middlewares: prefix@file,auth@file,prefix@file"; !strings.Contains(string(rendered.Bytes), want) {
 		t.Fatalf("middleware chain lost its authored order or repetition:\n%s", rendered.Bytes)
 	}
 }

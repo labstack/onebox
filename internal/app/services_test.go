@@ -60,7 +60,7 @@ func TestServiceDocumentCarriesNoCredential(t *testing.T) {
 	if strings.Contains(doc, "POSTGRES_PASSWORD:") {
 		t.Fatalf("a credential reached the generated runtime:\n%s", doc)
 	}
-	if !strings.Contains(doc, "/var/lib/ob/shop/services/store.secret.env") {
+	if !strings.Contains(doc, "/var/lib/onebox/app/services/store.secret.env") {
 		t.Fatalf("no reference to the target-side credential:\n%s", doc)
 	}
 }
@@ -79,7 +79,7 @@ func TestNeedingAServiceJoinsItAndReadsItsURL(t *testing.T) {
 	if !strings.Contains(body, "onebox_services") {
 		t.Fatalf("workload did not join the service network:\n%s", body)
 	}
-	if !strings.Contains(body, "/var/lib/ob/shop/services/store.client.env") {
+	if !strings.Contains(body, "/var/lib/onebox/app/services/store.client.env") {
 		t.Fatalf("workload cannot learn how to reach the service:\n%s", body)
 	}
 	// depends_on cannot cross Compose projects; emitting it would make the

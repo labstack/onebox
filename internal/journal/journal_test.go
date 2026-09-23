@@ -22,9 +22,9 @@ func TestAppendCommandShape(t *testing.T) {
 	}
 	cmd := f.Commands[0]
 	for _, want := range []string{
-		"mkdir -p '/var/lib/ob/sample/journal'",
-		">> '/var/lib/ob/sample/journal/R1.jsonl'",
-		"sync '/var/lib/ob/sample/journal/R1.jsonl'",
+		"mkdir -p '/var/lib/onebox/app/journal'",
+		">> '/var/lib/onebox/app/journal/R1.jsonl'",
+		"sync '/var/lib/onebox/app/journal/R1.jsonl'",
 		`"deploy_id":"R1"`,
 		`"epoch":3`,
 		`"role":"web"`,

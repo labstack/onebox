@@ -57,7 +57,7 @@ func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.
 		switch {
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
-		case strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=ob.release='"+engineTestDeployReleaseID+"'"):
+		case strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=onebox.release='"+engineTestDeployReleaseID+"'"):
 			var ids []string
 			for _, pair := range []struct{ id, marker string }{{"NEW1", "docker rm -f NEW1"}, {"STALE1", "docker rm -f STALE1"}} {
 				removed := false
@@ -145,7 +145,7 @@ func TestRecoveryMigrationGateStopsBeforeMutationUnlessBreakGlass(t *testing.T) 
 			if strings.Contains(command, "readlink") {
 				return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 			}
-			if strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=ob.release='"+engineTestDeployReleaseID+"'") {
+			if strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=onebox.release='"+engineTestDeployReleaseID+"'") {
 				return transport.Result{}, true
 			}
 			return base(command)
@@ -195,7 +195,7 @@ func TestFinalizeRecoveredFirstReleaseClearsCurrentAndFailsManifest(t *testing.T
 	if err != nil || stored.State != release.StateFailed || stored.OperationOutcome != release.OutcomeFailed {
 		t.Fatalf("finalized manifest = %+v, %v", stored, err)
 	}
-	if !strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/ob/sample/current'") {
+	if !strings.Contains(strings.Join(target.Commands, "\n"), "rm -f '/var/lib/onebox/app/current'") {
 		t.Fatal("first-release recovery did not clear current")
 	}
 }
@@ -278,7 +278,7 @@ func TestRecoveryEngineUsesSnapshotChoreography(t *testing.T) {
 		if strings.Contains(command, "readlink") {
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 		}
-		if strings.Contains(command, "service='legacy'") && strings.Contains(command, "ob.release=") {
+		if strings.Contains(command, "service='legacy'") && strings.Contains(command, "onebox.release=") {
 			return transport.Result{}, true
 		}
 		if strings.Contains(command, "service='legacy'") {
@@ -326,8 +326,8 @@ func TestRestoreReleaseRolesRetainsMatchingTargetRevisions(t *testing.T) {
 	target.Dynamic = func(command string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(command, "/compose.yaml") && strings.HasPrefix(command, "cat "):
-			return transport.Result{Stdout: "services:\n  web:\n    labels:\n      ob.workload-revision: " + webRevision + "\n  worker:\n    labels:\n      ob.workload-revision: " + workerRevision + "\n"}, true
-		case strings.Contains(command, "docker ps --filter label=ob.app="):
+			return transport.Result{Stdout: "services:\n  web:\n    labels:\n      onebox.workload-revision: " + webRevision + "\n  worker:\n    labels:\n      onebox.workload-revision: " + workerRevision + "\n"}, true
+		case strings.Contains(command, "docker ps --filter label=onebox.app="):
 			return transport.Result{Stdout: "WEB1|web|older-release|" + webRevision + "|Up 1 hour (healthy)\n" +
 				"WORKER1|worker|oldest-release|" + workerRevision + "|Up 1 hour\n"}, true
 		}

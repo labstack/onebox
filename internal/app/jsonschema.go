@@ -725,15 +725,15 @@ func anyRequired(fields []any) []any {
 // appNameConstraint is the identifier grammar plus the host layout's
 // reservations, which a schema can hold as well as the loader can.
 func appNameConstraint() map[string]any {
-	forbidden := make([]any, 0, len(reservedAppNames)+2)
-	forbidden = append(forbidden, map[string]any{"pattern": "^ob-"}, map[string]any{"pattern": "^onebox-"})
+	forbidden := make([]any, 0, len(reservedAppNames)+1)
+	forbidden = append(forbidden, map[string]any{"pattern": "^onebox-"})
 	for _, name := range reservedAppNames {
 		forbidden = append(forbidden, map[string]any{"const": name})
 	}
 	out := pattern(gIdent)
 	out["not"] = map[string]any{"anyOf": forbidden}
 	out["description"] = "The application's name. Expects " + gIdent.means +
-		", and may not begin \"ob-\" or \"onebox-\" or be a name the host layout reserves."
+		", and may not begin \"onebox-\" or be a name the host layout reserves."
 	return out
 }
 

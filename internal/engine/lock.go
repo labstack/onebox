@@ -95,14 +95,6 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			return 0, scheduleErr
 		}
 		useScheduleLock := e.hasScheduleFlock(ctx)
-		useLegacyScheduleLock := false
-		if !useScheduleLock {
-			// The current spec may have just removed its last schedule while an
-			// old unit is already starting. Preserve the pre-upgrade rendezvous
-			// with the short-option interface in that transition. Its ambiguous
-			// nonzero exits fail visibly below instead of being called contention.
-			useLegacyScheduleLock = e.hasFlock(ctx)
-		}
 		if len(jobs) > 0 && !useScheduleLock {
 			return 0, errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
 		}
@@ -114,9 +106,6 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 			// after the last schedule is removed: an old unit may already be
 			// starting while that removal deploy begins.
 			create = "/usr/bin/flock --exclusive --timeout " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " " +
-				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
-		} else if useLegacyScheduleLock {
-			create = "/usr/bin/flock -x -w " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " " +
 				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
 		}
 

@@ -94,9 +94,6 @@ func (e *Engine) applyServices(ctx context.Context, names []string, syncSchedule
 	if err := e.ValidateProtectedDatabaseIdentities(ctx); err != nil {
 		return err
 	}
-	if err := e.MigrateBackupCredentialFiles(ctx); err != nil {
-		return fmt.Errorf("backup credentials: %w", err)
-	}
 	// This runs before rendering or Compose mutation. Removing the declaration
 	// does not DROP an extension, so unloading a library it still needs would be
 	// a silent behavioral change and, for some extensions, a startup failure.

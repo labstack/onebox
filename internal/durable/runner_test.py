@@ -46,7 +46,7 @@ class Checkpoints(unittest.TestCase):
         self.config = {
             "application": "sample",
             "job": "refresh",
-            "unit": "ob-sample-refresh",
+            "unit": "onebox-job-refresh",
             "container": "sample-refresh-1",
             "defaults": {"SOURCE": "catalog"},
             "env_files": [],
@@ -338,8 +338,8 @@ class Checkpoints(unittest.TestCase):
             "State": {"Running": True},
             "Config": {
                 "Labels": {
-                    "ob.execution.job": "refresh",
-                    "ob.execution.invocation": "other",
+                    "onebox.execution.job": "refresh",
+                    "onebox.execution.invocation": "other",
                 }
             },
         }
@@ -358,8 +358,8 @@ class Checkpoints(unittest.TestCase):
             "State": {"Running": True, "Restarting": False},
             "Config": {
                 "Labels": {
-                    "ob.execution.job": "refresh",
-                    "ob.execution.invocation": self.invocation,
+                    "onebox.execution.job": "refresh",
+                    "onebox.execution.invocation": self.invocation,
                 }
             },
         }
@@ -382,8 +382,8 @@ class Checkpoints(unittest.TestCase):
             "State": {"Running": True, "Restarting": False},
             "Config": {
                 "Labels": {
-                    "ob.execution.job": "refresh",
-                    "ob.execution.invocation": self.invocation,
+                    "onebox.execution.job": "refresh",
+                    "onebox.execution.invocation": self.invocation,
                 }
             },
         }
@@ -406,59 +406,6 @@ class Checkpoints(unittest.TestCase):
             calls.index(["kill", "--signal", "KILL", "container"]),
         )
         self.assertIn("forced_kill=true", state.read_text())
-
-    def test_legacy_cleanup_requires_stopped_matching_compose_job(self):
-        original = {
-            "Id": "legacy",
-            "Name": "/" + self.config["container"],
-            "State": {"Running": False, "Restarting": False},
-            "Config": {
-                "Labels": {
-                    "com.docker.compose.project": "sample",
-                    "com.docker.compose.service": "refresh",
-                    "com.docker.compose.oneoff": "True",
-                }
-            },
-        }
-        cases = [
-            "owned",
-            "running",
-            "restarting",
-            "name",
-            "project",
-            "service",
-            "oneoff",
-            "unlabeled",
-            "durable-label",
-            "invocation",
-        ]
-        for case in cases:
-            with self.subTest(case=case):
-                row = copy.deepcopy(original)
-                labels = row["Config"]["Labels"]
-                invocation = None
-                if case in ["running", "restarting"]:
-                    row["State"][case.capitalize()] = True
-                elif case == "name":
-                    row["Name"] = "/unrelated"
-                elif case in ["project", "service", "oneoff"]:
-                    labels["com.docker.compose." + case] = "other"
-                elif case == "unlabeled":
-                    labels.clear()
-                elif case == "durable-label":
-                    labels["ob.execution.invocation"] = "other"
-                elif case == "invocation":
-                    invocation = self.invocation
-                with patch.object(
-                    r, "docker", side_effect=["legacy", json.dumps([row]), ""]
-                ) as docker:
-                    if case == "owned":
-                        r.cleanup_container(self.config)
-                        self.assertEqual(docker.call_args.args[0], ["rm", "legacy"])
-                    else:
-                        with self.assertRaises(ValueError):
-                            r.cleanup_container(self.config, invocation)
-                        self.assertEqual(docker.call_count, 2)
 
     def test_nonfinite_retention_evidence_refused(self):
         identity = self.prepare()

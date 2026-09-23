@@ -30,10 +30,10 @@ func TestApplySecretGenerationChangesOnlyAffectedSecretBindings(t *testing.T) {
 	input := []byte(`services:
   web:
     env_file: [plain.env, .ob-decrypted-sops-api.env, .ob-service-postgres.env]
-    labels: {ob.app: shop}
+    labels: {onebox.app: shop}
   worker:
     env_file: [.ob-decrypted-sops-worker.env]
-    labels: {ob.app: shop}
+    labels: {onebox.app: shop}
 `)
 	graph := []SecretDeclaration{
 		{OutputPath: ".ob-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}},
@@ -64,12 +64,12 @@ func TestApplySecretGenerationChangesOnlyAffectedSecretBindings(t *testing.T) {
 func TestSecretGenerationFromComposeRefusesPartialOrMixedState(t *testing.T) {
 	for name, runtime := range map[string]string{
 		"partial": `services:
-  web: {labels: {ob.secret-generation: sg-111111111111111111111111}}
-  worker: {labels: {ob.app: shop}}
+  web: {labels: {onebox.secret-generation: sg-111111111111111111111111}}
+  worker: {labels: {onebox.app: shop}}
 `,
 		"mixed": `services:
-  web: {labels: {ob.secret-generation: sg-111111111111111111111111}}
-  worker: {labels: {ob.secret-generation: sg-222222222222222222222222}}
+  web: {labels: {onebox.secret-generation: sg-111111111111111111111111}}
+  worker: {labels: {onebox.secret-generation: sg-222222222222222222222222}}
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -86,7 +86,7 @@ func TestApplySecretGenerationReplacesListFormLabel(t *testing.T) {
 	input := []byte(`services:
   web:
     env_file: [.ob-decrypted-sops-api.env]
-    labels: [ob.app=shop, ob.secret-generation=` + oldGeneration + `]
+    labels: [onebox.app=shop, onebox.secret-generation=` + oldGeneration + `]
 `)
 	graph := []SecretDeclaration{{OutputPath: ".ob-decrypted-sops-api.env", AffectedWorkloads: []string{"web"}}}
 	output, err := ApplySecretGeneration(input, graph, newGeneration)
@@ -94,7 +94,7 @@ func TestApplySecretGenerationReplacesListFormLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(output)
-	if strings.Contains(text, oldGeneration) || strings.Count(text, "ob.secret-generation=") != 1 {
+	if strings.Contains(text, oldGeneration) || strings.Count(text, "onebox.secret-generation=") != 1 {
 		t.Fatalf("list-form generation label was not replaced exactly once:\n%s", text)
 	}
 	selected, err := SecretGenerationFromCompose(output, []string{"web"})

@@ -21,7 +21,7 @@ type bootstrapNetworkLocal struct {
 
 func (l *bootstrapNetworkLocal) Run(ctx context.Context, command string) (transport.Result, error) {
 	if strings.Contains(command, "docker network inspect --format") {
-		return transport.Result{Stdout: "abc123|" + l.owner + "|\n"}, nil
+		return transport.Result{Stdout: "abc123|" + l.owner + "\n"}, nil
 	}
 	return l.Local.Run(ctx, command)
 }
@@ -40,8 +40,8 @@ func TestBootstrapSequence(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
 		"mkdir -p",                                           // dirs
-		`link "$tmp" '/var/lib/ob/sample/lock'`,              // application lock
-		"> '/var/lib/ob/sample/fence'",                       // mutation fence
+		`link "$tmp" '/var/lib/onebox/app/lock'`,             // application lock
+		"> '/var/lib/onebox/app/fence'",                      // mutation fence
 		`"phase":"bootstrap","event":"start"`,                // durable journal boundary
 		"apt-get install -y something-host-specific",         // bootstrap hook
 		"docker version --format '{{.Server.Version}}'",      // prerequisites after authored provisioning
@@ -212,7 +212,7 @@ func TestBootstrapRefusesMissingRuntimeWithoutImplicitInstaller(t *testing.T) {
 	if runtimeCheck < 0 {
 		t.Fatalf("bootstrap did not check the runtime:\n%s", seq)
 	}
-	for _, before := range []string{`link "$tmp" '/var/lib/ob/sample/lock'`, "> '/var/lib/ob/sample/fence'", `"phase":"bootstrap","event":"start"`} {
+	for _, before := range []string{`link "$tmp" '/var/lib/onebox/app/lock'`, "> '/var/lib/onebox/app/fence'", `"phase":"bootstrap","event":"start"`} {
 		if index := strings.Index(seq, before); index < 0 || index > runtimeCheck {
 			t.Fatalf("%q did not precede the runtime check:\n%s", before, seq)
 		}
@@ -298,7 +298,7 @@ func TestBootstrapEnsuresManagedProxyBeforeServices(t *testing.T) {
 	seq := strings.Join(f.Commands, "\n")
 	ordered := []string{
 		"docker login 'ghcr.io'",
-		"docker compose -p onebox-proxy -f '/var/lib/ob/_host/proxy/compose.yaml' up -d",
+		"docker compose -p onebox-proxy -f '/var/lib/onebox/_host/proxy/compose.yaml' up -d",
 		"docker compose -p 'onebox_postgres'",
 	}
 	last := -1

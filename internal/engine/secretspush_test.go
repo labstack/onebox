@@ -72,7 +72,7 @@ func TestSecretsPushRefusesExactDeclarationGraphDriftBeforeMutation(t *testing.T
 			f := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 				switch {
 				case strings.Contains(command, "_host/owner"):
-					return transport.Result{Stdout: "shop\n"}, true
+					return transport.Result{Stdout: "shop production\n"}, true
 				case strings.Contains(command, "readlink"):
 					return transport.Result{Stdout: "releases/20260809-120000-current\n"}, true
 				case strings.Contains(command, "/ob.snapshot.yml"):

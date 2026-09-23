@@ -56,7 +56,7 @@ func TestScheduleHistoryReadsTheUnitJournalNewestFirst(t *testing.T) {
 		t.Fatalf("records = %#v", records)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	for _, want := range []string{"journalctl SYSLOG_IDENTIFIER=ob-run ONEBOX_UNIT='ob-sample-nightly'", "-o cat", "-r", "-n 20", "--no-pager"} {
+	for _, want := range []string{"journalctl SYSLOG_IDENTIFIER=ob-run ONEBOX_UNIT='onebox-job-nightly'", "-o cat", "-r", "-n 20", "--no-pager"} {
 		if !strings.Contains(seq, want) {
 			t.Fatalf("history read is missing %q:\n%s", want, seq)
 		}
@@ -78,7 +78,7 @@ func TestScheduleListReadsTimerState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listing) != 1 || listing[0].Unit != "ob-sample-nightly" || listing[0].TimerState != "active" ||
+	if len(listing) != 1 || listing[0].Unit != "onebox-job-nightly" || listing[0].TimerState != "active" ||
 		listing[0].NextRun != "Sat 2026-09-06 02:00:00 UTC" || listing[0].LastTrigger != "Fri 2026-09-05 02:00:00 UTC" ||
 		listing[0].Cron != "0 2 * * *" || listing[0].MaxAttempts != 1 || listing[0].RetryBudget != "0s" {
 		t.Fatalf("listing = %#v", listing)

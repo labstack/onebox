@@ -225,7 +225,7 @@ func TestAnAbortedUploadDoesNotWaitOnAWedgedRemoteForever(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- uploadWithSession(context.Background(), sess, localDir, "/var/lib/ob/shop/releases/20260808-120000-abc")
+		done <- uploadWithSession(context.Background(), sess, localDir, "/var/lib/onebox/app/releases/20260808-120000-abc")
 	}()
 	select {
 	case err := <-done:
@@ -265,7 +265,7 @@ func TestAnAbortedUploadReportsAPossiblyPublishedDestination(t *testing.T) {
 	waitDone <- nil
 	sess := &wedgedSession{stdin: discardWriteCloser{Writer: io.Discard}, waitDone: waitDone}
 
-	const dest = "/var/lib/ob/shop/releases/20260808-120000-abc"
+	const dest = "/var/lib/onebox/app/releases/20260808-120000-abc"
 	err := uploadWithSession(context.Background(), sess, localDir, dest)
 	if err == nil {
 		t.Fatal("upload reported success")

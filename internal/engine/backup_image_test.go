@@ -204,7 +204,7 @@ func TestProtectedImageSelectsTheDigestForThePulledRepository(t *testing.T) {
 func protectedImageTestEngine(fake *transport.Fake) *Engine {
 	spec := &app.Spec{
 		Name:     "shop",
-		BasePath: "/var/lib/ob",
+		BasePath: "/var/lib/onebox",
 		Services: map[string]app.Service{"database": {Driver: "postgres", Version: "18"}},
 	}
 	resolved := &app.Resolved{Spec: spec, Env: "production"}
@@ -262,7 +262,7 @@ func TestPullPolicyDecidesWhetherTheRegistryIsAskedAtAll(t *testing.T) {
 func pullPolicyTestEngine(fake *transport.Fake, policy, image string) *Engine {
 	spec := &app.Spec{
 		Name:     "shop",
-		BasePath: "/var/lib/ob",
+		BasePath: "/var/lib/onebox",
 		Workloads: map[string]app.Workload{
 			"web": {Role: "application", Image: &app.Image{Reference: image, Pull: policy}},
 		},

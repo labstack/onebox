@@ -463,7 +463,7 @@ func validateWorkload(w Workload, path string) error {
 		return err
 	}
 	for key := range w.Labels {
-		if strings.HasPrefix(key, "ob.") || strings.HasPrefix(key, "traefik.") {
+		if strings.HasPrefix(key, "onebox.") || strings.HasPrefix(key, "traefik.") {
 			return errf("project_invalid", path+".labels", "",
 				"%q is in a namespace Onebox generates into; choose another key", key)
 		}

@@ -38,7 +38,7 @@ const UnresolvedImage = "ob-unresolved-image:no-release"
 
 // WorkloadRevisionLabel identifies the complete rendered service contract
 // independently of the application release that happened to create it.
-const WorkloadRevisionLabel = "ob.workload-revision"
+const WorkloadRevisionLabel = "onebox.workload-revision"
 
 // Images supplies the exact image reference a release workload will run. It is
 // required for build-sourced workloads and overrides authored tags after a plan
@@ -95,7 +95,7 @@ func (r *Resolved) render(env, releaseID string, images Images) (*Rendered, erro
 				// Ownership must be on the volume itself. Preflight reads
 				// labels to tell a previous release from a stranger's resource,
 				// and an unlabelled volume we created looks like a collision.
-				"labels": map[string]any{"ob.app": p.Name},
+				"labels": map[string]any{"onebox.app": p.Name},
 			}
 		}
 		// Definitions a referenced service depends on: a segmented network, an
@@ -197,7 +197,7 @@ func stampWorkloadRevisionWithSecretOutputs(service map[string]any, secretOutput
 	labels, _ := service["labels"].(map[string]any)
 	canonicalLabels := make(map[string]any, len(labels))
 	for key, value := range labels {
-		if key != "ob.release" && key != WorkloadRevisionLabel && key != "ob.secret-generation" {
+		if key != "onebox.release" && key != WorkloadRevisionLabel && key != "onebox.secret-generation" {
 			canonicalLabels[key] = value
 		}
 	}
@@ -227,9 +227,9 @@ func workloadRevisionHex(value []byte) string {
 func (p *Spec) overlayFor(n Names, name string, w Workload, releaseID string) overlay {
 	ov := overlay{
 		Labels: map[string]any{
-			"ob.app":      p.Name,
-			"ob.workload": name,
-			"ob.release":  releaseID,
+			"onebox.app":      p.Name,
+			"onebox.workload": name,
+			"onebox.release":  releaseID,
 		},
 		HasRoute:       len(w.NormalisedRoutes()) > 0,
 		Health:         healthcheck(w.Health),
@@ -331,14 +331,14 @@ func (p *Spec) renderWorkload(n Names, name string, w Workload, releaseID string
 	for k, v := range w.Labels {
 		labels[k] = v
 	}
-	labels["ob.app"] = p.Name
-	labels["ob.workload"] = name
-	labels["ob.release"] = releaseID
+	labels["onebox.app"] = p.Name
+	labels["onebox.workload"] = name
+	labels["onebox.release"] = releaseID
 	// Onebox runs the replicas itself under derived slot names, so the count is
 	// not a Compose concern — but it must still be part of the bound content.
 	// Without it a scale change renders an identical runtime and the plan digest
 	// never notices.
-	labels["ob.replicas"] = fmt.Sprint(w.Replicas)
+	labels["onebox.replicas"] = fmt.Sprint(w.Replicas)
 	for k, v := range p.routeLabels(n, name, w) {
 		labels[k] = v
 	}

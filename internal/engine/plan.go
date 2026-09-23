@@ -307,11 +307,11 @@ const FidelityContract = `Plan fidelity (highest to lowest):
   hooks        verbatim commands — their effects are unplannable`
 
 // releaseLabelLine matches the one rendered line that changes on EVERY
-// deploy by construction: the ob.release stamp.
-var releaseLabelLine = regexp.MustCompile(`(?m)^\s*ob\.release: \S+\n?`)
+// deploy by construction: the onebox.release stamp.
+var releaseLabelLine = regexp.MustCompile(`(?m)^\s*onebox\.release: \S+\n?`)
 
 // OnlyReleaseLabelsChanged reports whether two rendered composes are
-// byte-identical once the ob.release label lines are removed — i.e. the
+// byte-identical once the onebox.release label lines are removed — i.e. the
 // planned deploy has no material change, only a new release identity. Used
 // by the plan to say "nothing changed" plainly instead of encoding it as
 // label-noise hunks. Empty inputs (first deploy) compare honestly: an empty

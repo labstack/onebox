@@ -1,6 +1,6 @@
 // Package proxy renders and identifies the HOST-scoped managed proxy (design:
 // "The proxy is owned — managed or external, never assumed"). One Traefik per
-// host, shared by every ob app on it, living under /var/lib/ob/_host/ —
+// host, owned by its one application, living under /var/lib/onebox/_host/ —
 // a name no app can take (app names match ^[a-z][a-z0-9-]*$).
 //
 // The app may supply Traefik configuration as a flat dir (proxy.config).
@@ -41,10 +41,9 @@ const (
 	DiscoveryImageRepository = "ghcr.io/labstack/onebox-discovery"
 	// Project is the compose project name; ContainerName the fixed container
 	// name — both host-global, which is the point.
-	Project                      = app.ProxyProject
-	ContainerName                = app.ProxyProject
-	DiscoveryContainerName       = "onebox-discovery"
-	LegacyDiscoveryContainerName = app.ProxyProject + "-discovery"
+	Project                = app.ProxyProject
+	ContainerName          = app.ProxyProject
+	DiscoveryContainerName = "onebox-discovery"
 )
 
 var releaseVersion = regexp.MustCompile(`^v[0-9]{4}\.[0-9]{1,2}\.[0-9]+$`)
@@ -457,7 +456,7 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 			}
 		}
 		if name != staticName && dynamicConfigExtension(name) {
-			if err := validateDynamicOwnership(name, b, application); err != nil {
+			if err := validateDynamicOwnership(name, b); err != nil {
 				return "", fmt.Errorf("proxy.config %s: %w", name, err)
 			}
 		}
@@ -617,7 +616,7 @@ func validateSocketlessStaticConfig(body []byte, requireExactCertificateResolver
 // Before socketless discovery those generated names lived under @docker, so an
 // identically named @file object could coexist; accepting it now would make
 // Traefik discard the conflicting objects during upgrade.
-func validateDynamicOwnership(name string, body []byte, application string) error {
+func validateDynamicOwnership(name string, body []byte) error {
 	var document map[string]any
 	var err error
 	switch strings.ToLower(filepath.Ext(name)) {
@@ -631,7 +630,7 @@ func validateDynamicOwnership(name string, body []byte, application string) erro
 	if err != nil {
 		return fmt.Errorf("parse dynamic configuration: %w", err)
 	}
-	reservedPrefix := app.Join(application, "")
+	reservedPrefix := app.Join(app.Namespace, "")
 	for _, protocol := range []string{"http", "tcp"} {
 		section, _ := document[protocol].(map[string]any)
 		for _, kind := range []string{"routers", "services"} {

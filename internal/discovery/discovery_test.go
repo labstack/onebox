@@ -24,14 +24,14 @@ func routedContainer(id string, created time.Time, health, ip string, labels map
 func TestBuildPreservesHealthAwareHTTPRouting(t *testing.T) {
 	old := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	labels := map[string]string{
-		"traefik.http.routers.shop_web_r0.rule":                     "Host(`shop.example.com`)",
-		"traefik.http.routers.shop_web_r0.entrypoints":              "websecure",
-		"traefik.http.routers.shop_web_r0.middlewares":              "compress@file,secure@file",
-		"traefik.http.routers.shop_web_r0.tls":                      "true",
-		"traefik.http.routers.shop_web_r0.tls.certresolver":         "letsencrypt",
-		"traefik.http.routers.shop_web_r0.service":                  "shop_web",
-		"traefik.http.services.shop_web.loadbalancer.server.port":   "3000",
-		"traefik.http.services.shop_web.loadbalancer.server.scheme": "h2c",
+		"traefik.http.routers.onebox_web_r0.rule":                     "Host(`shop.example.com`)",
+		"traefik.http.routers.onebox_web_r0.entrypoints":              "websecure",
+		"traefik.http.routers.onebox_web_r0.middlewares":              "compress@file,secure@file",
+		"traefik.http.routers.onebox_web_r0.tls":                      "true",
+		"traefik.http.routers.onebox_web_r0.tls.certresolver":         "letsencrypt",
+		"traefik.http.routers.onebox_web_r0.service":                  "onebox_web",
+		"traefik.http.services.onebox_web.loadbalancer.server.port":   "3000",
+		"traefik.http.services.onebox_web.loadbalancer.server.scheme": "h2c",
 	}
 	containers := []Container{
 		routedContainer("healthy", old, "healthy", "172.20.0.2", labels),
@@ -43,14 +43,14 @@ func TestBuildPreservesHealthAwareHTTPRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := document.HTTP.Routers["shop_web_r0"]
-	if router.Rule != "Host(`shop.example.com`)" || router.Service != "shop_web" {
+	router := document.HTTP.Routers["onebox_web_r0"]
+	if router.Rule != "Host(`shop.example.com`)" || router.Service != "onebox_web" {
 		t.Fatalf("router = %+v", router)
 	}
 	if strings.Join(router.Middlewares, ",") != "compress@file,secure@file" || router.TLS.CertResolver != "letsencrypt" {
 		t.Fatalf("router middleware/tls = %+v", router)
 	}
-	servers := document.HTTP.Services["shop_web"].LoadBalancer.Servers
+	servers := document.HTTP.Services["onebox_web"].LoadBalancer.Servers
 	if len(servers) != 2 || servers[0].URL != "h2c://172.20.0.2:3000" || servers[1].URL != "h2c://172.20.0.3:3000" {
 		t.Fatalf("eligible servers = %+v", servers)
 	}

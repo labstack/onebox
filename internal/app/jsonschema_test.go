@@ -293,7 +293,7 @@ func TestPublishedSchemaDocumentsImportantDefaultsAndExamples(t *testing.T) {
 		key      string
 		expected any
 	}{
-		{[]string{"spec", "basePath"}, "default", "/var/lib/ob"},
+		{[]string{"spec", "basePath"}, "default", "/var/lib/onebox"},
 		{[]string{"spec", "deployment", "retainReleases"}, "default", float64(5)},
 		{[]string{"spec", "environments", "*", "policy", "requireApproval"}, "default", true},
 		{[]string{"spec", "workloads", "*", "replicas"}, "default", float64(1)},

@@ -60,7 +60,7 @@ spec:
 	if err := e.EnsureApplicationNetwork(ctx); err != nil {
 		t.Fatalf("create owned application network: %v", err)
 	}
-	owner, err := exec.CommandContext(ctx, "docker", "network", "inspect", "-f", `{{index .Labels "ob.app"}}`, network).Output()
+	owner, err := exec.CommandContext(ctx, "docker", "network", "inspect", "-f", `{{index .Labels "onebox.app"}}`, network).Output()
 	if err != nil || strings.TrimSpace(string(owner)) != application {
 		t.Fatalf("new network owner = %q, %v", owner, err)
 	}

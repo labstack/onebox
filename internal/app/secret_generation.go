@@ -159,12 +159,12 @@ func secretEnvPathMatches(value, output string) bool {
 func setGenerationLabel(service map[string]any, generation string) error {
 	raw, exists := service["labels"]
 	if !exists {
-		service["labels"] = map[string]any{"ob.secret-generation": generation}
+		service["labels"] = map[string]any{"onebox.secret-generation": generation}
 		return nil
 	}
 	switch labels := raw.(type) {
 	case map[string]any:
-		labels["ob.secret-generation"] = generation
+		labels["onebox.secret-generation"] = generation
 	case []any:
 		out := make([]any, 0, len(labels)+1)
 		for _, item := range labels {
@@ -172,11 +172,11 @@ func setGenerationLabel(service map[string]any, generation string) error {
 			if !ok {
 				return fmt.Errorf("list entry is malformed")
 			}
-			if !strings.HasPrefix(value, "ob.secret-generation=") {
+			if !strings.HasPrefix(value, "onebox.secret-generation=") {
 				out = append(out, value)
 			}
 		}
-		service["labels"] = append(out, "ob.secret-generation="+generation)
+		service["labels"] = append(out, "onebox.secret-generation="+generation)
 	default:
 		return fmt.Errorf("mapping or list required")
 	}
@@ -189,13 +189,13 @@ func generationLabel(raw any) (string, error) {
 	}
 	switch labels := raw.(type) {
 	case map[string]any:
-		value, exists := labels["ob.secret-generation"]
+		value, exists := labels["onebox.secret-generation"]
 		if !exists {
 			return "", nil
 		}
 		generation, ok := value.(string)
 		if !ok {
-			return "", fmt.Errorf("ob.secret-generation must be a string")
+			return "", fmt.Errorf("onebox.secret-generation must be a string")
 		}
 		return generation, nil
 	case []any:
@@ -204,7 +204,7 @@ func generationLabel(raw any) (string, error) {
 			if !ok {
 				return "", fmt.Errorf("list entry is malformed")
 			}
-			if generation, found := strings.CutPrefix(value, "ob.secret-generation="); found {
+			if generation, found := strings.CutPrefix(value, "onebox.secret-generation="); found {
 				return generation, nil
 			}
 		}

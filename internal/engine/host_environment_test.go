@@ -58,19 +58,6 @@ func TestRequireHostOwnerAcceptsItsOwnEnvironment(t *testing.T) {
 	}
 }
 
-// A record written before the environment field existed identifies the
-// application and nothing more. Refusing on it would strand every host claimed
-// by an older ob, so the application check still applies and the environment
-// check waits for bootstrap to complete the record.
-func TestRequireHostOwnerAcceptsARecordThatPredatesEnvironments(t *testing.T) {
-	for _, env := range []string{"production", "staging"} {
-		e := engineForEnv(t, env, ownerFake("sample"))
-		if err := e.RequireHostOwner(context.Background()); err != nil {
-			t.Fatalf("legacy record with env %q: %v", env, err)
-		}
-	}
-}
-
 // A different application is still refused with the code it always used; the
 // new check must not swallow the older one.
 func TestRequireHostOwnerStillRefusesADifferentApplication(t *testing.T) {
@@ -89,7 +76,7 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 		ok     bool
 	}{
 		{"sample production", hostOwner{App: "sample", Environment: "production"}, true},
-		{"sample", hostOwner{App: "sample"}, true},
+		{"sample", hostOwner{}, false},
 		{"  sample   production  ", hostOwner{App: "sample", Environment: "production"}, true},
 		{"", hostOwner{}, false},
 		{"sample production extra", hostOwner{}, false},
@@ -106,19 +93,17 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 	}
 }
 
-// The engine derives every host path from Opts.Environment, so an engine built
-// without one silently reports on the project's default base_path instead of
-// the environment's. cmd/ob's connect() omitted it, which meant `ob status`,
-// `ob audit` and `ob logs` read the wrong directory for any environment with a
-// base_path override — and would have compared an empty environment against the
-// host owner record.
+// The engine derives every host path from Opts.Environment. cmd/ob's connect()
+// once omitted it, which meant `ob status`, `ob audit` and `ob logs` read the
+// project's default base_path instead of the environment's. An engine built
+// without one now takes the environment the project was resolved for.
 func TestEnvironmentSelectsTheBasePath(t *testing.T) {
 	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
 kind: Application
 metadata:
   name: sample
 spec:
-  basePath: /var/lib/ob
+  basePath: /var/lib/onebox
   environments:
     production: {server: root@h}
     staging: {server: root@h2, basePath: /srv/staging}
@@ -133,11 +118,11 @@ spec:
 		t.Fatal(err)
 	}
 	staging := New(resolved, nil, nil, Options{Out: io.Discard, Environment: "staging"}).names().AppDir()
-	if staging != "/srv/staging/sample" {
-		t.Fatalf("staging AppDir = %q, want /srv/staging/sample", staging)
+	if staging != "/srv/staging/app" {
+		t.Fatalf("staging AppDir = %q, want /srv/staging/app", staging)
 	}
 	empty := New(resolved, nil, nil, Options{Out: io.Discard}).names().AppDir()
-	if empty == staging {
-		t.Fatal("an engine with no environment resolved the same path as staging; this test can no longer detect the defect")
+	if empty != staging {
+		t.Fatalf("an engine with no environment resolved %q, not the resolved environment's %q", empty, staging)
 	}
 }

@@ -227,7 +227,7 @@ func TestServerProbes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("destroy failed: %v\n%s", err, out)
 		}
-		volumes := strings.TrimSpace(s.run(t, "docker volume ls -q | grep -c observer || true"))
+		volumes := strings.TrimSpace(s.run(t, "docker volume ls -q --filter label=onebox.app=observer | wc -l"))
 		if volumes == "0" {
 			t.Fatal("destroy without --volumes removed the data volumes")
 		}

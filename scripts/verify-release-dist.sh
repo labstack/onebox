@@ -139,6 +139,10 @@ if ! grep -Fqx "  version \"${release_version}\"" "$cask"; then
   echo "Homebrew Cask version does not match ${release_version}." >&2
   exit 1
 fi
+if grep -Eq '^[[:space:]]+verified:' "$cask"; then
+  echo "Homebrew Cask contains deprecated URL verification metadata." >&2
+  exit 1
+fi
 # The cask holds a url and sha256 for macOS AND Linux, on Intel and ARM. A
 # file-wide grep therefore still passes when two of them are swapped, which is a
 # cask that hands every user the wrong digest — so read each block on its own.

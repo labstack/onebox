@@ -86,7 +86,6 @@ homebrew_casks:
       - ob
     url:
       template: "https://github.com/labstack/onebox/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-      verified: github.com/labstack/onebox/
     commit_msg_template: "chore: update onebox to {{ .Tag }}"
     directory: Casks
     homepage: https://onebox.run

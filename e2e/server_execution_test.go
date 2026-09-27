@@ -42,7 +42,7 @@ spec:
   workloads:
     refresh:
       role: Job
-      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
       command: ["true"]
       dataEffect: None
       inputs:

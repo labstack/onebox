@@ -16,12 +16,13 @@ spec:
   workloads:
     app:
       role: Application
-      # Digest-pinned and taken from a mirror, so a deploy never asks a registry
-      # to resolve a tag. That resolution is `docker buildx imagetools inspect`
+      # Digest-pinned from Docker Hub, which the E2E daemon serves through
+      # mirror.gcr.io. A deploy never asks a registry to resolve a tag. That
+      # resolution is `docker buildx imagetools inspect`
       # (internal/engine/plan.go), which walks every child manifest in the index
       # — sixteen requests for this image — and exhausts the anonymous quota of
       # any public registry within a few runs. Tag resolution has its own test.
-      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
       command:
         - sh
         - -c
@@ -33,7 +34,7 @@ spec:
     # them separately from applications.
     chore:
       role: Job
-      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
       command: ["sh", "-c", "echo chore-ran"]
       dataEffect: None
       schedule: {cron: "0 0 1 1 *", timeout: 20s, catchUp: false}
@@ -45,7 +46,7 @@ spec:
     # cleanup while remaining well below the deliberately wedged 30-second run.
     timeout-chore:
       role: Job
-      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
       command: ["sh", "-c", "sleep $SLEEP"]
       dataEffect: None
       inputs:
@@ -56,7 +57,7 @@ spec:
     # attempt, a fresh container, can see the first one ran.
     retry-chore:
       role: Job
-      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
       command: ["sh", "-c", "if [ -f /marker/ran ]; then echo second; else touch /marker/ran; exit 1; fi"]
       dataEffect: None
       volumes: [{source: /tmp/onebox-e2e-retry, path: /marker}]
@@ -65,7 +66,7 @@ spec:
     # default on a timer-shaped start, an override on a operator run.
     input-chore:
       role: Job
-      image: public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+      image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
       command: ["sh", "-c", "echo greeting=$GREETING"]
       dataEffect: None
       inputs:

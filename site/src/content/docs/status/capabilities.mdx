@@ -23,8 +23,9 @@ This page is the reconciliation. Three states:
 
 ## Shipped
 
-- An explicit `onebox.run/v1alpha1` Application schema. Future contract evolution is
-  additive.
+- An explicit `onebox.run/v1alpha2` Application schema. Incompatible alpha
+  changes advance its identity and publish cutover instructions. Job commands
+  own their application workflows and checkpoints; Onebox has no step engine.
 - Compose generation and validation, SSH transport with known-host checking,
   state-bound plans, image pinning, rendered diffs.
 - Scheduled jobs as host timers with exact cron translation, bounded retry
@@ -32,13 +33,6 @@ This page is the reconciliation. Three states:
   (`ob job history`, `ob job logs`, `ob status`), per-outcome
   notifications, and declared inputs for operator-initiated runs
   (`ob job run`).
-- Opt-in durable job executions with named linear steps, declared string outputs,
-  per-step retries, and host-local checkpoints. `ob execution list`, `inspect`,
-  `resume`, and `abandon` expose recovery state. Resume requires the original
-  current release and unchanged observed compatibility evidence; applications own
-  idempotency and out-of-band schema compatibility. Requires Python 3.8+ only for
-  durable jobs; no database or resident orchestration service. See
-  [durable executions](/guides/schedule-a-job#durable-executions).
 - Per-workload reconciliation that retains proven-unchanged healthy workloads,
   health-gated rolling or recreate replacement for changed or uncertain ones,
   traffic drain, verification, versioned releases, retention, rollback.

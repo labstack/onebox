@@ -15,7 +15,7 @@ import (
 
 func workloadPlanFixture(t *testing.T) (*app.Resolved, string, []OperationStep, engine.HostState) {
 	t.Helper()
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -166,7 +166,7 @@ func TestPlanDeployRetainsUnchangedWorkerWhenAnotherWorkloadChanges(t *testing.T
 	digestB := strings.Repeat("2", 64)
 	workerDigest := strings.Repeat("3", 64)
 	project := func(apiDigest string) string {
-		return `apiVersion: onebox.run/v1alpha1
+		return `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: sample}
 spec:

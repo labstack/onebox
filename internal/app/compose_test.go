@@ -132,7 +132,7 @@ func TestPathEscapeRefused(t *testing.T) {
 
 // TestComposeRefRendersEndToEnd puts the merge through generation.
 func TestComposeRefRendersEndToEnd(t *testing.T) {
-	y := `apiVersion: onebox.run/v1alpha1
+	y := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -230,7 +230,7 @@ func TestADeclaredHealthCheckReachesAReferencedService(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

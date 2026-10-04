@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const base = `apiVersion: onebox.run/v1alpha1
+const base = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -24,6 +24,38 @@ func TestAPIVersionV1IsRequired(t *testing.T) {
 	_, err := loadFixtureBytes([]byte(strings.Replace(min, APIVersion, "onebox.run/v2", 1)), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "schema_identity_unsupported") {
 		t.Fatalf("v2 project must be rejected with a version error: %v", err)
+	}
+}
+
+func TestPreviousApplicationIdentityRequiresExplicitCutover(t *testing.T) {
+	y := strings.Replace(min, APIVersion, "onebox.run/v1alpha1", 1)
+	_, err := loadFixtureBytes([]byte(y), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "schema_identity_unsupported") || !strings.Contains(err.Error(), APIVersion) {
+		t.Fatalf("old identity must name the new contract: %v", err)
+	}
+}
+
+func TestPreviousReleaseSnapshotKeepsIdentityAndRejectsRetiredFields(t *testing.T) {
+	current := string(normalizeApplicationFixture([]byte(wl("web: {image: nginx}"))))
+	old := strings.Replace(current, APIVersion, "onebox.run/v1alpha1", 1)
+	for _, source := range []string{current, old} {
+		snapshot, err := LoadReleaseSnapshot([]byte(source), "onebox.snapshot.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(source, snapshot.APIVersion) {
+			t.Fatalf("snapshot identity was relabeled: %s", snapshot.APIVersion)
+		}
+	}
+	for _, invalid := range []string{
+		strings.Replace(old, "onebox.run/v1alpha1", "onebox.run/v1", 1),
+		strings.Replace(old, "image: nginx", "image: nginx\n            execution: {}", 1),
+	} {
+		if _, err := LoadReleaseSnapshot([]byte(invalid), "onebox.snapshot.yml"); err == nil {
+			t.Fatalf("unsupported snapshot was accepted: %s", invalid)
+		} else if strings.Contains(invalid, "execution") && !strings.Contains(err.Error(), "execution") {
+			t.Fatalf("snapshot refused without naming the retired field: %v", err)
+		}
 	}
 }
 
@@ -181,7 +213,7 @@ func conformanceCases() []conformanceCase {
 		{"explicit workloads block", wl("web: {image: nginx}"), true},
 		{"image reference with registry port", wl("web: {image: \"registry.example.com:5000/acme/app:1.2\"}"), true},
 		{"image reference with uppercase repository", wl("web: {image: \"ghcr.io/Acme/app:1.2\"}"), false},
-		{"one-char identifier", `apiVersion: onebox.run/v1alpha1
+		{"one-char identifier", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -191,7 +223,7 @@ spec:
     a:
       image: nginx
 `, true},
-		{"app starting onebox-", `apiVersion: onebox.run/v1alpha1
+		{"app starting onebox-", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: onebox-app
@@ -201,7 +233,7 @@ spec:
     ob-app:
       image: nginx
 `, false},
-		{"host proxy name", `apiVersion: onebox.run/v1alpha1
+		{"host proxy name", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: onebox-proxy
@@ -211,7 +243,7 @@ spec:
     onebox-proxy:
       image: nginx
 `, false},
-		{"underscore identifier", `apiVersion: onebox.run/v1alpha1
+		{"underscore identifier", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: my_app
@@ -248,7 +280,7 @@ spec:
 		{"absolute env_file", min + "runtime: {env_files: [/etc/x.env]}\n", false},
 		{"relative env_file", min + "runtime: {env_files: [.env.production]}\n", true},
 		{"base_path absolute", min + "base_path: /mnt/data/ob\n", true},
-		{"duration in days", `apiVersion: onebox.run/v1alpha1
+		{"duration in days", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -258,7 +290,7 @@ spec:
     a:
       image: nginx
 `, true},
-		{"non-calver minimum version", `apiVersion: onebox.run/v1alpha1
+		{"non-calver minimum version", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -268,7 +300,7 @@ spec:
     a:
       image: nginx
 `, false},
-		{"incomplete plan schema", `apiVersion: onebox.run/v1alpha1
+		{"incomplete plan schema", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -283,7 +315,7 @@ spec:
 		// a case: an unlisted seam loads and never fires, and refusing a job name
 		// would break the per-job command override the engine reads.
 		{"hook naming an unlisted seam", min + "hooks: {pre_deploy: {run: scripts/backup.sh}}\n", false},
-		{"hook naming a declared job", `apiVersion: onebox.run/v1alpha1
+		{"hook naming a declared job", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -337,7 +369,7 @@ spec:
 		{"encrypted env file entry", min + "runtime: {env_files: [{file: secrets.env, provider: sops}]}\n", true},
 		{"unknown env file provider", min + "runtime: {env_files: [{file: s.env, provider: vault}]}\n", false},
 		{"env file entry without a file", min + "runtime: {env_files: [{provider: sops}]}\n", false},
-		{"environment-scoped env files", `apiVersion: onebox.run/v1alpha1
+		{"environment-scoped env files", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -388,7 +420,7 @@ spec:
 		{"external lifecycle field", strings.Replace(validExternalServiceProject, "      driver: postgres\n", "      driver: postgres\n      version: 17\n", 1), false},
 
 		// Loader-enforced: the schema alone accepts these.
-		{"no environments", `apiVersion: onebox.run/v1alpha1
+		{"no environments", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -403,7 +435,7 @@ spec:
 		{"two sources on a workload", wl("w: {image: nginx, build: .}"), false},
 		{"workload and service share a name", wl("db: {image: nginx}") + "services: {db: 18}\n", false},
 		{"unknown prerequisite", wl("w: {image: nginx, needs: [ghost]}"), false},
-		{"components is not a field", `apiVersion: onebox.run/v1alpha1
+		{"components is not a field", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -560,7 +592,7 @@ func TestRollingWorkloadCannotPublishFixedHostPort(t *testing.T) {
 // truncating scheme is not injective and volume names are permanent.
 func TestOverLongNameRefused(t *testing.T) {
 	long := strings.Repeat("a", 40)
-	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: " + long +
+	y := "apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata:\n  name: " + long +
 		"\nspec:\n  environments: {p: {server: h}}\n  workloads: {" +
 		strings.Repeat("w", 30) + ": {image: nginx}}\n"
 	_, err := loadFixtureBytes([]byte(y), "ob.yml")
@@ -581,7 +613,7 @@ func TestOverLongEscapedContainerNameRefused(t *testing.T) {
 	if len(application)+1+len(workload) > maxDerivedName {
 		t.Fatal("fixture no longer isolates the escaped-name case")
 	}
-	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: " + application +
+	y := "apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata:\n  name: " + application +
 		"\nspec:\n  environments: {p: {server: h}}\n  workloads: {" + workload + ": {image: nginx}}\n"
 	_, err := loadFixtureBytes([]byte(y), "ob.yml")
 	var e *Error
@@ -594,7 +626,7 @@ func TestOverLongEscapedContainerNameRefused(t *testing.T) {
 // bounded before anything derives from it: a typo must not build billions of
 // names while the project loads.
 func TestReplicasAreBounded(t *testing.T) {
-	y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: shop\n" +
+	y := "apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata:\n  name: shop\n" +
 		"spec:\n  environments: {p: {server: h}}\n  workloads: {web: {image: nginx, replicas: 2000000000}}\n"
 	_, err := loadFixtureBytes([]byte(y), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "replicas") {
@@ -646,7 +678,7 @@ func keysOf[V any](m map[string]V) []string {
 // "dependency failed to start: container has no healthcheck configured". A
 // default must not describe something the container engine cannot do.
 func TestNeedConditionResolvesAgainstTheDependency(t *testing.T) {
-	y := `apiVersion: onebox.run/v1alpha1
+	y := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: app
@@ -677,7 +709,7 @@ spec:
 // softened, but an explicit request must be honoured or refused — never
 // quietly turned into something weaker.
 func TestExplicitHealthyOnAHealthlessDependencyIsRefused(t *testing.T) {
-	y := `apiVersion: onebox.run/v1alpha1
+	y := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: app
@@ -697,7 +729,7 @@ spec:
 // Two workloads on one address is an outage nobody can explain: the proxy
 // accepts both and routes to one, chosen by a rule the author never wrote.
 func TestRouteCollisionIsRefusedNamingBoth(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -719,7 +751,7 @@ spec:
 // The same host on two listeners is how a project serves HTTP and gRPC side by
 // side. Refusing that would reject correct projects.
 func TestSameHostOnDistinctEntrypointsIsAllowed(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -745,7 +777,7 @@ spec:
 
 // Different paths on one host are distinct addresses too.
 func TestSameHostDifferentPathsIsAllowed(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -764,7 +796,7 @@ spec:
 // `managed: false` silently threw the routes away, and a project that declared
 // a domain deployed something nothing could reach.
 func TestRoutesSurviveAnUnmanagedProxy(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -792,7 +824,7 @@ spec:
 
 // With nothing to route, a declared route is a promise nobody keeps.
 func TestRouteWithoutAProxyIsRefused(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -820,7 +852,7 @@ func TestUnknownWorkloadFieldIsRefusedForEveryRole(t *testing.T) {
 		"role: daemon, image: nginx",
 		"role: job, image: nginx, data_effect: none",
 	} {
-		_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+		_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -859,7 +891,7 @@ spec:
 // deploy — but it is reviewed, and a value that reads as a timezone while
 // appending a root command to a scheduling unit defeats the review.
 func TestHostileValuesAreRefusedAtTheGrammar(t *testing.T) {
-	base := `apiVersion: onebox.run/v1alpha1
+	base := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -890,7 +922,7 @@ spec:
 
 // The same fields must still accept what real projects write.
 func TestOrdinaryValuesStillLoad(t *testing.T) {
-	base := `apiVersion: onebox.run/v1alpha1
+	base := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -922,7 +954,7 @@ spec:
 // directory — corruption, with nothing in the runtime saying so until the damage
 // is done.
 func TestDurableStateCannotBeReplicated(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -947,7 +979,7 @@ spec:
 // Replicas over a shared volume that is not state — an uploads directory, a
 // cache — stay legal. Refusing those would reject correct projects.
 func TestReplicasOverNonDurableStorageAreAllowed(t *testing.T) {
-	if _, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	if _, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -967,7 +999,7 @@ spec:
 // A managed service has no replica count at all: one instance is the only shape
 // the contract can run.
 func TestAManagedServiceHasNoReplicaCount(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -995,7 +1027,7 @@ func TestEveryRenamedFieldIsRefusedByItsOldName(t *testing.T) {
 		{"verification", base + "verification: [{url: \"https://x/\", contains: ok}]\n"},
 		{"workload ports", wl("w: {image: nginx, ports: [{host: 80, container: 80}]}")},
 		{"volume target", wl("w: {image: nginx, volumes: [{source: ./d, target: /d}]}")},
-		{"policy migration_backup_max_age", `apiVersion: onebox.run/v1alpha1
+		{"policy migration_backup_max_age", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -1010,7 +1042,7 @@ spec:
 		{"probe maximum_age", base + "external_services: {db: {driver: postgres, probe: {kind: tcp, maximum_age: 5m}}}\n"},
 		{"drill maximum_age", base + "services: {postgres: {version: 18, backup: {target: t, drill: {maximum_age: 7d}}}}\n"},
 		{"backup maximum_data_loss", base + "services: {postgres: {version: 18, backup: {target: t, maximum_data_loss: 15m}}}\n"},
-		{"policy minimum_onebox_version", `apiVersion: onebox.run/v1alpha1
+		{"policy minimum_onebox_version", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -1020,7 +1052,7 @@ spec:
     a:
       image: nginx
 `},
-		{"policy minimum_plan_schema", `apiVersion: onebox.run/v1alpha1
+		{"policy minimum_plan_schema", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -1030,7 +1062,7 @@ spec:
     a:
       image: nginx
 `},
-		{"policy migrations backup_maximum_age", `apiVersion: onebox.run/v1alpha1
+		{"policy migrations backup_maximum_age", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a

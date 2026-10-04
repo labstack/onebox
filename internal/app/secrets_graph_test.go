@@ -19,7 +19,7 @@ func secretGraphProject(t *testing.T, body string) *Resolved {
 }
 
 func TestSecretDeclarationGraphCapturesOrderScopeAndAffectedWorkloads(t *testing.T) {
-	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha1
+	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -44,7 +44,7 @@ spec:
 }
 
 func TestSecretDeclarationIDsAreStableAndValueFree(t *testing.T) {
-	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha1
+	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -61,7 +61,7 @@ spec:
 }
 
 func TestSecretDeclarationGraphChangesForEveryRuntimeRelevantDrift(t *testing.T) {
-	base := `apiVersion: onebox.run/v1alpha1
+	base := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -86,7 +86,7 @@ spec:
 		name string
 		body string
 	}{
-		{name: "reordered", body: `apiVersion: onebox.run/v1alpha1
+		{name: "reordered", body: `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -95,7 +95,7 @@ spec:
   runtime: {envFiles: [{file: second.enc.env, provider: Sops}, {file: first.enc.env, provider: Sops}]}
   workloads: {web: {role: Application, image: nginx}, worker: {role: Worker, image: nginx}}
 `},
-		{name: "scope changed", body: `apiVersion: onebox.run/v1alpha1
+		{name: "scope changed", body: `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -106,7 +106,7 @@ spec:
     web: {role: Application, image: nginx, envFiles: [{file: first.enc.env, provider: Sops}, {file: second.enc.env, provider: Sops}]}
     worker: {role: Worker, image: nginx}
 `},
-		{name: "provider removed", body: `apiVersion: onebox.run/v1alpha1
+		{name: "provider removed", body: `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -115,7 +115,7 @@ spec:
   runtime: {envFiles: [first.enc.env, {file: second.enc.env, provider: Sops}]}
   workloads: {web: {role: Application, image: nginx}, worker: {role: Worker, image: nginx}}
 `},
-		{name: "affected workload removed", body: `apiVersion: onebox.run/v1alpha1
+		{name: "affected workload removed", body: `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -135,7 +135,7 @@ spec:
 }
 
 func TestSecretDeclarationGraphIncludesSortedExternalProjection(t *testing.T) {
-	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha1
+	resolved := secretGraphProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample

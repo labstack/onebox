@@ -15,7 +15,7 @@ func writeJumpProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo
@@ -86,7 +86,7 @@ func TestChangingOnlyTheJumpChangesTheBinding(t *testing.T) {
 		t.Helper()
 		dir := t.TempDir()
 		path := filepath.Join(dir, "ob.yml")
-		body := `apiVersion: onebox.run/v1alpha1
+		body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo

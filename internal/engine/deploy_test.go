@@ -22,7 +22,7 @@ import (
 // exercise the unguardable path in every test.
 const guardedHealthcheck = `["CMD-SHELL","[ -f /tmp/onebox-drain ] \u0026\u0026 exit 1; curl -fsS 'http://127.0.0.1:80/'"]`
 
-const enginePreviousFrontendProject = `apiVersion: onebox.run/v1alpha1
+const enginePreviousFrontendProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -498,6 +498,56 @@ func TestDeployPhaseOrder(t *testing.T) {
 	}
 	if len(f.Uploads) != 1 || !strings.Contains(f.Uploads[0], "/var/lib/onebox/app/releases/20260101-000000-aaa111") {
 		t.Fatalf("transfer missing: %v", f.Uploads)
+	}
+}
+
+func TestDeployOverPreviousAlphaRelease(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	readPrevious := false
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "readlink") {
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		}
+		result, handled := base(command)
+		if strings.Contains(command, "/onebox.snapshot.yml") && handled {
+			readPrevious = true
+			result.Stdout = strings.Replace(result.Stdout, app.APIVersion, "onebox.run/v1alpha1", 1)
+		}
+		return result, handled
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.Deploy(t.Context(), engineTestDeployReleaseID, t.TempDir()); err != nil {
+		t.Fatalf("ordinary previous-alpha release blocked upgrade: %v", err)
+	}
+	if !readPrevious || len(f.Uploads) != 1 {
+		t.Fatal("upgrade did not read the predecessor and stage a new release")
+	}
+}
+
+func TestDeployRefusesPreviousSnapshotWithRetiredExecution(t *testing.T) {
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "readlink") {
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		}
+		if strings.Contains(command, "/onebox.snapshot.yml") {
+			snapshot := strings.Replace(engineProject, app.APIVersion, "onebox.run/v1alpha1", 1)
+			snapshot = strings.Replace(snapshot, "    migrate:\n", "    migrate:\n      execution: {}\n", 1)
+			return transport.Result{Stdout: snapshot}, true
+		}
+		return base(command)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Deploy(t.Context(), engineTestDeployReleaseID, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "execution") || len(f.Uploads) != 0 {
+		t.Fatalf("retired snapshot must refuse before staging: %v", err)
+	}
+	for _, command := range f.Commands {
+		if strings.Contains(command, "run --rm --no-deps") || strings.Contains(command, "--scale web=") {
+			t.Fatalf("retired workflow snapshot reached runtime mutation: %s", command)
+		}
 	}
 }
 

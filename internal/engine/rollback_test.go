@@ -49,7 +49,7 @@ func seedRollbackState(t *testing.T, target *transport.Fake) {
 
 // The previous release's snapshot has a DIFFERENT choreography (worker only,
 // recreate) — rollback must replay THAT, not the current ob.yml.
-const oldSnapshot = `apiVersion: onebox.run/v1alpha1
+const oldSnapshot = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample

@@ -16,7 +16,7 @@ func protectedRuntimeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: example

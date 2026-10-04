@@ -59,7 +59,7 @@ func TestPreflightRefusesForeignHostOwner(t *testing.T) {
 	}
 }
 
-const preflightProject = `apiVersion: onebox.run/v1alpha1
+const preflightProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -330,7 +330,7 @@ func TestInterpolationEnvUsesComposeSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -392,7 +392,7 @@ func TestPreflightResolvesAcrossDeclaredFilesInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "ob.yml")
-	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha1
+	if err := os.WriteFile(path, []byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -558,7 +558,7 @@ func TestHostOwnerRecordParsesTheSameForPreflightAndEngine(t *testing.T) {
 // every mutation after it refuses a record it cannot parse.
 func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 	for _, name := range []string{"Staging", "prod_east", "staging replica", "-lead", "trail-"} {
-		src := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: sample}\nspec:\n  environments:\n    \"" + name +
+		src := "apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata: {name: sample}\nspec:\n  environments:\n    \"" + name +
 			"\": {server: root@h}\n  workloads:\n    web: {role: Application, image: 'x:1'}\n"
 		if _, err := loadFixtureBytes([]byte(src), "ob.yml"); err == nil {
 			t.Fatalf("environment name %q was accepted by the loader but cannot round-trip the owner record", name)
@@ -566,7 +566,7 @@ func TestEnvironmentNamesMustSurviveTheOwnerRecord(t *testing.T) {
 	}
 	// And the ones that are legal stay legal.
 	for _, name := range []string{"production", "staging", "prod-east"} {
-		src := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n  name: sample\n" +
+		src := "apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata:\n  name: sample\n" +
 			"spec:\n  environments:\n    " + name + ": {server: root@h}\n" +
 			"  workloads:\n    web: {role: Application, image: 'x:1'}\n"
 		if _, err := loadFixtureBytes([]byte(src), "ob.yml"); err != nil {

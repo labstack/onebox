@@ -1,4 +1,4 @@
-apiVersion: onebox.run/v1alpha1
+apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: shop}
 spec:

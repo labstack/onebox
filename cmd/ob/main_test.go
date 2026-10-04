@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 )
 
-const mainTestProject = `apiVersion: onebox.run/v1alpha1
+const mainTestProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo
@@ -21,7 +21,7 @@ spec:
     demo:
       image: nginx:1.27
 `
-const mainTestBuildProject = `apiVersion: onebox.run/v1alpha1
+const mainTestBuildProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo
@@ -44,6 +44,18 @@ func TestRootHelpListsVerbs(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "ob") {
 		t.Fatalf("help output missing binary name: %s", out.String())
+	}
+}
+
+func TestRetiredExecutionCommandsAreRejected(t *testing.T) {
+	for _, verb := range []string{"list", "inspect", "resume", "abandon"} {
+		root := newRootCmd()
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		root.SetArgs([]string{"execution", verb})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), `unknown command "execution"`) {
+			t.Fatalf("retired execution %s command accepted: %v", verb, err)
+		}
 	}
 }
 

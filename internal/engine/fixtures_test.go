@@ -20,7 +20,7 @@ const (
 // normalised config. Loading it through the real loader is the point: a test
 // that assembles the struct directly can assert on a shape the loader would
 // never produce.
-const engineProject = `apiVersion: onebox.run/v1alpha1
+const engineProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample

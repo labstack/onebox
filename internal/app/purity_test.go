@@ -16,7 +16,7 @@ import (
 // one commit disagree, entropy makes a digest meaningless, and an environment
 // variable makes the result depend on whose shell ran it.
 
-const purityProject = `apiVersion: onebox.run/v1alpha1
+const purityProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -201,7 +201,7 @@ func TestGenerationCannotReachATarget(t *testing.T) {
 // connect to production.
 func TestEveryGenerationFailureIsReachableOffline(t *testing.T) {
 	for name, body := range map[string]string{
-		"unknown field": `apiVersion: onebox.run/v1alpha1
+		"unknown field": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -211,28 +211,28 @@ spec:
   workloads:
     shop:
       image: nginx
-`, "no source": `apiVersion: onebox.run/v1alpha1
+`, "no source": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
 spec:
   environments: {p: {server: h}}
   workloads: {web: {role: Application}}
-`, "two sources": `apiVersion: onebox.run/v1alpha1
+`, "two sources": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
 spec:
   environments: {p: {server: h}}
   workloads: {web: {role: Application, image: nginx, build: .}}
-`, "job without effect": `apiVersion: onebox.run/v1alpha1
+`, "job without effect": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
 spec:
   environments: {p: {server: h}}
   workloads: {j: {role: Job, image: nginx}}
-`, "unknown driver": `apiVersion: onebox.run/v1alpha1
+`, "unknown driver": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -242,7 +242,7 @@ spec:
   workloads:
     shop:
       image: nginx
-`, "route collision": `apiVersion: onebox.run/v1alpha1
+`, "route collision": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

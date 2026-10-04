@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const secretGraphProject = `apiVersion: onebox.run/v1alpha1
+const secretGraphProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

@@ -43,9 +43,7 @@ type ScheduledJob struct {
 	RetryMaxBackoff time.Duration
 	Notify          []string
 	// Inputs are the declared parameters an operator run may override.
-	Inputs     map[string]JobInput
-	Execution  *JobExecution
-	DataEffect DataEffect
+	Inputs map[string]JobInput
 }
 
 // RetryBackoffBudget is the maximum time this job can spend sleeping between
@@ -82,7 +80,7 @@ func (p *Spec) ScheduledJobs() ([]ScheduledJob, error) {
 			Timeout: w.Schedule.Timeout, ShutdownGrace: shutdownGrace, CatchUp: w.Schedule.CatchUp, DeployLock: deployLock,
 			DeploymentPhase: w.DeploymentPhase, OperatorRun: w.OperatorRun,
 			RetryAttempts: attempts, RetryBackoff: backoff, RetryMaxBackoff: maxBackoff,
-			Notify: w.Schedule.notifyOutcomes(), Inputs: w.Inputs, Execution: w.Execution, DataEffect: w.DataEffect,
+			Notify: w.Schedule.notifyOutcomes(), Inputs: w.Inputs,
 		})
 	}
 	return out, nil

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const ejectContractProject = `apiVersion: onebox.run/v1alpha1
+const ejectContractProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

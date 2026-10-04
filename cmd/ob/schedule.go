@@ -13,7 +13,6 @@ import (
 // list reads what the host recorded. The read command connects directly,
 // like `ob status`; it holds no lock and writes nothing.
 func addScheduleCommands(root *cobra.Command, g *globalFlags) {
-	addExecutionCommands(root, g)
 	scheduleCmd := &cobra.Command{Use: "schedule", Short: "manage host timers for scheduled jobs",
 		Long: "Manage the systemd timers generated for scheduled jobs.\n\n" +
 			"Timers outlive the Onebox process and the package installed on the operator\n" +

@@ -200,7 +200,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 		"--project-directory",
 		"/var/lib/onebox/app/current",
 		"compose.yaml",
-		`run --rm --no-deps "$@" --label 'onebox.execution.job=nightly' --name 'sample-nightly-1'`,
+		`run --rm --no-deps "$@" --name 'sample-nightly-1'`,
 		"docker rm -f 'sample-nightly-1'",
 		"docker kill --signal TERM 'sample-nightly-1'",
 		"docker kill --signal KILL 'sample-nightly-1'",
@@ -313,7 +313,7 @@ func TestPinnedScheduledJobRunnerLeasesImmutableRelease(t *testing.T) {
 		"--project-directory \"$release_dir\"",
 		"-f \"$release_dir\"/'compose.yaml'",
 		"--env-file \"$release_dir\"/'config/runtime.env'",
-		`run --rm --no-deps "$@" --label 'onebox.execution.job=refresh' --name 'sample-refresh-1' 'refresh'`,
+		`run --rm --no-deps "$@" --name 'sample-refresh-1' 'refresh'`,
 		"docker rm -f 'sample-refresh-1'",
 	} {
 		if !strings.Contains(runner, want) {
@@ -1398,7 +1398,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 		`ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;`,
 		`[A-Z]*=*) set -- "$@" -e "$line"`,
 		`rm -f "$inputs_file"`,
-		`run --rm --no-deps "$@" --label 'onebox.execution.job=sync' --name 'sample-sync-1' 'sync'`,
+		`run --rm --no-deps "$@" --name 'sample-sync-1' 'sync'`,
 	} {
 		if !strings.Contains(runner, want) {
 			t.Errorf("runner is missing %q:\n%s", want, runner)
@@ -1418,7 +1418,7 @@ func TestScheduledJobRunnerConsumesManualInputsWithoutShellInterpolation(t *test
 		t.Fatalf("inputs are consumed after the lock:\n%s", runner)
 	}
 	exclusive := scheduleRunnerScript("sample", app.ScheduledJob{Name: "sync", Timeout: "1h", DeployLock: "exclusive", RetryAttempts: 1}, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
-	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --label`) {
+	if !strings.Contains(exclusive, "inputs_file=") || !strings.Contains(exclusive, `run --rm --no-deps "$@" --name`) {
 		t.Fatalf("exclusive runner does not consume inputs:\n%s", exclusive)
 	}
 }

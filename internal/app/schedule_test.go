@@ -66,7 +66,7 @@ func TestMalformedCronIsRefused(t *testing.T) {
 // A job's schedule reaches the host with its timezone; a backup at 2am means
 // 2am where the operator lives, not wherever the box was imaged.
 func TestScheduledJobsCarryTimezone(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -94,7 +94,7 @@ spec:
 }
 
 func TestPinnedScheduleEligibilityFailsClosed(t *testing.T) {
-	valid := `apiVersion: onebox.run/v1alpha1
+	valid := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -126,7 +126,7 @@ spec:
 }
 
 func TestScheduledJobRunPolicyIsExplicitAndValidated(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -150,7 +150,7 @@ spec:
 		t.Fatalf("authored run policy was not preserved: %#v", jobs)
 	}
 
-	bad := `apiVersion: onebox.run/v1alpha1
+	bad := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -165,7 +165,7 @@ spec:
 }
 
 func TestScheduledJobRetryAndNotifyResolveWithDefaults(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -221,7 +221,7 @@ func TestScheduledJobRetryIsBoundedByTheTimeout(t *testing.T) {
 		"unknown notify":          {`{cron: "0 * * * *", notify: [warning]}`, "project_invalid"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: shop}
 spec:
@@ -244,7 +244,7 @@ spec:
 }
 
 func TestJobInputsValidateNamesConstraintsAndDefaults(t *testing.T) {
-	base := `apiVersion: onebox.run/v1alpha1
+	base := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: shop}
 spec:
@@ -287,7 +287,7 @@ spec:
 			}
 		})
 	}
-	if _, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	if _, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -332,7 +332,7 @@ func TestValidateJobInputValuesChecksOverrides(t *testing.T) {
 }
 
 func TestScheduledJobInputDefaultsRenderIntoTheComposeEnvironment(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

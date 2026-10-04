@@ -1,7 +1,7 @@
 ---
 title: Project file
 description: The shape of ob.yml — required keys, shorthand forms, and where each block lives.
-summary: Overview of the onebox.run/v1alpha1 Application resource, its envelope, spec blocks, and environment-value precedence rules.
+summary: Overview of the onebox.run/v1alpha2 Application resource, its envelope, spec blocks, and environment-value precedence rules.
 sidebar:
   order: 1
 read_when:
@@ -10,7 +10,7 @@ read_when:
   - "Working out which block a field belongs to"
 ---
 
-`onebox.run/v1alpha1` is the contract for one application on one host. It goes in
+`onebox.run/v1alpha2` is the contract for one application on one host. It goes in
 `ob.yml` at the root of your repository. `ob.yaml` is accepted automatically
 when `ob.yml` is absent, and `-c` accepts either spelling or any explicit path.
 
@@ -21,12 +21,12 @@ top-level workload shorthands or legacy aliases.
 Start with the schema reference so your editor can help while you type:
 
 ```yaml
-# yaml-language-server: $schema=https://onebox.run/schemas/application/v1alpha1/application.schema.json
-apiVersion: onebox.run/v1alpha1
+# yaml-language-server: $schema=https://onebox.run/schemas/application/v1alpha2/application.schema.json
+apiVersion: onebox.run/v1alpha2
 ```
 
 Use the published schema at
-`https://onebox.run/schemas/application/v1alpha1/application.schema.json` for
+`https://onebox.run/schemas/application/v1alpha2/application.schema.json` for
 editor completion and validation.
 
 `ob schema --out onebox.schema.json` writes a local copy, and `ob init` puts the
@@ -53,9 +53,12 @@ container port for HTTP health checks; it no longer creates an ingress route.
 
 ## The block map
 
+Configuration blocks live under `spec`; the application name lives in
+`metadata.name`.
+
 | Block | What it says | Fields |
 | --- | --- | --- |
-| `app` | The application's name. Every derived name carries it. | [Top level](/reference/fields/top-level) |
+| `metadata.name` | The application's name. Every derived name carries it. | [Top level](/reference/fields/top-level) |
 | `environments` | Where it runs, and the policy that governs deploying there. | [environments](/reference/fields/environments) |
 | `workloads` | The containers that are yours. | [workloads](/reference/fields/workloads) |
 | `services` | The supporting services Onebox runs for you. | [services](/reference/fields/services) |
@@ -68,14 +71,13 @@ container port for HTTP health checks; it no longer creates an ingress route.
 | `backupTargets` | Off-host repositories a protected service writes its backups to. | [backupTargets](/reference/fields/backup-targets) |
 | `registries` `notifications` | Named maps. | [registries](/reference/fields/registries) · [notifications](/reference/fields/notifications) |
 
-`externalServices` and `backupTargets` are published in the JSON Schema and
-accepted by `ob validate`, but the lifecycle behind them is not shipped:
-declaring a backup target creates no repository and no schedule, and an external
-service's health probe never runs. See
-[Shipped vs proposed](/status/capabilities).
+`externalServices` declares dependencies operated outside Onebox;
+`backupTargets` declares off-host backup destinations. Declaring a destination
+does not enable protection by itself. Executable support depends on the service
+and the operation; see [Shipped vs proposed](/status/capabilities).
 
-Any mapping also accepts `x-` keys. They are carried nowhere and never change the
-generated runtime.
+Unknown fields, including behavior-bearing `x-*` fields, are rejected. Store
+opaque notes in `metadata.annotations`; annotations do not change the runtime.
 
 ## Shorthand
 
@@ -183,7 +185,7 @@ project-owned static configuration. It must not enable `providers.docker` and
 must configure `providers.file.directory: /etc/traefik/dynamic`. Watching must
 remain enabled, and `providers.file.filename` cannot be combined with that
 directory. A proxy `.env` is accepted with project-owned static configuration
-or with `proxy.dns_challenge`; it may carry ordinary DNS-provider credentials,
+or with `proxy.dnsChallenge`; it may carry ordinary DNS-provider credentials,
 but not `TRAEFIK_*` static overrides.
 
 In both modes, the filenames `onebox.yml`, `onebox.yaml`, and
@@ -228,7 +230,7 @@ passthrough TCP route (`protocol: tcp` with `tls: none` or `tls: passthrough`),
 where Traefik requires ``HostSNI(`*`)``;
 it overlaps every TCP host claim on the same entrypoint and path.
 
-Terminating TLS for a wildcard requires ACME DNS-01. `proxy.dns_challenge`
+Terminating TLS for a wildcard requires ACME DNS-01. `proxy.dnsChallenge`
 keeps the static Traefik configuration managed by Onebox while selecting the
 DNS provider. Put the provider's required environment variables in
 `proxy.config/.env`; the directory may contain only that file. Onebox stages it
@@ -240,7 +242,7 @@ The provider names and credential variables are defined by
 If `proxy.config` contains a project-owned
 `traefik.yml` or `traefik.yaml` instead, configure DNS-01 under
 `certificatesResolvers.onebox-wildcard` there and omit
-`proxy.dns_challenge`.
+`proxy.dnsChallenge`.
 
 ### Additional proxy entrypoints
 
@@ -322,7 +324,15 @@ generates the runtime from it. Individual services can still be adopted with
 
 ## Evolution
 
-`apiVersion: onebox.run/v1alpha1` is the pre-baseline contract. Before the
+v1alpha2 removes the job `execution` field and the execution recovery commands.
+Ordinary v1alpha1 manifests update `apiVersion` and their editor schema URL.
+Execution-enabled applications must move workflow steps into their command and
+complete the explicit [host cutover](/guides/schedule-a-job#upgrade-from-the-retired-execution-feature).
+Old authored manifests are rejected. Ordinary v1alpha1 immutable release
+snapshots remain readable without relabeling their identity; snapshots containing
+`execution` require the previous binary.
+
+`apiVersion: onebox.run/v1alpha2` is the pre-baseline contract. Before the
 baseline is locked, normalization may be breaking and will invalidate config
 digests and any plans or staged artifacts bound to the old bytes. Regenerate
 those artifacts after changing the declaration. Within the locked baseline:

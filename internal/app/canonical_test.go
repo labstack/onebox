@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const canonicalProject = `apiVersion: onebox.run/v1alpha1
+const canonicalProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -225,7 +225,7 @@ func TestCanonicalFactsRejectUnsafeObservedValuesWithoutReflectingThem(t *testin
 // silently absent, and the canonical form — the thing people read to find out
 // what Onebox understood — did not show it either.
 func TestEveryDefaultAppearsAsDerived(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

@@ -27,7 +27,7 @@ func TestDestroyUsesReleaseRecordedInterpolationEnvironment(t *testing.T) {
 	releaseID := "20260821-120000-legacy"
 	volume := application + "_legacy_data"
 
-	currentBody := fmt.Sprintf(`apiVersion: onebox.run/v1alpha1
+	currentBody := fmt.Sprintf(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: %s}
 spec:

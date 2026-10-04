@@ -87,7 +87,13 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 			return err
 		}
 		staging := t.TempDir()
-		if err := release.Stage(staging, rendered.Bytes, releaseSnapshot(t, dir, "ob.yml", base)); err != nil {
+		snapshot := releaseSnapshot(t, dir, "ob.yml", base)
+		if version == "v1" {
+			// Simulate the immutable snapshot left by the previous runner. The
+			// next deploy must upgrade without rewriting this release's identity.
+			snapshot = []byte(strings.Replace(string(snapshot), app.APIVersion, "onebox.run/v1alpha1", 1))
+		}
+		if err := release.Stage(staging, rendered.Bytes, snapshot); err != nil {
 			return err
 		}
 		lastResolved, lastStaging, lastID = resolved, staging, id
@@ -132,6 +138,7 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	assertContainerNames(t, "obe2e", "web", "obe2e-web-1")
 	waitBody(t, "http://localhost:18080/", "v1\n", 30*time.Second)
 	assertPayloadDigestsAgree("after v1")
+	previousSnapshot := filepath.Join(base, "app", "releases", lastID, "onebox.snapshot.yml")
 
 	// hammer the edge during the v2 deploy; count failures
 	var failures, total atomic.Int64
@@ -172,6 +179,10 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		t.Fatalf("deploy v2: %v", err)
 	}
 	assertContainerNames(t, "obe2e", "web", "obe2e-web-1")
+	oldSnapshot, err := os.ReadFile(previousSnapshot)
+	if err != nil || !strings.Contains(string(oldSnapshot), "onebox.run/v1alpha1") {
+		t.Fatalf("upgrade rewrote the predecessor snapshot: %v", err)
+	}
 
 	// The redeploy case matters more than the first: this release directory now
 	// sits alongside a predecessor and carries the manifest the lifecycle wrote

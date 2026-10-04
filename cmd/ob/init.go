@@ -98,7 +98,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, g *globalFlags) error {
 	// errors from the moment the file exists rather than after someone finds
 	// out it could.
 	fmt.Fprintf(&b, "# yaml-language-server: $schema=%s\n", app.SchemaID)
-	b.WriteString("apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata:\n")
+	b.WriteString("apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata:\n")
 	fmt.Fprintf(&b, "  name: %s\n", application)
 	b.WriteString("spec:\n  environments:\n    production:\n      server: deploy@CHANGE-ME\n")
 	b.WriteString("  workloads:\n")

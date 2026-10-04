@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const generationProject = `apiVersion: onebox.run/v1alpha1
+const generationProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

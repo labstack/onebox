@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const previewProject = `apiVersion: onebox.run/v1alpha1
+const previewProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo
@@ -82,7 +82,7 @@ func TestPreviewAppliesEnvironmentOverrides(t *testing.T) {
 // wrong, where, and what to run.
 func TestPreviewFailureIsActionable(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo
@@ -139,7 +139,7 @@ func dirEntries(t *testing.T, dir string) int {
 func TestEjectPicksAFreeName(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "compose.yaml", "services:\n  db: {image: postgres}\n")
-	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha1
+	writeFile(t, dir, "ob.yml", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger

@@ -55,7 +55,7 @@ func listFor(t *testing.T, r *Resolved, workload string) []string {
 	return out
 }
 
-const envModelBody = `apiVersion: onebox.run/v1alpha1
+const envModelBody = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -141,7 +141,7 @@ func TestTwoEntriesNeverShareAStagedFile(t *testing.T) {
 
 // The withdrawn block has no alias in the reset contract.
 func TestTheWithdrawnSecretsBlockIsUnknown(t *testing.T) {
-	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -163,7 +163,7 @@ spec:
 
 // An authored value may not claim a name a connection supplies.
 func TestAuthoredValuesCannotClaimAConnectionVariable(t *testing.T) {
-	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -192,7 +192,7 @@ spec:
 // A compose-sourced application receives what an image-sourced one receives,
 // and ejecting then generating does not duplicate the projection.
 func TestComposeSourcedWorkloadsAreNotASpecialCase(t *testing.T) {
-	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -249,7 +249,7 @@ spec:
 // rolling release waited out its entire budget and then reported the container
 // unhealthy, naming the container and saying nothing about the port.
 func TestAnHTTPProbeInheritsTheRoutedPort(t *testing.T) {
-	r := resolvedFor(t, envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	r := resolvedFor(t, envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -281,7 +281,7 @@ spec:
 // a contract treating "how it is stored" as "who may see it" would let the
 // commoner form leak.
 func TestNoEntryValueReachesAnArtifact(t *testing.T) {
-	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -326,7 +326,7 @@ spec:
 // rolling release waits out in full before reporting the container unhealthy
 // without naming a port.
 func TestAProbeWithNoPortIsRefused(t *testing.T) {
-	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	_, err := Load(envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -368,7 +368,7 @@ func composeServiceEnvFiles(t *testing.T, runtime []byte, service string) []stri
 // adds. Both halves were unguarded — deleting the projection outright left the
 // suite green.
 func TestTheProjectionAppendsAndPreservesOrder(t *testing.T) {
-	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -409,7 +409,7 @@ spec:
 // cannot be shadowed by one. Emitting them in the other order passed every
 // test.
 func TestConnectionFilesComeAfterDeclaredEntries(t *testing.T) {
-	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -445,7 +445,7 @@ spec:
 // half was tested; this half is a scenario stated twice in the contract and had
 // no test — making the check unconditionally return nil passed everything.
 func TestAReferencedServiceCannotClaimAConnectionVariable(t *testing.T) {
-	_, err := resolvedForErr(t, envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	_, err := resolvedForErr(t, envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -497,7 +497,7 @@ func resolvedForErr(t *testing.T, path string) ([]byte, error) {
 // asked for interpolation. Stopping a correct project from loading is a worse
 // failure than the one it would prevent.
 func TestAnEncryptedEntryDoesNotBlockAProjectThatNeedsNoInterpolation(t *testing.T) {
-	path := envModelProject(t, `apiVersion: onebox.run/v1alpha1
+	path := envModelProject(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -580,7 +580,7 @@ func TestAnOverrideDeclaringNoneIsPreserved(t *testing.T) {
 // after the release is staged and the old one is coming down. The name is in
 // the document; there is no reason to find out there.
 func TestAnEntryNamingAMissingFileIsRefused(t *testing.T) {
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

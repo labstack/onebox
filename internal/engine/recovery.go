@@ -41,7 +41,7 @@ func (e *Engine) engineFromReleaseSnapshotFor(ctx context.Context, releaseID, op
 		return nil, fmt.Errorf("%s refused: release %s snapshot is empty", operation, releaseID)
 	}
 
-	snapshot, err := app.LoadBytes([]byte(res.Stdout), path)
+	snapshot, err := app.LoadReleaseSnapshot([]byte(res.Stdout), path)
 	if err != nil {
 		return nil, fmt.Errorf("%s refused: release %s snapshot unusable: %w", operation, releaseID, err)
 	}

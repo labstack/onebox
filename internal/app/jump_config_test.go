@@ -6,7 +6,7 @@ import (
 )
 
 func projectWithJump(jump string) string {
-	return `apiVersion: onebox.run/v1alpha1
+	return `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger

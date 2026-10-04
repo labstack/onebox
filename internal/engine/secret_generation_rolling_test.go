@@ -14,7 +14,7 @@ import (
 
 // web declares a health check, so it defaults to rolling; worker stays a
 // recreate workload, which is what keeps the two paths visible in one push.
-const rollingGenerationProject = `apiVersion: onebox.run/v1alpha1
+const rollingGenerationProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

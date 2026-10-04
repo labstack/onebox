@@ -24,7 +24,7 @@ func TestVectorscaleIncludesItsVectorDependency(t *testing.T) {
 }
 
 func TestPostgresExtensionsSelectTheOneboxImage(t *testing.T) {
-	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: goal
@@ -69,7 +69,7 @@ func TestProtectedPostgresMustAdoptTheOneboxImageBeforeExtensions(t *testing.T) 
 }
 
 func TestPostgresExtensionsDerivePreloadAndCronSettings(t *testing.T) {
-	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha1
+	rendered := renderServices(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: goal
@@ -105,7 +105,7 @@ spec:
 }
 
 func TestServiceExtensionsArePostgresOnly(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -125,7 +125,7 @@ spec:
 }
 
 func TestPostgresExtensionsRequireThePublishedImageVersion(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -144,7 +144,7 @@ spec:
 }
 
 func TestServiceExtensionNamesAreSafeSQLIdentifiers(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -169,7 +169,7 @@ func TestPgCronSettingsCannotDisableTheManagedContract(t *testing.T) {
 		"cron.database_name: elsewhere",
 		"cron.use_background_workers: off",
 	} {
-		_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+		_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: sample}
 spec:

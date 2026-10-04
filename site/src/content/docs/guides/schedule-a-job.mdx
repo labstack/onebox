@@ -193,14 +193,14 @@ default.
 ### Notifications per outcome
 
 `schedule.notify` selects which outcomes send the configured notifications. The
-default is `[failure, timeout]`, which is what the failure notifier always did.
-Add `success` for a job whose completion someone waits for, and `skipped` for a
+default is `[Failure, Timeout]`, which is what the failure notifier always did.
+Add `Success` for a job whose completion someone waits for, and `Skipped` for a
 job whose firings collide often enough that silence would hide it:
 
 ```yaml
 schedule:
   cron: "0 2 * * *"
-  notify: [failure, timeout, skipped]
+  notify: [Failure, Timeout, Skipped]
 ```
 
 Each selected outcome sends a bounded, fail-open POST to every webhook whose
@@ -233,7 +233,7 @@ cron minutes into its default one-minute wake-up window.
 ## Jobs still declare a data effect
 
 `dataEffect` is required on every job, scheduled or not. A nightly report is
-`none`; a nightly prune is `destructive`. The rollback and abort gates read it,
+`None`; a nightly prune is `Destructive`. The rollback and abort gates read it,
 and a job that lies about it defeats them.
 
 ## Stopping a job without deleting it
@@ -441,14 +441,14 @@ For a job that participates automatically in a deploy, choose a release phase:
 
 ```yaml
 deploymentPhase: PreRelease
-operatorRun: allowed            # optional: also permit ob job plan/run
+operatorRun: Allowed            # optional: also permit ob job plan/run
 ```
 
 The three properties are independent. `deploymentPhase` controls deploy hooks,
 `schedule` controls timer activation, and `operatorRun` controls explicit
 invocation. A job declaring `schedule:` and `deploymentPhase: PreRelease`
 runs both at its cron time and on every deploy. For a timer-only job, leave
-`deploymentPhase` at `none`; set `operatorRun: Disabled` too if operators
+`deploymentPhase` at `None`; set `operatorRun: Disabled` too if operators
 must not start it explicitly.
 
 See [`workloads`](/reference/fields/workloads) for every field.

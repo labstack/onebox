@@ -182,8 +182,10 @@ their total work is not measured by the CLI.
 On narrow terminals, the bar gives way to the count and the label shortens to
 keep the live line from wrapping. Completed steps remain in scrollback.
 
-Piped output, CI, and `TERM=dumb` use static progress lines. Set
-`ONEBOX_NO_ANIMATION=1` for static output in an interactive terminal. `NO_COLOR`
+Piped output, CI, and `TERM=dumb` use static progress lines. Any non-empty `CI`
+value selects static output, except the exact value `CI=false`; this includes
+`CI=0` and `CI=FALSE`. Set `ONEBOX_NO_ANIMATION=1` for static output in an
+interactive terminal. `NO_COLOR`
 disables colors independently of animation. JSON and NDJSON keep their
 structured output contracts.
 

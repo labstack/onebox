@@ -276,6 +276,9 @@ func TestAnimationControls(t *testing.T) {
 		{"interactive", "xterm-256color", "", "", true},
 		{"ci-false", "xterm-256color", "false", "", true},
 		{"ci", "xterm-256color", "true", "", false},
+		{"ci-uppercase-false", "xterm-256color", "FALSE", "", false},
+		{"ci-zero", "xterm-256color", "0", "", false},
+		{"ci-present", "xterm-256color", "provider", "", false},
 		{"dumb", "dumb", "", "", false},
 		{"static", "xterm-256color", "", "1", false},
 	} {

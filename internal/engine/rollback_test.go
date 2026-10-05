@@ -82,6 +82,9 @@ func TestRollbackReplaysSnapshotChoreography(t *testing.T) {
 	if err := e.Rollback(context.Background()); err != nil {
 		t.Fatalf("rollback: %v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
+	if strings.Count(out.String(), "✓ worker recreate") != 1 {
+		t.Fatalf("rollback must leave one completed workload step: %s", out.String())
+	}
 	seq := strings.Join(f.Commands, "\n")
 	if !strings.Contains(seq, "--force-recreate --timeout 30 worker") {
 		t.Fatalf("snapshot choreography (worker recreate) not replayed:\n%s", seq)

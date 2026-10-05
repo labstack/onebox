@@ -226,6 +226,9 @@ func TestSecretGenerationRollsRollingWorkloads(t *testing.T) {
 	if _, err := engine.SecretsPushBatch(context.Background(), generationPayloads()); err != nil {
 		t.Fatalf("push: %v\n%s", err, strings.Join(fake.Commands, "\n"))
 	}
+	if strings.Count(output.String(), "✓ web rolling") != 1 {
+		t.Fatalf("secret roll must leave one completed workload step: %s", output.String())
+	}
 	commands := strings.Join(fake.Commands, "\n")
 	webUp := upCommandsFor(fake.Commands, "web")
 	if len(webUp) == 0 {
@@ -262,6 +265,9 @@ func TestSecretGenerationRollingKeepsServingReplicaWhenNewcomerNeverHealthy(t *t
 	engine := rollingGenerationEngine(t, fake, &output)
 	if _, err := engine.SecretsPushBatch(context.Background(), generationPayloads()); err == nil {
 		t.Fatalf("unhealthy newcomer must fail the push:\n%s", strings.Join(fake.Commands, "\n"))
+	}
+	if !strings.Contains(output.String(), "✗ web rolling") || strings.Contains(output.String(), "✓ web rolling") {
+		t.Fatalf("failed secret roll must leave a failed workload step: %s", output.String())
 	}
 	commands := strings.Join(fake.Commands, "\n")
 	if !strings.Contains(commands, "docker rm -f W2") {

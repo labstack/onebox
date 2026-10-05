@@ -719,12 +719,14 @@ func (e *Engine) releaseRoles(ctx context.Context, remoteCompose string) error {
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
 		e.logf("release %s (%s)", roleName, role.Mode())
+		step := e.ui.Step(roleName+" "+role.Mode(), true)
 		var err error
 		if role.Mode() == "rolling" {
 			err = e.RollRole(ctx, roleName, remoteCompose)
 		} else {
 			err = e.RecreateRole(ctx, roleName, remoteCompose)
 		}
+		step(err)
 		if err != nil {
 			return fmt.Errorf("%s: %w", roleName, err)
 		}

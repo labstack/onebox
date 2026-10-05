@@ -102,7 +102,7 @@ type Jump struct {
 type Policy struct {
 	RequireApproval     bool   `json:"require_approval" description:"Require a plan-bound local confirmation before mutating this environment." default:"true"`
 	AllowAgentProposals bool   `json:"allow_agent_proposals" description:"Declared permission for agent-authored proposals. The current CLI does not distinguish agent identity; execution remains approval-gated." default:"true"`
-	MinOneboxVersion    string `json:"min_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.8.0"`
+	MinOneboxVersion    string `json:"min_onebox_version,omitempty" description:"Oldest released Onebox runner allowed to operate this environment." example:"v2026.10.0-alpha"`
 	MinPlanSchema       string `json:"min_plan_schema,omitempty" description:"Oldest executable plan schema accepted by this environment." example:"onebox.run/executable-deploy-plan/v1alpha2"`
 	// Migrations groups what this environment demands of a release that carries
 	// migration risk. Grouped rather than four flat keys each repeating the

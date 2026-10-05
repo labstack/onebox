@@ -7,16 +7,17 @@ import (
 )
 
 // ReleaseVersionPattern is the one grammar for a release identity. It is
-// exported so the project loader validates `min_version` against the
+// exported so the project loader validates `minOneboxVersion` against the
 // same expression this package parses: a loader that accepted a version no tag
 // can carry would fail closed on a release that is perfectly valid.
-var ReleaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$`)
+var ReleaseVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})(-alpha)?$`)
 
-// ReleaseVersion is a canonical Onebox vYYYY.M.REVISION release identity.
+// ReleaseVersion is a canonical Onebox CalVer identity, optionally in alpha.
 type ReleaseVersion struct {
 	year     uint64
 	month    uint64
 	revision uint64
+	alpha    bool
 }
 
 // ParseReleaseVersion parses the exact version form used by Onebox tags,
@@ -24,7 +25,7 @@ type ReleaseVersion struct {
 func ParseReleaseVersion(value string) (ReleaseVersion, error) {
 	matches := ReleaseVersionPattern.FindStringSubmatch(value)
 	if matches == nil {
-		return ReleaseVersion{}, fmt.Errorf("%q must match vYYYY.M.REVISION with a four-digit year, an unpadded month from 1 through 12, and an unpadded non-negative revision of at most nineteen digits", value)
+		return ReleaseVersion{}, fmt.Errorf("%q must match vYYYY.M.REVISION with an optional -alpha suffix, a four-digit year, an unpadded month from 1 through 12, and an unpadded non-negative revision of at most nineteen digits", value)
 	}
 	year, err := strconv.ParseUint(matches[1], 10, 64)
 	if err != nil {
@@ -38,7 +39,7 @@ func ParseReleaseVersion(value string) (ReleaseVersion, error) {
 	if err != nil {
 		return ReleaseVersion{}, fmt.Errorf("parse release revision: %w", err)
 	}
-	return ReleaseVersion{year: year, month: month, revision: revision}, nil
+	return ReleaseVersion{year: year, month: month, revision: revision, alpha: matches[4] != ""}, nil
 }
 
 // CompareReleaseVersions returns -1, 0, or 1 when actual is older than, equal
@@ -55,6 +56,12 @@ func CompareReleaseVersions(actual, minimum ReleaseVersion) int {
 		if pair[0] > pair[1] {
 			return 1
 		}
+	}
+	if actual.alpha != minimum.alpha {
+		if actual.alpha {
+			return -1
+		}
+		return 1
 	}
 	return 0
 }

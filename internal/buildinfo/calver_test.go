@@ -6,6 +6,7 @@ func TestParseReleaseVersion(t *testing.T) {
 	valid := []string{
 		"v2010.1.0",
 		"v2026.8.42",
+		"v2026.10.0-alpha",
 		"v9999.12.9999999999999999999",
 	}
 	for _, value := range valid {
@@ -26,6 +27,8 @@ func TestParseReleaseVersion(t *testing.T) {
 		"v2026.8.00",
 		"v2026.8.01",
 		"v2026.8.0-rc1",
+		"v2026.8.0-alpha.1",
+		"v2026.8.0-alpha-0-gabcdef",
 		"v2026.8.18446744073709551616",
 		"dev",
 	}
@@ -53,6 +56,10 @@ func TestCompareReleaseVersions(t *testing.T) {
 		want    int
 	}{
 		{actual: "v2026.8.4", minimum: "v2026.8.3", want: 1},
+		{actual: "v2026.10.0-alpha", minimum: "v2026.10.0-alpha", want: 0},
+		{actual: "v2026.10.0-alpha", minimum: "v2026.10.0", want: -1},
+		{actual: "v2026.10.0", minimum: "v2026.10.0-alpha", want: 1},
+		{actual: "v2026.10.1-alpha", minimum: "v2026.10.0", want: 1},
 		{actual: "v2026.8.4", minimum: "v2026.8.4", want: 0},
 		{actual: "v2026.8.4", minimum: "v2026.8.5", want: -1},
 		{actual: "v2026.7.20", minimum: "v2026.8.0", want: -1},

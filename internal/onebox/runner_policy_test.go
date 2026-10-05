@@ -41,6 +41,20 @@ func TestEnforceRunnerPolicy(t *testing.T) {
 		}
 	})
 
+	t.Run("alpha runner", func(t *testing.T) {
+		alpha := runner
+		alpha.Version = "v2026.10.0-alpha"
+		minimum := policy
+		minimum.MinOneboxVersion = alpha.Version
+		if err := enforceRunnerPolicy(minimum, alpha, "onebox.run/executable-deploy-plan/v1alpha2"); err != nil {
+			t.Fatal(err)
+		}
+		minimum.MinOneboxVersion = "v2026.10.0"
+		if err := enforceRunnerPolicy(minimum, alpha, "onebox.run/executable-deploy-plan/v1alpha2"); err == nil {
+			t.Fatal("alpha runner must not satisfy the same stable version")
+		}
+	})
+
 	t.Run("invalid minimum", func(t *testing.T) {
 		invalid := policy
 		invalid.MinOneboxVersion = "2026.8.3"

@@ -37,10 +37,12 @@ if [ "$published" = "$release_tag" ]; then
   exit 1
 fi
 
-# sort -V orders the release grammar correctly: fields are numeric and unpadded,
-# which is exactly the case a lexicographic sort gets wrong.
-newest=$(printf '%s\n%s\n' "$published" "$release_tag" | LC_ALL=C sort -V | tail -n 1)
-if [ "$newest" != "$release_tag" ]; then
+# Compare calendar fields numerically. An alpha precedes the stable version
+# with the same calendar fields, which sort -V alone does not guarantee.
+published_base=${published%-alpha}
+release_base=${release_tag%-alpha}
+newest=$(printf '%s\n%s\n' "$published_base" "$release_base" | LC_ALL=C sort -V | tail -n 1)
+if [ "$newest" != "$release_base" ] || { [ "$published_base" = "$release_base" ] && [ "$release_tag" != "$release_base" ]; }; then
   echo "release tag ${release_tag} is behind the published ${published}; publishing it would downgrade Homebrew and Scoop." >&2
   exit 1
 fi

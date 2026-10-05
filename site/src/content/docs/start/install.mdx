@@ -11,20 +11,17 @@ read_when:
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Choose the package manager for your machine, download a released binary, or
-build from source. Then verify which `ob` your shell will run.
+Onebox is in alpha. Choose the package manager for your machine, download an
+alpha binary, or build from source. Then verify which `ob` your shell will run.
 
 ## Choose an install method
 
-:::note[Releases begin at the first tag]
 Every download below, including the assets Homebrew and Scoop fetch, comes from
-a published `vYYYY.M.REVISION` release. If
-[the releases page](https://github.com/labstack/onebox/releases) is empty, or
-lists nothing for your platform, build from source instead.
-:::
+a published alpha on [the releases page](https://github.com/labstack/onebox/releases).
+Homebrew and Scoop install the current alpha release.
 
 Set `version` to the release without its leading `v`. The asset name uses that
-value, while the download URL uses the full `vYYYY.M.REVISION` tag.
+value, while the download URL uses the full `vYYYY.M.REVISION-alpha` tag.
 
 <Tabs>
   <TabItem label="macOS with Homebrew">
@@ -40,7 +37,7 @@ value, while the download URL uses the full `vYYYY.M.REVISION` tag.
   <TabItem label="macOS">
 
   ```sh
-  version=2026.8.0
+  version=2026.10.0-alpha
   arch=arm64 # use amd64 on Intel Macs
   asset="onebox_${version}_darwin_${arch}.tar.gz"
   curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/${asset}"
@@ -55,7 +52,7 @@ value, while the download URL uses the full `vYYYY.M.REVISION` tag.
   <TabItem label="Linux archive">
 
   ```sh
-  version=2026.8.0
+  version=2026.10.0-alpha
   arch=amd64 # use arm64 on 64-bit ARM
   asset="onebox_${version}_linux_${arch}.tar.gz"
   curl -fLO "https://github.com/labstack/onebox/releases/download/v${version}/${asset}"
@@ -70,7 +67,7 @@ value, while the download URL uses the full `vYYYY.M.REVISION` tag.
   <TabItem label="Windows PowerShell">
 
   ```powershell
-  $Version = "2026.8.0"
+  $Version = "2026.10.0-alpha"
   $Arch = "amd64" # use arm64 on Windows on ARM
   $Asset = "onebox_${Version}_windows_${Arch}.zip"
   $Base = "https://github.com/labstack/onebox/releases/download/v${Version}"
@@ -111,10 +108,10 @@ the package entry as above, then install the local file:
 
 ```sh
 # Debian or Ubuntu (choose amd64 or arm64)
-sudo apt install ./onebox_2026.8.0_linux_amd64.deb
+sudo apt install ./onebox_2026.10.0-alpha_linux_amd64.deb
 
 # Fedora or RHEL (choose amd64 or arm64)
-sudo dnf install ./onebox_2026.8.0_linux_amd64.rpm
+sudo dnf install ./onebox_2026.10.0-alpha_linux_amd64.rpm
 ```
 
 These are downloadable package files, not hosted APT or RPM repositories.
@@ -123,9 +120,9 @@ WinGet is not published yet. Homebrew and Scoop metadata live in the dedicated
 Onebox source repository.
 
 :::caution[`go install` is not a release channel]
-The application tag `v2026.8.0` is intentionally CalVer-shaped, but the Go module
+The application tag `v2026.10.0-alpha` is intentionally CalVer-shaped, but the Go module
 path does not declare a `/v2026` module major. Use a precompiled release asset or
-build from source; `go install github.com/labstack/onebox/cmd/ob@v2026.8.0` is not
+build from source; `go install github.com/labstack/onebox/cmd/ob@v2026.10.0-alpha` is not
 a supported installation contract.
 :::
 
@@ -152,8 +149,8 @@ build, test, formatting and check targets.
    ob version
    ```
 
-   Releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first release
-   in August 2026. The year is four digits, months are unpadded, and each UTC
+   Releases use `vYYYY.M.REVISION-alpha`, for example `v2026.10.0-alpha` for the
+   first release in October 2026. The year is four digits, months are unpadded, and each UTC
    calendar month starts at revision zero. Checkout builds use Git-derived
    provenance and stay visibly distinct from a release.
 
@@ -164,7 +161,7 @@ build, test, formatting and check targets.
    ```
 
    `ob doctor` reports whether the runner selected by `PATH` satisfies the
-   environment's `min_onebox_version` and `min_plan_schema`, and names every
+   environment's `minOneboxVersion` and `minPlanSchema`, and names every
    workload and service holding durable data that has no backup.
 
    Run it from a directory that has an `ob.yml`. Outside a project it reports
@@ -177,7 +174,7 @@ build, test, formatting and check targets.
 Both commands support `--output json`.
 
 :::note[Why a checkout build can be refused]
-When an environment sets `min_onebox_version`, commit-derived and dirty
+When an environment sets `minOneboxVersion`, commit-derived and dirty
 checkout builds **fail closed** — they are not released runners. That is
 deliberate: an environment that pins a minimum is asking for a runner whose
 identity can be checked, and a dirty working tree has none.

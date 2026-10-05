@@ -24,13 +24,13 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -46,13 +46,11 @@ const (
 	DiscoveryContainerName = "onebox-discovery"
 )
 
-var releaseVersion = regexp.MustCompile(`^v[0-9]{4}\.[0-9]{1,2}\.[0-9]+$`)
-
 // DiscoveryImage pins the controller to the runner release. Development
 // builds use the explicitly unstable edge tag so they cannot masquerade as a
 // released controller.
 func DiscoveryImage(version string) string {
-	if releaseVersion.MatchString(version) {
+	if buildinfo.ReleaseVersionPattern.MatchString(version) {
 		return DiscoveryImageRepository + ":" + version
 	}
 	return DiscoveryImageRepository + ":edge"

@@ -17,13 +17,13 @@ var validateReleaseTagScript string
 func TestValidateReleaseTagAcceptsTagOnMain(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
-	runGit(t, repo.work, "tag", "v2026.8.0", repo.head)
+	runGit(t, repo.work, "tag", "v2026.8.0-alpha", repo.head)
 
-	output, err := runTagValidator(t, repo.work, "v2026.8.0", "origin/main")
+	output, err := runTagValidator(t, repo.work, "v2026.8.0-alpha", "origin/main")
 	if err != nil {
 		t.Fatalf("validator rejected a release on main: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "validated v2026.8.0") {
+	if !strings.Contains(output, "validated v2026.8.0-alpha") {
 		t.Fatalf("validator did not report the accepted tag:\n%s", output)
 	}
 }
@@ -49,9 +49,9 @@ func TestValidateReleaseTagRejectsCommitOffMain(t *testing.T) {
 	repo := newTestRepository(t)
 	runGit(t, repo.work, "checkout", "-b", "release-candidate")
 	runGit(t, repo.work, "commit", "--allow-empty", "-m", "off-main release")
-	runGit(t, repo.work, "tag", "v2026.8.0")
+	runGit(t, repo.work, "tag", "v2026.8.0-alpha")
 
-	output, err := runTagValidator(t, repo.work, "v2026.8.0", "origin/main")
+	output, err := runTagValidator(t, repo.work, "v2026.8.0-alpha", "origin/main")
 	if err == nil {
 		t.Fatalf("validator accepted a release commit off main:\n%s", output)
 	}
@@ -87,6 +87,9 @@ func TestTagValidatorAndParserAgreeOnTheGrammar(t *testing.T) {
 	}{
 		{tag: "v2026.1.0", valid: true},
 		{tag: "v2026.10.0", valid: true},
+		{tag: "v2026.10.0-alpha", valid: true},
+		{tag: "v2026.10.0-alpha.1"},
+		{tag: "v2026.10.0-alpha-0-gabcdef"},
 		{tag: "v2026.12.99", valid: true},
 		{tag: "v2026.8.10", valid: true},
 		{tag: "v2026.8.9999999999999999999", valid: true},

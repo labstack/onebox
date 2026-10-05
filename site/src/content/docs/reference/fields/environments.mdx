@@ -47,7 +47,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.policy.migrations.backupMaxAge` | string | `24h` | Maximum age of a backup report accepted for a migration. Expects a duration such as 30s, 5m, 1h30m or 14d. |
 | `<name>.policy.migrations.requireBackup` | boolean | `false` | Require a plan-bound backup report before a release with migration risk. |
 | `<name>.policy.migrations.requireRestoreTest` | boolean | `false` | Require the backup report to state that a restore test succeeded. |
-| `<name>.policy.minOneboxVersion` | string | — | Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.8.0. |
+| `<name>.policy.minOneboxVersion` | string | — | Oldest released Onebox runner allowed to operate this environment. Expects a CalVer release such as v2026.10.0-alpha. |
 | `<name>.policy.minPlanSchema` | string | — | Oldest executable plan schema accepted by this environment. Expects a plan schema identity such as onebox.run/executable-deploy-plan/v1alpha2. |
 | `<name>.policy.requireApproval` | boolean | `true` | Require a plan-bound local confirmation before mutating this environment. |
 | `<name>.server` | object | — | SSH server, written as user@host or as an object with host, user, and port. Also accepts user@host. |

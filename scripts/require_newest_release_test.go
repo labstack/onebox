@@ -24,7 +24,12 @@ func TestRequireNewestRelease(t *testing.T) {
 		apiFails  bool
 		wantErr   string
 	}{
-		{name: "first release ever", published: "", tag: "v2026.8.0"},
+		{name: "first release ever", published: "", tag: "v2026.10.0-alpha"},
+		{name: "new alpha revision", published: "v2026.10.9-alpha", tag: "v2026.10.10-alpha"},
+		{name: "alpha after earlier stable revision", published: "v2026.10.0", tag: "v2026.10.1-alpha"},
+		{name: "stable after same alpha", published: "v2026.10.0-alpha", tag: "v2026.10.0"},
+		{name: "alpha behind same stable", published: "v2026.10.0", tag: "v2026.10.0-alpha", wantErr: "is behind the published"},
+		{name: "alpha already published", published: "v2026.10.0-alpha", tag: "v2026.10.0-alpha", wantErr: "is already published"},
 		{name: "newer revision", published: "v2026.8.0", tag: "v2026.8.1"},
 		{name: "revision past nine", published: "v2026.8.9", tag: "v2026.8.10"},
 		{name: "month past nine", published: "v2026.9.0", tag: "v2026.11.0"},

@@ -124,6 +124,10 @@ deployment tool is judged by what it does when something goes wrong.
 just release
 ```
 
+Onebox is in alpha. `just release` creates the next `vYYYY.M.REVISION-alpha`
+tag, starting at revision zero each UTC month. GitHub marks it as a prerelease;
+Homebrew and Scoop publish the same alpha version.
+
 This requires a clean, checked, up-to-date `main`. It atomically publishes a
 metadata-only fast-forward release commit plus its tag to `origin`, so the
 release identity needs permission to fast-forward `main`. A branch policy that

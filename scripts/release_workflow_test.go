@@ -28,7 +28,7 @@ func TestReleaseRevision(t *testing.T) {
 	t.Run("first release in UTC month", func(t *testing.T) {
 		repo := newTestRepository(t)
 		month := utcPeriod()
-		tag := "v" + month + ".0"
+		tag := "v" + month + ".0-alpha"
 
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
@@ -41,12 +41,12 @@ func TestReleaseRevision(t *testing.T) {
 	t.Run("revision compares integers across nine to ten", func(t *testing.T) {
 		repo := newTestRepository(t)
 		month := utcPeriod()
-		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9", "v" + month + ".08", "v" + month + ".09", "v" + month + ".010", "v" + month + ".invalid"} {
+		for _, tag := range []string{"v" + month + ".8", "v" + month + ".9-alpha", "v" + month + ".08", "v" + month + ".09", "v" + month + ".010", "v" + month + ".invalid"} {
 			runGit(t, repo.work, "tag", tag, repo.head)
 		}
 		runGit(t, repo.work, "push", "origin", "--tags")
 
-		tag := "v" + month + ".10"
+		tag := "v" + month + ".10-alpha"
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
 		if err != nil {
@@ -67,7 +67,7 @@ func TestReleaseRevision(t *testing.T) {
 		runGit(t, repo.work, "tag", "v"+previousMonth+".41", repo.head)
 		runGit(t, repo.work, "push", "origin", "--tags")
 
-		tag := "v" + month + ".0"
+		tag := "v" + month + ".0-alpha"
 		output, err := runRelease(t, repo, normalJustShim, nil)
 		skipIfUTCMonthChanged(t, month)
 		if err != nil {
@@ -125,7 +125,7 @@ func TestReleaseRejectsMainAdvanceBeforeAtomicPublication(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".0"
+	tag := "v" + month + ".0-alpha"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" fetch origin main
@@ -151,7 +151,7 @@ func TestNoOpBranchRefMissesMainAdvanceAfterAdvertisement(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".0"
+	tag := "v" + month + ".0-alpha"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" fetch origin main
@@ -183,7 +183,7 @@ func TestReleaseLosesCompetingTagRaceWithoutReplacingWinner(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".0"
+	tag := "v" + month + ".0-alpha"
 	hook := `#!/bin/sh
 set -eu
 git -C "$RACER_REPO" commit --allow-empty -m competing-tag
@@ -205,7 +205,7 @@ func TestReleaseFailsClosedWhenBranchPolicyRejectsMainUpdate(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	tag := "v" + month + ".0"
+	tag := "v" + month + ".0-alpha"
 	hook := `#!/bin/sh
 set -eu
 while read -r old_object new_object ref_name; do
@@ -445,7 +445,7 @@ func TestReleaseIncrementsARevisionWiderThanMachineArithmetic(t *testing.T) {
 	repo := newTestRepository(t)
 	month := utcPeriod()
 	// One past the signed 64-bit maximum, so plain arithmetic would wrap.
-	runGit(t, repo.work, "tag", "v"+month+".9223372036854775808", repo.head)
+	runGit(t, repo.work, "tag", "v"+month+".9223372036854775808-alpha", repo.head)
 	runGit(t, repo.work, "push", "origin", "--tags")
 
 	output, err := runRelease(t, repo, normalJustShim, nil)
@@ -453,7 +453,7 @@ func TestReleaseIncrementsARevisionWiderThanMachineArithmetic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("release failed: %v\n%s", err, output)
 	}
-	assertPublishedRelease(t, repo, "v"+month+".9223372036854775809")
+	assertPublishedRelease(t, repo, "v"+month+".9223372036854775809-alpha")
 }
 
 // Bash arithmetic is signed 64-bit, so incrementing a revision the grammar still
@@ -462,7 +462,7 @@ func TestReleaseRefusesWhenTheRevisionSpaceIsExhausted(t *testing.T) {
 	requireReleaseTools(t)
 	repo := newTestRepository(t)
 	month := utcPeriod()
-	exhausted := "v" + month + ".9999999999999999999"
+	exhausted := "v" + month + ".9999999999999999999-alpha"
 	runGit(t, repo.work, "tag", exhausted, repo.head)
 	runGit(t, repo.work, "push", "origin", "--tags")
 
@@ -504,7 +504,7 @@ func TestReleaseWaitsForThePreviousReleaseRunToFinish(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			repo := newTestRepository(t)
 			month := utcPeriod()
-			runGit(t, repo.work, "tag", "v"+month+".0", repo.head)
+			runGit(t, repo.work, "tag", "v"+month+".0-alpha", repo.head)
 			runGit(t, repo.work, "push", "origin", "--tags")
 
 			stub := "#!/usr/bin/env bash\nprintf '%s\\n' '" + test.status + "'\n"
@@ -517,7 +517,7 @@ func TestReleaseWaitsForThePreviousReleaseRunToFinish(t *testing.T) {
 			case test.wantErr == "" && err != nil:
 				t.Fatalf("release failed: %v\n%s", err, output)
 			case test.wantErr == "":
-				assertPublishedRelease(t, repo, "v"+month+".1")
+				assertPublishedRelease(t, repo, "v"+month+".1-alpha")
 			case err == nil:
 				t.Fatalf("release created a tag while the previous run was %s:\n%s", test.status, output)
 			case !strings.Contains(output, test.wantErr):

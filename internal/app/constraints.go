@@ -118,7 +118,7 @@ var (
 		"a lower-case ASCII or IDNA A-label hostname, optionally prefixed by the complete wildcard label *."}
 
 	gCalVer = grammar{"version", buildinfo.ReleaseVersionPattern,
-		"a CalVer release such as v2026.8.0"}
+		"a CalVer release such as v2026.10.0-alpha"}
 
 	gHTTPURL = grammar{"url", regexp.MustCompile(`^https?://`),
 		"an http or https URL"}

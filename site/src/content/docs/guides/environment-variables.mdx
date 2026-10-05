@@ -67,7 +67,7 @@ printf '{"schema_version":"onebox.run/job-result/v1alpha1","changed":true}' > "$
 | `ONEBOX_LOCAL` | `1` or `true` runs against the local Docker daemon instead of connecting over SSH |
 | `ONEBOX_BIN_DIR` | Where `just build` writes the binary, and where the other recipes look for it (default `bin`) |
 | `ONEBOX_INSTALL_DIR` | Where `just install` places the binary (default `~/.local/bin`) |
-| `ONEBOX_VERSION` | Version string `just build` stamps into the binary; must match `vYYYY.M.REVISION` |
+| `ONEBOX_VERSION` | Version string `just build` stamps into the binary; must match `vYYYY.M.REVISION` with an optional `-alpha` suffix |
 | `ONEBOX_RELEASE_REPOSITORY` | Repository `scripts/release.sh` queries to confirm the previous release run finished, when the git remote does not name it |
 
 `ONEBOX_LOCAL` is the only one of these Onebox itself reads; the rest are build

@@ -83,7 +83,7 @@ increment_decimal() {
 require_previous_release_terminal() {
   local repository=$1 previous="" candidate previous_commit run_status
   while IFS= read -r candidate; do
-    if [[ "$candidate" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
+    if [[ "$candidate" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})(-alpha)?$ ]]; then
       previous=$candidate
       break
     fi
@@ -134,7 +134,7 @@ release_tags=$(git tag --list "v${release_period}.*" --sort=-v:refname)
 release_period_pattern=${release_period//./\\.}
 release_last=""
 while IFS= read -r release_candidate; do
-  if [[ "$release_candidate" =~ ^v${release_period_pattern}\.(0|[1-9][0-9]{0,18})$ ]]; then
+  if [[ "$release_candidate" =~ ^v${release_period_pattern}\.(0|[1-9][0-9]{0,18})(-alpha)?$ ]]; then
     release_last=$release_candidate
     break
   fi
@@ -146,13 +146,14 @@ else
   # 64-bit and the grammar admits revisions wider than that, which would wrap to
   # a negative number and be tagged. Exhaustion is a twenty-digit result, which
   # is the only value the contract cannot express.
-  release_number=$(increment_decimal "${release_last##*.}")
+  release_base=${release_last%-alpha}
+  release_number=$(increment_decimal "${release_base##*.}")
   if [ "${#release_number}" -gt 19 ]; then
     echo "revision space for ${release_period} is exhausted at ${release_last}." >&2
     exit 1
   fi
 fi
-release_tag="v${release_period}.${release_number}"
+release_tag="v${release_period}.${release_number}-alpha"
 release_commit=$(printf 'chore(release): %s\n' "$release_tag" | git commit-tree "${release_head}^{tree}" -p "$release_head")
 
 echo "tagging $release_tag"

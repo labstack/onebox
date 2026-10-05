@@ -24,6 +24,20 @@ import (
 )
 
 const testSocketlessStatic = "ping: {}\nproviders:\n  file:\n    directory: /etc/traefik/dynamic\n"
+
+func TestDiscoveryImageReleaseIdentity(t *testing.T) {
+	for _, version := range []string{"v2026.10.0-alpha", "v2026.9.15"} {
+		if got := DiscoveryImage(version); got != DiscoveryImageRepository+":"+version {
+			t.Errorf("DiscoveryImage(%q) = %q", version, got)
+		}
+	}
+	for _, version := range []string{"dev", "v2026.10.0-alpha-0-gabcdef", "v2026.10.0-alpha-dirty"} {
+		if got := DiscoveryImage(version); got != DiscoveryImageRepository+":edge" {
+			t.Errorf("DiscoveryImage(%q) = %q", version, got)
+		}
+	}
+}
+
 const testSocketlessStaticWithResolver = testSocketlessStatic + "certificatesResolvers:\n  " + app.ManagedCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme.json\n      httpChallenge:\n        entryPoint: web\n"
 
 func writeCfg(t *testing.T, files map[string]string) string {

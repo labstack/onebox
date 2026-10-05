@@ -12,9 +12,11 @@ read_when:
 
 ## Release identity
 
-Onebox releases use `vYYYY.M.REVISION`, for example `v2026.8.0` for the first
-release in August 2026. The year has four digits, months are unpadded, and each
-UTC calendar month starts at revision zero.
+Onebox releases use `vYYYY.M.REVISION-alpha`, for example `v2026.10.0-alpha` for the
+first alpha release in October 2026. The year has four digits, months are
+unpadded, and each UTC calendar month starts at revision zero. Every release
+increments the revision.
+An alpha precedes the stable version with the same year, month, and revision.
 
 Checkout builds use Git-derived provenance and remain **visibly distinct** from a
 release. `ob version` reports which you have.
@@ -25,8 +27,8 @@ release. `ob version` reports which you have.
 environments:
   production:
     policy:
-      min_onebox_version: v2026.8.0
-      min_plan_schema: onebox.run/executable-deploy-plan/v1alpha2
+      minOneboxVersion: v2026.10.0-alpha
+      minPlanSchema: onebox.run/executable-deploy-plan/v1alpha2
 ```
 
 `ob doctor` reports whether the runner selected by `PATH` is compatible.
@@ -166,13 +168,11 @@ mentions it somewhere. The other five are maintained by hand and could drift
 without failing the build.
 :::
 
-## Pre-release evolution
+## Alpha releases
 
-Onebox is not released. The current contract is intentionally strict and may
-replace earlier development shapes without aliases, migrations, or hidden
-fallbacks. Unknown fields and unsupported schema identities are rejected.
-Compatibility guarantees begin with the first public release, not with local
-development snapshots.
+Onebox is in alpha. The contract may change as the product develops. Unknown
+fields and unsupported schema identities are rejected. Use the documentation
+and schema that match your installed release.
 
 The JSON Schema published by `ob schema` is generated from the same declarations
 the loader enforces and is checked against the conformance corpus, so what your

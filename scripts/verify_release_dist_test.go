@@ -18,7 +18,7 @@ func TestReleaseDistVerifierResolvesGeneratedCaskVersion(t *testing.T) {
 	requireArtifactVerifierTools(t)
 
 	t.Run("accepts GoReleaser interpolation", func(t *testing.T) {
-		dist, binDir := releaseDistFixture(t, "2026.8.1", "v2026.8.1")
+		dist, binDir := releaseDistFixture(t, "2026.10.0-alpha", "v2026.10.0-alpha")
 		output, err := runArtifactVerifier(t, dist, binDir)
 		if err != nil {
 			t.Fatalf("verifier rejected a generated Cask: %v\n%s", err, output)

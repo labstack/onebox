@@ -7,8 +7,8 @@ main_ref=${2:-origin/main}
 # The revision is capped at nineteen digits because that is the widest value the
 # runner's own parser can hold: every 19-digit number fits in a uint64, and a tag
 # it cannot parse is a release with no usable provenance.
-if [[ ! "$release_tag" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
-  echo "release tag must match vYYYY.M.REVISION." >&2
+if [[ ! "$release_tag" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})(-alpha)?$ ]]; then
+  echo "release tag must match vYYYY.M.REVISION with an optional -alpha suffix." >&2
   exit 1
 fi
 

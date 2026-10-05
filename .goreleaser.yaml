@@ -2,6 +2,10 @@ version: 2
 
 project_name: onebox
 
+release:
+  prerelease: true
+  make_latest: false
+
 builds:
   - id: ob
     main: ./cmd/ob
@@ -80,6 +84,7 @@ notarize:
 
 homebrew_casks:
   - name: onebox
+    skip_upload: false
     ids:
       - ob
     binaries:
@@ -101,6 +106,7 @@ homebrew_casks:
 
 scoops:
   - name: onebox
+    skip_upload: false
     ids:
       - ob
     url_template: "https://github.com/labstack/onebox/releases/download/{{ .Tag }}/{{ .ArtifactName }}"

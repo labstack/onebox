@@ -13,8 +13,8 @@ build:
     set -euo pipefail
     ob_build_dir="${ONEBOX_BIN_DIR:-bin}"
     ob_build_version="${ONEBOX_VERSION:-}"
-    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})$ ]]; then
-      echo "ONEBOX_VERSION must match vYYYY.M.REVISION" >&2; exit 1
+    if [ -n "$ob_build_version" ] && [[ ! "$ob_build_version" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(0|[1-9][0-9]{0,18})(-alpha)?$ ]]; then
+      echo "ONEBOX_VERSION must match vYYYY.M.REVISION with an optional -alpha suffix" >&2; exit 1
     fi
     if [ -z "$ob_build_version" ]; then
       # --long keeps the commit suffix even on a tagged commit, so a checkout build
@@ -314,7 +314,7 @@ social-card:
     mv "$staged" site/public/social-card.png
     echo "rendered site/public/social-card.png"
 
-# Create and publish the next vYYYY.M.REVISION tag from releasable main.
+# Create and publish the next vYYYY.M.REVISION-alpha tag from releasable main.
 release:
     bash scripts/release.sh
 

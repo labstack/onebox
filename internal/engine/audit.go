@@ -39,13 +39,17 @@ func (e *Engine) Audit(ctx context.Context, n int) error {
 	// width scan and the print loop want the same string.
 	cells := make([]string, len(rows))
 	action := len("ACTION")
+	gitWidth := 9
 	for i, r := range rows {
 		cells[i] = auditActionCell(r)
 		if len(cells[i]) > action {
 			action = len(cells[i])
 		}
+		if len(r.GitSHA) > gitWidth {
+			gitWidth = len(r.GitSHA)
+		}
 	}
-	format := fmt.Sprintf("%%-%ds %%-%ds %%-20s %%-9s %%-12s %%s\n", width, action)
+	format := fmt.Sprintf("%%-%ds %%-%ds %%-20s %%-%ds %%-12s %%s\n", width, action, gitWidth)
 	fmt.Fprintf(e.Opts.Out, format, "RELEASE", "ACTION", "OPERATOR", "GIT", "OUTCOME", "STARTED")
 	for i, r := range rows {
 		git := r.GitSHA

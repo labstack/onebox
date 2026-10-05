@@ -52,8 +52,7 @@ func New(out io.Writer, verbose bool) *UI {
 	if f, ok := out.(*os.File); ok {
 		tty = term.IsTerminal(int(f.Fd()))
 	}
-	tty = tty && os.Getenv("TERM") != "dumb" && os.Getenv("ONEBOX_NO_ANIMATION") == "" &&
-		(os.Getenv("CI") == "" || os.Getenv("CI") == "false")
+	tty = tty && animationAllowed()
 	return &UI{
 		out:     out,
 		tty:     tty,
@@ -207,10 +206,15 @@ const (
 	showCursor = "\x1b[?25h"
 )
 
-// RestoreCursor re-shows the terminal cursor if w is a TTY — for signal
+func animationAllowed() bool {
+	return os.Getenv("TERM") != "dumb" && os.Getenv("ONEBOX_NO_ANIMATION") == "" &&
+		(os.Getenv("CI") == "" || os.Getenv("CI") == "false")
+}
+
+// RestoreCursor re-shows the terminal cursor if w is an animated TTY — for signal
 // handlers: an interrupt mid-spinner must not leave the terminal cursorless.
 func RestoreCursor(w io.Writer) {
-	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) && animationAllowed() {
 		_, _ = io.WriteString(w, showCursor)
 	}
 }
@@ -369,7 +373,13 @@ func (u *UI) busyLineLocked(frame, width int) string {
 	}
 	available := width - lipgloss.Width(prefix) - lipgloss.Width(suffix)
 	if available < 1 {
-		return ansi.Truncate(prefix+text+suffix, width, "…")
+		// Drop narrative, spinner, and padding before measured information.
+		// When even the compact form cannot fit, prioritize the count.
+		compact := FmtDur(u.now().Sub(display.started))
+		if display.total > 0 {
+			compact = fmt.Sprintf("%d/%d %s", display.completed, display.total, compact)
+		}
+		return u.sDim.Render(ansi.Truncate(compact, width, "…"))
 	}
 	return prefix + ansi.Truncate(text, available, "…") + suffix
 }

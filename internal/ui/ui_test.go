@@ -262,9 +262,31 @@ func TestBusyLineFitsNarrowAndUnicodeTerminals(t *testing.T) {
 		if lipgloss.Width(line) > width || strings.ContainsAny(line, "\r\n") {
 			t.Fatalf("width %d: spinner wraps or contains newlines: %q", width, line)
 		}
-		if width >= 20 && (!strings.Contains(line, "2/3") || !strings.Contains(line, "12s")) {
+		if width >= 8 && (!strings.Contains(line, "2/3") || !strings.Contains(line, "12s")) {
 			t.Fatalf("width %d: measured progress and timing must survive truncation: %s", width, line)
 		}
+	}
+}
+
+func TestAnimationControls(t *testing.T) {
+	for _, tc := range []struct {
+		name, term, ci, noAnimation string
+		want                        bool
+	}{
+		{"interactive", "xterm-256color", "", "", true},
+		{"ci-false", "xterm-256color", "false", "", true},
+		{"ci", "xterm-256color", "true", "", false},
+		{"dumb", "dumb", "", "", false},
+		{"static", "xterm-256color", "", "1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TERM", tc.term)
+			t.Setenv("CI", tc.ci)
+			t.Setenv("ONEBOX_NO_ANIMATION", tc.noAnimation)
+			if got := animationAllowed(); got != tc.want {
+				t.Fatalf("animationAllowed() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

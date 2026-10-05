@@ -214,6 +214,9 @@ func PositiveDuration(value string) (time.Duration, error) {
 		if err != nil || days <= 0 {
 			return 0, fmt.Errorf("%q is not positive", value)
 		}
+		if days > maxDurationDays {
+			return 0, fmt.Errorf("%q exceeds the maximum representable duration", value)
+		}
 		return time.Duration(days) * 24 * time.Hour, nil
 	}
 	d, err := time.ParseDuration(value)

@@ -441,24 +441,32 @@ func ParsePostgresDuration(value string) (time.Duration, bool) {
 	if digits == 0 {
 		return 0, false
 	}
-	count, err := strconv.Atoi(trimmed[:digits])
+	count, err := strconv.ParseInt(trimmed[:digits], 10, 64)
 	if err != nil || count < 0 {
 		return 0, false
 	}
 	unit := strings.ToLower(strings.TrimSpace(trimmed[digits:]))
+	var scale time.Duration
 	switch unit {
 	case "", "s":
-		return time.Duration(count) * time.Second, true
+		scale = time.Second
 	case "ms":
-		return time.Duration(count) * time.Millisecond, true
+		scale = time.Millisecond
 	case "min":
-		return time.Duration(count) * time.Minute, true
+		scale = time.Minute
 	case "h":
-		return time.Duration(count) * time.Hour, true
+		scale = time.Hour
 	case "d":
-		return time.Duration(count) * 24 * time.Hour, true
+		scale = 24 * time.Hour
+	default:
+		return 0, false
 	}
-	return 0, false
+	// Check before multiplying: overflow can wrap to a plausible positive
+	// duration and make an unsafe server setting satisfy a backup objective.
+	if count > int64((1<<63-1)/scale) {
+		return 0, false
+	}
+	return time.Duration(count) * scale, true
 }
 
 // maxDurationDays is the largest whole-day count that fits in int64

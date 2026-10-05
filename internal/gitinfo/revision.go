@@ -18,7 +18,7 @@ func Revision(ctx context.Context, dir string) string {
 	}
 	revision := strings.TrimSpace(string(out))
 	status, err := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
-		"status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none").Output()
+		"status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=none").Output()
 	if err != nil {
 		return ""
 	}

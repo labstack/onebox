@@ -275,7 +275,10 @@ first if what you want is the old history.
 Only the `postgres` driver has an executable contract, on versions 17 and 18.
 Every other driver refuses a `backup` policy at validate rather than accepting
 one it cannot honour. A workload's own volume is never copied anywhere — `ob
-doctor` names every workload holding durable data.
+doctor` names every workload holding durable data. A managed service declared
+`persistence: {mode: Ephemeral}` is listed as a pass because its data is
+disposable; doctor does not suggest adding a backup. Services with durable or
+default persistence still warn when no backup is declared.
 
 Full field list: [`services`](/reference/fields/services) and
 [`backupTargets`](/reference/fields/backup-targets).

@@ -529,6 +529,13 @@ func inspectDoctorBackups(cfg *app.Spec, configPath string, deps doctorDependenc
 	// command that reads the repository itself.
 	for _, name := range cfg.ServiceNames() {
 		service := cfg.Services[name]
+		if service.Persistence != nil && service.Persistence.Mode == "ephemeral" {
+			report.Checks = append(report.Checks, doctorBackupCheck{
+				Status: doctorPass, Workload: name, Mechanism: "backup", Available: false,
+				Message: "declared ephemeral; Onebox renders no durable volume and no backup is required",
+			})
+			continue
+		}
 		if service.Backup == nil {
 			report.Checks = append(report.Checks, doctorBackupCheck{
 				Status: doctorWarning, Workload: name, Mechanism: "backup", Available: false,
@@ -590,7 +597,7 @@ func inspectDoctorBackups(cfg *app.Spec, configPath string, deps doctorDependenc
 	} else if report.Status == doctorWarning {
 		report.Message = "durable data is present and Onebox does not back it up"
 	} else {
-		report.Message = "declared local backup mechanisms are available"
+		report.Message = "local backup and persistence checks pass"
 	}
 	return report
 }

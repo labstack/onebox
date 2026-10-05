@@ -47,8 +47,13 @@ func IsID(name string) bool { return releaseID.MatchString(name) }
 // NewID builds a lexically time-ordered release id. An unsafe SHA component
 // is replaced, never interpolated (command-injection rule).
 func NewID(now time.Time, gitSHA string) string {
-	if !safeSHA.MatchString(gitSHA) {
+	sha := strings.TrimSuffix(gitSHA, "+dirty")
+	if !safeSHA.MatchString(sha) {
 		gitSHA = "nogit"
+	} else if sha != gitSHA {
+		// The provenance field keeps +dirty; directory identities use the
+		// existing safe alphabet so rollback and retention recognize them.
+		gitSHA = sha + "-dirty"
 	}
 	return now.UTC().Format("20060102-150405") + "-" + gitSHA
 }

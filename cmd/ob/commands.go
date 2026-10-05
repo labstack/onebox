@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/compose"
 	"github.com/labstack/onebox/internal/engine"
+	"github.com/labstack/onebox/internal/gitinfo"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/notify"
 	"github.com/labstack/onebox/internal/onebox"
@@ -999,9 +999,5 @@ func confirmAt(cmd *cobra.Command, out io.Writer, prompt string) bool {
 }
 
 func gitShortSHA(ctx context.Context, dir string) string {
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--short=7", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return gitinfo.Revision(ctx, dir)
 }

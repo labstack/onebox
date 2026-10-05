@@ -79,6 +79,17 @@ labels authored, default, environment-override, observed and derived values.
 Knowing that `retainReleases: 5` was Onebox's choice rather than yours is the
 difference between reviewing a configuration and reading one.
 
+## Checkout provenance
+
+The journal's `git_sha` and the audit table's `GIT` column show the checkout's
+short HEAD revision. Modified, staged, deleted, or untracked files add `+dirty`;
+release directory IDs use `-dirty` to keep their existing safe format. If Git
+cannot read either the revision or the working-tree state, the field is omitted.
+
+This describes the checkout when inspected. Git-ignored files are excluded, and
+the revision does not prove which bytes were shipped. The sealed plan's payload
+digest binds the staged release contents separately.
+
 ## Drift fails closed
 
 A server-side artifact that differs from what the plan bound is a typed drift

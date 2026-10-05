@@ -17,7 +17,7 @@ func TestAuditListsOutcomesNewestFirst(t *testing.T) {
 			return transport.Result{Stdout: "R1.jsonl\nR2.jsonl\n"}, true
 		case strings.Contains(cmd, "R1.jsonl"):
 			return transport.Result{Stdout: journalLines(
-				journal.Record{DeployID: "R1", Phase: "deploy", Event: "start", Operator: "v@mac", GitSHA: "abc1234", TS: "t1"},
+				journal.Record{DeployID: "R1", Phase: "deploy", Event: "start", Operator: "v@mac", GitSHA: "abc1234+dirty", TS: "t1"},
 				journal.Record{DeployID: "R1", Phase: "deploy", Event: "finish", Status: "ok"},
 			)}, true
 		case strings.Contains(cmd, "R2.jsonl"):
@@ -39,8 +39,17 @@ func TestAuditListsOutcomesNewestFirst(t *testing.T) {
 	if strings.Index(s, "R2") > strings.Index(s, "R1") {
 		t.Fatalf("newest first expected:\n%s", s)
 	}
-	if !strings.Contains(s, "ci@runner") || !strings.Contains(s, "abc1234") {
+	if !strings.Contains(s, "ci@runner") || !strings.Contains(s, "abc1234+dirty") {
 		t.Fatalf("operator/sha missing:\n%s", s)
+	}
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	column := strings.Index(lines[0], "OUTCOME")
+	if strings.Index(lines[1], "INCOMPLETE") != column || strings.Index(lines[2], "deployed") != column {
+		t.Fatalf("dirty revision misaligned audit outcomes:\n%s", s)
+	}
+	records, err := e.AuditSnapshot(t.Context(), 10)
+	if err != nil || len(records) != 2 || records[1].GitSHA != "abc1234+dirty" {
+		t.Fatalf("structured audit lost dirty provenance: %+v, %v", records, err)
 	}
 }
 

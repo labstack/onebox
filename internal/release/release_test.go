@@ -24,6 +24,14 @@ func TestNewID(t *testing.T) {
 	if !strings.HasSuffix(NewID(time.Now(), "not$(safe)"), "-nogit") {
 		t.Fatal("unsafe sha must be replaced with nogit")
 	}
+	if got := NewID(time.Date(2026, 7, 2, 15, 4, 5, 0, time.UTC), "abc1234+dirty"); got != "20260702-150405-abc1234-dirty" {
+		t.Fatalf("dirty release ID = %q", got)
+	}
+	for _, unsafe := range []string{"not$(safe)+dirty", "abc1234+dirty+dirty", "abc1234-dirty", "abc1234+other"} {
+		if !strings.HasSuffix(NewID(time.Now(), unsafe), "-nogit") {
+			t.Errorf("unsafe revision %q must be replaced with nogit", unsafe)
+		}
+	}
 }
 
 func seedReleaseChain(t *testing.T, target *transport.Fake, names app.Names, previousID, currentID string) {
@@ -305,7 +313,7 @@ func TestPreviousRejectsCorruptUnknownAndBootstrapTargets(t *testing.T) {
 }
 
 func TestIsIDAcceptsWhatNewIDProduces(t *testing.T) {
-	for _, id := range []string{NewID(time.Now(), "abc1234"), NewID(time.Now(), ""), NewID(time.Now(), "abc1234") + "-v2"} {
+	for _, id := range []string{NewID(time.Now(), "abc1234"), NewID(time.Now(), "abc1234+dirty"), NewID(time.Now(), ""), NewID(time.Now(), "abc1234") + "-v2"} {
 		if !IsID(id) {
 			t.Errorf("IsID rejected an id NewID produced: %q", id)
 		}

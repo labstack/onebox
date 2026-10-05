@@ -556,8 +556,22 @@ func (e *Engine) archivingIssues(ctx context.Context, service string) ([]string,
 		issues = append(issues, fmt.Sprintf(
 			"the server's archive_command is not the one Onebox installed, so where the write-ahead log goes is not what this project describes; re-run `ob backup enable %s`", service))
 	}
-	if declared, ok := app.ParseDuration(projection.Policy.MaxDataLoss); ok {
-		if observed, parsed := app.ParsePostgresDuration(timeout); parsed && observed > declared {
+	declared, policyErr := app.PositiveDuration(projection.Policy.MaxDataLoss)
+	if policyErr != nil {
+		issues = append(issues, fmt.Sprintf(
+			"cannot determine whether archiving satisfies the maximum data loss policy %q: %v",
+			projection.Policy.MaxDataLoss, policyErr))
+	} else {
+		observed, parsed := app.ParsePostgresDuration(timeout)
+		switch {
+		case !parsed:
+			issues = append(issues, fmt.Sprintf(
+				"cannot determine whether archive_timeout %q satisfies the maximum data loss policy %s; the server value is invalid or exceeds the maximum representable duration",
+				timeout, projection.Policy.MaxDataLoss))
+		case observed == 0:
+			issues = append(issues, fmt.Sprintf(
+				"the server has archive_timeout disabled, so an idle database can lose more than the policy permits; re-run `ob backup enable %s`", service))
+		case observed > declared:
 			issues = append(issues, fmt.Sprintf(
 				"the server closes a write-ahead log segment every %s, but the policy tolerates losing at most %s; an idle database can lose more than the policy permits",
 				timeout, projection.Policy.MaxDataLoss))

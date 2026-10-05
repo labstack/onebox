@@ -68,18 +68,6 @@ func Load(path string) (*Spec, error) {
 // LoadBytes runs the fixed pipeline: parse, expand, validate, then apply the
 // cross-field rules the schema cannot express.
 func LoadBytes(b []byte, filename string) (*Spec, error) {
-	return loadBytes(b, filename, false)
-}
-
-// LoadReleaseSnapshot permits the previous Application identity only when all
-// of its fields still belong to the current model. This keeps existing releases
-// usable during deployment and recovery without accepting old authored input or
-// reviving execution fields. The recorded API identity and bytes stay unchanged.
-func LoadReleaseSnapshot(b []byte, filename string) (*Spec, error) {
-	return loadBytes(b, filename, true)
-}
-
-func loadBytes(b []byte, filename string, releaseSnapshot bool) (*Spec, error) {
 	var authored map[string]any
 	if err := yaml.Unmarshal(b, &authored); err != nil {
 		return nil, errf("project_unparsable", filename, "", "invalid YAML: %v", firstLine(err.Error()))
@@ -96,10 +84,8 @@ func loadBytes(b []byte, filename string, releaseSnapshot bool) (*Spec, error) {
 		lines = lineIndex(&doc)
 	}
 
-	if !releaseSnapshot || authored["apiVersion"] != "onebox.run/v1alpha1" {
-		if err := checkAPIVersion(authored); err != nil {
-			return nil, err
-		}
+	if err := checkAPIVersion(authored); err != nil {
+		return nil, err
 	}
 	if err := checkAuthoredShape(authored, lines); err != nil {
 		return nil, err
@@ -129,7 +115,7 @@ func loadBytes(b []byte, filename string, releaseSnapshot bool) (*Spec, error) {
 		return nil, err
 	}
 	raw := converted.(map[string]any)
-	raw["api_version"] = authored["apiVersion"]
+	raw["api_version"] = APIVersion
 	raw["app"] = name
 	derived, err := expand(raw)
 	if err != nil {

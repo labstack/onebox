@@ -8,8 +8,8 @@ the repository rather than to a reader.
 |---|---|
 | [`api/application/v1alpha2/application.schema.json`](../api/application/v1alpha2/application.schema.json) | The current JSON Schema for the authored Application resource. Generated from the Go model by `ob schema`, tested byte-for-byte against it, and published at the stable URL written by `ob init`. |
 | [`product.md`](product.md) | Product direction. Not an implementation contract, and not a capability list. |
-| [`decisions/2026-09-20-application-v1alpha1.md`](decisions/2026-09-20-application-v1alpha1.md) | Accepted decision and complete cutover inventory for the breaking `onebox.run/v1alpha1` Application baseline. Historical baseline; the v1alpha2 job simplification decision below supersedes its job execution scope. |
-| [`decisions/2026-10-04-job-schedule-simplification.md`](decisions/2026-10-04-job-schedule-simplification.md) | Current job boundary and v1alpha2 cutover: single-command jobs, application-owned workflows, and explicit retirement of execution checkpoints. |
+| [`decisions/2026-09-20-application-v1alpha1.md`](decisions/2026-09-20-application-v1alpha1.md) | Historical Application baseline decision and naming specification. |
+| [`decisions/2026-10-04-job-schedule-simplification.md`](decisions/2026-10-04-job-schedule-simplification.md) | Current job boundary: single-command jobs, application-owned workflows, and the v1alpha2 Application contract. |
 
 ## Where the user documentation went
 

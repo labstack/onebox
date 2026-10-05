@@ -27,35 +27,11 @@ func TestAPIVersionV1IsRequired(t *testing.T) {
 	}
 }
 
-func TestPreviousApplicationIdentityRequiresExplicitCutover(t *testing.T) {
+func TestUnsupportedApplicationIdentityIsRejected(t *testing.T) {
 	y := strings.Replace(min, APIVersion, "onebox.run/v1alpha1", 1)
 	_, err := loadFixtureBytes([]byte(y), "ob.yml")
 	if err == nil || !strings.Contains(err.Error(), "schema_identity_unsupported") || !strings.Contains(err.Error(), APIVersion) {
 		t.Fatalf("old identity must name the new contract: %v", err)
-	}
-}
-
-func TestPreviousReleaseSnapshotKeepsIdentityAndRejectsRetiredFields(t *testing.T) {
-	current := string(normalizeApplicationFixture([]byte(wl("web: {image: nginx}"))))
-	old := strings.Replace(current, APIVersion, "onebox.run/v1alpha1", 1)
-	for _, source := range []string{current, old} {
-		snapshot, err := LoadReleaseSnapshot([]byte(source), "onebox.snapshot.yml")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(source, snapshot.APIVersion) {
-			t.Fatalf("snapshot identity was relabeled: %s", snapshot.APIVersion)
-		}
-	}
-	for _, invalid := range []string{
-		strings.Replace(old, "onebox.run/v1alpha1", "onebox.run/v1", 1),
-		strings.Replace(old, "image: nginx", "image: nginx\n            execution: {}", 1),
-	} {
-		if _, err := LoadReleaseSnapshot([]byte(invalid), "onebox.snapshot.yml"); err == nil {
-			t.Fatalf("unsupported snapshot was accepted: %s", invalid)
-		} else if strings.Contains(invalid, "execution") && !strings.Contains(err.Error(), "execution") {
-			t.Fatalf("snapshot refused without naming the retired field: %v", err)
-		}
 	}
 }
 

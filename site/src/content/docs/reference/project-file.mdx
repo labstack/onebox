@@ -16,7 +16,7 @@ when `ob.yml` is absent, and `-c` accepts either spelling or any explicit path.
 
 The resource requires `apiVersion`, `kind`, `metadata.name`, and `spec`.
 Inside `spec`, both `environments` and `workloads` are required. There are no
-top-level workload shorthands or legacy aliases.
+top-level workload shorthands.
 
 Start with the schema reference so your editor can help while you type:
 
@@ -204,7 +204,7 @@ convention used by TLS certificates and common ingress APIs:
 ```yaml
 proxy:
   config: traefik
-  dns_challenge:
+  dnsChallenge:
     provider: cloudflare
     resolvers: ["1.1.1.1:53"]
 
@@ -321,29 +321,6 @@ generates the runtime from it. Individual services can still be adopted with
 [Why Compose is generated](/explanation/generated-compose) and
 [Adopt an existing Compose file](/guides/adopt-compose).
 :::
-
-## Evolution
-
-v1alpha2 removes the job `execution` field and the execution recovery commands.
-Ordinary v1alpha1 manifests update `apiVersion` and their editor schema URL.
-Execution-enabled applications must move workflow steps into their command and
-complete the explicit [host cutover](/guides/schedule-a-job#upgrade-from-the-retired-execution-feature).
-Old authored manifests are rejected. Ordinary v1alpha1 immutable release
-snapshots remain readable without relabeling their identity; snapshots containing
-`execution` require the previous binary.
-
-`apiVersion: onebox.run/v1alpha2` is the pre-baseline contract. Before the
-baseline is locked, normalization may be breaking and will invalidate config
-digests and any plans or staged artifacts bound to the old bytes. Regenerate
-those artifacts after changing the declaration. Within the locked baseline:
-
-- A field is **added**, never repurposed.
-- Only the documented resource shape is accepted; aliases and fallbacks are not
-  part of the contract.
-- A default may be added; an existing default's value **does not change**.
-- A constraint is **not tightened** against a project that already loads unless
-  accepting it can silently lose data or produce an ambiguous runtime. A safety
-  refusal names the migration required to make the project valid again.
 
 The JSON Schema published by `ob schema` is generated from the same declarations
 the loader enforces and is checked against the conformance corpus.

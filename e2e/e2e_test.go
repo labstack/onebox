@@ -88,11 +88,6 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 		}
 		staging := t.TempDir()
 		snapshot := releaseSnapshot(t, dir, "ob.yml", base)
-		if version == "v1" {
-			// Simulate the immutable snapshot left by the previous runner. The
-			// next deploy must upgrade without rewriting this release's identity.
-			snapshot = []byte(strings.Replace(string(snapshot), app.APIVersion, "onebox.run/v1alpha1", 1))
-		}
 		if err := release.Stage(staging, rendered.Bytes, snapshot); err != nil {
 			return err
 		}
@@ -180,8 +175,8 @@ func TestZeroDowntimeDeploy(t *testing.T) {
 	}
 	assertContainerNames(t, "obe2e", "web", "obe2e-web-1")
 	oldSnapshot, err := os.ReadFile(previousSnapshot)
-	if err != nil || !strings.Contains(string(oldSnapshot), "onebox.run/v1alpha1") {
-		t.Fatalf("upgrade rewrote the predecessor snapshot: %v", err)
+	if err != nil || !strings.Contains(string(oldSnapshot), app.APIVersion) {
+		t.Fatalf("deploy changed the predecessor snapshot identity: %v", err)
 	}
 
 	// The redeploy case matters more than the first: this release directory now

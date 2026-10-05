@@ -29,54 +29,6 @@ func TestScheduledJobsNeedNoPythonRunner(t *testing.T) {
 	}
 }
 
-func TestLegacyJobExecutionsBlockScheduleReplacementAndJobStart(t *testing.T) {
-	for _, action := range []string{"apply", "preflight without jobs", "manual run", "migration"} {
-		t.Run(action, func(t *testing.T) {
-			f := happyFake()
-			base := f.Dynamic
-			f.Dynamic = func(command string) (transport.Result, bool) {
-				if strings.Contains(command, "/schedule/executions") {
-					return transport.Result{ExitCode: 78}, true
-				}
-				return base(command)
-			}
-			cfg := testConfig()
-			cfg.Workloads["refresh"] = app.Workload{Role: app.RoleJob, DataEffect: app.DataEffectNone,
-				Schedule: &app.JobSchedule{Cron: "0 * * * *", Timeout: "1h"}}
-			e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-			var err error
-			switch action {
-			case "apply":
-				err = e.SyncSchedules(t.Context())
-			case "preflight without jobs":
-				err = e.requireScheduleHost(t.Context(), nil)
-			case "manual run":
-				_, err = e.ScheduleRun(t.Context(), "op-1", "refresh", nil, false)
-			case "migration":
-				_, _, err = e.runOneJob(t.Context(), "op-1", 1, "migrate", "/release", "/release/compose.yaml")
-			}
-			if err == nil || !strings.Contains(err.Error(), "archive") {
-				t.Fatalf("legacy checkpoint ignored: %v", err)
-			}
-			if len(f.Inputs) > 0 || len(f.Uploads) > 0 {
-				t.Fatalf("legacy state allowed schedule/request writes: %+v", f)
-			}
-			for _, command := range f.Commands {
-				if strings.Contains(command, "systemctl start") || strings.Contains(command, "ONEBOX_RESULT_FILE") {
-					t.Fatalf("job started despite legacy checkpoint: %s", command)
-				}
-			}
-		})
-	}
-}
-
-func TestOldExecutionMetadataDoesNotHideJobHistory(t *testing.T) {
-	record := `{"run":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","job":"nightly","outcome":"failure","execution":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`
-	if got := parseScheduleRunRecords(record, "nightly"); len(got) != 1 || got[0].Outcome != "failure" {
-		t.Fatalf("old run record lost after workflow removal: %+v", got)
-	}
-}
-
 func TestScheduleHostRejectsIncompatibleFlockBeforeInstall(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		if strings.Contains(command, "command -v flock") {

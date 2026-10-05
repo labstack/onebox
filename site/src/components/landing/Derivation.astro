@@ -220,29 +220,32 @@
     const render = () => {
       const lines: string[] = [
         `<span class="k">apiVersion</span>: onebox.run/v1alpha2`,
-        `<span class="k">app</span>: shop`,
-        `<span class="k">environments</span>:`,
-        `  <span class="k">production</span>:`,
-        `    <span class="k">server</span>: root@203.0.113.10`,
-        `<span class="k">workloads</span>:`,
-        `  <span class="k">web</span>:`,
-        `    <span class="k">image</span>: ghcr.io/acme/shop:1.4.0`,
+        `<span class="k">kind</span>: Application`,
+        `<span class="k">metadata</span>:`,
+        `  <span class="k">name</span>: shop`,
+        `<span class="k">spec</span>:`,
+        `  <span class="k">environments</span>:`,
+        `    <span class="k">production</span>:`,
+        `      <span class="k">server</span>: root@203.0.113.10`,
+        `  <span class="k">workloads</span>:`,
+        `    <span class="k">web</span>:`,
+        `      <span class="k">image</span>: ghcr.io/acme/shop:1.4.0`,
       ];
       if (on.replicas) {
-        lines.push(`    <span class="k">replicas</span>: 2`);
+        lines.push(`      <span class="k">replicas</span>: 2`);
       }
       if (on.hostname) {
-        lines.push(`    <span class="k">routes</span>:`);
-        lines.push(`      - {<span class="k">hostname</span>: shop.example.com, <span class="k">port</span>: 3000}`);
+        lines.push(`      <span class="k">routes</span>:`);
+        lines.push(`        - {<span class="k">hostname</span>: shop.example.com, <span class="k">port</span>: 3000}`);
       }
       if (on.worker) {
-        lines.push(`  <span class="k">worker</span>:`);
-        lines.push(`    <span class="k">role</span>: worker`);
-        lines.push(`    <span class="k">image</span>: ghcr.io/acme/shop:1.4.0`);
-        lines.push(`    <span class="k">command</span>: bundle exec sidekiq`);
+        lines.push(`    <span class="k">worker</span>:`);
+        lines.push(`      <span class="k">role</span>: Worker`);
+        lines.push(`      <span class="k">image</span>: ghcr.io/acme/shop:1.4.0`);
+        lines.push(`      <span class="k">command</span>: bundle exec sidekiq`);
       }
       if (on.postgres) {
-        lines.push(`<span class="k">services</span>: {postgres: 17}`);
+        lines.push(`  <span class="k">services</span>: {postgres: 17}`);
       }
 
       ymlOut.innerHTML = lines.join("\n");

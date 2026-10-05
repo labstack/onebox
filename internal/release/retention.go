@@ -81,9 +81,6 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	if policy.Now.IsZero() || policy.RetainApplications < 1 || policy.FailedAfter <= 0 || policy.BootstrapAfter <= 0 || policy.UploadAfter <= 0 || policy.UnknownAfter <= 0 {
 		return RetentionDecision{}, fmt.Errorf("retention policy is invalid")
 	}
-	if err := RequireNoLegacyJobExecutions(ctx, target, names); err != nil {
-		return RetentionDecision{}, refuseRetention(err, err)
-	}
 	ids, skipped, err := list(ctx, target, names)
 	if err != nil {
 		return RetentionDecision{}, err

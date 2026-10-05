@@ -10,7 +10,6 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
-	"github.com/labstack/onebox/internal/release"
 )
 
 // ScheduleRunResult is what an operator-initiated run leaves on the
@@ -63,9 +62,6 @@ func (e *Engine) scheduleRun(ctx context.Context, operationID, name string, inpu
 		return result, errors.New("schedule run requires an operation id")
 	}
 	if err := e.RequireHostOwner(ctx); err != nil {
-		return result, err
-	}
-	if err := release.RequireNoLegacyJobExecutions(ctx, e.T, e.names()); err != nil {
 		return result, err
 	}
 	if _, err := e.scheduledJob(name); err != nil {

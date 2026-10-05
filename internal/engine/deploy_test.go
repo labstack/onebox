@@ -501,7 +501,7 @@ func TestDeployPhaseOrder(t *testing.T) {
 	}
 }
 
-func TestDeployOverPreviousAlphaRelease(t *testing.T) {
+func TestDeployRejectsUnsupportedSnapshotIdentity(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	readPrevious := false
@@ -517,11 +517,11 @@ func TestDeployOverPreviousAlphaRelease(t *testing.T) {
 		return result, handled
 	}
 	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := e.Deploy(t.Context(), engineTestDeployReleaseID, t.TempDir()); err != nil {
-		t.Fatalf("ordinary previous-alpha release blocked upgrade: %v", err)
+	if err := e.Deploy(t.Context(), engineTestDeployReleaseID, t.TempDir()); err == nil || !strings.Contains(err.Error(), "schema_identity_unsupported") {
+		t.Fatalf("unsupported snapshot identity was not rejected: %v", err)
 	}
-	if !readPrevious || len(f.Uploads) != 1 {
-		t.Fatal("upgrade did not read the predecessor and stage a new release")
+	if !readPrevious || len(f.Uploads) != 0 {
+		t.Fatal("unsupported snapshot must refuse before staging a new release")
 	}
 }
 
@@ -533,8 +533,7 @@ func TestDeployRefusesPreviousSnapshotWithRetiredExecution(t *testing.T) {
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
 		}
 		if strings.Contains(command, "/onebox.snapshot.yml") {
-			snapshot := strings.Replace(engineProject, app.APIVersion, "onebox.run/v1alpha1", 1)
-			snapshot = strings.Replace(snapshot, "    migrate:\n", "    migrate:\n      execution: {}\n", 1)
+			snapshot := strings.Replace(engineProject, "    migrate:\n", "    migrate:\n      execution: {}\n", 1)
 			return transport.Result{Stdout: snapshot}, true
 		}
 		return base(command)

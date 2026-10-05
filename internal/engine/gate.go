@@ -115,9 +115,6 @@ func (e *Engine) runJobPhase(ctx context.Context, jw *journal.Writer, done map[s
 // runOneJob runs a single gate step and reports whether it declared itself
 // rollback-safe (changed=false). Returns (safe, detail, err).
 func (e *Engine) runOneJob(ctx context.Context, operationID string, epoch int, job, remoteDir, remoteCompose string) (bool, string, error) {
-	if err := release.RequireNoLegacyJobExecutions(ctx, e.T, e.names()); err != nil {
-		return false, "", err
-	}
 	safeByDeclaration := e.jobDataEffect(job) == app.DataEffectNone
 	resultDir := remoteDir + "/" + jobResultDirName(job)
 	resultFile := resultDir + "/result"

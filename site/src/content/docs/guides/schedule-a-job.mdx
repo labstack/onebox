@@ -356,43 +356,6 @@ work. Make repeated attempts safe in the application and store any progress
 there. A command can perform several operations internally; the application
 owns their ordering, checkpoints, and outputs.
 
-## Upgrade from the retired execution feature
-
-`onebox.run/v1alpha2` removes the `execution` field and the `ob execution`
-commands. Ordinary v1alpha1 jobs need only an `apiVersion` update. Jobs that
-used `execution.steps` must first move that sequence, output handoff, and
-checkpoint recovery into their application command. Outstanding plans and
-approvals must be recreated after changing the manifest.
-
-If the host has a `schedule/executions` store under its application directory:
-
-1. Keep the previous binary and manifest available. Use that binary to pause
-   the affected timers and finish or abandon saved executions.
-2. Verify that no job is running or queued. Archive the store outside the
-   application directory; preserve any referenced release and application
-   data needed for investigation. Do not remove a live execution's files.
-   With the previous binary, deploy the application command under v1alpha1
-   with all `execution` blocks removed, so its serving snapshot has no workflow
-   fields. Keep the timers paused until cutover is verified.
-3. Update the manifest to v1alpha2 and deploy, then
-   run `ob schedule apply` if the deployment did not already reconcile timers.
-   Verify one manual run and resume the paused timers with `ob schedule resume`.
-
-The new binary refuses deployment preflight, schedule installation, job runs,
-container exec, and release retention while that store exists. It never
-converts or deletes those checkpoints, and jobs need no Python runner.
-Previously installed units keep their old behaviour until reconciled. A timer
-that has never run may have no store yet, so pause old execution-enabled timers
-even when the directory is absent.
-
-Ordinary v1alpha1 release snapshots remain readable for deployment and recovery;
-the snapshot reader preserves their recorded identity and applies the current
-field checks. Authored v1alpha1 manifests remain rejected. A snapshot containing
-`execution` is refused rather than having its workflow discarded: finish
-recovery with the previous binary and deploy a workflow-free v1alpha1 release
-before upgrading. Those older workflow snapshots require the previous binary
-for rollback. Do not rewrite snapshots or relabel stored evidence.
-
 ## Running one by hand
 
 ```sh

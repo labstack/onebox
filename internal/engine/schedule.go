@@ -12,7 +12,6 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/notify"
-	"github.com/labstack/onebox/internal/release"
 )
 
 // A scheduled job runs when nobody is watching, so it runs on the host's own
@@ -371,9 +370,6 @@ func scheduleRendezvousWait(jobTimeout string) time.Duration {
 // declares inputs, and to `ob job run`; see below for why, and why a host
 // that has been running scheduled jobs for years is not refused one.
 func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJob) error {
-	if err := release.RequireNoLegacyJobExecutions(ctx, e.T, e.names()); err != nil {
-		return err
-	}
 	if len(jobs) == 0 {
 		return nil
 	}

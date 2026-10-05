@@ -441,9 +441,6 @@ func (e *Engine) ExecInAudited(ctx context.Context, operationID, name, command, 
 			err = errors.Join(err, fmt.Errorf("journal exec finish: %w", journalErr))
 		}
 	}()
-	if err := release.RequireNoLegacyJobExecutions(ctx, e.T, e.names()); err != nil {
-		return containerID, err
-	}
 	err = e.mutateStream(ctx, "docker exec "+containerID+" sh -c "+q(command), stdout, stderr)
 	return containerID, err
 }

@@ -23,9 +23,8 @@ This page is the reconciliation. Three states:
 
 ## Shipped
 
-- An explicit `onebox.run/v1alpha2` Application schema. Incompatible alpha
-  changes advance its identity and publish cutover instructions. Job commands
-  own their application workflows and checkpoints; Onebox has no step engine.
+- An explicit `onebox.run/v1alpha2` Application schema. Each job runs one
+  command; applications own their workflows and checkpoints.
 - Compose generation and validation, SSH transport with known-host checking,
   state-bound plans, image pinning, rendered diffs.
 - Scheduled jobs as host timers with exact cron translation, bounded retry

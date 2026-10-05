@@ -150,22 +150,14 @@ env-namespace:
     # file list failed to build reports a clean tree, which is the one answer a
     # check like this must never give by accident.
     listing=$(mktemp)
-    scanned=$(mktemp)
-    trap 'rm -f "${listing}" "${scanned}"' EXIT
+    trap 'rm -f "${listing}"' EXIT
     git ls-files -z > "${listing}"
     if [ ! -s "${listing}" ]; then
       echo "no tracked files listed — the scan checked nothing" >&2
       exit 1
     fi
-    # The migration table in the environment-variables guide is the one place
-    # the old names are allowed, because naming them is the whole point of it.
-    grep -zZv '^site/src/content/docs/guides/environment-variables.mdx$' < "${listing}" > "${scanned}" || true
-    if [ ! -s "${scanned}" ]; then
-      echo "the exemption matched every tracked file — the scan checked nothing" >&2
-      exit 1
-    fi
     set +e
-    stray=$(xargs -0 grep -nHE '\bOB_[A-Z0-9_]+' < "${scanned}")
+    stray=$(xargs -0 grep -nHE '\bOB_[A-Z0-9_]+' < "${listing}")
     status=$?
     set -e
     case "${status}" in

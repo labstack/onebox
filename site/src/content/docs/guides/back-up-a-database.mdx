@@ -67,6 +67,14 @@ be telling you the database is protected at the moment it is not.
 The restart is a real restart. Enabling is a maintenance action, not a
 configuration change.
 
+The scheduled base backup does not give up on its first fault. A push streams
+gigabytes through many multipart uploads and aborts on the first part the
+destination refuses, so the unit tries up to three times, a minute and then
+five minutes apart, under the same lock an interactive `ob backup` waits on.
+Retention runs only after a push that succeeded. A night on which every attempt
+fails is still a failed unit: `systemctl status onebox-backup-database-backup`
+says so, and the journal has each attempt's reason.
+
 ## The credential file
 
 The encrypted file your target names needs three entries — the two you named,

@@ -19,9 +19,10 @@ import (
 // Two timers per protected service, taken straight from the policy rather than
 // invented:
 //
-//   - the backup schedule takes a base backup and then applies retention, in
-//     that order, so the repository is never briefly below the number of
-//     generations the policy promises;
+//   - the backup schedule takes a base backup — retrying it a bounded number
+//     of times, because one refused upload part aborts the whole push — and
+//     then applies retention, in that order, so the repository is never
+//     briefly below the number of generations the policy promises;
 //   - the drill schedule verifies the archived WAL forms an unbroken
 //     chain, which is the check a green backup does not imply.
 //
@@ -100,8 +101,11 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 			commands  []string
 		}{
 			{"backup", projection.Policy.Schedule, []string{
-				walgExec(container, "backup-push", app.PgDataPath),
-				// Retention after the new generation exists, never before.
+				"/bin/sh " + n.BackupPushScript(service),
+				// Retention after the new generation exists, never before. A
+				// separate ExecStart, so a push that fails every attempt
+				// stops the unit here and never expires a generation to make
+				// room for one that does not exist.
 				prune,
 			}},
 			{"verify", projection.Policy.Drill.Schedule, []string{
@@ -140,10 +144,18 @@ func (e *Engine) SyncBackupSchedules(ctx context.Context) error {
 	// straight through would be marked successful by systemd over a repository
 	// with holes in it, for as long as nobody looked. The interactive command
 	// judges the same report in Go; this is the unattended half of it.
+	//
+	// The backup unit runs a script for a different reason: a single
+	// ExecStart has no way to try again, and a base backup is the one
+	// scheduled job where giving up on the first fault loses a whole night.
 	for _, service := range backedUpServiceNames(e.Spec) {
 		if err := e.writeServiceFile(ctx, n.BackupVerifyScript(service),
 			[]byte(backupVerifyScript(n.ServiceContainer(service)))); err != nil {
 			return fmt.Errorf("cannot install the archive verification for %s: %w", service, err)
+		}
+		if err := e.writeServiceFile(ctx, n.BackupPushScript(service),
+			[]byte(backupPushScript(n.ServiceContainer(service)))); err != nil {
+			return fmt.Errorf("cannot install the scheduled base backup for %s: %w", service, err)
 		}
 	}
 
@@ -219,6 +231,66 @@ func backupVerifyScript(container string) string {
 		"  exit 1",
 		"fi",
 		"exit 0",
+		"",
+	}, "\n")
+}
+
+// backupPushRetryWaits is the pause, in seconds, before each further attempt
+// at the scheduled base backup; its length is the number of retries.
+//
+// A base backup streams gigabytes through many multipart uploads, and the
+// whole push aborts on the first part the destination refuses — wal-g treats
+// a lost part as fatal, and its S3 client only retries the errors the SDK
+// classes as transient, which a bare HTTP 400 from an edge proxy is not. Seen
+// on a production host against an S3-compatible destination: three of six
+// nights lost to one part, with the same configuration succeeding on the
+// others. Two more attempts, a minute and then five apart, cover a fault
+// that lasts seconds without hiding one that lasts the night.
+var backupPushRetryWaits = []int{60, 300}
+
+// backupPushScript is the scheduled base backup.
+//
+// It is a script rather than a unit directive because systemd's Restart=
+// re-runs every ExecStart, so a retry of the push would also re-run the
+// retention that follows it, and the start rate limiter bounds restarts by
+// time, not count — a push slower than the limiter's window retries forever.
+// A loop in POSIX sh is bounded by construction and exits with the last
+// attempt's status, so the unit still fails, visibly, when every attempt
+// does. It runs under the unit's flock for its whole span, retries included,
+// so an interactive `ob backup` keeps waiting rather than interleaving.
+func backupPushScript(container string) string {
+	return backupPushScriptWith(walgExec(container, "backup-push", app.PgDataPath), backupPushRetryWaits)
+}
+
+func backupPushScriptWith(command string, waits []int) string {
+	attempts := len(waits) + 1
+	schedule := make([]string, 0, len(waits))
+	for _, wait := range waits {
+		schedule = append(schedule, fmt.Sprint(wait))
+	}
+	// Bounded by the attempt count, not by running out of waits: one wait per
+	// retry is what makes `$1` defined every time the loop reaches `shift`.
+	return strings.Join([]string{
+		"#!/bin/sh",
+		"# Written by Onebox. Edits are overwritten on the next apply.",
+		"set -u",
+		fmt.Sprintf("attempts=%d", attempts),
+		"attempt=0",
+		"set -- " + strings.Join(schedule, " "),
+		"while :; do",
+		"  attempt=$((attempt + 1))",
+		"  " + command,
+		"  status=$?",
+		`  [ "$status" -eq 0 ] && exit 0`,
+		`  if [ "$attempt" -ge "$attempts" ]; then`,
+		`    echo "onebox: base backup failed on attempt $attempt of $attempts (exit $status); giving up" >&2`,
+		`    exit "$status"`,
+		"  fi",
+		`  wait=$1`,
+		"  shift",
+		`  echo "onebox: base backup attempt $attempt of $attempts failed (exit $status); retrying in ${wait}s" >&2`,
+		`  sleep "$wait"`,
+		"done",
 		"",
 	}, "\n")
 }

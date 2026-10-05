@@ -61,12 +61,14 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
 <span class="ln dim">type the release id to confirm: <span class="mut">r-0042</span></span>
 <span class="ln"> </span>
 <span class="ln"><b>$</b> ob deploy --plan ob-plan.json --approval ob-approval.json</span>
-<span class="ln dim">staged    r-0042</span>
+<span class="ln"><span class="add">✓</span> transfer  <span class="dim">0.7s</span></span>
 <span class="ln dim">migrate   provider atlas · 1 revision · changed=true</span>
-<span class="ln dim">rolling   shop-web-1 … healthy</span>
-<span class="ln dim">rolling   shop-web-2 … healthy</span>
-<span class="ln dim">verified  checks/url 200 · X-App-Ready: yes</span>
-<span class="ln add">serving   r-0042 · r-0041 superseded<span class="ob-caret"></span></span></code></pre>
+<span class="ln"><span class="add">✓</span> job migrate  <span class="dim">1.1s</span></span>
+<span class="ln" data-ob-roll><span class="add">✓</span> web rolling ×2  <span class="dim">4.1s</span></span>
+<span class="ln"><span class="add">✓</span> worker rolling  <span class="dim">0.9s</span></span>
+<span class="ln"><span class="add">✓</span> verify  <span class="dim">0.6s</span></span>
+<span class="ln"><span class="add">✓</span> activate  <span class="dim">0.2s</span></span>
+<span class="ln add">✓ deployed r-0042 in 8.4s (prev r-0041)<span class="ob-caret"></span></span></code></pre>
   </div>
 </div>
 
@@ -192,6 +194,7 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
     --term-text: #cad4c6;
     --term-muted: #788373;
     --term-green: #8ed879;
+    --term-active: #78d9db;
     --term-warn: #e2b75d;
     border: 1px solid var(--term-border);
     border-radius: 8px;
@@ -263,7 +266,7 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
     font-weight: 400;
   }
 
-  .ob-term .dim {
+  :global([data-ob-transcript] .dim) {
     color: var(--term-muted);
   }
 
@@ -273,6 +276,10 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
 
   .ob-term .add {
     color: var(--term-green);
+  }
+
+  :global([data-ob-transcript] .active) {
+    color: var(--term-active);
   }
 
   .ob-term .warn {
@@ -344,11 +351,29 @@ const { title = data.title, tagline, actions = [] } = data.hero ?? {};
       let i = 0;
       const step = () => {
         if (i >= lines.length) return;
-        lines[i]?.removeAttribute("data-pending");
+        const line = lines[i];
+        line?.removeAttribute("data-pending");
         i += 1;
-        // Fast enough that the hero is not a blank box on arrival — the whole
-        // transcript lands in under two seconds — but still paced, because the
-        // point is that a deploy reports itself rather than appearing.
+        // Show measured replica progress briefly, then replace that same line
+        // with its completed step. No-JS and reduced-motion visitors see the
+        // completed transcript directly.
+        if (line?.hasAttribute("data-ob-roll")) {
+          const completed = line.innerHTML;
+          const frames = ["▖", "▘", "▝", "▗"];
+          let frame = 0;
+          const render = () => {
+            line.innerHTML = `<span class="active" aria-hidden="true">${frames[frame % frames.length]}</span> web rolling · healthcheck  <span class="active" aria-hidden="true">■</span><span class="dim" aria-hidden="true">□</span><span class="dim"> 1/2  3.2s</span>`;
+            frame += 1;
+          };
+          render();
+          const timer = window.setInterval(render, 120);
+          window.setTimeout(() => {
+            window.clearInterval(timer);
+            line.innerHTML = completed;
+            step();
+          }, 960);
+          return;
+        }
         window.setTimeout(step, i < 10 ? 55 : 90);
       };
       step();

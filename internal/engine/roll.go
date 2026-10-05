@@ -135,6 +135,8 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 	cc := e.composeCmdForProject(remoteComposePath, remoteProjectDir)
 	desired := role.Count()
 	within, pollEvery := role.ReadyTiming()
+	update, stop := e.ui.Progress(roleName+" rolling", desired)
+	defer stop()
 
 	pulled := false
 	// Each pass converges by one step: add a missing new replica, or retire a
@@ -149,6 +151,11 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 			return err
 		}
 		olds := subtract(cur, news)
+		// A running newcomer alone is not a completed replacement: its old
+		// replica must have drained and retired too. Reserve the final segment
+		// until slot assignment has succeeded, including when resuming a roll.
+		completed := min(len(news), max(0, desired-len(olds)), max(0, desired-1))
+		update(completed, "inspecting replicas")
 		if guard > 4*(desired+len(olds))+8 {
 			return fmt.Errorf("role %s: roll did not converge (news=%d olds=%d)", roleName, len(news), len(olds))
 		}
@@ -158,6 +165,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 				break
 			}
 			// surplus new replicas (count reduced) — drain one down to desired
+			update(completed, "retiring surplus replica")
 			if err := e.retireContainer(ctx, role, news[desired], pollEvery); err != nil {
 				return err
 			}
@@ -167,6 +175,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 		// surge one new replica if we still need more of the new release
 		if len(news) < desired {
 			if !pulled {
+				update(completed, "checking image")
 				if err := e.pullBeforeRelease(ctx, svc, cc); err != nil {
 					return err
 				}
@@ -193,6 +202,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 			}
 			known := idSet(news)
 			scale := len(cur) + 1
+			update(completed, fmt.Sprintf("starting replica %d", len(news)+1))
 			if res, err := e.mutate(ctx, fmt.Sprintf("%s up -d --no-deps --no-recreate --scale %s=%d %s", cc, svc, scale, svc)); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
@@ -218,6 +228,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 				return err
 			}
 			// join: the newcomer becomes a routable endpoint via its healthcheck
+			update(completed, fmt.Sprintf("replica %d healthcheck", len(news)+1))
 			if err := e.waitHealth(ctx, newID, "healthy", within, pollEvery); err != nil {
 				e.logf("join failed for %s — removing new container, existing keep serving", roleName)
 				cleanupErr := e.mutateChecked(ctx, "remove unhealthy newcomer "+newID, "docker rm -f "+newID)
@@ -227,12 +238,14 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 
 		// retire one old, freeing its slot for the newcomer just added
 		if len(olds) > 0 {
+			update(completed, "retiring old replica")
 			if err := e.retireContainer(ctx, role, olds[0], pollEvery); err != nil {
 				return err
 			}
 		}
 
 		// hand clean slot names to any new container that doesn't have one yet
+		update(completed, "assigning replica slots")
 		if err := e.reslot(ctx, svc, releaseID, generation, desired); err != nil {
 			return err
 		}
@@ -240,6 +253,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 	if err := e.reslot(ctx, svc, releaseID, generation, desired); err != nil {
 		return err
 	}
+	update(desired, "replicas converged")
 	return nil
 }
 
@@ -477,7 +491,8 @@ func subtract(all, remove []string) []string {
 
 func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interval time.Duration) error {
 	deadline := e.Opts.Now().Add(budget)
-	_, stop := e.ui.Busy(fmt.Sprintf("waiting %.12s → %s", id, want))
+	label := fmt.Sprintf("waiting %.12s → %s", id, want)
+	update, stop := e.ui.Busy(label)
 	defer stop()
 	for {
 		h, err := e.healthOf(ctx, id)
@@ -487,6 +502,7 @@ func (e *Engine) waitHealth(ctx context.Context, id, want string, budget, interv
 		if h == want {
 			return nil
 		}
+		update(label + " · " + h)
 		// A container that has exited will not report a different health
 		// status later, so waiting out the budget only delays the same answer
 		// with a worse message.

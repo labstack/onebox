@@ -274,7 +274,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	if done["transfer"] {
 		e.logf("transfer: already complete (resume)")
 	} else {
-		tr := e.ui.Step("transfer", false)
+		tr := e.ui.Step("transfer", true)
 		if localStagingDir == "" {
 			res, err := e.T.Run(ctx, "test -d "+q(remoteDir))
 			if err != nil || res.ExitCode != 0 {
@@ -414,7 +414,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	}
 
 	e.progress("verification", "started", "")
-	vf := e.ui.Step("verify", false)
+	vf := e.ui.Step("verify", true)
 	if err := e.Verify(ctx); err != nil {
 		vf(err)
 		e.progress("verification", "failed", "verification failed; inspect journal evidence")
@@ -430,7 +430,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 	e.progress("verification", "succeeded", "")
 
 	e.progress("activation", "started", "")
-	fin := e.ui.Step("activate", false)
+	fin := e.ui.Step("activate", true)
 	if err := jw.Append(ctx, journal.Record{
 		Phase: "activation", Event: "intent", Detail: "release=" + releaseID,
 	}); err != nil {
@@ -719,12 +719,14 @@ func (e *Engine) releaseRoles(ctx context.Context, remoteCompose string) error {
 	for _, roleName := range e.Spec.ReleaseOrder() {
 		role := e.Spec.Workloads[roleName]
 		e.logf("release %s (%s)", roleName, role.Mode())
+		step := e.ui.Step(roleName+" "+role.Mode(), true)
 		var err error
 		if role.Mode() == "rolling" {
 			err = e.RollRole(ctx, roleName, remoteCompose)
 		} else {
 			err = e.RecreateRole(ctx, roleName, remoteCompose)
 		}
+		step(err)
 		if err != nil {
 			return fmt.Errorf("%s: %w", roleName, err)
 		}

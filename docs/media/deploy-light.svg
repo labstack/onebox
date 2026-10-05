@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="404" viewBox="0 0 760 404" role="img" aria-label="An example Onebox session: ob plan prints a sealed diff, ob deploy rolls the workloads and finishes with release r-0042 serving.">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="514" viewBox="0 0 760 514" role="img" aria-label="An example Onebox session: ob plan prints a sealed diff, ob deploy reports completed steps with durations and finishes with release r-0042 deployed.">
   <!--
     The README's example session, light palette. Its pair is deploy-dark.svg,
     and the two are selected by the <picture> element in README.md; the line
@@ -17,7 +17,7 @@
   <!-- The runs of spaces are the column alignment. `xml:space` is deprecated
        and browsers collapse them without this. -->
   <style>text { white-space: pre; }</style>
-  <rect x="0.5" y="0.5" width="759" height="403" rx="10" fill="#e8ece4" stroke="#ccd4c6"/>
+  <rect x="0.5" y="0.5" width="759" height="513" rx="10" fill="#e8ece4" stroke="#ccd4c6"/>
   <path d="M0.5 44.5h759" stroke="#ccd4c6"/>
   <circle cx="24" cy="22" r="4.5" fill="#ccd4c6"/>
   <circle cx="42" cy="22" r="4.5" fill="#ccd4c6"/>
@@ -37,7 +37,12 @@
     <text x="24" y="274" fill="#5b6656">plan      sha256:9f21ab4c… · mode 0600 · expires 15m</text>
     <text x="24" y="296" fill="#5b6656">risk      migration · strong confirmation required</text>
     <text x="24" y="340"><tspan fill="#2f6b22">$</tspan> ob deploy --plan ob-plan.json --approval ob-approval.json</text>
-    <text x="24" y="362" fill="#5b6656">verified  checks/url 200 · X-App-Ready: yes</text>
-    <text x="24" y="384" fill="#2f6b22">serving   r-0042 · r-0041 superseded</text>
+    <text x="24" y="362"><tspan fill="#2f6b22">✓</tspan> transfer  <tspan fill="#5b6656">0.7s</tspan></text>
+    <text x="24" y="384"><tspan fill="#2f6b22">✓</tspan> job migrate  <tspan fill="#5b6656">1.1s</tspan></text>
+    <text x="24" y="406"><tspan fill="#2f6b22">✓</tspan> web rolling ×2  <tspan fill="#5b6656">4.1s</tspan></text>
+    <text x="24" y="428"><tspan fill="#2f6b22">✓</tspan> worker rolling  <tspan fill="#5b6656">0.9s</tspan></text>
+    <text x="24" y="450"><tspan fill="#2f6b22">✓</tspan> verify  <tspan fill="#5b6656">0.6s</tspan></text>
+    <text x="24" y="472"><tspan fill="#2f6b22">✓</tspan> activate  <tspan fill="#5b6656">0.2s</tspan></text>
+    <text x="24" y="494" fill="#2f6b22">✓ deployed r-0042 in 8.4s (prev r-0041)</text>
   </g>
 </svg>

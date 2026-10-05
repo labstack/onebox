@@ -740,7 +740,7 @@ func (e *Engine) cleanupOrphanSecretGenerations(ctx context.Context, releaseID s
 	return e.mutateChecked(ctx, "clean orphaned secret generations", command)
 }
 
-func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.SecretCheckpoint, workload, generation string) error {
+func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.SecretCheckpoint, workload, generation string) (err error) {
 	// Already converged. Two paths reach here that way: a resume after a crash,
 	// and recovery after a roll whose unhealthy newcomer was removed without
 	// any old replica being touched. Neither has anything to replace, and
@@ -760,6 +760,8 @@ func (e *Engine) forceSecretGeneration(ctx context.Context, checkpoint release.S
 		return err
 	}
 	composePath := generationDir + "/compose.yaml"
+	step := e.ui.Step(workload+" "+e.Spec.Workloads[workload].Mode(), true)
+	defer func() { step(err) }()
 	// A rolling workload rotates its secret the way it takes a release: surge
 	// one replica on the new generation, gate it healthy, retire one old.
 	// Recreating instead destroyed every serving replica before the first

@@ -250,12 +250,14 @@ func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, prev
 				continue
 			}
 		}
+		step := previous.ui.Step(roleName+" "+role.Mode(), true)
 		var err error
 		if role.Mode() == "rolling" {
 			err = previous.RollRole(ctx, roleName, composePath)
 		} else {
 			err = previous.RecreateRole(ctx, roleName, composePath)
 		}
+		step(err)
 		if err != nil {
 			return fmt.Errorf("restore %s: %w", roleName, err)
 		}

@@ -81,8 +81,9 @@ func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.
 		}
 		return base(command)
 	}
+	var output bytes.Buffer
 	engine := New(testConfig(), testProject(t), target, Options{
-		Out: &bytes.Buffer{}, Sleep: noSleep,
+		Out: &output, Sleep: noSleep,
 		Now: func() time.Time { return time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC) },
 	})
 	seedInterruptedRecoveryState(t, engine)
@@ -98,6 +99,9 @@ func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.
 	var incomplete *RecoveryIncompleteError
 	if !errors.As(err, &incomplete) || incomplete.Code() != "recovery_incomplete" || incomplete.Phase != "verify" {
 		t.Fatalf("first recovery error = %#v", err)
+	}
+	if strings.Count(output.String(), "✓ web rolling") != 1 {
+		t.Fatalf("restored workload must leave one completed step before verification: %s", output.String())
 	}
 	if _, err := release.ReadActivationCheckpoint(context.Background(), target, engine.Names()); err != nil {
 		t.Fatalf("failed recovery cleared checkpoint: %v", err)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 )
 
@@ -24,10 +25,10 @@ type UI struct {
 	verbose bool
 	now     func() time.Time
 
-	// one live spinner line at a time; println clears it so narrative and
-	// spinner never collide, and the spinner repaints on its next tick
-	spinLabel string
-	spinOn    bool
+	// Nested steps share one live line. A child wait keeps its parent's measured
+	// progress visible; stopping it restores the parent without showing the cursor.
+	busy  []*busyState
+	width func() int
 
 	sHeader lipgloss.Style
 	sOK     lipgloss.Style
@@ -35,6 +36,14 @@ type UI struct {
 	sWarn   lipgloss.Style
 	sDim    lipgloss.Style
 	sBold   lipgloss.Style
+	sActive lipgloss.Style
+}
+
+type busyState struct {
+	label, detail    string
+	completed, total int
+	started          time.Time
+	stopped          bool
 }
 
 func New(out io.Writer, verbose bool) *UI {
@@ -43,24 +52,38 @@ func New(out io.Writer, verbose bool) *UI {
 	if f, ok := out.(*os.File); ok {
 		tty = term.IsTerminal(int(f.Fd()))
 	}
+	tty = tty && animationAllowed()
 	return &UI{
 		out:     out,
 		tty:     tty,
 		verbose: verbose,
 		now:     time.Now,
+		width: func() int {
+			if f, ok := out.(*os.File); ok {
+				if w, _, err := term.GetSize(int(f.Fd())); err == nil && w > 0 {
+					return w
+				}
+			}
+			return 80
+		},
 		sHeader: r.NewStyle().Bold(true),
 		sOK:     r.NewStyle().Foreground(lipgloss.Color("2")),
 		sFail:   r.NewStyle().Foreground(lipgloss.Color("1")),
 		sWarn:   r.NewStyle().Foreground(lipgloss.Color("3")),
 		sDim:    r.NewStyle().Faint(true),
 		sBold:   r.NewStyle().Bold(true),
+		sActive: r.NewStyle().Foreground(lipgloss.Color("6")),
 	}
 }
 
 func (u *UI) println(s string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.spinOn {
+	u.printlnLocked(s)
+}
+
+func (u *UI) printlnLocked(s string) {
+	if len(u.busy) > 0 {
 		_, _ = io.WriteString(u.out, "\r\x1b[K") // clear the spinner line first
 	}
 	_, _ = io.WriteString(u.out, s+"\n")
@@ -69,6 +92,9 @@ func (u *UI) println(s string) {
 // Header opens a section: ── title ───────────────
 func (u *UI) Header(title string) {
 	line := "── " + title + " " + strings.Repeat("─", max(0, 50-len(title)))
+	if u.tty {
+		line = ansi.Truncate(line, max(1, u.width()-1), "…")
+	}
 	u.println(u.sHeader.Render(line))
 }
 
@@ -91,10 +117,10 @@ func (u *UI) Begin(label string) {
 // Done closes a step with its outcome and duration.
 func (u *UI) Done(label string, d time.Duration, err error) {
 	if err != nil {
-		u.println(u.sFail.Render("✗ "+label) + u.sDim.Render("  "+FmtDur(d)))
+		u.println(u.sFail.Render("✗") + " " + label + u.sDim.Render("  "+FmtDur(d)))
 		return
 	}
-	u.println(u.sOK.Render("✓ "+label) + u.sDim.Render("  "+FmtDur(d)))
+	u.println(u.sOK.Render("✓") + " " + label + u.sDim.Render("  "+FmtDur(d)))
 }
 
 // Step times a step: call the returned func with the outcome. Announced steps
@@ -173,17 +199,22 @@ func (u *UI) Diff(diff string) {
 	}
 }
 
-var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var spinFrames = []string{"▖", "▘", "▝", "▗"}
 
 const (
 	hideCursor = "\x1b[?25l"
 	showCursor = "\x1b[?25h"
 )
 
-// RestoreCursor re-shows the terminal cursor if w is a TTY — for signal
+func animationAllowed() bool {
+	return os.Getenv("TERM") != "dumb" && os.Getenv("ONEBOX_NO_ANIMATION") == "" &&
+		(os.Getenv("CI") == "" || os.Getenv("CI") == "false")
+}
+
+// RestoreCursor re-shows the terminal cursor if w is an animated TTY — for signal
 // handlers: an interrupt mid-spinner must not leave the terminal cursorless.
 func RestoreCursor(w io.Writer) {
-	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) && animationAllowed() {
 		_, _ = io.WriteString(w, showCursor)
 	}
 }
@@ -193,41 +224,62 @@ func RestoreCursor(w io.Writer) {
 // a TTY it prints one ⟳ line per distinct label — CI logs stay line-honest.
 // update relabels the spinner; stop erases it.
 func (u *UI) Busy(label string) (update func(string), stop func()) {
+	set, stop := u.startBusy(label, 0)
+	return func(label string) { set(0, label) }, stop
+}
+
+// Progress displays completed units out of a known total. Small totals get one
+// segment per unit; larger totals use a compact ten-segment bar. A total <= 0
+// falls back to a spinner. Off a TTY, only distinct count/detail updates print.
+// Completion of the units does not imply success: the caller still owns Done.
+func (u *UI) Progress(label string, total int) (update func(int, string), stop func()) {
+	return u.startBusy(label, max(0, total))
+}
+
+func (u *UI) startBusy(label string, total int) (func(int, string), func()) {
+	s := &busyState{label: label, total: total, started: u.now()}
 	if !u.tty {
-		u.Begin(label)
-		last := label
-		return func(l string) {
-			if l != last {
-				u.Begin(l)
-				last = l
+		last := plainBusy(s)
+		u.Begin(last)
+		return func(completed int, text string) {
+				u.mu.Lock()
+				defer u.mu.Unlock()
+				if s.stopped {
+					return
+				}
+				setBusy(s, completed, text)
+				if line := plainBusy(s); line != last {
+					u.printlnLocked(u.sDim.Render("⟳ " + line))
+					last = line
+				}
+			}, func() {
+				u.mu.Lock()
+				defer u.mu.Unlock()
+				s.stopped = true
 			}
-		}, func() {}
 	}
 	u.mu.Lock()
-	u.spinLabel, u.spinOn = label, true
-	_, _ = io.WriteString(u.out, hideCursor) // the blinking cursor at line end is just noise
+	if len(u.busy) == 0 {
+		_, _ = io.WriteString(u.out, hideCursor)
+	}
+	u.busy = append(u.busy, s)
+	u.renderBusyLocked(0)
 	u.mu.Unlock()
-	started := u.now()
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		t := time.NewTicker(120 * time.Millisecond)
 		defer t.Stop()
-		i := 0
+		i := 1
 		for {
 			select {
 			case <-done:
-				u.mu.Lock()
-				_, _ = io.WriteString(u.out, "\r\x1b[K"+showCursor)
-				u.spinOn = false
-				u.mu.Unlock()
 				return
 			case <-t.C:
 				u.mu.Lock()
-				if u.spinOn {
-					line := fmt.Sprintf("%s %s · %s elapsed", spinFrames[i%len(spinFrames)], u.spinLabel, FmtDur(u.now().Sub(started)))
-					_, _ = io.WriteString(u.out, "\r\x1b[K"+u.sDim.Render(line))
+				if len(u.busy) > 0 && u.busy[len(u.busy)-1] == s {
+					u.renderBusyLocked(i)
 				}
 				u.mu.Unlock()
 				i++
@@ -235,11 +287,99 @@ func (u *UI) Busy(label string) (update func(string), stop func()) {
 		}
 	}()
 	var once sync.Once
-	return func(l string) {
+	return func(completed int, text string) {
 			u.mu.Lock()
-			u.spinLabel = l
+			if !s.stopped {
+				setBusy(s, completed, text)
+				u.renderBusyLocked(0)
+			}
 			u.mu.Unlock()
 		}, func() {
-			once.Do(func() { close(done); <-finished })
+			once.Do(func() {
+				u.mu.Lock()
+				s.stopped = true
+				for i, item := range u.busy {
+					if item == s {
+						u.busy = append(u.busy[:i], u.busy[i+1:]...)
+						break
+					}
+				}
+				if len(u.busy) == 0 {
+					_, _ = io.WriteString(u.out, "\r\x1b[K"+showCursor)
+				} else {
+					u.renderBusyLocked(0)
+				}
+				u.mu.Unlock()
+				close(done)
+				<-finished
+			})
 		}
+}
+
+func setBusy(s *busyState, completed int, text string) {
+	if s.total > 0 {
+		s.completed, s.detail = min(max(0, completed), s.total), text
+	} else {
+		s.label = text
+	}
+}
+
+func plainBusy(s *busyState) string {
+	line := s.label
+	if s.total > 0 {
+		line += fmt.Sprintf(" · %d/%d", s.completed, s.total)
+		if s.detail != "" {
+			line += " · " + s.detail
+		}
+	}
+	return line
+}
+
+func (u *UI) renderBusyLocked(frame int) {
+	_, _ = io.WriteString(u.out, "\r\x1b[K"+u.busyLineLocked(frame, max(1, u.width()-1)))
+}
+
+// Keep one cell free to avoid automatic wrapping at the terminal's right edge.
+// Timing and counts survive truncation; only the narrative text is shortened.
+func (u *UI) busyLineLocked(frame, width int) string {
+	current := u.busy[len(u.busy)-1]
+	display := current
+	for i := len(u.busy) - 1; i >= 0; i-- {
+		if u.busy[i].total > 0 {
+			display = u.busy[i]
+			break
+		}
+	}
+	detail := display.detail
+	if current != display {
+		detail = current.label
+	}
+	text := display.label
+	if detail != "" {
+		text += " · " + detail
+	}
+	text = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(text)
+	prefix := u.sActive.Render(spinFrames[frame%len(spinFrames)]) + " "
+	suffix := u.sDim.Render("  " + FmtDur(u.now().Sub(display.started)))
+	if display.total > 0 {
+		count := fmt.Sprintf(" %d/%d", display.completed, display.total)
+		bar := ""
+		if width >= 60 && display.total > 1 {
+			segments := min(display.total, 10)
+			filled := int(float64(display.completed) / float64(display.total) * float64(segments))
+			bar = u.sActive.Render(strings.Repeat("■", filled)) + u.sDim.Render(strings.Repeat("□", segments-filled))
+		}
+		suffix = "  " + bar + u.sDim.Render(count) + suffix
+	}
+	available := width - lipgloss.Width(prefix) - lipgloss.Width(suffix)
+	if available < 1 {
+		// Drop narrative, spinner, and padding before measured information.
+		// When even the compact form cannot fit, prioritize the count.
+		compact := FmtDur(u.now().Sub(display.started))
+		if display.total > 0 {
+			compact = fmt.Sprintf("%d/%d %s", display.completed, display.total, compact)
+		}
+		return u.sDim.Render(ansi.Truncate(compact, width, "…"))
+	}
+	return prefix + ansi.Truncate(text, available, "…") + suffix
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -962,6 +963,161 @@ func TestBackupServiceUnitRecordsEnvironmentOwnership(t *testing.T) {
 	body := backupServiceUnit("sample", "production", "postgres", "backup", "/tmp/lock", []string{"true"})
 	if !strings.Contains(body, "Description=Onebox backup backup for postgres (sample/production)") {
 		t.Fatalf("backup service unit has no exact environment owner:\n%s", body)
+	}
+}
+
+// The scheduled base backup has to survive one refused upload part.
+//
+// wal-g aborts the whole push when the destination refuses a single multipart
+// part, and its S3 client does not retry a bare HTTP 400, so a unit with one
+// ExecStart lost three nights in six on a production host while the same
+// configuration succeeded on the others. The loop is bounded, and when every
+// attempt fails the unit still fails with the last attempt's status — a retry
+// that hid that would be a backup that had silently stopped.
+func TestTheScheduledBaseBackupRetriesBeforeFailingTheUnit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the scheduled backup is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "attempts")
+	for _, tc := range []struct {
+		name        string
+		succeedFrom int // the attempt that succeeds; 0 means none does
+		wantExit    int
+		wantRuns    int
+		wantStderr  []string
+	}{
+		{"first attempt succeeds", 1, 0, 1, nil},
+		{"second attempt succeeds", 2, 0, 2, []string{"attempt 1 of 3 failed (exit 7); retrying in 0s"}},
+		{"every attempt fails", 0, 7, 3, []string{
+			"attempt 1 of 3 failed (exit 7); retrying in 0s",
+			"attempt 2 of 3 failed (exit 7); retrying in 0s",
+			"failed on attempt 3 of 3 (exit 7); giving up",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(counter, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// The stand-in for `docker exec ... backup-push`: a program of its
+			// own, as the real one is. Each run appends a line, and it succeeds
+			// once the line count reaches the attempt meant to succeed.
+			push := filepath.Join(dir, "push.sh")
+			if err := os.WriteFile(push, []byte(fmt.Sprintf(
+				"echo run >> %s\n[ %d -gt 0 ] && [ \"$(wc -l < %s | tr -d ' ')\" -ge %d ] || exit 7\n",
+				counter, tc.succeedFrom, counter, tc.succeedFrom)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			script := filepath.Join(dir, "backup.sh")
+			if err := os.WriteFile(script, []byte(backupPushScriptWith("sh "+push, []int{0, 0})), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stderr bytes.Buffer
+			cmd := exec.CommandContext(context.Background(), "sh", script)
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			exit := 0
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				exit = exitErr.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if exit != tc.wantExit {
+				t.Errorf("exit %d, want %d:\n%s", exit, tc.wantExit, stderr.String())
+			}
+			runs, err := os.ReadFile(counter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(runs), "run\n"); got != tc.wantRuns {
+				t.Errorf("the push ran %d times, want %d:\n%s", got, tc.wantRuns, stderr.String())
+			}
+			for _, want := range tc.wantStderr {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr does not say %q:\n%s", want, stderr.String())
+				}
+			}
+		})
+	}
+
+	// The installed script: the real push, the real waits, and shell that does
+	// not bail out of the loop at the first failed attempt.
+	script := backupPushScript("shop-database-1")
+	for _, want := range []string{
+		"/usr/bin/docker exec -u postgres shop-database-1 " + app.WalgBinary + " backup-push " + app.PgDataPath,
+		"attempts=3",
+		"set -- 60 300",
+		`exit "$status"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the scheduled base backup does not contain %q:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "set -e") {
+		t.Errorf("set -e exits at the first failed attempt before the loop can retry:\n%s", script)
+	}
+	check := exec.CommandContext(context.Background(), "sh", "-n")
+	check.Stdin = strings.NewReader(script)
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("the scheduled base backup is not valid POSIX shell: %v: %s\n%s", err, output, script)
+	}
+}
+
+// The unit retries the push and only the push.
+//
+// Retention stays a separate ExecStart on purpose: systemd stops a oneshot at
+// the first ExecStart that fails, so a push that failed every attempt never
+// reaches `delete retain`. A retry wired into the unit with Restart= would
+// instead re-run every ExecStart, retention included, on each attempt.
+func TestTheScheduledBackupUnitRetriesThePushAndNotTheRetention(t *testing.T) {
+	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
+		if strings.HasSuffix(cmd, "echo ok") {
+			return transport.Result{Stdout: "ok\n"}, true
+		}
+		return transport.Result{}, false
+	}}
+	resolved := protectedPostgresResolved(t, "7513211627332151223")
+	e := New(resolved, nil, f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, Environment: "production"})
+	if err := e.SyncBackupSchedules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	n := resolved.Spec.NamesFor("production")
+	var unit, script string
+	for _, body := range f.Inputs {
+		switch {
+		case strings.Contains(body, "Description=Onebox backup backup for postgres"):
+			unit = body
+		case strings.HasPrefix(body, "#!/bin/sh") && strings.Contains(body, "backup-push"):
+			script = body
+		}
+	}
+	if unit == "" {
+		t.Fatalf("no backup unit was written:\n%s", strings.Join(f.Commands, "\n"))
+	}
+	if script == "" || !strings.Contains(strings.Join(f.Commands, "\n"), n.BackupPushScript("postgres")) {
+		t.Fatalf("the retrying base backup was not installed at %s:\n%s", n.BackupPushScript("postgres"), strings.Join(f.Commands, "\n"))
+	}
+	lock := n.BackupRunLock("postgres")
+	push := "ExecStart=/usr/bin/flock -w 3600 " + lock + " /bin/sh " + n.BackupPushScript("postgres")
+	prune := "ExecStart=/usr/bin/flock -w 3600 " + lock + " /usr/bin/docker exec -u postgres " +
+		n.ServiceContainer("postgres") + " " + app.WalgBinary + " delete retain FULL"
+	for _, want := range []string{push, prune} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("the backup unit does not contain %q:\n%s", want, unit)
+		}
+	}
+	if strings.Index(unit, push) > strings.Index(unit, prune) {
+		t.Errorf("retention runs before the push:\n%s", unit)
+	}
+	if strings.Contains(unit, "backup-push") {
+		t.Errorf("the unit runs the push outside the retrying script:\n%s", unit)
+	}
+	if strings.Contains(unit, "Restart=") {
+		t.Errorf("a systemd restart would re-run retention with every attempt:\n%s", unit)
+	}
+	if !strings.Contains(script, "/usr/bin/docker exec -u postgres "+n.ServiceContainer("postgres")+" "+app.WalgBinary+" backup-push "+app.PgDataPath) {
+		t.Errorf("the installed script does not push this service's cluster:\n%s", script)
 	}
 }
 

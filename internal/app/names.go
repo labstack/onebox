@@ -553,3 +553,11 @@ func (n Names) BackupRunLock(service string) string {
 func (n Names) BackupVerifyScript(service string) string {
 	return path.Join(n.AppDir(), "backup", "verify-"+service+".sh")
 }
+
+// BackupPushScript is the host-side base backup the scheduled backup unit
+// runs. It lives beside the verify script for the same reason: it drives
+// docker from the host, and it is where the unit's retry loop is written down
+// rather than in a unit file that cannot bound one.
+func (n Names) BackupPushScript(service string) string {
+	return path.Join(n.AppDir(), "backup", "backup-"+service+".sh")
+}

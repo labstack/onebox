@@ -269,6 +269,48 @@ func TestRollRoleTwoReplicasCleanSlots(t *testing.T) {
 	}
 }
 
+func TestRollProgressCompletesOnlyAfterRetirementAndSlots(t *testing.T) {
+	f := rollFake()
+	var out bytes.Buffer
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.HasPrefix(cmd, "docker stop ") || strings.HasPrefix(cmd, "docker rename ") {
+			if strings.Contains(out.String(), "web rolling · 1/1") {
+				t.Fatalf("progress completed before retirement/slot assignment: %s", out.String())
+			}
+		}
+		return base(cmd)
+	}
+	e := New(testConfig(), testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "web rolling · 1/1 · replicas converged") {
+		t.Fatalf("successful roll must finish measured progress: %s", out.String())
+	}
+}
+
+func TestRollProgressDoesNotCompleteOnFailedHealthcheck(t *testing.T) {
+	f := rollFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "State.Health") && strings.Contains(cmd, "NEW1") {
+			return transport.Result{Stdout: "starting\n"}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	cfg.Workloads["web"] = withinMillis(cfg.Workloads["web"], 1)
+	var out bytes.Buffer
+	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "F"); err == nil {
+		t.Fatal("expected failed healthcheck")
+	}
+	if strings.Contains(out.String(), "web rolling · 1/1") || strings.Contains(out.String(), "replicas converged") {
+		t.Fatalf("failed roll must not show full progress: %s", out.String())
+	}
+}
+
 // drain.grace sets the docker stop -t timeout when retiring a drained container;
 // absent it stays at the conservative 30s (asserted by the sequence tests).
 func TestRollRoleDrainGraceConfigurable(t *testing.T) {

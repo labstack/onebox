@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestPlainWriterGetsNoANSI(t *testing.T) {
@@ -146,5 +148,133 @@ func TestBusyNonTTY(t *testing.T) {
 	}
 	if strings.Count(s, "⟳ pinning images") != 1 || strings.Count(s, "⟳ staging release") != 1 {
 		t.Fatalf("busy labels must print once each:\n%s", s)
+	}
+}
+
+func TestProgressNonTTYReportsDistinctMeasuredCounts(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	update, stop := u.Progress("server rolling", 3)
+	update(-1, "starting replica 1")
+	update(2, "draining old replica")
+	update(2, "draining old replica")
+	update(99, "replicas converged")
+	stop()
+	update(1, "late update")
+	stop()
+	s := out.String()
+	if strings.ContainsAny(s, "\r\x1b") || strings.ContainsAny(s, "■□") {
+		t.Fatalf("plain progress must stay line-oriented: %q", s)
+	}
+	for _, want := range []string{"server rolling · 0/3", "server rolling · 2/3", "server rolling · 3/3"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in %s", want, s)
+		}
+	}
+	if strings.Count(s, "draining old replica") != 1 || strings.Contains(s, "late update") {
+		t.Fatalf("duplicate or stopped progress update: %s", s)
+	}
+}
+
+func TestProgressUnknownTotalFallsBackToSpinner(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	update, stop := u.Progress("packing archive", 0)
+	defer stop()
+	update(42, "waiting for remote extraction")
+	if s := out.String(); strings.Contains(s, "/0") || !strings.Contains(s, "waiting for remote extraction") {
+		t.Fatalf("unknown total must not invent a percentage: %s", s)
+	}
+}
+
+func TestNestedBusyKeepsProgressAndRestoresParent(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	u.tty = true
+	_, stopStep := u.Busy("server rolling ×3")
+	defer stopStep()
+	update, stopProgress := u.Progress("server rolling", 3)
+	defer stopProgress()
+	update(2, "assigning slots")
+	_, stopWait := u.Busy("replica 3 healthcheck")
+	defer stopWait()
+	u.mu.Lock()
+	line := u.busyLineLocked(0, 79)
+	u.mu.Unlock()
+	for _, want := range []string{"server rolling", "■■□", "2/3", "replica 3 healthcheck"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("nested wait lost %q: %s", want, line)
+		}
+	}
+	u.Infof("an interleaved log")
+	stopWait()
+	u.mu.Lock()
+	line = u.busyLineLocked(0, 79)
+	shown := strings.Contains(out.String(), showCursor)
+	u.mu.Unlock()
+	if shown || strings.Contains(line, "healthcheck") || !strings.Contains(line, "assigning slots") {
+		t.Fatalf("child stop must restore its parent with cursor hidden: %s", line)
+	}
+	stopProgress()
+	u.mu.Lock()
+	line = u.busyLineLocked(0, 79)
+	u.mu.Unlock()
+	if !strings.Contains(line, "server rolling ×3") || strings.Contains(line, "2/3") {
+		t.Fatalf("progress stop did not restore the outer step: %s", line)
+	}
+	stopStep()
+	if strings.Count(out.String(), hideCursor) != 1 || strings.Count(out.String(), showCursor) != 1 {
+		t.Fatalf("nested spinners must share cursor ownership: %q", out.String())
+	}
+}
+
+func TestStoppingOuterBusyDoesNotEraseChild(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	u.tty = true
+	updateOuter, stopOuter := u.Busy("outer step")
+	defer stopOuter()
+	_, stopChild := u.Busy("child wait")
+	defer stopChild()
+	stopOuter()
+	updateOuter("late outer update")
+	u.mu.Lock()
+	line := u.busyLineLocked(0, 79)
+	shown := strings.Contains(out.String(), showCursor)
+	u.mu.Unlock()
+	if shown || !strings.Contains(line, "child wait") || strings.Contains(line, "late outer") {
+		t.Fatalf("outer stop must leave child active: %s", line)
+	}
+	stopChild()
+	if strings.Count(out.String(), showCursor) != 1 {
+		t.Fatalf("cursor must return once the last activity stops: %q", out.String())
+	}
+}
+
+func TestBusyLineFitsNarrowAndUnicodeTerminals(t *testing.T) {
+	u := New(&bytes.Buffer{}, false)
+	u.busy = []*busyState{{
+		label: "server 界界界界界界界界界界 rolling", detail: "healthcheck\nstarting",
+		completed: 2, total: 3, started: u.now().Add(-12 * time.Second),
+	}}
+	for _, width := range []int{1, 8, 20, 40, 79} {
+		line := u.busyLineLocked(0, width)
+		if lipgloss.Width(line) > width || strings.ContainsAny(line, "\r\n") {
+			t.Fatalf("width %d: spinner wraps or contains newlines: %q", width, line)
+		}
+		if width >= 20 && (!strings.Contains(line, "2/3") || !strings.Contains(line, "12s")) {
+			t.Fatalf("width %d: measured progress and timing must survive truncation: %s", width, line)
+		}
+	}
+}
+
+func TestHeaderFitsInteractiveTerminal(t *testing.T) {
+	var out bytes.Buffer
+	u := New(&out, false)
+	u.tty = true
+	u.width = func() int { return 24 }
+	u.Header("deploy catalog → production · R42")
+	if line := strings.TrimSuffix(out.String(), "\n"); lipgloss.Width(line) > 23 {
+		t.Fatalf("header wraps in a narrow terminal: %q", line)
 	}
 }

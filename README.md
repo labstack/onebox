@@ -15,7 +15,7 @@ server.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/media/deploy-dark.svg">
-  <img src="docs/media/deploy-light.svg" width="760" alt="An example Onebox session: ob plan prints a sealed diff of two image changes, a new workload and a migration whose data effect is unknown, then ob deploy rolls the workloads, verifies, and finishes with release r-0042 serving.">
+  <img src="docs/media/deploy-light.svg" width="760" alt="An example Onebox session: ob plan prints a sealed diff of two image changes, a new workload and a migration whose data effect is unknown, then ob deploy reports completed steps with durations and finishes with release r-0042 deployed.">
 </picture>
 
 <sub>A rendering of an example session, not a recording of one.</sub>
@@ -200,6 +200,14 @@ The field, CLI, and error references are generated from the binary by
 contract.
 
 ## Development
+
+Preview the CLI's spinner, replica progress, and nested health/drain waits with
+`go run ./scripts/ui-demo`; add `-fail` for a failed-healthcheck example. The
+demo simulates a deployment locally and never connects to a server.
+
+Interactive terminals show a live progress line. Pipes, CI, and `TERM=dumb`
+receive static progress updates. Set `ONEBOX_NO_ANIMATION=1` to use static
+output in a terminal; `NO_COLOR` disables colors independently.
 
 ```sh
 just check       # local pre-commit gate

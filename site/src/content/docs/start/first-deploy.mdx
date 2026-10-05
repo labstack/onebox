@@ -140,16 +140,16 @@ read-only.
    ob deploy --plan ob-plan.json --approval ob-approval.json
    ```
 
-   A successful deploy ends by naming the release that is serving and the one it
-   superseded:
+   Completed steps stay in the terminal with their durations. This condensed
+   example shows a successful deploy, ending with its release and predecessor:
 
    ```console
-   staged    r-0042
-   rolling   shop-web-1 … healthy
-   rolling   shop-web-2 … healthy
-   retain    shop-worker · runtime unchanged
-   verified  checks/url 200 · X-App-Ready: yes
-   serving   r-0042 · r-0041 superseded
+   ✓ transfer  0.7s
+   ✓ web rolling ×2  4.1s
+   ✓ worker retain  0.0s
+   ✓ verify  0.6s
+   ✓ activate  0.2s
+   ✓ deployed r-0042 in 6.8s (prev r-0041 — `ob rollback`)
    ```
 
    Read the observed state back once more:
@@ -161,6 +161,31 @@ read-only.
    Status exits non-zero if the host diverges from the active release.
 
 </Steps>
+
+## Reading deployment progress
+
+In an interactive terminal, a cyan rotating block marks the active step. The
+label stays readable while elapsed time and supporting details are quieter.
+Rolling workloads also show measured replica progress; healthchecks and drain
+waits share that same live line:
+
+```console
+▘ web rolling · waiting for healthcheck  ■□ 1/2  3.2s
+```
+
+The count advances as replacements converge, including retirement of the old
+replicas. The last segment fills after replica slot assignment succeeds. It is
+a count of replica work, not a percentage of the entire deployment or an
+estimate of time remaining. Transfers and other waits use a spinner because
+their total work is not measured by the CLI.
+
+On narrow terminals, the bar gives way to the count and the label shortens to
+keep the live line from wrapping. Completed steps remain in scrollback.
+
+Piped output, CI, and `TERM=dumb` use static progress lines. Set
+`ONEBOX_NO_ANIMATION=1` for static output in an interactive terminal. `NO_COLOR`
+disables colors independently of animation. JSON and NDJSON keep their
+structured output contracts.
 
 ## What you now have on the host
 

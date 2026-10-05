@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// loadFixtureBytes repairs only v1alpha1 test fragments assembled through Go
+// loadFixtureBytes repairs only current-API test fragments assembled through Go
 // string concatenation. Repository-owned YAML files and the shipped loader do
 // not pass through it. Direct contract tests below call LoadBytes itself.
 func loadFixtureBytes(body []byte, filename string) (*Spec, error) {
@@ -204,10 +204,10 @@ func TestApplicationContractRejectsLegacyForms(t *testing.T) {
 	legacy := []string{
 		"api_version: onebox.run/v1\napp: shop\nenvironments: {}\nimage: nginx\n",
 		"apiVersion: onebox.run/v1\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {}}\n",
-		"apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {}, base_path: /srv/ob}\n",
-		"apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {web: {image: nginx, role: application}}}\n",
-		"apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}}\nimage: nginx\n",
-		"apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {}, x-behavior: true}\n",
+		"apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {}, base_path: /srv/ob}\n",
+		"apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {web: {image: nginx, role: application}}}\n",
+		"apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}}\nimage: nginx\n",
+		"apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata: {name: shop}\nspec: {environments: {}, workloads: {}, x-behavior: true}\n",
 	}
 	for _, source := range legacy {
 		if _, err := LoadBytes([]byte(source), "legacy.yml"); err == nil {
@@ -224,7 +224,7 @@ func TestApplicationContractRejectsMalformedAnnotations(t *testing.T) {
 		"non-string": "{note: 1}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			source := `apiVersion: onebox.run/v1alpha1
+			source := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -246,7 +246,7 @@ spec:
 }
 
 func TestProviderNativeValuesRemainData(t *testing.T) {
-	source := `apiVersion: onebox.run/v1alpha1
+	source := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: shop}
 spec:

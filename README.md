@@ -75,8 +75,8 @@ Starting from an existing Compose project, `ob init` writes the first draft.
 This is a complete single-workload project:
 
 ```yaml
-# yaml-language-server: $schema=https://onebox.run/schemas/application/v1alpha1/application.schema.json
-apiVersion: onebox.run/v1alpha1
+# yaml-language-server: $schema=https://onebox.run/schemas/application/v1alpha2/application.schema.json
+apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

@@ -15,7 +15,7 @@ func TestWorkloadContractsScopePlainEnvironmentChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -86,7 +86,7 @@ func TestWorkloadContractsTrackRelativeBindMountContent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -127,7 +127,7 @@ spec:
 }
 
 func TestBindMountContractIsIndependentOfWhereTheReleaseIsStaged(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -166,7 +166,7 @@ spec:
 
 func TestWorkloadContractsIgnoreVolumesOnAnAdoptedComposeService(t *testing.T) {
 	staging := t.TempDir()
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -189,7 +189,7 @@ spec:
 }
 
 func TestBindMountContractNoticesAnAddedEmptyDirectory(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample
@@ -231,7 +231,7 @@ spec:
 
 func bindMountRevision(t *testing.T, mode os.FileMode) string {
 	t.Helper()
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample

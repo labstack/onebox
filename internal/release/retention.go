@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
-	"github.com/labstack/onebox/internal/durable"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -98,22 +97,6 @@ func RetentionCandidates(ctx context.Context, target transport.Transport, names 
 	for _, id := range leased {
 		protected[id] = true
 	}
-	// Live leases disappear on reboot; checkpoint references do not. New
-	// executions publish them before leaving the schedule/deploy rendezvous.
-	pins, err := target.Run(ctx, "if [ -e "+q(durable.Store(names.AppDir()))+" ] || [ -L "+q(durable.Store(names.AppDir()))+" ]; then /usr/bin/python3 "+q(durable.Helper(names.AppDir()))+" pins "+q(names.AppDir())+"; fi")
-	if err != nil {
-		return RetentionDecision{}, refuseRetention(err, err)
-	}
-	if pins.ExitCode != 0 {
-		return RetentionDecision{}, refuseRetention(nil, fmt.Errorf("durable execution retention evidence is unusable (exit %d): %s", pins.ExitCode, strings.TrimSpace(pins.Stderr)))
-	}
-	for _, id := range strings.Fields(pins.Stdout) {
-		if !IsID(id) {
-			return RetentionDecision{}, refuseRetention(nil, fmt.Errorf("invalid durable execution release reference"))
-		}
-		protected[id] = true
-	}
-
 	// A release a container still mounts is in use even when it is far past
 	// the retained chain: retention bounds what is worth keeping for rollback,
 	// which is a different question from what is load-bearing right now.

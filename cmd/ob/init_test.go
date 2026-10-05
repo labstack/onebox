@@ -48,7 +48,7 @@ func TestInitClassifiesAndDoctors(t *testing.T) {
 	}
 	y := string(b)
 	for _, want := range []string{
-		"apiVersion: onebox.run/v1alpha1",
+		"apiVersion: onebox.run/v1alpha2",
 		"server: deploy@CHANGE-ME",
 		"workloads:",
 		"role: Application",

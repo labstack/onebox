@@ -119,16 +119,23 @@ func TestPublishedSchemaAcceptsEveryRealProject(t *testing.T) {
 	}
 }
 
-// The shorthand an author actually writes must validate. This is the failure
-// mode a schema generated from the model alone would have.
-func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
+// Removed alpha fields must fail explicitly rather than silently lose work.
+func TestRetiredJobExecutionIsRejectedBySchemaAndLoader(t *testing.T) {
 	schema := compiledSchema(t)
-	for _, step := range []string{`{id: sync, command: [echo, ok]}`, `{command: [echo, ok]}`, `{id: sync}`, `{}`} {
-		y := "apiVersion: onebox.run/v1alpha1\nkind: Application\nmetadata: {name: a}\nspec:\n  environments: {p: {server: root@h}}\n  workloads:\n    sync:\n      role: Job\n      image: busybox\n      deploymentPhase: None\n      dataEffect: None\n      schedule: {cron: '0 * * * *'}\n      execution:\n        steps: [" + step + "]\n"
-		err := schema.Validate(asJSON(t, y))
-		valid := strings.Contains(step, "id:") && strings.Contains(step, "command:")
-		if (err == nil) != valid {
-			t.Errorf("step %s: valid=%v, schema error=%v", step, valid, err)
+	base := "apiVersion: onebox.run/v1alpha2\nkind: Application\nmetadata: {name: a}\nspec:\n  environments: {p: {server: root@h}}\n  workloads:\n    sync:\n      role: Job\n      image: busybox\n      dataEffect: None\n      schedule: {cron: '0 * * * *'}\n"
+	if err := schema.Validate(asJSON(t, base)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadBytes([]byte(base), "ob.yml"); err != nil {
+		t.Fatal(err)
+	}
+	for _, execution := range []string{`{}`, `{retention: 168h}`, `{steps: [{id: sync, command: [echo, ok]}]}`} {
+		y := base + "      execution: " + execution + "\n"
+		if err := schema.Validate(asJSON(t, y)); err == nil || !strings.Contains(err.Error(), "execution") {
+			t.Errorf("schema must reject execution %s: %v", execution, err)
+		}
+		if _, err := LoadBytes([]byte(y), "ob.yml"); err == nil || !strings.Contains(err.Error(), "execution") {
+			t.Errorf("loader must reject execution %s: %v", execution, err)
 		}
 	}
 }
@@ -136,7 +143,7 @@ func TestPublishedSchemaRequiresExecutionStepIDAndCommand(t *testing.T) {
 func TestPublishedSchemaAcceptsAuthoredScalarForms(t *testing.T) {
 	schema := compiledSchema(t)
 	for _, y := range []string{
-		`apiVersion: onebox.run/v1alpha1
+		`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -145,7 +152,7 @@ spec:
   workloads:
     a:
       image: nginx
-`, `apiVersion: onebox.run/v1alpha1
+`, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -153,14 +160,14 @@ spec:
   environments: {p: {server: root@h}}
   workloads: {w: {image: nginx}}
   services: {postgres: 17}
-`, `apiVersion: onebox.run/v1alpha1
+`, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
 spec:
   environments: {p: {server: root@h}}
   workloads: {w: {image: nginx, volumes: [{name: data, path: /data}], needs: [db], command: run}}
-`, `apiVersion: onebox.run/v1alpha1
+`, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -168,7 +175,7 @@ spec:
   environments: {p: {server: root@h}}
   workloads: {w: {image: nginx}}
   hooks: {PostDeploy: "echo done"}
-`, `apiVersion: onebox.run/v1alpha1
+`, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -187,7 +194,7 @@ spec:
 // completion and error support the schema exists to provide.
 func TestPublishedSchemaRefusesAnUndefinedField(t *testing.T) {
 	schema := compiledSchema(t)
-	y := `apiVersion: onebox.run/v1alpha1
+	y := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -204,7 +211,7 @@ spec:
 
 func TestPublishedSchemaConstrainsProxyEntrypoints(t *testing.T) {
 	schema := compiledSchema(t)
-	base := `apiVersion: onebox.run/v1alpha1
+	base := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a
@@ -317,20 +324,20 @@ func TestCheckedInSchemaMatchesGenerator(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := append(append([]byte(nil), body...), '\n')
-	path := filepath.Join("..", "..", "api", "application", "v1alpha1", "application.schema.json")
+	path := filepath.Join("..", "..", "api", "application", "v1alpha2", "application.schema.json")
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read published schema: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out api/application/v1alpha1/application.schema.json`", path)
+		t.Fatalf("%s is stale; regenerate it with `go run ./cmd/ob schema --out api/application/v1alpha2/application.schema.json`", path)
 	}
 }
 
 // The schema is only useful to an author if the guide tells them the URL to
 // point their editor at. A published identity nobody is told about helps no one.
 func TestPublishedSchemaURLIsUsedByTheHumanGuide(t *testing.T) {
-	if SchemaID != "https://onebox.run/schemas/application/v1alpha1/application.schema.json" {
+	if SchemaID != "https://onebox.run/schemas/application/v1alpha2/application.schema.json" {
 		t.Fatalf("schema identity = %q", SchemaID)
 	}
 	guides := []string{

@@ -68,7 +68,7 @@ func TestRouteJumpDefaultsToPort22(t *testing.T) {
 // port has to survive into the route, or the connection is attempted against
 // a hostname with a colon in it.
 func TestScalarServerPortReachesTheRoute(t *testing.T) {
-	resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -100,7 +100,7 @@ spec:
 func TestBracketedIPv6ScalarNormalisesLikeTheObjectForm(t *testing.T) {
 	load := func(server string) Environment {
 		t.Helper()
-		resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+		resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -133,7 +133,7 @@ spec:
 // now, so the brackets have to come off while the project is read or
 // JoinHostPort builds [[2001:db8::1]]:22.
 func TestBracketedIPv6ServerHostNormalises(t *testing.T) {
-	resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	resolved, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -164,7 +164,7 @@ func TestInvalidServerAddressIsRejectedAtLoad(t *testing.T) {
 	}
 	for name, server := range invalid {
 		t.Run(name, func(t *testing.T) {
-			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger

@@ -1,11 +1,11 @@
 {
-  "$id": "https://onebox.run/schemas/application/v1alpha1/application.schema.json",
+  "$id": "https://onebox.run/schemas/application/v1alpha2/application.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "One application, its workloads, the services it needs, and how a release rolls out.",
   "properties": {
     "apiVersion": {
-      "const": "onebox.run/v1alpha1",
+      "const": "onebox.run/v1alpha2",
       "description": "Authored Application API identity.",
       "type": "string"
     },
@@ -1300,35 +1300,6 @@
             "additionalProperties": false,
             "allOf": [
               {
-                "if": {
-                  "required": [
-                    "execution"
-                  ]
-                },
-                "then": {
-                  "not": {
-                    "required": [
-                      "compose"
-                    ]
-                  },
-                  "properties": {
-                    "dataEffect": {
-                      "const": "None"
-                    },
-                    "deploymentPhase": {
-                      "const": "None"
-                    },
-                    "operatorRun": {
-                      "const": "Allowed"
-                    }
-                  },
-                  "required": [
-                    "schedule",
-                    "dataEffect"
-                  ]
-                }
-              },
-              {
                 "oneOf": [
                   {
                     "required": [
@@ -1473,11 +1444,6 @@
                       {
                         "required": [
                           "inputs"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "execution"
                         ]
                       }
                     ]
@@ -1689,104 +1655,6 @@
                   "description": "Also accepts a path to an environment file."
                 },
                 "type": "array"
-              },
-              "execution": {
-                "additionalProperties": false,
-                "description": "Opt-in durable scheduled execution. Requires a native operator-runnable phase-none job with dataEffect None. Stores non-secret checkpoints on the host and permits explicit same-release resume.",
-                "properties": {
-                  "retention": {
-                    "default": "168h",
-                    "description": "Time from creation during which an unsuccessful execution may be resumed, at most 30d. Active executions remain protected. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-                    "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-                    "type": "string"
-                  },
-                  "steps": {
-                    "description": "Optional ordered steps using this job's image and entrypoint. Omit to execute the job command as one step. At most 32 steps.",
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "command": {
-                          "description": "Argument vector passed to the job image's entrypoint. No shell evaluation is performed.",
-                          "items": {
-                            "type": "string"
-                          },
-                          "maxItems": 128,
-                          "minItems": 1,
-                          "type": "array"
-                        },
-                        "id": {
-                          "description": "Unique stable step identifier, used by output references. Expects lower-case letters, digits and hyphens, starting with a letter, at most 40 characters.",
-                          "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$",
-                          "type": "string"
-                        },
-                        "inputs": {
-                          "additionalProperties": {
-                            "type": "string"
-                          },
-                          "description": "Environment variables populated from a preceding step's declared output, written as step.OUTPUT.",
-                          "propertyNames": {
-                            "pattern": "^[A-Z][A-Z0-9_]*$"
-                          },
-                          "type": "object"
-                        },
-                        "outputs": {
-                          "description": "Required string keys in the JSON object written to ONEBOX_OUTPUT_FILE. Values are non-secret, at most 4096 bytes each and 16384 bytes total.",
-                          "items": {
-                            "description": "Expects upper-case letters, digits and underscores, starting with a letter.",
-                            "pattern": "^[A-Z][A-Z0-9_]*$",
-                            "type": "string"
-                          },
-                          "maxItems": 32,
-                          "type": "array",
-                          "uniqueItems": true
-                        },
-                        "retry": {
-                          "additionalProperties": false,
-                          "description": "Per-step retry policy; defaults to schedule.retry. All steps and backoff share the activation timeout.",
-                          "properties": {
-                            "attempts": {
-                              "default": 1,
-                              "description": "Total attempts including the first, 1 to 10.",
-                              "examples": [
-                                3
-                              ],
-                              "maximum": 10,
-                              "minimum": 1,
-                              "type": "integer"
-                            },
-                            "backoff": {
-                              "default": "30s",
-                              "description": "Sleep before the second attempt; it doubles after each failure. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-                              "examples": [
-                                "1m"
-                              ],
-                              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-                              "type": "string"
-                            },
-                            "maxBackoff": {
-                              "default": "10m",
-                              "description": "Upper bound for the doubling sleep. Expects a duration such as 30s, 5m, 1h30m or 14d.",
-                              "examples": [
-                                "30m"
-                              ],
-                              "pattern": "^(([0-9]+([.][0-9]+)?(ns|us|µs|ms|s|m|h))+|[0-9]+d)$",
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "command"
-                      ],
-                      "type": "object"
-                    },
-                    "maxItems": 32,
-                    "type": "array"
-                  }
-                },
-                "type": "object"
               },
               "extraHosts": {
                 "description": "Additional host-to-address entries added to the container.",
@@ -2562,6 +2430,6 @@
     "metadata",
     "spec"
   ],
-  "title": "Onebox Application (onebox.run/v1alpha1)",
+  "title": "Onebox Application (onebox.run/v1alpha2)",
   "type": "object"
 }

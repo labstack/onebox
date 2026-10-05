@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const namesFixture = `apiVersion: onebox.run/v1alpha1
+const namesFixture = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -293,7 +293,7 @@ func TestNoDerivedNameCollidesWithHostScoped(t *testing.T) {
 // discovery would derive the host proxy's own container names.
 func TestOneboxContainerNamespaceIsReserved(t *testing.T) {
 	for label, body := range map[string]string{
-		"application onebox": `apiVersion: onebox.run/v1alpha1
+		"application onebox": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: onebox
@@ -302,7 +302,7 @@ spec:
   workloads:
     web: {image: nginx}
 `,
-		"service proxy": `apiVersion: onebox.run/v1alpha1
+		"service proxy": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -313,7 +313,7 @@ spec:
   services:
     proxy: {driver: redis, version: 7}
 `,
-		"service ingress": `apiVersion: onebox.run/v1alpha1
+		"service ingress": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -324,7 +324,7 @@ spec:
   services:
     ingress: {driver: redis, version: 7}
 `,
-		"service services": `apiVersion: onebox.run/v1alpha1
+		"service services": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -335,7 +335,7 @@ spec:
   services:
     services: {driver: redis, version: 7}
 `,
-		"service discovery": `apiVersion: onebox.run/v1alpha1
+		"service discovery": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

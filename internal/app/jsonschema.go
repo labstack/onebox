@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	applicationv1alpha1 "github.com/labstack/onebox/api/application/v1alpha1"
+	applicationv1alpha2 "github.com/labstack/onebox/api/application/v1alpha2"
 )
 
 // The published schema describes the document an author writes, not the one the
@@ -24,12 +24,12 @@ import (
 // loader does. A published schema that disagrees teaches something untrue.
 
 // SchemaID is both the schema identity and its stable, publicly retrievable
-// location. The main-branch path stays fixed across Onebox releases.
-const SchemaID = "https://onebox.run/schemas/application/v1alpha1/application.schema.json"
+// location. Each authored API version keeps a fixed publication path.
+const SchemaID = "https://onebox.run/schemas/application/v1alpha2/application.schema.json"
 
 // JSONSchema is the published contract, ready to write.
 func JSONSchema() ([]byte, error) {
-	embedded := bytes.TrimSpace(applicationv1alpha1.Schema)
+	embedded := bytes.TrimSpace(applicationv1alpha2.Schema)
 	return append([]byte(nil), embedded...), nil
 }
 
@@ -69,7 +69,7 @@ func GenerateJSONSchema() ([]byte, error) {
 	doc := map[string]any{
 		"$schema":     "https://json-schema.org/draft/2020-12/schema",
 		"$id":         SchemaID,
-		"title":       "Onebox Application (onebox.run/v1alpha1)",
+		"title":       "Onebox Application (onebox.run/v1alpha2)",
 		"description": "One application, its workloads, the services it needs, and how a release rolls out.",
 		"type":        "object",
 		"properties": map[string]any{
@@ -439,17 +439,6 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "drain", "wait"}, pattern(gDur)},
 	{[]string{"workloads", "*", "drain", "grace"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "notify", "items"}, enum(eScheduleNotify)},
-	{[]string{"workloads", "*", "execution", "retention"}, pattern(gDur)},
-	{[]string{"workloads", "*", "execution", "steps"}, map[string]any{"maxItems": 32}},
-	{[]string{"workloads", "*", "execution", "steps", "items"}, map[string]any{"required": []any{"id", "command"}}},
-	{[]string{"workloads", "*", "execution", "steps", "items", "id"}, pattern(gIdent)},
-	{[]string{"workloads", "*", "execution", "steps", "items", "command"}, map[string]any{"minItems": 1, "maxItems": 128}},
-	{[]string{"workloads", "*", "execution", "steps", "items", "inputs"}, propertyNames(gInputName)},
-	{[]string{"workloads", "*", "execution", "steps", "items", "outputs"}, map[string]any{"maxItems": 32, "uniqueItems": true}},
-	{[]string{"workloads", "*", "execution", "steps", "items", "outputs", "items"}, pattern(gInputName)},
-	{[]string{"workloads", "*", "execution", "steps", "items", "retry", "attempts"}, map[string]any{"minimum": 1, "maximum": maxRetryAttempts}},
-	{[]string{"workloads", "*", "execution", "steps", "items", "retry", "backoff"}, pattern(gDur)},
-	{[]string{"workloads", "*", "execution", "steps", "items", "retry", "max_backoff"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "retry", "attempts"}, map[string]any{"minimum": 1, "maximum": maxRetryAttempts}},
 	{[]string{"workloads", "*", "schedule", "retry", "backoff"}, pattern(gDur)},
 	{[]string{"workloads", "*", "schedule", "retry", "max_backoff"}, pattern(gDur)},
@@ -645,20 +634,8 @@ func applyRoleRules(doc map[string]any) {
 	}
 
 	sources := []any{"build", "image", "compose"}
-	jobOnly := []any{"deployment_phase", "operator_run", "data_effect", "schedule", "inputs", "execution"}
+	jobOnly := []any{"deployment_phase", "operator_run", "data_effect", "schedule", "inputs"}
 	workload["allOf"] = []any{
-		map[string]any{
-			"if": map[string]any{"required": []any{"execution"}},
-			"then": map[string]any{
-				"required": []any{"schedule", "data_effect"},
-				"properties": map[string]any{
-					"data_effect":      map[string]any{"const": "none"},
-					"deployment_phase": map[string]any{"const": "none"},
-					"operator_run":     map[string]any{"const": "allowed"},
-				},
-				"not": map[string]any{"required": []any{"compose"}},
-			},
-		},
 		// Exactly one source. A workload with none cannot run and a workload
 		// with two does not say which image it is.
 		map[string]any{"oneOf": anyRequired(sources)},

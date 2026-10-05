@@ -14,7 +14,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const execProjectYAML = `apiVersion: onebox.run/v1alpha1
+const execProjectYAML = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

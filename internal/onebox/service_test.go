@@ -27,7 +27,7 @@ services:
     image: ghcr.io/example/postgres:` + testSecret + `
 `,
 		"ob.yml": `
-apiVersion: onebox.run/v1alpha1
+apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: demo}
 spec:
@@ -166,7 +166,7 @@ func writeComposeBuildProject(t *testing.T) string {
 	pinnedWeb := "ghcr.io/example/app@sha256:" + strings.Repeat("1", 64)
 	files := map[string]string{
 		"compose.yaml": "services:\n  database:\n    build: .\n    command: [postgres, -c, shared_buffers=256MB]\n",
-		"ob.yml": `apiVersion: onebox.run/v1alpha1
+		"ob.yml": `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: demo}
 spec:
@@ -236,7 +236,7 @@ func TestPlanDeployUsesDeployedSecretGraphDuringTransition(t *testing.T) {
 		if workerSecret {
 			workerEnv = "\n      envFiles: [{file: worker.enc.env, provider: Sops}]"
 		}
-		return `apiVersion: onebox.run/v1alpha1
+		return `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo

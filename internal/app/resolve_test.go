@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const overrideFixture = `apiVersion: onebox.run/v1alpha1
+const overrideFixture = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -119,7 +119,7 @@ func TestResolveDoesNotLeakBetweenEnvironments(t *testing.T) {
 }
 
 func TestRouteMiddlewareOverrideRequiresManagedProxyConfig(t *testing.T) {
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -251,7 +251,7 @@ func TestRenderResolvesAutomatically(t *testing.T) {
 // permitted set would accept an override naming something no service has, and
 // accepting it silently is how an operator comes to believe a setting applied.
 func TestOverridingAWithdrawnFieldIsRefused(t *testing.T) {
-	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -290,7 +290,7 @@ spec:
 // time — blamed on a `replicas` override nobody wrote. The inference is a
 // derived read now, and the document is never edited.
 func TestAProjectThatLoadsAlsoResolves(t *testing.T) {
-	yaml := `apiVersion: onebox.run/v1alpha1
+	yaml := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: a

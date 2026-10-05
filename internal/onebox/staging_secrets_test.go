@@ -38,7 +38,7 @@ func twoEncryptedEntries(t *testing.T) string {
 	write("api.enc.env", "TOKEN=api-token\n")
 	write("worker.enc.env", "TOKEN=worker-token\n")
 	write("shared.env", "REGION=eu\n")
-	write("ob.yml", `apiVersion: onebox.run/v1alpha1
+	write("ob.yml", `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -255,7 +255,7 @@ func TestExternalServiceConnectionIsProjectedLeastPrivilegeIntoRelease(t *testin
 	if err := os.WriteFile(filepath.Join(dir, "secrets", "database.env"), []byte(secret), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	project := `apiVersion: onebox.run/v1alpha1
+	project := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

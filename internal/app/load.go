@@ -17,7 +17,7 @@ import (
 )
 
 // APIVersion is the only authoring contract this package accepts.
-const APIVersion = "onebox.run/v1alpha1"
+const APIVersion = "onebox.run/v1alpha2"
 
 // maxDerivedName is an Onebox limit chosen for headroom, not a container-runtime
 // maximum. An over-long name is refused rather than truncated: truncation with a

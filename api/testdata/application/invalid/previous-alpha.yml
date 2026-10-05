@@ -1,0 +1,15 @@
+apiVersion: onebox.run/v1alpha1
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments:
+    production:
+      server: root@example.invalid
+  workloads:
+    nightly:
+      role: Job
+      image: busybox
+      dataEffect: None
+      schedule:
+        cron: "0 2 * * *"

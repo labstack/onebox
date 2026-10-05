@@ -9,7 +9,7 @@
 //
 // So this program is the only writer of `site/src/content/docs/reference/`
 // — the field pages, `drivers.mdx`, `errors.mdx` and `cli.mdx` — and of the
-// schema published below `site/public/schemas/application/v1alpha1/`. Those pages carry
+// schema published below `site/public/schemas/application/v1alpha2/`. Those pages carry
 // a generated marker,
 // which `--check` reads in both directions: it fails when a page differs from
 // what this binary would produce, and when a marked page survives that no
@@ -67,7 +67,7 @@ func main() {
 		os.Exit(1)
 	}
 	schema = append(schema, '\n')
-	publicFiles := map[string]string{"schemas/application/v1alpha1/application.schema.json": string(schema)}
+	publicFiles := map[string]string{"schemas/application/v1alpha2/application.schema.json": string(schema)}
 
 	if check {
 		if err := verify(out, files); err != nil {

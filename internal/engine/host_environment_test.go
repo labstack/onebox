@@ -98,7 +98,7 @@ func TestHostOwnerRecordRoundTrips(t *testing.T) {
 // project's default base_path instead of the environment's. An engine built
 // without one now takes the environment the project was resolved for.
 func TestEnvironmentSelectsTheBasePath(t *testing.T) {
-	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	spec, err := app.LoadBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample

@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const ejectProject = `apiVersion: onebox.run/v1alpha1
+const ejectProject = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   # Ledger's production contract.
@@ -193,7 +193,7 @@ func TestEjectCarriesTheAuthorsNote(t *testing.T) {
 // shaped by the file. Leaving a health check or a volume in the project would
 // let someone edit it, see no effect, and get no error.
 func TestEjectRemovesWhatTheComposeFileNowOwns(t *testing.T) {
-	dir, _ := ejectInto(t, `apiVersion: onebox.run/v1alpha1
+	dir, _ := ejectInto(t, `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -230,7 +230,7 @@ spec:
 func TestEjectDefaultAvoidsAReferencedFile(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  db: {image: postgres}\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`apiVersion: onebox.run/v1alpha1
+	os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -269,7 +269,7 @@ spec:
 func TestEjectAfterAnInterruptionCompletes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ob.yml")
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

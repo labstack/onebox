@@ -56,6 +56,11 @@ unattended full restore drills, and log rotation.** Onebox says so rather than
 implying otherwise — `ob doctor` reports every durable workload or service that
 has no executable backup contract, because silence there would read as approval.
 
+Scheduled jobs run one application container command with a host timer, a
+timeout, bounded retries, deployment coordination, and run records. Application
+code owns multi-step workflows, progress checkpoints, and output handoff.
+Onebox keeps that boundary small; it does not supply a workflow engine.
+
 PostgreSQL backup is delivered as part of the pinned Onebox PostgreSQL image:
 the image owns the compatible WAL-G executable; Onebox owns policy, generated
 credential adaptation, scheduling, verification, and recovery orchestration.

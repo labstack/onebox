@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
-	"github.com/labstack/onebox/internal/durable"
 	"github.com/labstack/onebox/internal/notify"
 )
 
@@ -68,21 +67,6 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		return err
 	}
 	for _, job := range jobs {
-		if job.Execution != nil {
-			res, err := e.mutate(ctx, "install -d -m 700 "+q(n.AppDir()+"/schedule"))
-			if err != nil {
-				return err
-			}
-			if res.ExitCode != 0 {
-				return errors.New("cannot create durable execution helper directory")
-			}
-			if err := e.writeServiceFile(ctx, durable.Helper(n.AppDir()), []byte(durable.Script)); err != nil {
-				return fmt.Errorf("install durable execution helper: %w", err)
-			}
-			break
-		}
-	}
-	for _, job := range jobs {
 		unit := n.ScheduledJobUnit(job.Name)
 		wanted[unit] = true
 
@@ -107,12 +91,6 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
 		}
 		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles, e.lockTTL(), e.hasTriggerUnit(ctx))
-		if job.Execution != nil {
-			runner, err = e.durableScheduleRunner(job, runtimeEnvFiles)
-			if err != nil {
-				return err
-			}
-		}
 		notifier, err := e.scheduleNotifier(job)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
@@ -224,7 +202,7 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	projectDir := q(names.CurrentLink())
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps \"$@\" --label " + q(ExecutionJobLabel+"="+job.Name) + " --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -247,18 +225,10 @@ func scheduleRunnerScript(application string, job app.ScheduledJob, names app.Na
 	)
 	lines = append(lines, scheduleRunPreamble(triggerUnit)...)
 	lines = append(lines, schedulePlannedBindingLines()...)
-	if job.DataEffect != app.DataEffectNone {
-		lines = append(lines, invalidateExecutionCommand(names.AppDir()))
-	}
 	lines = append(lines, scheduleAttemptLoop(job, compose, container)...)
 	lines = append(lines, "")
 	return strings.Join(lines, "\n")
 }
-
-// ExecutionJobLabel names the job a one-off container runs. Every scheduled run
-// carries it, durable or not, so a container a crash left behind is still
-// provably this job's when the durable runner has to reclaim it.
-const ExecutionJobLabel = "onebox.execution.job"
 
 func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names app.Names, applicationLock string, runtimeEnvFiles []app.EnvFile, lockTTL time.Duration, triggerUnit bool) string {
 	scheduleDir := names.AppDir() + "/schedule"
@@ -266,7 +236,7 @@ func pinnedScheduleRunnerScript(application string, job app.ScheduledJob, names 
 	projectDir := `"$release_dir"`
 	compose := "/usr/bin/docker compose -p " + q(application) + " --project-directory " + projectDir +
 		" -f " + projectDir + "/" + q("compose.yaml") + scheduleRuntimeEnvArgs(projectDir, runtimeEnvFiles) +
-		" run --rm --no-deps \"$@\" --label " + q(ExecutionJobLabel+"="+job.Name) + " --name " + q(container) + " " + q(job.Name)
+		" run --rm --no-deps \"$@\" --name " + q(container) + " " + q(job.Name)
 	lines := []string{
 		"#!/bin/sh",
 		"# Written by Onebox. Edits are overwritten on the next deploy.",
@@ -406,19 +376,6 @@ func (e *Engine) requireScheduleHost(ctx context.Context, jobs []app.ScheduledJo
 	if !e.hasScheduleFlock(ctx) {
 		return errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
 	}
-	for _, job := range jobs {
-		if job.Execution == nil {
-			continue
-		}
-		res, err := e.T.Run(ctx, "/usr/bin/python3 -c 'import sys,fcntl; assert sys.version_info >= (3,8)'")
-		if err != nil {
-			return err
-		}
-		if res.ExitCode != 0 {
-			return errors.New("durable jobs require Python 3.8 or newer at /usr/bin/python3; install it and apply schedules again")
-		}
-		break
-	}
 	// Declared inputs are the one feature that cannot work without
 	// TRIGGER_UNIT: the runner would have to guess whether an activation is
 	// the operator's, and guessing wrong hands a timer firing the inputs a
@@ -452,7 +409,7 @@ func (e *Engine) hasTriggerUnit(ctx context.Context) bool {
 
 func needsTriggerUnit(jobs []app.ScheduledJob) bool {
 	for _, job := range jobs {
-		if len(job.Inputs) > 0 || job.Execution != nil {
+		if len(job.Inputs) > 0 {
 			return true
 		}
 	}
@@ -525,7 +482,6 @@ func scheduleRunPreamble(triggerUnit bool) []string {
 func scheduleInputsLines(inputsPath string) []string {
 	return []string{
 		"operation=''",
-		"execution=''",
 		"expected_release=''",
 		"expected_runtime=''",
 		"inputs_json=''",
@@ -534,7 +490,6 @@ func scheduleInputsLines(inputsPath string) []string {
 		"  while IFS= read -r line || [ -n \"$line\" ]; do",
 		"    case \"$line\" in",
 		"      ONEBOX_OPERATION=*) operation=${line#ONEBOX_OPERATION=} ;;",
-		"      ONEBOX_EXECUTION=*) execution=${line#ONEBOX_EXECUTION=} ;;",
 		"      ONEBOX_EXPECTED_RELEASE=*) expected_release=${line#ONEBOX_EXPECTED_RELEASE=} ;;",
 		"      ONEBOX_EXPECTED_RUNTIME=*) expected_runtime=${line#ONEBOX_EXPECTED_RUNTIME=} ;;",
 		"      [A-Z]*=*) set -- \"$@\" -e \"$line\"; key=${line%%=*}; value=${line#*=}; inputs_json=\"${inputs_json:+$inputs_json,}\\\"$key\\\":\\\"$value\\\"\" ;;",
@@ -664,7 +619,7 @@ const scheduleRunIdentifier = "onebox-run"
 func scheduleRunRecordLines(application, unit, job, state string) []string {
 	return []string{
 		"state=" + q(state),
-		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''; execution=''; forced_kill=false",
+		"release=''; started_at=''; started_epoch=''; trigger=''; operation=''; attempt=0; inputs=''; skipped=''; forced_kill=false",
 		// A run that stood aside left a note under its own invocation. It
 		// never held the job lock, so the state file belongs to whichever run
 		// is still going: read the note and leave that file alone.
@@ -683,7 +638,6 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"  while IFS= read -r line || [ -n \"$line\" ]; do",
 		"    case \"$line\" in",
 		"      release=*) release=${line#release=} ;;",
-		"      execution=*) execution=${line#execution=} ;;",
 		"      started_at=*) started_at=${line#started_at=} ;;",
 		"      started_epoch=*) started_epoch=${line#started_epoch=} ;;",
 		"      trigger=*) trigger=${line#trigger=} ;;",
@@ -714,10 +668,8 @@ func scheduleRunRecordLines(application, unit, job, state string) []string {
 		"duration=0",
 		"case \"$started_epoch\" in ''|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac",
 		"[ -z \"$started_at\" ] && started_at=$finished_at",
-		"execution_field=''",
-		"if [ -n \"$execution\" ]; then execution_field=$(printf '\"execution\":\"%s\",' \"$execution\"); fi",
-		"record=$(printf '{%s\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"forced_kill\":%s,\"reason\":\"%s\",\"inputs\":{%s}}' " +
-			"\"$execution_field\" \"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$forced_kill\" \"$skipped\" \"$inputs\")",
+		"record=$(printf '{\"run\":\"%s\",\"job\":\"%s\",\"trigger\":\"%s\",\"operation\":\"%s\",\"release\":\"%s\",\"started_at\":\"%s\",\"finished_at\":\"%s\",\"duration_s\":%s,\"attempts\":%s,\"exit_status\":%s,\"outcome\":\"%s\",\"forced_kill\":%s,\"reason\":\"%s\",\"inputs\":{%s}}' " +
+			"\"${INVOCATION_ID:-}\" " + q(job) + " \"$trigger\" \"$operation\" \"$release\" \"$started_at\" \"$finished_at\" \"$duration\" \"$attempt\" \"$status\" \"$outcome\" \"$forced_kill\" \"$skipped\" \"$inputs\")",
 		"printf 'MESSAGE=%s\\nPRIORITY=6\\nSYSLOG_IDENTIFIER=" + scheduleRunIdentifier + "\\nONEBOX_APP=%s\\nONEBOX_UNIT=%s\\nONEBOX_JOB=%s\\n' " +
 			"\"$record\" " + q(application) + " " + q(unit) + " " + q(job) + " | logger --journald || true",
 	}
@@ -740,9 +692,6 @@ const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
 // 2am. Only the timestamp and the run id are filled in on the host.
 func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 	cleanup := scheduleContainerRemove(e.names().Container(job.Name, 1))
-	if job.Execution != nil {
-		cleanup = durableContainerStop(e.names().Container(job.Name, 1), job.ShutdownGrace)
-	}
 	environment := e.Opts.Environment
 	lines := []string{
 		"#!/bin/sh",

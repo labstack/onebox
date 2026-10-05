@@ -111,7 +111,7 @@ func TestReadyBudgetCoversAtLeastOneFlipCycle(t *testing.T) {
 // it negative, which expires instantly — the failure the budget exists to
 // prevent, reached by a route validation could have closed.
 func TestAbsurdRetriesIsRejected(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -140,7 +140,7 @@ func TestAbsurdHealthDurationsAreRejected(t *testing.T) {
 		"within":       "{http: /healthz, within: 100000d}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -218,7 +218,7 @@ func TestParseDurationRejectsOverflowingDayCounts(t *testing.T) {
 // A day count that wraps int64 must be rejected by validation too, not merely
 // by the parser: the two together are what make the bound mean something.
 func TestOverflowingDayCountIsRejectedAtLoad(t *testing.T) {
-	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+	_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger
@@ -242,7 +242,7 @@ func TestAbsurdDrainDurationsAreRejected(t *testing.T) {
 		"grace": "{grace: 100000d}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha1
+			_, err := loadFixtureBytes([]byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: ledger

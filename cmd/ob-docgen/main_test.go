@@ -330,12 +330,12 @@ func TestPublishedSchemaMatchesTheCheckedInCopy(t *testing.T) {
 	}
 	// Skipping on a read failure would turn "someone moved the file" into a
 	// passing test, which is the drift this exists to catch.
-	onDisk, err := os.ReadFile(filepath.Join("..", "..", "api", "application", "v1alpha1", "application.schema.json"))
+	onDisk, err := os.ReadFile(filepath.Join("..", "..", "api", "application", "v1alpha2", "application.schema.json"))
 	if err != nil {
 		t.Fatalf("the checked-in schema must be readable: %v", err)
 	}
 	if strings.TrimSpace(string(generated)) != strings.TrimSpace(string(onDisk)) {
-		t.Error("the published schema differs from api/application/v1alpha1/application.schema.json")
+		t.Error("the published schema differs from api/application/v1alpha2/application.schema.json")
 	}
 }
 

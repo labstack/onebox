@@ -1,12 +1,12 @@
 ---
 title: Environment variables
-description: Every variable Onebox sets or reads, and how to migrate off the retired OB_ prefix.
-summary: The ONEBOX_ namespace — what Onebox injects into hooks and jobs, what it reads from your shell and CI, and the one-line rename from the old OB_ names.
+description: Every variable Onebox sets or reads in hooks, jobs, backup helpers, and local tooling.
+summary: The ONEBOX_ namespace — what Onebox injects into hooks and jobs, and what it reads from your shell and CI.
 sidebar:
   order: 9
 read_when:
   - "Writing a hook or a job that talks back to Onebox"
-  - "Upgrading from a release that used OB_ variables"
+  - "Configuring Onebox variables in your shell or CI"
 ---
 
 Onebox owns the `ONEBOX_` prefix. Everything it injects or reads lives there,
@@ -81,57 +81,3 @@ refreshing a frozen fixture.
 Nothing in this namespace reaches a generated runtime. Generation reads no
 process environment at all, so the same project renders the same Compose on
 your laptop and in CI, and a digest keeps meaning something.
-
-## Migrating from `OB_`
-
-Earlier releases used `OB_`. The rename is mechanical and complete — there are
-no aliases, no fallback reads, and no deprecation window:
-
-| Before | After |
-| --- | --- |
-| `OB_APP` | `ONEBOX_APP` |
-| `OB_HOST` | `ONEBOX_HOST` |
-| `OB_SERVER` | `ONEBOX_SERVER` |
-| `OB_SSH_USER` | `ONEBOX_SSH_USER` |
-| `OB_SSH_PORT` | `ONEBOX_SSH_PORT` |
-| `OB_RELEASE_DIR` | `ONEBOX_RELEASE_DIR` |
-| `OB_RELEASE_ID` | `ONEBOX_RELEASE_ID` |
-| `OB_RESULT_FILE` | `ONEBOX_RESULT_FILE` |
-| `OB_REPOSITORY_KEY` | `ONEBOX_REPOSITORY_KEY` |
-| `OB_S3_KEY_ENTRY` | `ONEBOX_S3_KEY_ENTRY` |
-| `OB_S3_SECRET_ENTRY` | `ONEBOX_S3_SECRET_ENTRY` |
-| `OB_S3_SESSION_TOKEN_ENTRY` | `ONEBOX_S3_SESSION_TOKEN_ENTRY` |
-| `OB_LOCAL` | `ONEBOX_LOCAL` |
-| `OB_INSTALL_DIR` | `ONEBOX_INSTALL_DIR` |
-| `OB_BIN_DIR` | `ONEBOX_BIN_DIR` |
-| `OB_VERSION` | `ONEBOX_VERSION` |
-| `OB_RELEASE_REPOSITORY` | `ONEBOX_RELEASE_REPOSITORY` |
-| `OB_E2E`, `OB_E2E_*` | `ONEBOX_E2E`, `ONEBOX_E2E_*` |
-| `OB_SERVER_E2E` | `ONEBOX_SERVER_E2E` |
-| `OB_UPDATE_VERDICTS` | `ONEBOX_UPDATE_VERDICTS` |
-
-Update your hook scripts, CI and release settings, and any job writing to the
-result file. The executable is still `ob`, the project file is still `ob.yml`,
-and the API version is `onebox.run/v1alpha1` — only the environment namespace
-changed.
-
-A stray old name does not fall back: it is simply never read, so a hook reading
-`$OB_SERVER` gets an empty string rather than an error — unless your own shell
-or CI still exports one, in which case the hook receives that stale value,
-because hooks inherit your environment. Grep for `OB_` once across your
-repository and CI configuration and the migration is done.
-
-### Protected databases need `ob backup enable` re-run
-
-If a service has backups enabled, renaming the key inside your encrypted
-credential file is not enough on its own. The decrypted file lives on the host,
-written once when backups were enabled, and every later deploy reads it as it
-stands:
-
-```sh
-ob backup enable <service>
-```
-
-Re-running it rewrites the host copy with `ONEBOX_REPOSITORY_KEY`. Until you do,
-the wal-g wrapper refuses to run rather than archiving without an encryption
-key, so a backup will fail loudly instead of silently landing unencrypted.

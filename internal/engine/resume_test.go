@@ -389,7 +389,7 @@ func TestAbortUsesInterruptedExpandOnlyPolicyAfterConfigEdit(t *testing.T) {
 	testAbortReplaysPreviousRelease(t, "changed=unknown", true)
 }
 
-const interruptedWebSnapshot = `apiVersion: onebox.run/v1alpha1
+const interruptedWebSnapshot = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: sample

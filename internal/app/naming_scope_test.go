@@ -71,7 +71,7 @@ func TestEveryDerivedNameCarriesTheApplication(t *testing.T) {
 // 6.3 — a multi-route workload and a non-HTTP route survive the whole path:
 // the canonical form describes them, and the generated labels route them.
 func TestMultiRouteAndNonHTTPRouteEndToEnd(t *testing.T) {
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -138,7 +138,7 @@ spec:
 }
 
 func TestRouteMiddlewareOrderPreservesRepetition(t *testing.T) {
-	body := `apiVersion: onebox.run/v1alpha1
+	body := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

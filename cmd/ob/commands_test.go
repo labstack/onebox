@@ -62,7 +62,7 @@ func TestConfirmInteractiveDeployRequiresConfirmationWithoutPolicyApproval(t *te
 func writeProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	obYAML := `apiVersion: onebox.run/v1alpha1
+	obYAML := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo
@@ -103,7 +103,7 @@ func TestValidateOK(t *testing.T) {
 
 func TestPreflightBlocksDeploy(t *testing.T) {
 	dir := writeProject(t)
-	obYAML := `apiVersion: onebox.run/v1alpha1
+	obYAML := `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: demo

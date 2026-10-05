@@ -39,7 +39,7 @@ func canonicalOf(t *testing.T, body string) string {
 	return string(out)
 }
 
-const shapeHead = `apiVersion: onebox.run/v1alpha1
+const shapeHead = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

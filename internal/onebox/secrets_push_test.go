@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/onebox/internal/transport"
 )
 
-const pushProjectYAML = `apiVersion: onebox.run/v1alpha1
+const pushProjectYAML = `apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop
@@ -175,7 +175,7 @@ func TestSecretsPushRotatesEveryEntry(t *testing.T) {
 // A project with nothing encrypted is told so, rather than reporting a push.
 func TestSecretsPushWithNothingEncryptedIsRefused(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`apiVersion: onebox.run/v1alpha1
+	if err := os.WriteFile(filepath.Join(dir, "ob.yml"), []byte(`apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata:
   name: shop

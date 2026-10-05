@@ -1,15 +1,13 @@
 ---
 title: Schedule a job
-description: Bounded host timers, retries, durable executions with saved step outputs, deployment coordination, and manual recovery.
-summary: Declare scheduled jobs, bound retries, recover durable executions from checkpoints, coordinate deployments, and inspect host run records.
+description: Run one container command on a host timer with bounded retries, deployment coordination, and useful run records.
+summary: Declare a scheduled command, bound retries, coordinate deployments, and inspect host run records.
 sidebar:
   order: 4
 read_when:
   - "Adding a nightly or recurring task"
   - "Working out why a scheduled run failed, or whether it ran at all"
   - "Running a scheduled job now with different parameters"
-  - "Resuming a failed job without repeating completed steps"
-  - "Handing a large result set from one step to the next"
   - "Understanding why a cron expression was refused"
   - "Working out how a scheduled job resolves secrets with no Onebox process running"
 ---
@@ -59,12 +57,12 @@ that was busy for a moment, declare a bounded retry:
 schedule:
   cron: "0 * * * *"
   timeout: 45m
-  retry: {attempts: 3, backoff: 30s, max_backoff: 10m}
+  retry: {attempts: 3, backoff: 30s, maxBackoff: 10m}
 ```
 
 `attempts` counts every attempt including the first, so the default of `1` is
 today's single run. After a non-zero exit the runner sleeps `backoff`, doubles
-it after each further failure, and never sleeps longer than `max_backoff`. Every
+it after each further failure, and never sleeps longer than `maxBackoff`. Every
 attempt runs inside the same timer firing, under the same locks and the same
 `timeout`; when the timeout expires the run ends, with no further attempt.
 
@@ -77,9 +75,8 @@ release lease is held instead and every attempt runs the same release.
 ## Deployment coordination is exclusive by default
 
 An exclusive host-fired job takes an application-wide kernel lock for its whole
-container run. An ordinary pinned job takes that rendezvous as a shared reader
-until it establishes its immutable release lease; a durable pinned job retains
-the reader through checkpoint preparation and publication. Different pinned
+container run. A pinned job takes that rendezvous as a shared reader
+until it establishes its immutable release lease. Different pinned
 jobs may still start together. Every operation that establishes Onebox's fenced
 application lock takes the rendezvous as an exclusive writer while publishing
 its ownership. Readers and writers wait briefly for a handoff; the wait is
@@ -196,14 +193,14 @@ default.
 ### Notifications per outcome
 
 `schedule.notify` selects which outcomes send the configured notifications. The
-default is `[failure, timeout]`, which is what the failure notifier always did.
-Add `success` for a job whose completion someone waits for, and `skipped` for a
+default is `[Failure, Timeout]`, which is what the failure notifier always did.
+Add `Success` for a job whose completion someone waits for, and `Skipped` for a
 job whose firings collide often enough that silence would hide it:
 
 ```yaml
 schedule:
   cron: "0 2 * * *"
-  notify: [failure, timeout, skipped]
+  notify: [Failure, Timeout, Skipped]
 ```
 
 Each selected outcome sends a bounded, fail-open POST to every webhook whose
@@ -236,7 +233,7 @@ cron minutes into its default one-minute wake-up window.
 ## Jobs still declare a data effect
 
 `dataEffect` is required on every job, scheduled or not. A nightly report is
-`none`; a nightly prune is `destructive`. The rollback and abort gates read it,
+`None`; a nightly prune is `Destructive`. The rollback and abort gates read it,
 and a job that lies about it defeats them.
 
 ## Stopping a job without deleting it
@@ -351,168 +348,13 @@ Scheduled jobs still run on those older hosts, unchanged. Two things narrow:
 The records on such a host say `trigger: unknown`, because the runner cannot
 observe what started it and will not guess.
 
-## Keep durable checkpoints and resume explicitly
+## Keep application workflows in the application
 
-Opt into durable execution when a failed job needs to continue with its original
-inputs. Onebox saves orchestration state on the managed host; the application
-keeps responsibility for domain checkpoints and idempotent effects. This requires
-a native Onebox job with `schedule`, `deploymentPhase: None` (the default), and
-`dataEffect: None`. Adopted Compose jobs and release-phase jobs are refused.
-
-For one command, add `execution: {retention: 168h}` to the job. Onebox treats the
-job's existing command as one step with ID `main`. An ingestion job that already
-keeps its own domain checkpoints can use this form and keep them where they are.
-
-For several ordered commands, declare steps:
-
-```yaml
-workloads:
-  refresh:
-    role: Job
-    image: ghcr.io/acme/catalog:1.8.2
-    dataEffect: None
-    schedule:
-      cron: "0 * * * *"
-      timeout: 45m
-      retry: {attempts: 2, backoff: 30s, max_backoff: 10m}
-    execution:
-      retention: 168h
-      steps:
-        - id: sync
-          command: ["./catalog", "sync"]
-          outputs: [RELEASE]
-        - id: index
-          command: ["./catalog", "index"]
-          inputs: {RELEASE_ID: "sync.RELEASE"}
-          retry: {attempts: 3}
-```
-
-Each step uses the job's image and entrypoint. `command` is an argument list,
-passed without shell evaluation. In this example, `sync` writes the application
-release it produced, and `index` reads it through the `RELEASE_ID` environment
-variable. That value is separate from Onebox's deployment release ID.
-
-The application writes a JSON object to the path in `ONEBOX_OUTPUT_FILE`, for
-example `{"RELEASE":"catalog-20260906"}`. The object must contain exactly the
-declared output keys, and every value must be a string without NUL. Each value
-is at most 4096 UTF-8 bytes; the output file and its normalized JSON encoding
-must each fit within 16384 bytes. Keep large exports elsewhere and save a small
-reference or checksum. **Inputs and outputs are persisted operational metadata:
-never put credentials or other secrets in them.** Current credentials are
-resolved for an attempt; the execution record does not snapshot them.
-
-### Pass large results by reference
-
-These bounds intentionally limit step outputs to small operational metadata,
-such as identifiers, cursors, or checksums. They do not limit how much data a
-job can process. Thousands of row IDs can exceed the bounds; raising the limits
-alone would not solve large payload handoff, because step inputs are delivered
-through environment variables and outputs are retained in execution checkpoints.
-
-For a large result set, the application stores the data in its own database or
-artifact storage and returns a small reference:
-
-```yaml
-      steps:
-        - id: sync
-          command: ["./ingest", "sync"]
-          # `sync` stores the batch and writes {"BATCH":"batch-id"}
-          # to ONEBOX_OUTPUT_FILE.
-          outputs: [BATCH]
-        - id: index
-          command: ["./ingest", "index"]
-          inputs: {BATCH_ID: "sync.BATCH"}
-```
-
-`index` reads the batch using the `BATCH_ID` environment variable. To resume
-against the same data, the application must save the batch durably before
-returning its reference and retain it unchanged for as long as the execution
-remains resumable. Onebox retains the reference; the application owns the batch's
-availability, access control, and cleanup. References must not contain secrets,
-such as credentials embedded in a URL.
-
-A single command is also appropriate when the application already owns recovery
-for the whole operation. It can keep its own checkpoints and reconcile pending
-work without a separate batch handoff. Retrying that command starts it again,
-so its recovery logic must handle completed effects and unfinished work safely.
-Use separate steps when independent retries and resume boundaries are useful.
-
-Step IDs are unique. An input reference names a declared output of an earlier
-step as `stepID.OUTPUT`; forward and self references are refused. Input and output
-names are upper-case identifiers outside `ONEBOX_`; step input names must not
-collide with the job's original inputs or literal `env` keys. There may be at
-most 32 steps, 32 original inputs, and 32 inputs and outputs per step.
-
-A step succeeds only after its exit status and validated outputs have been
-saved together. A failed step retries independently, inheriting `schedule.retry`
-unless it declares its own retry block. The sum of all steps' worst-case backoff
-must fit below `schedule.timeout`.
-
-### Inspect and recover
-
-```sh
-ob job run refresh                   # start a new execution
-ob execution list                    # newest executions; -n 50 for more
-ob execution inspect <id>            # original inputs, steps, attempts, eligibility
-ob execution resume <id> --wait       # skip completed steps; use saved outputs
-ob execution abandon <id>            # end resumability and release retention hold
-```
-
-Resume cannot change inputs. To use different inputs, start a new execution with
-`ob job run --input NAME=VALUE`. Timer firings also create new executions;
-they do not resume failed work automatically. After a reboot, inspect interrupted
-work and request resume explicitly. A pending failed execution does not stop
-future timer firings; use `ob schedule pause <job> --reason "..."` if needed.
-
-Inspection includes each activation's systemd invocation ID. Read its logs with
-`ob job logs refresh --run <invocation-id>`. The execution ID stays the same
-across activations; an invocation ID identifies one activation's journal output.
-Run logs keep the journal's retention independently of saved execution state.
-
-The job receives `ONEBOX_EXECUTION_ID` and `ONEBOX_STEP_ID`, both stable across
-retries and resumes, plus a fresh `ONEBOX_ATTEMPT_ID` for each attempt. Use the
-stable IDs to deduplicate effects in the application. A crash can occur after
-an external effect succeeds but before Onebox saves completion, so that step
-can run again. Durable checkpoints provide at-least-once attempts, not an
-exactly-once guarantee for application effects.
-
-### Bounds and compatibility
-
-`retention` defaults to `168h` and may be at most `30d`. It sets the resume window
-from execution creation; resuming does not extend it. An execution can have at
-most 100 activations, including its first run. Successful and abandoned
-executions cannot resume. Expired inactive executions stop protecting their
-release; running or uncertain work is protected conservatively until it can be
-safely abandoned. Abandonment refuses active work and keeps the saved evidence
-available for inspection until its retention deadline. Starting a new execution
-prunes expired records that are not still recorded as running; interrupted
-records left running by a crash require explicit abandonment.
-
-`schedule.timeout` bounds each activation, including every step and retry sleep.
-A manual resume starts a new activation with that same bound. Deployment locks,
-overlap protection, pinned-release behavior, and notifications cover the whole
-activation. A failed execution awaiting manual resume holds its durable release
-reference, not a deployment lock.
-
-Resume requires the original release to still be current, the installed workflow
-definition to match, and the original image to be locally available with the
-same identity. Onebox also checks release files, managed-service container
-identities, images and start times, and its recorded data-change generation.
-Data-changing jobs and arbitrary `ob exec` commands invalidate that generation
-before running, because Onebox cannot prove an arbitrary command is read-only.
-A service restart or host reboot can therefore prevent resume even when release
-files survive. These checks cannot establish compatibility after arbitrary
-out-of-band schema changes; they do not replace application-level compatibility
-checks. There is no cross-release adaptation.
-
-The managed host needs Python 3.8 or later at `/usr/bin/python3` in addition to
-the scheduler's existing systemd and `flock` requirements. Onebox installs a
-small standard-library helper invoked only for executions and inspection; it
-does not run a resident worker service. Durable opt-in also requires the
-systemd 252 trigger support described above. State lives under the application's
-`schedule/executions` directory as protected JSON checkpoints and survives a
-runner or host restart when the host disk survives. It is not replicated to
-another host.
+Onebox runs the job's container command. A retry starts that command again;
+it does not resume from a completed step. A reboot does not resume interrupted
+work. Make repeated attempts safe in the application and store any progress
+there. A command can perform several operations internally; the application
+owns their ordering, checkpoints, and outputs.
 
 ## Running one by hand
 
@@ -533,10 +375,10 @@ with `ob job history <job>` and `ob job logs <job>`.
 Jobs without `schedule` keep the direct foreground path. Migration jobs also
 stay attached because their result evidence is part of the approved operation.
 
-`ob job plan` accepts a job when `operatorRun` is `allowed`. This property is
+`ob job plan` accepts a job when `operatorRun` is `Allowed`. This property is
 independent of deployment: `deploymentPhase` decides whether the job runs in
 the deploy graph, while `operatorRun` decides whether an operator may invoke
-it. By default, phase `none` allows operator runs; release-phase jobs disable
+it. By default, phase `None` allows operator runs; release-phase jobs disable
 them unless explicitly enabled.
 
 A declared `deploymentPhase: None` job remains in the digest-pinned release runtime but
@@ -562,14 +404,14 @@ For a job that participates automatically in a deploy, choose a release phase:
 
 ```yaml
 deploymentPhase: PreRelease
-operatorRun: allowed            # optional: also permit ob job plan/run
+operatorRun: Allowed            # optional: also permit ob job plan/run
 ```
 
 The three properties are independent. `deploymentPhase` controls deploy hooks,
 `schedule` controls timer activation, and `operatorRun` controls explicit
 invocation. A job declaring `schedule:` and `deploymentPhase: PreRelease`
 runs both at its cron time and on every deploy. For a timer-only job, leave
-`deploymentPhase` at `none`; set `operatorRun: Disabled` too if operators
+`deploymentPhase` at `None`; set `operatorRun: Disabled` too if operators
 must not start it explicitly.
 
 See [`workloads`](/reference/fields/workloads) for every field.

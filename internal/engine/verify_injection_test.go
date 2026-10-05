@@ -64,7 +64,7 @@ func TestVerifyHTTPProbeStillCarriesThePortAndPath(t *testing.T) {
 func verificationProject(t *testing.T, path string) *app.Resolved {
 	t.Helper()
 	spec, err := app.LoadBytes([]byte(`
-apiVersion: onebox.run/v1alpha1
+apiVersion: onebox.run/v1alpha2
 kind: Application
 metadata: {name: sample}
 spec:

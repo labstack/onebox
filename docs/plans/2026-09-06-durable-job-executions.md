@@ -1,5 +1,8 @@
 # Durable job executions
 
+Status: retired by [the job simplification decision](../decisions/2026-10-04-job-schedule-simplification.md).
+This document records the original design; its execution API is no longer supported.
+
 Date: 2026-09-06
 Scope: [issue #160](https://github.com/labstack/onebox/issues/160).
 

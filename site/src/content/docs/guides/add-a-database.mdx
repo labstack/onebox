@@ -29,6 +29,10 @@ between 256 MiB and 1 GiB, but never more than half the limit. A zero limit mean
 unlimited. This tmpfs uses memory only as PostgreSQL writes to it, and those
 pages count against the container's memory limit.
 
+Managed services get up to 2 minutes to shut down cleanly. The first
+`ob service apply` after upgrading recreates every service to install this
+shutdown window; deploy does so for PostgreSQL services with declared extensions.
+
 Declaring it does not start it. Services live outside the release lifecycle, so
 `ob deploy` wires up connections. For services with declared extensions, deploy
 also converges their configuration and recreates containers when it changes.

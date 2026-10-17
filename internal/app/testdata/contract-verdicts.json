@@ -392,17 +392,17 @@
   {
     "case": "conformance/service backup policy",
     "loads": true,
-    "digest": "73135190e9f9fae42347e107f496211e4d2f75bfe5ff934ead0096f4f3571a19 postgres=ee21ed4fc49969fb"
+    "digest": "73135190e9f9fae42347e107f496211e4d2f75bfe5ff934ead0096f4f3571a19 postgres=d48aeac2a592c834"
   },
   {
     "case": "conformance/service scalar",
     "loads": true,
-    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a postgres=ff6eeff3e4bbd9bd"
+    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a postgres=45f65def6f3b45e9"
   },
   {
     "case": "conformance/settings key that is a real driver flag",
     "loads": true,
-    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a redis=fd038e9c5b5c3b09"
+    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a redis=c4d310541968b4d6"
   },
   {
     "case": "conformance/settings key with a shell metacharacter",
@@ -532,12 +532,12 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "e82f2e9eac87e3494cf0aa86b80f91a60f363f0af7aac28bb45e1ec6ed2e40fb postgres=4d380770b261847a redis=53bad39e8f359a02"
+    "digest": "e82f2e9eac87e3494cf0aa86b80f91a60f363f0af7aac28bb45e1ec6ed2e40fb postgres=f81c980270118d21 redis=4f8002b0a56335d5"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "10748708444a383dc2e587286c13f06a4f3ea218835e2eeab1af83ed312ec741 postgres=4d380770b261847a redis=53bad39e8f359a02"
+    "digest": "10748708444a383dc2e587286c13f06a4f3ea218835e2eeab1af83ed312ec741 postgres=f81c980270118d21 redis=4f8002b0a56335d5"
   },
   {
     "case": "corpus/ext-authentik.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "f6028df90e48b43f68c3375115ef402255ebd0aadf0ddde9eb9e2d538598cb65 postgres=105be1b298f59e44"
+    "digest": "f6028df90e48b43f68c3375115ef402255ebd0aadf0ddde9eb9e2d538598cb65 postgres=24bccf98808db97d"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -567,7 +567,7 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "3831bd9a52d01deada4936e218fc8ba33c96a0b1d939e6bf503f3fbda8ba0895 postgres=12dc8bcbdff40808 redis=83f7ec43501bb1f4"
+    "digest": "3831bd9a52d01deada4936e218fc8ba33c96a0b1d939e6bf503f3fbda8ba0895 postgres=5b23cbde31e9dc29 redis=0644b31adce178f9"
   },
   {
     "case": "corpus/ext-paperless.yml",
@@ -577,17 +577,17 @@
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "4574810017062b8d857ad2c43597b484fe88e6b4198f75ec74c2d705cbcf17d1 events=79a3b4327069a1dc postgres=1aea911e88a3631c"
+    "digest": "4574810017062b8d857ad2c43597b484fe88e6b4198f75ec74c2d705cbcf17d1 events=47324284a6e77538 postgres=361a106a8e2ffde3"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
-    "digest": "fd193a8c2f51cbe206e2e038ccd277c3e6785c84912b5967a2afd58c1320ac13 postgres=47bbd25b517473d9"
+    "digest": "fd193a8c2f51cbe206e2e038ccd277c3e6785c84912b5967a2afd58c1320ac13 postgres=d07ceb7c2c0392b1"
   },
   {
     "case": "corpus/ghost.yml",
     "loads": true,
-    "digest": "7ab89c09054e821edfb0edd5c014b488ca06785d052f4178a688d4008961e1ad mysql=6dc2ab74dac73160"
+    "digest": "7ab89c09054e821edfb0edd5c014b488ca06785d052f4178a688d4008961e1ad mysql=393016b70855b2cd"
   },
   {
     "case": "corpus/gitea.yml",
@@ -622,7 +622,7 @@
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "1cd500aae4deac5cf744dec3f1222b13aec493457de4b6069a3449126ad70210 postgres=8a2a89524e0749e0 redis=e6f4fb5264fe75ae"
+    "digest": "1cd500aae4deac5cf744dec3f1222b13aec493457de4b6069a3449126ad70210 postgres=e98b19cff65fe766 redis=f8e5a12917a49994"
   },
   {
     "case": "corpus/pursue.yml",
@@ -637,7 +637,7 @@
   {
     "case": "corpus/rocketchat.yml",
     "loads": true,
-    "digest": "4a091cd29c4a572eb57fcc9cd68edb76fbd56eb88ce16aab29efb30cb16af69f mongodb=09562fa5123be0a1"
+    "digest": "4a091cd29c4a572eb57fcc9cd68edb76fbd56eb88ce16aab29efb30cb16af69f mongodb=ada71cea467aa56d"
   },
   {
     "case": "corpus/umami.yml",

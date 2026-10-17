@@ -138,8 +138,8 @@ func (e *Engine) applyServices(ctx context.Context, names []string, syncSchedule
 		if err := e.writeServiceFile(ctx, n.ServiceFile(name), doc); err != nil {
 			return fmt.Errorf("service %s: cannot place its runtime: %w", name, err)
 		}
-		cmd := fmt.Sprintf("docker compose -p %s -f %s up -d --remove-orphans",
-			q(n.ServiceProject(name)), q(n.ServiceFile(name)))
+		cmd := fmt.Sprintf("docker compose -p %s -f %s up -d --remove-orphans --timeout %d",
+			q(n.ServiceProject(name)), q(n.ServiceFile(name)), int(app.ServiceStopGrace.Seconds()))
 		st := e.ui.Step("service "+name, false)
 		res, err := e.mutate(ctx, cmd)
 		if err != nil {
@@ -494,7 +494,10 @@ func (e *Engine) removeServices(ctx context.Context, removeVolumes bool) error {
 			// Fail closed. Continuing would delete the schedules, the state
 			// directory and the credential while the service is still live —
 			// and then report a clean teardown.
-			if res, err := e.mutate(ctx, "docker rm -f "+id); err != nil {
+			// Stop is best effort; the removal result still decides success.
+			cmd := fmt.Sprintf("docker stop -t %d %s >/dev/null 2>&1; docker rm -f %s",
+				int(app.ServiceStopGrace.Seconds()), id, id)
+			if res, err := e.mutate(ctx, cmd); err != nil {
 				return err
 			} else if res.ExitCode != 0 {
 				return fmt.Errorf("service %s: cannot remove container %s: %s — nothing further was destroyed",

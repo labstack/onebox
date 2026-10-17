@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/compose-spec/compose-go/v2/types"
 
 	"github.com/labstack/onebox/internal/shellquote"
 )
+
+// ServiceStopGrace gives managed services time to flush their durable state.
+const ServiceStopGrace = 2 * time.Minute
 
 // Supporting services are the reason this tool exists. Nearly every
 // application needs a database and a cache, nobody's application *is* the
@@ -365,9 +369,10 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		return nil, err
 	}
 	svc := map[string]any{
-		"image":          image,
-		"restart":        "unless-stopped",
-		"container_name": n.ServiceContainer(name),
+		"image":             image,
+		"restart":           "unless-stopped",
+		"stop_grace_period": ServiceStopGrace.String(),
+		"container_name":    n.ServiceContainer(name),
 		"labels": map[string]any{
 			"onebox.app":     p.Name,
 			"onebox.service": name,

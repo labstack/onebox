@@ -38,12 +38,13 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	}
 	defer os.RemoveAll(staging)
 	discoveryImage := proxy.DiscoveryImage(e.Opts.Runner.Version)
-	hash, err := proxy.StageForAppManaged(localCfg, staging, e.Spec.Proxy.Image, discoveryImage,
+	id, err := proxy.StageForAppManaged(localCfg, staging, e.Spec.Proxy.Image, discoveryImage,
 		e.Spec.Name, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasExactTerminatingTLS(),
 		e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge)
 	if err != nil {
 		return err
 	}
+	hash := id.String()
 	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
 	if err != nil {
 		return err

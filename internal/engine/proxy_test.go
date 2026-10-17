@@ -20,7 +20,7 @@ const testManagedProxyStatic = "ping: {}\nproviders:\n  file:\n    directory: /e
 
 // proxyFixture: a managed-proxy engine whose LocalDir holds traefik/{traefik.yml,.env},
 // plus the staged payload hash the engine will compute for it.
-func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, string, *bytes.Buffer) {
+func proxyFixture(t *testing.T, f *transport.Fake) (*Engine, proxy.Identity, *bytes.Buffer) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "traefik"), 0o755); err != nil {
@@ -181,7 +181,7 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'") {
-			return transport.Result{Stdout: hash + "\n"}, true
+			return transport.Result{Stdout: hash.String() + "\n"}, true
 		}
 		return ps(cmd)
 	}
@@ -207,7 +207,7 @@ func TestEnsureProxyRepairsMissingDiscoveryController(t *testing.T) {
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'"):
-			return transport.Result{Stdout: hash + "\n"}, true
+			return transport.Result{Stdout: hash.String() + "\n"}, true
 		case strings.Contains(cmd, "com.docker.compose.service=discovery") && !strings.Contains(cmd, "up -d"):
 			return transport.Result{Stdout: ""}, true
 		}
@@ -228,7 +228,7 @@ func TestEnsureProxyRepairsMissingDiscoveryOutput(t *testing.T) {
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
 		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'"):
-			return transport.Result{Stdout: hash + "\n"}, true
+			return transport.Result{Stdout: hash.String() + "\n"}, true
 		case strings.Contains(cmd, "test -s '/var/lib/onebox/_host/proxy/dynamic/onebox.yml'"):
 			for _, command := range f.Commands {
 				if strings.Contains(command, "up -d --force-recreate discovery") {

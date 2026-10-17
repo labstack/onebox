@@ -246,7 +246,7 @@ func TestStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hash == "" {
+	if hash == (Identity{}) {
 		t.Fatal("empty hash")
 	}
 	// compose rendered with defaults; config copied
@@ -306,10 +306,7 @@ func TestStageCustomStaticHashMigratesRequiredMountpoint(t *testing.T) {
 	legacy := sha256.New()
 	fmt.Fprintf(legacy, "%s\x00%d\x00", "traefik.yml", len(testSocketlessStatic))
 	_, _ = legacy.Write([]byte(testSocketlessStatic))
-	compose := RenderCompose("", "", false, nil)
-	fmt.Fprintf(legacy, "compose.yaml\x00%d\x00", len(compose))
-	_, _ = legacy.Write(compose)
-	if got == hex.EncodeToString(legacy.Sum(nil)) {
+	if got.Config == "sha256:"+hex.EncodeToString(legacy.Sum(nil)) {
 		t.Fatal("the required config/dynamic mountpoint must migrate the applied proxy identity")
 	}
 }
@@ -672,7 +669,7 @@ func TestDefaultStaticConfigIsWrittenWhenNoneIsDeclared(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a project without proxy.config must still bootstrap: %v", err)
 	}
-	if hash == "" {
+	if hash == (Identity{}) {
 		t.Fatal("the written configuration must have an identity to compare against")
 	}
 	body, err := os.ReadFile(filepath.Join(staging, "config", "traefik.yml"))

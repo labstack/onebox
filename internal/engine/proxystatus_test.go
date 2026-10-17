@@ -61,7 +61,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 		t.Fatal(err)
 	}
 	if *appliedHash == "" {
-		*appliedHash = localHash // default: in sync
+		*appliedHash = localHash.String() // default: in sync
 	}
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
@@ -91,7 +91,7 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 	var out bytes.Buffer
 	now := func() time.Time { return time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC) }
 	e := New(cfg, testProject(t), f, Options{Out: &out, Sleep: noSleep, Now: now, LocalDir: dir})
-	return e, f, &out, localHash
+	return e, f, &out, localHash.String()
 }
 
 func TestStatusManagedProxyInSync(t *testing.T) {

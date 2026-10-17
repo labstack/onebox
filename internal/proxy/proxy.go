@@ -328,30 +328,30 @@ func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *
 	return []byte(out.String())
 }
 
-func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (string, error) {
+func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (Identity, error) {
 	return StageForApp(localCfgDir, stagingDir, image, DiscoveryImage(""), "onebox", network, entrypoints, requireCertificateResolver)
 }
 
-func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (string, error) {
+func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (Identity, error) {
 	return StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network, entrypoints, requireCertificateResolver, false, nil)
 }
 
 // StageForAppManaged stages a proxy with the managed ACME policy required by
 // the application's routes. Wildcard termination requires DNS-01 either from
 // dns or from a custom static configuration.
-func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireExactCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge) (string, error) {
+func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireExactCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge) (Identity, error) {
 	if application == "" {
 		application = "onebox"
 	}
 	if localCfgDir == "" {
 		if requireWildcardTLS && dns == nil {
-			return "", errors.New("managed terminating wildcard routes require an ACME DNS challenge")
+			return Identity{}, errors.New("managed terminating wildcard routes require an ACME DNS challenge")
 		}
 		return stageDefaultManaged(stagingDir, image, discoveryImage, application, network, entrypoints, dns)
 	}
 	entries, err := os.ReadDir(localCfgDir)
 	if err != nil {
-		return "", fmt.Errorf("proxy.config: %w", err)
+		return Identity{}, fmt.Errorf("proxy.config: %w", err)
 	}
 	names := make([]string, 0, len(entries))
 	staticConfigs := make([]string, 0, 2)
@@ -359,20 +359,20 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 	hasDynamic := false
 	for _, e := range entries {
 		if e.IsDir() {
-			return "", fmt.Errorf("proxy.config must be a flat dir of config files; %s/ is a directory", e.Name())
+			return Identity{}, fmt.Errorf("proxy.config must be a flat dir of config files; %s/ is a directory", e.Name())
 		}
 		if e.Name() == "dynamic" {
-			return "", fmt.Errorf("proxy.config reserves dynamic/ as the generated file-provider mountpoint; rename %s", e.Name())
+			return Identity{}, fmt.Errorf("proxy.config reserves dynamic/ as the generated file-provider mountpoint; rename %s", e.Name())
 		}
 		names = append(names, e.Name())
 		if e.Name() == "onebox.yml" || e.Name() == "onebox.yaml" {
-			return "", fmt.Errorf("proxy.config reserves onebox.yml and onebox.yaml for generated socketless discovery output; rename that file")
+			return Identity{}, fmt.Errorf("proxy.config reserves onebox.yml and onebox.yaml for generated socketless discovery output; rename that file")
 		}
 		if e.Name() == managedDynamicConfigName {
-			return "", fmt.Errorf("proxy.config reserves %s for Onebox-managed proxy defaults; rename that file", managedDynamicConfigName)
+			return Identity{}, fmt.Errorf("proxy.config reserves %s for Onebox-managed proxy defaults; rename that file", managedDynamicConfigName)
 		}
 		if e.Name() == "traefik.toml" {
-			return "", fmt.Errorf("proxy.config does not support traefik.toml as static configuration; use traefik.yml or traefik.yaml, or rename it as a dynamic extension")
+			return Identity{}, fmt.Errorf("proxy.config does not support traefik.toml as static configuration; use traefik.yml or traefik.yaml, or rename it as a dynamic extension")
 		}
 		if e.Name() == "traefik.yml" || e.Name() == "traefik.yaml" {
 			staticConfigs = append(staticConfigs, e.Name())
@@ -384,27 +384,27 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 		}
 	}
 	if len(staticConfigs) > 1 {
-		return "", fmt.Errorf("proxy.config: %s contains both traefik.yml and traefik.yaml; keep exactly one static configuration file",
+		return Identity{}, fmt.Errorf("proxy.config: %s contains both traefik.yml and traefik.yaml; keep exactly one static configuration file",
 			localCfgDir)
 	}
 	customStatic := len(staticConfigs) == 1
 	if dns != nil && customStatic {
-		return "", errors.New("proxy.dns_challenge cannot be combined with project-owned traefik.yml or traefik.yaml; remove the static file so Onebox can render DNS-01")
+		return Identity{}, errors.New("proxy.dns_challenge cannot be combined with project-owned traefik.yml or traefik.yaml; remove the static file so Onebox can render DNS-01")
 	}
 	if requireWildcardTLS && !customStatic && dns == nil {
-		return "", errors.New("managed terminating wildcard routes require proxy.dns_challenge, or a project-owned traefik.yml or traefik.yaml defining ACME DNS-01")
+		return Identity{}, errors.New("managed terminating wildcard routes require proxy.dns_challenge, or a project-owned traefik.yml or traefik.yaml defining ACME DNS-01")
 	}
 	if !customStatic && !hasDynamic && !(dns != nil && hasEnv) {
-		return "", fmt.Errorf("proxy.config: %s contains no dynamic .yml, .yaml, or .toml files; "+
+		return Identity{}, fmt.Errorf("proxy.config: %s contains no dynamic .yml, .yaml, or .toml files; "+
 			"remove proxy.config to use only Onebox's managed configuration, or add a dynamic extension",
 			localCfgDir)
 	}
 	if !customStatic && hasEnv && dns == nil {
-		return "", fmt.Errorf("proxy.config .env requires traefik.yml or traefik.yaml; " +
+		return Identity{}, fmt.Errorf("proxy.config .env requires traefik.yml or traefik.yaml; " +
 			"Onebox's managed static configuration does not consume custom proxy environment variables")
 	}
 	if dns != nil && !hasEnv {
-		return "", errors.New("proxy.dns_challenge requires proxy.config/.env containing the DNS provider credentials")
+		return Identity{}, errors.New("proxy.dns_challenge requires proxy.config/.env containing the DNS provider credentials")
 	}
 
 	staticName := "traefik.yml"
@@ -414,10 +414,10 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 		var err error
 		staticBody, err = os.ReadFile(filepath.Join(localCfgDir, staticName))
 		if err != nil {
-			return "", err
+			return Identity{}, err
 		}
 		if err := validateSocketlessStaticConfig(staticBody, requireExactCertificateResolver, requireWildcardTLS); err != nil {
-			return "", fmt.Errorf("proxy.config %s: %w", staticName, err)
+			return Identity{}, fmt.Errorf("proxy.config %s: %w", staticName, err)
 		}
 	} else {
 		// Hash and stage the effective configuration, not merely the authored
@@ -429,17 +429,17 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	// Docker cannot create a nested bind-mount target below the read-only
 	// /etc/traefik mount. The parent source must therefore carry the empty
 	// mountpoint before Compose creates the proxy container.
 	if err := os.MkdirAll(filepath.Join(cfgOut, "dynamic"), 0o755); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	dynamicOut := filepath.Join(stagingDir, "dynamic")
 	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	h := newProxyConfigHash()
 	for _, name := range names {
@@ -450,27 +450,27 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 			var err error
 			b, err = os.ReadFile(filepath.Join(localCfgDir, name))
 			if err != nil {
-				return "", err
+				return Identity{}, err
 			}
 		}
 		if name != staticName && dynamicConfigExtension(name) {
 			if err := validateDynamicOwnership(name, b); err != nil {
-				return "", fmt.Errorf("proxy.config %s: %w", name, err)
+				return Identity{}, fmt.Errorf("proxy.config %s: %w", name, err)
 			}
 		}
 		if name == ".env" {
 			if err := validateSocketlessEnv(b); err != nil {
-				return "", fmt.Errorf("proxy.config .env: %w", err)
+				return Identity{}, fmt.Errorf("proxy.config .env: %w", err)
 			}
 		}
 		// .env may hold secrets (e.g. the DNS API token) — mode 600, same
 		// trust boundary as the release payload's env files
 		if err := os.WriteFile(filepath.Join(cfgOut, name), b, 0o600); err != nil {
-			return "", err
+			return Identity{}, err
 		}
 		if name != staticName && dynamicConfigExtension(name) {
 			if err := os.WriteFile(filepath.Join(dynamicOut, name), b, 0o600); err != nil {
-				return "", err
+				return Identity{}, err
 			}
 		}
 		fmt.Fprintf(h, "%s\x00%d\x00", name, len(b))
@@ -478,49 +478,48 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 	}
 	if !customStatic {
 		if err := stageManagedDynamicConfig(dynamicOut, h); err != nil {
-			return "", err
+			return Identity{}, err
 		}
 	}
 	compose := RenderComposeForApp(image, discoveryImage, application, network, hasEnv, entrypoints)
 	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
-		return "", err
+		return Identity{}, err
 	}
-	fmt.Fprintf(h, "compose.yaml\x00%d\x00", len(compose))
-	h.Write(compose)
-	return hex.EncodeToString(h.Sum(nil)), nil
+	composeHash := sha256.Sum256(compose)
+	return Identity{Config: "sha256:" + hex.EncodeToString(h.Sum(nil)), Compose: "sha256:" + hex.EncodeToString(composeHash[:])}, nil
 }
 
 // stageDefaultManaged writes the configuration Onebox owns, so a project that
 // declares a domain and nothing else can bootstrap.
-func stageDefaultManaged(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) (string, error) {
+func stageDefaultManaged(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) (Identity, error) {
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	if err := os.MkdirAll(filepath.Join(cfgOut, "dynamic"), 0o755); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	dynamicOut := filepath.Join(stagingDir, "dynamic")
 	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	body := renderStaticConfigWithDNS(entrypoints, dns)
 	if err := os.WriteFile(filepath.Join(cfgOut, "traefik.yml"), body, 0o600); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 	h := newProxyConfigHash()
 	fmt.Fprintf(h, "%s\x00%d\x00", "traefik.yml", len(body))
 	h.Write(body)
 	if err := stageManagedDynamicConfig(dynamicOut, h); err != nil {
-		return "", err
+		return Identity{}, err
 	}
 
 	compose := RenderComposeForApp(image, discoveryImage, application, network, false, entrypoints)
 	if err := os.WriteFile(filepath.Join(stagingDir, "compose.yaml"), compose, 0o644); err != nil {
-		return "", err
+		return Identity{}, err
 	}
-	h.Write(compose)
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+	composeHash := sha256.Sum256(compose)
+	return Identity{Config: "sha256:" + hex.EncodeToString(h.Sum(nil)), Compose: "sha256:" + hex.EncodeToString(composeHash[:])}, nil
 }
 
 func stageManagedDynamicConfig(dynamicOut string, h hash.Hash) error {

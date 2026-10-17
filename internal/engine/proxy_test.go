@@ -310,7 +310,7 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	if iUp < 0 || iRestart < 0 || iRestart < iUp {
 		t.Fatalf("config-only change must up (no-op) then restart:\n%s", seq)
 	}
-	if strings.Index(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") < 0 {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") {
 		t.Fatalf("marker must be invalidated before uploading:\n%s", seq)
 	}
 	if len(f.Uploads) != 1 {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -109,7 +110,7 @@ func (e *Engine) readPublishedRoutes(ctx context.Context) (discovery.Dynamic, er
 		return doc, fmt.Errorf("read published routes: empty YAML document")
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err != nil {
 			return doc, fmt.Errorf("read published routes: %w", err)
 		}

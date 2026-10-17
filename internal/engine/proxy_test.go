@@ -159,6 +159,26 @@ func TestEnsureProxyFreshHost(t *testing.T) {
 	}
 }
 
+func TestEnsureProxyLogsShortDigests(t *testing.T) {
+	f := &transport.Fake{}
+	f.Dynamic = proxyPS(f, false)
+	e, id, out := proxyFixture(t, f)
+	if err := e.EnsureProxy(context.Background(), "R1", false); err != nil {
+		t.Fatal(err)
+	}
+	want := "proxy: healthy at config " + strings.TrimPrefix(id.Config, "sha256:")[:8] +
+		" compose " + strings.TrimPrefix(id.Compose, "sha256:")[:8]
+	for _, line := range strings.Split(out.String(), "\n") {
+		if start := strings.Index(line, "proxy: healthy at config "); start >= 0 {
+			if line[start:] != want {
+				t.Fatalf("healthy log = %q, want %q", line, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("healthy log missing from output:\n%s", out.String())
+}
+
 func TestEnsureProxyStopsWhenJournalStartFails(t *testing.T) {
 	f := &transport.Fake{}
 	e, _, _ := proxyFixture(t, f)

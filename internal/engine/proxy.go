@@ -216,7 +216,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	if err := e.commitProxyIdentity(ctx, id); err != nil {
 		return err
 	}
-	e.logf("proxy: healthy at config %.8s", hash)
+	e.logf("proxy: healthy at config %s compose %s", shortDigest(id.Config), shortDigest(id.Compose))
 	return nil
 }
 
